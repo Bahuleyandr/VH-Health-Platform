@@ -13,6 +13,7 @@ class AncTimelineData {
     this.contentPendingReview = false,
     this.adviceLoadFailed = false,
     this.staleLabel,
+    this.cachedAt,
   });
 
   final AncPregnancy? pregnancy;
@@ -26,6 +27,7 @@ class AncTimelineData {
   final bool contentPendingReview;
   final bool adviceLoadFailed;
   final String? staleLabel;
+  final DateTime? cachedAt;
 
   bool get hasActivePregnancy => pregnancy != null;
 
@@ -49,6 +51,7 @@ class AncTimelineData {
     bool? contentPendingReview,
     bool? adviceLoadFailed,
     String? staleLabel,
+    DateTime? cachedAt,
   }) {
     return AncTimelineData(
       pregnancy: pregnancy ?? this.pregnancy,
@@ -62,6 +65,7 @@ class AncTimelineData {
       contentPendingReview: contentPendingReview ?? this.contentPendingReview,
       adviceLoadFailed: adviceLoadFailed ?? this.adviceLoadFailed,
       staleLabel: staleLabel ?? this.staleLabel,
+      cachedAt: cachedAt ?? this.cachedAt,
     );
   }
 
@@ -70,6 +74,7 @@ class AncTimelineData {
     required Object? packagesData,
     required Object? adviceData,
     String? staleLabel,
+    DateTime? cachedAt,
     bool adviceLoadFailed = false,
   }) {
     final timeline = asStringMap(timelineData);
@@ -89,6 +94,7 @@ class AncTimelineData {
         contentPendingReview: adviceMap?['content_pending_review'] == true,
         adviceLoadFailed: adviceLoadFailed,
         staleLabel: staleLabel,
+        cachedAt: cachedAt,
       );
     }
 
@@ -122,6 +128,7 @@ class AncTimelineData {
       contentPendingReview: adviceMap?['content_pending_review'] == true,
       adviceLoadFailed: adviceLoadFailed,
       staleLabel: staleLabel,
+      cachedAt: cachedAt,
     );
   }
 }

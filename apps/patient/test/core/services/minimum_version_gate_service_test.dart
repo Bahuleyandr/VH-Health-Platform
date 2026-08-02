@@ -4,11 +4,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth/core/config/store_urls.dart';
+import 'package:vhhealth/core/outage/patient_outage_config.dart';
 import 'package:vhhealth/core/services/minimum_version_gate_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await PatientOutageConfigStore.instance.resetForTesting();
+  });
 
   group('MinimumVersionGateService', () {
     test('blocks when current build number is below backend minimum', () async {
@@ -99,5 +106,38 @@ void main() {
       expect(backendError.updateRequired, isFalse);
       expect(networkError.updateRequired, isFalse);
     });
+
+    test(
+      'accepts bounded outage communication from the existing config fetch',
+      () async {
+        final messages = {
+          for (final locale in ['en', 'hi', 'ta', 'te', 'ml'])
+            locale: '$locale approved [facility contact number]',
+        };
+
+        await MinimumVersionGateService.check(
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({
+                'data': {
+                  'min_patient_version_code': 0,
+                  'outage_communication': {
+                    'revision': 8,
+                    'messages': messages,
+                    'facility_contact_number': '+91 44 4511 4511',
+                  },
+                },
+              }),
+              200,
+            ),
+          ),
+          currentBuildNumber: '2',
+          platform: TargetPlatform.android,
+        );
+
+        expect(PatientOutageConfigStore.instance.current?.revision, 8);
+        expect(PatientOutageConfigStore.instance.current?.messages, messages);
+      },
+    );
   });
 }

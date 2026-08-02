@@ -3905,4 +3905,49 @@ class AppLocalizationsHi extends AppLocalizations {
   @override
   String get referralsAppointmentLinked =>
       'A follow-up appointment is linked to this referral.';
+
+  @override
+  String get patientOutageTitle => 'अस्पताल सेवा अस्थायी रूप से उपलब्ध नहीं है';
+
+  @override
+  String get patientOutageChecking => 'अस्पताल सेवा की जाँच हो रही है…';
+
+  @override
+  String patientOutageMessage(String facilityContactNumber) {
+    return 'अस्पताल की प्रणालियाँ अस्थायी रूप से उपलब्ध नहीं हैं। यहाँ दिखाई गई जानकारी पहले सहेजी गई थी — हर पृष्ठ पर \'अंतिम अपडेट\' का समय देखें। सेवा बहाल होने तक नई बुकिंग, रद्दीकरण और चिकित्सीय अनुरोध रोक दिए गए हैं। तत्काल आवश्यकता के लिए अस्पताल से सीधे $facilityContactNumber पर संपर्क करें। आपातकाल में अपने स्थानीय आपातकालीन नंबर पर कॉल करें या सीधे आपातकालीन विभाग में आएँ।';
+  }
+
+  @override
+  String get patientOutageRetry => 'फिर कोशिश करें';
+
+  @override
+  String get patientOutageCallHospital => 'अस्पताल को कॉल करें';
+
+  @override
+  String get patientOutageMutationNotSent => 'यह अनुरोध भेजा नहीं गया।';
+
+  @override
+  String get patientOutageEmergencyNotSent =>
+      'अस्पताल को आपातकालीन सूचना नहीं भेजी गई।';
+
+  @override
+  String patientOutageCachedAt(String timestamp) {
+    return 'इस डिवाइस पर $timestamp को सहेजा गया';
+  }
+
+  @override
+  String patientOutageDownloadedAt(String timestamp) {
+    return 'इस डिवाइस पर $timestamp को डाउनलोड किया गया';
+  }
+
+  @override
+  String get patientOutageCacheUnavailable =>
+      'यह जानकारी इस डिवाइस पर उपलब्ध नहीं है।';
+
+  @override
+  String get patientOutageDialogTitle => 'सेवा उपलब्ध नहीं है';
+
+  @override
+  String get patientOutageContactUnavailable =>
+      'इस डिवाइस पर अस्पताल का संपर्क नंबर कॉन्फ़िगर नहीं है।';
 }

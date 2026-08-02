@@ -40,6 +40,19 @@ describe('validateEnv MIN_PATIENT_VERSION_CODE', () => {
   });
 });
 
+describe('validateEnv PATIENT_OUTAGE_COMMUNICATION_JSON', () => {
+  it('is optional and accepts a bounded operator JSON string', () => {
+    expect(validate().error).toBeUndefined();
+    expect(validate({ PATIENT_OUTAGE_COMMUNICATION_JSON: '{"revision":1}' }).error).toBeUndefined();
+  });
+
+  it('rejects an oversized operator value before route parsing', () => {
+    const result = validate({ PATIENT_OUTAGE_COMMUNICATION_JSON: 'x'.repeat(16 * 1024 + 1) });
+
+    expect(result.error?.details[0].message).toContain('PATIENT_OUTAGE_COMMUNICATION_JSON');
+  });
+});
+
 describe('validateEnv clinical continuity publication gate', () => {
   it('defaults the C3.1 writer to inert without requiring a mirror root', () => {
     const { error, value } = validate();
@@ -51,16 +64,16 @@ describe('validateEnv clinical continuity publication gate', () => {
   it('requires an explicit publication root only when the C3.1 writer is enabled', () => {
     const missing = validate({
       CLINICAL_CONTINUITY_PACKS_ENABLED: 'true',
-      DOWNTIME_MIRROR_DIR: '',
+      DOWNTIME_MIRROR_DIR: ''
     });
     const configured = validate({
       CLINICAL_CONTINUITY_PACKS_ENABLED: 'true',
-      DOWNTIME_MIRROR_DIR: 'D:\\continuity-packs',
+      DOWNTIME_MIRROR_DIR: 'D:\\continuity-packs'
     });
 
-    expect(missing.error?.details.some(
-      (detail) => detail.context?.label === 'DOWNTIME_MIRROR_DIR',
-    )).toBe(true);
+    expect(
+      missing.error?.details.some(detail => detail.context?.label === 'DOWNTIME_MIRROR_DIR')
+    ).toBe(true);
     expect(configured.error).toBeUndefined();
   });
 });
@@ -74,11 +87,7 @@ describe('validateEnv clinical continuity action-registry gate', () => {
   });
 
   it('accepts only explicit true or false strings', () => {
-    expect(
-      validate({ CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: 'true' }).error
-    ).toBeUndefined();
-    expect(
-      validate({ CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: '1' }).error
-    ).toBeDefined();
+    expect(validate({ CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: 'true' }).error).toBeUndefined();
+    expect(validate({ CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED: '1' }).error).toBeDefined();
   });
 });

@@ -2554,5 +2554,17 @@
   "teleconsultSecureMessagesFailed": "സുരക്ഷിത സന്ദേശങ്ങൾ തുറക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.",
   "teleconsultSecureMessageSubject": "വീഡിയോ കൺസൾട്ട് ഫോളോ-അപ്പ്",
   "teleconsultSecureMessageBody": "എന്റെ വീഡിയോ കൺസൾട്ട് സുരക്ഷിത സന്ദേശങ്ങളിൽ തുടരേണ്ടതുണ്ട്.",
-  "teleconsultEndCall": "കാൾ അവസാനിപ്പിക്കുക"
+  "teleconsultEndCall": "കാൾ അവസാനിപ്പിക്കുക",
+  "patientOutageTitle": "ആശുപത്രി സേവനം താൽക്കാലികമായി ലഭ്യമല്ല",
+  "patientOutageChecking": "ആശുപത്രി സേവനം പരിശോധിക്കുന്നു…",
+  "patientOutageMessage": "ആശുപത്രി സംവിധാനങ്ങൾ താൽക്കാലികമായി ലഭ്യമല്ല. ഇവിടെ കാണിക്കുന്ന വിവരങ്ങൾ നേരത്തെ സംരക്ഷിച്ചതാണ് — ഓരോ പേജിലെയും 'അവസാനം പുതുക്കിയത്' സമയം പരിശോധിക്കുക. സേവനം പുനഃസ്ഥാപിക്കുന്നതുവരെ പുതിയ ബുക്കിംഗുകൾ, റദ്ദാക്കലുകൾ, മെഡിക്കൽ അഭ്യർത്ഥനകൾ എന്നിവ താൽക്കാലികമായി നിർത്തിയിരിക്കുന്നു. അടിയന്തര ആവശ്യങ്ങൾക്ക് ആശുപത്രിയെ {facilityContactNumber} എന്ന നമ്പറിൽ നേരിട്ട് ബന്ധപ്പെടുക. അത്യാഹിതത്തിൽ നിങ്ങളുടെ പ്രാദേശിക അടിയന്തര നമ്പറിൽ വിളിക്കുകയോ നേരിട്ട് എമർജൻസി വിഭാഗത്തിലേക്ക് വരികയോ ചെയ്യുക.",
+  "patientOutageRetry": "വീണ്ടും ശ്രമിക്കുക",
+  "patientOutageCallHospital": "ആശുപത്രിയിലേക്ക് വിളിക്കുക",
+  "patientOutageMutationNotSent": "ഈ അഭ്യർത്ഥന അയച്ചിട്ടില്ല.",
+  "patientOutageEmergencyNotSent": "ആശുപത്രിയിലേക്ക് അടിയന്തര അറിയിപ്പ് അയച്ചിട്ടില്ല.",
+  "patientOutageCachedAt": "ഈ ഉപകരണത്തിൽ {timestamp}-ന് സംരക്ഷിച്ചു",
+  "patientOutageDownloadedAt": "ഈ ഉപകരണത്തിൽ {timestamp}-ന് ഡൗൺലോഡ് ചെയ്തു",
+  "patientOutageCacheUnavailable": "ഈ വിവരം ഈ ഉപകരണത്തിൽ ലഭ്യമല്ല.",
+  "patientOutageDialogTitle": "സേവനം ലഭ്യമല്ല",
+  "patientOutageContactUnavailable": "ഈ ഉപകരണത്തിൽ ആശുപത്രിയുടെ ബന്ധപ്പെടാനുള്ള നമ്പർ ക്രമീകരിച്ചിട്ടില്ല."
 }

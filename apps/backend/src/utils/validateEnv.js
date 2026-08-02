@@ -70,6 +70,11 @@ export const envSchema = Joi.object({
     .min(0)
     .default(0)
     .label('MIN_PATIENT_VERSION_CODE'),
+  PATIENT_OUTAGE_COMMUNICATION_JSON: Joi.string()
+    .max(16 * 1024)
+    .allow('')
+    .optional()
+    .label('PATIENT_OUTAGE_COMMUNICATION_JSON'),
 
   // HTTP server timeouts (REL-4 / B2.4). Defaults: requestTimeout=60s,
   // keepAliveTimeout=61s, headersTimeout=65s. keepAlive < headers is required

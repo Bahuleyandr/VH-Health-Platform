@@ -40,9 +40,11 @@ import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
+import 'package:vhhealth/core/widgets/patient_outage_scope.dart';
+import 'package:vhhealth/core/outage/patient_outage_config.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
-import 'package:vhhealth/core/offline/mutation_queue.dart';
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -182,11 +184,11 @@ Future<void> main() async {
 
       // Start network connectivity monitoring.
       ConnectivityService.startMonitoring();
+      unawaited(PatientOutageConfigStore.instance.load());
+      unawaited(PatientOutageController.instance.initialize());
 
-      // Auto-replay queued mutations when connectivity is restored.
       ConnectivityService.onChange.listen((online) {
         if (online) {
-          MutationQueue.replayQueue();
           unawaited(
             WebSocketService.instance.handleConnectivityChanged(online),
           );
@@ -264,9 +266,11 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
       // Save battery: disconnect WebSocket and stop connectivity polling
       WebSocketService.instance.disconnect();
       ConnectivityService.stopMonitoring();
+      PatientOutageController.instance.onBackgrounded();
     } else if (state == AppLifecycleState.resumed) {
       // Reconnect when the app comes back to foreground
       ConnectivityService.startMonitoring();
+      PatientOutageController.instance.onResumed();
       WebSocketService.instance.connect();
       // HealthKit / Google Health Connect: fire-and-forget delta sync. Noop if
       // the user never granted permissions (service requests them on first call).
@@ -329,8 +333,10 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
               // a clean logout + redirect to /login. Lives in the
               // MaterialApp builder so a ScaffoldMessenger is reachable
               // for the snackbar.
-              builder: (context, child) => SessionRevocationListener(
-                child: child ?? const SizedBox.shrink(),
+              builder: (context, child) => PatientOutageScope(
+                child: SessionRevocationListener(
+                  child: child ?? const SizedBox.shrink(),
+                ),
               ),
             ),
           );

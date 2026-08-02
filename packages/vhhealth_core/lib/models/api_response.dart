@@ -120,12 +120,14 @@ class CachedApiResponse {
   final ApiResponse response;
   final bool fromCache;
   final String? staleLabel;
+  final DateTime? cachedAt;
   final Future<ApiResponse>? onFresh;
 
   const CachedApiResponse({
     required this.response,
     required this.fromCache,
     required this.staleLabel,
+    this.cachedAt,
     this.onFresh,
   });
 

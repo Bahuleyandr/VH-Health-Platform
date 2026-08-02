@@ -12,6 +12,7 @@
 
 import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
 export 'package:vhhealth_core/models/api_response.dart'
@@ -33,21 +34,26 @@ class ApiClient {
     String path, {
     Map<String, String>? queryParameters,
     Duration? timeout,
-  }) async => _withFailureReference(
-    await VHHttpClient.get(
-      path,
-      queryParameters: queryParameters,
-      timeout: timeout,
-    ),
-  );
+  }) async {
+    if (!await _allowLiveRead()) return _outageReadUnavailable();
+    return _observe(
+      () => VHHttpClient.get(
+        path,
+        queryParameters: queryParameters,
+        timeout: timeout,
+      ),
+    );
+  }
 
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) async => _withFailureReference(
-    await VHHttpClient.post(
+  }) => _mutate(
+    'POST',
+    path,
+    () => VHHttpClient.post(
       path,
       body: body,
       timeout: timeout,
@@ -60,8 +66,10 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) async => _withFailureReference(
-    await VHHttpClient.put(
+  }) => _mutate(
+    'PUT',
+    path,
+    () => VHHttpClient.put(
       path,
       body: body,
       timeout: timeout,
@@ -74,8 +82,10 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) async => _withFailureReference(
-    await VHHttpClient.patch(
+  }) => _mutate(
+    'PATCH',
+    path,
+    () => VHHttpClient.patch(
       path,
       body: body,
       timeout: timeout,
@@ -88,8 +98,10 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
-  }) async => _withFailureReference(
-    await VHHttpClient.delete(
+  }) => _mutate(
+    'DELETE',
+    path,
+    () => VHHttpClient.delete(
       path,
       body: body,
       timeout: timeout,
@@ -103,8 +115,10 @@ class ApiClient {
     List<http.MultipartFile> files = const [],
     Future<List<http.MultipartFile>> Function()? fileBuilder,
     Duration? timeout,
-  }) async => _withFailureReference(
-    await VHHttpClient.multipart(
+  }) => _mutate(
+    'MULTIPART',
+    path,
+    () => VHHttpClient.multipart(
       path,
       fields: fields,
       files: files,
@@ -139,9 +153,28 @@ class ApiClient {
         ? '${path}_${queryParameters.entries.map((e) => '${e.key}=${e.value}').join('_')}'
         : path;
 
+    final controller = PatientOutageController.instance;
+    if (controller.status == PatientOutageStatus.signedOut) {
+      await controller.refreshForCurrentSession();
+    }
+    if (controller.status == PatientOutageStatus.signedOut) {
+      return CachedApiResponse(
+        response: const ApiResponse(
+          statusCode: 401,
+          isSuccess: false,
+          code: 'PATIENT_SIGNED_OUT_NO_CACHE',
+          raw: {'code': 'PATIENT_SIGNED_OUT_NO_CACHE'},
+        ),
+        fromCache: false,
+        staleLabel: null,
+      );
+    }
+
     final cached = await ApiCacheManager.load(cacheKey);
 
-    if (!ConnectivityService.isOnline) {
+    if (!ConnectivityService.isOnline ||
+        controller.isOutage ||
+        controller.isChecking) {
       if (cached != null) {
         return CachedApiResponse(
           response: ApiResponse(
@@ -153,6 +186,7 @@ class ApiClient {
           ),
           fromCache: true,
           staleLabel: cached.ageLabel,
+          cachedAt: cached.cachedAt,
         );
       }
       return CachedApiResponse(
@@ -172,9 +206,9 @@ class ApiClient {
       // Cache is fresh — return immediately, refresh in background.
       final freshFuture =
           get(path, queryParameters: queryParameters, timeout: timeout)
-              .then((response) {
+              .then((response) async {
                 if (response.isSuccess) {
-                  ApiCacheManager.save(cacheKey, response.data);
+                  await ApiCacheManager.save(cacheKey, response.data);
                 }
                 return response;
               })
@@ -198,6 +232,7 @@ class ApiClient {
         ),
         fromCache: true,
         staleLabel: null,
+        cachedAt: cached.cachedAt,
         onFresh: freshFuture,
       );
     }
@@ -210,7 +245,26 @@ class ApiClient {
         timeout: timeout,
       );
       if (response.isSuccess) {
-        await ApiCacheManager.save(cacheKey, response.data);
+        final savedAt = await ApiCacheManager.save(cacheKey, response.data);
+        return CachedApiResponse(
+          response: response,
+          fromCache: false,
+          staleLabel: null,
+          cachedAt: savedAt,
+        );
+      }
+      if (controller.isOutage && cached != null) {
+        return CachedApiResponse(
+          response: ApiResponse(
+            statusCode: 200,
+            isSuccess: true,
+            data: cached.data,
+            raw: {'data': cached.data},
+          ),
+          fromCache: true,
+          staleLabel: cached.ageLabel,
+          cachedAt: cached.cachedAt,
+        );
       }
       return CachedApiResponse(
         response: response,
@@ -229,11 +283,63 @@ class ApiClient {
           ),
           fromCache: true,
           staleLabel: cached.ageLabel,
+          cachedAt: cached.cachedAt,
         );
       }
       rethrow;
     }
   }
+
+  static Future<bool> _allowLiveRead() async {
+    final controller = PatientOutageController.instance;
+    if (controller.status == PatientOutageStatus.signedOut) {
+      await controller.refreshForCurrentSession();
+    }
+    return !controller.isOutage && !controller.isChecking;
+  }
+
+  static Future<ApiResponse> _mutate(
+    String method,
+    String path,
+    Future<ApiResponse> Function() send,
+  ) async {
+    final controller = PatientOutageController.instance;
+    if (controller.status == PatientOutageStatus.signedOut) {
+      await controller.refreshForCurrentSession();
+    }
+    if (controller.blocksHospitalMutations) {
+      controller.reportBlockedMutation(method, path);
+      return _outageMutationBlocked();
+    }
+    return _observe(send);
+  }
+
+  static Future<ApiResponse> _observe(
+    Future<ApiResponse> Function() send,
+  ) async {
+    try {
+      final response = await send();
+      await PatientOutageController.instance.observeResponse(response);
+      return _withFailureReference(response);
+    } catch (_) {
+      PatientOutageController.instance.observeTransportFailure();
+      rethrow;
+    }
+  }
+
+  static ApiResponse _outageReadUnavailable() => const ApiResponse(
+    statusCode: 503,
+    isSuccess: false,
+    raw: {'code': 'PATIENT_OUTAGE_CACHE_ONLY'},
+    code: 'PATIENT_OUTAGE_CACHE_ONLY',
+  );
+
+  static ApiResponse _outageMutationBlocked() => const ApiResponse(
+    statusCode: 503,
+    isSuccess: false,
+    raw: {'code': 'PATIENT_OUTAGE_MUTATION_BLOCKED'},
+    code: 'PATIENT_OUTAGE_MUTATION_BLOCKED',
+  );
 
   static ApiResponse _withFailureReference(ApiResponse response) {
     if (response.isSuccess) return response;
@@ -250,6 +356,7 @@ class ApiClient {
       data: response.data,
       raw: response.raw,
       message: displayMessage,
+      code: response.code,
       requestId: response.requestId,
     );
   }

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/health_charts.dart';
@@ -52,6 +53,7 @@ class _LabResultsListState extends State<LabResultsList> {
   bool _loading = true;
   String? _error;
   String? _staleLabel;
+  DateTime? _cachedAt;
   List<LabResult> _results = const [];
 
   @override
@@ -76,15 +78,18 @@ class _LabResultsListState extends State<LabResultsList> {
       setState(() {
         _results = page.results;
         _staleLabel = page.staleLabel;
+        _cachedAt = page.cachedAt;
         _loading = false;
       });
 
       page.onFresh
-          ?.then((fresh) {
+          ?.then((fresh) async {
+            final cached = await ApiCacheManager.load('/portal/lab-results');
             if (!mounted) return;
             setState(() {
               _results = fresh;
               _staleLabel = null;
+              _cachedAt = cached?.cachedAt;
             });
           })
           .catchError((Object e) {
@@ -115,7 +120,7 @@ class _LabResultsListState extends State<LabResultsList> {
     final l10n = AppLocalizations.of(context)!;
     return Column(
       children: [
-        OfflineBanner(staleLabel: _staleLabel),
+        OfflineBanner(staleLabel: _staleLabel, cachedAt: _cachedAt),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _fetch,
@@ -243,6 +248,7 @@ class _LabResultDetailScreenState extends State<LabResultDetailScreen> {
   LabResult? _result;
   bool _loading = true;
   String? _error;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -261,10 +267,16 @@ class _LabResultDetailScreenState extends State<LabResultDetailScreen> {
 
     final l10n = AppLocalizations.of(context)!;
     try {
-      final result = await widget.repository.getResult(widget.resultId);
+      final snapshot = widget.repository is ApiLabResultsRepository
+          ? await (widget.repository as ApiLabResultsRepository)
+                .getResultSnapshot(widget.resultId)
+          : LabResultSnapshot(
+              result: await widget.repository.getResult(widget.resultId),
+            );
       if (!mounted) return;
       setState(() {
-        _result = result;
+        _result = snapshot.result;
+        _cachedAt = snapshot.cachedAt;
         _loading = false;
       });
     } catch (e) {
@@ -290,18 +302,25 @@ class _LabResultDetailScreenState extends State<LabResultDetailScreen> {
       title: title,
       icon: Icons.biotech,
       color: colors.secondary,
-      child: DataStateBuilder<LabResult>(
-        isLoading: _loading,
-        error: _error,
-        data: _result == null ? const [] : [_result!],
-        onRetry: _fetch,
-        emptyIcon: Icons.science_outlined,
-        emptyTitle: l10n.labResultDetailsTitle,
-        emptySubtitle: l10n.labResultDetailLoadFailed,
-        builder: (context, results) => _LabResultDetail(
-          result: results.first,
-          repository: widget.repository,
-        ),
+      child: Column(
+        children: [
+          OfflineBanner(cachedAt: _cachedAt),
+          Expanded(
+            child: DataStateBuilder<LabResult>(
+              isLoading: _loading,
+              error: _error,
+              data: _result == null ? const [] : [_result!],
+              onRetry: _fetch,
+              emptyIcon: Icons.science_outlined,
+              emptyTitle: l10n.labResultDetailsTitle,
+              emptySubtitle: l10n.labResultDetailLoadFailed,
+              builder: (context, results) => _LabResultDetail(
+                result: results.first,
+                repository: widget.repository,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -403,6 +422,7 @@ class _LabResultTrendSectionState extends State<_LabResultTrendSection> {
   bool _loading = true;
   String? _error;
   LabResultTrend? _trend;
+  DateTime? _cachedAt;
 
   @override
   void initState() {
@@ -430,13 +450,19 @@ class _LabResultTrendSectionState extends State<_LabResultTrendSection> {
 
     final l10n = AppLocalizations.of(context)!;
     try {
-      final trend = await widget.repository.getTrend(
-        widget.result,
-        months: _months,
-      );
+      final snapshot = widget.repository is ApiLabResultsRepository
+          ? await (widget.repository as ApiLabResultsRepository)
+                .getTrendSnapshot(widget.result, months: _months)
+          : LabResultTrendSnapshot(
+              trend: await widget.repository.getTrend(
+                widget.result,
+                months: _months,
+              ),
+            );
       if (!mounted) return;
       setState(() {
-        _trend = trend;
+        _trend = snapshot.trend;
+        _cachedAt = snapshot.cachedAt;
         _loading = false;
       });
     } catch (e) {
@@ -490,6 +516,7 @@ class _LabResultTrendSectionState extends State<_LabResultTrendSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            OfflineBanner(cachedAt: _cachedAt),
             Row(
               children: [
                 Expanded(

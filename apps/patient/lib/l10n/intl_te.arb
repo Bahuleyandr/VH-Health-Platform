@@ -2554,5 +2554,17 @@
   "teleconsultSecureMessagesFailed": "సురక్షిత సందేశాలు తెరవలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.",
   "teleconsultSecureMessageSubject": "వీడియో కన్సల్ట్ ఫాలో-అప్",
   "teleconsultSecureMessageBody": "నా వీడియో కన్సల్ట్‌ను సురక్షిత సందేశాల్లో కొనసాగించాలి.",
-  "teleconsultEndCall": "కాల్ ముగించండి"
+  "teleconsultEndCall": "కాల్ ముగించండి",
+  "patientOutageTitle": "ఆసుపత్రి సేవ తాత్కాలికంగా అందుబాటులో లేదు",
+  "patientOutageChecking": "ఆసుపత్రి సేవను తనిఖీ చేస్తున్నాం…",
+  "patientOutageMessage": "ఆసుపత్రి వ్యవస్థలు తాత్కాలికంగా అందుబాటులో లేవు. ఇక్కడ చూపుతున్న సమాచారం ముందుగా సేవ్ చేయబడింది — ప్రతి పేజీలోని 'చివరిగా నవీకరించిన' సమయాన్ని చూడండి. సేవ పునరుద్ధరించబడే వరకు కొత్త బుకింగ్‌లు, రద్దులు మరియు వైద్య అభ్యర్థనలు నిలిపివేయబడ్డాయి. అత్యవసర అవసరాల కోసం ఆసుపత్రిని నేరుగా {facilityContactNumber} వద్ద సంప్రదించండి. అత్యవసర పరిస్థితిలో, మీ స్థానిక అత్యవసర నంబర్‌కు కాల్ చేయండి లేదా నేరుగా అత్యవసర విభాగానికి రండి.",
+  "patientOutageRetry": "మళ్లీ ప్రయత్నించండి",
+  "patientOutageCallHospital": "ఆసుపత్రికి కాల్ చేయండి",
+  "patientOutageMutationNotSent": "ఈ అభ్యర్థన పంపబడలేదు.",
+  "patientOutageEmergencyNotSent": "ఆసుపత్రికి అత్యవసర హెచ్చరిక పంపబడలేదు.",
+  "patientOutageCachedAt": "ఈ పరికరంలో {timestamp}కి సేవ్ చేయబడింది",
+  "patientOutageDownloadedAt": "ఈ పరికరంలో {timestamp}కి డౌన్‌లోడ్ చేయబడింది",
+  "patientOutageCacheUnavailable": "ఈ సమాచారం ఈ పరికరంలో అందుబాటులో లేదు.",
+  "patientOutageDialogTitle": "సేవ అందుబాటులో లేదు",
+  "patientOutageContactUnavailable": "ఈ పరికరంలో ఆసుపత్రి సంప్రదింపు నంబర్ కాన్ఫిగర్ చేయబడలేదు."
 }

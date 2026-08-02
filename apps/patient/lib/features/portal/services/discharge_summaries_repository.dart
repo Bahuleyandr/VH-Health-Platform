@@ -7,12 +7,21 @@ class DischargeSummariesPage {
   const DischargeSummariesPage({
     required this.summaries,
     this.staleLabel,
+    this.cachedAt,
     this.onFresh,
   });
 
   final List<DischargeSummary> summaries;
   final String? staleLabel;
+  final DateTime? cachedAt;
   final Future<List<DischargeSummary>>? onFresh;
+}
+
+class DischargeSummarySnapshot {
+  const DischargeSummarySnapshot({required this.summary, this.cachedAt});
+
+  final DischargeSummary summary;
+  final DateTime? cachedAt;
 }
 
 abstract class DischargeSummariesRepository {
@@ -35,6 +44,7 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
     return DischargeSummariesPage(
       summaries: _parseSummaries(result.data),
       staleLabel: result.staleLabel,
+      cachedAt: result.cachedAt,
       onFresh: result.onFresh?.then((fresh) {
         if (!fresh.isSuccess) {
           throw Exception(fresh.failureMessage('Failed to refresh summaries'));
@@ -45,7 +55,10 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
   }
 
   @override
-  Future<DischargeSummary> getSummary(int id) async {
+  Future<DischargeSummary> getSummary(int id) async =>
+      (await getSummarySnapshot(id)).summary;
+
+  Future<DischargeSummarySnapshot> getSummarySnapshot(int id) async {
     final result = await ApiClient.cachedGet('/portal/discharge-summaries/$id');
     if (!result.isSuccess) {
       throw Exception(
@@ -54,10 +67,16 @@ class ApiDischargeSummariesRepository implements DischargeSummariesRepository {
     }
     final data = result.data;
     if (data is Map<String, dynamic>) {
-      return DischargeSummary.fromJson(data);
+      return DischargeSummarySnapshot(
+        summary: DischargeSummary.fromJson(data),
+        cachedAt: result.cachedAt,
+      );
     }
     if (data is Map) {
-      return DischargeSummary.fromJson(Map<String, dynamic>.from(data));
+      return DischargeSummarySnapshot(
+        summary: DischargeSummary.fromJson(Map<String, dynamic>.from(data)),
+        cachedAt: result.cachedAt,
+      );
     }
     throw Exception('Invalid discharge summary response');
   }

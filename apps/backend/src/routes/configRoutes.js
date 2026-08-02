@@ -3,6 +3,70 @@ import { success } from '../utils/responseHelper.js';
 
 const router = express.Router();
 
+const PATIENT_OUTAGE_LOCALES = Object.freeze(['en', 'hi', 'ta', 'te', 'ml']);
+const PATIENT_OUTAGE_KEYS = Object.freeze(['revision', 'messages', 'facility_contact_number']);
+const PATIENT_OUTAGE_MAX_CONFIG_BYTES = 16 * 1024;
+const PATIENT_OUTAGE_MAX_MESSAGE_LENGTH = 2000;
+const PATIENT_OUTAGE_CONTACT_PATTERN = /^\+?[0-9][0-9 ()-]{2,63}$/;
+const FACILITY_CONTACT_TOKEN = '[facility contact number]';
+
+function hasExactKeys(value, expected) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = Object.keys(value).sort();
+  return (
+    keys.length === expected.length &&
+    keys.every((key, index) => key === [...expected].sort()[index])
+  );
+}
+
+export function patientOutageCommunicationFromEnv(
+  value = process.env.PATIENT_OUTAGE_COMMUNICATION_JSON
+) {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  if (Buffer.byteLength(value, 'utf8') > PATIENT_OUTAGE_MAX_CONFIG_BYTES) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+
+  if (!hasExactKeys(parsed, PATIENT_OUTAGE_KEYS)) return null;
+  if (!Number.isSafeInteger(parsed.revision) || parsed.revision <= 0) return null;
+  if (!hasExactKeys(parsed.messages, PATIENT_OUTAGE_LOCALES)) return null;
+
+  const messages = {};
+  for (const locale of PATIENT_OUTAGE_LOCALES) {
+    const message = parsed.messages[locale];
+    if (
+      typeof message !== 'string' ||
+      message.trim() !== message ||
+      message.length === 0 ||
+      message.length > PATIENT_OUTAGE_MAX_MESSAGE_LENGTH ||
+      message.split(FACILITY_CONTACT_TOKEN).length !== 2
+    ) {
+      return null;
+    }
+    messages[locale] = message;
+  }
+
+  const contact = parsed.facility_contact_number;
+  if (
+    typeof contact !== 'string' ||
+    contact.trim() !== contact ||
+    !PATIENT_OUTAGE_CONTACT_PATTERN.test(contact)
+  ) {
+    return null;
+  }
+
+  return {
+    revision: parsed.revision,
+    messages,
+    facility_contact_number: contact
+  };
+}
+
 export function minPatientVersionCodeFromEnv(value = process.env.MIN_PATIENT_VERSION_CODE) {
   const parsed = Number(value ?? 0);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
@@ -11,13 +75,14 @@ export function minPatientVersionCodeFromEnv(value = process.env.MIN_PATIENT_VER
 // GET /api/v1/config
 // Public, non-PHI patient app boot configuration.
 router.get('/', (req, res) => {
-  success(
-    res,
-    {
-      min_patient_version_code: minPatientVersionCodeFromEnv()
-    },
-    'Patient app configuration retrieved'
-  );
+  const outageCommunication = patientOutageCommunicationFromEnv();
+  const data = {
+    min_patient_version_code: minPatientVersionCodeFromEnv()
+  };
+  if (outageCommunication !== null) {
+    data.outage_communication = outageCommunication;
+  }
+  success(res, data, 'Patient app configuration retrieved');
 });
 
 // GET /api/v1/config/campus-locations
