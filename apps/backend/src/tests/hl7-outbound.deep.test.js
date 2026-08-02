@@ -6,50 +6,27 @@
 // and RBAC on the management surface.
 
 import http from 'node:http';
-import prisma from '../lib/prisma.js';
+import { createHash, randomUUID } from 'node:crypto';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import { authClient } from './testClient.js';
 import {
   emitAdmissionAdt,
   emitSignedResultsOru,
   deliverPendingFeedMessages,
 } from '../services/hl7/hl7OutboundService.js';
+import { generateACK, parseHL7 } from '../services/hl7/hl7Parser.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
-const TEST_TENANT_ID = '22222222-2222-4222-8222-222222222222';
+const TEST_TENANT_ID = randomUUID();
+const SUFFIX = TEST_TENANT_ID.slice(0, 8);
 const PHONE = `+9199916${String(Date.now() % 10000).padStart(4, '0')}`;
 let patientUid;
 let server;
 let baseUrl;
 const received = [];
 const tenantAuthClient = (role = 'ADMIN') => authClient(role, { tenant_id: TEST_TENANT_ID });
-
-async function cleanup() {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM hl7_outbound_messages
-      WHERE tenant_id = $1::uuid
-         OR subscription_id IN (
-              SELECT id FROM hl7_feed_subscriptions
-               WHERE tenant_id = $1::uuid OR name LIKE 'C2TEST%'
-            )`,
-    TEST_TENANT_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM hl7_feed_subscriptions WHERE tenant_id = $1::uuid OR name LIKE 'C2TEST%'`,
-    TEST_TENANT_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM lab_results
-      WHERE test_name = 'C2TEST-GLU'
-         OR patient_uid IN (SELECT uid FROM users WHERE tenant_id = $1::uuid)`,
-    TEST_TENANT_ID,
-  ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE tenant_id = $1::uuid OR name = 'C2TEST Patient'`,
-    TEST_TENANT_ID,
-  ).catch(() => {});
-}
 
 d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   beforeAll(async () => {
@@ -59,12 +36,12 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     // is hard-refused in production. The guard's own coverage lives in
     // hl7-ssrf-guard.test.js (which keeps this var unset).
     process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS = 'true';
-    await cleanup();
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name, region, compliance_profile, status, created_at, updated_at)
-       VALUES ($1::uuid, 'c2test-hl7', 'C2TEST HL7', 'IN', 'DPDP', 'active', NOW(), NOW())
+       VALUES ($1::uuid, $2::text, 'C2TEST HL7', 'IN', 'DPDP', 'active', NOW(), NOW())
        ON CONFLICT (id) DO UPDATE SET status = 'active', updated_at = NOW()`,
       TEST_TENANT_ID,
+      `c2test-hl7-${SUFFIX}`,
     );
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (tenant_id, phone, name, role, is_active, gender, birthday, updated_at)
@@ -80,11 +57,13 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
       req.on('end', () => {
         received.push({ url: req.url, body, contentType: req.headers['content-type'] });
         if (req.url === '/fail') {
-          res.statusCode = 500;
-          res.end('no');
-        } else {
+          const controlId = parseHL7(body).msh.messageControlId;
           res.statusCode = 200;
-          res.end('ACK');
+          res.end(generateACK(controlId, 'AE', 'downstream validation rejected'));
+        } else {
+          const controlId = parseHL7(body).msh.messageControlId;
+          res.statusCode = 200;
+          res.end(generateACK(controlId, 'AA', 'accepted'));
         }
       });
     });
@@ -94,7 +73,6 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
 
   afterAll(async () => {
     delete process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS;
-    await cleanup();
     await new Promise((resolve) => { server.close(resolve); });
     await prisma.$disconnect();
   });
@@ -133,11 +111,13 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     });
     expect(queued).toBe(2); // both subscriptions listen for ADT^A01
 
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
       `SELECT m.message_type, m.status, m.hl7_payload FROM hl7_outbound_messages m
-        JOIN hl7_feed_subscriptions s ON s.id = m.subscription_id
-       WHERE s.name LIKE 'C2TEST%'`,
-    );
+        JOIN hl7_feed_subscriptions s
+          ON s.tenant_id = m.tenant_id AND s.id = m.subscription_id
+       WHERE m.tenant_id = $1::uuid AND s.name LIKE 'C2TEST%'`,
+      TEST_TENANT_ID,
+    ));
     expect(rows).toHaveLength(2);
     for (const row of rows) {
       expect(row.message_type).toBe('ADT^A01');
@@ -147,27 +127,84 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     }
   });
 
-  test('delivery worker: success → sent with HL7 content type; failure → backoff', async () => {
+  test('delivery worker requires a correlated MSA|AA and holds ambiguous transport', async () => {
     const stats = await deliverPendingFeedMessages({ limit: 10, tenantId: TEST_TENANT_ID });
     expect(stats.picked).toBe(2);
-    expect(stats.sent).toBe(1);
-    expect(stats.failed).toBe(1);
+    expect(stats.acknowledged).toBe(1);
+    expect(stats.rejected).toBe(1);
 
     const okHit = received.find((r) => r.url === '/ok');
     expect(okHit).toBeDefined();
     expect(okHit.contentType).toBe('x-application/hl7-v2+er7');
     expect(okHit.body.startsWith('MSH|')).toBe(true);
 
-    const failedRows = await prisma.$queryRawUnsafe(
-      `SELECT m.status, m.attempts, m.last_error, m.next_attempt_at > NOW() AS backoff_future
+    const failedRows = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT m.status, m.attempts, m.last_error, m.transport_state,
+              m.acknowledgement_state, m.send_authority,
+              result.http_status, cursor.state AS cursor_state,
+              cursor.last_contiguous_message_id
          FROM hl7_outbound_messages m
-         JOIN hl7_feed_subscriptions s ON s.id = m.subscription_id
-        WHERE s.name = 'C2TEST flaky'`,
-    );
-    expect(failedRows[0].status).toBe('failed');
+         JOIN hl7_feed_subscriptions s
+           ON s.tenant_id = m.tenant_id AND s.id = m.subscription_id
+         JOIN hl7_outbound_transport_attempts AS attempt
+           ON attempt.tenant_id = m.tenant_id AND attempt.message_id = m.id
+         JOIN hl7_outbound_transport_results AS result
+           ON result.tenant_id = attempt.tenant_id
+          AND result.attempt_id = attempt.attempt_id
+         JOIN hl7_outbound_delivery_cursors AS cursor
+           ON cursor.tenant_id = m.tenant_id
+          AND cursor.subscription_id = m.subscription_id
+        WHERE m.tenant_id = $1::uuid AND s.name = 'C2TEST flaky'`,
+      TEST_TENANT_ID,
+    ));
+    expect(failedRows[0].status).toBe('reconciliation_required');
     expect(failedRows[0].attempts).toBe(1);
-    expect(failedRows[0].last_error).toMatch(/HTTP 500/);
-    expect(failedRows[0].backoff_future).toBe(true);
+    expect(failedRows[0]).toMatchObject({
+      transport_state: 'http_response',
+      acknowledgement_state: 'ae',
+      send_authority: 'held_owner_reconciliation',
+      http_status: 200,
+      cursor_state: 'paused_rejected',
+      last_contiguous_message_id: null,
+    });
+
+    const accepted = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT message.status, message.transport_state,
+              message.acknowledgement_state, message.send_authority,
+              message.hl7_payload, message.payload_sha256,
+              cursor.last_contiguous_message_id,
+              acknowledgement.msa_code,
+              acknowledgement.correlation_matches
+         FROM hl7_outbound_messages AS message
+         JOIN hl7_feed_subscriptions AS subscription
+           ON subscription.tenant_id = message.tenant_id
+          AND subscription.id = message.subscription_id
+         JOIN hl7_outbound_delivery_cursors AS cursor
+           ON cursor.tenant_id = message.tenant_id
+          AND cursor.subscription_id = message.subscription_id
+         JOIN hl7_outbound_acknowledgements AS acknowledgement
+           ON acknowledgement.tenant_id = message.tenant_id
+          AND acknowledgement.message_id = message.id
+        WHERE message.tenant_id = $1::uuid AND subscription.name = 'C2TEST receiver'
+          AND message.message_type = 'ADT^A01'`,
+      TEST_TENANT_ID,
+    ));
+    expect(accepted[0]).toMatchObject({
+      status: 'sent',
+      transport_state: 'http_response',
+      acknowledgement_state: 'aa',
+      send_authority: 'authorized',
+      msa_code: 'AA',
+      correlation_matches: true,
+    });
+    expect(accepted[0].last_contiguous_message_id).toBeDefined();
+    expect(okHit.body).toBe(accepted[0].hl7_payload);
+    expect(accepted[0].payload_sha256).toBe(
+      createHash('sha256').update(okHit.body, 'utf8').digest('hex'),
+    );
+
+    const secondPass = await deliverPendingFeedMessages({ limit: 10, tenantId: TEST_TENANT_ID });
+    expect(secondPass.picked).toBe(0);
   });
 
   test('ORU emission at signoff carries OBX segments', async () => {
@@ -185,11 +222,14 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     });
     expect(queued).toBe(1); // only the /ok receiver listens for ORU^R01
 
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(TEST_TENANT_ID, tx => tx.$queryRawUnsafe(
       `SELECT m.hl7_payload FROM hl7_outbound_messages m
-        JOIN hl7_feed_subscriptions s ON s.id = m.subscription_id
-       WHERE s.name = 'C2TEST receiver' AND m.message_type = 'ORU^R01'`,
-    );
+        JOIN hl7_feed_subscriptions s
+          ON s.tenant_id = m.tenant_id AND s.id = m.subscription_id
+       WHERE m.tenant_id = $1::uuid
+         AND s.name = 'C2TEST receiver' AND m.message_type = 'ORU^R01'`,
+      TEST_TENANT_ID,
+    ));
     expect(rows).toHaveLength(1);
     expect(rows[0].hl7_payload).toContain('ORU^R01');
     expect(rows[0].hl7_payload).toContain('OBX|1|');
@@ -199,14 +239,17 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   test('message list + replay surface', async () => {
     const list = await tenantAuthClient('ADMIN')
       .get('/api/v1/hl7-feeds/messages')
-      .query({ status: 'failed' });
+      .query({ status: 'reconciliation_required' });
     expect(list.status).toBe(200);
     const failed = list.body.data.messages.find((m) => m.subscription_name === 'C2TEST flaky');
     expect(failed).toBeDefined();
 
-    const replay = await tenantAuthClient('ADMIN').post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`);
+    const replay = await tenantAuthClient('ADMIN')
+      .post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`)
+      .send({ owner_reason: 'Interface owner reviewed the receiver log and authorized one retry.' });
     expect(replay.status).toBe(200);
     expect(replay.body.data.message.status).toBe('queued');
+    expect(replay.body.data.message.send_authority).toBe('authorized');
 
     const nurse = await tenantAuthClient('NURSING_STAFF').post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`);
     expect(nurse.status).toBe(403);

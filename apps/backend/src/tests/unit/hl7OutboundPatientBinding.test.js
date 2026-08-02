@@ -2,11 +2,11 @@ import { jest } from '@jest/globals';
 import { parseHL7 } from '../../services/hl7/hl7Parser.js';
 
 const queryRawUnsafeMock = jest.fn();
+const prismaMock = { $queryRawUnsafe: queryRawUnsafeMock };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawUnsafeMock,
-  },
+  default: prismaMock,
+  setTenantTx: jest.fn((_tenantId, callback) => callback(prismaMock)),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -113,6 +113,7 @@ describe('outbound signed-result ORU tenant and patient binding', () => {
         birthday: new Date('1990-01-01T00:00:00.000Z'),
         address: 'Test address',
       }])
+      .mockResolvedValueOnce([{ id: 31 }])
       .mockResolvedValueOnce([{ id: 77 }]);
 
     const queued = await emitSignedResultsOru({
@@ -122,16 +123,16 @@ describe('outbound signed-result ORU tenant and patient binding', () => {
     });
 
     expect(queued).toBe(1);
-    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(4);
 
     const patientLookup = queryRawUnsafeMock.mock.calls[1];
     expect(patientLookup[0]).toMatch(/uid = \$1::uuid[\s\S]*tenant_id = \$2::uuid/);
     expect(patientLookup.slice(1)).toEqual([PATIENT_A, TENANT_A]);
 
-    const queueInsert = queryRawUnsafeMock.mock.calls[2];
-    expect(queueInsert[4]).toBe('lab_results');
-    expect(queueInsert[6]).toBe(PATIENT_A);
-    expect(queueInsert[7]).toBe(TENANT_A);
+    const queueInsert = queryRawUnsafeMock.mock.calls[3];
+    expect(queueInsert[1]).toBe(TENANT_A);
+    expect(queueInsert[6]).toBe('lab_results');
+    expect(queueInsert[8]).toBe(PATIENT_A);
   });
 
   it('rejects rows spanning tenants even when no tenant assertion is supplied', async () => {
@@ -160,6 +161,7 @@ describe('outbound signed-result ORU tenant and patient binding', () => {
         tenant_id: TENANT_A,
         name: 'Bound Patient',
       }])
+      .mockResolvedValueOnce([{ id: 32 }])
       .mockResolvedValueOnce([{ id: 88 }]);
 
     await expect(emitSignedResultsOru({
@@ -168,7 +170,7 @@ describe('outbound signed-result ORU tenant and patient binding', () => {
       patientUid: PATIENT_A,
     })).resolves.toBe(1);
 
-    const queuedPayload = queryRawUnsafeMock.mock.calls[2][3];
+    const queuedPayload = queryRawUnsafeMock.mock.calls[3][5];
     const parsed = parseHL7(queuedPayload);
     expect(parsed.obr.placerOrderNumber).toBe('VHINV-77');
     expect(parsed.obr.placerOrderNumber).not.toBe('VHINV-901');

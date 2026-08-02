@@ -6,7 +6,7 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I01', 'I02', 'I09', 'I10', 'I15', 'I17'].includes(id),
+  implemented: ['I01', 'I02', 'I04', 'I09', 'I10', 'I15', 'I17'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
@@ -27,7 +27,13 @@ const catalogEntries = [
     partitionKind: 'tenant_analyzer',
   }),
   entry('I03', 'HL7 ADT and ORM inbound', HWM),
-  entry('I04', 'HL7 outbound', HWM),
+  entry('I04', 'HL7 outbound', HWM, {
+    direction: 'outbound',
+    cursorKind: 'monotonic_position_and_predecessor',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_subscription_source_event_message_type_payload_sha256',
+    partitionKind: 'tenant_subscription',
+  }),
   entry('I05', 'Generic integration-engine streams', HWM),
   entry('I06', 'PACS and DICOM', MIXED, {
     subpaths: Object.freeze({

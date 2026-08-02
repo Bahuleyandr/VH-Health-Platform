@@ -733,11 +733,13 @@ if (process.env.NODE_ENV !== 'test') {
   // demand — but regeneration must run exactly once per tick, not once per
   // worker×replica. The CronJob is authoritative.
 
-  // 📡 Every 2 minutes — deliver queued outbound HL7v2 feed messages
-  // (roadmap C2). Per-message exponential backoff; dead after 7 attempts;
-  // replay via POST /api/v1/hl7-feeds/messages/:id/replay.
+  // 📡 Every 2 minutes — claim one owner-authorized outbound HL7v2 message
+  // per tenant/subscription. A transport response alone never completes the
+  // message; only a parsed, control-ID-correlated MSA|AA can advance delivery.
   registerCron('*/2 * * * *', withJobLock('hl7-outbound-feeds', async () => {
-    await deliverPendingFeedMessages({ limit: 50 });
+    await runForEachTenant('hl7-outbound-feeds', tenantId => (
+      deliverPendingFeedMessages({ tenantId, limit: 50 })
+    ));
   }));
 
   // 📅 Every 10 minutes — waitlist auto-fill sweep (roadmap D2): freed
