@@ -73,7 +73,12 @@ jobs:
       - uses: https://github.com/subosito/flutter-action@v2
         if: matrix.stage == 'flutter'
         with:
-          channel: stable
+          # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml
+          # + the .github workflows) — bump all together. `dart format` output
+          # drifts with each Dart release, so a floating channel silently
+          # re-breaks this stage's format check; 3.44.0 is the owner-approved
+          # workspace toolchain.
+          flutter-version: 3.44.0
           cache: true
 
       - name: Run ${{ matrix.stage }} CI stage
