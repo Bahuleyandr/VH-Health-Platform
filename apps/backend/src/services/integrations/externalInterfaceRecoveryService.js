@@ -493,6 +493,22 @@ async function persistLateDomain({ tx, capability, config, inbox, tenantId, comm
       command,
     });
   }
+  if (config.id === 'I06') {
+    const { persistLateImagingStudyLinkRecovery } = await import('./externalImagingStudyLinkRecoveryService.js');
+    return persistLateImagingStudyLinkRecovery({
+      tx,
+      capability,
+      tenantId,
+      recoveryInboxId: inbox.inbox_id,
+      sourcePartition: inbox.source_partition,
+      sourcePosition: inbox.source_position,
+      sourceToken: inbox.source_token,
+      predecessorToken: inbox.predecessor_token,
+      duplicateKey: inbox.duplicate_key,
+      occurredAt: inbox.occurred_at,
+      command,
+    });
+  }
   if (config.id === 'I01' || config.id === 'I02') {
     const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
     return persistLateLabRecovery({
@@ -615,7 +631,7 @@ export async function processNextItemTx({
       ? domain?.receipt
       : config.id === 'I04'
         ? domain?.acknowledgement || domain?.authority
-        : config.id === 'I05'
+        : (config.id === 'I05' || config.id === 'I06')
           ? domain?.receipt
         : domain?.reading || domain?.observation || domain?.result;
     if (!evidence?.id || !domain?.task?.id) {
@@ -666,6 +682,8 @@ export async function processNextItemTx({
             : { message_id: String(evidence.id) }
         : config.id === 'I05'
           ? { receipt_id: String(evidence.id), message_id: String(domain.message.id) }
+        : config.id === 'I06'
+          ? { receipt_id: String(evidence.id), radiology_order_id: String(domain.order.id) }
         : config.id === 'I10'
         ? { reading_id: String(evidence.id) }
         : (config.id === 'I01' || config.id === 'I02')

@@ -13,12 +13,12 @@ describe('external interface recovery catalog', () => {
       .toEqual(EXTERNAL_INTERFACE_RECOVERY_FAMILIES);
   });
 
-  it('includes the landed laboratory, I04, and notification adapters with explicit scopes', () => {
+  it('includes every landed recovery adapter with explicit scopes', () => {
     expect(
       Object.values(EXTERNAL_INTERFACE_RECOVERY_CATALOG)
         .filter((item) => item.implemented)
         .map((item) => item.id),
-    ).toEqual(['I01', 'I02', 'I04', 'I09', 'I10', 'I15', 'I17']);
+    ).toEqual(['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I15', 'I17']);
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I01' }))
       .toMatchObject({
         id: 'I01',

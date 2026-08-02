@@ -21,6 +21,9 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'clinical_continuity_reconciliation_items',
   'clinical_continuity_retrospective_facts',
   'clinical_continuity_temporary_identities',
+  // Owner evidence is required to create I06 late study-link receipts. Seed
+  // coverage must not invent a PACS outage, owner decision, or recovery cursor.
+  'imaging_study_link_recovery_receipts',
   'patient_merge_requests',
 ]);
 
