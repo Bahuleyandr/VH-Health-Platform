@@ -79,6 +79,20 @@ echo ""
 echo "▶ Per-tenant client build — tenant '${SLUG}' → ${BASE_URL}${DRY_RUN:+}"
 [[ "$DRY_RUN" -eq 1 ]] && echo "  [DRY RUN — printing commands only]"
 echo ""
+
+# Regenerate the OpenAPI Dart client before any build. packages/vhhealth_core/
+# lib/api/generated/ is gitignored (packages/vhhealth_core/.gitignore), so on a
+# fresh clone it does not exist — yet the tracked barrel lib/api/vhhealth_api.dart
+# re-exports it and both apps import generated symbols, so `flutter build` below
+# fails without this. Same step the CI workflows run as `melos run codegen`.
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "  [dry-run] node scripts/codegen.mjs"
+else
+  echo "  ▶ codegen (regenerate Dart client from synced spec)"
+  node scripts/codegen.mjs
+fi
+echo ""
+
 IFS=',' read -ra APP_LIST <<< "$APPS"
 for app in "${APP_LIST[@]}"; do run_build "$app"; done
 echo ""
