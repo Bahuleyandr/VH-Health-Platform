@@ -99,14 +99,15 @@ Inspect the Prometheus targets/rules UI or API and retain evidence for:
 | Backend continuity and application metrics | `ServiceMonitor/vhhealth-backend` in `vhhealth`; Service label `app.kubernetes.io/name=vhhealth-backend`; authenticated `/metrics` target is up |
 | Backup/CronJob status | chart-managed kube-state-metrics target is up and exposes the `kube_cronjob_*` and `kube_job_*` series used by C1.1/backend RED rules |
 | Database/HA | CNPG-generated PodMonitor targets from `vhhealth-platform` are up |
-| Continuity edge | operator-supplied EndpointSlice backs `Service/vhhealth-continuity-edge`; `ServiceMonitor/vhhealth-continuity-edge` target is up and exposes all five C3.2b textfile metrics |
+| Continuity edge | operator-supplied EndpointSlice backs `Service/vhhealth-continuity-edge`; `ServiceMonitor/vhhealth-continuity-edge` target is up and exposes all six C3.2b textfile metrics |
 
-The five required edge series are:
+The six required edge series are:
 
 ```text
 vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id}
 vhhealth_continuity_verification_failures_total{facility_id,reason}
 vhhealth_continuity_coverage_complete{facility_id}
+vhhealth_continuity_coverage_incomplete_total{facility_id}
 vhhealth_continuity_edge_last_sync_success_timestamp_seconds{facility_id}
 vhhealth_continuity_edge_replication_lag_seconds{facility_id}
 ```

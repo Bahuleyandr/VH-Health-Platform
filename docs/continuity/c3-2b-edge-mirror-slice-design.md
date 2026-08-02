@@ -269,8 +269,11 @@ image digest before enabling any unit; a tag-only runtime image is rejected.
   `vhhealth_continuity_pack_fresh_until_timestamp_seconds`;
 - any increase in
   `vhhealth_continuity_verification_failures_total{reason}`;
-- incomplete coverage from
-  `vhhealth_continuity_coverage_complete`;
+- any increase in
+  `vhhealth_continuity_coverage_incomplete_total` (the
+  `vhhealth_continuity_coverage_complete` gauge remains published for
+  dashboards but no longer carries this alert — see the 2026-08-03 correction
+  below);
 - stale edge sync from
   `vhhealth_continuity_edge_last_sync_success_timestamp_seconds`; and
 - excessive
@@ -297,6 +300,24 @@ precedent). An unusable identity renders as a single bounded `unknown` series
 rather than being dropped, because a dropped sample is invisible to a
 `by (facility_id)` rule. No threshold, `for`, severity, routing, or receiver
 changes; annotations now name the facility so a page is actionable.
+
+**Coverage alert moved to a counter (2026-08-03 correction, closes #710).**
+`ContinuityCoverageIncomplete` previously joined two gauges:
+`pack_fresh_until > 0 and coverage_complete == 0`. The left arm was not
+redundant — it is what stops a freshly provisioned edge, which renders
+`coverage_complete 0` before its first sync, from paging on day one — but it
+made the alert unreachable for any facility with no `pack_fresh_until` series:
+one that has never published successfully, or one whose backend has restarted
+since its last success (the gauges are an in-process registry with no
+persistence). Its coverage failure fired nothing. The rule now reads
+`sum by (facility_id) (increase(vhhealth_continuity_coverage_incomplete_total[1h])) > 0`.
+A counter only moves on a real coverage judgement, so it needs no join and no
+bootstrap guard, and it is durable on the edge (carried in the metrics state
+file). The window is 1h rather than 15m because publication runs every 15
+minutes exactly, and a window equal to the cadence can momentarily hold zero
+increments and flap a persistent failure. A verification failure does not
+increment it — that event has its own counter and alert, and counting it twice
+would page twice. `for`, severity, team, routing and receivers are unchanged.
 
 ## 11. Operator route transition and outage drill
 
@@ -360,6 +381,25 @@ following the C6.2 repin precedent:
 - `.github/workflows/_reusable-kubernetes-manifests.yml` plus
   `.github/workflows/ci-kubernetes.yml`, gate the edge emitter's labels in the
   same job that promtool-proves the rules consuming them.
+
+Amended 2026-08-03 for the coverage-counter correction in §10 (closes #710),
+again following the C6.2 repin precedent:
+
+- `infra/kubernetes/base/monitoring/continuity-edge-alerts.yaml`,
+  `ContinuityCoverageIncomplete` re-expressed over
+  `vhhealth_continuity_coverage_incomplete_total`;
+- `infra/kubernetes/base/monitoring/rule-semantics.sha256` (repin — as with the
+  2026-08-02 entry this is **not** validator-only: one locked expression and
+  its summary changed);
+- `infra/kubernetes/base/monitoring/promtool-rule-parity.test.yaml`, flip the
+  facility-52 expectation from "fires nothing" to "fires", and add the
+  window-headroom block proving a single failure still alerts at 45m and has
+  resolved by 75m;
+- `infra/continuity-edge/lib/metrics.mjs`, add
+  `coverageIncompleteTotal` to the **existing v1** state format (a format bump
+  would make every deployed edge fail its next write) and render it; and
+- `apps/backend/src/observability/continuityMetrics.js`, add the counter and
+  increment it from `recordContinuityCoverageIncomplete`.
 
 No other file may change without coordinator amendment.
 

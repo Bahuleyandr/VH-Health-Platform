@@ -231,6 +231,7 @@ The edge exports these inert textfile metrics for the delivery lane to scrape:
 vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id}
 vhhealth_continuity_verification_failures_total{facility_id,reason}
 vhhealth_continuity_coverage_complete{facility_id}
+vhhealth_continuity_coverage_incomplete_total{facility_id}
 vhhealth_continuity_edge_last_sync_success_timestamp_seconds{facility_id}
 vhhealth_continuity_edge_replication_lag_seconds{facility_id}
 ```
@@ -241,6 +242,16 @@ independently — a sample missing that label would rejoin the single aggregate
 group where one healthy facility hides another facility's failure. A sample
 labelled `facility_id="unknown"` means the emitter could not resolve the
 configured facility: treat it as a misconfigured edge, not as noise.
+
+`ContinuityCoverageIncomplete` alerts on the **counter**, not the
+`..._coverage_complete` gauge (#710). The gauge is retained for dashboards and
+still reports the latest state, but it cannot carry the alert: judging it needs
+a companion `pack_fresh_until` series to tell a real coverage failure apart from
+a facility that has simply not published yet, and a facility that has never
+published successfully has no such companion. The counter has no such
+dependency — it reads `0` on a healthy or freshly provisioned edge and only ever
+moves on a real coverage judgement. A verification failure zeroes the gauge but
+does **not** increment the counter; that event has its own counter and alert.
 
 The alert rules in `continuity-edge-alerts.yaml` are repo-ready only. This
 slice does not wire Alertmanager or deploy them.

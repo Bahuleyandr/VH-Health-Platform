@@ -27,6 +27,18 @@ const coverageComplete = new Gauge(
   'Whether the latest continuity publication had exact required coverage (1 complete, 0 incomplete)',
   ['facility_id']
 );
+// ContinuityCoverageIncomplete alerts on this counter, not on the gauge above.
+// The gauge needed a `pack_fresh_until > 0` companion to tell a real coverage
+// failure apart from a facility that had simply never published, and a facility
+// that has never published successfully has no such companion series — so its
+// coverage failure could not fire the alert at all (#710). A counter only ever
+// moves when a real coverage check fails, so it needs no join and no guard.
+// The gauge stays for dashboards.
+const coverageIncomplete = new Counter(
+  'vhhealth_continuity_coverage_incomplete_total',
+  'Continuity publication attempts rejected because required coverage was not exact',
+  ['facility_id']
+);
 const edgeLastSyncSuccess = new Gauge(
   'vhhealth_continuity_edge_last_sync_success_timestamp_seconds',
   'Unix timestamp of the latest successful continuity edge sync',
@@ -74,7 +86,9 @@ export function recordContinuityPublication({ facilityId, freshUntil, complete }
 }
 
 export function recordContinuityCoverageIncomplete({ facilityId } = {}) {
-  coverageComplete.set({ facility_id: facilityLabel(facilityId) }, 0);
+  const labels = { facility_id: facilityLabel(facilityId) };
+  coverageComplete.set(labels, 0);
+  coverageIncomplete.inc(labels);
 }
 
 export function recordContinuityVerificationFailure({ facilityId, reason } = {}) {
@@ -116,6 +130,7 @@ export function serializeContinuityMetrics() {
     packFreshUntil,
     verificationFailures,
     coverageComplete,
+    coverageIncomplete,
     edgeLastSyncSuccess,
     edgeReplicationLag
   ]

@@ -50,6 +50,9 @@ describe('continuityMetrics', () => {
     expect(serializeContinuityMetrics()).toContain(
       'vhhealth_continuity_coverage_complete{facility_id="7"} 0',
     );
+    expect(serializeContinuityMetrics()).toContain(
+      'vhhealth_continuity_coverage_incomplete_total{facility_id="7"} 1',
+    );
     expect(() =>
       recordContinuityVerificationFailure({
         facilityId: 7,
@@ -115,6 +118,47 @@ describe('continuityMetrics', () => {
     for (const sample of samples) {
       expect(sample).toMatch(/^vhhealth_continuity_[a-z_]+\{facility_id="[^"]+"/);
     }
+  });
+
+  // ContinuityCoverageIncomplete alerts on this counter, NOT on the gauge: a
+  // facility that has never published successfully has no pack_fresh_until
+  // series for the old gauge join to match against, so its coverage failure was
+  // silent (#710). The counter needs no join.
+  it('counts every coverage failure per facility, with no publication required', () => {
+    recordContinuityCoverageIncomplete({ facilityId: 61 });
+    recordContinuityCoverageIncomplete({ facilityId: 61 });
+    recordContinuityCoverageIncomplete({ facilityId: 62 });
+
+    const output = serializeContinuityMetrics();
+
+    expect(output).toContain(
+      'vhhealth_continuity_coverage_incomplete_total{facility_id="61"} 2',
+    );
+    expect(output).toContain(
+      'vhhealth_continuity_coverage_incomplete_total{facility_id="62"} 1',
+    );
+    // Neither facility ever published, so neither has a pack_fresh_until series
+    // — which is exactly the case the gauge join could not see.
+    expect(output).not.toContain(
+      'vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id="61"}',
+    );
+    expect(output).not.toContain(
+      'vhhealth_continuity_pack_fresh_until_timestamp_seconds{facility_id="62"}',
+    );
+  });
+
+  // A successful publication must not touch the counter, or every healthy
+  // facility would page.
+  it('leaves the coverage-failure counter alone on a complete publication', () => {
+    recordContinuityPublication({
+      facilityId: 63,
+      freshUntil: '2026-07-30T06:30:00.000Z',
+      complete: true,
+    });
+
+    expect(serializeContinuityMetrics()).not.toContain(
+      'vhhealth_continuity_coverage_incomplete_total{facility_id="63"}',
+    );
   });
 
   // An unusable facility id must still produce a sample: dropping it would make

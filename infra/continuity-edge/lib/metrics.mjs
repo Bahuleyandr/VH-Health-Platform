@@ -25,11 +25,21 @@ function initialState() {
   return {
     format: FORMAT,
     coverageComplete: 0,
+    coverageIncompleteTotal: 0,
     edgeLastSyncSuccessTimestampSeconds: 0,
     edgeReplicationLagSeconds: 0,
     packFreshUntilTimestampSeconds: 0,
     verificationFailures: {},
   };
+}
+
+// coverageIncompleteTotal was added after v1 shipped. It stays inside v1 rather
+// than bumping the format: loadState rejects an unknown format outright, so a
+// bump would make every already-deployed edge fail its next metrics write. An
+// older state file simply resumes the counter from zero.
+function normalizeCoverageIncompleteTotal(value) {
+  const normalized = Number(value);
+  return Number.isSafeInteger(normalized) && normalized >= 0 ? normalized : 0;
 }
 
 async function loadState(statePath) {
@@ -45,6 +55,9 @@ async function loadState(statePath) {
     ) {
       throw new Error('continuity metrics state is invalid');
     }
+    state.coverageIncompleteTotal = normalizeCoverageIncompleteTotal(
+      state.coverageIncompleteTotal,
+    );
     return state;
   } catch (error) {
     if (error?.code === 'ENOENT') return initialState();
@@ -70,6 +83,9 @@ function renderPrometheus(state, facilityId) {
     '# HELP vhhealth_continuity_coverage_complete Whether the selected publication has exact required coverage.',
     '# TYPE vhhealth_continuity_coverage_complete gauge',
     `vhhealth_continuity_coverage_complete{${facility}} ${state.coverageComplete}`,
+    '# HELP vhhealth_continuity_coverage_incomplete_total Continuity publications rejected because required coverage was not exact.',
+    '# TYPE vhhealth_continuity_coverage_incomplete_total counter',
+    `vhhealth_continuity_coverage_incomplete_total{${facility}} ${state.coverageIncompleteTotal}`,
     '# HELP vhhealth_continuity_edge_last_sync_success_timestamp_seconds Unix timestamp of the latest successful edge sync.',
     '# TYPE vhhealth_continuity_edge_last_sync_success_timestamp_seconds gauge',
     `vhhealth_continuity_edge_last_sync_success_timestamp_seconds{${facility}} ${state.edgeLastSyncSuccessTimestampSeconds}`,
@@ -117,6 +133,13 @@ export async function recordSyncSuccess(
     throw new Error('sync metrics require valid timestamps');
   }
   return updateMetrics(paths, (state) => {
+    // Only a real coverage judgement moves the counter. A verification failure
+    // also zeroes the gauge, but it has its own counter and its own alert —
+    // counting it here too would page twice for one event.
+    if (!coverageComplete) {
+      state.coverageIncompleteTotal =
+        normalizeCoverageIncompleteTotal(state.coverageIncompleteTotal) + 1;
+    }
     state.coverageComplete = coverageComplete ? 1 : 0;
     state.edgeLastSyncSuccessTimestampSeconds = successMs / 1000;
     state.edgeReplicationLagSeconds = Math.max(0, (successMs - generatedMs) / 1000);

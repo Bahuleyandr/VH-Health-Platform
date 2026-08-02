@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
@@ -65,6 +65,103 @@ test('every rendered edge series carries its facility_id', async () => {
   assert.match(
     rendered,
     /^vhhealth_continuity_edge_replication_lag_seconds\{facility_id="7"\} 17$/m,
+  );
+});
+
+// ContinuityCoverageIncomplete alerts on this counter rather than joining two
+// gauges (#710). The edge must therefore publish it as a real counter: present
+// and zero when healthy, so `increase()` has a baseline and a fresh box never
+// pages, and monotonic across restarts because it lives in the durable state
+// file.
+test('the coverage-failure counter is a zero baseline until coverage actually fails', async () => {
+  const { paths, prometheusPath } = await edge(7);
+
+  await recordSyncSuccess(paths, {
+    freshUntil: '2026-07-30T06:30:00.000Z',
+    manifestGeneratedAt: '2026-07-30T06:19:43.000Z',
+    coverageComplete: true,
+    succeededAt: new Date('2026-07-30T06:20:00.000Z'),
+  });
+
+  assert.match(
+    await readFile(prometheusPath, 'utf8'),
+    /^vhhealth_continuity_coverage_incomplete_total\{facility_id="7"\} 0$/m,
+  );
+
+  await recordSyncSuccess(paths, {
+    freshUntil: '2026-07-30T07:30:00.000Z',
+    manifestGeneratedAt: '2026-07-30T07:19:43.000Z',
+    coverageComplete: false,
+    succeededAt: new Date('2026-07-30T07:20:00.000Z'),
+  });
+  await recordSyncSuccess(paths, {
+    freshUntil: '2026-07-30T08:30:00.000Z',
+    manifestGeneratedAt: '2026-07-30T08:19:43.000Z',
+    coverageComplete: false,
+    succeededAt: new Date('2026-07-30T08:20:00.000Z'),
+  });
+
+  const rendered = await readFile(prometheusPath, 'utf8');
+  assert.match(
+    rendered,
+    /^vhhealth_continuity_coverage_incomplete_total\{facility_id="7"\} 2$/m,
+  );
+  assert.match(
+    rendered,
+    /^vhhealth_continuity_coverage_complete\{facility_id="7"\} 0$/m,
+  );
+});
+
+// Verification failures have their own counter and their own alert. Counting
+// them here too would double-page for one event.
+test('a verification failure does not increment the coverage-failure counter', async () => {
+  const { paths, prometheusPath } = await edge(7);
+
+  await recordVerificationFailure(paths, 'ACCESS_REVISION_ROLLBACK');
+
+  const rendered = await readFile(prometheusPath, 'utf8');
+  assert.match(
+    rendered,
+    /^vhhealth_continuity_coverage_incomplete_total\{facility_id="7"\} 0$/m,
+  );
+  assert.match(
+    rendered,
+    /^vhhealth_continuity_verification_failures_total\{facility_id="7",reason="ACCESS_REVISION_ROLLBACK"\} 1$/m,
+  );
+  // The gauge still records the state; only the alert source moved.
+  assert.match(
+    rendered,
+    /^vhhealth_continuity_coverage_complete\{facility_id="7"\} 0$/m,
+  );
+});
+
+// A state file written before the counter existed must keep loading — bumping
+// the format would make every already-deployed edge fail its next write.
+test('a pre-counter v1 state file still loads and starts the counter at zero', async () => {
+  const { paths, prometheusPath } = await edge(7);
+
+  await writeFile(
+    paths.statePath,
+    `${JSON.stringify(
+      {
+        format: 'vhhealth_continuity_edge_metrics_state/v1',
+        coverageComplete: 1,
+        edgeLastSyncSuccessTimestampSeconds: 1785392400,
+        edgeReplicationLagSeconds: 17,
+        packFreshUntilTimestampSeconds: 1785393000,
+        verificationFailures: {},
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+
+  await recordVerificationFailure(paths, 'MANIFEST_HASH_MISMATCH');
+
+  assert.match(
+    await readFile(prometheusPath, 'utf8'),
+    /^vhhealth_continuity_coverage_incomplete_total\{facility_id="7"\} 0$/m,
   );
 });
 
