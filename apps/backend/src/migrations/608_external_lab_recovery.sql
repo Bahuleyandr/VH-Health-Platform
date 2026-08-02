@@ -101,9 +101,14 @@ ALTER TABLE public.lab_interface_messages
   ADD COLUMN IF NOT EXISTS recovery_pending_task_id INTEGER;
 
 ALTER TABLE public.lab_interface_messages
+  DROP CONSTRAINT IF EXISTS chk_lab_interface_messages_status,
   DROP CONSTRAINT IF EXISTS chk_lab_interface_messages_i09_recovery_shape,
   DROP CONSTRAINT IF EXISTS chk_lab_interface_messages_recovery_shape,
   DROP CONSTRAINT IF EXISTS fk_lab_interface_messages_recovery_task,
+  ADD CONSTRAINT chk_lab_interface_messages_status
+    CHECK (status IN (
+      'received', 'parsed', 'ingested', 'failed', 'sent', 'pending_review'
+    )),
   ADD CONSTRAINT chk_lab_interface_messages_i09_recovery_shape
     CHECK (
       (
@@ -131,7 +136,7 @@ ALTER TABLE public.lab_interface_messages
             AND recovery_pending_task_id IS NULL
           )
           OR (
-            status = 'ingested'
+            status = 'pending_review'
             AND recovery_pending_task_id IS NOT NULL
           )
         )
@@ -334,7 +339,7 @@ DECLARE
   distinct_position_count INTEGER;
   forbidden_effect_count INTEGER;
 BEGIN
-  IF NEW.status <> 'ingested' THEN
+  IF NEW.status <> 'pending_review' THEN
     RETURN NEW;
   END IF;
 
@@ -351,7 +356,7 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
-      MESSAGE = 'Completed I02 recovery receipt lacks its handled canonical recovery inbox row';
+      MESSAGE = 'Pending-review I02 recovery receipt lacks its handled canonical recovery inbox row';
   END IF;
 
   IF NEW.ingest_contract_version IS DISTINCT FROM 1
@@ -367,7 +372,7 @@ BEGIN
   THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
-      MESSAGE = 'Completed I02 recovery receipt lacks its exact migration-583 source contract';
+      MESSAGE = 'Pending-review I02 recovery receipt lacks its exact migration-583 source contract';
   END IF;
 
   SELECT COALESCE(array_agg(result.id ORDER BY result.id), '{}'::integer[]),
@@ -415,7 +420,7 @@ BEGIN
   THEN
     RAISE EXCEPTION USING
       ERRCODE = '23514',
-      MESSAGE = 'Completed I02 recovery receipt result/critical/source-time evidence is not exact';
+      MESSAGE = 'Pending-review I02 recovery receipt result/critical/source-time evidence is not exact';
   END IF;
 
   PERFORM public.assert_lab_external_recovery_task(
@@ -478,6 +483,15 @@ FOR EACH ROW
 WHEN (NEW.recovery_interface_family = 'I02')
 EXECUTE FUNCTION public.lab_interface_validate_astm_recovery_complete();
 
+DROP TRIGGER IF EXISTS trg_lab_interface_protect_astm_ingested_terminal
+  ON public.lab_interface_messages;
+CREATE TRIGGER trg_lab_interface_protect_astm_ingested_terminal
+BEFORE UPDATE OR DELETE
+ON public.lab_interface_messages
+FOR EACH ROW
+WHEN (OLD.recovery_inbox_id IS NULL)
+EXECUTE FUNCTION public.lab_interface_protect_astm_ingested_terminal();
+
 CREATE OR REPLACE FUNCTION public.assert_lab_recovery_provenance_immutable()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -516,15 +530,29 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF OLD.recovery_interface_family = 'I02'
-     AND OLD.status = 'ingested'
-     AND (
-       OLD.recovery_critical_result_ids IS DISTINCT FROM NEW.recovery_critical_result_ids
-       OR OLD.recovery_pending_task_id IS DISTINCT FROM NEW.recovery_pending_task_id
-     )
+     AND OLD.status = 'pending_review'
   THEN
-    RAISE EXCEPTION USING
-      ERRCODE = '23514',
-      MESSAGE = 'Completed I02 recovery evidence is immutable';
+    IF TG_OP = 'DELETE' THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'Pending-review I02 recovery receipt is immutable';
+    END IF;
+    IF OLD.status IS DISTINCT FROM NEW.status
+       OR OLD.result_count IS DISTINCT FROM NEW.result_count
+       OR OLD.specimen_id IS DISTINCT FROM NEW.specimen_id
+       OR OLD.verdicts IS DISTINCT FROM NEW.verdicts
+       OR OLD.processed_at IS DISTINCT FROM NEW.processed_at
+       OR OLD.error IS DISTINCT FROM NEW.error
+       OR OLD.recovery_critical_result_ids IS DISTINCT FROM NEW.recovery_critical_result_ids
+       OR OLD.recovery_pending_task_id IS DISTINCT FROM NEW.recovery_pending_task_id
+    THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'Pending-review I02 recovery evidence is immutable';
+    END IF;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
   END IF;
   RETURN NEW;
 END
@@ -533,7 +561,8 @@ $$;
 DROP TRIGGER IF EXISTS lab_interface_recovery_evidence_immutable
   ON public.lab_interface_messages;
 CREATE TRIGGER lab_interface_recovery_evidence_immutable
-BEFORE UPDATE OF recovery_critical_result_ids, recovery_pending_task_id
+BEFORE UPDATE OF status, result_count, specimen_id, verdicts, processed_at,
+  error, recovery_critical_result_ids, recovery_pending_task_id OR DELETE
 ON public.lab_interface_messages
 FOR EACH ROW
 EXECUTE FUNCTION public.assert_lab_interface_recovery_evidence_immutable();
@@ -560,6 +589,8 @@ BEGIN
     IF pg_catalog.to_regrole(runtime_role) IS NULL THEN
       CONTINUE;
     END IF;
+
+    EXECUTE FORMAT('GRANT USAGE ON SCHEMA public TO %I', runtime_role);
 
     EXECUTE FORMAT(
       'GRANT EXECUTE ON FUNCTION public.assert_lab_external_recovery_task(

@@ -373,7 +373,7 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT receipt.id AS message_id, receipt.recovery_inbox_id::text,
-              receipt.recovery_interface_family,
+              receipt.recovery_interface_family, receipt.status AS receipt_status,
               receipt.raw_message_sha256, receipt.astm_message_sha256,
               receipt.recovery_critical_result_ids,
               receipt.recovery_pending_task_id,
@@ -398,6 +398,7 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
     expect(rows[0]).toMatchObject({
       recovery_inbox_id: outcome.inbox_id,
       recovery_interface_family: 'I02',
+      receipt_status: 'pending_review',
       raw_message_sha256: sha256Utf8(message),
       astm_message_sha256: astmMessageSha256,
       result_id: Number(outcome.result_id),
@@ -419,17 +420,6 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       critical_result_ids: [Number(rows[0].result_id)],
       owner_reconciliation_required: true,
     });
-
-    const client = new Client({ connectionString: databaseUrl });
-    await client.connect();
-    try {
-      await expect(client.query(
-        'SELECT lab_interface_assert_astm_ingested_complete($1::uuid, $2::integer)',
-        [TENANT_ID, Number(rows[0].message_id)],
-      )).resolves.toMatchObject({ rowCount: 1 });
-    } finally {
-      await client.end();
-    }
   }, 30_000);
 
   it('allows pending-review task writes while migration 603 still blocks forbidden effects', async () => {
@@ -456,7 +446,7 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
     );
   });
 
-  it('raw PostgreSQL rejects cross-family provenance and completed evidence mutation', async () => {
+  it('raw PostgreSQL rejects cross-family provenance and pending evidence mutation', async () => {
     const client = new Client({ connectionString: databaseUrl });
     await client.connect();
     try {
@@ -479,6 +469,15 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
           WHERE tenant_id = $1::uuid AND recovery_interface_family = 'I02'`,
         [TENANT_ID],
       )).rejects.toMatchObject({ code: '23514' });
+      await expect(client.query(
+        `UPDATE lab_interface_messages
+            SET status = 'ingested'
+          WHERE tenant_id = $1::uuid AND recovery_interface_family = 'I02'`,
+        [TENANT_ID],
+      )).rejects.toMatchObject({
+        code: '23514',
+        message: 'Pending-review I02 recovery evidence is immutable',
+      });
     } finally {
       await client.end();
     }

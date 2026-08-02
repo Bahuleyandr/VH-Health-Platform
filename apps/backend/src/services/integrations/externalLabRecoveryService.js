@@ -889,9 +889,9 @@ async function persistI02({ tx, tenantId, recoveryInboxId, occurredAt, command }
     criticalResultIds,
     actorUid: actor.actorUid,
   });
-  const completed = await tx.$queryRawUnsafe(
+  const pending = await tx.$queryRawUnsafe(
     `UPDATE lab_interface_messages
-        SET status = 'ingested', result_count = $3::integer,
+        SET status = 'pending_review', result_count = $3::integer,
             specimen_id = $4::integer, verdicts = $5::jsonb,
             recovery_critical_result_ids = $6::integer[],
             recovery_pending_task_id = $7::integer, processed_at = NOW()
@@ -905,12 +905,12 @@ async function persistI02({ tx, tenantId, recoveryInboxId, occurredAt, command }
     criticalResultIds,
     Number(task.id),
   );
-  if (!completed[0]) refuse('I02 recovery receipt completion fence was lost');
+  if (!pending[0]) refuse('I02 recovery receipt pending-review fence was lost');
   return Object.freeze({
     result: results[0],
     results,
     task,
-    receipt: completed[0],
+    receipt: pending[0],
     outcomeCode: 'i02_lab_results_pending_review',
   });
 }
