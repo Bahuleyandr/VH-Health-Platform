@@ -105,6 +105,15 @@ export const envSchema = Joi.object({
   // (0 = release immediately at sign-off; clinician hold always wins).
   PORTAL_RESULT_RELEASE_DELAY_HOURS: Joi.number().min(0).max(720).optional()
     .label('PORTAL_RESULT_RELEASE_DELAY_HOURS'),
+  // Max active clinicians ONE escalation tier will page for a single task
+  // (services/workflow/escalationEngineService.js). A blast-radius backstop, not
+  // a page size: exceeding it is a misconfigured-rule signal and is always
+  // logged + counted. Unset = 500; values above 5000 clamp to 5000.
+  // Bounded at the same ceiling the service clamps to, so an out-of-range value
+  // fails loudly at boot instead of being silently clamped — silent clamping is
+  // the exact failure mode this setting exists to remove.
+  ESCALATION_RECIPIENT_FANOUT_CAP: Joi.number().integer().min(1).max(5000).optional()
+    .label('ESCALATION_RECIPIENT_FANOUT_CAP'),
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development')

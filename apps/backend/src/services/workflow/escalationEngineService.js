@@ -32,6 +32,15 @@
 // re-fires a rule already present there. Per-task errors are caught + logged;
 // they never abort the sweep. All writes are tenant-scoped via setTenantTx.
 //
+// Bounded work, audibly (2026-08-02): every bound this sweep applies is now
+// either derived from the caller's `limit` or a named constant, and hitting one
+// is logged AND counted rather than inferred from silence. Recipient fan-out is
+// capped by ESCALATION_RECIPIENT_FANOUT_CAP and ordered by a documented
+// availability proxy; a full candidate page raises a warning. Both feed
+// observability/escalationMetrics.js. Dropping a clinician from a critical-result
+// page is clinical-safety-adjacent, so "we silently sent to the first N" is not
+// an acceptable failure mode here.
+//
 // Conventions (apps/backend/CLAUDE.md): raw params spread (never an array);
 // bare params inside jsonb builders cast with ::type; no empty catch; Winston
 // logger; AppError for typed failures (none surface from a best-effort sweep).
@@ -43,6 +52,10 @@ import { notificationOutbox } from '../../utils/notifications/notificationOutbox
 import { sendSecurityWebhook } from '../../utils/securityWebhook.js';
 import { ROLES, DOCTOR_TIERS, LEADERSHIP_ROLES } from '../../utils/roleHelpers.js';
 import { runTransportEscalationSweep } from '../patientFlow/porterTransportService.js';
+import {
+  recordEscalationCandidatePageFull,
+  recordEscalationRecipientsTrimmed,
+} from '../../observability/escalationMetrics.js';
 // Reuse the producer's role-token resolver + backfill entrypoint. resolveRoleCode
 // MUST be shared (not duplicated) so the mig-312 seed tokens (DUTY/LEADERSHIP)
 // resolve to the IDENTICAL concrete role on the assignment (producer) and
@@ -51,6 +64,28 @@ import { enqueueCriticalResultTask, resolveRoleCode } from '../results/resultsIn
 
 const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 5000;
+
+// Blast-radius backstop on ONE tier's recipient fan-out.
+//
+// This is deliberately NOT a pagination page size: every active clinician the
+// tier matches, up to this many, is notified. Exceeding it means a rule is
+// paging more humans than any single critical result plausibly warrants, which
+// is a misconfiguration signal — so a trim is always logged AND counted, never
+// silent. The value it replaces (a bare `LIMIT 50`, introduced incidentally
+// with the C-3 recipient fix in 679201338 and never discussed in
+// docs/RESULTS_INBOX_ESCALATION_DESIGN.md) sat well inside a real hospital's
+// doctor-tier headcount, so it could evict an on-shift clinician during
+// entirely ordinary operation.
+const DEFAULT_RECIPIENT_FANOUT_CAP = 500;
+const MAX_RECIPIENT_FANOUT_CAP = 5000;
+
+function clampFanoutCap(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_RECIPIENT_FANOUT_CAP;
+  return Math.min(parsed, MAX_RECIPIENT_FANOUT_CAP);
+}
+
+const RECIPIENT_FANOUT_CAP = clampFanoutCap(process.env.ESCALATION_RECIPIENT_FANOUT_CAP);
 
 // Acknowledgement-mode tasks leave escalation at in_progress. Domain-evidence
 // tasks remain actionable there until their registered evidence completes the
@@ -110,41 +145,83 @@ function uniqueRecipients(rows = []) {
   return out;
 }
 
+// Shared tail of both resolution arms: de-dupe the page, and if the cap actually
+// trimmed the match set, say so out loud.
+//
+// `total_matched` is a COUNT(*) OVER () computed across every matching row
+// BEFORE the LIMIT is applied, so the dropped count is exact rather than a
+// "there was at least one more" guess, and it costs no extra round trip. The
+// unit suites mock the tx and return rows without that column; falling back to
+// the page length then reports zero dropped, which is the correct answer for a
+// page that was never truncated.
+function finishRecipients({ rows, tenantId, role, arm }) {
+  const recipients = uniqueRecipients(rows);
+  const matched = Number(rows?.[0]?.total_matched ?? recipients.length);
+  if (Number.isFinite(matched) && matched > RECIPIENT_FANOUT_CAP) {
+    const dropped = matched - RECIPIENT_FANOUT_CAP;
+    // Clinical-safety-adjacent: these are staff who will NOT be paged about an
+    // unacknowledged critical result. Never let this be inferred from silence.
+    logger.warn('escalation notify: recipient fan-out exceeded cap — tail of the role was NOT notified', {
+      tenantId, role, arm, matched, notified: recipients.length, dropped, cap: RECIPIENT_FANOUT_CAP,
+    });
+    try {
+      recordEscalationRecipientsTrimmed({ role, arm, dropped });
+    } catch (err) {
+      logger.warn('escalation notify: recipient-trim metric failed', { err: err?.message });
+    }
+  }
+  return recipients;
+}
+
 // Resolve a concrete role code → real, active recipients in THIS tenant (the tx
 // is already scoped via setTenantTx, so the SELECT is tenant-isolated by RLS).
 // Tries the exact role first; if empty, widens to the role family so a DUTY /
 // LEADERSHIP tier always reaches a human. Returns [] only when the tenant truly
 // has no clinician in the role or its family (logged loudly by the caller).
+//
+// ORDERING. There is no on-duty / on-call roster this query can join — `users`
+// carries no shift or duty column — so the order is `last_sign_in_at DESC NULLS
+// LAST, id ASC`: an availability PROXY, not a duty signal. It puts the most
+// recently-signed-in clinicians first and sorts never-signed-in accounts (the
+// provisioned-but-dormant records, least likely to action a page) to the very
+// end, so when the cap does trim it trims the least-reachable people rather than
+// whoever happens to hold the highest user id. `id ASC` makes the order total,
+// so the page is deterministic across sweeps. If a real roster table ever lands,
+// this ORDER BY is the single place to join it.
 async function resolveRecipientsForRole(tx, tenantId, roleCode) {
   const role = roleCode == null ? '' : String(roleCode).trim();
   if (!role) return [];
   const exact = await tx.$queryRawUnsafe(
-    `SELECT id, uid, phone, role
+    `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
        FROM users
       WHERE tenant_id = $1::uuid
         AND role = $2
         AND is_active = TRUE
-      ORDER BY id
-      LIMIT 50`,
+      ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
+      LIMIT $3::int`,
     tenantId,
     role,
+    RECIPIENT_FANOUT_CAP,
   );
-  if (Array.isArray(exact) && exact.length > 0) return uniqueRecipients(exact);
+  if (Array.isArray(exact) && exact.length > 0) {
+    return finishRecipients({ rows: exact, tenantId, role, arm: 'exact' });
+  }
 
   const family = ROLE_FAMILY_FALLBACK[role];
   if (!Array.isArray(family) || family.length === 0) return [];
   const widened = await tx.$queryRawUnsafe(
-    `SELECT id, uid, phone, role
+    `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
        FROM users
       WHERE tenant_id = $1::uuid
         AND role = ANY($2::text[])
         AND is_active = TRUE
-      ORDER BY id
-      LIMIT 50`,
+      ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
+      LIMIT $3::int`,
     tenantId,
     family.map(String),
+    RECIPIENT_FANOUT_CAP,
   );
-  return uniqueRecipients(widened);
+  return finishRecipients({ rows: widened, tenantId, role, arm: 'family' });
 }
 
 // Resolve a single assignee uid → its recipient row (for the T1 re-notify, which
@@ -553,6 +630,31 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
             continue;
           }
 
+          // A full page means this rule had at least `cap` eligible tasks, so
+          // any task ordered after the page was NOT evaluated in this sweep.
+          // Because the ordering is a stable `t.id ASC` and an already-fired
+          // task stays eligible (the once-per-rule guard is applied in JS, after
+          // the page is fetched), a tenant that parks `cap` escalatable tasks
+          // starves everything behind them indefinitely rather than merely
+          // deferring it to the next sweep. Raising `limit` is the operator
+          // lever; making the truncation audible is this fix's job. The deeper
+          // change — excluding already-fired tasks in SQL so the page always
+          // advances — alters which tasks a sweep evaluates and is left to a
+          // separate, owner-reviewed change.
+          if (Array.isArray(candidates) && candidates.length >= cap) {
+            logger.warn('escalation sweep: candidate page full — tasks beyond the page were NOT evaluated', {
+              tenantId,
+              ruleId: ruleRow.id,
+              triggerCondition: ruleRow.trigger_condition,
+              cap,
+            });
+            try {
+              recordEscalationCandidatePageFull({ triggerCondition: ruleRow.trigger_condition });
+            } catch (err) {
+              logger.warn('escalation sweep: candidate-page metric failed', { err: err?.message });
+            }
+          }
+
           for (const taskRow of (Array.isArray(candidates) ? candidates : [])) {
             counters.scanned += 1;
             // Per-task guard: a single bad row must never abort the sweep.
@@ -699,4 +801,6 @@ export const __testing__ = {
   resolveRecipientByUid,
   queueRecipientNotifications,
   ROLE_FAMILY_FALLBACK,
+  RECIPIENT_FANOUT_CAP,
+  clampFanoutCap,
 };
