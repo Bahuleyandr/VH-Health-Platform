@@ -164,6 +164,11 @@ const useShell = process.platform === 'win32';
 // the default) — passing it only prints a "removed and were ignored" warning,
 // which is log noise and a hazard if CI is warning-strict. Verified empirically:
 // a non-clean regen (existing lib/api/generated/) rebuilds cleanly without it.
+//
+// NOTE: apps/staff/Dockerfile.web reproduces this exact invocation inline
+// (`RUN dart run build_runner build` in packages/vhhealth_core) because that
+// image has neither melos nor Node to run this driver. If the args below
+// change, update that Dockerfile too.
 const args = ['run', 'build_runner', watch ? 'watch' : 'build'];
 console.log(`\n[codegen] running: dart ${args.join(' ')}  (cwd: packages/vhhealth_core)`);
 const result = spawnSync('dart', args, {

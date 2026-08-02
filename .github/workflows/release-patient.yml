@@ -39,6 +39,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Node runs the codegen driver below (scripts/codegen.mjs) and the
+      # cert-pin validator further down. Pinned to the repo-standard version
+      # rather than relying on whatever the ubuntu-latest image ships.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.5.0'
+
       - uses: subosito/flutter-action@v2
         with:
           # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml + ci.yml) — bump all together.
@@ -52,6 +59,18 @@ jobs:
         run: |
           dart pub get
           melos bootstrap
+
+      # Must run AFTER bootstrap (build_runner is resolved by the workspace)
+      # and BEFORE the build: the generated client lib/api/generated/** is
+      # gitignored and absent on a fresh clone, yet the tracked barrel
+      # lib/api/vhhealth_api.dart re-exports it and lib/services/** imports
+      # generated symbols, so the app only compiles once codegen has run.
+      # melos run codegen invokes `node scripts/codegen.mjs`, which needs Node
+      # (set up above) and dart (from subosito/flutter-action above).
+      # Kept ahead of the signing step so a codegen failure cannot burn a tag
+      # after the release keystore has already been written to disk.
+      - name: Codegen (regenerate Dart client from synced spec)
+        run: melos run codegen
 
       - name: Validate release configuration
         run: |
