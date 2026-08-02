@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import prisma from '../lib/prisma.js';
+import { purgeInterfaceEngineTestData } from './helpers/interfaceEngineEvidenceCleanup.js';
 import {
   activateChannelVersion,
   createChannel,
@@ -19,7 +20,7 @@ import { upsertInteropSecret } from '../services/interop/tenantInteropSecretServ
 process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'interface-engine-test-field-key-32chars';
 process.env.FIELD_KEK_LOCAL_SECRET = process.env.FIELD_KEK_LOCAL_SECRET || 'interface-engine-test-kek-key-32chars';
 
-const SFX = String(Date.now() % 100000);
+const SFX = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
 const TENANT_A = 'a7500000-0000-4000-8000-0000000000a1';
 const TENANT_B = 'b7500000-0000-4000-8000-0000000000b2';
 const RECEIVER_A = `VH_ENGINE_A_${SFX}`;
@@ -143,7 +144,8 @@ async function createActiveOutboundChannel() {
 
 describe('NL11-S11 interface engine runtime', () => {
   beforeAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier IN ($1, $2)`, RECEIVER_A, RECEIVER_B).catch(() => {});
+    expect(await purgeInterfaceEngineTestData(prisma, [TENANT_A, TENANT_B]))
+      .toEqual(expect.objectContaining({ total: 0 }));
     await ensureTenant(TENANT_A, `ie-a-${SFX}`);
     await ensureTenant(TENANT_B, `ie-b-${SFX}`);
     await upsertInteropSecret({
@@ -163,8 +165,12 @@ describe('NL11-S11 interface engine runtime', () => {
   }, 30000);
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier IN ($1, $2)`, RECEIVER_A, RECEIVER_B).catch(() => {});
-    await prisma.$disconnect().catch(() => {});
+    try {
+      expect(await purgeInterfaceEngineTestData(prisma, [TENANT_A, TENANT_B]))
+        .toEqual(expect.objectContaining({ total: 0 }));
+    } finally {
+      await prisma.$disconnect();
+    }
   }, 30000);
 
   it('accepts a signed HL7 message, stores only redacted previews, and rejects replay', async () => {
