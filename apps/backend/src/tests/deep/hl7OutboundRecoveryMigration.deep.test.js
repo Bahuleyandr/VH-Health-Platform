@@ -176,7 +176,10 @@ describeIfDb('migration 610 I04 outbound HL7 recovery', () => {
     const names = readdirSync(new URL('../../migrations/', import.meta.url))
       .filter(name => /^\d+.*\.sql$/.test(name))
       .sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
-    expect(names.at(-1)).toBe('610_hl7_outbound_recovery.sql');
+    const index = names.indexOf('610_hl7_outbound_recovery.sql');
+    expect(index).toBeGreaterThan(0);
+    expect(names[index - 1]).toBe('609_notification_delivery_recovery.sql');
+    expect(names.slice(index + 1).every(name => Number.parseInt(name, 10) > 610)).toBe(true);
     expect(migrationSql).toContain('HTTP success is transport evidence only');
     expect(migrationSql).not.toContain('interop_replay_guard');
   });
