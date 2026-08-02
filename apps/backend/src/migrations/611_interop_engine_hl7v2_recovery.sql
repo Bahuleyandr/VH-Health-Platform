@@ -91,7 +91,8 @@ ALTER TABLE public.interop_worker_leases
     ON UPDATE NO ACTION ON DELETE CASCADE NOT VALID;
 
 -- Historical rows are retained as evidence but are not silently enrolled in
--- the recovery stream. Previously retryable outbound rows are frozen.
+-- the recovery stream. Held authority makes them ineligible for dispatch
+-- without rewriting their pre-migration delivery status.
 ALTER TABLE public.interop_messages
   ADD COLUMN recovery_ledger_version SMALLINT NOT NULL DEFAULT 0,
   ADD COLUMN source_position BIGINT,
@@ -107,14 +108,6 @@ ALTER TABLE public.interop_messages
   ADD COLUMN delivery_claim_generation INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN delivery_claimed_at TIMESTAMPTZ(6),
   ADD COLUMN delivery_lease_expires_at TIMESTAMPTZ(6);
-
-UPDATE public.interop_messages
-   SET status = 'quarantined',
-       last_error_code = 'INTEROP_RECOVERY_ENROLLMENT_REQUIRED',
-       last_error_safe = 'Historical outbound delivery requires owner reconciliation',
-       updated_at = NOW()
- WHERE direction IN ('outbound', 'bidirectional')
-   AND status IN ('queued', 'failed', 'delivering');
 
 ALTER TABLE public.interop_messages
   ADD CONSTRAINT fk_interop_messages_recovery_inbox_tenant
