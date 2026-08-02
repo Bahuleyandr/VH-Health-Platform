@@ -865,10 +865,17 @@ bool _lower(String left, String right) =>
 bool _higher(String left, String right) =>
     BigInt.parse(left) > BigInt.parse(right);
 
+// PostgreSQL BIGINT ceiling (2^63-1) for C3.1 revision values. Parsed from a
+// string, never `BigInt.from(9223372036854775807)`: that int literal is not
+// exactly representable as a JS double, so it fails to compile under dart2js,
+// and the nearest double rounds up to 2^63 — which would widen this bound by
+// one. BigInt is arbitrary precision on every target, so parsing is exact.
+final BigInt _governanceCeiling = BigInt.parse('9223372036854775807');
+
 String? _governanceFloor(String value, {required bool allowZero}) {
   if (!RegExp(r'^(?:0|[1-9][0-9]{0,18})$').hasMatch(value) ||
       (!allowZero && value == '0') ||
-      BigInt.parse(value) > BigInt.from(9223372036854775807)) {
+      BigInt.parse(value) > _governanceCeiling) {
     return null;
   }
   return value;

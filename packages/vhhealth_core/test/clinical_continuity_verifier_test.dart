@@ -11,6 +11,12 @@ import 'package:vhhealth_core/services/clinical_continuity_trust_store.dart';
 import 'package:vhhealth_core/services/clinical_continuity_verifier.dart';
 import 'package:vhhealth_core/services/offline_action_ids.dart';
 
+// Governance revisions are canonical decimal BIGINT strings, so the ceiling is
+// held as a string here too — `9223372036854775807` as an int literal does not
+// compile under dart2js.
+const _int64Max = '9223372036854775807';
+const _aboveInt64Max = '9223372036854775808';
+
 const _tenantId = '52e31913-c846-4458-a21b-31cd2f457e9b';
 const _facilityId = '41';
 const _staffId = '22222222-2222-4222-8222-222222222222';
@@ -211,6 +217,40 @@ void main() {
     expect(
       clockRollback.reason,
       ClinicalContinuityVerificationReasons.clockUncertain,
+    );
+  });
+
+  test('separates governance floors at the exact int64 ceiling', () async {
+    final fixture = await _Fixture.build();
+    final aboveCeiling = await fixture.verifier.verify(
+      fixture.snapshot,
+      persistedFloors: ClinicalContinuityFloors(
+        policyVersion: _aboveInt64Max,
+        manifestVersion: '9',
+        revocationEpoch: '3',
+        trustedNow: DateTime.parse(_issuedAt),
+      ),
+    );
+    final atCeiling = await fixture.verifier.verify(
+      fixture.snapshot,
+      persistedFloors: ClinicalContinuityFloors(
+        policyVersion: _int64Max,
+        manifestVersion: '9',
+        revocationEpoch: '3',
+        trustedNow: DateTime.parse(_issuedAt),
+      ),
+    );
+
+    // Above the ceiling the floor is not a usable revision at all; exactly at
+    // the ceiling it is accepted and then applied as an ordinary floor. The two
+    // outcomes differ only for the last representable int64 value.
+    expect(
+      aboveCeiling.reason,
+      ClinicalContinuityVerificationReasons.rollbackStateRequired,
+    );
+    expect(
+      atCeiling.reason,
+      ClinicalContinuityVerificationReasons.policyRollback,
     );
   });
 
