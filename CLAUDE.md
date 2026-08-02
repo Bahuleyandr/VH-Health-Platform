@@ -139,7 +139,7 @@ the path-filtered CI and the scheduled sweep stay in sync.
 | Workflow | Fires when | What it runs |
 |---|---|---|
 | `all.yml` | `workflow_dispatch` + weekdays at 01:30 UTC | Flutter workspace + backend lint/swagger/prisma/tests + backend FHIR conformance + admin lint/type-check/jest/build |
-| `ci-flutter.yml` | `apps/{patient,staff}/**`, `packages/vhhealth_core/**`, `pubspec.*` | `melos bootstrap → analyze → test → format` |
+| `ci-flutter.yml` | `apps/{patient,staff}/**`, `packages/vhhealth_core/**`, `pubspec.*` | `melos bootstrap → format → codegen → analyze → test`, plus a parallel `flutter build web` (dart2js) of staff — the web lane catches JS-number/web-import breakage the VM-based analyze and test cannot. Staff only: `apps/patient/web/` is stock scaffolding with no deploy path |
 | `ci-backend.yml` | `apps/backend/**` | lint → swagger → prisma → tests (with Postgres 16 service) + CodeQL + FHIR conformance |
 | `ci-admin.yml` | `apps/admin/**` | lint → type-check → jest → next build |
 | `deploy-patient-staging.yml` | push to main touching patient | Firebase App Distribution |
