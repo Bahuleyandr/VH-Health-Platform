@@ -1,9 +1,16 @@
 // W6 T1 — per-tenant build stamp.
 //
-// A per-tenant build is produced with `--dart-define=VH_TENANT_SLUG=<slug>`
-// (plus `--dart-define=VH_BASE_URL=https://<slug>.api.vhhealth.app/api/v1` for the
-// per-tenant subdomain — see ApiConfig). An UNSTAMPED build is the default
-// single-tenant build, byte-identical to today.
+// A per-tenant build is produced by `scripts/build-tenant-client.sh`, which
+// stamps `VH_TENANT_SLUG`, `VH_TENANT_ID` and `VH_BASE_URL` together and
+// requires all three (see docs/TENANT_ONBOARDING_RUNBOOK.md). The per-tenant
+// host is FLAT — `https://<slug>-api.vhhealth.app/api/v1`, not
+// `<slug>.api.vhhealth.app`; the runbook and that script are the authority.
+// An UNSTAMPED build is the default single-tenant build, byte-identical to
+// today.
+//
+// `verifyOrThrow` below refuses to launch a build whose stamp cannot match the
+// deployment it points at, because the readiness adapters compare the server's
+// tenant to `id` with a strict `==`.
 //
 // The backend derives the ACTUAL tenant from the request Host subdomain (W4 —
 // trust-by-topology), and treats client `x-tenant-*` as untrusted. So these

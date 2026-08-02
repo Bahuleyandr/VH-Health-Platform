@@ -35,6 +35,13 @@ This is the defect class PR #707 fixed (there the trigger was an RBAC 403).
 Neither `.github/workflows/release-patient.yml` nor `release-staff.yml` stamps any
 `VH_TENANT*` define today (grep count 0 in both).
 
+**Not every path is exposed.** `scripts/build-tenant-client.sh` — the sanctioned
+per-tenant build helper (multi-tenancy W6 T4 / W7) — already requires `--slug` and
+`--tenant-id` and stamps `VH_TENANT_SLUG`, `VH_TENANT_ID` and `VH_BASE_URL` together, so
+it cannot produce an incoherent build. The exposure is the tag-triggered release
+workflows, whose `VH_BASE_URL` comes from a repo variable with no tenant stamp beside
+it, and any hand-rolled `flutter build`. The client guard covers both.
+
 ## 2. Measured constraint — the empty-define trap
 
 `String.fromEnvironment(k, defaultValue: d)` returns the **default** when the define is
@@ -79,9 +86,19 @@ Wired into both apps beside the existing live precedent `SecurityConfig.verifyOr
 (`apps/patient/lib/main.dart:67`, `apps/staff/lib/main.dart:128`), which already throws
 in production on misconfiguration.
 
-Note: `ClientReadinessConfig.verifyOrThrow()` exists but is **never called in production**
-(only unit-tested). This design does not rely on it; wiring that one up is out of scope
-and recorded as a follow-up.
+### 3.3 The sibling dead guard — now wired
+
+`ClientReadinessConfig.verifyOrThrow()` existed but was **never called in production**
+(only unit-tested), so the owner-approved readiness clock-skew bound was never actually
+enforced on an artifact: a build with the wrong value fell back to the bundled default
+via the `maxClockSkew` getter. It is now wired beside the two calls above.
+
+Checked before wiring, since it throws in production: all 12 `PRODUCTION=true` build
+paths (4 release workflows, `build-tenant-client.sh`, `build-staff-windows-update.ps1`,
+`update-local-staff-windows-app.ps1`) already pass
+`CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS`, and every one runs
+`scripts/validate-cert-pin-set.mjs`, which rejects any value other than the
+owner-approved 300. So no sanctioned build can be broken by the wiring.
 
 ### 3.2 CI guard — conditional stamping
 
