@@ -30,6 +30,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Node runs the codegen driver below (scripts/codegen.mjs) and the npx
+      # firebase-tools distribution step. Pinned to the repo-standard version
+      # rather than relying on whatever the runner image ships.
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+
       - uses: https://github.com/subosito/flutter-action@v2
         with:
           channel: stable
@@ -42,6 +49,16 @@ jobs:
         run: |
           dart pub get
           melos bootstrap
+
+      # Must run AFTER bootstrap (build_runner is resolved by the workspace)
+      # and BEFORE the build: the generated client lib/api/generated/** is
+      # gitignored and absent on a fresh clone, yet the tracked barrel
+      # lib/api/vhhealth_api.dart re-exports it and lib/services/** imports
+      # generated symbols, so the app only compiles once codegen has run.
+      # melos run codegen invokes `node scripts/codegen.mjs`, which needs Node
+      # (set up above) and dart (from subosito/flutter-action above).
+      - name: Codegen (regenerate Dart client from synced spec)
+        run: melos run codegen
 
       - name: Build debug APKs
         working-directory: apps/staff

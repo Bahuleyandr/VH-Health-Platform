@@ -42,6 +42,27 @@ RUN flutter pub get
 COPY packages/vhhealth_core/ packages/vhhealth_core/
 COPY apps/staff/ apps/staff/
 
+# ---- OpenAPI codegen --------------------------------------------------
+# packages/vhhealth_core/lib/api/generated/** is gitignored, so it is absent
+# from the build context, yet the tracked barrel lib/api/vhhealth_api.dart
+# re-exports it and apps/staff reaches that barrel from the router
+# (lib/core/navigation/app_router.dart -> paper_reconciliation_workbench_screen.dart).
+# Without this step `flutter build web` below fails with
+# "Error when reading '.../generated/openapi.swagger.dart': No such file or directory".
+# Must run AFTER the COPY above (build.yaml + swagger/openapi.json are the
+# generator's inputs) and BEFORE the build.
+#
+# CI runs this as `melos run codegen` -> `node scripts/codegen.mjs`. This image
+# has neither melos nor Node, and adding either would mean an unpinned package
+# install in a stage whose bases are deliberately digest-pinned, so we invoke
+# the same build_runner command that driver ends up spawning. Verified to
+# produce byte-identical output to `melos run codegen`.
+# KEEP IN SYNC with the `args` array at the bottom of scripts/codegen.mjs.
+# The only thing skipped is that script's exclude_paths "dropped operations"
+# report, which is diagnostic logging and does not affect the generated code.
+WORKDIR /workspace/packages/vhhealth_core
+RUN dart run build_runner build
+
 # Build args for the dart-define values that get baked into the bundle.
 # clinical.<hospital>.local is the staff SPA identity, not an API origin.
 # Default to the versioned public API until a reviewed internal API hostname
