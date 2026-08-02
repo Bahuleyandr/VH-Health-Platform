@@ -11,6 +11,11 @@ import { jest } from '@jest/globals';
 // push that can't land.
 
 const mockPrisma = { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() };
+const sendEmailMock = jest.fn();
+const queueMock = jest.fn();
+const sendPushMock = jest.fn();
+const placeVoiceCallMock = jest.fn();
+const sendWhatsAppMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
@@ -23,23 +28,23 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 jest.unstable_mockModule('../../utils/notifications/sendEmailNotification.js', () => ({
-  sendEmail: jest.fn(),
+  sendEmail: sendEmailMock,
 }));
 jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
-  notificationOutbox: { queue: jest.fn() },
-  default: { queue: jest.fn() },
+  notificationOutbox: { queue: queueMock },
+  default: { queue: queueMock },
 }));
 jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', () => ({
-  sendPushNotification: jest.fn(),
+  sendPushNotification: sendPushMock,
 }));
 jest.unstable_mockModule('../../utils/notifications/sendVoiceNotification.js', () => ({
-  placeVoiceCall: jest.fn(),
+  placeVoiceCall: placeVoiceCallMock,
 }));
 jest.unstable_mockModule('../../utils/notifications/sendWhatsAppNotification.js', () => ({
-  sendWhatsApp: jest.fn(),
+  sendWhatsApp: sendWhatsAppMock,
 }));
 
-const { resolveDeliveryChannels } = await import(
+const { dispatch, resolveDeliveryChannels } = await import(
   '../../utils/notifications/notificationDispatcher.js'
 );
 
@@ -73,5 +78,95 @@ describe('resolveDeliveryChannels — preferred_channel → dispatcher channels'
   it('is case-insensitive on the stored preference', () => {
     expect(resolveDeliveryChannels('SMS')).toEqual(['sms', 'inapp']);
     expect(resolveDeliveryChannels('Print')).toEqual(['print', 'inapp']);
+  });
+});
+
+describe('dispatcher provider receipt mode', () => {
+  beforeEach(() => {
+    mockPrisma.$queryRawUnsafe.mockReset();
+    sendEmailMock.mockReset();
+    sendPushMock.mockReset();
+    placeVoiceCallMock.mockReset();
+    sendWhatsAppMock.mockReset();
+    queueMock.mockReset();
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([{
+      id: 41,
+      uid: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      phone: '+919000000001',
+      email: 'patient@example.test',
+      name: 'Patient',
+      device_token: 'fcm-token',
+      preferred_channel: 'app',
+    }]);
+  });
+
+  it('retains FCM message IDs and SMTP acceptance as durable acknowledgement evidence', async () => {
+    sendPushMock.mockResolvedValue({
+      successCount: 1,
+      failureCount: 0,
+      responses: [{ success: true, messageId: 'projects/test/messages/1' }],
+    });
+    sendEmailMock.mockResolvedValue({
+      messageId: '<smtp-message-1@example.test>',
+      accepted: ['patient@example.test'],
+      rejected: [],
+      response: '250 queued',
+    });
+    const result = await dispatch({
+      userId: '41',
+      title: 'Provider receipts',
+      body: 'Exact evidence',
+      channels: ['push', 'email'],
+      providerReceiptMode: true,
+    });
+    expect(result.push).toMatchObject({
+      outcome: 'acknowledged',
+      providerReference: 'projects/test/messages/1',
+      evidence: { success_count: 1, failure_count: 0 },
+    });
+    expect(result.email).toMatchObject({
+      outcome: 'acknowledged',
+      providerReference: '<smtp-message-1@example.test>',
+      evidence: { response: '250 queued' },
+    });
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.objectContaining({ receiptMode: true }));
+  });
+
+  it('does not mislabel missing providers or logger-only Twilio paths as sent', async () => {
+    sendEmailMock.mockResolvedValue({
+      outcome: 'rejected', code: 'smtp_not_configured', messageId: null,
+    });
+    sendWhatsAppMock.mockResolvedValue({ status: 'logged' });
+    placeVoiceCallMock.mockResolvedValue({ status: 'invalid_phone' });
+    const result = await dispatch({
+      userId: '41',
+      title: 'Provider unavailable',
+      body: 'Must be rejected',
+      channels: ['email', 'whatsapp', 'voice', 'sms', 'print'],
+      providerReceiptMode: true,
+    });
+    expect(result.email).toMatchObject({ outcome: 'rejected', providerCode: 'smtp_not_configured' });
+    expect(result.whatsapp).toMatchObject({ outcome: 'rejected', providerCode: 'whatsapp_logged' });
+    expect(result.voice).toMatchObject({ outcome: 'rejected', providerCode: 'voice_invalid_phone' });
+    expect(result.sms).toMatchObject({ outcome: 'rejected', providerCode: 'sms_gateway_not_configured' });
+    expect(result.print).toMatchObject({ outcome: 'rejected', providerCode: 'print_queue_not_configured' });
+    expect(queueMock).not.toHaveBeenCalled();
+  });
+
+  it('classifies thrown transport failures as uncertain rather than rejected', async () => {
+    const error = Object.assign(new Error('socket closed after write'), { code: 'ECONNRESET' });
+    sendPushMock.mockRejectedValue(error);
+    const result = await dispatch({
+      userId: '41',
+      title: 'Ambiguous send',
+      body: 'Outcome unknown',
+      channels: ['push'],
+      providerReceiptMode: true,
+    });
+    expect(result.push).toMatchObject({
+      outcome: 'uncertain',
+      providerCode: 'ECONNRESET',
+      evidence: { message: 'socket closed after write' },
+    });
   });
 });

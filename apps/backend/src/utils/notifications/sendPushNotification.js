@@ -44,7 +44,7 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
   }
   if (!tokens || (Array.isArray(tokens) && tokens.length === 0)) {
     logger.warn('📭 No FCM tokens provided for push notification');
-    return { successCount: 0, failureCount: 0 };
+    return { successCount: 0, failureCount: 0, responses: [] };
   }
 
   // Normalize to array
@@ -149,9 +149,18 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
     return {
       successCount: response.successCount,
       failureCount: response.failureCount,
+      responses: response.responses.map((item, index) => ({
+        tokenIndex: index,
+        success: item.success,
+        messageId: item.messageId || null,
+        errorCode: item.error?.code || null,
+        errorMessage: item.error?.message || null,
+      })),
     };
   } catch (err) {
     logger.error('❌ Error sending push notification:', err.stack || err.toString());
-    throw new Error('Push notification failed');
+    const failure = new Error('Push notification failed', { cause: err });
+    failure.code = err.code || 'FCM_TRANSPORT_FAILURE';
+    throw failure;
   }
 }

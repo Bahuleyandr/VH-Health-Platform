@@ -6,7 +6,7 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I01', 'I02', 'I09', 'I10', 'I15'].includes(id),
+  implemented: ['I01', 'I02', 'I09', 'I10', 'I15', 'I17'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
@@ -68,7 +68,13 @@ const catalogEntries = [
     partitionKind: 'tenant_client_resource',
   }),
   entry('I16', 'ABDM callbacks and transfer work', HWM),
-  entry('I17', 'Notification delivery', HWM),
+  entry('I17', 'Notification delivery', HWM, {
+    direction: 'outbound',
+    cursorKind: 'monotonic_position_and_predecessor',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_source_recipient_channel_template_rendered_intent_sha256',
+    partitionKind: 'tenant_channel',
+  }),
   entry('I18', 'Subscriber webhooks', HWM),
   entry('I19', 'NHCX messages and callbacks', HWM),
   entry('I20', 'Synchronous prior authorization', NOT_APPLICABLE),

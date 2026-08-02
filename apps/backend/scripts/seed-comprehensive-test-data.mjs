@@ -57,6 +57,11 @@ const MANUAL_SEED_TABLES = new Set([
   'diagnostic_result_actions',
   'diagnostic_result_release_states',
   'diagnostic_result_patient_notifications',
+  // C6.1-D provider evidence is append-only and claim-fenced. Seed one
+  // coherent accepted attempt instead of synthesizing disconnected rows.
+  'notification_delivery_attempts',
+  'notification_provider_receipts',
+  'notification_delivery_cursors',
   'referrals',
   'referral_transition_events',
   'referral_responses',
@@ -2839,6 +2844,10 @@ async function seedDiagnosticResultEvidence() {
 
 async function seedDiagnosticResultPatientNotificationEvidence() {
   if (await tableCount('diagnostic_result_patient_notifications')) return;
+  await client.query(
+    "SELECT set_config('app.current_tenant_id', $1::text, true)",
+    [DEFAULT_TENANT_ID],
+  );
   const generation = await first(
     'diagnostic_result_generations',
     'id, patient_uid',
@@ -2877,6 +2886,91 @@ async function seedDiagnosticResultPatientNotificationEvidence() {
        ($1::uuid, $2::uuid, $3::uuid, 'result_ready',
         'structured_diagnostic_result_ready.v1', $4::integer)`,
     [DEFAULT_TENANT_ID, generation.id, generation.patient_uid, Number(outbox.rows[0].id)],
+  );
+}
+
+async function seedNotificationDeliveryEvidence() {
+  if (!await tableExists('notification_delivery_attempts')) return;
+  if (await tableCount('notification_delivery_attempts')) return;
+  await client.query(
+    "SELECT set_config('app.current_tenant_id', $1::text, true)",
+    [DEFAULT_TENANT_ID],
+  );
+  const claimToken = randomUUID();
+  const outbox = await client.query(
+    `INSERT INTO notification_outbox
+       (tenant_id, type, recipient_id, title, body, payload, status,
+        channel, source_event_key, recipient_key, template_version,
+        rendered_intent_hash, ledger_version)
+     VALUES
+       ($1::uuid, 'push', 'seed-notification-operator',
+        'Seed provider acceptance',
+        'Synthetic delivery evidence for schema coverage only.',
+        '{"seed":true,"provider_egress":false}'::jsonb, 'PENDING',
+        'push', 'seed:notification-delivery-accepted',
+        'id:seed-notification-operator', 'seed.notification-delivery.v1',
+        repeat('e', 64), 1)
+     ON CONFLICT ON CONSTRAINT ux_notification_outbox_delivery_intent
+     DO NOTHING
+     RETURNING id`,
+    [DEFAULT_TENANT_ID],
+  );
+  const outboxId = outbox.rows[0]?.id || (await client.query(
+    `SELECT id FROM notification_outbox
+      WHERE tenant_id = $1::uuid
+        AND source_event_key = 'seed:notification-delivery-accepted'
+      LIMIT 1`,
+    [DEFAULT_TENANT_ID],
+  )).rows[0].id;
+  await client.query(
+    `UPDATE notification_outbox
+        SET status = 'CLAIMED', claim_token = $3::uuid,
+            claim_generation = claim_generation + 1,
+            claimed_at = NOW(), lease_expires_at = NOW() + INTERVAL '2 minutes'
+      WHERE tenant_id = $1::uuid AND id = $2::integer
+        AND status = 'PENDING'`,
+    [DEFAULT_TENANT_ID, outboxId, claimToken],
+  );
+  const attempt = await client.query(
+    `INSERT INTO notification_delivery_attempts
+       (tenant_id, notification_outbox_id, channel, claim_token,
+        claim_generation, attempt_number, provider, rendered_intent_hash)
+     SELECT tenant_id, id, channel, claim_token, claim_generation, 1,
+            'seed_no_egress', rendered_intent_hash
+       FROM notification_outbox
+      WHERE tenant_id = $1::uuid AND id = $2::integer
+     RETURNING attempt_id`,
+    [DEFAULT_TENANT_ID, outboxId],
+  );
+  await client.query(
+    `INSERT INTO notification_provider_receipts
+       (tenant_id, attempt_id, notification_outbox_id, channel, outcome,
+        receipt_source, provider_reference, provider_code, evidence)
+     VALUES
+       ($1::uuid, $2::uuid, $3::integer, 'push', 'acknowledged',
+        'provider_response', 'seed:no-egress:accepted', 'seed_acceptance',
+        '{"seed":true,"provider_egress":false}'::jsonb)`,
+    [DEFAULT_TENANT_ID, attempt.rows[0].attempt_id, outboxId],
+  );
+  await client.query(
+    `INSERT INTO notification_delivery_cursors (tenant_id, channel)
+     VALUES ($1::uuid, 'push')
+     ON CONFLICT (tenant_id, channel) DO NOTHING`,
+    [DEFAULT_TENANT_ID],
+  );
+  await client.query(
+    `UPDATE notification_delivery_cursors
+        SET last_contiguous_outbox_id = $2::integer, state = 'ready',
+            blocked_outbox_id = NULL, inflight_outbox_id = NULL, updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND channel = 'push'`,
+    [DEFAULT_TENANT_ID, outboxId],
+  );
+  await client.query(
+    `UPDATE notification_outbox
+        SET status = 'SENT', claim_token = NULL, claimed_at = NULL,
+            lease_expires_at = NULL, sent_at = NOW(), last_attempt_at = NOW()
+      WHERE tenant_id = $1::uuid AND id = $2::integer`,
+    [DEFAULT_TENANT_ID, outboxId],
   );
 }
 
@@ -5365,6 +5459,7 @@ try {
   await seedCarePathwayReconciliationEvidence();
   await seedDiagnosticResultEvidence();
   await seedDiagnosticResultPatientNotificationEvidence();
+  await seedNotificationDeliveryEvidence();
   await seedReferralClosedLoopGraph();
   const { seeded, failed } = await seedRemainingTables();
   await seedEdClosureRecoveryEvidence();
