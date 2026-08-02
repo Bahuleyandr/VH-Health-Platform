@@ -9858,6 +9858,8 @@ model tasks {
   engagement_follow_up_steps                  engagement_follow_up_steps[]
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts?
   lab_critical_alerts                         lab_critical_alerts[]                        @relation("lab_critical_alert_ack_task")
+  lab_interface_messages                      lab_interface_messages?
+  lab_oru_ingest_messages                     lab_oru_ingest_messages?
   pathway_projector_inbox                     pathway_projector_inbox[]
   task_comments                               task_comments[]
   parent_task_same_run                        tasks?                                       @relation("tasks_parent_same_run", fields: [tenant_id, parent_task_id, workflow_run_id], references: [tenant_id, id, workflow_run_id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tasks_parent_same_run")
@@ -13221,39 +13223,47 @@ model lab_results {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model lab_oru_ingest_messages {
-  id                         BigInt        @id @default(autoincrement())
-  tenant_id                  String        @db.Uuid
-  trusted_sender_identity    String        @db.VarChar(120)
-  message_control_id         String        @db.VarChar(100)
+  id                         BigInt                   @id @default(autoincrement())
+  tenant_id                  String                   @db.Uuid
+  trusted_sender_identity    String                   @db.VarChar(120)
+  message_control_id         String                   @db.VarChar(100)
   raw_message                String
-  message_sha256             String        @default(dbgenerated("encode(digest(raw_message, 'sha256'::text), 'hex'::text)"))
+  message_sha256             String                   @default(dbgenerated("encode(digest(raw_message, 'sha256'::text), 'hex'::text)"))
   obx_count                  Int
-  status                     String        @default("processing") @db.VarChar(20)
-  result_ids                 Int[]         @default([])
-  critical_result_ids        Int[]         @default([])
-  active_critical_result_ids Int[]         @default([])
-  closed_critical_result_ids Int[]         @default([])
-  alert_ids                  Int[]         @default([])
-  task_ids                   Int[]         @default([])
-  sla_instance_ids           String[]      @default([]) @db.Uuid
-  closed_alert_ids           Int[]         @default([])
-  closed_task_ids            Int[]         @default([])
-  closed_sla_instance_ids    String[]      @default([]) @db.Uuid
-  legacy_adoption            Boolean       @default(false)
-  authenticated_actor_uid    String        @db.Uuid
-  authenticated_actor_roles  String[]      @default([])
-  sender_binding_mode        String        @db.VarChar(20)
-  sender_binding_identity    String        @db.VarChar(255)
-  completed_at               DateTime?     @db.Timestamptz(6)
-  created_at                 DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime      @default(now()) @db.Timestamptz(6)
-  users                      users         @relation(fields: [tenant_id, authenticated_actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_actor")
-  lab_analyzers              lab_analyzers @relation(fields: [tenant_id, trusted_sender_identity], references: [tenant_id, analyzer_code], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_sender")
-  tenants                    tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_tenant")
+  status                     String                   @default("processing") @db.VarChar(20)
+  result_ids                 Int[]                    @default([])
+  critical_result_ids        Int[]                    @default([])
+  active_critical_result_ids Int[]                    @default([])
+  closed_critical_result_ids Int[]                    @default([])
+  alert_ids                  Int[]                    @default([])
+  task_ids                   Int[]                    @default([])
+  sla_instance_ids           String[]                 @default([]) @db.Uuid
+  closed_alert_ids           Int[]                    @default([])
+  closed_task_ids            Int[]                    @default([])
+  closed_sla_instance_ids    String[]                 @default([]) @db.Uuid
+  legacy_adoption            Boolean                  @default(false)
+  authenticated_actor_uid    String                   @db.Uuid
+  authenticated_actor_roles  String[]                 @default([])
+  sender_binding_mode        String                   @db.VarChar(20)
+  sender_binding_identity    String                   @db.VarChar(255)
+  completed_at               DateTime?                @db.Timestamptz(6)
+  created_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  recovery_inbox_id          String?                  @db.Uuid
+  recovery_interface_family  String?                  @db.VarChar(8)
+  recovery_pending_task_id   Int?
+  users                      users                    @relation(fields: [tenant_id, authenticated_actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_actor")
+  pathway_projector_inbox    pathway_projector_inbox? @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_recovery_inbox")
+  tasks                      tasks?                   @relation(fields: [tenant_id, recovery_pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_recovery_task")
+  lab_analyzers              lab_analyzers            @relation(fields: [tenant_id, trusted_sender_identity], references: [tenant_id, analyzer_code], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_sender")
+  tenants                    tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_oru_ingest_messages_tenant")
   lab_results                lab_results[]
 
   @@unique([tenant_id, trusted_sender_identity, message_control_id], map: "uq_lab_oru_ingest_messages_sender_control")
   @@unique([tenant_id, id], map: "ux_lab_oru_ingest_messages_tenant_id")
+  @@unique([tenant_id, recovery_inbox_id], map: "uq_lab_oru_ingest_messages_recovery_inbox", where: raw("(recovery_inbox_id IS NOT NULL)"))
+  @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_lab_oru_ingest_messages_recovery_contract")
+  @@unique([tenant_id, recovery_pending_task_id], map: "ux_lab_oru_ingest_messages_recovery_task", where: raw("(recovery_pending_task_id IS NOT NULL)"))
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_lab_oru_ingest_messages_created")
 }
 
@@ -16143,42 +16153,46 @@ model medication_safety_reviews {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model lab_interface_messages {
-  id                        Int                         @id @default(autoincrement())
-  tenant_id                 String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  analyzer_id               Int?
-  analyzer_code             String?                     @db.VarChar(120)
-  direction                 String                      @default("inbound") @db.VarChar(10)
-  protocol                  String                      @db.VarChar(20)
-  message_type              String?                     @db.VarChar(40)
-  raw_message               String
-  status                    String                      @default("received") @db.VarChar(20)
-  error                     String?
-  result_count              Int?
-  specimen_id               Int?
-  verdicts                  Json?
-  processed_at              DateTime?                   @db.Timestamptz(6)
-  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
-  raw_message_sha256        String                      @default(dbgenerated("encode(digest(raw_message, 'sha256'::text), 'hex'::text)"))
-  ingest_contract_version   Int?
-  astm_message_sha256       String                      @default(dbgenerated("encode(digest(lab_astm_canonical_message(raw_message), 'sha256'::text), 'hex'::text)"))
-  authenticated_actor_uid   String?                     @db.Uuid
-  authenticated_actor_roles String[]
-  analyzer_binding_mode     String?                     @db.VarChar(40)
-  analyzer_binding_identity String?                     @db.VarChar(120)
-  analyzer_sender_identity  String?                     @db.VarChar(120)
-  recovery_inbox_id         String?                     @db.Uuid
-  recovery_interface_family String?                     @db.VarChar(8)
-  device_vitals_control_ids device_vitals_control_ids[]
-  authenticated_actor       users?                      @relation("lab_interface_messages_authenticated_actor", fields: [tenant_id, authenticated_actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_astm_authenticated_actor")
-  pathway_projector_inbox   pathway_projector_inbox?    @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_messages_recovery_inbox")
-  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_messages_tenant")
-  lab_analyzers             lab_analyzers?              @relation(fields: [analyzer_id], references: [id], onUpdate: NoAction)
-  lab_specimens             lab_specimens?              @relation(fields: [specimen_id], references: [id], onUpdate: NoAction)
-  lab_results               lab_results[]
+  id                           Int                         @id @default(autoincrement())
+  tenant_id                    String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  analyzer_id                  Int?
+  analyzer_code                String?                     @db.VarChar(120)
+  direction                    String                      @default("inbound") @db.VarChar(10)
+  protocol                     String                      @db.VarChar(20)
+  message_type                 String?                     @db.VarChar(40)
+  raw_message                  String
+  status                       String                      @default("received") @db.VarChar(20)
+  error                        String?
+  result_count                 Int?
+  specimen_id                  Int?
+  verdicts                     Json?
+  processed_at                 DateTime?                   @db.Timestamptz(6)
+  created_at                   DateTime                    @default(now()) @db.Timestamptz(6)
+  raw_message_sha256           String                      @default(dbgenerated("encode(digest(raw_message, 'sha256'::text), 'hex'::text)"))
+  ingest_contract_version      Int?
+  astm_message_sha256          String                      @default(dbgenerated("encode(digest(lab_astm_canonical_message(raw_message), 'sha256'::text), 'hex'::text)"))
+  authenticated_actor_uid      String?                     @db.Uuid
+  authenticated_actor_roles    String[]
+  analyzer_binding_mode        String?                     @db.VarChar(40)
+  analyzer_binding_identity    String?                     @db.VarChar(120)
+  analyzer_sender_identity     String?                     @db.VarChar(120)
+  recovery_inbox_id            String?                     @db.Uuid
+  recovery_interface_family    String?                     @db.VarChar(8)
+  recovery_critical_result_ids Int[]                       @default([])
+  recovery_pending_task_id     Int?
+  device_vitals_control_ids    device_vitals_control_ids[]
+  authenticated_actor          users?                      @relation("lab_interface_messages_authenticated_actor", fields: [tenant_id, authenticated_actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_astm_authenticated_actor")
+  pathway_projector_inbox      pathway_projector_inbox?    @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_messages_recovery_inbox")
+  tasks                        tasks?                      @relation(fields: [tenant_id, recovery_pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_messages_recovery_task")
+  tenants                      tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_lab_interface_messages_tenant")
+  lab_analyzers                lab_analyzers?              @relation(fields: [analyzer_id], references: [id], onUpdate: NoAction)
+  lab_specimens                lab_specimens?              @relation(fields: [specimen_id], references: [id], onUpdate: NoAction)
+  lab_results                  lab_results[]
 
   @@unique([tenant_id, id], map: "ux_lab_interface_messages_tenant_id")
   @@unique([tenant_id, recovery_inbox_id], map: "uq_lab_interface_messages_recovery_inbox", where: raw("(recovery_inbox_id IS NOT NULL)"))
   @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_lab_interface_messages_recovery_contract")
+  @@unique([tenant_id, recovery_pending_task_id], map: "ux_lab_interface_messages_recovery_task", where: raw("(recovery_pending_task_id IS NOT NULL)"))
   @@index([analyzer_id, created_at(sort: Desc)], map: "idx_lab_interface_messages_analyzer", where: raw("(analyzer_id IS NOT NULL)"))
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_lab_interface_messages_status")
 }
@@ -24537,49 +24551,50 @@ model cath_consumables_billing_settings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pathway_projector_inbox {
-  tenant_id              String                  @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consumer_key           String                  @db.VarChar(120)
-  generation             Int
-  event_id               BigInt?
-  status                 String                  @default("pending") @db.VarChar(20)
-  attempts               Int                     @default(0)
-  lease_owner            String?                 @db.Uuid
-  lease_expires_at       DateTime?               @db.Timestamptz(6)
-  next_attempt_at        DateTime                @default(now()) @db.Timestamptz(6)
-  last_error             String?
-  outcome_at             DateTime?               @db.Timestamptz(6)
-  created_at             DateTime                @default(now()) @db.Timestamptz(6)
-  inbox_id               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  scope_kind             String                  @default("pathway_registry") @db.VarChar(32)
-  offset_id              String?                 @db.Uuid
-  facility_id            Int?
-  interface_family       String?                 @db.VarChar(8)
-  direction              String?                 @db.VarChar(16)
-  source_partition       String?                 @db.VarChar(160)
-  source_position        BigInt?
-  source_token           String?                 @db.VarChar(255)
-  predecessor_token      String?                 @db.VarChar(255)
-  duplicate_key          String?                 @db.VarChar(255)
-  command_fingerprint    String?                 @db.Char(64)
-  occurred_at            DateTime?               @db.Timestamptz(6)
-  received_at            DateTime?               @db.Timestamptz(6)
-  recorded_at            DateTime?               @db.Timestamptz(6)
-  arrival_class          String?                 @db.VarChar(32)
-  effect_disposition     String?                 @db.VarChar(32)
-  outcome_code           String?                 @db.VarChar(80)
-  pending_task_id        Int?
-  policy_version         String?                 @db.VarChar(80)
-  policy_signature       String?                 @db.VarChar(128)
-  retention_policy       String?                 @db.VarChar(80)
-  retention_until        DateTime?               @db.Timestamptz(6)
-  cold_chain_readings    cold_chain_readings[]
-  event_outbox           event_outbox[]
-  lab_interface_messages lab_interface_messages?
-  facilities             facilities?             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
-  event_consumer_offsets event_consumer_offsets? @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
-  tasks                  tasks?                  @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
-  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
-  vitals_chart           vitals_chart?
+  tenant_id               String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consumer_key            String                   @db.VarChar(120)
+  generation              Int
+  event_id                BigInt?
+  status                  String                   @default("pending") @db.VarChar(20)
+  attempts                Int                      @default(0)
+  lease_owner             String?                  @db.Uuid
+  lease_expires_at        DateTime?                @db.Timestamptz(6)
+  next_attempt_at         DateTime                 @default(now()) @db.Timestamptz(6)
+  last_error              String?
+  outcome_at              DateTime?                @db.Timestamptz(6)
+  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  inbox_id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scope_kind              String                   @default("pathway_registry") @db.VarChar(32)
+  offset_id               String?                  @db.Uuid
+  facility_id             Int?
+  interface_family        String?                  @db.VarChar(8)
+  direction               String?                  @db.VarChar(16)
+  source_partition        String?                  @db.VarChar(160)
+  source_position         BigInt?
+  source_token            String?                  @db.VarChar(255)
+  predecessor_token       String?                  @db.VarChar(255)
+  duplicate_key           String?                  @db.VarChar(255)
+  command_fingerprint     String?                  @db.Char(64)
+  occurred_at             DateTime?                @db.Timestamptz(6)
+  received_at             DateTime?                @db.Timestamptz(6)
+  recorded_at             DateTime?                @db.Timestamptz(6)
+  arrival_class           String?                  @db.VarChar(32)
+  effect_disposition      String?                  @db.VarChar(32)
+  outcome_code            String?                  @db.VarChar(80)
+  pending_task_id         Int?
+  policy_version          String?                  @db.VarChar(80)
+  policy_signature        String?                  @db.VarChar(128)
+  retention_policy        String?                  @db.VarChar(80)
+  retention_until         DateTime?                @db.Timestamptz(6)
+  cold_chain_readings     cold_chain_readings[]
+  event_outbox            event_outbox[]
+  lab_interface_messages  lab_interface_messages?
+  lab_oru_ingest_messages lab_oru_ingest_messages?
+  facilities              facilities?              @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
+  event_consumer_offsets  event_consumer_offsets?  @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
+  tasks                   tasks?                   @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
+  tenants                 tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
+  vitals_chart            vitals_chart?
 
   @@unique([tenant_id, interface_family, direction, source_partition, duplicate_key], map: "uq_pathway_projector_inbox_external_duplicate", where: raw("((scope_kind)::text = 'external_interface'::text)"))
   @@unique([tenant_id, offset_id, generation, source_position], map: "uq_pathway_projector_inbox_external_position", where: raw("((scope_kind)::text = 'external_interface'::text)"))

@@ -342,7 +342,7 @@ function configuredStringArray(metadata, key) {
     .filter(Boolean);
 }
 
-async function resolveTrustedAstmAnalyzer({
+export async function resolveTrustedAstmAnalyzer({
   tx,
   tenantId,
   analyzerCode,
@@ -430,7 +430,7 @@ async function resolveTrustedAstmAnalyzer({
   };
 }
 
-async function groundLabInterfaceActor({ tx, tenantId, context }) {
+export async function groundLabInterfaceActor({ tx, tenantId, context }) {
   const actorUid = String(context.actorUid || '').trim();
   if (!UUID_PATTERN.test(actorUid)) {
     throw AppError.forbidden(
@@ -505,7 +505,7 @@ async function priorNumericValue({
  * band via the autoverification helpers). Database failures propagate so the
  * surrounding clinical transaction cannot commit a degraded partial result.
  */
-async function verdictForResult({
+export async function verdictForResult({
   client,
   tenantId,
   interfaceMessageId,

@@ -6,14 +6,26 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I09', 'I10', 'I15'].includes(id),
+  implemented: ['I01', 'I02', 'I09', 'I10', 'I15'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
 
 const catalogEntries = [
-  entry('I01', 'LIS ORU inbound', HWM),
-  entry('I02', 'ASTM analyzer inbound', HWM),
+  entry('I01', 'LIS ORU inbound', HWM, {
+    direction: 'inbound',
+    cursorKind: 'monotonic_position_and_predecessor',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_sender_msh10',
+    partitionKind: 'tenant_trusted_sender',
+  }),
+  entry('I02', 'ASTM analyzer inbound', HWM, {
+    direction: 'inbound',
+    cursorKind: 'monotonic_position_and_predecessor',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_analyzer_canonical_astm_sha256',
+    partitionKind: 'tenant_analyzer',
+  }),
   entry('I03', 'HL7 ADT and ORM inbound', HWM),
   entry('I04', 'HL7 outbound', HWM),
   entry('I05', 'Generic integration-engine streams', HWM),

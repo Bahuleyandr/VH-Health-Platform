@@ -3,6 +3,10 @@ import { Router } from 'express';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 import * as lab from '../../services/lab/labResultsService.js';
 import * as labClosedLoop from '../../services/lab/labClosedLoopService.js';
+import {
+  ingestSequencedAstmRecovery,
+  ingestSequencedOruRecovery,
+} from '../../services/integrations/externalLabRecoveryService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import {
@@ -69,7 +73,7 @@ router.post(
   phiAccessLogger('LAB_RESULT'),
   wrap(async (req) => {
     const actorRoles = getAuthenticatedActorRoles(req.user);
-    return lab.ingestOruMessage(req.body?.message, {
+    const context = {
       tenantId: resolveTenantOrThrow(req),
       actorUid: req.user?.uid || null,
       actorRole: req.user?.role || actorRoles[0] || null,
@@ -77,7 +81,15 @@ router.post(
       apiClient: req.apiClient || null,
       apiClientId: req.apiClientId || null,
       apiClientTenantId: req.apiClientTenantId || null,
-    });
+    };
+    if (req.body?.recovery != null) {
+      return ingestSequencedOruRecovery({
+        tenantId: context.tenantId,
+        message: req.body?.message,
+        recovery: req.body.recovery,
+      }, context);
+    }
+    return lab.ingestOruMessage(req.body?.message, context);
   }),
 );
 
@@ -94,19 +106,35 @@ router.post(
       );
     }
     const actorRoles = getAuthenticatedActorRoles(req.user);
-    return labClosedLoop.ingestInterfaceMessage({
-      protocol: req.body?.protocol,
-      rawMessage: req.body?.message,
-      analyzerCode: req.body?.analyzer_code || null,
-      tenantId: resolveTenantOrThrow(req),
-    }, {
+    const context = {
       actorUid: req.user?.uid || null,
       actorRole: req.user?.role || actorRoles[0] || null,
       actorRoles,
       apiClient: req.apiClient || null,
       apiClientId: req.apiClientId || null,
       apiClientTenantId: req.apiClientTenantId || null,
-    });
+    };
+    const tenantId = resolveTenantOrThrow(req);
+    if (req.body?.recovery != null) {
+      if (req.body?.protocol !== 'astm_e1394') {
+        throw AppError.badRequest(
+          'I02 recovery requires protocol astm_e1394',
+          'LAB_INTERFACE_BAD_PROTOCOL',
+        );
+      }
+      return ingestSequencedAstmRecovery({
+        tenantId,
+        message: req.body?.message,
+        analyzerCode: req.body?.analyzer_code || null,
+        recovery: req.body.recovery,
+      }, context);
+    }
+    return labClosedLoop.ingestInterfaceMessage({
+      protocol: req.body?.protocol,
+      rawMessage: req.body?.message,
+      analyzerCode: req.body?.analyzer_code || null,
+      tenantId,
+    }, context);
   }),
 );
 

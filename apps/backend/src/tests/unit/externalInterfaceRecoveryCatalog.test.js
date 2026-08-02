@@ -13,12 +13,28 @@ describe('external interface recovery catalog', () => {
       .toEqual(EXTERNAL_INTERFACE_RECOVERY_FAMILIES);
   });
 
-  it('implements I09, I10, and I15 in C6.1-B with explicit scopes', () => {
+  it('adds C6.1-C laboratory families to the landed implementations with explicit scopes', () => {
     expect(
       Object.values(EXTERNAL_INTERFACE_RECOVERY_CATALOG)
         .filter((item) => item.implemented)
         .map((item) => item.id),
-    ).toEqual(['I09', 'I10', 'I15']);
+    ).toEqual(['I01', 'I02', 'I09', 'I10', 'I15']);
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I01' }))
+      .toMatchObject({
+        id: 'I01',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        facilityScope: 'tenant',
+        duplicateKeyKind: 'tenant_sender_msh10',
+      });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I02' }))
+      .toMatchObject({
+        id: 'I02',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        facilityScope: 'tenant',
+        duplicateKeyKind: 'tenant_analyzer_canonical_astm_sha256',
+      });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I09' }))
       .toMatchObject({
         id: 'I09',

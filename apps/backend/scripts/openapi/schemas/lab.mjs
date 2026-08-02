@@ -1,8 +1,31 @@
 import { envelope } from './_helpers.mjs';
 
+const lateRecoveryProperties = {
+  arrival_class: { type: 'string', enum: ['recovery_backlog'] },
+  tenant_id: { type: 'string', format: 'uuid' },
+  offset_id: { type: 'string', format: 'uuid' },
+  source_partition: { type: 'string', minLength: 1, maxLength: 160 },
+  generation: { type: 'integer', minimum: 1 },
+  source_position: { type: 'string', pattern: '^(0|[1-9][0-9]*)$' },
+  source_token: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+  predecessor_token: { type: 'string', minLength: 1, maxLength: 255 },
+  duplicate_key: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+  source_observed_at: { type: 'string', format: 'date-time' },
+  source_received_at: { type: 'string', format: 'date-time' },
+  clock_evidence: { type: 'object', minProperties: 1, additionalProperties: true },
+};
+
+const lateRecoveryRequired = [
+  'schema', 'interface_family', 'arrival_class', 'tenant_id', 'offset_id',
+  'source_partition', 'generation', 'source_position', 'source_token',
+  'predecessor_token', 'duplicate_key', 'source_observed_at',
+  'source_received_at', 'clock_evidence',
+];
+
 export const schemas = {
   LabAstmIngestRequest: {
     type: 'object',
+    additionalProperties: false,
     required: ['protocol', 'message'],
     properties: {
       protocol: {
@@ -16,10 +39,12 @@ export const schemas = {
       analyzer_code: {
         type: 'string',
       },
+      recovery: { $ref: '#/components/schemas/LabI02RecoveryEnvelope' },
     },
   },
   LabOruIngestRequest: {
     type: 'object',
+    additionalProperties: false,
     required: ['message'],
     properties: {
       message: {
@@ -27,7 +52,45 @@ export const schemas = {
         minLength: 1,
         description: 'HL7 ORU^R01 payload. Local investigation references in ORC-2/OBR-2 must use VHINV-<positive PostgreSQL integer>. Bare numeric, malformed VHINV, and reserved VHBOOK identifiers are rejected. A VHINV-linked single-analyte message requires exact investigations.test_code equality with the OBR-4 and every OBX-3 code component. Unrecognized external alphanumeric identifiers remain unlinked shadow data.',
       },
+      recovery: { $ref: '#/components/schemas/LabI01RecoveryEnvelope' },
     },
+  },
+  LabI01RecoveryEnvelope: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      ...lateRecoveryRequired,
+      'trusted_sender_identity', 'message_control_id', 'message_sha256',
+    ],
+    properties: {
+      ...lateRecoveryProperties,
+      schema: { type: 'string', enum: ['vhhealth.i01.oru-sequence/v1'] },
+      interface_family: { type: 'string', enum: ['I01'] },
+      trusted_sender_identity: { type: 'string', minLength: 1, maxLength: 120 },
+      message_control_id: { type: 'string', minLength: 1, maxLength: 100 },
+      message_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    },
+    description: 'Owner-authorized I01 backlog envelope. OBR-7 is the explicit occurrence authority; late results create a no-SLA human-review task and never retrospective pathway, SLA, or notification effects.',
+  },
+  LabI02RecoveryEnvelope: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      ...lateRecoveryRequired,
+      'analyzer_id', 'analyzer_code', 'analyzer_sender_identity',
+      'raw_message_sha256', 'astm_message_sha256',
+    ],
+    properties: {
+      ...lateRecoveryProperties,
+      schema: { type: 'string', enum: ['vhhealth.i02.astm-sequence/v1'] },
+      interface_family: { type: 'string', enum: ['I02'] },
+      analyzer_id: { type: 'integer', minimum: 1 },
+      analyzer_code: { type: 'string', minLength: 1, maxLength: 120 },
+      analyzer_sender_identity: { type: 'string', minLength: 1, maxLength: 120 },
+      raw_message_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+      astm_message_sha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    },
+    description: 'Owner-authorized I02 backlog envelope. Source occurrence is explicit because ASTM carries no governed occurrence timestamp; canonical ASTM bytes bind replay identity.',
   },
   InvestigationResultRecordRequest: {
     type: 'object',
@@ -107,7 +170,7 @@ export const operations = {
   },
   'POST /api/v1/lab/interface/ingest': {
     summary: 'Ingest an ASTM E1394 analyzer message',
-    description: 'ASTM-only analyzer inbox. HL7 ORU messages must use /api/v1/lab/oru/ingest so the migration-582 claim remains the single durable replay authority.',
+    description: 'ASTM-only analyzer inbox. Optional I02 recovery adapts the migration-583 receipt and requires an owner-authorized high-water marker; recovered critical results create no retrospective SLA/pathway/notification effects. HL7 ORU messages must use /api/v1/lab/oru/ingest.',
     request: 'LabAstmIngestRequest',
   },
   'POST /api/v1/lab/results': {
@@ -117,7 +180,7 @@ export const operations = {
   },
   'POST /api/v1/lab/oru/ingest': {
     summary: 'Ingest an authenticated HL7 ORU result message',
-    description: 'Uses an immutable sender/message-control replay claim. Local orders are table-explicit: VHINV-<id> resolves only investigations and requires exact structured analyte identity. No VHBOOK producer is currently supported. Bare numeric order IDs fail with LAB_ORU_ORDER_NAMESPACE_REQUIRED before durable writes; external alphanumeric IDs are accepted only as unlinked shadow data and block active-mode cutover.',
+    description: 'Uses the immutable migration-582 sender/message-control replay claim. Optional I01 recovery requires an owner-authorized high-water marker and creates result plus no-SLA human-review evidence without retrospective SLA/pathway/notification effects. Local orders are table-explicit: VHINV-<id> resolves only investigations and requires exact structured analyte identity. No VHBOOK producer is currently supported.',
     request: 'LabOruIngestRequest',
   },
   'POST /api/v1/lab/pathologist/signoff': {
