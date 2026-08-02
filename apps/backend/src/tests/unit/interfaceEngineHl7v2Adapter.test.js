@@ -15,12 +15,13 @@ const message = Object.freeze({
 
 describe('I05 HL7v2 protocol adapter', () => {
   test('keeps registration limited to the landed protocol adapters', () => {
-    expect(IMPLEMENTED_I05_PROTOCOLS).toEqual(['hl7v2', 'csv', 'json', 'fhir_json']);
+    expect(IMPLEMENTED_I05_PROTOCOLS).toEqual(['hl7v2', 'csv', 'json', 'fhir_json', 'other']);
     expect(requireI05ProtocolAdapter('hl7v2').protocol).toBe('hl7v2');
     expect(requireI05ProtocolAdapter('csv').protocol).toBe('csv');
     expect(requireI05ProtocolAdapter('json').protocol).toBe('json');
     expect(requireI05ProtocolAdapter('fhir_json').protocol).toBe('fhir_json');
-    expect(() => requireI05ProtocolAdapter('other')).toThrow(expect.objectContaining({
+    expect(requireI05ProtocolAdapter('other').protocol).toBe('other');
+    expect(() => requireI05ProtocolAdapter('xml')).toThrow(expect.objectContaining({
       code: 'INTEROP_PROTOCOL_ADAPTER_UNREGISTERED',
     }));
   });
