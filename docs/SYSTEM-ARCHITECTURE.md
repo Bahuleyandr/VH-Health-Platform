@@ -413,12 +413,17 @@ caller is not SUPER_ADMIN, the request fails closed. Resolved context
 is exposed as `req.tenantId`, `req.tenant`, `req.user.tenantId`,
 `req.user.tenantRegion`, `req.user.complianceProfile` downstream.
 
-### `setTenant()` — opt-in usage
+### `setTenant()` — usage and auto-wrapping
 
 Per [`apps/backend/CLAUDE.md`](../apps/backend/CLAUDE.md) ("Phase 0.5 conventions"):
 
-- Plain `prisma.$queryRaw*` **bypasses RLS** by design (permissive
-  policy when the GUC is unset).
+- Plain `prisma.$queryRaw*` and model-delegate calls are **auto-wrapped in
+  `setTenant`** when tenant-RLS enforcement is on (`AUTH_ENFORCE_TENANT_RLS`,
+  else `NODE_ENV === 'production'`) and an AsyncLocalStorage tenant context is
+  active. With the flag off — dev, QA, CI — they run unwrapped and the GUC
+  stays unset, so the policy takes its permissive branch. See the CLAUDE.md
+  bullet for the full condition list and why explicit `tenant_id` predicates
+  remain the pattern for provable scoping.
 - New tenant-scoped reads/writes on the 11 RLS tables SHOULD use
   `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from
   `src/lib/prisma.js`.
