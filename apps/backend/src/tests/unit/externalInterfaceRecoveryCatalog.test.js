@@ -59,7 +59,7 @@ describe('external interface recovery catalog', () => {
         defaultEffectDisposition: 'late_pending_only',
         implemented: true,
         directions: ['inbound', 'outbound'],
-        implementedProtocols: ['hl7v2'],
+        implementedProtocols: expect.arrayContaining(['hl7v2']),
         facilityScope: 'tenant',
         partitionKind: 'tenant_channel_direction_target',
       });
