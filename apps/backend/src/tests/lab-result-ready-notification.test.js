@@ -16,6 +16,7 @@ import * as labResults from '../services/lab/labResultsService.js';
 import {
   getResultEpisodeReleaseDecision,
 } from '../services/portal/portalAccessService.js';
+import { purgeDiagnosticEvidence } from './helpers/diagnosticEvidenceCleanup.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ADULT_UID = 'f5555555-5555-4555-8555-555555550001';
@@ -81,6 +82,9 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
   beforeAll(async () => {
     previousReleaseDelay = process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS;
     process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS = '0';
+    // Clear append-only sign-off evidence a previous run may have stranded, so
+    // a database that is already poisoned heals instead of staying wedged.
+    await purgeDiagnosticEvidence(prisma, TENANT, allUids);
     await insertUser(ADULT_UID, '9811100001', 'Adult Patient');
     const guardianDbId = await insertUser(GUARDIAN_UID, '9811100002', 'Guardian Parent');
     await insertUser(MINOR_UID, '9811100003', 'Minor Dependent', guardianDbId);
@@ -104,6 +108,11 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
   });
 
   afterAll(async () => {
+    // Must precede the sign-off / result / investigation / user deletes below:
+    // until this evidence is gone every one of them is rejected by an FK, and
+    // because they all swallow their errors the teardown failed in silence.
+    // Deliberately NOT swallowed — a purge that stops working should be loud.
+    await purgeDiagnosticEvidence(prisma, TENANT, allUids);
     await prisma.$executeRawUnsafe(
       `DELETE FROM notifications WHERE uid = ANY($1::uuid[])`, allUids,
     ).catch(() => {});
