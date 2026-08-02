@@ -5,6 +5,7 @@
 import { generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { purgeDiagnosticEvidence } from './helpers/diagnosticEvidenceCleanup.js';
 import request from 'supertest';
 import app from '../app.js';
 
@@ -58,39 +59,12 @@ function patientAs(intId) {
 }
 
 // Recording an investigation result also writes signed diagnostic evidence
-// (migration 589): one `diagnostic_result_generations` row plus its generation
-// items. That evidence is append-only — a BEFORE UPDATE OR DELETE trigger
-// rejects every delete — so the plain deletes below cannot remove it. Left
-// behind, the row pins both the investigation
-// (fk_diagnostic_generation_investigation) and all three fixture users
-// (fk_diagnostic_generation_patient / _signer / _owner), and the NEXT run of
-// this suite dies on `DELETE FROM investigations` with a 23503. That made the
-// suite pass on a pristine database and fail on every repeat run against the
-// same one; CI never caught it because CI builds a fresh database per run.
-//
-// Teardown runs only against a disposable test database, so this one
-// transaction disables user and constraint triggers to drop the evidence —
-// the same pattern `lab-critical-alert-ack-atomicity.deep.test.js` uses.
-// Production cleanup paths are untouched. All three tables carry
-// (tenant_id, patient_uid), so one scope covers the parent and both children
-// without leaving orphans.
-async function purgeDiagnosticResultEvidence() {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-    await tx.$executeRawUnsafe(
-      `DELETE FROM diagnostic_result_actions
-        WHERE tenant_id = $1::uuid AND patient_uid IN ($2::uuid, $3::uuid, $4::uuid)`,
-      DEFAULT_TENANT_ID, PATIENT_UID, DOCTOR_UID, LAB_UID);
-    await tx.$executeRawUnsafe(
-      `DELETE FROM diagnostic_result_generation_items
-        WHERE tenant_id = $1::uuid AND patient_uid IN ($2::uuid, $3::uuid, $4::uuid)`,
-      DEFAULT_TENANT_ID, PATIENT_UID, DOCTOR_UID, LAB_UID);
-    await tx.$executeRawUnsafe(
-      `DELETE FROM diagnostic_result_generations
-        WHERE tenant_id = $1::uuid AND patient_uid IN ($2::uuid, $3::uuid, $4::uuid)`,
-      DEFAULT_TENANT_ID, PATIENT_UID, DOCTOR_UID, LAB_UID);
-  });
-}
+// (migration 589) that is append-only and FK-pins the investigation plus all
+// three fixture users, so it must be purged before the deletes below. The
+// mechanism and its rationale live in the shared helper.
+const purgeDiagnosticResultEvidence = () => purgeDiagnosticEvidence(
+  prisma, DEFAULT_TENANT_ID, [PATIENT_UID, DOCTOR_UID, LAB_UID],
+);
 
 describe('Investigation order workflow — deep integration', () => {
   const admin = adminAs();

@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma.js';
 import { signOffResults } from '../services/lab/labResultsService.js';
 import { authClient } from './testClient.js';
+import { purgeDiagnosticEvidence } from './helpers/diagnosticEvidenceCleanup.js';
 
 const DB_CONFIGURED = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -56,6 +57,12 @@ async function seedEpisode({ patientUid = PATIENT_UID, analytes = [{}] } = {}) {
 }
 
 async function cleanup() {
+  // A verified sign-off writes append-only diagnostic evidence (migration 589)
+  // that FK-pins the sign-off, its investigation and the fixture users. Until
+  // it is gone the deletes below are all rejected — and because they swallow
+  // their errors the teardown failed in silence. Deliberately NOT swallowed:
+  // a purge that stops working should be loud, not quietly reintroduce the leak.
+  await purgeDiagnosticEvidence(prisma, TENANT, [PATIENT_UID, PATHOLOGIST_UID, INACTIVE_UID]);
   await prisma.$executeRawUnsafe(
     `DELETE FROM staff_credentials
       WHERE tenant_id = $1::uuid
