@@ -115,7 +115,8 @@ function recoveryConfig(interfaceFamily = 'I10', subpath = null, {
 } = {}) {
   const config = resolveExternalInterfaceDisposition({ interfaceFamily, subpath });
   const disposition = config.selectedDisposition || config.disposition;
-  if (!config.implemented || disposition !== 'hwm_required') {
+  if (!EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES.includes(config.id)
+      || disposition !== 'hwm_required') {
     throw AppError.conflict(
       `${config.id} is not implemented on the canonical recovery substrate`,
       'EXTERNAL_RECOVERY_INTERFACE_NOT_IMPLEMENTED',
@@ -459,74 +460,107 @@ function matchesQueuedItem(row, expected) {
     && row.command_fingerprint === expected.fingerprint;
 }
 
-async function persistLateDomain({ tx, capability, config, inbox, tenantId, command }) {
-  if (config.id === 'I04') {
-    const { persistLateHl7OutboundRecovery } = await import('./externalHl7OutboundRecoveryService.js');
-    return persistLateHl7OutboundRecovery({
-      tx, capability, tenantId,
-      recoveryInboxId: inbox.inbox_id,
-      command,
-    });
-  }
-  if (config.id === 'I17') {
-    const { persistLateNotificationRecovery } = await import('./externalNotificationRecoveryService.js');
-    return persistLateNotificationRecovery({
-      tx, capability, tenantId,
-      recoveryInboxId: inbox.inbox_id,
-      command,
-    });
-  }
-  if (config.id === 'I05') {
-    const { persistLateInterfaceEngineRecovery } = await import('./externalInterfaceEngineRecoveryService.js');
-    return persistLateInterfaceEngineRecovery({
-      tx,
-      capability,
-      tenantId,
-      recoveryInboxId: inbox.inbox_id,
-      protocol: config.protocol,
-      streamDirection: config.direction,
-      sourcePartition: inbox.source_partition,
-      sourcePosition: inbox.source_position,
-      sourceToken: inbox.source_token,
-      predecessorToken: inbox.predecessor_token,
-      duplicateKey: inbox.duplicate_key,
-      command,
-    });
-  }
-  if (config.id === 'I06') {
-    const { persistLateImagingStudyLinkRecovery } = await import('./externalImagingStudyLinkRecoveryService.js');
-    return persistLateImagingStudyLinkRecovery({
-      tx,
-      capability,
-      tenantId,
-      recoveryInboxId: inbox.inbox_id,
-      sourcePartition: inbox.source_partition,
-      sourcePosition: inbox.source_position,
-      sourceToken: inbox.source_token,
-      predecessorToken: inbox.predecessor_token,
-      duplicateKey: inbox.duplicate_key,
-      occurredAt: inbox.occurred_at,
-      command,
-    });
-  }
-  if (config.id === 'I01' || config.id === 'I02') {
-    const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
-    return persistLateLabRecovery({
-      tx, capability, tenantId, interfaceFamily: config.id,
-      recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
-    });
-  }
-  if (config.id === 'I10') {
-    return persistLateColdChainRecovery({
-      tx, capability, tenantId, facilityId: inbox.facility_id,
-      recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
-    });
-  }
+async function persistLateHl7Outbound({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateHl7OutboundRecovery } = await import('./externalHl7OutboundRecoveryService.js');
+  return persistLateHl7OutboundRecovery({
+    tx, capability, tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    command,
+  });
+}
+
+async function persistLateNotification({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateNotificationRecovery } = await import('./externalNotificationRecoveryService.js');
+  return persistLateNotificationRecovery({
+    tx, capability, tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    command,
+  });
+}
+
+async function persistLateInterfaceEngine({ tx, capability, config, inbox, tenantId, command }) {
+  const { persistLateInterfaceEngineRecovery } = await import('./externalInterfaceEngineRecoveryService.js');
+  return persistLateInterfaceEngineRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    protocol: config.protocol,
+    streamDirection: config.direction,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    sourceToken: inbox.source_token,
+    predecessorToken: inbox.predecessor_token,
+    duplicateKey: inbox.duplicate_key,
+    command,
+  });
+}
+
+async function persistLateImagingStudyLink({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateImagingStudyLinkRecovery } = await import('./externalImagingStudyLinkRecoveryService.js');
+  return persistLateImagingStudyLinkRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    sourceToken: inbox.source_token,
+    predecessorToken: inbox.predecessor_token,
+    duplicateKey: inbox.duplicate_key,
+    occurredAt: inbox.occurred_at,
+    command,
+  });
+}
+
+async function persistLateLab({ tx, capability, config, inbox, tenantId, command }) {
+  const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
+  return persistLateLabRecovery({
+    tx, capability, tenantId, interfaceFamily: config.id,
+    recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
+  });
+}
+
+async function persistLateColdChain({ tx, capability, inbox, tenantId, command }) {
+  return persistLateColdChainRecovery({
+    tx, capability, tenantId, facilityId: inbox.facility_id,
+    recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
+  });
+}
+
+async function persistLateVitals({ tx, capability, config, inbox, tenantId, command }) {
   const { persistLateVitalsRecovery } = await import('./externalVitalsRecoveryService.js');
   return persistLateVitalsRecovery({
     tx, capability, tenantId, interfaceFamily: config.id,
     recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
   });
+}
+
+const EXTERNAL_INTERFACE_RECOVERY_ADAPTERS = Object.freeze({
+  I01: persistLateLab,
+  I02: persistLateLab,
+  I04: persistLateHl7Outbound,
+  I05: persistLateInterfaceEngine,
+  I06: persistLateImagingStudyLink,
+  I09: persistLateVitals,
+  I10: persistLateColdChain,
+  I15: persistLateVitals,
+  I17: persistLateNotification,
+});
+
+export const EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES = Object.freeze(
+  Object.keys(EXTERNAL_INTERFACE_RECOVERY_ADAPTERS),
+);
+
+async function persistLateDomain(input) {
+  const adapter = EXTERNAL_INTERFACE_RECOVERY_ADAPTERS[input.config.id];
+  if (!adapter) {
+    throw AppError.conflict(
+      `${input.config.id} is not implemented on the canonical recovery substrate`,
+      'EXTERNAL_RECOVERY_INTERFACE_NOT_IMPLEMENTED',
+    );
+  }
+  return adapter(input);
 }
 
 export async function processNextItemTx({
