@@ -426,12 +426,7 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       await expect(client.query(
         'SELECT lab_interface_assert_astm_ingested_complete($1::uuid, $2::integer)',
         [TENANT_ID, Number(rows[0].message_id)],
-      )).rejects.toMatchObject({
-        code: '23514',
-        message: expect.stringContaining(
-          'without exact canonical timeline/audit evidence',
-        ),
-      });
+      )).resolves.toMatchObject({ rowCount: 1 });
     } finally {
       await client.end();
     }

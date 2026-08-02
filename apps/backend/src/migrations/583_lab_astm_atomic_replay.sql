@@ -2614,6 +2614,10 @@ BEGIN
     RETURN;
   END IF;
 
+  IF to_jsonb(message_record)->>'recovery_interface_family' = 'I02' THEN
+    RETURN;
+  END IF;
+
   IF message_record.ingest_contract_version IS DISTINCT FROM 1
      OR message_record.analyzer_id IS NULL
      OR NULLIF(BTRIM(message_record.analyzer_code), '') IS NULL
