@@ -1,4 +1,4 @@
-# Escalation fairness — SQL page advancement and tenant-ranked recipients
+# Escalation fairness — SQL page advancement and reachability-first tenant-ranked recipients
 
 **Status:** Step 1 design delta; owner decisions recorded 2026-08-02; runtime
 build remains blocked on coordinator GO and a freshly clear backend slot<br>
@@ -18,15 +18,16 @@ This slice implements both recorded owner decisions in one backend change:
 
 1. candidate pages exclude tasks for which the current rule already fired, so
    a head block of completed escalation work cannot starve later task IDs; and
-2. capped role-recipient pages use a tenant-configured staff-label rank before
-   the existing recency and ID tiebreaks, while every unranked staff member
-   remains eligible.
+2. capped role-recipient pages preserve the existing reachability invariant,
+   then use tenant-configured staff-label rank inside each reachability bucket,
+   while every unranked candidate remains eligible.
 
 The implementation preserves escalation rule meanings, thresholds, action
 kinds, role-family fallback, notification channels, the recipient fan-out cap,
 its exact `COUNT(*) OVER ()` dropped count, the Winston warning, and both
-existing Prometheus counters. It does not activate a feature or add an admin
-application area.
+existing Prometheus counters. Bounded-label diagnostics make ranking failures
+and per-rank shedding visible. The slice does not activate a feature or add an
+admin application area.
 
 ## 2. Step-0 preflight
 
@@ -105,6 +106,32 @@ PR #714 was no longer an open chip: it merged during preflight and is included
 in this lane's baseline. No open chip had a direct source-file collision at
 the time of this Step-0 record. This conclusion must be refreshed at Step-2
 kickoff because the queue is intentionally serialized.
+
+### 2.5 Dated amendment — 2026-08-03 adversarial ordering review
+
+This amendment was refreshed at `2026-08-03T05:23:35+05:30`. It supersedes the
+original strict rank-first recipient order and designation-first resolution;
+the page-advancement design in section 3 is unchanged. Live repository evidence
+confirms that:
+
+- `escalationRecipientFanout.deep.test.js` pins the PR #682 invariant that the
+  cap sheds least-reachable, never-signed-in clinicians first;
+- `staff.on_leave` already exists and is populated/consumed by staff dashboard
+  and scheduling optimization paths;
+- `last_sign_in_at` is written on staff sign-in, so it is a plausible-presence
+  proxy rather than a heartbeat or duty-roster assertion; and
+- runtime staff administration and SCIM paths maintain `staff.position`, while
+  no backend writer maintains `staff.designation` (the similarly named
+  `staff_salary.designation` is a different field).
+
+The branch intentionally remains on the recorded Step-1 baseline until build
+GO. Since the original preflight, PR #712 merged and `github/main` advanced to
+`456578b914f4c62b5db91f61862406be0c14983f`; #713 remains the only other open
+chip, with no direct planned-path collision. The C6.1-E PRs #711/#703/#704/
+#705/#706/#709 remain open and still own the queued 611–616 migration stack.
+Therefore the DDL/Prisma verdict and fresh migration-number rule are unchanged:
+the build migration is at least 617 and is derived again only at coordinator
+GO after the serialized backend slot is clear.
 
 ## 3. Decision 1 — page advancement in SQL
 
@@ -197,14 +224,15 @@ unchanged JavaScript rule filter/window. The warning remains the operator's
 safety net for that pressure. The approved behavior change is specifically
 that fired rows no longer consume page capacity.
 
-## 4. Decision 2 — tenant-configured staff-label priority
+## 4. Decision 2 — reachability-first, tenant-configured staff-label priority
 
 ### 4.1 Carrier ruling
 
-Use a **tenant-scoped staff-label-to-rank mapping table**. It accepts mappings
-for the only two available labels, `designation` and `position`, and resolves
-designation first with position as a fallback when designation is absent or
-unrecognized.
+Use a **tenant-scoped staff-label-to-rank mapping table** plus a small control
+object in the existing `tenants.settings` JSONB administration surface. The
+table accepts mappings for the only two available labels, `position` and
+`designation`. Resolution uses maintained `position` first and legacy
+`designation` only when position is absent, blank, or unrecognized.
 
 The alternatives are rejected as follows:
 
@@ -214,12 +242,12 @@ The alternatives are rejected as follows:
 | Global or code-owned role-family priorities | Reject | Hospitals order roles differently, and the exact-role recipient arm contains only one `users.role`, so it cannot express seniority within that arm. |
 | Tenant staff-label mapping | Select | One tenant can rank its own terminology centrally; changing policy changes ordering without mutating every staff row; unknown labels remain safely unranked. |
 
-Supporting both label kinds avoids pretending the two legacy free-text fields
-are interchangeable. `designation` is the primary seniority signal;
-`position` is the deterministic fallback because it is already maintained by
-the staff administration and SCIM paths. If both fields have recognized but
-different ranks, the recognized designation wins. No inference is made from
-hire date, join date, user ID, or text patterns.
+Supporting both label kinds avoids abandoning older tenant data while refusing
+to treat the stale field as authoritative. `position` is the primary signal
+because staff administration and SCIM create and update it. `designation` is a
+legacy fallback only. If both fields have recognized but different ranks, the
+recognized position wins. No inference is made from hire date, join date, user
+ID, or text patterns.
 
 ### 4.2 Mapping-table contract
 
@@ -233,7 +261,7 @@ Step 2 adds `escalation_recipient_rank_mappings` with:
 - `source_value VARCHAR(100) NOT NULL` for the administrator-visible label;
 - `normalized_source_value VARCHAR(100) NOT NULL`, using the same trim,
   whitespace-collapse, and lowercase normalization as the resolver;
-- `priority_rank SMALLINT NOT NULL`, constrained to 1 through 32767, where a
+- `priority_rank SMALLINT NOT NULL`, constrained to 1 through 100, where a
   lower number pages first and equal numbers form one tier;
 - nullable `created_by` and `updated_by` actor UIDs; and
 - `created_at` and `updated_at` timestamps.
@@ -243,9 +271,26 @@ non-default tenant, valid source kind/rank, and uniqueness on
 `(tenant_id, source_kind, normalized_source_value)`. The table contains no
 patient data or notification content.
 
-An empty mapping set is a valid and intentional configuration. No default
-ranks are seeded: absent tenant configuration must reproduce today's order
-exactly.
+The existing `tenants.settings` column carries
+`escalation_recipient_ranking`, a non-secret control object with
+`configured`, `revision`, `presence_window_minutes`,
+`expected_mapping_count`, `last_replaced_at`, and `last_replaced_by`. The rank
+bound keeps both validation and the Prometheus rank-label domain finite. No
+default ranks are seeded.
+
+The control object distinguishes all three operational states:
+
+1. key absent: the tenant has never configured ranking;
+2. `configured=true` and `expected_mapping_count=0`: an audited explicit empty
+   replacement; and
+3. `configured=true` and `expected_mapping_count>0`: ranking is expected to be
+   active and a zero/partial mapping read is an observable failure.
+
+States 1 and 2 both reproduce today's ordering exactly, but GET and audit
+history distinguish them. The expected count is updated atomically with the
+mapping replacement and is deliberately independent of the mapping-table
+read, so wiped rows or an incorrectly filtered read cannot masquerade as a
+correctly unconfigured tenant.
 
 ### 4.3 Recipient query and ordering
 
@@ -253,36 +298,84 @@ Both exact-role and family-fallback query arms retain `users` as the candidate
 source. A `LEFT JOIN LATERAL` computes at most one effective rank per user from
 active, non-archived, same-tenant staff rows and same-tenant mappings:
 
-1. minimum matching designation rank, if any;
-2. otherwise minimum matching position rank, if any;
+1. minimum matching position rank, if any;
+2. otherwise minimum matching designation rank, if any;
 3. otherwise `NULL`.
 
 The aggregate lateral join is required because `staff.user_id` is indexed but
 not database-unique. It prevents duplicate staff profiles from duplicating a
 recipient or inflating `COUNT(*) OVER ()`.
 
-The only behavioral SQL change after candidate filtering is:
+The query also reduces active staff rows to one leave fact. `BOOL_OR(on_leave)`
+is conservative: any affirmative active profile prevents the user from being
+classified as plausibly present. No active staff row is **not** evidence of
+leave. Such a user remains a candidate with `effective_rank=NULL` and can
+still enter the plausible-presence bucket from a recent sign-in. A duty doctor
+without a staff profile is therefore not systematically cut behind a stale or
+never-signed-in ranked clinician.
+
+The plausible-presence window is tenant-configurable through the control
+object. Its default is **720 minutes (12 hours)**, with accepted values from 15
+through 2880 minutes. Twelve hours covers a common hospital shift and handoff
+without pretending a sign-in timestamp is live presence. One sweep captures a
+single database clock and classifies:
+
+- bucket 0, plausibly present: `last_sign_in_at >= sweep_clock - window` and no
+  active staff row has `on_leave=true`; and
+- bucket 1, less reachable: stale/null sign-in or an affirmative active
+  `on_leave=true` profile.
+
+When `expected_mapping_count > 0`, the behavioral order after candidate
+filtering is:
 
 ```sql
-ORDER BY effective_rank ASC NULLS LAST,
+ORDER BY presence_bucket ASC,
+         effective_rank ASC NULLS LAST,
          u.last_sign_in_at DESC NULLS LAST,
          u.id ASC
 ```
 
 Consequences are binding:
 
-- ranked staff page before unranked staff;
-- tied ranks use today's recency/ID order;
-- null, blank, missing, or unrecognized designation/position never removes a
-  user from the candidate set and always sorts in the unranked tail;
-- no mapping rows means every effective rank is null, making the full order
-  exactly `last_sign_in_at DESC NULLS LAST, id ASC`; and
+- plausible presence always outranks seniority, so a recent, not-on-leave
+  junior pages before a stale, never-signed-in, or on-leave consultant;
+- rank orders users only within a presence bucket, and tied ranks use today's
+  recency/ID order;
+- null, blank, missing, or unrecognized position/designation never removes a
+  user and sorts last only within its presence bucket;
+- absent configuration or an audited explicit-empty configuration bypasses
+  both bucketing and ranking, making the full order exactly
+  `last_sign_in_at DESC NULLS LAST, id ASC`; and
 - tenant A's labels can never rank tenant B's users.
 
-`COUNT(*) OVER ()` remains over the same active-user candidate population and
-is computed before the unchanged fan-out `LIMIT`. `finishRecipients()`, the
-exact dropped count, Winston warning, Prometheus counter, de-duplication,
-fan-out cap, exact-role-first behavior, and role-family fallback are unchanged.
+The capped query uses a one-row-per-user CTE with the order's row number and
+the existing exact `COUNT(*) OVER ()`. A summary CTE aggregates rows beyond the
+cap by normalized rank label (`1` through `100`, or `unranked`), while the
+recipient page still contains only the first `cap` rows. This computes tail
+composition rather than guessing it from the returned page.
+
+`finishRecipients()`, exact total matched/notified/dropped values, the existing
+Winston warning, `vhhealth_escalation_recipients_trimmed_total`, de-duplication,
+fan-out cap, exact-role-first behavior, and role-family fallback remain. The
+warning additionally includes `droppedByRank` (and presence-bucket totals), and
+`vhhealth_escalation_recipients_trimmed_by_rank_total{role,arm,rank}` reports
+the exact bounded per-rank drop counts. The sum of the per-rank increments must
+equal the existing dropped increment.
+
+Ranking failure is visible. When `expected_mapping_count > 0`, the service
+compares it with the observed same-tenant mapping count and records how many
+candidates resolved a rank. It emits a Winston warning and
+`vhhealth_escalation_recipient_ranking_failures_total{role,arm,reason}` when:
+
+- observed mappings differ from expected (`mapping_count_mismatch`); or
+- the candidate population is nonempty but zero candidates resolved a rank,
+  regardless of whether the mapping read returned zero or nonzero rows
+  (`zero_ranked_candidates`).
+
+The warning carries tenant ID, expected/observed/matched counts, control
+revision, and presence window; tenant ID is not a metric label. These bounded
+reason labels make a wiped table, normalization mismatch, and RLS-filtered read
+distinguishable from a tenant that intentionally has no ranking.
 
 ### 4.4 Existing administration and audit surface
 
@@ -293,22 +386,31 @@ SUPER_ADMIN, step-up, IP-allowlisted tenant configuration route family under
 - `GET /escalation-recipient-rankings`; and
 - `PUT /escalation-recipient-rankings` for an atomic full replacement.
 
-The `PUT` body is a bounded `mappings[]` list of `{ sourceKind, sourceValue,
-priorityRank }`. The service normalizes labels, rejects case/whitespace
-duplicates and invalid ranks before writing, and accepts an empty list to
-restore exact legacy ordering.
+The `PUT` body contains a bounded `mappings[]` list of `{ sourceKind,
+sourceValue, priorityRank }` plus `presenceWindowMinutes`, defaulting to 720 on
+the tenant's first replacement. The service normalizes labels, rejects
+case/whitespace duplicates and invalid ranks/window values, and accepts an
+empty list to restore exact legacy ordering.
 
 The service pins the target tenant with `setTenantTx(tenantId, ...)` even
-though the HTTP caller is a super-admin. The old and new mapping arrays plus
-actor identity are written in the same transaction to the existing
-tenant-scoped `audit_logs` surface using action
+though the HTTP caller is a super-admin. The mapping replacement, control
+object revision/count/timestamps, and existing tenant settings update commit
+atomically. The old and new mappings and control values plus actor identity are
+written in the same transaction to the existing tenant-scoped `audit_logs`
+surface using action
 `ESCALATION_RECIPIENT_RANKINGS_REPLACED`. A configuration change therefore
 cannot commit without its audit record. Existing system-audit readers can show
 the event; no separate audit UI or parallel audit store is added.
 
+GET returns the control state explicitly, including `configured=false` for an
+absent key and `configured=true, explicitEmpty=true` after an empty PUT. Empty
+replacement never deletes the marker. This makes an accidental empty full
+replacement observable through current configuration and immutable audit
+history instead of silently becoming indistinguishable from never configured.
+
 ## 5. Section 6.8 integrity and privilege posture
 
-The new table follows the shared integrity contract:
+The new table and control object follow the shared integrity contract:
 
 - **Tenant scope:** `tenant_id` is non-null, has no implicit/default tenant,
   rejects `00000000-0000-4000-8000-000000000001`, references `tenants(id)`,
@@ -320,10 +422,19 @@ The new table follows the shared integrity contract:
   plus a restrictive explicit-context policy. Unset, empty, and `bypass`
   context cannot read or write this table. The sweep and admin service both
   use an exact pinned tenant transaction.
+- **Control-object posture:** `tenants` is the control-plane root and has no
+  `tenant_id` on which to apply the tenant-match RLS policy; this slice does
+  not pretend otherwise or add RLS to that existing table. Its ranking key is
+  read by an exact tenant-ID join and updated with `WHERE id = tenantId` only
+  inside the same pinned transaction and protected tenant-admin route as the
+  mapping replacement. The new mapping table's forced RLS independently fails
+  closed.
 - **Privileges:** revoke all from `PUBLIC`. Existing runtime roles receive only
   `SELECT, INSERT, UPDATE, DELETE`, the verbs required by sweep reads and the
   atomic replacement endpoint; explicitly revoke `TRUNCATE`, `REFERENCES`,
-  and `TRIGGER`. UUID IDs require no sequence grant.
+  and `TRIGGER`. UUID IDs require no sequence grant. Updating the control
+  object uses the already-granted tenant-settings mutation path and adds no
+  broader `tenants` privilege.
 - **Retention:** rows are current operational configuration and have no TTL.
   Replacement/deletion is allowed only through the audited admin mutation;
   before/after history follows the existing `audit_logs` retention policy.
@@ -340,7 +451,10 @@ Raw-`pg` tests, not Prisma mocks, must prove:
 4. runtime roles have the enumerated verbs and cannot truncate or alter the
    table; and
 5. a same-tenant valid mapping remains readable and writable through the
-   exact pinned context.
+   exact pinned context; and
+6. with the control object's expected count left intact, direct SQL deletion
+   or cross-tenant/RLS-hidden reads produce a count mismatch instead of an
+   apparent unconfigured fallback.
 
 ## 6. Required behavior proofs
 
@@ -369,21 +483,46 @@ fired-marker predicate before `LIMIT` and `FOR UPDATE OF t SKIP LOCKED`.
 
 Extend `escalationRecipientFanout.deep.test.js` and focused units to prove:
 
-- configured rank tiers page in ascending rank, with recency then ID inside a
-  tier;
-- a recognized designation outranks a conflicting recognized position, while
-  position is used when designation is null, blank, or unrecognized;
-- null, blank, unrecognized, and missing staff profiles remain in the result
-  and sort after ranked users;
-- an all-unranked tenant with no mapping rows returns the identical ordered ID
-  page produced by today's query;
-- a tenant whose configuration matches none of its staff also retains the same
-  candidate set and legacy within-unranked order;
+- the unchanged PR #682 no-configuration case returns the identical ordered ID
+  page produced by today's query and still drops never-signed-in accounts
+  first;
+- with ranking active, presence buckets precede rank, rank is ascending only
+  inside a bucket, and recency then ID resolves an equal-rank tier;
+- the default 720-minute window, a tenant override, and the exact threshold
+  boundary use one captured sweep clock;
+- a recent on-leave consultant sorts behind a recent not-on-leave junior, and a
+  never-signed-in consultant cannot page ahead of a junior active four minutes
+  ago;
+- a recognized position outranks a conflicting stale recognized designation,
+  while designation is used when position is null, blank, or unrecognized;
+- null, blank, and unrecognized labels remain in the result at the unranked
+  tail of their own presence bucket;
+- a user with no active staff row resolves no rank but is not treated as on
+  leave: a recent duty doctor remains in the plausible-presence bucket, while
+  its stale/never-signed-in counterpart remains in the less-reachable bucket;
+- an all-unranked tenant with no configuration and an audited explicit-empty
+  tenant each page IDs exactly as today's query, while GET/audit distinguish
+  those two configuration states;
+- a configured tenant whose mappings match none of its candidates retains the
+  full candidate set and legacy recency/ID within each unranked bucket, while
+  emitting the zero-ranked warning and counter;
 - duplicate staff rows cannot duplicate one user or inflate `total_matched`;
 - exact-role and family-fallback arms apply the same ordering;
 - cross-tenant mappings have no effect; and
-- over-cap ranked/unranked cohorts still report the exact original matched,
-  notified, and dropped counts through the unchanged warning and metric.
+- an over-cap 600-doctor cohort contains 100 recent rank-1 consultants, 180
+  recent rank-2 doctors, 220 recent rank-3 junior residents, 20 never-signed-in
+  rank-1 consultants, 40 recent-but-on-leave unranked doctors, and 40
+  never-signed-in unranked doctors. At cap 500, exactly the 20 rank-1 and 80
+  unranked less-reachable doctors are dropped; no recent junior is dropped.
+  The old exact total warning/counter remains 100 dropped, the added rank
+  breakdown is `{ "1": 20, "unranked": 80 }`, and its sum is exactly 100.
+
+Focused observability tests also prove expected-versus-observed mapping count
+mismatch and zero-ranked-candidate paths increment each applicable
+bounded-reason counter and emit a tenant-bearing ranking-failure warning. A
+wiped/RLS-hidden read triggers both reasons; a normalization mismatch with rows
+visible triggers `zero_ranked_candidates`; never-configured and explicit-empty
+tenants emit neither failure signal.
 
 ### 6.3 Administration and audit
 
@@ -392,8 +531,12 @@ Route/service tests prove:
 - existing SUPER_ADMIN route protections remain the authorization boundary;
 - GET and atomic PUT are tenant-scoped;
 - invalid or duplicate input commits neither mappings nor audit;
-- successful replacement commits mappings and one before/after audit record;
-- empty replacement removes configuration and restores legacy order; and
+- successful replacement atomically commits mappings, presence window,
+  expected count/revision, and one before/after audit record;
+- empty replacement removes mappings, preserves an explicit configured-empty
+  marker, increments its revision, records the audit, and restores legacy
+  order;
+- GET distinguishes never configured from explicitly emptied;
 - a database/audit failure rolls back the entire replacement.
 
 ## 7. Step-2 implementation ledger
@@ -402,11 +545,13 @@ Expected paths, subject to the mandatory kickoff overlap refresh:
 
 - `apps/backend/src/services/workflow/escalationEngineService.js`;
 - `apps/backend/src/services/workflow/escalationRecipientRankingService.js`;
+- `apps/backend/src/observability/escalationMetrics.js`;
 - `apps/backend/src/routes/admin/tenantRoutes.js`;
 - `apps/backend/src/migrations/NNN_escalation_recipient_rank_mappings.sql`,
   where `NNN` is derived fresh and is at least 617;
 - `apps/backend/prisma/schema.prisma` regenerated from the migrated database;
 - `apps/backend/src/tests/unit/escalationEngineService.test.js`;
+- `apps/backend/src/tests/unit/escalationMetrics.test.js`;
 - `apps/backend/src/tests/escalationRecipientFanout.deep.test.js`;
 - focused ranking service/route tests;
 - one real-PostgreSQL sweep-concurrency/advancement test; and
@@ -448,9 +593,9 @@ never deploys.
 ## 9. Rollback and non-goals
 
 Runtime rollback restores the two recipient `ORDER BY` clauses and the two
-candidate query shapes while leaving the inert mapping table and its audit
-history intact. A follow-up migration may stop new mapping writes, but rollback
-does not erase configuration or audit evidence.
+candidate query shapes while leaving the inert mapping table, settings control
+object, and audit history intact. A follow-up migration may stop new mapping
+writes, but rollback does not erase configuration or audit evidence.
 
 Explicit non-goals are:
 
