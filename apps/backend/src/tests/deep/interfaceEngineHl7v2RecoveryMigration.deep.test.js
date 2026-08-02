@@ -11,6 +11,14 @@ const migrationSql = readFileSync(
 );
 const RLS_ROLE = 'c6_1e_i05_hl7v2_rls_test';
 
+describe('migration 611 I05 HL7v2 recovery source', () => {
+  test('does not rewrite existing interface-message rows', () => {
+    expect(migrationSql).not.toMatch(
+      /^\s*(?:UPDATE|DELETE FROM|INSERT INTO)\s+public\.interop_messages\b/im,
+    );
+  });
+});
+
 function migrationOwnerDatabaseUrl(value) {
   if (!value) return value;
   const url = new URL(value);
