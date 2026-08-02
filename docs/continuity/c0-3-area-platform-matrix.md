@@ -283,3 +283,8 @@ This matrix names all eleven required hospital areas and all four required
 client platforms. None is implicitly included. A hospital-wide or
 platform-wide continuity claim may cover only rows whose owner-input fields are
 completed and approved; all other rows remain outside the claim.
+
+An incomplete row is not a defect: `not applicable — <reason>` records a
+capability this deployment does not claim. This is only a statement of claim
+scope under the completed-and-approved rule above ([C0.3 completion
+boundary](#4-completion-boundary)).
