@@ -23,6 +23,10 @@ const ASTM_MIGRATION_SQL = readFileSync(
   new URL('../migrations/583_lab_astm_atomic_replay.sql', import.meta.url),
   'utf8',
 );
+const LAB_RECOVERY_MIGRATION_SQL = readFileSync(
+  new URL('../migrations/608_external_lab_recovery.sql', import.meta.url),
+  'utf8',
+);
 
 const RUN = String(Date.now() % 100000).padStart(5, '0');
 const ACCESSION = `B3TEST-ACC-${RUN}`;
@@ -194,7 +198,14 @@ async function rerunAstmMigrationWithoutMutation({ messageId, resultId }) {
   const client = new Client({ connectionString: DATABASE_URL });
   await client.connect();
   try {
+    await client.query(
+      `DROP TRIGGER IF EXISTS trg_lab_interface_validate_astm_ingested_complete
+         ON lab_interface_messages;
+       DROP TRIGGER IF EXISTS trg_lab_interface_validate_astm_recovery_complete
+         ON lab_interface_messages;`,
+    );
     await client.query(ASTM_MIGRATION_SQL);
+    await client.query(LAB_RECOVERY_MIGRATION_SQL);
   } finally {
     await client.end();
   }

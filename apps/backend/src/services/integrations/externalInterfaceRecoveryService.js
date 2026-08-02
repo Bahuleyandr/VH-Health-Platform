@@ -428,6 +428,13 @@ function matchesQueuedItem(row, expected) {
 }
 
 async function persistLateDomain({ tx, capability, config, inbox, tenantId, command }) {
+  if (config.id === 'I01' || config.id === 'I02') {
+    const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
+    return persistLateLabRecovery({
+      tx, capability, tenantId, interfaceFamily: config.id,
+      recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
+    });
+  }
   if (config.id === 'I10') {
     return persistLateColdChainRecovery({
       tx, capability, tenantId, facilityId: inbox.facility_id,
@@ -536,9 +543,9 @@ export async function processNextItemTx({
       interfaceFamily: config.id, effectDisposition: inbox.effect_disposition,
     });
     const domain = await persistLateDomain({ tx, capability, config, inbox, tenantId: tid, command });
-    const evidence = domain?.reading || domain?.observation;
+    const evidence = domain?.reading || domain?.observation || domain?.result;
     if (!evidence?.id || !domain?.task?.id) {
-      throw AppError.internal('Late recovery did not produce observation evidence and pending work', 'EXTERNAL_RECOVERY_PENDING_WORK_MISSING');
+      throw AppError.internal('Late recovery did not produce domain evidence and pending work', 'EXTERNAL_RECOVERY_PENDING_WORK_MISSING');
     }
     const outcomeCode = domain.outcomeCode || (config.id === 'I10'
       ? 'cold_chain_reading_pending_review'
@@ -566,7 +573,11 @@ export async function processNextItemTx({
     if (advanced.length !== 1) throw AppError.conflict('Recovery cursor fence was lost', 'EXTERNAL_RECOVERY_CURSOR_FENCE_LOST');
     return Object.freeze({
       ...terminal[0], cursor: advanced[0],
-      ...(config.id === 'I10' ? { reading_id: String(evidence.id) } : { observation_id: String(evidence.id) }),
+      ...(config.id === 'I10'
+        ? { reading_id: String(evidence.id) }
+        : (config.id === 'I01' || config.id === 'I02')
+          ? { result_id: String(evidence.id), result_ids: domain.results.map(result => String(result.id)) }
+          : { observation_id: String(evidence.id) }),
     });
   }, { isolationLevel: 'Serializable' });
 }

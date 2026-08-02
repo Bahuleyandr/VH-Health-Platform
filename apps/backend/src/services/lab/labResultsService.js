@@ -514,7 +514,7 @@ async function lockAndResolveOruResultSource({
   };
 }
 
-function normalizeOruObxRows(parsed) {
+export function normalizeOruObxRows(parsed) {
   const parsedRows = parsed.obx || [];
   const segments = (parsed.segments || []).filter((segment) => segment.type === 'OBX');
   if (segments.length !== parsedRows.length) {

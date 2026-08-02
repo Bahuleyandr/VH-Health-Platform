@@ -592,13 +592,14 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     facility_id: null,
     pending_task_id: null,
   },
-  // mig 607: a recovery link is immutable occurrence evidence backed by an
-  // exact I09/I15 canonical-inbox row. Generic coverage data has no such
-  // occurrence, so keep both sides of the optional composite link absent.
+  // migs 607/608: recovery links and pending evidence are backed by exact
+  // canonical-inbox rows. Generic coverage data has no such occurrence.
   lab_interface_messages: {
     protocol: 'hl7v2',
     recovery_inbox_id: null,
     recovery_interface_family: null,
+    recovery_critical_result_ids: [],
+    recovery_pending_task_id: null,
   },
   vitals_chart: {
     recovery_inbox_id: null,
