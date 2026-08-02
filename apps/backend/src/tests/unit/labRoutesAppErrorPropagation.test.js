@@ -25,6 +25,11 @@ jest.unstable_mockModule('../../services/lab/labClosedLoopService.js', () => ({
   ingestInterfaceMessage: ingestInterfaceMessageMock,
 }));
 
+jest.unstable_mockModule('../../services/integrations/externalLabRecoveryService.js', () => ({
+  ingestSequencedAstmRecovery: jest.fn(),
+  ingestSequencedOruRecovery: jest.fn(),
+}));
+
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
   phiAccessLogger: () => (req, res, next) => {
     res.on('finish', () => phiPatientUids.push(req.phiContext?.patientUid ?? null));
