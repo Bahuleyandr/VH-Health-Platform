@@ -8,6 +8,7 @@ on:
       - 'packages/vhhealth_core/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/codegen.mjs'
   workflow_dispatch:
 
 permissions:

@@ -14,6 +14,7 @@ on:
       - 'packages/vhhealth_core/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/codegen.mjs'
       - '.github/workflows/ci-flutter.yml'
       - '.github/workflows/_reusable-flutter-workspace.yml'
   pull_request:
@@ -24,6 +25,7 @@ on:
       - 'packages/vhhealth_core/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/codegen.mjs'
       - '.github/workflows/ci-flutter.yml'
       - '.github/workflows/_reusable-flutter-workspace.yml'
 
