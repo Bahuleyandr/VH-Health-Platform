@@ -154,11 +154,14 @@ describeIfDb('migration 609 notification delivery recovery', () => {
     await client.end();
   });
 
-  test('freezes migrations through 608 and owns the sole next migration number', () => {
+  test('freezes migrations through 608 and owns migration 609', () => {
     const names = readdirSync(new URL('../../migrations/', import.meta.url))
       .filter(name => /^\d+.*\.sql$/.test(name))
       .sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
-    expect(names.at(-1)).toBe('609_notification_delivery_recovery.sql');
+    const migrationIndex = names.indexOf('609_notification_delivery_recovery.sql');
+    expect(migrationIndex).toBeGreaterThan(0);
+    expect(names[migrationIndex - 1]).toMatch(/^608(?:_|\.)/);
+    expect(names.slice(migrationIndex + 1).every(name => Number.parseInt(name, 10) > 609)).toBe(true);
     expect(migrationSql).toContain('Provider evidence, permission to send, and cursor position');
     expect(migrationSql).not.toContain('clinicalContinuityPolicyService');
   });
