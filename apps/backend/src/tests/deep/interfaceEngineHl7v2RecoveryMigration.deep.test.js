@@ -357,7 +357,7 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
     ), { code: '23514', constraint: 'chk_interop_delivery_evidence_append_only' });
   });
 
-  test('keeps adapter activation isolated to HL7v2 in the database contract', async () => {
+  test('keeps adapter activation limited to the landed database contract', async () => {
     await expectFailure(client, () => client.query(
       `INSERT INTO interop_backend_delivery_receipts
          (tenant_id, message_id, channel_id, channel_version_id, protocol,
@@ -370,12 +370,12 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
       [tenantId, liveMessageId, channelId, versionId],
     ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction' });
     await expectFailure(client, () => client.query(
-      `WITH csv_message AS (
+      `WITH json_message AS (
          INSERT INTO interop_messages
            (tenant_id, channel_id, channel_version_id, direction, protocol,
             dedupe_key, payload_hash, status, arrival_class, effect_disposition,
             send_authority, owner_reconciliation_required)
-         VALUES ($1::uuid, $2::integer, $3::integer, 'inbound', 'csv',
+         VALUES ($1::uuid, $2::integer, $3::integer, 'inbound', 'json',
                  $4::text, repeat('a', 64), 'received', 'live', 'live',
                  'live_authorized', false)
          RETURNING id
@@ -384,12 +384,12 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
          (tenant_id, message_id, channel_id, channel_version_id, protocol,
           direction, adapter_key, adapter_version, payload_sha256, payload_bytes,
           receipt_status)
-       SELECT $1::uuid, csv_message.id, $2::integer, $3::integer, 'csv',
-               'inbound', 'backend.interop.preview', 'vhhealth.i05.csv/v1',
+       SELECT $1::uuid, json_message.id, $2::integer, $3::integer, 'json',
+               'inbound', 'backend.interop.json', 'vhhealth.i05.json/v1',
                repeat('a', 64), 1, 'accepted'
-         FROM csv_message`,
-      [tenantId, channelId, versionId, `csv-${suffix}`],
-    ), { code: '23514', constraint: 'chk_interop_backend_receipts_protocol' });
+         FROM json_message`,
+      [tenantId, channelId, versionId, `json-${suffix}`],
+    ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction' });
     expect(otherSystemId).toBeGreaterThan(0);
   });
 });

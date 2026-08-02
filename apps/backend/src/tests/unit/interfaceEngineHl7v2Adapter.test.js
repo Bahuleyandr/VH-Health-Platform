@@ -14,10 +14,11 @@ const message = Object.freeze({
 });
 
 describe('I05 HL7v2 protocol adapter', () => {
-  test('registers only the isolated HL7v2 capability', () => {
-    expect(IMPLEMENTED_I05_PROTOCOLS).toEqual(['hl7v2']);
+  test('keeps registration limited to the landed protocol adapters', () => {
+    expect(IMPLEMENTED_I05_PROTOCOLS).toEqual(['hl7v2', 'csv']);
     expect(requireI05ProtocolAdapter('hl7v2').protocol).toBe('hl7v2');
-    expect(() => requireI05ProtocolAdapter('csv')).toThrow(expect.objectContaining({
+    expect(requireI05ProtocolAdapter('csv').protocol).toBe('csv');
+    expect(() => requireI05ProtocolAdapter('json')).toThrow(expect.objectContaining({
       code: 'INTEROP_PROTOCOL_ADAPTER_UNREGISTERED',
     }));
   });

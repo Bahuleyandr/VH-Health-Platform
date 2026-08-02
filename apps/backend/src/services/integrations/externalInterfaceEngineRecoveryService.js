@@ -2,11 +2,6 @@ import { createHash } from 'node:crypto';
 
 import { decryptField } from '../../utils/fieldEncryption.js';
 import { AppError } from '../../utils/AppError.js';
-import {
-  HL7V2_ADAPTER_VERSION,
-  HL7V2_BACKEND_ADAPTER_KEY,
-  assertHl7v2MessageParity,
-} from '../interfaceEngine/protocolAdapters/hl7v2Adapter.js';
 import { requireI05ProtocolAdapter } from '../interfaceEngine/protocolAdapters/index.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { createTask } from '../workflow/taskService.js';
@@ -84,7 +79,7 @@ export async function persistLateInterfaceEngineRecovery({
     effectDisposition: 'late_pending_only',
   });
   if (capability.inboxId !== inboxId) refuse('I05 recovery capability inbox does not match');
-  requireI05ProtocolAdapter(protocol);
+  const protocolAdapter = requireI05ProtocolAdapter(protocol);
 
   const input = requireClosedCommand(command);
   const messageId = requireMessageId(input.message_id);
@@ -127,7 +122,7 @@ export async function persistLateInterfaceEngineRecovery({
   }
 
   const rawPayload = decryptField(message.raw_payload_ciphertext);
-  assertHl7v2MessageParity(message, rawPayload);
+  protocolAdapter.assertMessageParity(message, rawPayload);
   const rawHash = createHash('sha256').update(Buffer.from(rawPayload, 'utf8')).digest('hex');
 
   const enrolled = await tx.$queryRawUnsafe(
@@ -161,16 +156,18 @@ export async function persistLateInterfaceEngineRecovery({
   if (!enrolled[0]) refuse('I05 recovery enrollment fence was lost');
 
   const receiptStatus = direction === 'inbound' ? 'pending_review' : 'send_held';
-  const adapterKey = direction === 'inbound' ? HL7V2_BACKEND_ADAPTER_KEY : 'external.hl7v2.http';
+  const adapterKey = direction === 'inbound'
+    ? protocolAdapter.backendAdapterKeys[0]
+    : protocolAdapter.externalAdapterKey;
   const receipts = await tx.$queryRawUnsafe(
     `INSERT INTO interop_backend_delivery_receipts
        (tenant_id, message_id, channel_id, channel_version_id, protocol,
         direction, adapter_key, adapter_version, payload_sha256, payload_bytes,
         transformed_payload, receipt_status, recovery_inbox_id, owner_actor_uid,
         recovery_interface_family, owner_reason, evidence)
-     VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, 'hl7v2',
-             $5::text, $6::text, $7::text, $8::char(64), $9::integer,
-             '{}'::jsonb, $10::text, $11::uuid, $12::uuid, 'I05', $13::text, $14::jsonb)
+     VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, $5::text,
+             $6::text, $7::text, $8::text, $9::char(64), $10::integer,
+             '{}'::jsonb, $11::text, $12::uuid, $13::uuid, 'I05', $14::text, $15::jsonb)
      RETURNING id::text, message_id, direction, adapter_key, adapter_version,
                payload_sha256::text, payload_bytes, receipt_status,
                recovery_inbox_id::text, created_at`,
@@ -178,9 +175,10 @@ export async function persistLateInterfaceEngineRecovery({
     message.id,
     message.channel_id,
     message.channel_version_id,
+    protocol,
     direction,
     adapterKey,
-    HL7V2_ADAPTER_VERSION,
+    protocolAdapter.adapterVersion,
     rawHash,
     Buffer.byteLength(rawPayload, 'utf8'),
     receiptStatus,
@@ -189,6 +187,7 @@ export async function persistLateInterfaceEngineRecovery({
     ownerReason,
     JSON.stringify({
       ...input.evidence,
+      protocol_adapter: protocol,
       byte_parity_verified: true,
       target_domain_effect_performed: false,
       network_send_performed: false,
@@ -198,10 +197,10 @@ export async function persistLateInterfaceEngineRecovery({
   const task = await createTask({
     tenantId: tid,
     taskKind: 'review',
-    title: `Review late I05 HL7v2 ${direction} message`,
+    title: `Review late I05 ${protocol.toUpperCase()} ${direction} message`,
     description: direction === 'inbound'
-      ? 'The original HL7v2 bytes were verified and retained as pending integration review. No backend clinical adapter effect was performed.'
-      : 'The original HL7v2 bytes were verified and the outbound message remains held. No external send was authorized or performed.',
+      ? `The original ${protocol.toUpperCase()} bytes were verified and retained as pending integration review. No backend clinical adapter effect was performed.`
+      : `The original ${protocol.toUpperCase()} bytes were verified and the outbound message remains held. No external send was authorized or performed.`,
     relatedResourceType: 'interop_message',
     relatedResourceId: String(message.id),
     priority: 'high',
@@ -228,8 +227,8 @@ export async function persistLateInterfaceEngineRecovery({
     receipt: Object.freeze({ ...receipts[0], id: receipts[0].id }),
     task,
     outcomeCode: direction === 'inbound'
-      ? 'i05_hl7v2_inbound_pending_review'
-      : 'i05_hl7v2_outbound_send_held',
+      ? `i05_${protocol}_inbound_pending_review`
+      : `i05_${protocol}_outbound_send_held`,
   });
 }
 

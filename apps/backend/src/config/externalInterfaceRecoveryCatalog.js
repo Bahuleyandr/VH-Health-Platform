@@ -40,7 +40,7 @@ const catalogEntries = [
     facilityScope: 'tenant',
     duplicateKeyKind: 'tenant_channel_direction_target_protocol_payload_sha256',
     partitionKind: 'tenant_channel_direction_target',
-    implementedProtocols: Object.freeze(['hl7v2']),
+    implementedProtocols: Object.freeze(['hl7v2', 'csv']),
   }),
   entry('I06', 'PACS and DICOM', MIXED, {
     subpaths: Object.freeze({

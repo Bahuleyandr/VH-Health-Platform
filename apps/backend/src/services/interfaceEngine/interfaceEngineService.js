@@ -9,7 +9,7 @@ import { AppError } from '../../utils/AppError.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { assertSafeFeedUrl, safeFetch } from '../../utils/ssrfGuard.js';
-import { requireI05ProtocolAdapter } from './protocolAdapters/index.js';
+import { IMPLEMENTED_I05_PROTOCOLS, requireI05ProtocolAdapter } from './protocolAdapters/index.js';
 import { runTransformDsl, transformMatchesExpected, validateTransformDsl } from './transformDsl.js';
 
 export const SYSTEM_KINDS = ['his', 'lis', 'ris', 'pacs', 'billing', 'hie', 'migration_source', 'vh_backend', 'other'];
@@ -1037,7 +1037,7 @@ export async function dispatchOutboundMessages({ tenantId = null, batchSize = 25
       WHERE m.tenant_id = $1::uuid
         AND m.direction IN ('outbound', 'bidirectional')
         AND m.status = 'queued'
-        AND m.protocol = 'hl7v2'
+        AND m.protocol = ANY($3::text[])
         AND m.arrival_class = 'live'
         AND m.effect_disposition = 'live'
         AND m.send_authority = 'live_authorized'
@@ -1048,6 +1048,7 @@ export async function dispatchOutboundMessages({ tenantId = null, batchSize = 25
       LIMIT $2::int`,
     tid,
     normalizeLimit(batchSize, 25, 100),
+    IMPLEMENTED_I05_PROTOCOLS,
   );
   const stats = { picked: 0, delivered: 0, held: 0 };
   for (const message of due) {
