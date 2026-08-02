@@ -54,6 +54,14 @@ import {
 } from '../diagnostics/diagnosticClassification.js';
 import { createLabDiagnosticGenerationTx } from '../diagnostics/diagnosticResultGenerationService.js';
 
+// Cap on the CRITICAL-lab alert fan-out. The candidate set is "clinicians
+// responsible for this patient" (ordering doctor, order placer, attending on an
+// open admission or ED visit), which is realistically single digits — so this is
+// a runaway guard, not a routine trim. Raised from a bare literal 10 and paired
+// with an exact dropped-count report, because a critical value that never
+// reaches a responsible clinician is a patient-safety event, not a log line.
+const CRITICAL_ALERT_RECIPIENT_CAP = 50;
+
 // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
 // lab result entry and pathologist sign-off are patient-facing clinical
 // writes, so they persist the lab detail row plus one clinical_timeline_events
@@ -1515,8 +1523,11 @@ export async function notifyCreatedCriticalLabAlerts({ tenantId, materialization
     // best-effort; the alert/task/SLA already committed atomically.
     try {
       const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
+      // COUNT(*) OVER () is evaluated before SELECT DISTINCT, but `users.uid`
+      // carries a UNIQUE index (users_uid_key), so the IN-subquery yields at most
+      // one row per user and the DISTINCT is a no-op — the count is exact.
       const recipients = await prisma.$queryRawUnsafe(
-        `SELECT DISTINCT u.id, u.uid, u.phone, u.name
+        `SELECT DISTINCT u.id, u.uid, u.phone, u.name, COUNT(*) OVER () AS total_matched
            FROM users u
           WHERE u.tenant_id = $2::uuid
             AND u.uid IN (
@@ -1544,9 +1555,25 @@ export async function notifyCreatedCriticalLabAlerts({ tenantId, materialization
                      AND attending_doctor_uid IS NOT NULL
                      AND status NOT IN ('discharged', 'left_without_being_seen')
                 )
-          LIMIT 10`,
-        r.patient_uid, tenantId,
+          ORDER BY u.id
+          LIMIT $3::int`,
+        r.patient_uid, tenantId, CRITICAL_ALERT_RECIPIENT_CAP,
       );
+      // A CRITICAL lab value that fails to reach a responsible clinician is a
+      // patient-safety event, so a silent trim is not acceptable here: report the
+      // exact number of clinicians who were resolved but never told.
+      const totalResponsible = recipients.length ? Number(recipients[0].total_matched) : 0;
+      if (totalResponsible > recipients.length) {
+        logger.error('CRITICAL lab alert fan-out truncated — responsible clinicians were NOT notified', {
+          resultId: r.id,
+          alertId: alert.id,
+          tenantId,
+          cap: CRITICAL_ALERT_RECIPIENT_CAP,
+          totalResponsible,
+          notified: recipients.length,
+          dropped: totalResponsible - recipients.length,
+        });
+      }
       const alertTitle = `CRITICAL lab: ${r.test_name}`;
       const alertBody = `${r.test_name} = ${r.value_text}${r.unit ? ' ' + r.unit : ''} (threshold ${breachedSide} ${breachedValue}). Patient: ${r.patient_uid}.`;
       const alertData = {

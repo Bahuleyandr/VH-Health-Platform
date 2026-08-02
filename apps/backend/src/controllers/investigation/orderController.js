@@ -4,24 +4,36 @@ import logger from '../../logging/logger.js';
 import * as orderService from '../../services/investigation/orderService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+import { resolveStaffPushRecipients } from '../../services/notification/staffPushRecipientService.js';
+import { recordStaffPushFanoutFailure } from '../../observability/staffPushFanoutMetrics.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-// Fire-and-forget urgent alert to lab-adjacent staff
-async function sendUrgentAlert(investigation, patientName) {
-  try {
-    const staffResult = await prisma.$queryRawUnsafe(
-      `SELECT id, device_token, name FROM users
-       WHERE role IN ('NURSE', 'NURSING_STAFF', 'TECHNICIAN', 'LAB_STAFF', 'LAB_TECHNICIAN', 'LAB', 'RECEPTIONIST', 'RADIOLOGIST')
-         AND device_token IS NOT NULL`
-    );
+// Roles alerted for an URGENT/STAT investigation order.
+const URGENT_ALERT_ROLES = [
+  'NURSE', 'NURSING_STAFF', 'TECHNICIAN', 'LAB_STAFF',
+  'LAB_TECHNICIAN', 'LAB', 'RECEPTIONIST', 'RADIOLOGIST',
+];
 
-    if (staffResult.length === 0) {
-      logger.info('No staff with device_tokens found for urgent alert');
-      return;
+// Fire-and-forget urgent alert to lab-adjacent staff.
+//
+// Scoped to the investigation's OWN tenant by an explicit predicate inside
+// resolveStaffPushRecipients. The push body carries the patient's name AND the
+// ordered test name, so the previous unscoped lookup (which also had no LIMIT at
+// all) could deliver one tenant's PHI to every other tenant's staff devices.
+async function sendUrgentAlert(investigation, patientName, tenantId) {
+  try {
+    if (!tenantId) {
+      // Fail loudly rather than falling back to an unscoped fan-out.
+      throw new Error('sendUrgentAlert requires a tenantId');
     }
 
-    const tokens = staffResult.map(r => r.device_token).filter(Boolean);
+    const { tokens } = await resolveStaffPushRecipients(prisma, {
+      tenantId,
+      roles: URGENT_ALERT_ROLES,
+      alert: 'urgent_investigation',
+    });
+
     if (tokens.length === 0) return;
 
     await sendPushNotification({
@@ -32,10 +44,15 @@ async function sendUrgentAlert(investigation, patientName) {
     });
 
     await prisma.$queryRawUnsafe(
-      `UPDATE investigations SET urgent_alert_sent = TRUE WHERE id = $1`, investigation.id);
+      `UPDATE investigations SET urgent_alert_sent = TRUE
+        WHERE id = $1 AND tenant_id = $2::uuid`,
+      investigation.id,
+      tenantId,
+    );
 
     logger.info(`⚠️ Urgent alert sent for investigation ${investigation.id} to ${tokens.length} staff`);
   } catch (err) {
+    recordStaffPushFanoutFailure('urgent_investigation');
     logger.error(`Failed to send urgent alert for investigation ${investigation?.id}: ${err.message}`);
   }
 }
@@ -93,7 +110,11 @@ export const orderInvestigation = async (req, res) => {
     // Fire-and-forget urgent alert for URGENT/STAT investigations
     const priority = result.investigation?.priority?.toUpperCase();
     if (priority === 'URGENT' || priority === 'STAT') {
-      sendUrgentAlert(result.investigation, result.patient_name).catch(e => logger.warn('Urgent investigation alert failed:', e.message));
+      sendUrgentAlert(
+        result.investigation,
+        result.patient_name,
+        result.investigation?.tenant_id || req.tenantId,
+      ).catch(e => logger.warn('Urgent investigation alert failed:', e.message));
     }
 
     success(res, {

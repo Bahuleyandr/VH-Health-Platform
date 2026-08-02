@@ -5,6 +5,10 @@ import prisma from '../../lib/prisma.js';
 import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 
+// Cap on admins alerted per tenant per sweep. Runaway guard only — a tenant with
+// more than this many active admins holding device tokens is already anomalous.
+const STUCK_ORDER_ADMIN_CAP = 50;
+
 /**
  * Check for stuck orders across appointments, pharmacy, and investigations.
  * Marks stuck appointments with escalation note.
@@ -91,11 +95,26 @@ async function escalateStuckOrdersForTenant(tenantId, sendPushNotification) {
   if (totalStuck > 0) {
     // Admins of THIS tenant only
     const admins = await prisma.$queryRawUnsafe(`
-      SELECT id, uid, device_token FROM users
+      SELECT id, uid, device_token, COUNT(*) OVER () AS total_matched FROM users
       WHERE role IN ('ADMIN', 'SUPER_ADMIN') AND device_token IS NOT NULL AND is_active = TRUE
         AND tenant_id = $1::uuid
-      LIMIT 10
-    `, tenantId);
+      ORDER BY id
+      LIMIT $2::int
+    `, tenantId, STUCK_ORDER_ADMIN_CAP);
+
+    // Without ORDER BY the cap evicted an arbitrary, planner-dependent subset of
+    // admins; ordering makes it deterministic and the count makes any eviction
+    // visible instead of silent.
+    const totalAdmins = admins.length ? Number(admins[0].total_matched) : 0;
+    if (totalAdmins > admins.length) {
+      logger.warn('[Escalation] Stuck-order admin fan-out truncated by cap', {
+        tenantId,
+        cap: STUCK_ORDER_ADMIN_CAP,
+        totalAdmins,
+        notified: admins.length,
+        dropped: totalAdmins - admins.length,
+      });
+    }
 
     for (const admin of admins) {
       if (sendPushNotification && admin.device_token) {
