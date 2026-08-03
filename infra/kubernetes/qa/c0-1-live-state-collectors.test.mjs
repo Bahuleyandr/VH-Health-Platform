@@ -190,7 +190,13 @@ test('rehearsal regressions preserve absence, partial failure, and arbitrary nod
     path.join(c12Directory, '10-pod-placement.txt'),
     captureText(
       'kubectl get pods -A -o wide',
-      'NAMESPACE   NAME   READY   STATUS   RESTARTS   AGE   IP   NODE\nvhhealth   backend-1   1/1   Running   0   1d   192.0.2.1   orchard-ubuntu',
+      // Real kubectl padding, a RESTARTS cell with an embedded space, and the
+      // two-word NOMINATED NODE / READINESS GATES headers: the shapes that make
+      // token-indexed column parsing read AGE as if it were the node name.
+      [
+        'NAMESPACE   NAME        READY   STATUS    RESTARTS       AGE    IP          NODE             NOMINATED NODE   READINESS GATES',
+        'vhhealth    backend-1   1/1     Running   35 (21d ago)   100d   192.0.2.1   orchard-ubuntu   <none>           <none>',
+      ].join('\n'),
       0,
     ),
   );
@@ -249,6 +255,15 @@ test('rehearsal regressions preserve absence, partial failure, and arbitrary nod
   assert.match(fullText, /orchard-ubuntu/);
   assert.doesNotMatch(redactedText, /orchard-ubuntu/);
   assert.match(redactedText, new RegExp(expectedNodeAlias));
+
+  // One node in, one alias out. Aliasing a non-hostname cell would invent
+  // extra nodes in the pod-placement evidence and destroy the pod ages that
+  // the C1.2 placement claim is read against.
+  assert.deepEqual(
+    [...new Set(redactedText.match(/node-[0-9a-f]{10}/g) ?? [])],
+    [expectedNodeAlias],
+  );
+  assert.match(redactedText, /35 \(21d ago\)\s+100d/);
 });
 
 test('fixture emission produces both reports and all four evidence states', () => {
