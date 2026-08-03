@@ -1,5 +1,6 @@
 import express from 'express';
 import logger from '../../logging/logger.js';
+import { markRouterDomain } from '../../config/openapiDomain.js';
 import { getTenantEntitlementSummary } from '../../services/entitlements/entitlementService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -14,5 +15,9 @@ router.get('/capabilities', async (req, res) => {
     return error(res, 'Failed to retrieve entitlement capabilities', 500);
   }
 });
+
+// This directory bootstrapped `entitlements` while admin/entitlementRoutes.js
+// bootstrapped `entitlement`. Same subject, one canonical singular slug.
+markRouterDomain(router, 'entitlement');
 
 export default router;

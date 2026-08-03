@@ -1761,7 +1761,17 @@ export const operations = {
     request: 'SendRemindersRequest',
     response: 'SendRemindersResponse',
   },
+  // appointmentAdminRoutes is mounted at BOTH /api/v1/appointments/admin and
+  // /api/v1/admin/appointments, so the retirement has to be keyed under both or
+  // the un-keyed alias publishes the generic 200 envelope for an operation that
+  // only ever answers 410. (appointmentAdminCanonicalLifecycle.test.js asserts
+  // the 410 on both prefixes.)
   'DELETE /api/v1/appointments/admin/bulk-delete': {
+    response: 'AppointmentHardDeleteRetiredResponse',
+    responseStatus: 410,
+    responseDescription: 'Appointment hard deletion is retired.',
+  },
+  'DELETE /api/v1/admin/appointments/bulk-delete': {
     response: 'AppointmentHardDeleteRetiredResponse',
     responseStatus: 410,
     responseDescription: 'Appointment hard deletion is retired.',

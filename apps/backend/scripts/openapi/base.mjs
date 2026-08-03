@@ -6,12 +6,9 @@
 export const OPENAPI_TAG_REGISTRY = [
   { slug: 'abdm' },
   { slug: 'abdm-full' },
-  { slug: 'activity' },
   { slug: 'adoption' },
-  { slug: 'alerts' },
   { slug: 'analytics' },
   { slug: 'appointment' },
-  { slug: 'appointments' },
   { slug: 'attendance' },
   { slug: 'audit' },
   { slug: 'auth' },
@@ -35,16 +32,13 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'config' },
   { slug: 'consent' },
   { slug: 'core-clinical' },
-  { slug: 'create' },
   { slug: 'credentialing' },
   { slug: 'cssd' },
   { slug: 'dashboard' },
-  { slug: 'dashboards' },
   { slug: 'data-export' },
   { slug: 'database' },
   { slug: 'delivery' },
   { slug: 'department' },
-  { slug: 'departments' },
   { slug: 'developer-portal' },
   { slug: 'device' },
   { slug: 'device-registry' },
@@ -55,17 +49,14 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'discharge-compose' },
   { slug: 'doctor' },
   { slug: 'document' },
-  { slug: 'documents' },
   { slug: 'downtime' },
   { slug: 'ed' },
   { slug: 'emr' },
   { slug: 'encryption-key' },
   { slug: 'engagement' },
   { slug: 'entitlement' },
-  { slug: 'entitlements' },
   { slug: 'event-outbox' },
   { slug: 'executive-kpi' },
-  { slug: 'export' },
   { slug: 'facility' },
   { slug: 'facility-risk' },
   { slug: 'feature-flag' },
@@ -92,7 +83,6 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'lab' },
   { slug: 'ledger-reports' },
   { slug: 'linen' },
-  { slug: 'list' },
   { slug: 'logs' },
   { slug: 'maternity' },
   { slug: 'medical' },
@@ -116,10 +106,8 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'patient-portal' },
   { slug: 'pharmacy' },
   { slug: 'pharmacy-supply' },
-  { slug: 'phone' },
   { slug: 'platform-workbench' },
   { slug: 'prescription' },
-  { slug: 'prescriptions' },
   { slug: 'prior-auth-appeal' },
   { slug: 'productivity' },
   { slug: 'quality' },
@@ -129,7 +117,6 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'realtime' },
   { slug: 'record' },
   { slug: 'referral' },
-  { slug: 'refresh-cache' },
   { slug: 'reminders' },
   { slug: 'replacements' },
   { slug: 'research' },
@@ -141,7 +128,6 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'search' },
   { slug: 'security' },
   { slug: 'session' },
-  { slug: 'shift' },
   { slug: 'smart-fhir' },
   { slug: 'sos' },
   { slug: 'staff-admin' },
@@ -150,7 +136,6 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'stats' },
   { slug: 'steps' },
   { slug: 'storage' },
-  { slug: 'summary' },
   { slug: 'surgical-ai' },
   { slug: 'surgical-documentation' },
   { slug: 'system' },
@@ -160,7 +145,6 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'tenant' },
   { slug: 'tenant-context' },
   { slug: 'terminology' },
-  { slug: 'test' },
   { slug: 'theatre' },
   { slug: 'tier-a-assistants' },
   { slug: 'tier-c-assistants' },
@@ -177,7 +161,10 @@ export const OPENAPI_TAG_REGISTRY = [
   { slug: 'walk-in' },
 ];
 
-export const UNCLASSIFIED_TAG_BUDGET = 4;
+// Ratcheted DOWN from 4: the two /api/v1/staff/{identifier} operations now
+// declare their domain (src/routes/staff/staffRoutes.js). What remains is the
+// root GET/HEAD /, which belong to no subsystem by construction.
+export const UNCLASSIFIED_TAG_BUDGET = 2;
 
 export const OPENAPI_BASE = {
   openapi: '3.0.3',
@@ -231,44 +218,22 @@ export const OPENAPI_BASE = {
       ApiKeyAuth: { type: 'apiKey', in: 'header', name: 'x-api-key', description: 'API key (API_KEY env var)' },
       BearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'JWT user token' },
     },
+    // Only `Success` lives here: it is the generic success envelope
+    // buildOperation attaches to every operation that no per-subsystem overlay
+    // has typed, so it is always referenced. The legacy swagger.yaml also
+    // carried `Error` and `PaginatedResponse`; both were removed as dead —
+    // nothing referenced either one (`oas3-unused-component` x2), the real error
+    // and list shapes are authored per subsystem in scripts/openapi/schemas/*,
+    // and `PaginatedResponse`'s data.items/pagination shape never matched this
+    // codebase's actual list envelope anyway (listEnvelope: data as a bare array
+    // plus meta.pagination). Do not re-add a base schema without a $ref to it.
     schemas: {
-      Error: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean', example: false },
-          message: { type: 'string', example: 'Error message' },
-          error: { type: 'string', example: 'Error details' },
-          details: { type: 'object' },
-        },
-      },
       Success: {
         type: 'object',
         properties: {
           success: { type: 'boolean', example: true },
           message: { type: 'string', example: 'Operation successful' },
           data: { type: 'object', description: 'Response data (varies by endpoint)' },
-        },
-      },
-      PaginatedResponse: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean', example: true },
-          message: { type: 'string' },
-          data: {
-            type: 'object',
-            properties: {
-              items: { type: 'array', items: { type: 'object' } },
-              pagination: {
-                type: 'object',
-                properties: {
-                  page: { type: 'integer', example: 1 },
-                  limit: { type: 'integer', example: 10 },
-                  total: { type: 'integer', example: 100 },
-                  totalPages: { type: 'integer', example: 10 },
-                },
-              },
-            },
-          },
         },
       },
     },

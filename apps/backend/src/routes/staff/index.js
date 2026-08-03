@@ -12,6 +12,7 @@ import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
+import { markRouterDomain } from '../../config/openapiDomain.js';
 import { OP_FLOW_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -111,7 +112,15 @@ router.post('/replacements', replacementController.requestReplacement);
 
 // Admin upload-prescription page compatibility. The documents are stored in
 // appointment_documents, but the page owns a staff-scoped URL contract.
-router.get('/prescriptions/my', requireStaffMedical, async (req, res) => {
+//
+// These two live on their own router purely so they can declare their OpenAPI
+// domain: this file is a barrel (`staff/index.js` names nothing) and `staff` is
+// an audience, so registering them directly left the generator deriving the tag
+// from the URL — publishing a stray plural `prescriptions` next to the real
+// `prescription` tag. Mounted at '/' below, so both URLs are unchanged.
+const staffPrescriptionRoutes = markRouterDomain(express.Router(), 'prescription');
+
+staffPrescriptionRoutes.get('/prescriptions/my', requireStaffMedical, async (req, res) => {
   try {
     const tenantId = tenantIdOf(req);
     const uploadedById = parsePositiveInt(req.user?.id);
@@ -144,7 +153,7 @@ router.get('/prescriptions/my', requireStaffMedical, async (req, res) => {
   }
 });
 
-router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'), validateFileContent, guardPrescriptionAppointmentUpload, async (req, res) => {
+staffPrescriptionRoutes.post('/prescriptions/upload', requireStaffMedical, upload.single('file'), validateFileContent, guardPrescriptionAppointmentUpload, async (req, res) => {
   try {
     const tenantId = tenantIdOf(req);
     const appointmentId = parsePositiveInt(req.body?.appointment_id);
@@ -201,6 +210,8 @@ router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'),
     return error(res, 'Failed to upload prescription document', 500);
   }
 });
+
+router.use(staffPrescriptionRoutes);
 
 // Staff app compatibility: clinical uploads previously posted to
 // /staff/medical/*, while canonical records/investigation modules live under

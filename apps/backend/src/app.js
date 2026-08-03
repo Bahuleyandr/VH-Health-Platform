@@ -149,6 +149,7 @@ import dashboardRoutes from './routes/dashboard/index.js';
 import deliveryRoutes from './routes/delivery/index.js';
 import departmentRoutes from './routes/department/index.js';
 import { getDepartmentsWithDoctors } from './controllers/department/departmentController.js';
+import { markRouterDomain } from './config/openapiDomain.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import { coldChainRoutes, coldChainIngestRoutes } from './routes/coldChainRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
@@ -690,11 +691,15 @@ app.use('/api/v1/ingest/cold-chain', coldChainIngestRoutes);
 // Guest patient directory: the login/dashboard UI exposes Departments before a
 // patient JWT exists. Keep this exact read-only surface API-key-only while the
 // broader department router below remains behind jwtAuth.
-app.get(
-  '/api/v1/departments/departments-with-doctors',
-  publicCache(300),
-  getDepartmentsWithDoctors
-);
+// On its own router only so it can declare its OpenAPI domain: a route
+// registered directly on the app gives the generator no route MODULE to derive
+// a tag from (app.js is not under src/routes/), so it fell through to the URL
+// and published a stray plural `departments` next to the real `department` tag.
+// Mounted at the full path with a '/' route, so the URL is unchanged and no
+// other /api/v1/departments request enters this router.
+const guestDepartmentDirectoryRoutes = markRouterDomain(express.Router(), 'department');
+guestDepartmentDirectoryRoutes.get('/', publicCache(300), getDepartmentsWithDoctors);
+app.use('/api/v1/departments/departments-with-doctors', guestDepartmentDirectoryRoutes);
 
 app.use(jwtAuth);  // Single JWT middleware for all authenticated routes
 // Narrow-scope tokens (e.g. mfa_setup) must never reach non-auth routes.

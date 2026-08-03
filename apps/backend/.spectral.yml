@@ -57,3 +57,30 @@
 # increased" and exits 0 while a brand-new warning exists. Counts are kept only
 # as debt telemetry in the gate's output.
 extends: ["spectral:oas"]
+
+# The ONLY rule exception in this ruleset, and it is scoped to two operations.
+#
+# `operation-success-response` requires at least one 2xx/3xx response. DELETE
+# /bulk-delete is a deliberate RETIREMENT TOMBSTONE: S4 removed appointment hard
+# deletion in favour of the canonical cancellation and retention workflows, and
+# the route was kept so the operation answers an explicit, documented
+# 410 + APPOINTMENT_HARD_DELETE_RETIRED instead of a bare 404. It can never
+# answer 2xx/3xx — that is the point, and it is pinned as a safety invariant by
+# src/tests/unit/appointmentAdminCanonicalLifecycle.test.js, which asserts both
+# mount prefixes return 410 "without touching a live source" (no lifecycle
+# transition, no raw SQL). Deleting the route to satisfy the rule would delete
+# that guard and let a future hard-delete implementation land unnoticed.
+#
+# So this is NOT debt and does not belong in .spectral-baseline.txt (a ledger of
+# findings we intend to fix). It is a permanent, correct exception, declared
+# where the next reader will find it. Both mounts are listed because
+# appointmentAdminRoutes is mounted at /api/v1/appointments/admin AND
+# /api/v1/admin/appointments.
+#
+# Scope this as narrowly as possible — never widen it to the whole spec.
+overrides:
+  - files:
+      - "**/openapi.json#/paths/~1api~1v1~1appointments~1admin~1bulk-delete/delete"
+      - "**/openapi.json#/paths/~1api~1v1~1admin~1appointments~1bulk-delete/delete"
+    rules:
+      operation-success-response: "off"
