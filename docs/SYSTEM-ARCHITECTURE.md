@@ -22,11 +22,12 @@
 6. [Multi-tenancy](#6-multi-tenancy)
 7. [Data layer](#7-data-layer)
 8. [Canonical clinical timeline](#8-canonical-clinical-timeline)
-9. [Clinical-AI subsystem](#9-clinical-ai-subsystem)
-10. [Deployment architecture](#10-deployment-architecture)
-11. [CI/CD + supply chain](#11-cicd--supply-chain)
-12. [Observability + ops](#12-observability--ops)
-13. [Where to look when…](#13-where-to-look-when)
+9. [Clinical service continuity + external-interface recovery](#9-clinical-service-continuity--external-interface-recovery)
+10. [Clinical-AI subsystem](#10-clinical-ai-subsystem)
+11. [Deployment architecture](#11-deployment-architecture)
+12. [CI/CD + supply chain](#12-cicd--supply-chain)
+13. [Observability + ops](#13-observability--ops)
+14. [Where to look when…](#14-where-to-look-when)
 
 ---
 
@@ -179,7 +180,7 @@ the middleware chain below.
 Alongside the request/response path, the backend runs a WebSocket fan-out
 fabric for live dashboards and clinical boards. The pieces:
 
-- **Server** (`apps/backend/src/utils/websocket/`): `broadcast(channel, data, {tenantId})` and `sendToUser(uid, event, data)` publish over a **Redis pub/sub fan-out** (`wsRedisAdapter.js`, **at-most-once** — ephemeral, not the durable `event_outbox` path). Subscribe authorization is prefix-based in `channelAuth.js` (`authorizeChannel`): `admin:*`→isAdmin, `staff:clinical:*`→isClinical, `staff:*`→isStaff, `patient:<uid>:*`→owner|clinical|admin, with a SUPER_ADMIN bypass; `CHANNEL_CATALOG` is the discovery registry. Every broadcast is tenant-filtered (`tenantMatches`) so a socket only receives its own tenant's events. Emit helpers live in `realtimeEmitter.js`. Reliability is instrumented (`ws_broadcast_dropped_total`, `ws_fanout_subscriber_errors_total` — see §8 Observability).
+- **Server** (`apps/backend/src/utils/websocket/`): `broadcast(channel, data, {tenantId})` and `sendToUser(uid, event, data)` publish over a **Redis pub/sub fan-out** (`wsRedisAdapter.js`, **at-most-once** — ephemeral, not the durable `event_outbox` path). Subscribe authorization is prefix-based in `channelAuth.js` (`authorizeChannel`): `admin:*`→isAdmin, `staff:clinical:*`→isClinical, `staff:*`→isStaff, `patient:<uid>:*`→owner|clinical|admin, with a SUPER_ADMIN bypass; `CHANNEL_CATALOG` is the discovery registry. Every broadcast is tenant-filtered (`tenantMatches`) so a socket only receives its own tenant's events. Emit helpers live in `realtimeEmitter.js`. Reliability is instrumented (`ws_broadcast_dropped_total`, `ws_fanout_subscriber_errors_total` — see §13 Observability).
 - **Admin (Next.js)**: `apps/admin/src/hooks/useRealtimeChannel.ts` is the ticket-authed hook (`POST /api/realtime-ticket` → `/ws`, auth as the first WS frame, ping/pong keepalive, reconnect+backoff). Three consumer patterns built on it: `useRealtimeInvalidation` (event → invalidate react-query keys), `useRealtimeData` (snapshot → `setQueryData`), and the raw `useRealtimeChannel` (live append-only feed).
 - **Flutter**: `packages/vhhealth_core/lib/services/realtime_client.dart` `RealtimeClient` (the staff app's appointments + bed boards already subscribe).
 
@@ -384,8 +385,9 @@ USING (
 )
 ```
 
-This is **opt-in defence-in-depth**: plain `prisma.$queryRaw*` calls
-without tenant context continue to work (every row visible); modern
+On **these 11 tables** this is opt-in defence-in-depth: plain
+`prisma.$queryRaw*` calls without tenant context continue to work
+(every row visible); modern
 `setTenant(tenantId, fn, { superAdmin })` from
 [`apps/backend/src/lib/prisma.js`](../apps/backend/src/lib/prisma.js)
 wraps `fn(tx)` in a Prisma `$transaction` and issues `SELECT
@@ -397,6 +399,20 @@ third permissive branch).
 The migration deliberately avoids `ALTER TABLE ... FORCE ROW LEVEL SECURITY`
 so the DB-owner connection (used for future migrations) stays
 exempt from its own policies.
+
+**This permissive posture is no longer platform-wide.** Migrations 600, 601,
+603–606, 609–611 and 616 — the clinical-continuity and external-interface
+recovery substrate (§9) — pair the permissive `tenant_isolation` policy with an
+`AS RESTRICTIVE` explicit-context policy and *do* apply `FORCE ROW LEVEL
+SECURITY`. Restrictive policies AND with the permissive ones, and theirs
+requires `app.current_tenant_id` to be present, non-empty and **not `'bypass'`**.
+On those tables an absent, empty, `bypass`, or wrong-tenant context therefore
+returns **zero rows** and rejects writes — the exact inverse of the 075
+behaviour above — and `FORCE` removes the owner exemption, so the guarantee
+holds for the migration role too. Migration 606 layers a further
+`app.current_facility_id` requirement on its paper-capture rows. When you read
+an RLS question in this codebase, check which posture the specific table is
+under; there are now two.
 
 ### Request → tenant context resolution
 
@@ -483,7 +499,7 @@ Exports from `src/lib/prisma.js`:
 
 ### Schema + migrations
 
-Raw SQL migrations live in [`apps/backend/src/migrations/`](../apps/backend/src/migrations/), numbered with a three-digit prefix (`001_`, `002_`, … currently through `075_`+). This is the **authoritative** migrations tree.
+Raw SQL migrations live in [`apps/backend/src/migrations/`](../apps/backend/src/migrations/), numbered with a three-digit prefix — `000_baseline.sql`, then `001_` through `616_` as of this writing (600 files). This is the **authoritative** migrations tree. Derive the next number from the directory rather than from this sentence; it goes stale every week.
 
 Older docs may mention a pre-merge `apps/backend/migrations/` directory. That
 directory is no longer part of the current checkout; use `src/migrations/`.
@@ -553,7 +569,130 @@ decision service/care-team/appointment/admission/referral/break-glass context.
 
 ---
 
-## 9. Clinical-AI subsystem
+## 9. Clinical service continuity + external-interface recovery
+
+Migrations 600–616 (landed 2026-07-28 → 08-03) add the substrate for operating
+the hospital through an outage — of an external interface, or of the platform
+itself — and reconciling once service returns.
+
+> **Read this first: the substrate is inert.** The tables, constraints, triggers
+> and RLS policies exist and Postgres enforces them, but almost nothing is
+> reachable from a request path yet. Every migration in the chain says so in its
+> own header. The master gate is a **compile-time constant** —
+> `CLINICAL_CONTINUITY_C_D14_APPROVED = false` in
+> [`apps/backend/src/config/downtimeConfig.js:37-39`](../apps/backend/src/config/downtimeConfig.js),
+> commented "deliberately cannot be changed by deployment configuration." No env
+> var turns this on. Do not describe the platform as having live continuity
+> capability.
+
+Design authority is **[`docs/continuity/`](continuity/)** (32 documents) — this
+section is a map, not a substitute. Start at
+[`activation-readiness-tracker.md`](continuity/activation-readiness-tracker.md),
+which consolidates every gate and marks each `MERGED-INERT` / `OPERATOR` /
+`OWNER-DECISION`; then
+[`c0-4-owner-decision-dossier.md`](continuity/c0-4-owner-decision-dossier.md),
+the countersigned decision record that the SQL pins to by name.
+
+### The signed policy chain (600 / 602 / 604)
+
+Continuity authority is a signed, append-only, per-`(tenant, facility)` policy
+chain rather than a config flag. Migration 600 creates
+`clinical_continuity_policy_versions`: each row carries a `policy_document`
+JSONB canonicalised with RFC 8785 JCS, a 64-byte **Ed25519** `policy_signature`,
+and a `lifecycle_state` ratchet of `draft → approved → active → retired` that a
+trigger enforces one way only, with at most one `active` row per facility. The
+*hash* of the signing public key is signed into the row, so key substitution is
+detectable. Migration 602 extends that document with the **action registry**,
+which exists only on `policy_schema_version = 3` — the CHECK pins the registry
+to exactly 17 offline-capable clinical actions and embeds the owner's decision
+id and countersignature date directly in the constraint. Migration 604 adds a
+`grant_purpose` discriminator (`edge_read`, `capture_fixed_device`,
+`capture_staff_facility`) to the migration-601 edge-access tables, with a
+three-branch shape check making each purpose's columns mutually exclusive.
+
+Two consequences worth knowing before you touch any of it: the backend only
+ever **verifies** signatures — no production code path signs a policy, so
+issuance is an out-of-band operator act — and unknown actions are default-deny
+by construction, via a `fail_closed` sentinel plus a `requiredCapabilities`
+set-containment check.
+
+### External-interface recovery
+
+The catalogue of what can break is
+[`apps/backend/src/config/externalInterfaceRecoveryCatalog.js`](../apps/backend/src/config/externalInterfaceRecoveryCatalog.js):
+**30 interface families, `I01`–`I30`**, each declaring whether it has a
+replayable stream needing a high-water mark, has nothing to replay, or splits by
+subpath. Nine are implemented, and a unit test asserts set equality in **both**
+directions between the catalogue's `implemented` flags and the live adapter
+dispatch table — the inventory cannot silently drift from the code.
+
+Migration 603 is the shared substrate. It creates no tables; it adds a
+`scope_kind` discriminator (`pathway_registry` | `external_interface`) to
+`event_consumer_offsets` and `pathway_projector_inbox` with mutually exclusive
+row-shape CHECKs, so one pair of tables carries both the pathway-projector
+control plane and per-tenant external-interface recovery. Because 603 also puts
+`event_consumer_offsets` under `FORCE ROW LEVEL SECURITY` with the control-plane
+rows visible only to the table owner, five `SECURITY DEFINER` accessors become
+the sole path to them.
+
+Work that arrives late carries `effect_disposition = 'late_pending_only'`: the
+evidence and the domain fact are persisted, a follow-up task is *required* by
+CHECK, and every live clinical side effect — SLA clocks, pathway transitions,
+notifications, NEWS2, alerts, triage — is blocked at the database boundary by a
+GUC-driven trigger family. Per-letter adapters then landed for cold chain (603),
+device vitals and FHIR (607), labs (608), notification delivery (609), HL7
+outbound (610), the integration engine and its five protocol adapters (611–615),
+and PACS study links (616).
+
+### The interop state-plane law
+
+The strongest invariant this work establishes, stated in migration 610's own
+header: **transport evidence, parsed acknowledgement, permission to send, and
+cursor position are four separate state planes.** Concretely — a successful
+transport call is evidence only and never marks a message delivered; acceptance
+requires a parsed HL7 `MSA` segment with code `AA` *and* a control-ID matching
+the original `MSH-10`, with correlation failure replacing the code rather than
+downgrading it; a correlated `AA` advances the delivery cursor but never grants
+permission to send; and send authority is only ever granted by a named actor
+with a recorded reason. Each rule is enforced twice, in the service and again by
+a database trigger.
+
+Held work has **no automated release path**. For HL7 outbound that means an
+explicit operator command; for the integration engine there is no executor at
+all — the schema reserves an `owner_authorized` authority value that no code in
+the repository ever writes. The interim containment procedure is
+[`c6-1-i05-held-message-operator-procedure.md`](continuity/c6-1-i05-held-message-operator-procedure.md);
+a typed release executor is a planned extension of the C5.2 workbench, not a
+parallel mechanism.
+
+### Replay receipts and paper reconciliation
+
+Migration 605 adds the replay-receipt spine — receipts, effect evidence, and
+attempts — for atomically claiming and finalizing a clinical write that was
+queued offline. Its `source_kind` is a deliberately open, regex-validated string
+so a new capture source inherits the model instead of replacing it; migration
+606 used exactly that path to add paper back-entry beside electronic queue
+replay, along with 16 `clinical_continuity_*` tables for the incident,
+paper-capture and reconciliation workbench.
+
+**These tables invert the migration-075 RLS posture** described in §6. Both
+migrations apply `FORCE ROW LEVEL SECURITY` and layer a *restrictive*
+explicit-context policy on top of the permissive `tenant_isolation` one.
+Restrictive policies AND together, and theirs demands a tenant GUC that is
+present, non-empty and not `'bypass'` — so where 075 fails **open** (an unset
+context sees every row), these fail **closed** (zero rows, and writes rejected),
+including for the table owner. 606 additionally demands a facility GUC for paper
+rows. Parent/child containment is structural rather than policy-based: child
+foreign keys carry the parent's `(tenant_id, facility_id, incident_id)`, so a
+child row cannot exist outside its parent's scope in the first place.
+
+Backend contract detail — the state tables, the fence, and the trigger names —
+is in [`apps/backend/CLAUDE.md`](../apps/backend/CLAUDE.md) under "Clinical
+service continuity + external-interface recovery".
+
+---
+
+## 10. Clinical-AI subsystem
 
 The "40 future-proofing AI features" are all shipped at v1, and the
 current Clinical AI registry contains 99 governed modules. See
@@ -580,7 +719,7 @@ of truth and is kept up to date per feature.
 
 ---
 
-## 10. Deployment architecture
+## 11. Deployment architecture
 
 ### Cluster
 
@@ -702,7 +841,7 @@ Full end-to-end runbook: **[`docs/DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)**.
 
 ---
 
-## 11. CI/CD + supply chain
+## 12. CI/CD + supply chain
 
 ### Workflow catalogue
 
@@ -778,6 +917,35 @@ Forgejo CD now supersedes the GitHub-specific image rows above: Forgejo
 images are key-signed from `COSIGN_PRIVATE_KEY`; Dalek deploy verifies with
 `COSIGN_PUBLIC_KEY`; SBOMs upload as Forgejo workflow artifacts.
 
+### API contract gates
+
+The OpenAPI spec at `apps/backend/src/docs/openapi.json` is **generated** from
+route registration, not hand-written, and four blocking gates keep it honest.
+All four are chained in the backend's `ci` script
+([`apps/backend/package.json:38`](../apps/backend/package.json)), which is what
+both CI trees ultimately run — GitHub via
+[`_reusable-backend-lint-test.yml`](../.github/workflows/_reusable-backend-lint-test.yml)
+(which also invokes `openapi:lint-budget` directly at line 111), Forgejo via the
+`backend` matrix stage in [`ci.yml`](../.forgejo/workflows/ci.yml) →
+`scripts/ci/backend.mjs` → `npm run ci`.
+
+| Gate | Script | Behaviour |
+|---|---|---|
+| Spec drift | `openapi:check` | Regenerates to a temp file and compares against the committed spec. Any route added, removed, or re-mounted without regenerating fails. |
+| Client sync | `openapi:check-core` | Raw byte compare against the Dart client's copy at `packages/vhhealth_core/swagger/openapi.json`. |
+| Well-formedness | `npx spectral lint` | Fails on Spectral **errors** only; warnings pass. |
+| Lint budget | `openapi:lint-budget` | Diffs the run's findings against `.spectral-baseline.txt` as a sorted multiset. |
+
+Two design points are worth carrying in your head, because both were arrived at
+the hard way:
+
+- **The tag registry is a gate, not a documentation nicety.** `OPENAPI_TAG_REGISTRY` in `apps/backend/scripts/openapi/base.mjs` declares 155 permitted tag slugs, and generation **throws** on an undeclared one. That is what makes it safe to bootstrap a tag from a route module's filename: rename the module and the build stops rather than quietly republishing the public taxonomy under a new name. A separate `UNCLASSIFIED_TAG_BUDGET`, pinned at 2 and ratcheting only downward, prevents new routes from accumulating in a junk-drawer tag.
+- **The lint baseline stores fingerprints, not counts.** A per-rule count baseline was tried and measurably fails: remove one operation's description while adding another and the count is identical, so the gate passes while a genuinely new warning exists. The baseline instead records one line per finding, identified by `{severity, code, path, message}`, and fails on both new *and* stale entries. Errors are never baselined — a severity-0 result exits non-zero and cannot be written into the manifest.
+
+Full working rules — including why `markRouterDomain` must never be applied to a
+barrel router — are in
+[`apps/backend/CLAUDE.md`](../apps/backend/CLAUDE.md#openapi-contract-pipeline).
+
 ### Dependabot
 
 [`.github/dependabot.yml`](../.github/dependabot.yml) covers:
@@ -801,7 +969,7 @@ team grows past two reviewers.
 
 ---
 
-## 12. Observability + ops
+## 13. Observability + ops
 
 ### Logging
 
@@ -852,7 +1020,7 @@ team grows past two reviewers.
 
 ---
 
-## 13. Where to look when…
+## 14. Where to look when…
 
 Cheatsheet for common changes. All paths relative to repo root.
 
@@ -860,10 +1028,10 @@ Cheatsheet for common changes. All paths relative to repo root.
 |---|---|
 | Add an API route | [`apps/backend/src/routes/<domain>/`](../apps/backend/src/routes/) + thin controller in [`controllers/<domain>/`](../apps/backend/src/controllers/) + service in [`services/<domain>/`](../apps/backend/src/services/) + validator in [`validators/<domain>/`](../apps/backend/src/validators/). Wrap with `wrapRoutesWithValidation` + `wrapAutoRBAC` from [`config/routeWrapper.js`](../apps/backend/src/config/routeWrapper.js). |
 | Require a role | `requireRole('ADMIN', 'DOCTOR')` from [`middleware/rbacMiddleware.js`](../apps/backend/src/middleware/rbacMiddleware.js), mounted before the router; OR add a `roles:` entry to the route map passed to `wrapAutoRBAC(router, configKey, routeMap)`. |
-| Add a tenant-scoped query | Use `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from [`src/lib/prisma.js`](../apps/backend/src/lib/prisma.js). If the table isn't one of the 11 in migration 075, add it there AND add a `tenant_id uuid NOT NULL DEFAULT DEFAULT_TENANT_ID` column in a new migration. |
+| Add a tenant-scoped query | Use `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from [`src/lib/prisma.js`](../apps/backend/src/lib/prisma.js). For a **new** table, declare its `tenant_id uuid NOT NULL` column, `ENABLE`+`FORCE ROW LEVEL SECURITY`, and both the permissive `tenant_isolation` and the restrictive explicit-context policy **in your own new migration** — `609_notification_delivery_recovery.sql:637-704` is the current template. Do **not** edit `075_tenant_rls_policies.sql`: it is already recorded in `_migrations` and will never re-run, so changes there are inert on every existing database. |
 | Add an env var | (1) [`src/utils/validateEnv.js`](../apps/backend/src/utils/validateEnv.js) — Joi rule + required vs optional. (2) [`.env.example`](../apps/backend/.env.example). (3) For prod: create a Sealed Secret via `kubeseal` — see [`docs/DEPLOYMENT_GUIDE.md` section 5](DEPLOYMENT_GUIDE.md). (4) For admin: [`apps/admin/.env.example`](../apps/admin/.env.example). |
 | Add a k8s workload | New Kustomize base under [`infra/kubernetes/apps/<name>/`](../infra/kubernetes/apps/) with `deployment.yaml` + `service.yaml` + `kustomization.yaml`. Reference it from [`infra/kubernetes/apps/kustomization.yaml`](../infra/kubernetes/apps/kustomization.yaml). Image tag pinned in the overlay at [`overlays/prod/kustomization.yaml`](../infra/kubernetes/overlays/prod/kustomization.yaml). ArgoCD's `vhhealth-apps` Application will pick it up. |
-| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number (currently `348` is the last; `349_` next). Raw SQL, no `prisma db push`. Write the `.sql`, run `node scripts/qa-reset.mjs` (or equivalent fresh DB), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
+| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number — **always re-derive it** with `ls apps/backend/src/migrations/ \| tail -1` rather than trusting a documented value (`616_` is the last as of this writing, so `617_` next). Raw SQL, no `prisma db push`. Write the `.sql`, bring up a fresh DB with `node apps/backend/scripts/qa-cluster-up.mjs`, run `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
 | Debug test-DB schema-sync failure | [`apps/backend/scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs), especially the "drop RLS policies" block starting around line 548. Prisma's `db push --accept-data-loss` conflicts with the live `tenant_isolation` policies; the script drops them, runs push, lets migration 075 recreate them. |
 | Rotate a JWT / API key / encryption key | [`apps/backend/docs/RUNBOOKS/cert-rotation.md`](../apps/backend/docs/RUNBOOKS/cert-rotation.md) + [`credential-incident-response.md`](../apps/backend/docs/RUNBOOKS/credential-incident-response.md). The flow is: update the plain Secret → `kubeseal` → commit → ArgoCD reconciles → `rollout restart deployment/vhhealth-backend`. |
 | Add a clinical-AI module | Service in [`apps/backend/src/services/ai/`](../apps/backend/src/services/ai/) + raw-SQL migration for the tables + admin route in [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin/clinicalAi/) + tracker update at [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md) + admin UI at [`apps/admin/src/app/(with-auth)/dashboard/clinical-ai/`](../apps/admin/src/app/%28with-auth%29/dashboard/clinical-ai/). |
