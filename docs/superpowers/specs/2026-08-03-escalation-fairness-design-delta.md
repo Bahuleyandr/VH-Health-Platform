@@ -25,9 +25,9 @@ This slice implements both recorded owner decisions in one backend change:
 The implementation preserves escalation rule meanings, thresholds, action
 kinds, role-family fallback, notification channels, the recipient fan-out cap,
 its exact `COUNT(*) OVER ()` dropped count, the Winston warning, and both
-existing Prometheus counters. Bounded-label diagnostics make ranking failures
-and per-rank shedding visible. The slice does not activate a feature or add an
-admin application area.
+existing Prometheus counters. Bounded-label diagnostics make ranking failures,
+per-rank shedding, and task-row lock deferrals visible. The slice does not
+activate a feature or add an admin application area.
 
 ## 2. Step-0 preflight
 
@@ -110,8 +110,9 @@ kickoff because the queue is intentionally serialized.
 ### 2.5 Dated amendment — 2026-08-03 adversarial ordering review
 
 This amendment was refreshed at `2026-08-03T05:23:35+05:30`. It supersedes the
-original strict rank-first recipient order and designation-first resolution;
-the page-advancement design in section 3 is unchanged. Live repository evidence
+original strict rank-first recipient order and designation-first resolution.
+At this amendment the page-advancement design was unchanged; section 2.6 and
+the revised section 3 now supersede that part. Live repository evidence
 confirms that:
 
 - `escalationRecipientFanout.deep.test.js` pins the PR #682 invariant that the
@@ -133,32 +134,79 @@ Therefore the DDL/Prisma verdict and fresh migration-number rule are unchanged:
 the build migration is at least 617 and is derived again only at coordinator
 GO after the serialized backend slot is clear.
 
+### 2.6 Dated amendment — 2026-08-03 page-advancement adversarial review
+
+This amendment was refreshed at `2026-08-03T05:36:38+05:30` and replaces the
+original section 3 design. Live evidence confirms all three blocking findings:
+
+- the capped candidate SQL does not apply `match_filter` and does not apply the
+  rule's final trigger-window arithmetic; `matchesFilter()` and
+  `triggerHolds()` run only after the page is fetched;
+- the schema contains many foreign keys to `tasks`, so ordinary child inserts
+  take `FOR KEY SHARE`, which conflicts with the originally proposed
+  `FOR UPDATE` task lock; and
+- `fireAction()` currently performs recipient resolution, second-connection
+  outbox writes, and security-webhook initiation while the surrounding tenant
+  transaction remains open.
+
+The selected repair is **SQL-complete eligibility plus a short per-task
+`FOR NO KEY UPDATE` claim**. It avoids a new cursor/claim table, preserves the
+existing stable task ordering and rule semantics, does not conflict with
+foreign-key child inserts, makes actual lock contention audible, and releases
+the clinical row before any best-effort or network phase. The recipient-order
+amendments remain settled and unchanged. The live main/open-PR state is also
+unchanged from section 2.5, so build remains gated on the C6.1-E stack and a
+fresh migration-number derivation.
+
 ## 3. Decision 1 — page advancement in SQL
 
-### 3.1 Current defect
+### 3.1 Complete starvation defect
 
-For each tenant and rule, both candidate queries currently order all
-plausibly eligible tasks by `t.id ASC`, apply `LIMIT`, and only then call the
-JavaScript `alreadyFired()` guard. Once the first page has fired, those rows
-remain SQL-eligible and occupy the same page forever. Raising the limit only
-moves the starvation boundary.
+For each tenant and rule, both candidate queries currently order a broad
+status/SLA population by `t.id ASC` and apply `LIMIT` before three rule-specific
+checks in JavaScript: `alreadyFired()`, `matchesFilter()`, and
+`triggerHolds()`. Any `limit` low-ID rows that fail a post-page check without
+receiving a marker occupy the same page forever. Excluding only already-fired
+rows merely changes which predicate can park the page; it does not end the
+owner-decided starvation defect.
 
-### 3.2 Query change
+The SQL page must therefore contain only tasks that are ready to execute the
+current rule at the sweep's captured clock. Raising the cap and relabeling the
+remaining permanent block as sustained inflow are not acceptable repairs.
 
-Both the `sla_breach` and `pending_too_long` candidate queries add a
-rule-specific `NOT EXISTS` predicate over
-`tasks.metadata.escalations[]` before `ORDER BY` and `LIMIT`. The predicate
-must:
+### 3.2 SQL-complete eligibility
 
-- treat a missing, null, or non-array `escalations` value as an empty array;
-- match the stored integer `rule_id` contract and its canonical text form;
-- bind the current rule ID as a parameter; and
-- retain the JavaScript `alreadyFired()` check as a defense-in-depth guard,
-  not as the normal filtering layer.
+Both `sla_breach` and `pending_too_long` Phase-0 candidate queries apply all of
+the following **before** `ORDER BY t.id ASC` and `LIMIT`:
 
-The intended query shape is:
+1. the existing tenant, escalatable-status, SLA-completion, and breach-signal
+   predicates;
+2. the current supported `match_filter` keys (`task_kind`, `priority`, and
+   `sla_key`), using the same string equality and null/missing-means-unbounded
+   contract as `matchesFilter()`;
+3. the trigger window at the one injectable sweep clock; and
+4. the rule-specific fired-marker `NOT EXISTS` predicate.
+
+For `sla_breach`, a configured `sla_key` matches `s.rule_code` and the effective
+breach instant is
+`COALESCE(s.breached_at, s.due_at, t.sla_breached_at)`. That instant must be at
+or before `clock - trigger_window_minutes`. For `pending_too_long`,
+`t.created_at` must be at or before the same parameterized interval boundary;
+a non-null `sla_key` yields no candidate, exactly matching today's projected
+null `sla_rule_code` and JavaScript result. Unknown `match_filter` keys remain
+ignored, as they are today. Missing/non-object filters impose no label
+constraint.
+
+The shared eligibility shape is:
 
 ```sql
+AND ($task_kind::text IS NULL OR t.task_kind::text = $task_kind::text)
+AND ($priority::text IS NULL OR t.priority::text = $priority::text)
+-- sla_breach arm:
+AND ($sla_key::text IS NULL OR s.rule_code::text = $sla_key::text)
+-- pending arm instead requires: $sla_key::text IS NULL
+AND <effective_time> <=
+    $clock::timestamptz - make_interval(mins => $window_minutes::int)
 AND NOT EXISTS (
   SELECT 1
     FROM jsonb_array_elements(
@@ -172,57 +220,91 @@ AND NOT EXISTS (
 )
 ORDER BY t.id ASC
 LIMIT $limit::int
-FOR UPDATE OF t SKIP LOCKED
 ```
 
-The exact placeholder numbers differ between the two query arms because the
-SLA query also binds `now`; both must remain raw-parameter-lint compliant.
+Filter values are normalized once into nullable string parameters; the clock,
+window, filter values, rule ID, tenant ID, and limit are all bound with explicit
+casts and spread raw parameters. The same eligibility fragment is used by the
+Phase-0 page and Phase-1 revalidation so they cannot drift. Focused parity tests
+pin every supported key, null/missing behavior, both trigger arms, and exact
+window boundaries. JavaScript helpers may remain only as tested parity helpers
+or assertions; they are no longer a post-`LIMIT` eligibility layer.
 
-No `match_filter`, trigger window, status, SLA, or action semantics move in
-this slice. A task that has not fired for the current rule enters the same
-JavaScript `matchesFilter()` and `triggerHolds()` checks as before.
+### 3.3 Per-task claim and transaction phases
 
-### 3.3 Concurrent-sweep guarantee
+Page-wide task locks are rejected. Each tenant/rule follows this boundary:
 
-Moving the marker test into SQL is necessary but not sufficient. Two direct
-or multi-replica sweep calls could otherwise read the same unmarked task before
-either writes its marker. Both candidate queries therefore lock selected task
-rows with `FOR UPDATE OF t SKIP LOCKED`.
+- **Phase 0 — bounded read:** a short tenant-pinned read transaction captures
+  at most `limit` fully SQL-eligible task IDs and required task fields. It takes
+  no task row lock and closes before action processing.
+- **Phase 1 — one-task atomic mutation:** for each returned ID, a new short
+  tenant-pinned transaction re-applies the identical eligibility predicates
+  and claims only that task with `FOR NO KEY UPDATE OF t SKIP LOCKED`. If
+  claimed, the action's task-state mutation and once-per-rule metadata marker
+  commit atomically and return an immutable post-commit dispatch plan. No
+  best-effort call, recipient fan-out, outbox call on a second connection, or
+  network initiation occurs in this transaction.
+- **Phase 1.5 — post-commit best effort:** only after the task transaction
+  commits, recipient resolution and durable notification-outbox enqueue run on
+  plain/pinned Prisma calls with their existing isolated error logging.
+- **Phase 2 — post-commit external work:** existing security-webhook initiation
+  runs only after Phase 1 releases the task row. This slice changes its timing,
+  not its channel, payload, or delivery policy.
 
-The lock and predicate work together under the existing per-tenant
-transaction:
+`FOR NO KEY UPDATE` is the lock required by the metadata/priority/state update.
+Unlike `FOR UPDATE`, it is compatible with `FOR KEY SHARE`, so task comments,
+result-generation rows, pathway-spine rows, and other ordinary foreign-key
+child inserts do not disappear from the sweep. It still conflicts with another
+task-row mutation, which is the concurrency boundary the once-per-rule marker
+needs. At most one task row is locked by a sweep invocation at any instant, and
+the lock spans only eligibility revalidation plus atomic task mutation/marker;
+it never spans the page, another task, recipient resolution, outbox enqueue, or
+network work.
 
-1. the first sweep locks an unmarked task;
-2. a concurrent sweep skips that row rather than firing it again;
-3. the first sweep writes the rule marker and commits; and
-4. later statements/sweeps see the marker in SQL and exclude the task.
+The first concurrent sweep that claims a task performs the mutation and marker
+append, then commits. Another sweep cannot claim the same row concurrently; a
+later attempt sees the marker and SQL-excludes it. A rolled-back owner leaves no
+marker and may be retried. The scheduler job lock remains useful, but correctness
+also holds for direct calls and multiple replicas. The identity remains
+`(tenant_id, task_id, rule_id)`, and different rules may each fire once exactly
+as today.
 
-If the owning transaction rolls back, no marker is committed; a later sweep
-may correctly retry the task. This is not a double-fire. The scheduler's
-existing job lock remains useful, but correctness no longer depends on every
-caller entering through that scheduler.
+### 3.4 Audible lock contention
 
-The once-per-rule identity remains `(tenant_id, task_id, rule_id)`. Different
-rules/tiers may still fire once each against the same task, exactly as today.
-This slice does not redefine transport delivery semantics after an external
-provider accepts an outbox or webhook; it prevents the engine from executing
-the same rule twice in successful sequential or concurrent sweeps.
+`SKIP LOCKED` is never interpreted as “not eligible.” The per-task claim query
+uses one statement snapshot with a materialized claimed-row CTE plus a plain
+recheck of the same task and eligibility predicates. If the lock-bearing arm
+returns no row while the plain arm still sees the row as eligible, that attempt
+is classified as lock-skipped. If neither arm sees it, its eligibility changed
+between Phase 0 and Phase 1 and it is a harmless stale candidate.
 
-### 3.4 Meaning of the retained page-full signal
+Lock-skipped attempts are accumulated per tenant/rule page. A nonzero count:
+
+- increments
+  `vhhealth_escalation_candidate_lock_skipped_total{trigger_condition}` by the
+  exact count; and
+- emits one Winston warning containing `tenantId`, `ruleId`,
+  `triggerCondition`, `skippedLocked`, and `cap`.
+
+Tenant and rule IDs stay out of Prometheus labels. Metric failures are caught
+only after the Phase-1 task transaction, never inside it. A later sweep retries
+the still-unmarked row. This converts genuine task-row contention into an
+audible deferral while ordinary foreign-key inserts no longer cause a skip.
+
+### 3.5 Meaning of the retained page-full signal
 
 The existing warning and
-`vhhealth_escalation_candidate_page_full_total` counter stay unchanged.
-`page full` can still legitimately occur after the fix whenever at least
-`limit` not-yet-fired SQL candidates exist for a tenant and rule. It now means
-that this invocation evaluated a full capacity page and later candidates were
-deferred to another sweep; it no longer means that already-fired head rows can
-pin the page indefinitely.
+`vhhealth_escalation_candidate_page_full_total` counter stay unchanged. Phase 0
+does not use `SKIP LOCKED`, so a contended task still occupies its honest place
+in the page and a full page remains visible.
 
-The query remains a bounded evaluator, not a durable cursor. A repeatedly full
-page can still reveal sustained inflow or candidates that repeatedly fail the
-unchanged JavaScript rule filter/window. The warning remains the operator's
-safety net for that pressure. The approved behavior change is specifically
-that fired rows no longer consume page capacity.
+`page full` can legitimately occur after the fix when at least `limit` tasks
+match the rule's tenant/status/SLA, supported filter, trigger-window, and
+not-fired predicates. It now means a full page of genuinely executable work
+was selected and later eligible IDs were deferred. Already-fired,
+filter-mismatched, and not-yet-window-ready head rows cannot pin the page.
+Claim-time lock deferrals are reported separately by the new counter/warning;
+action failures retain the existing task/rule-bearing error log and rollback.
 
 ## 4. Decision 2 — reachability-first, tenant-configured staff-label priority
 
@@ -466,18 +548,42 @@ Focused unit and real-PostgreSQL tests cover:
   action and marker;
 - a page consisting of `limit` already-fired low-ID tasks no longer occupies
   the result, and a later matching task is evaluated and fires;
+- `limit` low-ID tasks that satisfy today's broad status SQL but fail
+  `match_filter`, followed by one higher-ID critical-result task that matches:
+  the mismatched block is SQL-excluded and the later task fires;
+- `limit` low-ID tasks that match labels but have not reached the rule window,
+  followed by one higher-ID task whose window has elapsed: the immature block
+  is SQL-excluded and the later task fires;
+- task-kind, priority, and SLA-key filters preserve the existing JavaScript
+  equality/null semantics, and SLA/pending window boundaries preserve the
+  injectable-clock behavior exactly;
 - the same `(task, rule)` does not fire on a second sequential sweep;
 - two concurrent direct sweep calls create one rule marker and one action
   effect for the same task/rule;
-- concurrent sweeps may divide different unlocked tasks without duplicate
+- concurrent sweeps may divide different task claims without duplicate
   markers;
+- while a child-table insert holds `FOR KEY SHARE` on the task, the sweep's
+  `FOR NO KEY UPDATE` claim still succeeds, fires once, and emits no lock-skip
+  signal;
+- while a second connection holds a conflicting task-row mutation lock, the
+  claim returns immediately, emits one warning and an exact one-count
+  `vhhealth_escalation_candidate_lock_skipped_total` increment, and fires once
+  on a later sweep after release;
+- a Phase-0 candidate that becomes ineligible before claim is treated as stale
+  and does not increment the lock-skip counter;
+- an intentionally stalled post-commit recipient/outbox/webhook phase holds no
+  task lock: a separate task update and a foreign-key child insert complete
+  while that downstream phase remains paused;
 - a rolled-back owner does not leave a committed marker and the next sweep can
   retry; and
 - a full genuine page still emits the existing warning and increments the
   existing counter exactly once for that query.
 
-The SQL-shape unit assertions prove both trigger-condition arms contain the
-fired-marker predicate before `LIMIT` and `FOR UPDATE OF t SKIP LOCKED`.
+SQL-shape unit assertions prove both Phase-0 trigger-condition arms contain all
+supported match filters, their trigger-window boundary, and the fired-marker
+predicate before `LIMIT`, with no row-lock clause. The per-task Phase-1 shape
+must repeat the same predicates and use only
+`FOR NO KEY UPDATE OF t SKIP LOCKED`; no page-wide `FOR UPDATE` is permitted.
 
 ### 6.2 Ranked recipient paging without eviction
 
@@ -592,10 +698,11 @@ never deploys.
 
 ## 9. Rollback and non-goals
 
-Runtime rollback restores the two recipient `ORDER BY` clauses and the two
-candidate query shapes while leaving the inert mapping table, settings control
-object, and audit history intact. A follow-up migration may stop new mapping
-writes, but rollback does not erase configuration or audit evidence.
+Runtime rollback can independently restore the two recipient `ORDER BY`
+clauses or the legacy sweep orchestration/candidate query shapes. The inert
+mapping table, settings control object, and audit history remain intact. A
+follow-up migration may stop new mapping writes, but rollback does not erase
+configuration or audit evidence.
 
 Explicit non-goals are:
 
