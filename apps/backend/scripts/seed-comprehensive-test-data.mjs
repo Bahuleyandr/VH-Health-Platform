@@ -651,6 +651,29 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     delivery_claimed_at: null,
     delivery_lease_expires_at: null,
   },
+  // mig 618: generic coverage represents legacy/live ABDM rows. Recovery
+  // ownership and canonical-inbox provenance are owner-supplied only.
+  abdm_data_requests: {
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+    recovery_owner_uid: null,
+    recovery_owner_reason: null,
+    recovery_disposition: null,
+    recovery_claimed_at: null,
+  },
+  abdm_webhook_events: {
+    receipt_source: null,
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+    recovery_owner_uid: null,
+    recovery_owner_reason: null,
+    recovery_disposition: null,
+    source_partition: null,
+    source_position: null,
+    source_token: null,
+    predecessor_token: null,
+    duplicate_key: null,
+  },
   // mig 604: legacy staff-device rows remain valid only when both identity
   // pointers are absent, while user_devices must not infer continuity or
   // facility authority for an ordinary pre-enrollment device.

@@ -14,6 +14,10 @@ import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedR
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { resolveTenantBySender, getInteropSecret } from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import {
+  markAuthenticatedAbdmCallback,
+  recordAuthenticatedAbdmCallback,
+} from '../../services/integrations/externalAbdmRecoveryService.js';
 
 // ====================================
 // CALLBACK ROUTER — Public (no JWT)
@@ -25,6 +29,9 @@ const callbackRouter = Router();
 // request does DB + HMAC work, so brute-force/DoS must be capped before that.
 callbackRouter.use(genericLimiter);
 const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-request']);
+const ABDM_CALLBACK_ENVIRONMENT = process.env.ABDM_ENVIRONMENT === 'production'
+  ? 'production'
+  : 'sandbox';
 
 /**
  * Middleware: Validate ABDM gateway request authenticity.
@@ -104,6 +111,13 @@ async function validateABDMRequest(req, res, next) {
       context: 'ABDM callback',
       codePrefix: 'ABDM_CALLBACK',
     });
+    req.abdmAuthEvidence = Object.freeze({
+      hipId: String(hipId),
+      requestId: String(requestId),
+      timestamp: String(timestamp),
+      signature: String(signature),
+      authenticatedAt: new Date().toISOString(),
+    });
   } catch (err) {
     logger.warn('ABDM callback rejected: authenticity check failed', {
       code: err.code,
@@ -128,6 +142,7 @@ callbackRouter.use(validateABDMRequest);
  * ABDM gateway notifies of a new consent request from a consent manager.
  */
 callbackRouter.post('/consent/on-notify', async (req, res, next) => {
+  let receipt = null;
   try {
     const notification = req.body?.notification || req.body;
 
@@ -171,13 +186,48 @@ callbackRouter.post('/consent/on-notify', async (req, res, next) => {
         || null,
     };
 
+    const intake = await recordAuthenticatedAbdmCallback({
+      tenantId: req.tenantId,
+      callbackPath: req.path,
+      body: req.body,
+      rawBody: req.abdmRawBody,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      auth: req.abdmAuthEvidence,
+    });
+    receipt = intake.event;
+    if (intake.duplicate) {
+      return success(
+        res,
+        { consentId: receipt.external_event_id, receiptId: receipt.id },
+        'Consent request already received',
+        202,
+      );
+    }
+
     const consent = await abdmService.handleConsentRequest(consentRequest, {
       callbackTenantId: req.tenantId,
       strict: req.abdmStrictTenant,
     });
 
+    await markAuthenticatedAbdmCallback({
+      tenantId: req.tenantId,
+      eventId: receipt.id,
+      status: 'processed',
+    });
+
     return success(res, { consentId: consent.consent_id }, 'Consent request received', 202);
   } catch (err) {
+    if (receipt?.id && receipt.status === 'pending') {
+      await markAuthenticatedAbdmCallback({
+        tenantId: req.tenantId,
+        eventId: receipt.id,
+        status: 'failed',
+        failureReason: err.message,
+      }).catch(markErr => logger.error('Failed to mark ABDM callback receipt failed', {
+        receiptId: receipt.id,
+        error: markErr.message,
+      }));
+    }
     if (err.isOperational) {
       return relayAppError(res, err, 'Failed to handle ABDM consent notification');
     }
@@ -191,6 +241,7 @@ callbackRouter.post('/consent/on-notify', async (req, res, next) => {
  * ABDM gateway requests health data for a granted consent.
  */
 callbackRouter.post('/health-info/on-request', async (req, res, next) => {
+  let receipt = null;
   try {
     const dataRequest = {
       transactionId: req.body?.transactionId,
@@ -201,13 +252,49 @@ callbackRouter.post('/health-info/on-request', async (req, res, next) => {
       dataPushUrl: req.body?.hiRequest?.dataPushUrl || req.body?.dataPushUrl || null,
     };
 
+    const intake = await recordAuthenticatedAbdmCallback({
+      tenantId: req.tenantId,
+      callbackPath: req.path,
+      body: req.body,
+      rawBody: req.abdmRawBody,
+      environment: ABDM_CALLBACK_ENVIRONMENT,
+      auth: req.abdmAuthEvidence,
+    });
+    receipt = intake.event;
+    if (intake.duplicate) {
+      return success(
+        res,
+        { transactionId: receipt.external_event_id, receiptId: receipt.id },
+        'Data request already received',
+        202,
+      );
+    }
+
     const result = await abdmService.handleDataRequest(dataRequest, {
       callbackTenantId: req.tenantId,
       strict: req.abdmStrictTenant,
     });
 
+    await markAuthenticatedAbdmCallback({
+      tenantId: req.tenantId,
+      eventId: receipt.id,
+      status: 'processed',
+      relatedDataRequestId: result.id,
+    });
+
     return success(res, { transactionId: result.transaction_id }, 'Data request accepted', 202);
   } catch (err) {
+    if (receipt?.id && receipt.status === 'pending') {
+      await markAuthenticatedAbdmCallback({
+        tenantId: req.tenantId,
+        eventId: receipt.id,
+        status: 'failed',
+        failureReason: err.message,
+      }).catch(markErr => logger.error('Failed to mark ABDM callback receipt failed', {
+        receiptId: receipt.id,
+        error: markErr.message,
+      }));
+    }
     if (err.isOperational) {
       return relayAppError(res, err, 'Failed to handle ABDM data request');
     }

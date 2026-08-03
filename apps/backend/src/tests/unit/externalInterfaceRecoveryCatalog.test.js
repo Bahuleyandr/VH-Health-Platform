@@ -91,6 +91,21 @@ describe('external interface recovery catalog', () => {
         providerSequence: 'absent',
         replayAuthority: 'owner_directed_list_diff_only',
       });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I16' }))
+      .toMatchObject({
+        id: 'I16',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'inbound',
+        cursorKind: 'owner_reconciled_provider_transaction',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_environment_direction',
+        duplicateKeyKind: 'tenant_callback_kind_consent_request_or_transaction',
+        providerSequence: 'absent',
+        replayGuardRole: 'pre_auth_short_ttl_only',
+        replayAuthority: 'owner_directed_disposition_only',
+      });
     expect(resolveExternalInterfaceDisposition({
       interfaceFamily: 'I15',
       subpath: 'fhir_write',

@@ -56,6 +56,13 @@ jest.unstable_mockModule('../../services/abdm/abdmGateway.js', () => ({
 jest.unstable_mockModule('../../utils/ssrfGuard.js', () => ({
   assertSafeOutboundUrl: jest.fn(),
 }));
+jest.unstable_mockModule('../../services/integrations/externalAbdmRecoveryService.js', () => ({
+  recordAuthenticatedAbdmCallback: jest.fn().mockResolvedValue({
+    event: { id: '71', external_event_id: 'cr-9', status: 'pending' },
+    duplicate: false,
+  }),
+  markAuthenticatedAbdmCallback: jest.fn().mockResolvedValue({ id: '71', status: 'processed' }),
+}));
 
 let abdmService;
 let callbackRouter;

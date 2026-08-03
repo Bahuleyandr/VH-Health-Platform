@@ -6,7 +6,7 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I13', 'I15', 'I17'].includes(id),
+  implemented: ['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I13', 'I15', 'I16', 'I17'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
@@ -93,7 +93,16 @@ const catalogEntries = [
     duplicateKeyKind: 'client_event_or_conditional_identity',
     partitionKind: 'tenant_client_resource',
   }),
-  entry('I16', 'ABDM callbacks and transfer work', HWM),
+  entry('I16', 'ABDM callbacks and transfer work', HWM, {
+    direction: 'inbound',
+    cursorKind: 'owner_reconciled_provider_transaction',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_callback_kind_consent_request_or_transaction',
+    partitionKind: 'tenant_environment_direction',
+    providerSequence: 'absent',
+    replayGuardRole: 'pre_auth_short_ttl_only',
+    replayAuthority: 'owner_directed_disposition_only',
+  }),
   entry('I17', 'Notification delivery', HWM, {
     direction: 'outbound',
     cursorKind: 'monotonic_position_and_predecessor',
