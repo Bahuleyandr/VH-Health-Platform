@@ -143,6 +143,41 @@ const normPrefix = p =>
 // structured CallSite objects (not stack-string parsing) and returns a path
 // relative to src/routes/, so absolute paths and drive letters never leak into
 // the spec.
+//
+// ---------------------------------------------------------------------------
+// ★ KNOWN FRAGILITY — READ BEFORE REFACTORING ROUTE REGISTRATION OR LAYOUT.
+//
+// This couples a PUBLISHED artifact (the OpenAPI tag, part of the API contract)
+// to two things that are not normally contractual:
+//
+//   1. FILE LAYOUT. Moving or renaming a route module changes its derived tag.
+//      `src/routes/appointment/appointmentRoutes.js` -> `appointment`; move it
+//      and the published tag moves with it.
+//   2. STACK SHAPE. If a future refactor registers routes from a NEW helper
+//      that itself lives under src/routes/, that helper becomes the first
+//      matching frame and every route it registers is mis-attributed to it.
+//      (Helpers outside src/routes/ — like today's routeWrapper.js — are
+//      correctly skipped, which is the whole reason we scan rather than index.)
+//
+// WHY THAT IS ACCEPTABLE HERE — the failure is LOUD, not silent, and there are
+// two independent guards:
+//
+//   * `operation-tags` is deliberately NOT in .spectral-baseline.txt. It
+//     ratcheted to zero, so it stays a LIVE Spectral gate: if this capture ever
+//     returns null where it used to return a module, resolveTags falls through
+//     to the path and then to `unclassified` — which trips the
+//     UNCLASSIFIED_TAG_BUDGET ceiling and fails generation. An operation can
+//     never quietly become untagged.
+//   * OPENAPI_TAG_REGISTRY (scripts/openapi/base.mjs) is a closed set. A rename
+//     that produces a NEW slug is not declared, so generation FAILS rather than
+//     silently republishing the API under a different taxonomy.
+//
+// So the derivation may be fragile, but it cannot fail quietly. To pin a tag
+// against file moves entirely, declare it explicitly with markRouterDomain
+// (src/config/openapiDomain.js) — that outranks this and is layout-independent.
+// Behaviour is pinned by src/tests/unit/openapiBuildSpec.test.js (resolution
+// rules) and src/tests/unit/openapiTagInvariants.test.js (the committed spec).
+// ---------------------------------------------------------------------------
 function captureRouteSourceFile() {
   const prevPrepare = Error.prepareStackTrace;
   const prevLimit = Error.stackTraceLimit;
