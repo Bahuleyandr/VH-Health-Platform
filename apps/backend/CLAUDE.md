@@ -6,8 +6,11 @@ Node.js/Express REST API backend for the VHHealth hospital management system. Se
 ## Deployment
 
 Production runs on a **3-node on-prem RKE2 Kubernetes cluster** inside the
-hospital. Container images are built + signed + pushed by GitHub Actions;
-ArgoCD watches this repo and auto-syncs Kustomize overlays onto the cluster.
+hospital. Container images are built + signed + pushed by the `release-images.yml`
+workflow, which exists in both `.forgejo/workflows/` (canonical) and
+`.github/workflows/` (mirror). ArgoCD watches this repo, but **prod sync is
+manual** — no Application sets `syncPolicy.automated`, so a merge to `main`
+stays inert until an operator syncs.
 Postgres is a CloudNativePG cluster (PG17, 3 replicas); ingress is Cloudflare
 Tunnel → ingress-nginx, so zero inbound ports on the hospital firewall.
 
@@ -17,7 +20,7 @@ and hardware spec in [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE
 ## Tech Stack
 - **Runtime**: Node.js 22, Express 5
 - **Database**: PostgreSQL 17 native install (dev cluster at `D:\Dev\Tools\pgdata-vhhealth` on port **5433**, user `vhhealth`, db `vhhealth`). Prod runs managed Postgres; both speak the same wire protocol.
-- **ORM**: Prisma is the canonical DB client — `src/lib/prisma.js` exports `prisma`, `prismaReadOnly`, `setTenant`, `circuitBreakerStatus`. Residual `$queryRaw*` call sites (~35 as of the latest migration pass) + the per-domain typed ORM migrations (batches 26–38) all run through it. `src/config/database.js` / `DatabaseManager` were **deleted in batch 31** — do not try to import them.
+- **ORM**: Prisma is the canonical DB client — `src/lib/prisma.js` exports `prisma`, `prismaReadOnly`, `setTenant`, `circuitBreakerStatus`. Raw `$queryRaw*` / `$executeRaw*` call sites (~5.7k across ~565 non-test files) + the per-domain typed ORM migrations (batches 26–38) all run through it. `src/config/database.js` / `DatabaseManager` were **deleted in batch 31** — do not try to import them.
 - **Auth**: JWT (jsonwebtoken) + Firebase Admin SDK + bcrypt
 - **Storage**: Cloudflare R2 (vh-health-records bucket)
 - **Logging**: Winston (`src/logging/logger.js`)
@@ -38,14 +41,14 @@ src/
   validators/         # express-validator chains
   tests/              # Jest integration tests (authorization, critical paths)
   logging/            # Winston logger config
-prisma/schema.prisma  # 527 models, canonical schema source (regenerated after each migration)
+prisma/schema.prisma  # canonical schema source, 863 models (regenerated after each migration)
 ```
 
 ## Key Architecture Decisions
-- **Prisma client is the canonical DB path.** Residual raw-SQL call sites (approximately 35, down from the original 288+) use `prisma.$queryRaw*` / `$executeRaw*` from `src/lib/prisma.js`. The singleton is hardened at the edge (circuit breaker after 5 consecutive failures, >1000ms slow-query logging in every env) — every raw-SQL call inherits that automatically. New code: use `prisma` for reads/writes, `prismaReadOnly` for analytics / dashboards / exports (falls back to primary when `DATABASE_READ_URL` unset), and `setTenant(tenantId, fn, { superAdmin })` to wrap queries under RLS tenant scope (migration 075).
+- **Prisma client is the canonical DB path, but raw SQL is still the dominant idiom — not a residue.** `prisma.$queryRaw*` / `$executeRaw*` from `src/lib/prisma.js` appear at roughly **5,700 call sites across ~565 non-test files**; the batches 26–38 typed-ORM migration covered specific domains, not the whole tree. Read the raw-SQL rules under "Phase 0.5 conventions" before touching any of them. The singleton is hardened at the edge (circuit breaker after 5 consecutive failures, >1000ms slow-query logging in every env) — every raw-SQL call inherits that automatically. New code: use `prisma` for reads/writes, `prismaReadOnly` for analytics / dashboards / exports (falls back to primary when `DATABASE_READ_URL` unset), and `setTenant(tenantId, fn, { superAdmin })` to wrap queries under RLS tenant scope (migration 075).
 - **DatabaseManager shim is gone.** `src/config/database.js` was deleted in batch 31 after every consumer (app.js root probe, bin/www.js shutdown, prometheusMiddleware, jest.teardown, tenant-rls deep test, uptimeRoutes) was ported to `prisma` directly. Do not try to re-add a shim; use `prisma.$queryRaw` / `prisma.$executeRaw` + the helpers on `src/lib/prisma.js` (setTenant, prismaReadOnly, circuitBreakerStatus).
 - **Schema drift check in CI.** `apps/backend/scripts/check-schema-drift.mjs` diffs `prisma/schema.prisma` against a fresh `prisma db pull` of the test DB after migrations. Surfaces batch-18/22-class bugs (`ordered_date` vs `requested_at`) at review time. Local check: `npm --prefix apps/backend run check:schema-drift`.
-- **Raw SQL migrations are the source of truth (2026-05-12).** `prisma db push` was removed from CI and `ensure-test-db.mjs` after the post-migration DB grew Postgres features (GENERATED columns, column-reference DEFAULTs, sequence-referencing defaults) that Prisma can no longer emit declaratively. The new flow: `src/migrations/000_baseline.sql` (a `pg_dump --schema-only` of a clean QA DB) bootstraps the public schema; `001+` apply the deltas; `prisma/schema.prisma` is **regenerated via `npx prisma db pull`** after any migration that touches a Prisma-modelled table. The two files commit together, and the drift check now fails CI if they ever disagree. Adding a new migration: write the `.sql`, run `node scripts/qa-reset.mjs` (or any equivalent fresh DB), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. Design comments (`//`, not `///`) that `prisma db pull` strips on regeneration are preserved in `prisma/SCHEMA_NOTES.md`.
+- **Raw SQL migrations are the source of truth (2026-05-12).** `prisma db push` was removed from CI and `ensure-test-db.mjs` after the post-migration DB grew Postgres features (GENERATED columns, column-reference DEFAULTs, sequence-referencing defaults) that Prisma can no longer emit declaratively. The new flow: `src/migrations/000_baseline.sql` (a `pg_dump --schema-only` of a clean QA DB) bootstraps the public schema; `001+` apply the deltas; `prisma/schema.prisma` is **regenerated via `npx prisma db pull`** after any migration that touches a Prisma-modelled table. The two files commit together, and the drift check now fails CI if they ever disagree. Adding a new migration: write the `.sql`, bring up a fresh DB with `node scripts/qa-cluster-up.mjs` (there is no `qa-reset.mjs` — see the Database Access section), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. Design comments (`//`, not `///`) that `prisma db pull` strips on regeneration are preserved in `prisma/SCHEMA_NOTES.md`.
 - **Migrations are tracker-driven.** Both the boot-time runner (`src/utils/migrations/runMigrations.js`) and `scripts/ci-setup-db.mjs` consult the `_migrations` table and skip any file already recorded there. Add new migrations as bare DDL files in `src/migrations/NNN_*.sql` — each applies exactly once per DB. `ci-setup-db.mjs` also auto-detects a pre-existing baseline schema (probes for `users` + `appointments` + `admissions`) and records `000_baseline.sql` without re-running its non-idempotent `CREATE FUNCTION` DDL. Re-running `node scripts/ci-setup-db.mjs` against any populated DB is safe and fast. `scripts/smoke-migration-runner.mjs` exercises fresh-apply / re-run / truncate-tracker paths against a throwaway DB.
 - **Phase 0 / 1 / 1.5 / 2 transaction boundary rule (2026-05-12).** Pre-flight lookups (admission state, readiness probes, FK existence checks) belong **outside** `prisma.$transaction`. A try/catch swallowing a Prisma error inside a `$transaction` callback aborts the underlying Postgres tx silently; the next `tx.*` call then fails with `current transaction is aborted, commands ignored until end of transaction block` and surfaces as a generic 500. The pattern that works in this codebase: **Phase 0** = pre-flight on plain `prisma` (P2025 → `AppError.notFound`, never a 500); **Phase 1** = atomic state mutations + audit log inside `prisma.$transaction`, with NO best-effort calls inside (every `tx.*` must succeed); **Phase 1.5** = post-commit best-effort on plain `prisma`, each in its own try/catch — TPA placeholder, housekeeping ticket, downstream alerts (failure is logged, never blocks Phase 1); **Phase 2** = slow/external (LLM, PDF, external API) — failure is recoverable via a separate endpoint. Applied across `markForDischarge` (`f9bbecba`), `markDischargeDrugsDispensed` (`d032f6d0`), `dischargePatient` (`1c2dfe8a` + `80e0ec5f`), `collectAdvanceDeposit` (`bfbb3d76`). When writing any new service method that mutates more than one row + has a best-effort downstream, default to this shape.
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
@@ -59,7 +62,7 @@ prisma/schema.prisma  # 527 models, canonical schema source (regenerated after e
 - **File upload validation**: Multer + magic bytes verification (`validateFileContent`) + patient-specific restrictions (`validatePatientUpload`) in `src/middleware/uploadMiddleware.js`.
 - **Consent signatures are immutable**: `POST /consent/:id/signatures` writes versioned `consent_signatures` evidence through the validated upload/R2 path and refreshes the signed consent PDF record; do not update signature rows in place.
 - **Front-desk registration guardrails**: `POST /patients` accepts JSON or multipart profile-photo registration. Near matches return `PATIENT_DUPLICATE_REVIEW_REQUIRED`; create-anyway requires an audited override reason. `tenantSettingsService.getFrontDeskBiometricCaptureSettings()` is a disabled-by-default biometric seam only, not a device SDK integration.
-- **Notification outbox**: Use `notificationOutbox.queue()` from `src/utils/notifications/notificationOutbox.js` to persist notification intent before sending. Failed notifications can be retried by background jobs.
+- **Notification outbox is a send-permission ledger, not a fire-and-forget queue (migration 609).** `notificationOutbox.queue()` from `src/utils/notifications/notificationOutbox.js` persists an immutable rendered intent, deduplicated on `ux_notification_outbox_delivery_intent` (609:112-120). Statuses are `PENDING → CLAIMED → SENT | FAILED | RECONCILIATION_REQUIRED`, plus `SUPPRESSED` — enforced by the `notification_outbox_transition_guard` trigger (609:522-589), **not** by a CHECK constraint, so do not go looking for one on `status`. The load-bearing rule: `SENT` is impossible without an `acknowledged` row in `notification_provider_receipts` (`chk_notification_outbox_sent_provider_acceptance`, 609:562-575) — a successful send call is not delivery. The `notification-outbox-drain` cron (every 2 min, `src/utils/scheduler.js:604`) retries only `PENDING`/`FAILED` rows with `retry_count < 3` after a 5-minute backoff, in strict per-tenant/channel cursor order (`notificationOutbox.js:214-245`). `RECONCILIATION_REQUIRED` and `SUPPRESSED` are never auto-retried; they need owner-directed reconciliation.
 - **API versioning**: `apiVersionMiddleware` reads `Accept-Version` header, sets `req.apiVersion`. Currently informational — future response helpers can adapt per version.
 - **Insurance claim tables are deliberately split.** `insurance_claims` and `tpa_claims` are **distinct concepts**, not duplicates. Do not consolidate them.
   - `insurance_claims` (legacy, billing-driven) — generic insurance claim with `parent_claim_id` for enhancement chains; back-referenced by `clinical_ai_appeal_letters`, `clinical_ai_payer_variance_reviews`, `insurance_claim_caps`. Lives behind `/api/v1/billing/insurance/claim*` and is the canonical surface for `billingService`. Has `tenant_id uuid NOT NULL` (added in migration 239 alongside the `tenant_isolation` RLS policy); see `src/migrations/239_tenant_rls_phi_phase_2c.sql`.
@@ -170,7 +173,7 @@ Prefer `/my` endpoints that derive phone from JWT:
 - R2 graceful degradation: app starts even if R2 env vars missing — file ops fail at call time, not import time
 - FCM notifications: retry on transient errors (2 retries with backoff)
 - Invalid FCM tokens automatically deactivated in database
-- Notification outbox (`src/utils/notifications/notificationOutbox.js`) persists intent before sending
+- Notification outbox (`src/utils/notifications/notificationOutbox.js`) persists immutable intent before sending and records append-only provider attempts and receipts (`notification_delivery_attempts`, `notification_provider_receipts`); delivery counts as complete only on a positive provider acknowledgement — see the outbox bullet under Key Architecture Decisions
 - Firebase mock fallback: if Firebase credentials missing, rejects auth calls with clear error instead of crashing
 
 ### Audit Log Resilience
@@ -219,10 +222,298 @@ Prefer `/my` endpoints that derive phone from JWT:
 - App crashes if `JWT_SECRET`, `DATABASE_URL`, or `API_KEY` missing
 - Warns (but continues) if `R2_*`, `FIREBASE_PROJECT_ID`, `SENTRY_DSN` are missing
 
+## Clinical service continuity + external-interface recovery
+
+Migrations 600–616 added the substrate for running the hospital through an
+external-interface outage and reconciling afterwards. **Almost all of it is
+inert.** The tables, constraints, and triggers exist and the database enforces
+them, but no request path activates most of it. Twelve of the seventeen say so
+in their own header — 600:5-6, 601:5-6, 602:5-7, 604:5-8, 606:3-5, 611:2 and
+612–615:2 use the word *inert*, while 603:2-3 and 607:2 state that no worker,
+interface or adapter is activated. The other five (605, 608, 609, 610, 616)
+document effect fences and state-plane separation instead, so a header without
+an inertness note is **not** evidence that its path is live — check the callers.
+Design authority is [`docs/continuity/`](../../docs/continuity/); start
+at `activation-readiness-tracker.md`, then `c0-4-owner-decision-dossier.md`
+(the SQL pins to it by name). What follows is only the backend contract you
+must not break.
+
+### The activation gate is a compile-time constant
+
+`CLINICAL_CONTINUITY_C_D14_APPROVED = false` in
+[`src/config/downtimeConfig.js:37-39`](src/config/downtimeConfig.js) — with the
+comment "deliberately cannot be changed by deployment configuration."
+`clinicalContinuityFacilityContextEnabled()` ANDs it, and replay receipts +
+paper reconciliation inherit the `false` transitively. Setting an env var will
+not turn any of this on. The action-registry middleware *is* mounted globally
+(`app.js:719`) but returns `next()` immediately when its flag is unset and only
+engages on an explicit `x-vh-continuity-action-id` header. Do not describe this
+subsystem as live.
+
+### The recovery catalog is the inventory, and it cannot drift
+
+[`src/config/externalInterfaceRecoveryCatalog.js`](src/config/externalInterfaceRecoveryCatalog.js)
+enumerates **30 external interface families, `I01`–`I30`** — the C6.1 census of
+the platform's *external* ingress and egress boundaries. Internal app-to-backend
+APIs, Postgres/Redis and the app's own WebSocket fabric are deliberately out of
+scope, and `I07`/`I08` are requested domains for which the census found no
+connector at all. Each declares a disposition: `hwm_required`
+(replayable stream, needs a high-water mark), `not_applicable_no_replayable_stream`,
+or `mixed` (splits by subpath — only `I06` PACS and `I15` FHIR/SMART, and
+`resolveExternalInterfaceDisposition` **throws** rather than guessing when the
+subpath is missing or unknown).
+
+Nine are implemented: `I01 I02 I04 I05 I06 I09 I10 I15 I17`. That list is
+pinned in both directions — `src/tests/unit/externalInterfaceRecoveryCatalog.test.js:19-26`
+asserts set equality between the catalog's `implemented` flags and the live
+adapter dispatch table `EXTERNAL_INTERFACE_RECOVERY_ADAPTERS`
+(`src/services/integrations/externalInterfaceRecoveryService.js:539-553`).
+Flagging a letter implemented without registering an adapter fails CI, and so
+does the reverse. **Add a new letter to both files in the same commit.**
+
+### Migration 603 — the canonical substrate
+
+603 creates no tables. It re-shapes two tables from migration 578 so they can
+carry external-interface work alongside their original pathway-projector role:
+
+- `event_consumer_offsets` gains `scope_kind` — exactly two values, `'pathway_registry'` and `'external_interface'` (603:52-53) — plus `chk_event_consumer_offsets_row_shape` (603:75-127), which makes the two row shapes mutually exclusive. A pathway row must leave every external column NULL and keep its backfill cursors; an external row must carry a real tenant (never the default tenant, 603:105), a `facility_scope` of `tenant` or `facility`, and NULL backfill cursors.
+- `pathway_projector_inbox` gains the same discriminator plus sequencing (`source_position`, `source_token`, `predecessor_token`, `duplicate_key`), the three-clock triple `occurred_at` / `received_at` / `recorded_at`, `arrival_class`, `effect_disposition`, and `pending_task_id` (603:339-362).
+
+603 also puts `event_consumer_offsets` under `ENABLE` + **`FORCE ROW LEVEL
+SECURITY`** (603:152-153), and its restrictive policy admits `pathway_registry`
+rows only to the table owner (603:177-184). App roles therefore cannot reach the
+control plane through the table at all. Five `SECURITY DEFINER` accessors are
+the only path — `pathway_projector_offset_get` / `_offsets_list` / `_register` /
+`_retire` / `_advance` (603:211-332) — and each hard-codes
+`scope_kind = 'pathway_registry'` so definer privilege can never be turned on a
+tenant's external rows. Callers are in `src/services/events/pathwayProjectorService.js`.
+
+### `late_pending_only` — the late-effect fence
+
+Work that arrives after the fact (`arrival_class = 'recovery_backlog'`) is
+recorded with `effect_disposition = 'late_pending_only'`. The evidence and the
+domain fact land; **every live clinical or operational side effect is
+forbidden.** Three independent mechanisms enforce that:
+
+1. **The interlock CHECK.** A late external inbox row cannot reach `status='handled'` without a `pending_task_id` (603:390-396) — suppressed effect is always replaced by human follow-up work.
+2. **A transaction-local GUC plus a trigger family.** `externalInterfaceRecoveryService.js:656` issues `set_config('app.external_recovery_effect_disposition', …, true)`; `assert_external_recovery_effect_allowed()` (603:785-806) then raises SQLSTATE `23514` on any INSERT or UPDATE to a guarded table while that GUC reads `late_pending_only`. Guarded: `workflow_sla_instances`, `care_pathway_transition_events`, `notification_outbox` (603:808-818), then `news2_scores`, `clinical_alerts`, and the triage columns on `emergency_visits` / `appointments` / `vitals_chart` (607:79-114).
+3. **The projector never calls the handler.** It terminates the row `ignored` with `outcome_code='late_pending_only_pathway_suppressed'` (`pathwayProjectorService.js:522-547`).
+
+Two traps. The raise labels itself `CONSTRAINT = 'chk_external_recovery_late_effect_guard'`,
+but **no constraint by that name exists** — it is a synthetic label for client
+pattern-matching, so a `pg_constraint` lookup will not find it. And the fence
+covers INSERT and UPDATE only; there is no DELETE-side guard.
+
+### The interop state-plane law
+
+Migration 610's header states the invariant for **I04** (610:1-7): **transport
+evidence, parsed acknowledgement, permission to send, and cursor position are
+four separate state planes** — four columns, not one status.
+
+★ **I04 is the only interface that carries all four.** What the family shares is
+the *principle* — evidence never implies permission, and a cursor advances only
+on a positive acknowledgement — not the columns. 609's header names three planes
+(609:3-4), folding acknowledgement into `notification_provider_receipts.outcome`
+and leaving permission-to-send on `notification_outbox`; it has no
+`send_authority` and no `transport_state`. 611 adds `send_authority` alone
+(611:105), and spells it `('held','live_authorized','owner_authorized')`
+(611:144) against 610's `('authorized','held_owner_reconciliation','revoked')`
+(610:81). 616 is deliberately cursor-free (616:3) and tracks a single
+`receipt_status` (616:33). Even recurring columns diverge — 609's
+`receipt_source` carries four values to 610's two. **The table below is I04
+vocabulary; do not port these names or values to another letter.**
+
+| Plane | Where | Values |
+|---|---|---|
+| transport | `hl7_outbound_messages.transport_state` | `not_attempted`, `http_response`, `transport_failure`, `lease_expiry_unknown`, `legacy_unknown` |
+| acknowledgement | `.acknowledgement_state` | `pending`, `aa`, `ae`, `ar`, `missing`, `invalid`, `control_id_mismatch`, `legacy_unknown` |
+| send authority | `.send_authority` | `authorized`, `held_owner_reconciliation`, `revoked` |
+| cursor | `hl7_outbound_delivery_cursors.state` | `ready`, `delivering`, `paused_rejected`, `paused_uncertain` |
+
+Each rule is enforced twice — once in the service, once by a database trigger:
+
+- **Transport success is evidence, never delivery.** `deliverOne` returns transport facts with no verdict (`hl7OutboundService.js:392-402`); the status decision reads only the parsed ACK (`hl7OutboundDeliveryLedgerService.js:441`). Trigger `hl7_outbound_message_transition_guard` (610:619), via `validate_hl7_outbound_message_transition()` (610:508), rejects `status='sent'` unless a correlated `AA` evidence row physically exists (guard block 610:596-614) — forging `acknowledgement_state='aa'` on the row is not enough. Its raise labels itself `CONSTRAINT = 'chk_hl7_outbound_sent_positive_ack'`, another synthetic label with no matching `pg_constraint` row. This cuts both ways: `httpStatus` is never consulted here, so an HTTP 500 carrying a correlated `MSA|AA` *does* mark the message sent. (The I05 interface-engine path additionally gates on `response.ok` — `interfaceEngineService.js:1111-1113`.)
+- **Acceptance requires exactly one `MSA` segment, `MSA-1 ∈ {AA, AE, AR}`, and `MSA-2` equal to the original `MSH-10`** (`hl7OutboundDeliveryLedgerService.js:62-89`). Two MSA segments is `invalid`, not "take the first". Correlation failure does not downgrade the code — it replaces it with `control_id_mismatch`, which can never move anything *forward*. It still transitions state backward: the message falls to `status='reconciliation_required'` with `send_authority='held_owner_reconciliation'` (`:441-467`) and the cursor pauses `paused_uncertain` blocked on it (`:348-360`). A mismatch is also the only outcome that persists an acknowledgement row with `correlation_matches=false` — `missing`/`invalid` are dropped for want of an MSA code (`:269`) — which is exactly why both guards test `correlation_matches`, not `msa_code` alone.
+- **A correlated `AA` advances the cursor but never grants send authority.** Advance is `:331-345` plus trigger `hl7_outbound_cursor_validate` (610:504), whose raise carries the synthetic label `chk_hl7_outbound_cursor_positive_ack` (610:483-499). Advance also has an unstated precondition — with an earlier un-acked message the cursor goes to `paused_uncertain` instead (`:319-329`). Owner reconciliation records a positive `AA` and reaches `status='sent'` while authority stays `held_owner_reconciliation` — a hardcoded literal at `:674-691`, pinned by `hl7-outbound-recovery.deep.test.js:183-191`.
+- **Authority is granted only by a named actor with a recorded reason** (`authorizeOwnerRetryTx`, `:560-622`; trigger `hl7_outbound_message_transition_guard`, owner-release branch 610:570-583 raising the label `chk_hl7_outbound_owner_release_required`), and never for something already acknowledged (`:582-587`).
+
+**Held work has no automated release path.** I04 requires an operator command.
+I05 has no executor at all: migration 611 declares
+`send_authority IN ('held','live_authorized','owner_authorized')` but
+`owner_authorized` is **never written by any code in the repo** — it is a
+reserved schema slot. Replay batches deliberately do not release; they write
+skip evidence and leave the row held (`interfaceEngineService.js:1369-1418`).
+The interim procedure is
+[`docs/continuity/c6-1-i05-held-message-operator-procedure.md`](../../docs/continuity/c6-1-i05-held-message-operator-procedure.md);
+the release executor is a future extension of the C5.2 workbench (migration
+≥617), never a parallel mechanism.
+
+### Per-letter adapters
+
+| Migration | Letter | Adds |
+|---|---|---|
+| 603 | I10 cold-chain sensor stream | The substrate itself, landed with the first adapter |
+| 607 | I09 device-vitals gateway, I15 FHIR write | Recovery back-references on `vitals_chart` + `lab_interface_messages` |
+| 608 | I01 LIS ORU, I02 ASTM analyzer | Recovery columns + completeness triggers on the lab ingest tables |
+| 609 | I17 notification delivery | `notification_delivery_attempts`, `notification_provider_receipts`, `notification_delivery_cursors`, claim-lease fencing |
+| 610 | I04 HL7 outbound | Transport / acknowledgement / cursor evidence tables |
+| 611–615 | I05 integration-engine streams | `interop_backend_delivery_receipts`; 612–615 each widen the protocol CHECK by one adapter (`csv`, `json`, `fhir_json`, `other`) |
+| 616 | I06 PACS study links | `imaging_study_link_recovery_receipts` |
+
+There is **no shared table-naming convention** — only 616 uses a
+`*_recovery_receipts` suffix. What *is* universal is the provenance **pair**
+(`recovery_inbox_id`, `recovery_interface_family`) and the composite FK back to
+the canonical inbox (608:48-51, 609:301-306, 610:125-130, 611:113-116,
+616:56-59):
+
+```sql
+FOREIGN KEY (tenant_id, recovery_inbox_id, recovery_interface_family)
+REFERENCES public.pathway_projector_inbox (tenant_id, inbox_id, interface_family)
+```
+
+The fuller provenance quartet — that pair plus `owner_actor_uid` /
+`owner_reason` — together with `evidence JSONB` lives on the dedicated
+receipt/acknowledgement tables, **not** on the domain rows:
+`notification_provider_receipts` (609:287-292), `hl7_outbound_acknowledgements`
+(610:237-242), `interop_backend_delivery_receipts` (611:189-193),
+`imaging_study_link_recovery_receipts` (616:29-36). In 609 and 616 that is the
+same table the FK above sits on; in 610 and 611 it is a *different* table, each
+carrying its own copy of that FK (610:262-267, 611:214-217) while the domain
+rows carry only the pair. Two traps: 610 spells its owner columns
+`owner_release_actor_uid` / `owner_release_reason` (610:35-36), and 608 creates
+no table at all — it adds `recovery_inbox_id`, `recovery_interface_family` and
+`recovery_pending_task_id` to the existing lab ingest tables (608:13-16) and has
+no owner or evidence columns anywhere.
+
+Distinguish the two paths when reading this code. The **steady-state** ledgers
+(`hl7_outbound_*`, `interop_backend_delivery_receipts`, `notification_delivery_*`)
+are written by the normal HL7 / interop / notification code. The **late-recovery**
+insert path into them has no production trigger: `processNextItemTx` has exactly
+three non-test callers — `fhirRoutes.js:1165` (I15), `deviceVitalsService.js:619`
+(I09), and `externalLabRecoveryService.js:964` (I01/I02) — so nothing supplies
+I04, I05, I06, or I17.
+
+### The replay-receipt spine and reconciliation layer
+
+Migration 605 adds three tables — `clinical_continuity_replay_receipts`,
+`clinical_continuity_replay_effect_evidence`, `clinical_continuity_replay_attempts`
+— for atomically claiming and finalizing an offline-queued clinical write.
+`source_kind` is deliberately an **open, regex-validated string**
+(`CHECK (source_kind ~ '^[a-z][a-z0-9_]{0,63}$')`, 605:123) rather than a closed
+enum, so a new capture source inherits the spine without replacing the receipt
+model (605:3-5). Migration 606 exercised exactly that path, adding
+`'paper_back_entry'` alongside `'electronic_queue'` without touching the
+constraint.
+
+606 then adds **16 `clinical_continuity_*` tables** for the C5.2 incident /
+paper-capture / reconciliation workbench, and rewrites 605's effect-evidence
+table so the two sources diverge: an electronic replay may produce only a
+private draft and is forbidden from emitting timeline, audit, SLA, notification,
+or outbox effects, while a paper fact **must** land on the canonical timeline
+and audit trail with `effect_disposition = 'late_pending_only'` (606:653-671).
+
+**RLS here is not the migration-075 pattern — it inverts it.** Both 605 and 606
+apply `ENABLE` + `FORCE ROW LEVEL SECURITY` and layer *two* policies per table:
+a permissive `tenant_isolation` that grants visibility, and a **restrictive**
+explicit-context policy that requires `app.current_tenant_id` to be present,
+non-empty, and not `'bypass'` (605:282-302).
+Where 075 is fail-open — its four-way `OR` makes an unset GUC show every row —
+these tables are fail-closed: an absent, empty, `bypass`, or wrong-tenant
+context returns **zero rows** and blocks writes, and `FORCE` removes the owner
+exemption so the guarantee survives even for the migration role.
+
+★ **606's workbench needs a facility GUC too, unconditionally.** Its loop
+(606:1027-1077) creates `cc_explicit_tenant_facility`, which adds two further
+conjuncts to both `USING` and `WITH CHECK` on **all 16** of its own tables:
+`app.current_facility_id` must match `^[1-9][0-9]*$` and equal the row's
+`facility_id`. A valid tenant GUC alone still returns zero rows across the whole
+workbench. The receipts table from 605 is *not* in that 16 — it keeps its
+tenant-only restrictive policy and separately gains a third policy
+(606:1009-1025) applying the facility match to paper rows while exempting
+`source_kind = 'electronic_queue'`.
+
+The layering across tables is **not** done with parent-row subqueries — no
+policy in either migration contains one. Parent containment is structural
+instead: child FKs carry `(tenant_id, facility_id, incident_id)` into the
+parent's unique key, so a child row cannot exist outside its parent's scope, and
+the shared policy then hides parent and child together.
+
 ## Route Structure
 Public (API key only): `/api/v1/auth/*`, `/api/v1/health`, `/api/v1/dashboard`
 Protected (API key + JWT): `/api/v1/users/*`, `/api/v1/appointments/*`, `/api/v1/staff/*`
 Admin only: `/api/v1/admin/*`, `/api/v1/system/*`, `/api/v1/logs/*`
+
+## OpenAPI contract pipeline
+
+`src/docs/openapi.json` is **generated, never hand-edited** —
+`scripts/generate-openapi.mjs` boots the app, captures routes at registration
+time, and writes the spec deterministically. It is byte-compared in CI, so a
+manual edit always fails. The whole chain is blocking in `npm run ci`
+(`package.json:38`): `openapi:check` (spec drift vs. real routes) →
+`openapi:check-core` (Dart client copy in sync) → `npx spectral lint` →
+`openapi:lint-budget`.
+
+**Standing rule: run `npm run openapi:generate` after any route change, then
+`npm run openapi:check` and `npm run openapi:lint-budget` before you push.**
+Adding, removing, renaming, or re-mounting a route changes the spec; a stale
+committed spec is the single most common way this subsystem goes red.
+
+### The tag registry is a gate, not a list
+
+Every operation carries exactly one primary tag. `OPENAPI_TAG_REGISTRY` in
+[`scripts/openapi/base.mjs`](scripts/openapi/base.mjs) declares the **155**
+permitted slugs, and `buildOpenApiDocument` **throws** if an operation resolves
+to an undeclared one (`scripts/openapi/buildSpec.mjs:324-340`, the block
+labelled `// THE REGISTRY GATE.`). The error prints paste-ready
+`{ slug: '…' },` lines. This is what makes tag inference safe: renaming a route
+module stops the build instead of silently republishing the taxonomy under a new
+name.
+
+Tag resolution precedence (`buildSpec.mjs:112-118`): explicit overlay
+`ov.tags`/`ov.tag` → an explicit `markRouterDomain` declaration → the route
+module's filename (bootstrap only) → the URL path with audience prefixes
+skipped → `unclassified`.
+
+★ **`markRouterDomain` inherits DOWN — never mark a barrel router.**
+`composeRoutes` resolves `domainOf(router) ?? inheritedDomain`
+(`buildSpec.mjs:219`) and passes the result to every mount child, so marking a
+router that mounts N sub-routers collapses all N sub-domains into one tag. A
+child's own declaration overrides what it was mounted under (nearest ancestor
+wins). To fix a barrel, split its direct routes into per-domain sub-routers and
+mark each one. `markRouterDomain` lives in
+[`src/config/openapiDomain.js:42-58`](src/config/openapiDomain.js) — note that
+the docblock at `buildSpec.mjs:105` points at a `scripts/openapi/routerDomain.mjs`
+that does not exist.
+
+`UNCLASSIFIED_TAG_BUDGET` (`base.mjs:167`) is pinned at **2** and generation
+fails above it (`buildSpec.mjs:342-353`). **It only ratchets down.** The two
+survivors are `GET /` and `HEAD /`, which belong to no subsystem by
+construction, and `src/tests/unit/openapiTagInvariants.test.js:83` asserts that
+list *exactly* — so the test must be edited whenever the budget moves. That
+suite also pins one-tag-per-operation, the ban on `admin`/`staff`/`portal` as a
+primary tag, and the rule that no slug may be published alongside its own plural
+(singular is house style).
+
+### The Spectral baseline is a fingerprint manifest
+
+`.spectral-baseline.txt` (3,599 lines — 3,574 findings, all
+`operation-description` warnings, exactly the operations with no description)
+is pinned by [`scripts/check-openapi-lint-budget.mjs`](scripts/check-openapi-lint-budget.mjs).
+
+★ **It is not a per-rule count.** A count gate was measured and rejected: delete
+one description while adding another and the count is unchanged, so the gate
+exits 0 while a brand-new warning exists (`check-openapi-lint-budget.mjs:19-27`).
+Each entry's identity is the tuple `{severity, code, path, message}`, compared
+as a sorted **multiset**. `range`, `source`, and `documentationUrl` are excluded
+from identity on purpose — they move without the finding changing, and dropping
+`range` is what makes the file immune to CRLF (`:29-34`).
+
+Both directions fail: a new finding is printed by name, and a *resolved* entry
+also fails, because a stale line would let the same finding return at the same
+path and hide behind it. Prune with `npm run openapi:lint-budget -- --write`.
+**Errors are never baselined** — any severity-0 result exits 1, and that check
+sits above the `--write` branch (`:194-211`) so it cannot be laundered into the
+manifest. The baseline only ever shrinks.
 
 ## Running
 
@@ -247,7 +538,7 @@ lefthook install          # one-time; wires the pre-commit/pre-push hooks this r
 Production is Kubernetes-managed; see [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).
 Local dev still uses `npm run dev` (nodemon). Images are built by GitHub
 Actions and pulled by a `Deployment` in namespace `vhhealth`; ArgoCD reconciles
-the manifests under `infra/kubernetes/apps/backend/`.
+the manifests under `infra/kubernetes/apps/backend/` once an operator syncs.
 
 Public URL: `https://api.vhhealth.app` — traffic path is Cloudflare Tunnel →
 ingress-nginx → `Service/vhhealth-backend` in cluster.
@@ -502,7 +793,19 @@ SQL, JWT auth, or test infrastructure:
   Use `setTenant` for any tenant-scoped read/write on the 11 tables
   listed in `migrations/075_tenant_rls_policies.sql`; pass
   `{ superAdmin: true }` to set the GUC to `'bypass'` for
-  cross-tenant admin reads. Batch 31 deleted `DatabaseManager` and
+  cross-tenant admin reads.
+  - **On the continuity / external-interface-recovery tables, `setTenant` is
+    mandatory rather than advisory, and `{ superAdmin: true }` does not help.**
+    Migrations 600, 601, 603–606, 609–611 and 616 pair their permissive
+    `tenant_isolation` policy with an `AS RESTRICTIVE` explicit-context policy
+    and apply `FORCE ROW LEVEL SECURITY`. Restrictive policies AND together, and
+    theirs requires `app.current_tenant_id` to be present, non-empty, **and not
+    `'bypass'`** — so an unset context returns zero rows and fails writes
+    instead of showing everything, and the owner exemption 075 relies on is
+    gone. 606 stacks a further `app.current_facility_id` requirement. Reach for
+    the migration-609 block (609:637-704) as the current template when adding a
+    new tenant-scoped table; do **not** edit `075_tenant_rls_policies.sql` — it
+    is already recorded in `_migrations` and will never re-run. Batch 31 deleted `DatabaseManager` and
   its `db.queryAsTenant()`; `src/tests/tenant-rls.deep.test.js` now
   calls `setTenant` + a local `ownerQuery` helper directly.
   - **Calling it yourself is no longer the only way it fires** (corrected
