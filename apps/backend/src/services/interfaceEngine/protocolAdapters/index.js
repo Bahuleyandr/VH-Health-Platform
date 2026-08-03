@@ -1,5 +1,6 @@
 import { AppError } from '../../../utils/AppError.js';
 import csvAdapter from './csvAdapter.js';
+import fhirJsonAdapter from './fhirJsonAdapter.js';
 import hl7v2Adapter from './hl7v2Adapter.js';
 import jsonAdapter from './jsonAdapter.js';
 
@@ -7,6 +8,7 @@ const adapters = new Map([
   ['hl7v2', hl7v2Adapter],
   ['csv', csvAdapter],
   ['json', jsonAdapter],
+  ['fhir_json', fhirJsonAdapter],
 ]);
 
 export const IMPLEMENTED_I05_PROTOCOLS = Object.freeze([...adapters.keys()]);

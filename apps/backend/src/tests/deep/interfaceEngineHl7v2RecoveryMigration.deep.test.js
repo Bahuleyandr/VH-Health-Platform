@@ -378,12 +378,12 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
       [tenantId, liveMessageId, channelId, versionId],
     ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction' });
     await expectFailure(client, () => client.query(
-      `WITH fhir_message AS (
+      `WITH other_message AS (
          INSERT INTO interop_messages
            (tenant_id, channel_id, channel_version_id, direction, protocol,
             dedupe_key, payload_hash, status, arrival_class, effect_disposition,
             send_authority, owner_reconciliation_required)
-         VALUES ($1::uuid, $2::integer, $3::integer, 'inbound', 'fhir_json',
+         VALUES ($1::uuid, $2::integer, $3::integer, 'inbound', 'other',
                  $4::text, repeat('a', 64), 'received', 'live', 'live',
                  'live_authorized', false)
          RETURNING id
@@ -392,11 +392,11 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
          (tenant_id, message_id, channel_id, channel_version_id, protocol,
           direction, adapter_key, adapter_version, payload_sha256, payload_bytes,
           receipt_status)
-       SELECT $1::uuid, fhir_message.id, $2::integer, $3::integer, 'fhir_json',
-               'inbound', 'backend.interop.fhir-json', 'vhhealth.i05.fhir-json/v1',
+       SELECT $1::uuid, other_message.id, $2::integer, $3::integer, 'other',
+               'inbound', 'backend.interop.other', 'vhhealth.i05.other/v1',
                repeat('a', 64), 1, 'accepted'
-         FROM fhir_message`,
-      [tenantId, channelId, versionId, `fhir-${suffix}`],
+         FROM other_message`,
+      [tenantId, channelId, versionId, `other-${suffix}`],
     ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction' });
     expect(otherSystemId).toBeGreaterThan(0);
   });

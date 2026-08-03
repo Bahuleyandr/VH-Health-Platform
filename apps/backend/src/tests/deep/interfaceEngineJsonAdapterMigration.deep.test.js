@@ -8,5 +8,5 @@ defineI05AdapterMigrationContract({
   inboundAdapterKey: 'backend.interop.json',
   externalAdapterKey: 'external.json.http',
   adapterVersion: 'vhhealth.i05.json/v1',
-  unsupportedProtocol: 'fhir_json',
+  unsupportedProtocol: 'other',
 });
