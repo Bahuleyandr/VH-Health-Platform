@@ -105,6 +105,12 @@ jobs:
       - name: Lint OpenAPI with Spectral
         run: npx spectral lint src/docs/openapi.json
 
+      # `spectral lint` above exits 0 on warnings, so on its own it cannot tell
+      # a new warning from the thousands of known ones. This pins the per-rule
+      # counts and fails if any of them moves. See apps/backend/.spectral.yml.
+      - name: OpenAPI lint budget (no new Spectral findings)
+        run: npm run openapi:lint-budget
+
       - name: Generate Prisma client
         run: npx prisma generate
 

@@ -129,11 +129,90 @@ const asRouter = h => {
 const normPrefix = p =>
   typeof p === 'string' ? p : Array.isArray(p) ? (p.find(x => typeof x === 'string') ?? '/') : '/';
 
+// Which route MODULE registered this operation. Routes are grouped by domain on
+// disk (src/routes/<domain>/...), so the owning file is a curated taxonomy the
+// generator already has at capture time — that is what OpenAPI `tags` are
+// derived from (see resolveTags in openapi/buildSpec.mjs). Deriving tags from
+// the URL instead would put 895 operations (24.6% of the API) under `admin`,
+// which is an AUDIENCE prefix, not a domain.
+//
+// Registration reaches us through several layers — wrapAutoRBAC/wrapRoutes call
+// `router[method](path, ...)` in src/config/routeWrapper.js, which calls
+// `this.route(path)` inside Express — so we walk OUT to the first frame that
+// lives under src/routes/ rather than trusting any fixed stack depth. Uses
+// structured CallSite objects (not stack-string parsing) and returns a path
+// relative to src/routes/, so absolute paths and drive letters never leak into
+// the spec.
+//
+// ---------------------------------------------------------------------------
+// ★ KNOWN FRAGILITY — READ BEFORE REFACTORING ROUTE REGISTRATION OR LAYOUT.
+//
+// This couples a PUBLISHED artifact (the OpenAPI tag, part of the API contract)
+// to two things that are not normally contractual:
+//
+//   1. FILE LAYOUT. Moving or renaming a route module changes its derived tag.
+//      `src/routes/appointment/appointmentRoutes.js` -> `appointment`; move it
+//      and the published tag moves with it.
+//   2. STACK SHAPE. If a future refactor registers routes from a NEW helper
+//      that itself lives under src/routes/, that helper becomes the first
+//      matching frame and every route it registers is mis-attributed to it.
+//      (Helpers outside src/routes/ — like today's routeWrapper.js — are
+//      correctly skipped, which is the whole reason we scan rather than index.)
+//
+// WHY THAT IS ACCEPTABLE HERE — the failure is LOUD, not silent, and there are
+// two independent guards:
+//
+//   * `operation-tags` is deliberately NOT in .spectral-baseline.txt. It
+//     ratcheted to zero, so it stays a LIVE Spectral gate: if this capture ever
+//     returns null where it used to return a module, resolveTags falls through
+//     to the path and then to `unclassified` — which trips the
+//     UNCLASSIFIED_TAG_BUDGET ceiling and fails generation. An operation can
+//     never quietly become untagged.
+//   * OPENAPI_TAG_REGISTRY (scripts/openapi/base.mjs) is a closed set. A rename
+//     that produces a NEW slug is not declared, so generation FAILS rather than
+//     silently republishing the API under a different taxonomy.
+//
+// So the derivation may be fragile, but it cannot fail quietly. To pin a tag
+// against file moves entirely, declare it explicitly with markRouterDomain
+// (src/config/openapiDomain.js) — that outranks this and is layout-independent.
+// Behaviour is pinned by src/tests/unit/openapiBuildSpec.test.js (resolution
+// rules) and src/tests/unit/openapiTagInvariants.test.js (the committed spec).
+// ---------------------------------------------------------------------------
+function captureRouteSourceFile() {
+  const prevPrepare = Error.prepareStackTrace;
+  const prevLimit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 60;
+  Error.prepareStackTrace = (_err, frames) => frames;
+  const frames = new Error().stack;
+  Error.prepareStackTrace = prevPrepare;
+  Error.stackTraceLimit = prevLimit;
+  if (!Array.isArray(frames)) return null;
+  for (const frame of frames) {
+    let file = frame.getFileName?.();
+    if (!file) continue;
+    if (file.startsWith('file:')) {
+      try {
+        file = fileURLToPath(file);
+      } catch {
+        continue;
+      }
+    }
+    const norm = file.replace(/\\/g, '/');
+    const at = norm.indexOf('/src/routes/');
+    if (at !== -1) return norm.slice(at + '/src/routes/'.length);
+  }
+  return null;
+}
+
 const origRoute = proto.route;
 proto.route = function patchedRoute(path) {
   const r = origRoute.call(this, path);
   if (!routerRoutes.has(this)) routerRoutes.set(this, []);
-  routerRoutes.get(this).push({ relPath: typeof path === 'string' ? path : '/', route: r });
+  routerRoutes.get(this).push({
+    relPath: typeof path === 'string' ? path : '/',
+    route: r,
+    srcFile: captureRouteSourceFile()
+  });
   return r;
 };
 const origUse = proto.use;
@@ -173,7 +252,24 @@ proto.route = origRoute;
 proto.use = origUse;
 
 const root = app.router || app._router;
-const routes = composeRoutes({ routerRoutes, edges, root });
+
+// Explicit domain declarations (src/config/openapiDomain.js markRouterDomain).
+// These outrank the filename bootstrap: they pin the published tag in code, so
+// it survives a route module being moved, renamed or re-mounted. Collected from
+// every router we captured — the root, anything that registered a route, and
+// every mount child. `asRouter` already unwrapped wrapAsync wrappers, so the
+// object here is the same one the route module marked.
+const { getRouterDomain } = await import('../src/config/openapiDomain.js');
+const routerDomains = new Map();
+const noteDomain = r => {
+  const slug = getRouterDomain(r);
+  if (slug) routerDomains.set(r, slug);
+};
+noteDomain(root);
+for (const r of routerRoutes.keys()) noteDomain(r);
+for (const list of edges.values()) for (const { child } of list) noteDomain(child);
+
+const routes = composeRoutes({ routerRoutes, edges, root, routerDomains });
 
 // Param-equivalent paths (same URL template, different param names) shadow each
 // other at the URL level and can't both live in one OpenAPI doc — report them
