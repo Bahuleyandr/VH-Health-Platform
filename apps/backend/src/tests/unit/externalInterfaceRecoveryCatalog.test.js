@@ -133,6 +133,23 @@ describe('external interface recovery catalog', () => {
         partitionKind: 'tenant_channel',
         duplicateKeyKind: 'tenant_source_recipient_channel_template_rendered_intent_sha256',
       });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I19' }))
+      .toMatchObject({
+        id: 'I19',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'outbound',
+        cursorKind: 'local_nhcx_message_id',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_environment_direction_endpoint',
+        duplicateKeyKind: 'tenant_hcx_api_call_id',
+        inboundProviderSequence: 'absent',
+        inboundRecovery: 'blocked_owner_claim_only',
+        inboundIdentityKind: 'correlation_workflow_api_call_and_payload_sha256',
+        replayAuthority: 'owner_directed_outbound_only',
+        paymentNoticeRecovery: 'manual_only',
+      });
   });
 
   it('requires exact mixed-subpath selection without fallthrough', () => {

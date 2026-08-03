@@ -8,7 +8,7 @@
 import crypto from 'node:crypto';
 import { compactDecrypt, importJWK, importPKCS8 } from 'jose';
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
@@ -380,6 +380,10 @@ async function insertInboundEnvelope({
   domainContext = {},
   signatureVerified = false,
 }) {
+  const startsClaimedProcessing = endpoint !== 'paymentnotice/request'
+    && (profileResult.issues || []).length === 0;
+  const initialStatus = startsClaimedProcessing ? 'processing' : 'manual_review';
+  const inboundClaimToken = startsClaimedProcessing ? crypto.randomUUID() : null;
   const protectedHeaders = {
     'x-hcx-api_call_id': context.hcxApiCallId,
     'x-hcx-correlation_id': context.hcxCorrelationId,
@@ -411,6 +415,8 @@ async function insertInboundEnvelope({
     signatureVerified === true,
     JSON.stringify(profileResult.issues || []),
     context.hcxStatus || null,
+    initialStatus,
+    inboundClaimToken,
   ];
 
   const insertSql = `WITH ins AS (
@@ -421,13 +427,16 @@ async function insertInboundEnvelope({
         claim_id, preauth_id, policy_id, patient_uid, admission_id,
         domain_resource_type, profile_url, profile_version, payload_hash,
         protected_headers, payload_ciphertext, signature_verified,
-        validation_issues, hcx_status, status, received_at, created_at, updated_at)
+        validation_issues, hcx_status, status, received_at,
+        inbound_claim_token, inbound_claimed_at, created_at, updated_at)
      VALUES ($1::uuid, $2, 'inbound', $3, $4,
              $5, $6, $7, $8, $9,
              $10::int, $11::int, $12::int, $13::uuid, $14::int,
              $15, $16, $17, $18,
              $19::jsonb, $20, $21::boolean,
-             $22::jsonb, $23, 'accepted', NOW(), NOW(), NOW())
+             $22::jsonb, $23, $24::varchar, NOW(),
+             $25::uuid, CASE WHEN $25::uuid IS NULL THEN NULL ELSE NOW() END,
+             NOW(), NOW())
      ON CONFLICT (tenant_id, hcx_api_call_id, environment) DO NOTHING
      RETURNING *, true AS inserted
   )
@@ -443,7 +452,15 @@ async function insertInboundEnvelope({
 
   try {
     const rows = await prisma.$queryRawUnsafe(insertSql, ...baseArgs);
-    return rows[0];
+    const row = rows[0];
+    if (row?.inserted) {
+      return {
+        ...row,
+        status: initialStatus,
+        inbound_claim_token: inboundClaimToken || row.inbound_claim_token || null,
+      };
+    }
+    return row;
   } catch (err) {
     const code = err?.meta?.code
       || err?.meta?.driverAdapterError?.cause?.originalCode
@@ -469,22 +486,46 @@ async function insertInboundEnvelope({
   }
 }
 
-async function markEnvelope({ id, status, issues = [], errorMessage = null }) {
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE nhcx_messages
-        SET status = $2::varchar,
-            validation_issues = $3::jsonb,
-            last_error = $4,
-            processed_at = CASE WHEN $2::varchar = 'processed' THEN NOW() ELSE processed_at END,
-            updated_at = NOW()
-      WHERE id = $1::bigint
-      RETURNING *`,
-    String(id),
-    status,
-    JSON.stringify(issues || []),
-    errorMessage ? safeText(errorMessage, 2_000) : null,
-  );
-  return rows[0] || null;
+async function markEnvelope({
+  tenantId,
+  id,
+  status,
+  issues = [],
+  errorMessage = null,
+  inboundClaimToken = null,
+}) {
+  return setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE nhcx_messages
+          SET status = $3::varchar,
+              validation_issues = $4::jsonb,
+              last_error = $5,
+              processed_at = CASE WHEN $3::varchar = 'processed' THEN NOW() ELSE processed_at END,
+              inbound_completed_at = CASE
+                WHEN $6::uuid IS NULL THEN inbound_completed_at
+                ELSE NOW()
+              END,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::bigint
+          AND (
+            ($6::uuid IS NULL AND status = 'accepted' AND inbound_claim_token IS NULL)
+            OR (
+              $6::uuid IS NOT NULL
+              AND status = 'processing'
+              AND inbound_claim_token = $6::uuid
+              AND inbound_owner_uid IS NULL
+            )
+          )
+        RETURNING *`,
+      tenantId,
+      String(id),
+      status,
+      JSON.stringify(issues || []),
+      errorMessage ? safeText(errorMessage, 2_000) : null,
+      inboundClaimToken,
+    );
+    return rows[0] || null;
+  });
 }
 
 async function defaultRecordPreauthResponse(args) {
@@ -656,19 +697,34 @@ export async function processNHCXCallback({
     signatureVerified,
   });
   if (!envelope?.inserted) {
-    return { duplicate: true, envelope, processed: false };
+    return {
+      duplicate: true,
+      envelope,
+      processed: false,
+      recoveryRequired: ['accepted', 'processing', 'recovery_pending'].includes(envelope?.status),
+    };
   }
   if ((profileResult.issues || []).length > 0 && endpoint !== 'paymentnotice/request') {
-    const updated = await markEnvelope({
-      id: envelope.id,
-      status: 'manual_review',
-      issues: profileResult.issues,
-      errorMessage: 'NHCX inbound FHIR profile warnings require manual review',
-    });
+    const updated = envelope.status === 'manual_review'
+      ? envelope
+      : await markEnvelope({
+        tenantId,
+        id: envelope.id,
+        status: 'manual_review',
+        issues: profileResult.issues,
+        errorMessage: 'NHCX inbound FHIR profile warnings require manual review',
+      });
     return { duplicate: false, envelope: updated || envelope, processed: false, validation: profileResult };
   }
 
   try {
+    const inboundClaimToken = envelope.inbound_claim_token;
+    if (endpoint !== 'paymentnotice/request' && !inboundClaimToken) {
+      throw AppError.conflict(
+        'NHCX inbound processing claim is missing',
+        'NHCX_INBOUND_PROCESSING_CLAIM_MISSING',
+      );
+    }
     let domainResult = null;
     if (endpoint === 'preauth/on_submit') {
       domainResult = await processPreauthCallback({
@@ -714,7 +770,23 @@ export async function processNHCXCallback({
         validation: profileResult,
       };
     }
-    const updated = await markEnvelope({ id: envelope.id, status: 'processed', issues: [] });
+    const updated = await markEnvelope({
+      tenantId,
+      id: envelope.id,
+      status: 'processed',
+      issues: [],
+      inboundClaimToken,
+    });
+    if (!updated) {
+      return {
+        duplicate: false,
+        envelope,
+        processed: false,
+        recoveryRequired: true,
+        domainResult,
+        validation: profileResult,
+      };
+    }
     return { duplicate: false, envelope: updated || envelope, processed: true, domainResult, validation: profileResult };
   } catch (err) {
     logger.warn('NHCX callback routed to manual review', {
@@ -724,10 +796,12 @@ export async function processNHCXCallback({
       error: err?.message,
     });
     const updated = await markEnvelope({
+      tenantId,
       id: envelope.id,
       status: 'manual_review',
       issues: profileResult.issues,
       errorMessage: err?.message || 'NHCX callback could not be mapped',
+      inboundClaimToken: envelope.inbound_claim_token || null,
     });
     return { duplicate: false, envelope: updated || envelope, processed: false, validation: profileResult };
   }

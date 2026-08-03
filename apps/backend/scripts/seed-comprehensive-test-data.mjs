@@ -674,6 +674,30 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     predecessor_token: null,
     duplicate_key: null,
   },
+  // mig 619: generic coverage represents an ordinary live NHCX envelope.
+  // Recovery provenance and stranded-processing ownership are owner-supplied.
+  nhcx_messages: {
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+    recovery_owner_uid: null,
+    recovery_owner_reason: null,
+    recovery_disposition: null,
+    recovery_claimed_at: null,
+    recovery_prior_status: null,
+    recovery_evidence: null,
+    source_partition: null,
+    source_position: null,
+    source_token: null,
+    predecessor_token: null,
+    duplicate_key: null,
+    inbound_claim_token: null,
+    inbound_claimed_at: null,
+    inbound_completed_at: null,
+    inbound_owner_uid: null,
+    inbound_owner_reason: null,
+    inbound_owner_disposition: null,
+    inbound_owner_claimed_at: null,
+  },
   // mig 604: legacy staff-device rows remain valid only when both identity
   // pointers are absent, while user_devices must not infer continuity or
   // facility authority for an ordinary pre-enrollment device.

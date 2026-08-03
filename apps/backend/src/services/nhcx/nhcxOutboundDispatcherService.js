@@ -875,7 +875,8 @@ export async function listNHCXMessages({
   const params = [tid];
   if (status) {
     const cleanStatus = clean(status);
-    if (!NHCX_OUTBOUND_STATUSES.includes(cleanStatus) && !['processed', 'duplicate', 'manual_review'].includes(cleanStatus)) {
+    if (!NHCX_OUTBOUND_STATUSES.includes(cleanStatus)
+        && !['processed', 'duplicate', 'manual_review', 'processing', 'recovery_pending'].includes(cleanStatus)) {
       throw AppError.badRequest('Invalid NHCX message status', 'NHCX_STATUS_INVALID');
     }
     params.push(cleanStatus);

@@ -303,6 +303,12 @@ describe('processNHCXCallback', () => {
       sanctioned_amount: 50000,
       decided_by_tpa_user: 'PAYER-NHCX-SAMPLE',
     }));
+    const insertCall = queryUnsafeMock.mock.calls.find((call) => String(call[0]).includes('INSERT INTO nhcx_messages'));
+    expect(insertCall[0]).toContain('inbound_claim_token');
+    expect(insertCall[24]).toBe('processing');
+    expect(insertCall[25]).toEqual(expect.any(String));
+    const terminalCall = queryUnsafeMock.mock.calls.find((call) => String(call[0]).includes('inbound_completed_at'));
+    expect(terminalCall[6]).toBe(insertCall[25]);
   });
 
   it('treats duplicate inbound envelopes as no-op accepted callbacks', async () => {
@@ -312,6 +318,26 @@ describe('processNHCXCallback', () => {
     const result = await processNHCXCallback(baseArgs());
 
     expect(result).toMatchObject({ duplicate: true, processed: false });
+  });
+
+  it('surfaces a duplicate processing envelope for owner recovery without rerunning the domain', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ claim_id: null, preauth_id: 77 }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: '20',
+      inserted: false,
+      status: 'processing',
+      inbound_claim_token: '11111111-1111-4111-8111-111111111111',
+    }]);
+
+    const args = baseArgs();
+    const result = await processNHCXCallback(args);
+
+    expect(result).toMatchObject({
+      duplicate: true,
+      processed: false,
+      recoveryRequired: true,
+    });
+    expect(args.recordPreauthResponseImpl).not.toHaveBeenCalled();
   });
 
   it('routes profile warnings to manual review without mutating preauth state', async () => {
@@ -327,6 +353,9 @@ describe('processNHCXCallback', () => {
     expect(result).toMatchObject({ duplicate: false, processed: false });
     expect(result.envelope.status).toBe('manual_review');
     expect(args.recordPreauthResponseImpl).not.toHaveBeenCalled();
+    const insertCall = queryUnsafeMock.mock.calls.find((call) => String(call[0]).includes('INSERT INTO nhcx_messages'));
+    expect(insertCall[24]).toBe('manual_review');
+    expect(insertCall[25]).toBeNull();
   });
 
   it('records final ClaimResponse decisions through recordClaimDecision with ledger shifts disabled', async () => {
@@ -530,6 +559,9 @@ describe('processNHCXCallback', () => {
 
     expect(result).toMatchObject({ duplicate: false, processed: false });
     expect(result.envelope.status).toBe('manual_review');
+    const insertCall = queryUnsafeMock.mock.calls.find((call) => String(call[0]).includes('INSERT INTO nhcx_messages'));
+    expect(insertCall[24]).toBe('manual_review');
+    expect(insertCall[25]).toBeNull();
     expect(executeUnsafeMock).not.toHaveBeenCalled();
     expect(queryUnsafeMock.mock.calls.some((call) => /UPDATE\s+tpa_claims/i.test(String(call[0])))).toBe(false);
     expect(queryUnsafeMock.mock.calls.some((call) => /ledger_entries|ledger_postings/i.test(String(call[0])))).toBe(false);

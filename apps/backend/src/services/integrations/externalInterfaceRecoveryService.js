@@ -203,10 +203,9 @@ export async function registerExternalRecoveryOffset({
        VALUES
          ('external_interface', $1::uuid, $2::text, $3::integer, $4::text,
           $5::text, $6::text, $7::text, $8::integer,
-          'monotonic_position_and_predecessor',
-          $9::bigint, $10::text, $11::bigint, $12::text, $13::text,
-          CASE WHEN $9::bigint IS NULL THEN 'marker_absent' ELSE NULL END,
-          $14::text, $15::text, $16::text, $17::timestamptz, NULL, NULL)
+          $9::text, $10::bigint, $11::text, $12::bigint, $13::text, $14::text,
+          CASE WHEN $10::bigint IS NULL THEN 'marker_absent' ELSE NULL END,
+          $15::text, $16::text, $17::text, $18::timestamptz, NULL, NULL)
        RETURNING offset_id::text, tenant_id::text, facility_scope, facility_id,
                  interface_family, direction, source_partition, generation,
                  high_water_position::text, high_water_token,
@@ -214,7 +213,8 @@ export async function registerExternalRecoveryOffset({
                  recovery_state, reconciliation_reason, policy_version,
                  policy_signature, retention_policy, retention_until`,
       tid, facilityScope, facility, config.id, config.direction, partition, `external:${config.id}`,
-      safeGeneration, marker.position, marker.token, retained.position, retained.token,
+      safeGeneration, config.cursorKind || 'monotonic_position_and_predecessor',
+      marker.position, marker.token, retained.position, retained.token,
       state, policy.policyVersion, policy.policySignature, policy.retentionPolicy, policy.retentionUntil,
     );
     return rows[0];
@@ -547,6 +547,23 @@ async function persistLateAbdm({ tx, capability, inbox, tenantId, command }) {
   });
 }
 
+async function persistLateNhcx({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateNhcxRecovery } = await import('./externalNhcxRecoveryService.js');
+  return persistLateNhcxRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    sourceToken: inbox.source_token,
+    predecessorToken: inbox.predecessor_token,
+    duplicateKey: inbox.duplicate_key,
+    occurredAt: inbox.occurred_at,
+    command,
+  });
+}
+
 async function persistLateLab({ tx, capability, config, inbox, tenantId, command }) {
   const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
   return persistLateLabRecovery({
@@ -582,6 +599,7 @@ const EXTERNAL_INTERFACE_RECOVERY_ADAPTERS = Object.freeze({
   I15: persistLateVitals,
   I16: persistLateAbdm,
   I17: persistLateNotification,
+  I19: persistLateNhcx,
 });
 
 export const EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES = Object.freeze(
@@ -697,7 +715,8 @@ export async function processNextItemTx({
       interfaceFamily: config.id, effectDisposition: inbox.effect_disposition,
     });
     const domain = await persistLateDomain({ tx, capability, config, inbox, tenantId: tid, command });
-    const evidence = config.id === 'I17' || config.id === 'I13' || config.id === 'I16'
+    const evidence = config.id === 'I17' || config.id === 'I13'
+      || config.id === 'I16' || config.id === 'I19'
       ? domain?.receipt
       : config.id === 'I04'
         ? domain?.acknowledgement || domain?.authority
@@ -744,7 +763,8 @@ export async function processNextItemTx({
     if (advanced.length !== 1) throw AppError.conflict('Recovery cursor fence was lost', 'EXTERNAL_RECOVERY_CURSOR_FENCE_LOST');
     return Object.freeze({
       ...terminal[0], cursor: advanced[0],
-      ...(config.id === 'I17' || config.id === 'I13' || config.id === 'I16'
+      ...(config.id === 'I17' || config.id === 'I13'
+        || config.id === 'I16' || config.id === 'I19'
         ? { receipt_id: String(evidence.id || evidence.receipt_id) }
         : config.id === 'I04'
           ? domain?.acknowledgement
