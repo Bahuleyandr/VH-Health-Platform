@@ -7,6 +7,79 @@
 // the drift gate — flap between machines. Sort everything with this instead.
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
+// Route directories that name the AUDIENCE a route is served to, not the domain
+// it belongs to. `src/routes/admin/` alone holds 39 route files and 895
+// operations (24.6% of the API); tagging all of them `admin` would rebuild the
+// junk drawer this taxonomy exists to avoid. For these, the FILE name carries
+// the real subsystem (admin/tenantRoutes.js -> `tenant`), so we descend one
+// level. Every other directory IS the domain and is used as-is.
+const AUDIENCE_ROUTE_DIRS = new Set(['admin', 'staff', 'portal']);
+
+// Same idea one level down, for the last-resort path derivation: these URL
+// prefixes say who is calling, not what the resource is.
+const AUDIENCE_PATH_SEGMENTS = new Set(['admin', 'staff', 'portal']);
+
+/** camelCase/snake_case -> kebab-case, lowercase ASCII. Tag names stay in this
+ * shape so the code-unit sort used everywhere else is also alphabetical. */
+export function kebabCase(s) {
+  return String(s)
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+}
+
+/** Derive a tag from a route module path relative to src/routes/, e.g.
+ *   'appointment/appointmentRoutes.js' -> 'appointment'   (domain directory)
+ *   'admin/tenantRoutes.js'            -> 'tenant'        (audience dir -> file)
+ *   'admin/index.js'                   -> 'admin'         (barrel -> back to dir)
+ *   'carePathwayRoutes.js'             -> 'care-pathway'  (top-level file)
+ * Returns null when there is nothing usable. */
+export function tagFromSourceFile(srcFile) {
+  if (!srcFile) return null;
+  const segs = String(srcFile).split('/').filter(Boolean);
+  if (!segs.length) return null;
+  const base = kebabCase(
+    segs[segs.length - 1].replace(/\.(js|mjs|cjs)$/, '').replace(/Routes?$/i, ''),
+  );
+  const dir = segs.length > 1 ? kebabCase(segs[0]) : null;
+  // A barrel file names nothing — `admin/index.js` would otherwise yield the
+  // meaningless tag `index` for the 46 operations registered directly in it.
+  // Fall back to the directory, even an audience one: those really are the
+  // admin console's own aggregate endpoints and have no narrower domain.
+  const usableBase = base && base !== 'index' ? base : null;
+  if (dir && !AUDIENCE_ROUTE_DIRS.has(dir)) return dir;
+  return usableBase ?? dir;
+}
+
+/** Last-resort tag from the URL itself. Skips the /api/v<n> prefix and any
+ * leading AUDIENCE segment, so /api/v1/admin/clinical-ai/x -> 'clinical-ai',
+ * never 'admin'. Returns null when nothing meaningful remains. */
+export function tagFromPath(openApiPath) {
+  const segs = String(openApiPath).split('/').filter(Boolean);
+  let i = 0;
+  if (segs[i] === 'api') i++;
+  if (/^v\d+$/.test(segs[i] || '')) i++;
+  if (AUDIENCE_PATH_SEGMENTS.has(segs[i]) && segs.length > i + 1) i++;
+  const seg = segs[i];
+  if (!seg || seg.startsWith('{')) return null;
+  return kebabCase(seg) || null;
+}
+
+/** Resolve the tag for one operation. Priority:
+ *   1. `ov.tags` — an overlay explicitly authored the tag (same override seam
+ *      as ov.summary / ov.description). Authored intent always wins.
+ *   2. the route module the operation was registered from — a curated,
+ *      on-disk taxonomy the generator already knows at capture time.
+ *   3. the URL path, audience prefixes skipped — heuristic last resort.
+ * Always returns a non-empty array so `operation-tags` is satisfiable. */
+export function resolveTags({ ov, srcFile, path }) {
+  if (ov && Array.isArray(ov.tags) && ov.tags.length) return [...ov.tags];
+  const tag = tagFromSourceFile(srcFile) ?? tagFromPath(path) ?? 'api';
+  return [tag];
+}
+
 /** Convert Express path param syntax to OpenAPI: ':id'->'{id}', '*splat'->'{splat}'. */
 export function expressPathToOpenApi(p) {
   return String(p)
@@ -41,11 +114,12 @@ export function operationId(method, openApiPath) {
 
 /** Build one OpenAPI operation. With an overlay entry (`ov`), attach a typed
  * requestBody and/or typed success response; otherwise the generic Success envelope. */
-function buildOperation(method, openApiPath, opId, ov) {
+function buildOperation(method, openApiPath, opId, ov, tags) {
   const responseStatus = String(ov?.responseStatus ?? 200);
   const responseContentType = ov?.responseContentType ?? 'application/json';
   const op = {
     operationId: opId,
+    ...(tags && tags.length ? { tags } : {}),
     responses: {
       [responseStatus]: {
         description: 'Successful response',
@@ -89,23 +163,25 @@ function buildOperation(method, openApiPath, opId, ov) {
 
 /**
  * Compose full method+path pairs from captured registration data.
- *   routerRoutes: Map<router, [{ relPath, route:{ methods } }]>
+ *   routerRoutes: Map<router, [{ relPath, route:{ methods }, srcFile? }]>
  *   edges:        Map<router, [{ prefix, child }]>
- * Returns a de-duped, SORTED array of { method, path } (OpenAPI paths).
+ * `srcFile` (the route module the registration came from, relative to
+ * src/routes/) is carried through untouched — it is what tags are derived from.
+ * Returns a de-duped, SORTED array of { method, path, srcFile } (OpenAPI paths).
  */
 export function composeRoutes({ routerRoutes, edges, root }) {
   const out = [];
   const seen = new Set();
   const visit = (router, prefix, depth) => {
     if (depth > 12) return; // cycle guard
-    for (const { relPath, route } of routerRoutes.get(router) || []) {
+    for (const { relPath, route, srcFile } of routerRoutes.get(router) || []) {
       const full = expressPathToOpenApi(joinPath(prefix, relPath));
       const methods = Object.keys(route.methods || {}).filter((m) => m !== '_all');
       for (const method of methods) {
         const key = `${method.toUpperCase()} ${full}`;
         if (!seen.has(key)) {
           seen.add(key);
-          out.push({ method: method.toLowerCase(), path: full });
+          out.push({ method: method.toLowerCase(), path: full, srcFile: srcFile ?? null });
         }
       }
     }
@@ -147,12 +223,22 @@ export function findEquivalentPathCollisions(routes) {
 export function buildOpenApiDocument(routes, base, overlay = {}) {
   // Group by template signature; pick the smallest path string as canonical.
   const bySig = new Map(); // signature -> { canonical, methods:Set }
-  for (const { method, path } of routes) {
+  // Source module per (method, signature). Collapsed param-equivalent paths can
+  // come from DIFFERENT route modules and a signature can carry several methods,
+  // so attribution is tracked per operation, not per path. Ties resolve to the
+  // code-unit-smallest file so the choice is deterministic across machines.
+  const srcByOp = new Map();
+  for (const { method, path, srcFile } of routes) {
     const s = pathSignature(path);
     if (!bySig.has(s)) bySig.set(s, { canonical: path, methods: new Set() });
     const e = bySig.get(s);
     if (path < e.canonical) e.canonical = path;
     e.methods.add(method);
+    if (srcFile) {
+      const k = `${method} ${s}`;
+      const cur = srcByOp.get(k);
+      if (cur === undefined || cmp(srcFile, cur) < 0) srcByOp.set(k, srcFile);
+    }
   }
 
   const usedIds = new Set();
@@ -168,13 +254,30 @@ export function buildOpenApiDocument(routes, base, overlay = {}) {
   // Deterministic: iterate canonical paths sorted, methods sorted.
   const entries = [...bySig.values()].sort((a, b) => cmp(a.canonical, b.canonical));
   const sortedPaths = {};
+  const usedTags = new Set();
   for (const { canonical, methods } of entries) {
     const ops = {};
+    const sig = pathSignature(canonical);
     for (const method of [...methods].sort()) {
       const ov = overlay[`${method.toUpperCase()} ${canonical}`];
-      ops[method] = buildOperation(method, canonical, uniqueOpId(method, canonical), ov);
+      const tags = resolveTags({ ov, srcFile: srcByOp.get(`${method} ${sig}`), path: canonical });
+      for (const t of tags) usedTags.add(t);
+      ops[method] = buildOperation(method, canonical, uniqueOpId(method, canonical), ov, tags);
     }
     sortedPaths[canonical] = ops;
   }
-  return { ...base, paths: sortedPaths };
+
+  // Top-level `tags` MUST cover every tag any operation uses, or Spectral's
+  // `operation-tag-defined` fires once per uncovered operation — trading one
+  // warning class for another. Emit the union of what was actually used, sorted
+  // by code-unit compare, carrying any curated description from the base doc.
+  // (`spectral:oas` does not require tag descriptions, so an undescribed tag is
+  // clean — descriptions accrue in base.mjs as subsystem owners write them.)
+  const describedTags = new Map((base.tags || []).map((t) => [t.name, t]));
+  const tags = [...usedTags].sort(cmp).map((name) => {
+    const described = describedTags.get(name);
+    return described?.description ? { name, description: described.description } : { name };
+  });
+
+  return { ...base, tags, paths: sortedPaths };
 }

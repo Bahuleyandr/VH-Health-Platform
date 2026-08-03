@@ -21,6 +21,24 @@ export const OPENAPI_BASE = {
     { url: 'https://api.vhhealth.app/api/v1', description: 'Production' },
     { url: 'http://localhost:5000/api/v1', description: 'Development' },
   ],
+  // Curated top-level tag DESCRIPTIONS.
+  //
+  // The tag NAMES are not listed here — buildOpenApiDocument emits the complete
+  // top-level `tags` array as the union of every tag its operations actually
+  // use, so Spectral's `operation-tag-defined` can never fire and a new route
+  // module can never silently produce an undefined tag. This list only supplies
+  // the human description for tags that have one; a name present here is
+  // matched by `name` and its `description` is carried through, and any name
+  // NOT here is emitted as a bare `{ name }`.
+  //
+  // `spectral:oas` does not require tag descriptions, so an undescribed tag is
+  // clean — nothing is gated on filling this in. It is deliberately empty
+  // rather than seeded with auto-generated text: restating a subsystem's name
+  // back at the reader ("Appointment endpoints") is not documentation, the same
+  // reason operation descriptions are not auto-generated (see .spectral.yml).
+  // Subsystem owners add real entries here as they write them, e.g.
+  //   { name: 'appointments', description: 'Slot search, booking, reschedule …' }
+  tags: [],
   components: {
     securitySchemes: {
       ApiKeyAuth: { type: 'apiKey', in: 'header', name: 'x-api-key', description: 'API key (API_KEY env var)' },

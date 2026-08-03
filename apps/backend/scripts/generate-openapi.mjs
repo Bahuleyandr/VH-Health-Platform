@@ -129,11 +129,55 @@ const asRouter = h => {
 const normPrefix = p =>
   typeof p === 'string' ? p : Array.isArray(p) ? (p.find(x => typeof x === 'string') ?? '/') : '/';
 
+// Which route MODULE registered this operation. Routes are grouped by domain on
+// disk (src/routes/<domain>/...), so the owning file is a curated taxonomy the
+// generator already has at capture time — that is what OpenAPI `tags` are
+// derived from (see resolveTags in openapi/buildSpec.mjs). Deriving tags from
+// the URL instead would put 895 operations (24.6% of the API) under `admin`,
+// which is an AUDIENCE prefix, not a domain.
+//
+// Registration reaches us through several layers — wrapAutoRBAC/wrapRoutes call
+// `router[method](path, ...)` in src/config/routeWrapper.js, which calls
+// `this.route(path)` inside Express — so we walk OUT to the first frame that
+// lives under src/routes/ rather than trusting any fixed stack depth. Uses
+// structured CallSite objects (not stack-string parsing) and returns a path
+// relative to src/routes/, so absolute paths and drive letters never leak into
+// the spec.
+function captureRouteSourceFile() {
+  const prevPrepare = Error.prepareStackTrace;
+  const prevLimit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 60;
+  Error.prepareStackTrace = (_err, frames) => frames;
+  const frames = new Error().stack;
+  Error.prepareStackTrace = prevPrepare;
+  Error.stackTraceLimit = prevLimit;
+  if (!Array.isArray(frames)) return null;
+  for (const frame of frames) {
+    let file = frame.getFileName?.();
+    if (!file) continue;
+    if (file.startsWith('file:')) {
+      try {
+        file = fileURLToPath(file);
+      } catch {
+        continue;
+      }
+    }
+    const norm = file.replace(/\\/g, '/');
+    const at = norm.indexOf('/src/routes/');
+    if (at !== -1) return norm.slice(at + '/src/routes/'.length);
+  }
+  return null;
+}
+
 const origRoute = proto.route;
 proto.route = function patchedRoute(path) {
   const r = origRoute.call(this, path);
   if (!routerRoutes.has(this)) routerRoutes.set(this, []);
-  routerRoutes.get(this).push({ relPath: typeof path === 'string' ? path : '/', route: r });
+  routerRoutes.get(this).push({
+    relPath: typeof path === 'string' ? path : '/',
+    route: r,
+    srcFile: captureRouteSourceFile()
+  });
   return r;
 };
 const origUse = proto.use;

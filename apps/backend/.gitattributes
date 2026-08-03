@@ -8,6 +8,11 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 
+# .spectral-baseline.txt is a byte-pinned gate file (scripts/check-openapi-lint-budget.mjs
+# rewrites it wholesale with --write). Without an LF pin, core.autocrlf=true checks it
+# out as CRLF on Windows and every --write produces a whole-file spurious diff.
+*.txt text eol=lf
+
 # Ensure package.json and lock files use LF
 package.json text eol=lf
 package-lock.json text eol=lf

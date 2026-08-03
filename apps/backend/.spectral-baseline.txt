@@ -1,0 +1,19 @@
+# apps/backend/.spectral-baseline.txt
+#
+# Pinned per-rule Spectral WARNING counts for src/docs/openapi.json.
+# Verified by scripts/check-openapi-lint-budget.mjs (npm run openapi:lint-budget).
+#
+# This is a RATCHET, not a suppression list. The counts below are existing,
+# known debt. CI fails if any count moves in EITHER direction:
+#   * higher -> a new warning was introduced; fix the operation, don't re-pin.
+#   * lower  -> debt was paid off; re-pin so the slack can't be silently re-used.
+#
+# To re-pin after legitimately changing the spec:
+#   npm run openapi:lint-budget -- --write
+#
+# Errors (severity 0) are never recorded here — they fail the gate outright.
+#
+# Format: <spectral-rule-code> <count>, sorted by code-unit compare, LF endings.
+oas3-unused-component 2
+operation-description 3574
+operation-success-response 1

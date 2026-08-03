@@ -1,1 +1,39 @@
-﻿extends: ["spectral:oas"]
+# Spectral ruleset for src/docs/openapi.json (the generated OpenAPI spec).
+#
+# Deliberately the stock ruleset, with NOTHING demoted. Two rules dominate this
+# spec's history and both are recorded here so the next person does not
+# re-litigate them:
+#
+# `operation-tags` — was 3,632 warnings (100% of operations, since nothing set
+#   tags at all). FIXED at the source rather than silenced: the generator now
+#   derives a tag per operation from the route module it was registered from
+#   (src/routes/<domain>/...), which is a curated on-disk taxonomy, and emits a
+#   matching top-level `tags` array. See resolveTags in scripts/openapi/buildSpec.mjs.
+#   The rule stays a live gate — it is now satisfiable, so any new untagged
+#   operation is a real regression.
+#
+#   NOTE: tags are NOT derived from the URL path. The first path segment after
+#   /api/v1 is frequently an AUDIENCE prefix (admin, staff, portal), which would
+#   put 895 operations — 24.6% of the API — under a single `admin` tag and
+#   rebuild the junk drawer this taxonomy exists to avoid.
+#
+# `operation-description` — 3,574 warnings, and left at WARN on purpose.
+#   * Not auto-generated. Synthesising a description from method + path
+#     ("Get appointment by id" for GET /appointments/{id}) restates the URL
+#     rather than documenting it, and would make the published API docs look
+#     documented when they are not. Owner decision, 2026-08-03.
+#   * Not demoted either. Demoting hides the debt permanently: nobody ever sees
+#     it shrink, and a subsystem that later writes real descriptions gets no
+#     credit and no signal.
+#   The 58 genuine descriptions in the spec all come from the per-subsystem
+#   overlay modules registered in scripts/generate-openapi.mjs (SCHEMA_MODULES),
+#   which already support `summary` / `description` per operation. Real
+#   descriptions accrue there, per subsystem, as owners write them.
+#
+# So how does a NEW warning stay visible if the rules are noisy?
+# `npm run openapi:lint-budget` (scripts/check-openapi-lint-budget.mjs) pins the
+# current per-rule counts in .spectral-baseline.txt and fails CI when any of
+# them MOVES. Existing debt stays visible and can only shrink; anything new
+# fails loudly. That is the signal this ruleset alone cannot provide, because
+# `spectral lint` exits 0 on warnings.
+extends: ["spectral:oas"]
