@@ -51,7 +51,9 @@ Production runs on a **3-node on-prem RKE2 Kubernetes cluster** inside
 the hospital, with **CloudNativePG** running a PostgreSQL 17 cluster
 (3 replicas, synchronous replication). Deploys are **GitOps via
 ArgoCD**: Forgejo Actions builds, scans, signs, and pushes container images to
-GHCR; ArgoCD watches this repo and auto-syncs Kustomize overlays. All
+GHCR; ArgoCD watches this repo, but **prod sync is manual** — no Application
+sets `syncPolicy.automated`, so a merge to `main` stays inert until an operator
+syncs deliberately. All
 external traffic arrives via **Cloudflare Tunnel → ingress-nginx →
 Service**, so the hospital firewall has zero inbound ports open. Full
 runbook: [`docs/DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md).
@@ -65,7 +67,7 @@ From root [`CLAUDE.md`](../CLAUDE.md):
 | Path | Stack | Role |
 |---|---|---|
 | [`apps/backend`](../apps/backend) | Node.js 22 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
-| [`apps/admin`](../apps/admin) | Next.js 15 + React 19 + TypeScript | Admin/super-admin web portal |
+| [`apps/admin`](../apps/admin) | Next.js 16 + React 19 + TypeScript | Admin/super-admin web portal |
 | [`apps/patient`](../apps/patient) | Flutter 3.44.0 + Firebase OTP | Patient mobile app |
 | [`apps/staff`](../apps/staff) | Flutter 3.44.0 + staff JWT | Staff/clinical mobile app |
 | [`packages/vhhealth_core`](../packages/vhhealth_core) | Dart shared package | API client, auth, theme, HTTP client |
@@ -477,7 +479,7 @@ was retired in batches 28–31:
   `DatabaseManager` shim + `dbHealthMonitor`.
 
 [`apps/backend/prisma/schema.prisma`](../apps/backend/prisma/schema.prisma)
-is the **canonical** schema with 527 models (regenerated via `prisma db pull` after each migration). `prisma db pull` is the authoritative refresh path;
+is the **canonical** schema (863 models as of this writing — run `grep -c '^model ' prisma/schema.prisma` rather than trusting a documented count, which has gone stale twice). `prisma db pull` is the authoritative refresh path;
 `apps/backend/scripts/check-schema-drift.mjs` fails CI if the
 committed schema drifts from the DB.
 
@@ -797,16 +799,23 @@ Overlays at [`infra/kubernetes/overlays/`](../infra/kubernetes/overlays/):
 
 ### ArgoCD wiring
 
-Batch 17 introduced two top-level ArgoCD Applications:
+Batch 17 introduced the top-level ArgoCD Applications. There are **four** —
+`vhhealth-apps` and `vhhealth-platform` below, plus `vhhealth-kube-prometheus`
+and `vhhealth-loki` in
+[`base/argocd/applications/monitoring.yaml`](../infra/kubernetes/base/argocd/applications/monitoring.yaml):
 
 | Application | Source path | Target namespace | File |
 |---|---|---|---|
 | `vhhealth-platform` | `infra/kubernetes/overlays/prod/` | `argocd` (mixed destinations) | [`base/argocd/applications/platform.yaml`](../infra/kubernetes/base/argocd/applications/platform.yaml) |
 | `vhhealth-apps` | `infra/kubernetes/apps/` | `vhhealth` | [`base/argocd/applications/apps.yaml`](../infra/kubernetes/base/argocd/applications/apps.yaml) |
 
-Both have `syncPolicy.automated: { prune: true, selfHeal: true }` +
-`ServerSideApply=true` + `PrunePropagationPolicy=foreground`, and
-retry with exponential backoff (10s → 3m cap, 5 attempts).
+Both set `ServerSideApply=true` + `PrunePropagationPolicy=foreground` and retry
+with exponential backoff (10s → 3m cap, 5 attempts). **Neither sets
+`syncPolicy.automated`** — the word appears only in comments. Since the
+2026-06-18 deploy-safety audit, prod sync is manual: a merge to `main` is inert
+until an operator syncs. The manifests say why — "a merge to main no longer
+auto-deploys to the live hospital cluster; an operator triggers sync
+deliberately after review."
 
 ArgoCD itself is deployed in HA (ApplicationSet + 2× `argocd-server` +
 Redis HA). The ArgoCD `AppProject` is [`project.yaml`](../infra/kubernetes/base/argocd/project.yaml).
@@ -817,8 +826,8 @@ Redis HA). The ArgoCD `AppProject` is [`project.yaml`](../infra/kubernetes/base/
 release tag / manual dispatch
   └─> GHA: release-images.yml (build + cosign keyless + SBOM + trivy scan)
        └─> push to ghcr.io/<owner>/vh-health-platform-{backend,adminportal}:<tag>
-             └─> ArgoCD poll (3 min default)
-                  └─> auto-sync Kustomize overlays
+             └─> ArgoCD marks the Application OutOfSync
+                  └─> OPERATOR syncs deliberately (no automated policy)
                        └─> rolling update in vhhealth namespace
                             └─> zero-downtime cutover
 ```

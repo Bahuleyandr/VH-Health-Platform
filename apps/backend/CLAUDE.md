@@ -6,8 +6,11 @@ Node.js/Express REST API backend for the VHHealth hospital management system. Se
 ## Deployment
 
 Production runs on a **3-node on-prem RKE2 Kubernetes cluster** inside the
-hospital. Container images are built + signed + pushed by GitHub Actions;
-ArgoCD watches this repo and auto-syncs Kustomize overlays onto the cluster.
+hospital. Container images are built + signed + pushed by the `release-images.yml`
+workflow, which exists in both `.forgejo/workflows/` (canonical) and
+`.github/workflows/` (mirror). ArgoCD watches this repo, but **prod sync is
+manual** — no Application sets `syncPolicy.automated`, so a merge to `main`
+stays inert until an operator syncs.
 Postgres is a CloudNativePG cluster (PG17, 3 replicas); ingress is Cloudflare
 Tunnel → ingress-nginx, so zero inbound ports on the hospital firewall.
 
@@ -17,7 +20,7 @@ and hardware spec in [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE
 ## Tech Stack
 - **Runtime**: Node.js 22, Express 5
 - **Database**: PostgreSQL 17 native install (dev cluster at `D:\Dev\Tools\pgdata-vhhealth` on port **5433**, user `vhhealth`, db `vhhealth`). Prod runs managed Postgres; both speak the same wire protocol.
-- **ORM**: Prisma is the canonical DB client — `src/lib/prisma.js` exports `prisma`, `prismaReadOnly`, `setTenant`, `circuitBreakerStatus`. Residual `$queryRaw*` call sites (~35 as of the latest migration pass) + the per-domain typed ORM migrations (batches 26–38) all run through it. `src/config/database.js` / `DatabaseManager` were **deleted in batch 31** — do not try to import them.
+- **ORM**: Prisma is the canonical DB client — `src/lib/prisma.js` exports `prisma`, `prismaReadOnly`, `setTenant`, `circuitBreakerStatus`. Raw `$queryRaw*` / `$executeRaw*` call sites (~5.7k across ~565 non-test files) + the per-domain typed ORM migrations (batches 26–38) all run through it. `src/config/database.js` / `DatabaseManager` were **deleted in batch 31** — do not try to import them.
 - **Auth**: JWT (jsonwebtoken) + Firebase Admin SDK + bcrypt
 - **Storage**: Cloudflare R2 (vh-health-records bucket)
 - **Logging**: Winston (`src/logging/logger.js`)
@@ -38,14 +41,14 @@ src/
   validators/         # express-validator chains
   tests/              # Jest integration tests (authorization, critical paths)
   logging/            # Winston logger config
-prisma/schema.prisma  # 527 models, canonical schema source (regenerated after each migration)
+prisma/schema.prisma  # canonical schema source, 863 models (regenerated after each migration)
 ```
 
 ## Key Architecture Decisions
-- **Prisma client is the canonical DB path.** Residual raw-SQL call sites (approximately 35, down from the original 288+) use `prisma.$queryRaw*` / `$executeRaw*` from `src/lib/prisma.js`. The singleton is hardened at the edge (circuit breaker after 5 consecutive failures, >1000ms slow-query logging in every env) — every raw-SQL call inherits that automatically. New code: use `prisma` for reads/writes, `prismaReadOnly` for analytics / dashboards / exports (falls back to primary when `DATABASE_READ_URL` unset), and `setTenant(tenantId, fn, { superAdmin })` to wrap queries under RLS tenant scope (migration 075).
+- **Prisma client is the canonical DB path, but raw SQL is still the dominant idiom — not a residue.** `prisma.$queryRaw*` / `$executeRaw*` from `src/lib/prisma.js` appear at roughly **5,700 call sites across ~565 non-test files**; the batches 26–38 typed-ORM migration covered specific domains, not the whole tree. Read the raw-SQL rules under "Phase 0.5 conventions" before touching any of them. The singleton is hardened at the edge (circuit breaker after 5 consecutive failures, >1000ms slow-query logging in every env) — every raw-SQL call inherits that automatically. New code: use `prisma` for reads/writes, `prismaReadOnly` for analytics / dashboards / exports (falls back to primary when `DATABASE_READ_URL` unset), and `setTenant(tenantId, fn, { superAdmin })` to wrap queries under RLS tenant scope (migration 075).
 - **DatabaseManager shim is gone.** `src/config/database.js` was deleted in batch 31 after every consumer (app.js root probe, bin/www.js shutdown, prometheusMiddleware, jest.teardown, tenant-rls deep test, uptimeRoutes) was ported to `prisma` directly. Do not try to re-add a shim; use `prisma.$queryRaw` / `prisma.$executeRaw` + the helpers on `src/lib/prisma.js` (setTenant, prismaReadOnly, circuitBreakerStatus).
 - **Schema drift check in CI.** `apps/backend/scripts/check-schema-drift.mjs` diffs `prisma/schema.prisma` against a fresh `prisma db pull` of the test DB after migrations. Surfaces batch-18/22-class bugs (`ordered_date` vs `requested_at`) at review time. Local check: `npm --prefix apps/backend run check:schema-drift`.
-- **Raw SQL migrations are the source of truth (2026-05-12).** `prisma db push` was removed from CI and `ensure-test-db.mjs` after the post-migration DB grew Postgres features (GENERATED columns, column-reference DEFAULTs, sequence-referencing defaults) that Prisma can no longer emit declaratively. The new flow: `src/migrations/000_baseline.sql` (a `pg_dump --schema-only` of a clean QA DB) bootstraps the public schema; `001+` apply the deltas; `prisma/schema.prisma` is **regenerated via `npx prisma db pull`** after any migration that touches a Prisma-modelled table. The two files commit together, and the drift check now fails CI if they ever disagree. Adding a new migration: write the `.sql`, run `node scripts/qa-reset.mjs` (or any equivalent fresh DB), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. Design comments (`//`, not `///`) that `prisma db pull` strips on regeneration are preserved in `prisma/SCHEMA_NOTES.md`.
+- **Raw SQL migrations are the source of truth (2026-05-12).** `prisma db push` was removed from CI and `ensure-test-db.mjs` after the post-migration DB grew Postgres features (GENERATED columns, column-reference DEFAULTs, sequence-referencing defaults) that Prisma can no longer emit declaratively. The new flow: `src/migrations/000_baseline.sql` (a `pg_dump --schema-only` of a clean QA DB) bootstraps the public schema; `001+` apply the deltas; `prisma/schema.prisma` is **regenerated via `npx prisma db pull`** after any migration that touches a Prisma-modelled table. The two files commit together, and the drift check now fails CI if they ever disagree. Adding a new migration: write the `.sql`, bring up a fresh DB with `node scripts/qa-cluster-up.mjs` (there is no `qa-reset.mjs` — see the Database Access section), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. Design comments (`//`, not `///`) that `prisma db pull` strips on regeneration are preserved in `prisma/SCHEMA_NOTES.md`.
 - **Migrations are tracker-driven.** Both the boot-time runner (`src/utils/migrations/runMigrations.js`) and `scripts/ci-setup-db.mjs` consult the `_migrations` table and skip any file already recorded there. Add new migrations as bare DDL files in `src/migrations/NNN_*.sql` — each applies exactly once per DB. `ci-setup-db.mjs` also auto-detects a pre-existing baseline schema (probes for `users` + `appointments` + `admissions`) and records `000_baseline.sql` without re-running its non-idempotent `CREATE FUNCTION` DDL. Re-running `node scripts/ci-setup-db.mjs` against any populated DB is safe and fast. `scripts/smoke-migration-runner.mjs` exercises fresh-apply / re-run / truncate-tracker paths against a throwaway DB.
 - **Phase 0 / 1 / 1.5 / 2 transaction boundary rule (2026-05-12).** Pre-flight lookups (admission state, readiness probes, FK existence checks) belong **outside** `prisma.$transaction`. A try/catch swallowing a Prisma error inside a `$transaction` callback aborts the underlying Postgres tx silently; the next `tx.*` call then fails with `current transaction is aborted, commands ignored until end of transaction block` and surfaces as a generic 500. The pattern that works in this codebase: **Phase 0** = pre-flight on plain `prisma` (P2025 → `AppError.notFound`, never a 500); **Phase 1** = atomic state mutations + audit log inside `prisma.$transaction`, with NO best-effort calls inside (every `tx.*` must succeed); **Phase 1.5** = post-commit best-effort on plain `prisma`, each in its own try/catch — TPA placeholder, housekeeping ticket, downstream alerts (failure is logged, never blocks Phase 1); **Phase 2** = slow/external (LLM, PDF, external API) — failure is recoverable via a separate endpoint. Applied across `markForDischarge` (`f9bbecba`), `markDischargeDrugsDispensed` (`d032f6d0`), `dischargePatient` (`1c2dfe8a` + `80e0ec5f`), `collectAdvanceDeposit` (`bfbb3d76`). When writing any new service method that mutates more than one row + has a best-effort downstream, default to this shape.
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
@@ -535,7 +538,7 @@ lefthook install          # one-time; wires the pre-commit/pre-push hooks this r
 Production is Kubernetes-managed; see [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).
 Local dev still uses `npm run dev` (nodemon). Images are built by GitHub
 Actions and pulled by a `Deployment` in namespace `vhhealth`; ArgoCD reconciles
-the manifests under `infra/kubernetes/apps/backend/`.
+the manifests under `infra/kubernetes/apps/backend/` once an operator syncs.
 
 Public URL: `https://api.vhhealth.app` — traffic path is Cloudflare Tunnel →
 ingress-nginx → `Service/vhhealth-backend` in cluster.
