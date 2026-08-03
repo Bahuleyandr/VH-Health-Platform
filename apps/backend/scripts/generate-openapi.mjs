@@ -217,7 +217,24 @@ proto.route = origRoute;
 proto.use = origUse;
 
 const root = app.router || app._router;
-const routes = composeRoutes({ routerRoutes, edges, root });
+
+// Explicit domain declarations (src/config/openapiDomain.js markRouterDomain).
+// These outrank the filename bootstrap: they pin the published tag in code, so
+// it survives a route module being moved, renamed or re-mounted. Collected from
+// every router we captured — the root, anything that registered a route, and
+// every mount child. `asRouter` already unwrapped wrapAsync wrappers, so the
+// object here is the same one the route module marked.
+const { getRouterDomain } = await import('../src/config/openapiDomain.js');
+const routerDomains = new Map();
+const noteDomain = r => {
+  const slug = getRouterDomain(r);
+  if (slug) routerDomains.set(r, slug);
+};
+noteDomain(root);
+for (const r of routerRoutes.keys()) noteDomain(r);
+for (const list of edges.values()) for (const { child } of list) noteDomain(child);
+
+const routes = composeRoutes({ routerRoutes, edges, root, routerDomains });
 
 // Param-equivalent paths (same URL template, different param names) shadow each
 // other at the URL level and can't both live in one OpenAPI doc — report them

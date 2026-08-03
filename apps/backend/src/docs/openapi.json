@@ -24,479 +24,6 @@
       "description": "Development"
     }
   ],
-  "tags": [
-    {
-      "name": "abdm"
-    },
-    {
-      "name": "abdm-full"
-    },
-    {
-      "name": "admin"
-    },
-    {
-      "name": "adoption"
-    },
-    {
-      "name": "analytics"
-    },
-    {
-      "name": "api"
-    },
-    {
-      "name": "appointment"
-    },
-    {
-      "name": "attendance"
-    },
-    {
-      "name": "audit"
-    },
-    {
-      "name": "auth"
-    },
-    {
-      "name": "bed"
-    },
-    {
-      "name": "billing"
-    },
-    {
-      "name": "billing-masters"
-    },
-    {
-      "name": "biomed-cmms"
-    },
-    {
-      "name": "bloodbank"
-    },
-    {
-      "name": "care-operations"
-    },
-    {
-      "name": "care-pathway"
-    },
-    {
-      "name": "care-pathway-reconciliation"
-    },
-    {
-      "name": "care-plan"
-    },
-    {
-      "name": "cath-consumables"
-    },
-    {
-      "name": "chatbot"
-    },
-    {
-      "name": "clinical"
-    },
-    {
-      "name": "clinical-governance"
-    },
-    {
-      "name": "clinical-inbox"
-    },
-    {
-      "name": "clinical-use"
-    },
-    {
-      "name": "cold-chain"
-    },
-    {
-      "name": "compliance"
-    },
-    {
-      "name": "config"
-    },
-    {
-      "name": "consent"
-    },
-    {
-      "name": "core-clinical"
-    },
-    {
-      "name": "credentialing"
-    },
-    {
-      "name": "cssd"
-    },
-    {
-      "name": "dashboard"
-    },
-    {
-      "name": "dashboards"
-    },
-    {
-      "name": "data-export"
-    },
-    {
-      "name": "database"
-    },
-    {
-      "name": "delivery"
-    },
-    {
-      "name": "department"
-    },
-    {
-      "name": "departments"
-    },
-    {
-      "name": "developer-portal"
-    },
-    {
-      "name": "device"
-    },
-    {
-      "name": "device-registry"
-    },
-    {
-      "name": "diagnostics"
-    },
-    {
-      "name": "diagnostics-medication"
-    },
-    {
-      "name": "dietary"
-    },
-    {
-      "name": "discharge"
-    },
-    {
-      "name": "discharge-compose"
-    },
-    {
-      "name": "doctor"
-    },
-    {
-      "name": "document"
-    },
-    {
-      "name": "documents"
-    },
-    {
-      "name": "downtime"
-    },
-    {
-      "name": "ed"
-    },
-    {
-      "name": "emr"
-    },
-    {
-      "name": "encryption-key"
-    },
-    {
-      "name": "engagement"
-    },
-    {
-      "name": "entitlement"
-    },
-    {
-      "name": "entitlements"
-    },
-    {
-      "name": "event-outbox"
-    },
-    {
-      "name": "executive-kpi"
-    },
-    {
-      "name": "facility"
-    },
-    {
-      "name": "facility-risk"
-    },
-    {
-      "name": "feature-flag"
-    },
-    {
-      "name": "feedback"
-    },
-    {
-      "name": "fhir"
-    },
-    {
-      "name": "forecast"
-    },
-    {
-      "name": "gamification"
-    },
-    {
-      "name": "gdpr"
-    },
-    {
-      "name": "governance"
-    },
-    {
-      "name": "health"
-    },
-    {
-      "name": "hl7"
-    },
-    {
-      "name": "housekeeping"
-    },
-    {
-      "name": "hr"
-    },
-    {
-      "name": "identity-sso"
-    },
-    {
-      "name": "infrastructure"
-    },
-    {
-      "name": "insurance"
-    },
-    {
-      "name": "integration"
-    },
-    {
-      "name": "interface-engine"
-    },
-    {
-      "name": "internal"
-    },
-    {
-      "name": "investigation"
-    },
-    {
-      "name": "ipd"
-    },
-    {
-      "name": "knowledge-base"
-    },
-    {
-      "name": "knowledge-governance"
-    },
-    {
-      "name": "lab"
-    },
-    {
-      "name": "ledger-reports"
-    },
-    {
-      "name": "linen"
-    },
-    {
-      "name": "logs"
-    },
-    {
-      "name": "maternity"
-    },
-    {
-      "name": "messaging"
-    },
-    {
-      "name": "metrics"
-    },
-    {
-      "name": "mfa-api-clients"
-    },
-    {
-      "name": "migration-toolkit"
-    },
-    {
-      "name": "nhcx"
-    },
-    {
-      "name": "notification"
-    },
-    {
-      "name": "oncology"
-    },
-    {
-      "name": "operational-alert"
-    },
-    {
-      "name": "outcome-scoreboard"
-    },
-    {
-      "name": "overview"
-    },
-    {
-      "name": "paediatric"
-    },
-    {
-      "name": "pathology"
-    },
-    {
-      "name": "patient"
-    },
-    {
-      "name": "patient-explainers"
-    },
-    {
-      "name": "patient-flow"
-    },
-    {
-      "name": "patient-identifier"
-    },
-    {
-      "name": "patient-merge"
-    },
-    {
-      "name": "patient-portal"
-    },
-    {
-      "name": "pharmacy"
-    },
-    {
-      "name": "pharmacy-supply"
-    },
-    {
-      "name": "phone"
-    },
-    {
-      "name": "platform-workbench"
-    },
-    {
-      "name": "prescription"
-    },
-    {
-      "name": "prior-auth-appeal"
-    },
-    {
-      "name": "productivity"
-    },
-    {
-      "name": "quality"
-    },
-    {
-      "name": "quality-case"
-    },
-    {
-      "name": "queue-display"
-    },
-    {
-      "name": "radiology"
-    },
-    {
-      "name": "realtime"
-    },
-    {
-      "name": "record"
-    },
-    {
-      "name": "referral"
-    },
-    {
-      "name": "reminders"
-    },
-    {
-      "name": "research"
-    },
-    {
-      "name": "revenue-cycle"
-    },
-    {
-      "name": "roster-board"
-    },
-    {
-      "name": "scheduling"
-    },
-    {
-      "name": "scim"
-    },
-    {
-      "name": "search"
-    },
-    {
-      "name": "security"
-    },
-    {
-      "name": "session"
-    },
-    {
-      "name": "smart-fhir"
-    },
-    {
-      "name": "sos"
-    },
-    {
-      "name": "staff"
-    },
-    {
-      "name": "staff-admin"
-    },
-    {
-      "name": "staff-care-plan"
-    },
-    {
-      "name": "staff-messaging"
-    },
-    {
-      "name": "steps"
-    },
-    {
-      "name": "storage"
-    },
-    {
-      "name": "surgical-ai"
-    },
-    {
-      "name": "surgical-documentation"
-    },
-    {
-      "name": "system"
-    },
-    {
-      "name": "tasks-workflow"
-    },
-    {
-      "name": "teleconsult-ai"
-    },
-    {
-      "name": "telemedicine"
-    },
-    {
-      "name": "tenant"
-    },
-    {
-      "name": "tenant-context"
-    },
-    {
-      "name": "terminology"
-    },
-    {
-      "name": "theatre"
-    },
-    {
-      "name": "tier-aassistants"
-    },
-    {
-      "name": "tier-cassistants"
-    },
-    {
-      "name": "tier-demergency"
-    },
-    {
-      "name": "tier-epatient-engagement"
-    },
-    {
-      "name": "tier-finterop"
-    },
-    {
-      "name": "tier-gpublic-health"
-    },
-    {
-      "name": "tier-hoperational"
-    },
-    {
-      "name": "transplant"
-    },
-    {
-      "name": "trial-safety-operations"
-    },
-    {
-      "name": "upload"
-    },
-    {
-      "name": "user"
-    }
-  ],
   "components": {
     "securitySchemes": {
       "ApiKeyAuth": {
@@ -36188,12 +35715,527 @@
       "ApiKeyAuth": []
     }
   ],
+  "tags": [
+    {
+      "name": "abdm"
+    },
+    {
+      "name": "abdm-full"
+    },
+    {
+      "name": "activity"
+    },
+    {
+      "name": "adoption"
+    },
+    {
+      "name": "alerts"
+    },
+    {
+      "name": "analytics"
+    },
+    {
+      "name": "appointment"
+    },
+    {
+      "name": "appointments"
+    },
+    {
+      "name": "attendance"
+    },
+    {
+      "name": "audit"
+    },
+    {
+      "name": "auth"
+    },
+    {
+      "name": "bed"
+    },
+    {
+      "name": "billing"
+    },
+    {
+      "name": "billing-masters"
+    },
+    {
+      "name": "biomed-cmms"
+    },
+    {
+      "name": "bloodbank"
+    },
+    {
+      "name": "care-operations"
+    },
+    {
+      "name": "care-pathway"
+    },
+    {
+      "name": "care-pathway-reconciliation"
+    },
+    {
+      "name": "care-plan"
+    },
+    {
+      "name": "cath-consumables"
+    },
+    {
+      "name": "chatbot"
+    },
+    {
+      "name": "clinical"
+    },
+    {
+      "name": "clinical-governance"
+    },
+    {
+      "name": "clinical-inbox"
+    },
+    {
+      "name": "clinical-use"
+    },
+    {
+      "name": "cold-chain"
+    },
+    {
+      "name": "compliance"
+    },
+    {
+      "name": "config"
+    },
+    {
+      "name": "consent"
+    },
+    {
+      "name": "core-clinical"
+    },
+    {
+      "name": "create"
+    },
+    {
+      "name": "credentialing"
+    },
+    {
+      "name": "cssd"
+    },
+    {
+      "name": "dashboard"
+    },
+    {
+      "name": "dashboards"
+    },
+    {
+      "name": "data-export"
+    },
+    {
+      "name": "database"
+    },
+    {
+      "name": "delivery"
+    },
+    {
+      "name": "department"
+    },
+    {
+      "name": "departments"
+    },
+    {
+      "name": "developer-portal"
+    },
+    {
+      "name": "device"
+    },
+    {
+      "name": "device-registry"
+    },
+    {
+      "name": "diagnostics"
+    },
+    {
+      "name": "diagnostics-medication"
+    },
+    {
+      "name": "dietary"
+    },
+    {
+      "name": "discharge"
+    },
+    {
+      "name": "discharge-compose"
+    },
+    {
+      "name": "doctor"
+    },
+    {
+      "name": "document"
+    },
+    {
+      "name": "documents"
+    },
+    {
+      "name": "downtime"
+    },
+    {
+      "name": "ed"
+    },
+    {
+      "name": "emr"
+    },
+    {
+      "name": "encryption-key"
+    },
+    {
+      "name": "engagement"
+    },
+    {
+      "name": "entitlement"
+    },
+    {
+      "name": "entitlements"
+    },
+    {
+      "name": "event-outbox"
+    },
+    {
+      "name": "executive-kpi"
+    },
+    {
+      "name": "export"
+    },
+    {
+      "name": "facility"
+    },
+    {
+      "name": "facility-risk"
+    },
+    {
+      "name": "feature-flag"
+    },
+    {
+      "name": "feedback"
+    },
+    {
+      "name": "fhir"
+    },
+    {
+      "name": "forecast"
+    },
+    {
+      "name": "gamification"
+    },
+    {
+      "name": "gdpr"
+    },
+    {
+      "name": "governance"
+    },
+    {
+      "name": "health"
+    },
+    {
+      "name": "hl7"
+    },
+    {
+      "name": "housekeeping"
+    },
+    {
+      "name": "hr"
+    },
+    {
+      "name": "identity-sso"
+    },
+    {
+      "name": "infrastructure"
+    },
+    {
+      "name": "insurance"
+    },
+    {
+      "name": "integration"
+    },
+    {
+      "name": "interface-engine"
+    },
+    {
+      "name": "internal"
+    },
+    {
+      "name": "investigation"
+    },
+    {
+      "name": "ipd"
+    },
+    {
+      "name": "knowledge-base"
+    },
+    {
+      "name": "knowledge-governance"
+    },
+    {
+      "name": "lab"
+    },
+    {
+      "name": "ledger-reports"
+    },
+    {
+      "name": "linen"
+    },
+    {
+      "name": "list"
+    },
+    {
+      "name": "logs"
+    },
+    {
+      "name": "maternity"
+    },
+    {
+      "name": "medical"
+    },
+    {
+      "name": "messaging"
+    },
+    {
+      "name": "metrics"
+    },
+    {
+      "name": "mfa-api-clients"
+    },
+    {
+      "name": "migration-toolkit"
+    },
+    {
+      "name": "nhcx"
+    },
+    {
+      "name": "notification"
+    },
+    {
+      "name": "oncology"
+    },
+    {
+      "name": "operational-alert"
+    },
+    {
+      "name": "outcome-scoreboard"
+    },
+    {
+      "name": "overview"
+    },
+    {
+      "name": "paediatric"
+    },
+    {
+      "name": "pathology"
+    },
+    {
+      "name": "patient"
+    },
+    {
+      "name": "patient-explainers"
+    },
+    {
+      "name": "patient-flow"
+    },
+    {
+      "name": "patient-identifier"
+    },
+    {
+      "name": "patient-merge"
+    },
+    {
+      "name": "patient-portal"
+    },
+    {
+      "name": "pharmacy"
+    },
+    {
+      "name": "pharmacy-supply"
+    },
+    {
+      "name": "phone"
+    },
+    {
+      "name": "platform-workbench"
+    },
+    {
+      "name": "prescription"
+    },
+    {
+      "name": "prescriptions"
+    },
+    {
+      "name": "prior-auth-appeal"
+    },
+    {
+      "name": "productivity"
+    },
+    {
+      "name": "quality"
+    },
+    {
+      "name": "quality-case"
+    },
+    {
+      "name": "queue-display"
+    },
+    {
+      "name": "radiology"
+    },
+    {
+      "name": "realtime"
+    },
+    {
+      "name": "record"
+    },
+    {
+      "name": "referral"
+    },
+    {
+      "name": "refresh-cache"
+    },
+    {
+      "name": "reminders"
+    },
+    {
+      "name": "replacements"
+    },
+    {
+      "name": "research"
+    },
+    {
+      "name": "revenue-cycle"
+    },
+    {
+      "name": "roll-call"
+    },
+    {
+      "name": "roster-board"
+    },
+    {
+      "name": "scheduling"
+    },
+    {
+      "name": "scim"
+    },
+    {
+      "name": "search"
+    },
+    {
+      "name": "security"
+    },
+    {
+      "name": "session"
+    },
+    {
+      "name": "shift"
+    },
+    {
+      "name": "smart-fhir"
+    },
+    {
+      "name": "sos"
+    },
+    {
+      "name": "staff-admin"
+    },
+    {
+      "name": "staff-care-plan"
+    },
+    {
+      "name": "staff-messaging"
+    },
+    {
+      "name": "stats"
+    },
+    {
+      "name": "steps"
+    },
+    {
+      "name": "storage"
+    },
+    {
+      "name": "summary"
+    },
+    {
+      "name": "surgical-ai"
+    },
+    {
+      "name": "surgical-documentation"
+    },
+    {
+      "name": "system"
+    },
+    {
+      "name": "tasks-workflow"
+    },
+    {
+      "name": "teleconsult-ai"
+    },
+    {
+      "name": "telemedicine"
+    },
+    {
+      "name": "tenant"
+    },
+    {
+      "name": "tenant-context"
+    },
+    {
+      "name": "terminology"
+    },
+    {
+      "name": "test"
+    },
+    {
+      "name": "theatre"
+    },
+    {
+      "name": "tier-a-assistants"
+    },
+    {
+      "name": "tier-c-assistants"
+    },
+    {
+      "name": "tier-d-emergency"
+    },
+    {
+      "name": "tier-e-patient-engagement"
+    },
+    {
+      "name": "tier-f-interop"
+    },
+    {
+      "name": "tier-g-public-health"
+    },
+    {
+      "name": "tier-h-operational"
+    },
+    {
+      "name": "transplant"
+    },
+    {
+      "name": "trial-safety-operations"
+    },
+    {
+      "name": "unclassified"
+    },
+    {
+      "name": "upload"
+    },
+    {
+      "name": "user"
+    },
+    {
+      "name": "walk-in"
+    }
+  ],
   "paths": {
     "/": {
       "get": {
         "operationId": "get_root",
         "tags": [
-          "api"
+          "unclassified"
         ],
         "responses": {
           "200": {
@@ -36211,7 +36253,7 @@
       "head": {
         "operationId": "head_root",
         "tags": [
-          "api"
+          "unclassified"
         ],
         "responses": {
           "200": {
@@ -36997,7 +37039,7 @@
       "get": {
         "operationId": "get_api_v1_admin_activity_recent",
         "tags": [
-          "admin"
+          "activity"
         ],
         "responses": {
           "200": {
@@ -37117,7 +37159,7 @@
       "get": {
         "operationId": "get_api_v1_admin_alerts",
         "tags": [
-          "admin"
+          "alerts"
         ],
         "responses": {
           "200": {
@@ -37721,7 +37763,7 @@
       "get": {
         "operationId": "get_api_v1_admin_appointments_summary",
         "tags": [
-          "admin"
+          "appointments"
         ],
         "responses": {
           "200": {
@@ -39095,7 +39137,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_abdm_care_contexts",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -39223,7 +39265,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_adverse_drug_event_detections",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -39379,7 +39421,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_aki_risk_alerts",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -39399,7 +39441,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_ambulance_demand_forecasts",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -39419,7 +39461,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_ambulance_handover_summaries",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -39743,7 +39785,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_audit_log_summaries",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -40481,7 +40523,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_call_summaries",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -40675,7 +40717,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_chest_pain_protocols",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -40695,7 +40737,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_chronic_disease_coaching",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -40715,7 +40757,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_chronic_disease_registries",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -40735,7 +40777,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_clinic_letter_drafts",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -40755,7 +40797,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_clinical_note_cleanups",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -40925,7 +40967,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_diet_advice_drafts",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -41073,7 +41115,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_discharge_medication_explanations",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -41093,7 +41135,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_document_patient_matching",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -41201,7 +41243,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_ed_red_flag_detections",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -41291,7 +41333,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_emergency_triage_forms",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -41311,7 +41353,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_emergency_visit_summaries",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -41331,7 +41373,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_exercise_advice_drafts",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -41519,7 +41561,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_fall_risk_predictions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -41539,7 +41581,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_family_health_risk_summaries",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -41793,7 +41835,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_fhir_validations",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -41813,7 +41855,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_follow_up_reminders",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -41833,7 +41875,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_front_desk_responses",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -41931,7 +41973,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_handwritten_note_structures",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -41951,7 +41993,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_health_record_reconciliations",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -41971,7 +42013,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_high_risk_cohorts",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -41991,7 +42033,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_home_vitals_insights",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -42011,7 +42053,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_icu_round_summaries",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -42317,7 +42359,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_intake_output_summaries",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -43201,7 +43243,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_lab_pending_reminders",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -43221,7 +43263,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_lab_tat_delay_predictions",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -43241,7 +43283,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_lab_trend_summaries",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -43397,7 +43439,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_liver_dose_checks",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -43437,7 +43479,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_medical_certificate_drafts",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -43457,7 +43499,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_medical_record_bundles",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -43477,7 +43519,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_medication_reminders",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -43497,7 +43539,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_mental_health_screenings",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -43517,7 +43559,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_missing_examination_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -43537,7 +43579,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_missing_questions_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -43557,7 +43599,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_missing_tests_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -43577,7 +43619,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_mlc_documentation",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -44129,7 +44171,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_order_set_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -44259,7 +44301,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_package_compliance_checks",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -44349,7 +44391,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_patient_faq_answers",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -44369,7 +44411,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_patient_feedback_summaries",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -44657,7 +44699,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_pending_report_trackers",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -44785,7 +44827,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_phi_deidentifications",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -44983,7 +45025,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_post_discharge_checkins",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -45043,7 +45085,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_post_surgery_monitoring",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -45063,7 +45105,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_pre_visit_forms",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -45083,7 +45125,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_pregnancy_lactation_warnings",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -45143,7 +45185,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_pressure_ulcer_risk_predictions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -45163,7 +45205,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_preventive_health_recommendations",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -45609,7 +45651,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_public_health_reports",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -45699,7 +45741,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_radiology_tat_delay_predictions",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -45957,7 +45999,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_renal_dose_checks",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -46441,7 +46483,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_screening_gap_detections",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -46589,7 +46631,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_sentiment_analyses",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -46677,7 +46719,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_smart_queue_optimizations",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -46787,7 +46829,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_stroke_fast_checks",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -46847,7 +46889,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_symptom_red_flag_checks",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -46937,7 +46979,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_tariff_optimization_insights",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -47333,7 +47375,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_trauma_checklists",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -47353,7 +47395,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_triage_priority_suggestions",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -47719,7 +47761,7 @@
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_voice_to_prescription_drafts",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -48157,7 +48199,7 @@
       "get": {
         "operationId": "get_api_v1_admin_dashboard",
         "tags": [
-          "admin"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -50559,7 +50601,7 @@
       "post": {
         "operationId": "post_api_v1_admin_export_report",
         "tags": [
-          "admin"
+          "export"
         ],
         "responses": {
           "200": {
@@ -51045,7 +51087,7 @@
       "get": {
         "operationId": "get_api_v1_admin_health_modules",
         "tags": [
-          "admin"
+          "health"
         ],
         "responses": {
           "200": {
@@ -51065,7 +51107,7 @@
       "get": {
         "operationId": "get_api_v1_admin_health_system",
         "tags": [
-          "admin"
+          "health"
         ],
         "responses": {
           "200": {
@@ -54361,7 +54403,7 @@
       "post": {
         "operationId": "post_api_v1_admin_refresh_cache",
         "tags": [
-          "admin"
+          "refresh-cache"
         ],
         "responses": {
           "200": {
@@ -54549,7 +54591,7 @@
       "get": {
         "operationId": "get_api_v1_admin_sos_alerts",
         "tags": [
-          "admin"
+          "sos"
         ],
         "responses": {
           "200": {
@@ -54569,7 +54611,7 @@
       "get": {
         "operationId": "get_api_v1_admin_sos_analytics",
         "tags": [
-          "admin"
+          "sos"
         ],
         "responses": {
           "200": {
@@ -54589,7 +54631,7 @@
       "post": {
         "operationId": "post_api_v1_admin_sos_broadcast",
         "tags": [
-          "admin"
+          "sos"
         ],
         "responses": {
           "200": {
@@ -54609,7 +54651,7 @@
       "get": {
         "operationId": "get_api_v1_admin_sos_emergency_services",
         "tags": [
-          "admin"
+          "sos"
         ],
         "responses": {
           "200": {
@@ -54629,7 +54671,7 @@
       "post": {
         "operationId": "post_api_v1_admin_sos_escalate_by_alertId",
         "tags": [
-          "admin"
+          "sos"
         ],
         "responses": {
           "200": {
@@ -54659,7 +54701,7 @@
       "get": {
         "operationId": "get_api_v1_admin_sos_performance_report",
         "tags": [
-          "admin"
+          "sos"
         ],
         "responses": {
           "200": {
@@ -54679,7 +54721,7 @@
       "post": {
         "operationId": "post_api_v1_admin_sos_update_config",
         "tags": [
-          "admin"
+          "sos"
         ],
         "responses": {
           "200": {
@@ -54699,7 +54741,7 @@
       "get": {
         "operationId": "get_api_v1_admin_staff_attendance_absent_report",
         "tags": [
-          "admin"
+          "attendance"
         ],
         "responses": {
           "200": {
@@ -54719,7 +54761,7 @@
       "get": {
         "operationId": "get_api_v1_admin_staff_attendance_analytics",
         "tags": [
-          "admin"
+          "attendance"
         ],
         "responses": {
           "200": {
@@ -54739,7 +54781,7 @@
       "get": {
         "operationId": "get_api_v1_admin_staff_attendance_anomalies",
         "tags": [
-          "admin"
+          "attendance"
         ],
         "responses": {
           "200": {
@@ -54759,7 +54801,7 @@
       "get": {
         "operationId": "get_api_v1_admin_staff_attendance_early_departures",
         "tags": [
-          "admin"
+          "attendance"
         ],
         "responses": {
           "200": {
@@ -54779,7 +54821,7 @@
       "get": {
         "operationId": "get_api_v1_admin_staff_attendance_late_arrivals",
         "tags": [
-          "admin"
+          "attendance"
         ],
         "responses": {
           "200": {
@@ -54799,7 +54841,7 @@
       "get": {
         "operationId": "get_api_v1_admin_staff_summary",
         "tags": [
-          "admin"
+          "summary"
         ],
         "responses": {
           "200": {
@@ -54819,7 +54861,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_appointments",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -54839,7 +54881,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_departments",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -54859,7 +54901,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_doctors",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -54879,7 +54921,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_emergency",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -54899,7 +54941,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_quick",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -54919,7 +54961,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_records",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -54939,7 +54981,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_staff",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -54959,7 +55001,7 @@
       "get": {
         "operationId": "get_api_v1_admin_stats_users",
         "tags": [
-          "admin"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -56421,7 +56463,7 @@
       "get": {
         "operationId": "get_api_v1_admin_test",
         "tags": [
-          "admin"
+          "test"
         ],
         "responses": {
           "200": {
@@ -56441,7 +56483,7 @@
       "post": {
         "operationId": "post_api_v1_admin_upload_cleanup",
         "tags": [
-          "admin"
+          "upload"
         ],
         "responses": {
           "200": {
@@ -56461,7 +56503,7 @@
       "get": {
         "operationId": "get_api_v1_admin_upload_hipaa_audit",
         "tags": [
-          "admin"
+          "upload"
         ],
         "responses": {
           "200": {
@@ -56481,7 +56523,7 @@
       "post": {
         "operationId": "post_api_v1_admin_upload_hipaa_bulk_protect",
         "tags": [
-          "admin"
+          "upload"
         ],
         "responses": {
           "200": {
@@ -56501,7 +56543,7 @@
       "get": {
         "operationId": "get_api_v1_admin_upload_quarantine",
         "tags": [
-          "admin"
+          "upload"
         ],
         "responses": {
           "200": {
@@ -56521,7 +56563,7 @@
       "post": {
         "operationId": "post_api_v1_admin_upload_quarantine_purge",
         "tags": [
-          "admin"
+          "upload"
         ],
         "responses": {
           "200": {
@@ -56541,7 +56583,7 @@
       "post": {
         "operationId": "post_api_v1_admin_upload_rescan_by_fileId",
         "tags": [
-          "admin"
+          "upload"
         ],
         "responses": {
           "200": {
@@ -56571,7 +56613,7 @@
       "get": {
         "operationId": "get_api_v1_admin_upload_summary",
         "tags": [
-          "admin"
+          "upload"
         ],
         "responses": {
           "200": {
@@ -69123,7 +69165,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_abdm_care_contexts",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -69251,7 +69293,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_adverse_drug_event_detections",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -69407,7 +69449,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_aki_risk_alerts",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -69427,7 +69469,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_ambulance_demand_forecasts",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -69447,7 +69489,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_ambulance_handover_summaries",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -69771,7 +69813,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_audit_log_summaries",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -70509,7 +70551,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_call_summaries",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -70703,7 +70745,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_chest_pain_protocols",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -70723,7 +70765,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_chronic_disease_coaching",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -70743,7 +70785,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_chronic_disease_registries",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -70763,7 +70805,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_clinic_letter_drafts",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -70783,7 +70825,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_clinical_note_cleanups",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -70953,7 +70995,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_diet_advice_drafts",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -71101,7 +71143,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_discharge_medication_explanations",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -71121,7 +71163,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_document_patient_matching",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -71229,7 +71271,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_ed_red_flag_detections",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -71319,7 +71361,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_emergency_triage_forms",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -71339,7 +71381,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_emergency_visit_summaries",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -71359,7 +71401,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_exercise_advice_drafts",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -71547,7 +71589,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_fall_risk_predictions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -71567,7 +71609,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_family_health_risk_summaries",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -71821,7 +71863,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_fhir_validations",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -71841,7 +71883,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_follow_up_reminders",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -71861,7 +71903,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_front_desk_responses",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -71959,7 +72001,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_handwritten_note_structures",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -71979,7 +72021,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_health_record_reconciliations",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -71999,7 +72041,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_high_risk_cohorts",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -72019,7 +72061,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_home_vitals_insights",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -72039,7 +72081,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_icu_round_summaries",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -72345,7 +72387,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_intake_output_summaries",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -73229,7 +73271,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_lab_pending_reminders",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -73249,7 +73291,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_lab_tat_delay_predictions",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -73269,7 +73311,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_lab_trend_summaries",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -73425,7 +73467,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_liver_dose_checks",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -73465,7 +73507,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_medical_certificate_drafts",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -73485,7 +73527,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_medical_record_bundles",
         "tags": [
-          "tier-finterop"
+          "tier-f-interop"
         ],
         "responses": {
           "200": {
@@ -73505,7 +73547,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_medication_reminders",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -73525,7 +73567,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_mental_health_screenings",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -73545,7 +73587,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_missing_examination_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -73565,7 +73607,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_missing_questions_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -73585,7 +73627,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_missing_tests_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -73605,7 +73647,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_mlc_documentation",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -74157,7 +74199,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_order_set_suggestions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -74287,7 +74329,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_package_compliance_checks",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -74377,7 +74419,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_patient_faq_answers",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -74397,7 +74439,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_patient_feedback_summaries",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -74685,7 +74727,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_pending_report_trackers",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -74813,7 +74855,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_phi_deidentifications",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -75011,7 +75053,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_post_discharge_checkins",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -75071,7 +75113,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_post_surgery_monitoring",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -75091,7 +75133,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_pre_visit_forms",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -75111,7 +75153,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_pregnancy_lactation_warnings",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -75171,7 +75213,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_pressure_ulcer_risk_predictions",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -75191,7 +75233,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_preventive_health_recommendations",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -75637,7 +75679,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_public_health_reports",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -75727,7 +75769,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_radiology_tat_delay_predictions",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -75985,7 +76027,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_renal_dose_checks",
         "tags": [
-          "tier-cassistants"
+          "tier-c-assistants"
         ],
         "responses": {
           "200": {
@@ -76469,7 +76511,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_screening_gap_detections",
         "tags": [
-          "tier-gpublic-health"
+          "tier-g-public-health"
         ],
         "responses": {
           "200": {
@@ -76617,7 +76659,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_sentiment_analyses",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -76705,7 +76747,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_smart_queue_optimizations",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -76815,7 +76857,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_stroke_fast_checks",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -76875,7 +76917,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_symptom_red_flag_checks",
         "tags": [
-          "tier-epatient-engagement"
+          "tier-e-patient-engagement"
         ],
         "responses": {
           "200": {
@@ -76965,7 +77007,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_tariff_optimization_insights",
         "tags": [
-          "tier-hoperational"
+          "tier-h-operational"
         ],
         "responses": {
           "200": {
@@ -77361,7 +77403,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_trauma_checklists",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -77381,7 +77423,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_triage_priority_suggestions",
         "tags": [
-          "tier-demergency"
+          "tier-d-emergency"
         ],
         "responses": {
           "200": {
@@ -77747,7 +77789,7 @@
       "post": {
         "operationId": "post_api_v1_clinical_ai_control_voice_to_prescription_drafts",
         "tags": [
-          "tier-aassistants"
+          "tier-a-assistants"
         ],
         "responses": {
           "200": {
@@ -120414,7 +120456,7 @@
       "get": {
         "operationId": "get_api_v1_staff_attendance",
         "tags": [
-          "staff"
+          "attendance"
         ],
         "responses": {
           "200": {
@@ -121018,7 +121060,7 @@
       "post": {
         "operationId": "post_api_v1_staff_create",
         "tags": [
-          "staff"
+          "create"
         ],
         "responses": {
           "200": {
@@ -121038,7 +121080,7 @@
       "get": {
         "operationId": "get_api_v1_staff_department_by_department",
         "tags": [
-          "staff"
+          "department"
         ],
         "responses": {
           "200": {
@@ -122198,7 +122240,7 @@
       "get": {
         "operationId": "get_api_v1_staff_list",
         "tags": [
-          "staff"
+          "list"
         ],
         "responses": {
           "200": {
@@ -122218,7 +122260,7 @@
       "post": {
         "operationId": "post_api_v1_staff_medical_consultations",
         "tags": [
-          "staff"
+          "medical"
         ],
         "responses": {
           "200": {
@@ -122238,7 +122280,7 @@
       "post": {
         "operationId": "post_api_v1_staff_medical_investigations",
         "tags": [
-          "staff"
+          "medical"
         ],
         "responses": {
           "200": {
@@ -122356,7 +122398,7 @@
       "get": {
         "operationId": "get_api_v1_staff_prescriptions_my",
         "tags": [
-          "staff"
+          "prescriptions"
         ],
         "responses": {
           "200": {
@@ -122376,7 +122418,7 @@
       "post": {
         "operationId": "post_api_v1_staff_prescriptions_upload",
         "tags": [
-          "staff"
+          "prescriptions"
         ],
         "responses": {
           "200": {
@@ -122436,7 +122478,7 @@
       "post": {
         "operationId": "post_api_v1_staff_replacements",
         "tags": [
-          "staff"
+          "replacements"
         ],
         "responses": {
           "200": {
@@ -122456,7 +122498,7 @@
       "get": {
         "operationId": "get_api_v1_staff_replacements_my",
         "tags": [
-          "staff"
+          "replacements"
         ],
         "responses": {
           "200": {
@@ -122476,7 +122518,7 @@
       "get": {
         "operationId": "get_api_v1_staff_roll_call",
         "tags": [
-          "staff"
+          "roll-call"
         ],
         "responses": {
           "200": {
@@ -123030,7 +123072,7 @@
       "get": {
         "operationId": "get_api_v1_staff_shift_by_shift",
         "tags": [
-          "staff"
+          "shift"
         ],
         "responses": {
           "200": {
@@ -123060,7 +123102,7 @@
       "get": {
         "operationId": "get_api_v1_staff_stats_summary",
         "tags": [
-          "staff"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -123080,7 +123122,7 @@
       "post": {
         "operationId": "post_api_v1_staff_walk_in",
         "tags": [
-          "staff"
+          "walk-in"
         ],
         "responses": {
           "200": {
@@ -123100,7 +123142,7 @@
       "get": {
         "operationId": "get_api_v1_staff_by_identifier",
         "tags": [
-          "staff"
+          "unclassified"
         ],
         "responses": {
           "200": {
@@ -123128,7 +123170,7 @@
       "put": {
         "operationId": "put_api_v1_staff_by_identifier",
         "tags": [
-          "staff"
+          "unclassified"
         ],
         "responses": {
           "200": {

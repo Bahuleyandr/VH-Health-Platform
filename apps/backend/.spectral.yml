@@ -5,17 +5,30 @@
 # re-litigate them:
 #
 # `operation-tags` — was 3,632 warnings (100% of operations, since nothing set
-#   tags at all). FIXED at the source rather than silenced: the generator now
-#   derives a tag per operation from the route module it was registered from
-#   (src/routes/<domain>/...), which is a curated on-disk taxonomy, and emits a
-#   matching top-level `tags` array. See resolveTags in scripts/openapi/buildSpec.mjs.
-#   The rule stays a live gate — it is now satisfiable, so any new untagged
-#   operation is a real regression.
+#   tags at all). FIXED at the source rather than silenced: every operation now
+#   carries exactly one PRIMARY domain tag, drawn from the curated registry
+#   OPENAPI_TAG_REGISTRY in scripts/openapi/base.mjs. The rule stays a live gate
+#   — it is now satisfiable, so any new untagged operation is a real regression.
 #
-#   NOTE: tags are NOT derived from the URL path. The first path segment after
-#   /api/v1 is frequently an AUDIENCE prefix (admin, staff, portal), which would
-#   put 895 operations — 24.6% of the API — under a single `admin` tag and
-#   rebuild the junk drawer this taxonomy exists to avoid.
+#   Precedence (resolveTags, scripts/openapi/buildSpec.mjs), most specific first:
+#     1. a per-operation overlay `ov.tags` / `ov.tag`
+#     2. an explicit router declaration (src/config/openapiDomain.js
+#        markRouterDomain) — the intended long-term source, since it pins the
+#        published tag in code and survives file moves and re-mounts
+#     3. the route module's filename — BOOTSTRAP ONLY
+#     4. the URL path, audience segments skipped
+#     5. `unclassified` — visible, budgeted debt; never a guessed domain
+#
+#   NOTE: tags are NOT primarily derived from the URL path. The first segment
+#   after /api/v1 is frequently an AUDIENCE prefix (admin, staff, portal), which
+#   would put 895 operations — 24.6% of the API — under a single `admin` tag and
+#   rebuild the junk drawer this taxonomy exists to avoid. `admin`, `staff` and
+#   `portal` can never become a primary tag by inference.
+#
+#   The registry is a GATE: an operation tag that is not declared there fails
+#   generation. That is what makes the filename bootstrap safe (a renamed module
+#   stops the build instead of silently republishing a new taxonomy) and what
+#   keeps `clinical-ai` / `clinicalAi` / `clinical_ai` from becoming 3 groups.
 #
 # `operation-description` — 3,574 warnings, and left at WARN on purpose.
 #   * Not auto-generated. Synthesising a description from method + path
@@ -31,9 +44,16 @@
 #   descriptions accrue there, per subsystem, as owners write them.
 #
 # So how does a NEW warning stay visible if the rules are noisy?
-# `npm run openapi:lint-budget` (scripts/check-openapi-lint-budget.mjs) pins the
-# current per-rule counts in .spectral-baseline.txt and fails CI when any of
-# them MOVES. Existing debt stays visible and can only shrink; anything new
-# fails loudly. That is the signal this ruleset alone cannot provide, because
-# `spectral lint` exits 0 on warnings.
+# `npm run openapi:lint-budget` (scripts/check-openapi-lint-budget.mjs) pins
+# every current diagnostic INDIVIDUALLY in .spectral-baseline.txt — identity is
+# { severity, code, path, message } — and fails CI when one appears that is not
+# listed. Existing debt stays visible and can only shrink; anything new fails
+# loudly, naming the exact operation. That is the signal this ruleset alone
+# cannot provide, because `spectral lint` exits 0 on warnings.
+#
+# It deliberately does NOT baseline per-rule COUNTS. That was tried and measured
+# against the real spec: document one operation while a different one loses its
+# description and the count is unchanged, so a count gate reports "none
+# increased" and exits 0 while a brand-new warning exists. Counts are kept only
+# as debt telemetry in the gate's output.
 extends: ["spectral:oas"]
