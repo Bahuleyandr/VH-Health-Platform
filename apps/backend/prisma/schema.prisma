@@ -8648,50 +8648,51 @@ model quality_incidents {
 }
 
 model radiology_orders {
-  id                            Int                             @id @default(autoincrement())
-  patient_uid                   String                          @db.Uuid
-  encounter_id                  Int?
-  modality                      String                          @db.VarChar(50)
-  body_part                     String                          @db.VarChar(100)
-  clinical_indication           String
-  priority                      String?                         @default("routine") @db.VarChar(50)
-  status                        String?                         @default("ordered") @db.VarChar(50)
-  ordered_by                    String                          @db.Uuid
-  radiologist                   String?                         @db.Uuid
-  report                        String?
-  report_completed_at           DateTime?                       @db.Timestamptz(6)
-  notes                         String?
-  created_at                    DateTime?                       @default(now()) @db.Timestamptz(6)
-  updated_at                    DateTime?                       @default(now()) @db.Timestamptz(6)
-  acquired_at                   DateTime?                       @db.Timestamptz(6)
-  acquired_by                   String?                         @db.Uuid
-  acquired_by_name              String?                         @db.VarChar(160)
-  tech_uid                      String?                         @db.Uuid
-  tech_name                     String?                         @db.VarChar(160)
-  report_signed_off_at          DateTime?                       @db.Timestamptz(6)
-  report_signed_off_by          String?                         @db.Uuid
-  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tech_license_number           String?                         @db.VarChar(120)
-  pacs_study_instance_uid       String?                         @db.VarChar(200)
-  acquisition_evidence          Json                            @default("{}")
-  template_id                   BigInt?
-  structured_report             Json                            @default("{}")
-  result_classification         String?                         @db.VarChar(20)
-  classification_basis          Json?
-  report_generation_version     BigInt?
-  classification_signed_by      String?                         @db.Uuid
-  classification_signed_at      DateTime?                       @db.Timestamptz(6)
-  signoff_idempotency_key       String?                         @db.VarChar(200)
-  signoff_request_sha256        String?                         @db.Char(64)
-  admission_id                  Int?
-  diagnostic_result_generations diagnostic_result_generations[]
-  users                         users?                          @relation(fields: [tenant_id, classification_signed_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_classification_signer")
-  admissions                    admissions?                     @relation(fields: [tenant_id, admission_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_radiology_orders_admission")
-  radiology_report_templates    radiology_report_templates?     @relation(fields: [template_id], references: [id], onUpdate: NoAction, map: "fk_radiology_orders_template")
-  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
-  radiology_peer_reviews        radiology_peer_reviews[]
-  radiology_report_addenda      radiology_report_addenda[]
-  tumor_board_cases             tumor_board_cases[]
+  id                                   Int                                    @id @default(autoincrement())
+  patient_uid                          String                                 @db.Uuid
+  encounter_id                         Int?
+  modality                             String                                 @db.VarChar(50)
+  body_part                            String                                 @db.VarChar(100)
+  clinical_indication                  String
+  priority                             String?                                @default("routine") @db.VarChar(50)
+  status                               String?                                @default("ordered") @db.VarChar(50)
+  ordered_by                           String                                 @db.Uuid
+  radiologist                          String?                                @db.Uuid
+  report                               String?
+  report_completed_at                  DateTime?                              @db.Timestamptz(6)
+  notes                                String?
+  created_at                           DateTime?                              @default(now()) @db.Timestamptz(6)
+  updated_at                           DateTime?                              @default(now()) @db.Timestamptz(6)
+  acquired_at                          DateTime?                              @db.Timestamptz(6)
+  acquired_by                          String?                                @db.Uuid
+  acquired_by_name                     String?                                @db.VarChar(160)
+  tech_uid                             String?                                @db.Uuid
+  tech_name                            String?                                @db.VarChar(160)
+  report_signed_off_at                 DateTime?                              @db.Timestamptz(6)
+  report_signed_off_by                 String?                                @db.Uuid
+  tenant_id                            String                                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  tech_license_number                  String?                                @db.VarChar(120)
+  pacs_study_instance_uid              String?                                @db.VarChar(200)
+  acquisition_evidence                 Json                                   @default("{}")
+  template_id                          BigInt?
+  structured_report                    Json                                   @default("{}")
+  result_classification                String?                                @db.VarChar(20)
+  classification_basis                 Json?
+  report_generation_version            BigInt?
+  classification_signed_by             String?                                @db.Uuid
+  classification_signed_at             DateTime?                              @db.Timestamptz(6)
+  signoff_idempotency_key              String?                                @db.VarChar(200)
+  signoff_request_sha256               String?                                @db.Char(64)
+  admission_id                         Int?
+  diagnostic_result_generations        diagnostic_result_generations[]
+  imaging_study_link_recovery_receipts imaging_study_link_recovery_receipts[]
+  users                                users?                                 @relation(fields: [tenant_id, classification_signed_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_classification_signer")
+  admissions                           admissions?                            @relation(fields: [tenant_id, admission_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_radiology_orders_admission")
+  radiology_report_templates           radiology_report_templates?            @relation(fields: [template_id], references: [id], onUpdate: NoAction, map: "fk_radiology_orders_template")
+  tenants                              tenants                                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
+  radiology_peer_reviews               radiology_peer_reviews[]
+  radiology_report_addenda             radiology_report_addenda[]
+  tumor_board_cases                    tumor_board_cases[]
 
   @@unique([tenant_id, id], map: "ux_radiology_orders_tenant_id")
   @@unique([tenant_id, id, patient_uid], map: "ux_radiology_orders_tenant_id_patient")
@@ -8701,6 +8702,45 @@ model radiology_orders {
   @@index([report_completed_at], map: "idx_radiology_orders_signoff_pending", where: raw("((report_completed_at IS NOT NULL) AND (report_signed_off_at IS NULL))"))
   @@index([tenant_id, template_id], map: "idx_radiology_orders_template", where: raw("(template_id IS NOT NULL)"))
   @@index([tenant_id, admission_id, id], map: "idx_radiology_orders_admission", where: raw("(admission_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model imaging_study_link_recovery_receipts {
+  id                        BigInt                  @id @default(autoincrement())
+  tenant_id                 String                  @db.Uuid
+  radiology_order_id        Int
+  patient_uid               String                  @db.Uuid
+  study_instance_uid        String                  @db.VarChar(200)
+  accession_number          String                  @db.VarChar(120)
+  source_system             String                  @db.VarChar(120)
+  observed_at               DateTime                @db.Timestamptz(6)
+  payload_ciphertext        String
+  payload_sha256            String                  @db.Char(64)
+  payload_bytes             Int
+  source_partition          String                  @db.VarChar(160)
+  source_position           BigInt
+  source_token              String                  @db.VarChar(255)
+  predecessor_token         String                  @db.VarChar(255)
+  duplicate_key             String                  @db.VarChar(255)
+  recovery_inbox_id         String                  @db.Uuid
+  recovery_interface_family String                  @default("I06") @db.VarChar(8)
+  owner_actor_uid           String                  @db.Uuid
+  owner_reason              String                  @db.VarChar(500)
+  receipt_status            String                  @default("pending_imaging_review") @db.VarChar(40)
+  arrival_class             String                  @default("recovery_backlog") @db.VarChar(40)
+  effect_disposition        String                  @default("late_pending_only") @db.VarChar(40)
+  evidence                  Json                    @default("{}")
+  created_at                DateTime                @default(now()) @db.Timestamptz(6)
+  pathway_projector_inbox   pathway_projector_inbox @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onUpdate: NoAction, map: "fk_imaging_study_link_receipts_inbox")
+  radiology_orders          radiology_orders        @relation(fields: [tenant_id, radiology_order_id, patient_uid], references: [tenant_id, id, patient_uid], onUpdate: NoAction, map: "fk_imaging_study_link_receipts_order")
+  users                     users                   @relation(fields: [tenant_id, owner_actor_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_imaging_study_link_receipts_owner")
+  tenants                   tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_imaging_study_link_receipts_tenant")
+
+  @@unique([tenant_id, id], map: "ux_imaging_study_link_receipts_tenant_id")
+  @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_imaging_study_link_receipts_inbox")
+  @@unique([tenant_id, radiology_order_id, study_instance_uid, payload_sha256], map: "ux_imaging_study_link_receipts_identity")
+  @@index([tenant_id, receipt_status, observed_at, id], map: "idx_imaging_study_link_receipts_pending")
 }
 
 model referrals {
@@ -10337,6 +10377,7 @@ model tenants {
   idempotency_keys                            idempotency_keys[]
   identity_audit_events                       identity_audit_events[]
   identity_saml_replay_cache                  identity_saml_replay_cache[]
+  imaging_study_link_recovery_receipts        imaging_study_link_recovery_receipts[]
   immunisation_schedule_import_batches        immunisation_schedule_import_batches[]
   incident_reports                            incident_reports[]
   india_compliance_evidence                   india_compliance_evidence[]
@@ -11304,6 +11345,7 @@ model users {
   icu_scoring_outputs                                                                                                           icu_scoring_outputs[]
   icu_ventilation_episodes                                                                                                      icu_ventilation_episodes[]
   icu_weaning_trials                                                                                                            icu_weaning_trials[]
+  imaging_study_link_recovery_receipts                                                                                          imaging_study_link_recovery_receipts[]
   incident_reports_incident_reports_assigned_toTousers                                                                          incident_reports[]                             @relation("incident_reports_assigned_toTousers")
   incident_reports_incident_reports_patient_uidTousers                                                                          incident_reports[]                             @relation("incident_reports_patient_uidTousers")
   incident_reports_incident_reports_reporter_idTousers                                                                          incident_reports[]                             @relation("incident_reports_reporter_idTousers")
@@ -24621,55 +24663,56 @@ model cath_consumables_billing_settings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pathway_projector_inbox {
-  tenant_id                         String                              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  consumer_key                      String                              @db.VarChar(120)
-  generation                        Int
-  event_id                          BigInt?
-  status                            String                              @default("pending") @db.VarChar(20)
-  attempts                          Int                                 @default(0)
-  lease_owner                       String?                             @db.Uuid
-  lease_expires_at                  DateTime?                           @db.Timestamptz(6)
-  next_attempt_at                   DateTime                            @default(now()) @db.Timestamptz(6)
-  last_error                        String?
-  outcome_at                        DateTime?                           @db.Timestamptz(6)
-  created_at                        DateTime                            @default(now()) @db.Timestamptz(6)
-  inbox_id                          String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  scope_kind                        String                              @default("pathway_registry") @db.VarChar(32)
-  offset_id                         String?                             @db.Uuid
-  facility_id                       Int?
-  interface_family                  String?                             @db.VarChar(8)
-  direction                         String?                             @db.VarChar(16)
-  source_partition                  String?                             @db.VarChar(160)
-  source_position                   BigInt?
-  source_token                      String?                             @db.VarChar(255)
-  predecessor_token                 String?                             @db.VarChar(255)
-  duplicate_key                     String?                             @db.VarChar(255)
-  command_fingerprint               String?                             @db.Char(64)
-  occurred_at                       DateTime?                           @db.Timestamptz(6)
-  received_at                       DateTime?                           @db.Timestamptz(6)
-  recorded_at                       DateTime?                           @db.Timestamptz(6)
-  arrival_class                     String?                             @db.VarChar(32)
-  effect_disposition                String?                             @db.VarChar(32)
-  outcome_code                      String?                             @db.VarChar(80)
-  pending_task_id                   Int?
-  policy_version                    String?                             @db.VarChar(80)
-  policy_signature                  String?                             @db.VarChar(128)
-  retention_policy                  String?                             @db.VarChar(80)
-  retention_until                   DateTime?                           @db.Timestamptz(6)
-  cold_chain_readings               cold_chain_readings[]
-  event_outbox                      event_outbox[]
-  hl7_outbound_acknowledgements     hl7_outbound_acknowledgements[]
-  hl7_outbound_messages             hl7_outbound_messages[]
-  interop_backend_delivery_receipts interop_backend_delivery_receipts[]
-  interop_messages                  interop_messages[]
-  lab_interface_messages            lab_interface_messages?
-  lab_oru_ingest_messages           lab_oru_ingest_messages?
-  notification_provider_receipts    notification_provider_receipts[]
-  facilities                        facilities?                         @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
-  event_consumer_offsets            event_consumer_offsets?             @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
-  tasks                             tasks?                              @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
-  tenants                           tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
-  vitals_chart                      vitals_chart?
+  tenant_id                            String                                @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  consumer_key                         String                                @db.VarChar(120)
+  generation                           Int
+  event_id                             BigInt?
+  status                               String                                @default("pending") @db.VarChar(20)
+  attempts                             Int                                   @default(0)
+  lease_owner                          String?                               @db.Uuid
+  lease_expires_at                     DateTime?                             @db.Timestamptz(6)
+  next_attempt_at                      DateTime                              @default(now()) @db.Timestamptz(6)
+  last_error                           String?
+  outcome_at                           DateTime?                             @db.Timestamptz(6)
+  created_at                           DateTime                              @default(now()) @db.Timestamptz(6)
+  inbox_id                             String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scope_kind                           String                                @default("pathway_registry") @db.VarChar(32)
+  offset_id                            String?                               @db.Uuid
+  facility_id                          Int?
+  interface_family                     String?                               @db.VarChar(8)
+  direction                            String?                               @db.VarChar(16)
+  source_partition                     String?                               @db.VarChar(160)
+  source_position                      BigInt?
+  source_token                         String?                               @db.VarChar(255)
+  predecessor_token                    String?                               @db.VarChar(255)
+  duplicate_key                        String?                               @db.VarChar(255)
+  command_fingerprint                  String?                               @db.Char(64)
+  occurred_at                          DateTime?                             @db.Timestamptz(6)
+  received_at                          DateTime?                             @db.Timestamptz(6)
+  recorded_at                          DateTime?                             @db.Timestamptz(6)
+  arrival_class                        String?                               @db.VarChar(32)
+  effect_disposition                   String?                               @db.VarChar(32)
+  outcome_code                         String?                               @db.VarChar(80)
+  pending_task_id                      Int?
+  policy_version                       String?                               @db.VarChar(80)
+  policy_signature                     String?                               @db.VarChar(128)
+  retention_policy                     String?                               @db.VarChar(80)
+  retention_until                      DateTime?                             @db.Timestamptz(6)
+  cold_chain_readings                  cold_chain_readings[]
+  event_outbox                         event_outbox[]
+  hl7_outbound_acknowledgements        hl7_outbound_acknowledgements[]
+  hl7_outbound_messages                hl7_outbound_messages[]
+  imaging_study_link_recovery_receipts imaging_study_link_recovery_receipts?
+  interop_backend_delivery_receipts    interop_backend_delivery_receipts[]
+  interop_messages                     interop_messages[]
+  lab_interface_messages               lab_interface_messages?
+  lab_oru_ingest_messages              lab_oru_ingest_messages?
+  notification_provider_receipts       notification_provider_receipts[]
+  facilities                           facilities?                           @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
+  event_consumer_offsets               event_consumer_offsets?               @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")
+  tasks                                tasks?                                @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_pending_task")
+  tenants                              tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
+  vitals_chart                         vitals_chart?
 
   @@unique([tenant_id, interface_family, direction, source_partition, duplicate_key], map: "uq_pathway_projector_inbox_external_duplicate", where: raw("((scope_kind)::text = 'external_interface'::text)"))
   @@unique([tenant_id, offset_id, generation, source_position], map: "uq_pathway_projector_inbox_external_position", where: raw("((scope_kind)::text = 'external_interface'::text)"))

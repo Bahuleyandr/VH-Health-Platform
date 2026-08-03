@@ -496,6 +496,23 @@ async function persistLateInterfaceEngine({ tx, capability, config, inbox, tenan
   });
 }
 
+async function persistLateImagingStudyLink({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateImagingStudyLinkRecovery } = await import('./externalImagingStudyLinkRecoveryService.js');
+  return persistLateImagingStudyLinkRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    sourceToken: inbox.source_token,
+    predecessorToken: inbox.predecessor_token,
+    duplicateKey: inbox.duplicate_key,
+    occurredAt: inbox.occurred_at,
+    command,
+  });
+}
+
 async function persistLateLab({ tx, capability, config, inbox, tenantId, command }) {
   const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
   return persistLateLabRecovery({
@@ -524,6 +541,7 @@ const EXTERNAL_INTERFACE_RECOVERY_ADAPTERS = Object.freeze({
   I02: persistLateLab,
   I04: persistLateHl7Outbound,
   I05: persistLateInterfaceEngine,
+  I06: persistLateImagingStudyLink,
   I09: persistLateVitals,
   I10: persistLateColdChain,
   I15: persistLateVitals,
@@ -647,7 +665,7 @@ export async function processNextItemTx({
       ? domain?.receipt
       : config.id === 'I04'
         ? domain?.acknowledgement || domain?.authority
-        : config.id === 'I05'
+        : (config.id === 'I05' || config.id === 'I06')
           ? domain?.receipt
         : domain?.reading || domain?.observation || domain?.result;
     if (!evidence?.id || !domain?.task?.id) {
@@ -698,6 +716,8 @@ export async function processNextItemTx({
             : { message_id: String(evidence.id) }
         : config.id === 'I05'
           ? { receipt_id: String(evidence.id), message_id: String(domain.message.id) }
+        : config.id === 'I06'
+          ? { receipt_id: String(evidence.id), radiology_order_id: String(domain.order.id) }
         : config.id === 'I10'
         ? { reading_id: String(evidence.id) }
         : (config.id === 'I01' || config.id === 'I02')
