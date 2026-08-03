@@ -344,17 +344,27 @@ function c12Capture(inputDir, file) {
 function tableColumnValues(output, columnName) {
   const lines = output
     .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim());
   if (lines.length < 2) return [];
 
-  const headers = lines[0].split(/\s+/);
-  const columnIndex = headers.indexOf(columnName);
+  // kubectl pads every column to a fixed width, so columns must be read by
+  // character offset. Splitting a row on whitespace and indexing by token
+  // shifts every later column whenever a cell contains a space -- RESTARTS
+  // renders as "35 (21d ago)" and NOMINATED NODE is itself two words -- which
+  // silently harvests the AGE value as if it were a node name.
+  const columns = [...lines[0].matchAll(/\S(?:\S|\s(?!\s))*/g)].map(
+    (match) => ({ name: match[0], start: match.index }),
+  );
+  const columnIndex = columns.findIndex(({ name }) => name === columnName);
   if (columnIndex === -1) return [];
+
+  const start = columns[columnIndex].start;
+  const end = columns[columnIndex + 1]?.start ?? Infinity;
 
   return lines
     .slice(1)
-    .map((line) => line.split(/\s+/)[columnIndex])
+    .map((line) => line.slice(start, end).trim())
     .filter(
       (value) =>
         value &&
