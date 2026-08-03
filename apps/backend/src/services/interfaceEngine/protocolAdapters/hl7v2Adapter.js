@@ -6,6 +6,7 @@ import { AppError } from '../../../utils/AppError.js';
 
 export const HL7V2_ADAPTER_VERSION = 'vhhealth.i05.hl7v2/v1';
 export const HL7V2_BACKEND_ADAPTER_KEY = 'backend.interop.preview';
+export const HL7V2_EXTERNAL_ADAPTER_KEY = 'external.hl7v2.http';
 
 function sha256(value) {
   return createHash('sha256').update(Buffer.from(String(value ?? ''), 'utf8')).digest('hex');
@@ -115,8 +116,8 @@ export async function recordHl7v2ExternalAcceptanceTx({
         direction, adapter_key, adapter_version, payload_sha256, payload_bytes,
         transformed_payload, receipt_status, evidence)
      VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, 'hl7v2',
-             'outbound', 'external.hl7v2.http', $5::text, $6::char(64), $7::integer,
-             '{}'::jsonb, 'accepted', $8::jsonb)
+              'outbound', $5::text, $6::text, $7::char(64), $8::integer,
+              '{}'::jsonb, 'accepted', $9::jsonb)
      ON CONFLICT (tenant_id, message_id, adapter_key, receipt_status)
      DO NOTHING
      RETURNING id::text, receipt_status, adapter_key, adapter_version,
@@ -125,6 +126,7 @@ export async function recordHl7v2ExternalAcceptanceTx({
     message.id,
     message.channel_id,
     message.channel_version_id,
+    HL7V2_EXTERNAL_ADAPTER_KEY,
     HL7V2_ADAPTER_VERSION,
     message.payload_hash,
     Buffer.byteLength(String(rawPayload || ''), 'utf8'),
@@ -144,6 +146,8 @@ export default Object.freeze({
   protocol: 'hl7v2',
   adapterVersion: HL7V2_ADAPTER_VERSION,
   backendAdapterKeys: Object.freeze([HL7V2_BACKEND_ADAPTER_KEY]),
+  externalAdapterKey: HL7V2_EXTERNAL_ADAPTER_KEY,
+  assertMessageParity: assertHl7v2MessageParity,
   deliverBackendTx: deliverHl7v2BackendTx,
   evaluateExternalResponse: evaluateHl7v2ExternalResponse,
   recordExternalAcceptanceTx: recordHl7v2ExternalAcceptanceTx,
