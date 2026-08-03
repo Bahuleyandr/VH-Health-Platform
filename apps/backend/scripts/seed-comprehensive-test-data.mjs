@@ -677,6 +677,8 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // mig 619: generic coverage represents an ordinary live NHCX envelope.
   // Recovery provenance and stranded-processing ownership are owner-supplied.
   nhcx_messages: {
+    environment: 'sandbox',
+    cycle: 'eligibility',
     recovery_inbox_id: null,
     recovery_interface_family: null,
     recovery_owner_uid: null,

@@ -52631,6 +52631,37 @@
         ]
       }
     },
+    "/api/v1/admin/nhcx/messages/{id}/claim-stranded-inbound": {
+      "post": {
+        "operationId": "post_api_v1_admin_nhcx_messages_by_id_claim_stranded_inbound",
+        "tags": [
+          "nhcx"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Authenticated ADMIN or step-up-authenticated SUPER_ADMIN operators may claim a stale inbound NHCX callback for owner-directed review within the request tenant. The claim records recovery ownership and disposition without replaying the callback or invoking NHCX domain, dispatch, redrive, or payment processing.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/admin/nhcx/messages/{id}/redrive": {
       "post": {
         "operationId": "post_api_v1_admin_nhcx_messages_by_id_redrive",

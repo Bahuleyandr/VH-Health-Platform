@@ -27,6 +27,7 @@ import * as portal from './openapi/schemas/portal.mjs';
 import * as cathConsumables from './openapi/schemas/cathConsumables.mjs';
 import * as clinicalInbox from './openapi/schemas/clinicalInbox.mjs';
 import * as lab from './openapi/schemas/lab.mjs';
+import * as nhcx from './openapi/schemas/nhcx.mjs';
 import * as carePathways from './openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from './openapi/schemas/outboxRecovery.mjs';
 import * as clientReadiness from './openapi/schemas/clientReadiness.mjs';
@@ -48,6 +49,7 @@ const SCHEMA_MODULES = [
   cathConsumables,
   clinicalInbox,
   lab,
+  nhcx,
   carePathways,
   outboxRecovery,
   clinicalContinuityPolicyDelivery,
