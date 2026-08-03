@@ -3,6 +3,9 @@ import {
   EXTERNAL_INTERFACE_RECOVERY_FAMILIES,
   resolveExternalInterfaceDisposition,
 } from '../../config/externalInterfaceRecoveryCatalog.js';
+import {
+  EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES,
+} from '../../services/integrations/externalInterfaceRecoveryService.js';
 
 describe('external interface recovery catalog', () => {
   it('records exactly I01 through I30 once', () => {
@@ -13,12 +16,14 @@ describe('external interface recovery catalog', () => {
       .toEqual(EXTERNAL_INTERFACE_RECOVERY_FAMILIES);
   });
 
-  it('includes the landed laboratory, I04, and notification adapters with explicit scopes', () => {
-    expect(
-      Object.values(EXTERNAL_INTERFACE_RECOVERY_CATALOG)
-        .filter((item) => item.implemented)
-        .map((item) => item.id),
-    ).toEqual(['I01', 'I02', 'I04', 'I09', 'I10', 'I15', 'I17']);
+  it('keeps every implemented adapter declared in the catalog and vice versa', () => {
+    const catalogFamilies = Object.values(EXTERNAL_INTERFACE_RECOVERY_CATALOG)
+      .filter((item) => item.implemented)
+      .map((item) => item.id)
+      .sort();
+    const adapterFamilies = [...EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES].sort();
+    expect(new Set(adapterFamilies).size).toBe(adapterFamilies.length);
+    expect(catalogFamilies).toEqual(adapterFamilies);
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I01' }))
       .toMatchObject({
         id: 'I01',
@@ -46,6 +51,17 @@ describe('external interface recovery catalog', () => {
         facilityScope: 'tenant',
         partitionKind: 'tenant_subscription',
         duplicateKeyKind: 'tenant_subscription_source_event_message_type_payload_sha256',
+      });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I05' }))
+      .toMatchObject({
+        id: 'I05',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        directions: ['inbound', 'outbound'],
+        implementedProtocols: expect.arrayContaining(['hl7v2']),
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_channel_direction_target',
       });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I09' }))
       .toMatchObject({

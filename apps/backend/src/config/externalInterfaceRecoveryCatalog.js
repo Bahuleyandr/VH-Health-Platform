@@ -6,7 +6,7 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I01', 'I02', 'I04', 'I09', 'I10', 'I15', 'I17'].includes(id),
+  implemented: ['I01', 'I02', 'I04', 'I05', 'I09', 'I10', 'I15', 'I17'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
@@ -34,7 +34,14 @@ const catalogEntries = [
     duplicateKeyKind: 'tenant_subscription_source_event_message_type_payload_sha256',
     partitionKind: 'tenant_subscription',
   }),
-  entry('I05', 'Generic integration-engine streams', HWM),
+  entry('I05', 'Generic integration-engine streams', HWM, {
+    directions: Object.freeze(['inbound', 'outbound']),
+    cursorKind: 'monotonic_position_and_predecessor',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_channel_direction_target_protocol_payload_sha256',
+    partitionKind: 'tenant_channel_direction_target',
+    implementedProtocols: Object.freeze(['hl7v2']),
+  }),
   entry('I06', 'PACS and DICOM', MIXED, {
     subpaths: Object.freeze({
       study_link: HWM,

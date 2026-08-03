@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 
 import prisma from '../lib/prisma.js';
+import { purgeInterfaceEngineTestData } from './helpers/interfaceEngineEvidenceCleanup.js';
 import {
   activateChannelVersion,
   createChannel,
   createChannelVersion,
+  createReplayBatch,
   createTransformTest,
   dispatchOutboundMessages,
   enqueueOutboundMessage,
@@ -18,7 +20,7 @@ import { upsertInteropSecret } from '../services/interop/tenantInteropSecretServ
 process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'interface-engine-test-field-key-32chars';
 process.env.FIELD_KEK_LOCAL_SECRET = process.env.FIELD_KEK_LOCAL_SECRET || 'interface-engine-test-kek-key-32chars';
 
-const SFX = String(Date.now() % 100000);
+const SFX = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
 const TENANT_A = 'a7500000-0000-4000-8000-0000000000a1';
 const TENANT_B = 'b7500000-0000-4000-8000-0000000000b2';
 const RECEIVER_A = `VH_ENGINE_A_${SFX}`;
@@ -142,13 +144,8 @@ async function createActiveOutboundChannel() {
 
 describe('NL11-S11 interface engine runtime', () => {
   beforeAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_message_attempts WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_messages WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_transform_tests WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_replay_batches WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_channel_versions WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_channels WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier IN ($1, $2)`, RECEIVER_A, RECEIVER_B).catch(() => {});
+    expect(await purgeInterfaceEngineTestData(prisma, [TENANT_A, TENANT_B]))
+      .toEqual(expect.objectContaining({ total: 0 }));
     await ensureTenant(TENANT_A, `ie-a-${SFX}`);
     await ensureTenant(TENANT_B, `ie-b-${SFX}`);
     await upsertInteropSecret({
@@ -168,16 +165,12 @@ describe('NL11-S11 interface engine runtime', () => {
   }, 30000);
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_message_attempts WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_messages WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_transform_tests WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_replay_batches WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_channel_versions WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_channels WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM interop_systems WHERE tenant_id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier IN ($1, $2)`, RECEIVER_A, RECEIVER_B).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
-    await prisma.$disconnect().catch(() => {});
+    try {
+      expect(await purgeInterfaceEngineTestData(prisma, [TENANT_A, TENANT_B]))
+        .toEqual(expect.objectContaining({ total: 0 }));
+    } finally {
+      await prisma.$disconnect();
+    }
   }, 30000);
 
   it('accepts a signed HL7 message, stores only redacted previews, and rejects replay', async () => {
@@ -200,6 +193,15 @@ describe('NL11-S11 interface engine runtime', () => {
     expect(detail.attempts.map((attempt) => attempt.phase)).toEqual(
       expect.arrayContaining(['receive', 'parse', 'transform', 'deliver_backend']),
     );
+    expect(detail.receipts).toEqual([
+      expect.objectContaining({
+        protocol: 'hl7v2',
+        direction: 'inbound',
+        adapter_key: 'backend.interop.preview',
+        receipt_status: 'accepted',
+        payload_sha256: accepted.payload_hash,
+      }),
+    ]);
 
     await expect(receiveHttpHl7Message({
       channelKey: inboundChannel.channel_key,
@@ -219,7 +221,7 @@ describe('NL11-S11 interface engine runtime', () => {
     })).rejects.toMatchObject({ statusCode: 404 });
   }, 30000);
 
-  it('dead-letters outbound delivery when the active connector lacks a safe endpoint', async () => {
+  it('holds outbound delivery for owner reconciliation when the connector lacks a safe endpoint', async () => {
     const message = await enqueueOutboundMessage({
       tenantId: TENANT_A,
       channelId: outboundChannel.id,
@@ -229,10 +231,32 @@ describe('NL11-S11 interface engine runtime', () => {
     expect(message.status).toBe('queued');
 
     const stats = await dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 });
-    expect(stats).toMatchObject({ picked: 1, dead: 1 });
+    expect(stats).toMatchObject({ picked: 1, held: 1 });
 
-    const listed = await listMessages({ tenantId: TENANT_A, channelId: outboundChannel.id, status: 'dead' });
+    const listed = await listMessages({ tenantId: TENANT_A, channelId: outboundChannel.id, status: 'quarantined' });
     expect(listed.count).toBe(1);
     expect(listed.messages[0].last_error_code).toBe('INTEROP_OUTBOUND_URL_REQUIRED');
+    expect(listed.messages[0]).toMatchObject({
+      send_authority: 'held',
+      owner_reconciliation_required: true,
+      delivery_claim_generation: 1,
+      delivery_claimed_at: null,
+      delivery_lease_expires_at: null,
+    });
+
+    const replay = await createReplayBatch({
+      tenantId: TENANT_A,
+      channelId: outboundChannel.id,
+      reason: 'Owner requested a reconciliation review without authorizing a resend.',
+      mode: 'redeliver_external',
+      selectionFilter: { statuses: ['quarantined'], limit: 10 },
+    });
+    expect(replay.safe_summary).toMatch(/Held 1 message/);
+    const stillHeld = await listMessages({
+      tenantId: TENANT_A,
+      channelId: outboundChannel.id,
+      status: 'quarantined',
+    });
+    expect(stillHeld.count).toBe(1);
   }, 30000);
 });

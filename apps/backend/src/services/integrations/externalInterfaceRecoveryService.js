@@ -109,14 +109,39 @@ function normalizePolicy({ policyVersion, policySignature, retentionPolicy, rete
   };
 }
 
-function recoveryConfig(interfaceFamily = 'I10', subpath = null) {
+function recoveryConfig(interfaceFamily = 'I10', subpath = null, {
+  protocol = null,
+  streamDirection = null,
+} = {}) {
   const config = resolveExternalInterfaceDisposition({ interfaceFamily, subpath });
   const disposition = config.selectedDisposition || config.disposition;
-  if (!config.implemented || disposition !== 'hwm_required') {
+  if (!EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES.includes(config.id)
+      || disposition !== 'hwm_required') {
     throw AppError.conflict(
       `${config.id} is not implemented on the canonical recovery substrate`,
       'EXTERNAL_RECOVERY_INTERFACE_NOT_IMPLEMENTED',
     );
+  }
+  if (config.id === 'I05') {
+    const normalizedProtocol = String(protocol || '').trim().toLowerCase();
+    const normalizedDirection = String(streamDirection || '').trim().toLowerCase();
+    if (!config.implementedProtocols?.includes(normalizedProtocol)) {
+      throw AppError.conflict(
+        `${normalizedProtocol || 'Unknown'} I05 recovery protocol is not implemented`,
+        'EXTERNAL_RECOVERY_PROTOCOL_NOT_IMPLEMENTED',
+      );
+    }
+    if (!config.directions?.includes(normalizedDirection)) {
+      throw AppError.badRequest(
+        'I05 stream_direction must be inbound or outbound',
+        'EXTERNAL_RECOVERY_INPUT_INVALID',
+      );
+    }
+    return Object.freeze({
+      ...config,
+      protocol: normalizedProtocol,
+      direction: normalizedDirection,
+    });
   }
   return config;
 }
@@ -137,6 +162,8 @@ export async function registerExternalRecoveryOffset({
   facilityId = null,
   interfaceFamily = 'I10',
   subpath = null,
+  protocol = null,
+  streamDirection = null,
   sourcePartition,
   generation = 1,
   initialPosition = null,
@@ -148,7 +175,7 @@ export async function registerExternalRecoveryOffset({
   retentionPolicy,
   retentionUntil,
 } = {}) {
-  const config = recoveryConfig(interfaceFamily, subpath);
+  const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
   const facilityScope = config.facilityScope || 'tenant';
   const facility = facilityScope === 'facility'
@@ -199,9 +226,11 @@ export async function readExternalRecoveryResumeState({
   offsetId = null,
   interfaceFamily = 'I10',
   subpath = null,
+  protocol = null,
+  streamDirection = null,
   sourcePartition = null,
 } = {}) {
-  const config = recoveryConfig(interfaceFamily, subpath);
+  const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
   const oid = offsetId ? requireUuid(offsetId, 'offset_id') : null;
   const partition = sourcePartition ? requireText(sourcePartition, 'source_partition', 160) : null;
@@ -259,10 +288,12 @@ export async function authorizeExternalRecoveryResume({
   offsetId,
   interfaceFamily = 'I10',
   subpath = null,
+  protocol = null,
+  streamDirection = null,
   resumeCutoffPosition,
   resumeCutoffToken,
 } = {}) {
-  const config = recoveryConfig(interfaceFamily, subpath);
+  const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
   const oid = requireUuid(offsetId, 'offset_id');
   const cutoff = normalizeMarker({ position: resumeCutoffPosition, token: resumeCutoffToken });
@@ -323,6 +354,8 @@ export async function enqueueExternalRecoveryItem({
   offsetId,
   interfaceFamily = 'I10',
   subpath = null,
+  protocol = null,
+  streamDirection = null,
   sourcePartition = null,
   generation = null,
   sourcePosition,
@@ -334,7 +367,7 @@ export async function enqueueExternalRecoveryItem({
   commandFingerprint = null,
   arrivalClass = 'recovery_backlog',
 } = {}) {
-  const config = recoveryConfig(interfaceFamily, subpath);
+  const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
   const oid = requireUuid(offsetId, 'offset_id');
   const position = requirePosition(sourcePosition, 'source_position');
@@ -427,36 +460,58 @@ function matchesQueuedItem(row, expected) {
     && row.command_fingerprint === expected.fingerprint;
 }
 
-async function persistLateDomain({ tx, capability, config, inbox, tenantId, command }) {
-  if (config.id === 'I04') {
-    const { persistLateHl7OutboundRecovery } = await import('./externalHl7OutboundRecoveryService.js');
-    return persistLateHl7OutboundRecovery({
-      tx, capability, tenantId,
-      recoveryInboxId: inbox.inbox_id,
-      command,
-    });
-  }
-  if (config.id === 'I17') {
-    const { persistLateNotificationRecovery } = await import('./externalNotificationRecoveryService.js');
-    return persistLateNotificationRecovery({
-      tx, capability, tenantId,
-      recoveryInboxId: inbox.inbox_id,
-      command,
-    });
-  }
-  if (config.id === 'I01' || config.id === 'I02') {
-    const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
-    return persistLateLabRecovery({
-      tx, capability, tenantId, interfaceFamily: config.id,
-      recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
-    });
-  }
-  if (config.id === 'I10') {
-    return persistLateColdChainRecovery({
-      tx, capability, tenantId, facilityId: inbox.facility_id,
-      recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
-    });
-  }
+async function persistLateHl7Outbound({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateHl7OutboundRecovery } = await import('./externalHl7OutboundRecoveryService.js');
+  return persistLateHl7OutboundRecovery({
+    tx, capability, tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    command,
+  });
+}
+
+async function persistLateNotification({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateNotificationRecovery } = await import('./externalNotificationRecoveryService.js');
+  return persistLateNotificationRecovery({
+    tx, capability, tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    command,
+  });
+}
+
+async function persistLateInterfaceEngine({ tx, capability, config, inbox, tenantId, command }) {
+  const { persistLateInterfaceEngineRecovery } = await import('./externalInterfaceEngineRecoveryService.js');
+  return persistLateInterfaceEngineRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    protocol: config.protocol,
+    streamDirection: config.direction,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    sourceToken: inbox.source_token,
+    predecessorToken: inbox.predecessor_token,
+    duplicateKey: inbox.duplicate_key,
+    command,
+  });
+}
+
+async function persistLateLab({ tx, capability, config, inbox, tenantId, command }) {
+  const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
+  return persistLateLabRecovery({
+    tx, capability, tenantId, interfaceFamily: config.id,
+    recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
+  });
+}
+
+async function persistLateColdChain({ tx, capability, inbox, tenantId, command }) {
+  return persistLateColdChainRecovery({
+    tx, capability, tenantId, facilityId: inbox.facility_id,
+    recoveryInboxId: inbox.inbox_id, occurredAt: inbox.occurred_at, command,
+  });
+}
+
+async function persistLateVitals({ tx, capability, config, inbox, tenantId, command }) {
   const { persistLateVitalsRecovery } = await import('./externalVitalsRecoveryService.js');
   return persistLateVitalsRecovery({
     tx, capability, tenantId, interfaceFamily: config.id,
@@ -464,11 +519,39 @@ async function persistLateDomain({ tx, capability, config, inbox, tenantId, comm
   });
 }
 
+const EXTERNAL_INTERFACE_RECOVERY_ADAPTERS = Object.freeze({
+  I01: persistLateLab,
+  I02: persistLateLab,
+  I04: persistLateHl7Outbound,
+  I05: persistLateInterfaceEngine,
+  I09: persistLateVitals,
+  I10: persistLateColdChain,
+  I15: persistLateVitals,
+  I17: persistLateNotification,
+});
+
+export const EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES = Object.freeze(
+  Object.keys(EXTERNAL_INTERFACE_RECOVERY_ADAPTERS),
+);
+
+async function persistLateDomain(input) {
+  const adapter = EXTERNAL_INTERFACE_RECOVERY_ADAPTERS[input.config.id];
+  if (!adapter) {
+    throw AppError.conflict(
+      `${input.config.id} is not implemented on the canonical recovery substrate`,
+      'EXTERNAL_RECOVERY_INTERFACE_NOT_IMPLEMENTED',
+    );
+  }
+  return adapter(input);
+}
+
 export async function processNextItemTx({
   tenantId,
   offsetId,
   interfaceFamily = 'I10',
   subpath = null,
+  protocol = null,
+  streamDirection = null,
   sourcePartition = null,
   generation = null,
   sourcePosition,
@@ -479,7 +562,7 @@ export async function processNextItemTx({
   commandFingerprint = null,
   leaseOwner = randomUUID(),
 } = {}) {
-  const config = recoveryConfig(interfaceFamily, subpath);
+  const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
   const oid = requireUuid(offsetId, 'offset_id');
   const position = requirePosition(sourcePosition, 'source_position');
@@ -511,7 +594,8 @@ export async function processNextItemTx({
       `SELECT inbox_id::text, tenant_id::text, facility_id, offset_id::text,
               interface_family, generation, source_position::text, source_token,
               predecessor_token, duplicate_key, command_fingerprint, occurred_at::text,
-              arrival_class, effect_disposition, status, attempts, outcome_code, pending_task_id
+              source_partition, arrival_class, effect_disposition, status, attempts,
+              outcome_code, pending_task_id
          FROM pathway_projector_inbox
         WHERE tenant_id = $1::uuid AND offset_id = $2::uuid
           AND scope_kind = 'external_interface' AND interface_family = $3::text
@@ -563,6 +647,8 @@ export async function processNextItemTx({
       ? domain?.receipt
       : config.id === 'I04'
         ? domain?.acknowledgement || domain?.authority
+        : config.id === 'I05'
+          ? domain?.receipt
         : domain?.reading || domain?.observation || domain?.result;
     if (!evidence?.id || !domain?.task?.id) {
       throw AppError.internal('Late recovery did not produce domain evidence and pending work', 'EXTERNAL_RECOVERY_PENDING_WORK_MISSING');
@@ -610,6 +696,8 @@ export async function processNextItemTx({
           ? domain?.acknowledgement
             ? { acknowledgement_id: String(evidence.acknowledgement_id || evidence.id) }
             : { message_id: String(evidence.id) }
+        : config.id === 'I05'
+          ? { receipt_id: String(evidence.id), message_id: String(domain.message.id) }
         : config.id === 'I10'
         ? { reading_id: String(evidence.id) }
         : (config.id === 'I01' || config.id === 'I02')

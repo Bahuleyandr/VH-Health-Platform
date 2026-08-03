@@ -14,6 +14,8 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
+const I05_SEED_PAYLOAD = 'MSH|^~\\&|VH|SEED|BACKEND|SEED|20260802000000||ADT^A01|VH-SEED-I05|P|2.5';
+const I05_SEED_PAYLOAD_HASH = createHash('sha256').update(I05_SEED_PAYLOAD, 'utf8').digest('hex');
 // Continuity authorization and replay remain inert until their approval gates
 // are satisfied. Synthetic credentials or immutable receipts would violate
 // those activation boundaries.
@@ -68,6 +70,9 @@ const MANUAL_SEED_TABLES = new Set([
   'hl7_outbound_transport_results',
   'hl7_outbound_acknowledgements',
   'hl7_outbound_delivery_cursors',
+  // C6.1-E I05 adapter receipts are append-only and must match the message's
+  // tenant, channel, version, protocol, direction, hash, and byte count.
+  'interop_backend_delivery_receipts',
   'referrals',
   'referral_transition_events',
   'referral_responses',
@@ -615,6 +620,36 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   vitals_chart: {
     recovery_inbox_id: null,
     recovery_interface_family: null,
+  },
+  // mig 611: generic coverage represents an ordinary live HL7v2 message and
+  // its protocol-adapter receipt. Recovery provenance is owner-supplied only.
+  interop_messages: {
+    protocol: 'hl7v2',
+    direction: 'inbound',
+    message_type: 'ADT^A01',
+    external_control_id: 'VH-SEED-I05',
+    payload_hash: I05_SEED_PAYLOAD_HASH,
+    raw_payload_ciphertext: null,
+    raw_payload_retained: false,
+    parsed_summary: JSON.stringify({
+      seed: true,
+      message_type: 'ADT^A01',
+      control_id: 'VH-SEED-I05',
+    }),
+    status: 'received',
+    recovery_ledger_version: 0,
+    source_position: null,
+    source_token: null,
+    predecessor_token: null,
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+    arrival_class: 'live',
+    effect_disposition: 'live',
+    send_authority: 'live_authorized',
+    owner_reconciliation_required: false,
+    delivery_claim_token: null,
+    delivery_claimed_at: null,
+    delivery_lease_expires_at: null,
   },
   // mig 604: legacy staff-device rows remain valid only when both identity
   // pointers are absent, while user_devices must not infer continuity or
@@ -3122,6 +3157,47 @@ async function seedHl7OutboundDeliveryEvidence() {
   );
 }
 
+async function seedInteropHl7v2DeliveryReceipt() {
+  if (!await tableExists('interop_backend_delivery_receipts')) return;
+  if (await tableCount('interop_backend_delivery_receipts')) return;
+  await client.query(
+    "SELECT set_config('app.current_tenant_id', $1::text, true)",
+    [DEFAULT_TENANT_ID],
+  );
+  const message = await first(
+    'interop_messages',
+    'id, tenant_id, channel_id, channel_version_id, protocol, direction, payload_hash',
+    "tenant_id = $1::uuid AND protocol = 'hl7v2' AND direction = 'inbound'",
+    [DEFAULT_TENANT_ID],
+  );
+  if (!message) {
+    throw new Error('I05 seed receipt requires the generic live HL7v2 message');
+  }
+  if (message.payload_hash !== I05_SEED_PAYLOAD_HASH) {
+    throw new Error('I05 seed message payload hash drifted from its frozen bytes');
+  }
+  await client.query(
+    `INSERT INTO interop_backend_delivery_receipts
+       (tenant_id, message_id, channel_id, channel_version_id, protocol,
+        direction, adapter_key, adapter_version, payload_sha256, payload_bytes,
+        transformed_payload, receipt_status, evidence)
+     VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, $5::text,
+             $6::text, 'backend.interop.preview', 'vhhealth.i05.hl7v2/v1',
+             $7::char(64), $8::integer, '{"seed":true}'::jsonb, 'accepted',
+             '{"seed":true,"byte_parity_verified":true,"raw_payload_retained":false}'::jsonb)`,
+    [
+      message.tenant_id,
+      message.id,
+      message.channel_id,
+      message.channel_version_id,
+      message.protocol,
+      message.direction,
+      I05_SEED_PAYLOAD_HASH,
+      Buffer.byteLength(I05_SEED_PAYLOAD, 'utf8'),
+    ],
+  );
+}
+
 function stableSeedStringify(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableSeedStringify).join(',')}]`;
@@ -5611,6 +5687,7 @@ try {
   await seedHl7OutboundDeliveryEvidence();
   await seedReferralClosedLoopGraph();
   const { seeded, failed } = await seedRemainingTables();
+  await seedInteropHl7v2DeliveryReceipt();
   await seedEdClosureRecoveryEvidence();
   await seedInsuranceClaimCaps();
   await seedLedgerEntries();
