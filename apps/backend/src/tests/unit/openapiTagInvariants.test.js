@@ -77,12 +77,10 @@ describe('committed OpenAPI spec — tag invariants', () => {
       .filter(({ op }) => (op.tags || []).includes(UNCLASSIFIED_TAG))
       .map(({ method, path }) => `${method.toUpperCase()} ${path}`);
     // Listed explicitly: this should shrink, and each removal is a real review.
-    expect(unclassified.sort()).toEqual([
-      'GET /',
-      'GET /api/v1/staff/{identifier}',
-      'HEAD /',
-      'PUT /api/v1/staff/{identifier}',
-    ]);
+    // The two /api/v1/staff/{identifier} operations left when
+    // src/routes/staff/staffRoutes.js declared its domain. What remains is the
+    // root liveness pair, which belongs to no subsystem by construction.
+    expect(unclassified.sort()).toEqual(['GET /', 'HEAD /']);
     expect(unclassified.length).toBeLessThanOrEqual(UNCLASSIFIED_TAG_BUDGET);
   });
 
@@ -91,6 +89,20 @@ describe('committed OpenAPI spec — tag invariants', () => {
     // machines, false-tripping the drift gate.
     const names = (spec.tags || []).map((t) => t.name);
     expect(names).toEqual([...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+  });
+
+  it('never publishes a slug and its own plural as two tags', () => {
+    // How `appointment`/`appointments`, `department`/`departments`,
+    // `document`/`documents`, `entitlement`/`entitlements`,
+    // `prescription`/`prescriptions` and `dashboard`/`dashboards` all appeared:
+    // one side is a real route module, the other is a path- or sibling-directory
+    // derivation of the same subject. Splitting one domain across two tags is
+    // silent — nothing else fails — so pin it. Singular is the house style.
+    const names = new Set((spec.tags || []).map((t) => t.name));
+    const pairs = [...names]
+      .filter((n) => names.has(`${n}s`))
+      .map((n) => `${n} / ${n}s`);
+    expect(pairs.sort()).toEqual([]);
   });
 
   it('uses only lowercase kebab-case slugs', () => {
@@ -118,6 +130,23 @@ describe('committed OpenAPI spec — tag invariants', () => {
     it('skips a RUN of audience path segments to reach the real domain', () => {
       // /api/v1/admin/staff/attendance/... must not resolve to `staff`
       expect(tagOf('get', '/api/v1/admin/staff/attendance/late-arrivals')).toBe('attendance');
+    });
+
+    it('honours an explicit markRouterDomain declaration over the URL', () => {
+      // src/routes/admin/index.js — a barrel that names nothing, so these would
+      // otherwise path-derive to the junk slugs `dashboard`-adjacent verbs
+      // (`alerts`, `activity`, `refresh-cache`, `export`, `summary`, `test`).
+      expect(tagOf('get', '/api/v1/admin/alerts')).toBe('dashboard');
+      expect(tagOf('post', '/api/v1/admin/refresh-cache')).toBe('dashboard');
+      expect(tagOf('get', '/api/v1/admin/staff/summary')).toBe('stats');
+      expect(tagOf('get', '/api/v1/admin/appointments/summary')).toBe('appointment');
+      // src/routes/staff/staffRoutes.js — file name IS the audience word.
+      expect(tagOf('get', '/api/v1/staff/list')).toBe('staff-admin');
+      expect(tagOf('get', '/api/v1/staff/{identifier}')).toBe('staff-admin');
+      // Sibling directories routes/dashboard/ and routes/dashboards/.
+      expect(tagOf('get', '/api/v1/dashboards/catalog')).toBe('dashboard');
+      // Registered directly on the app, so there is no route module to derive from.
+      expect(tagOf('get', '/api/v1/departments/departments-with-doctors')).toBe('department');
     });
 
     it('spreads the /api/v1/admin/ surface across many domains, not one', () => {

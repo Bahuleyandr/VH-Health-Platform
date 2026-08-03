@@ -5,6 +5,7 @@
 // god-router with 36 inline closures and ~70 raw res.json calls). This file now
 // only wires paths → handlers and mounts the admin sub-routers.
 import express from 'express';
+import { markRouterDomain } from '../../config/openapiDomain.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 
 // Sub-routers (must remain mounted)
@@ -62,15 +63,44 @@ const router = express.Router();
 /*                               RBAC-wrapped API                              */
 /* -------------------------------------------------------------------------- */
 
-wrapAutoRBAC(router, 'adminDashboard', {
+// These handlers are all admin-console surfaces extracted to dashboardController,
+// but they span SEVERAL real domains — and this barrel gives the OpenAPI generator
+// no module signal (`admin/index.js` names nothing, and `admin` is an audience,
+// never a domain). Left undeclared, their tags fall back to URL derivation and
+// publish junk slugs that are shapes rather than subsystems: `test`, `alerts`,
+// `activity`, `summary`, `export`, `refresh-cache`, plus a stray plural
+// `appointments` alongside the real `appointment` tag.
+//
+// So each domain gets its own router carrying an explicit markRouterDomain
+// declaration. Everything else is deliberately unchanged: the paths, the RBAC
+// roles and the rate-limit/audit behaviour (every group passes the SAME
+// `adminDashboard` configKey, and routeWrapper keys both off configKey — never
+// off the router or the path), and the registration ORDER relative to the
+// sub-router mounts below. Mounting each at '/' keeps every URL byte-identical;
+// only the published tag moves.
+//
+// ★ These mounts MUST stay above the sub-router mounts below: '/appointments/summary'
+// has to be matched here before router.use('/appointments', appointmentAdminRoutes).
+
+// The console home itself: the aggregate dashboard, its activity feed and system
+// alerts widgets, and the two dashboard-wide actions (cache refresh, report export).
+const consoleRoutes = markRouterDomain(express.Router(), 'dashboard');
+wrapAutoRBAC(consoleRoutes, 'adminDashboard', {
   get: [
-    // /test — disabled in production to reduce attack surface
-    ...((process.env.NODE_ENV || '').toLowerCase() !== 'production'
-      ? [['/test', dash.testInfo]]
-      : []),
-
     ['/dashboard', dash.dashboard],
+    ['/activity/recent', dash.recentActivity],
+    ['/alerts', dash.systemAlerts],
+  ],
 
+  post: [
+    ['/refresh-cache', dash.refreshCache],
+    ['/export/report', dash.exportReport],
+  ],
+});
+
+const consoleStatsRoutes = markRouterDomain(express.Router(), 'stats');
+wrapAutoRBAC(consoleStatsRoutes, 'adminDashboard', {
+  get: [
     ['/stats/quick', dash.statsQuick],
     // Individual stat endpoints (used by portal useAdminStats)
     ['/stats/users', dash.statsUsers],
@@ -80,49 +110,90 @@ wrapAutoRBAC(router, 'adminDashboard', {
     ['/stats/emergency', dash.statsEmergency],
     ['/stats/staff', dash.statsStaff],
     ['/stats/departments', dash.statsDepartments],
+    // Same getStaffStats aggregate as /stats/staff, wrapped with a links block.
+    ['/staff/summary', dash.staffSummary],
+  ],
+});
 
-    ['/activity/recent', dash.recentActivity],
-    ['/alerts', dash.systemAlerts],
+const consoleHealthRoutes = markRouterDomain(express.Router(), 'health');
+wrapAutoRBAC(consoleHealthRoutes, 'adminDashboard', {
+  get: [
     ['/health/modules', dash.moduleHealth],
     ['/health/system', dash.systemHealth],
-    ['/staff/summary', dash.staffSummary],
-    ['/appointments/summary', dash.appointmentsSummary],
+  ],
+});
 
-    // Admin Staff Attendance
+// getAppointmentSummary + links into the appointment admin surface — the same
+// domain as the /appointments sub-router mounted below, not a plural of its own.
+const consoleAppointmentRoutes = markRouterDomain(express.Router(), 'appointment');
+wrapAutoRBAC(consoleAppointmentRoutes, 'adminDashboard', {
+  get: [['/appointments/summary', dash.appointmentsSummary]],
+});
+
+// Admin Staff Attendance
+const consoleAttendanceRoutes = markRouterDomain(express.Router(), 'attendance');
+wrapAutoRBAC(consoleAttendanceRoutes, 'adminDashboard', {
+  get: [
     ['/staff/attendance/analytics', dash.attendanceAnalytics],
     ['/staff/attendance/anomalies', dash.attendanceAnomalies],
     ['/staff/attendance/late-arrivals', dash.lateArrivals],
     ['/staff/attendance/early-departures', dash.earlyDepartures],
     ['/staff/attendance/absent-report', dash.absentReport],
+  ],
+});
 
-    // Admin SOS management
+// Admin SOS management
+const consoleSosRoutes = markRouterDomain(express.Router(), 'sos');
+wrapAutoRBAC(consoleSosRoutes, 'adminDashboard', {
+  get: [
     ['/sos/analytics', dash.sosAnalytics],
     ['/sos/alerts', dash.sosAlerts],
     ['/sos/emergency-services', dash.sosEmergencyServices],
     ['/sos/performance-report', dash.sosPerformanceReport],
+  ],
 
-    // Admin Uploads (file management)
+  post: [
+    ['/sos/update-config', dash.sosUpdateConfig],
+    ['/sos/broadcast', dash.sosBroadcast],
+    ['/sos/escalate/:alertId', dash.sosEscalate],
+  ],
+});
+
+// Admin Uploads (file management)
+const consoleUploadRoutes = markRouterDomain(express.Router(), 'upload');
+wrapAutoRBAC(consoleUploadRoutes, 'adminDashboard', {
+  get: [
     ['/upload/summary', dash.uploadSummary],
     ['/upload/quarantine', dash.uploadQuarantine],
     ['/upload/hipaa/audit', dash.uploadHipaaAudit],
   ],
 
   post: [
-    ['/refresh-cache', dash.refreshCache],
-    ['/export/report', dash.exportReport],
-
-    // SOS actions
-    ['/sos/update-config', dash.sosUpdateConfig],
-    ['/sos/broadcast', dash.sosBroadcast],
-    ['/sos/escalate/:alertId', dash.sosEscalate],
-
-    // Upload actions
     ['/upload/rescan/:fileId', dash.uploadRescan],
     ['/upload/cleanup', dash.uploadCleanup],
     ['/upload/hipaa/bulk-protect', dash.uploadHipaaBulkProtect],
     ['/upload/quarantine/purge', dash.uploadQuarantinePurge],
   ],
 });
+
+// /test is a self-description page (an index of the admin module URLs), i.e. the
+// same API-discovery surface as /api-docs/discover — hence `infrastructure`, not
+// a published `test` tag. Disabled in production to reduce attack surface.
+const consoleDiagnosticsRoutes = markRouterDomain(express.Router(), 'infrastructure');
+if ((process.env.NODE_ENV || '').toLowerCase() !== 'production') {
+  wrapAutoRBAC(consoleDiagnosticsRoutes, 'adminDashboard', {
+    get: [['/test', dash.testInfo]],
+  });
+}
+
+router.use(consoleDiagnosticsRoutes);
+router.use(consoleRoutes);
+router.use(consoleStatsRoutes);
+router.use(consoleHealthRoutes);
+router.use(consoleAppointmentRoutes);
+router.use(consoleAttendanceRoutes);
+router.use(consoleSosRoutes);
+router.use(consoleUploadRoutes);
 
 /* -------------------------------------------------------------------------- */
 /*                           Mount admin sub-routers                           */

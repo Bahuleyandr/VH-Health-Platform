@@ -40,26 +40,6 @@
       }
     },
     "schemas": {
-      "Error": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "example": false
-          },
-          "message": {
-            "type": "string",
-            "example": "Error message"
-          },
-          "error": {
-            "type": "string",
-            "example": "Error details"
-          },
-          "details": {
-            "type": "object"
-          }
-        }
-      },
       "Success": {
         "type": "object",
         "properties": {
@@ -74,50 +54,6 @@
           "data": {
             "type": "object",
             "description": "Response data (varies by endpoint)"
-          }
-        }
-      },
-      "PaginatedResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "example": true
-          },
-          "message": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "properties": {
-              "items": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "pagination": {
-                "type": "object",
-                "properties": {
-                  "page": {
-                    "type": "integer",
-                    "example": 1
-                  },
-                  "limit": {
-                    "type": "integer",
-                    "example": 10
-                  },
-                  "total": {
-                    "type": "integer",
-                    "example": 100
-                  },
-                  "totalPages": {
-                    "type": "integer",
-                    "example": 10
-                  }
-                }
-              }
-            }
           }
         }
       },
@@ -35723,22 +35659,13 @@
       "name": "abdm-full"
     },
     {
-      "name": "activity"
-    },
-    {
       "name": "adoption"
-    },
-    {
-      "name": "alerts"
     },
     {
       "name": "analytics"
     },
     {
       "name": "appointment"
-    },
-    {
-      "name": "appointments"
     },
     {
       "name": "attendance"
@@ -35810,9 +35737,6 @@
       "name": "core-clinical"
     },
     {
-      "name": "create"
-    },
-    {
       "name": "credentialing"
     },
     {
@@ -35820,9 +35744,6 @@
     },
     {
       "name": "dashboard"
-    },
-    {
-      "name": "dashboards"
     },
     {
       "name": "data-export"
@@ -35835,9 +35756,6 @@
     },
     {
       "name": "department"
-    },
-    {
-      "name": "departments"
     },
     {
       "name": "developer-portal"
@@ -35870,9 +35788,6 @@
       "name": "document"
     },
     {
-      "name": "documents"
-    },
-    {
       "name": "downtime"
     },
     {
@@ -35891,16 +35806,10 @@
       "name": "entitlement"
     },
     {
-      "name": "entitlements"
-    },
-    {
       "name": "event-outbox"
     },
     {
       "name": "executive-kpi"
-    },
-    {
-      "name": "export"
     },
     {
       "name": "facility"
@@ -35981,9 +35890,6 @@
       "name": "linen"
     },
     {
-      "name": "list"
-    },
-    {
       "name": "logs"
     },
     {
@@ -36053,16 +35959,10 @@
       "name": "pharmacy-supply"
     },
     {
-      "name": "phone"
-    },
-    {
       "name": "platform-workbench"
     },
     {
       "name": "prescription"
-    },
-    {
-      "name": "prescriptions"
     },
     {
       "name": "prior-auth-appeal"
@@ -36090,9 +35990,6 @@
     },
     {
       "name": "referral"
-    },
-    {
-      "name": "refresh-cache"
     },
     {
       "name": "reminders"
@@ -36128,9 +36025,6 @@
       "name": "session"
     },
     {
-      "name": "shift"
-    },
-    {
       "name": "smart-fhir"
     },
     {
@@ -36153,9 +36047,6 @@
     },
     {
       "name": "storage"
-    },
-    {
-      "name": "summary"
     },
     {
       "name": "surgical-ai"
@@ -36183,9 +36074,6 @@
     },
     {
       "name": "terminology"
-    },
-    {
-      "name": "test"
     },
     {
       "name": "theatre"
@@ -37039,7 +36927,7 @@
       "get": {
         "operationId": "get_api_v1_admin_activity_recent",
         "tags": [
-          "activity"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -37159,7 +37047,7 @@
       "get": {
         "operationId": "get_api_v1_admin_alerts",
         "tags": [
-          "alerts"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -37566,12 +37454,12 @@
           "appointment"
         ],
         "responses": {
-          "200": {
-            "description": "Successful response",
+          "410": {
+            "description": "Appointment hard deletion is retired.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AppointmentHardDeleteRetiredResponse"
                 }
               }
             }
@@ -37763,7 +37651,7 @@
       "get": {
         "operationId": "get_api_v1_admin_appointments_summary",
         "tags": [
-          "appointments"
+          "appointment"
         ],
         "responses": {
           "200": {
@@ -50601,7 +50489,7 @@
       "post": {
         "operationId": "post_api_v1_admin_export_report",
         "tags": [
-          "export"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -54403,7 +54291,7 @@
       "post": {
         "operationId": "post_api_v1_admin_refresh_cache",
         "tags": [
-          "refresh-cache"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -54841,7 +54729,7 @@
       "get": {
         "operationId": "get_api_v1_admin_staff_summary",
         "tags": [
-          "summary"
+          "stats"
         ],
         "responses": {
           "200": {
@@ -56463,7 +56351,7 @@
       "get": {
         "operationId": "get_api_v1_admin_test",
         "tags": [
-          "test"
+          "infrastructure"
         ],
         "responses": {
           "200": {
@@ -81155,7 +81043,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_catalog",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81175,7 +81063,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_embed_list",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81195,7 +81083,7 @@
       "post": {
         "operationId": "post_api_v1_dashboards_embed_url",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81215,7 +81103,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_daily_ops",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81235,7 +81123,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_doctor_productivity",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81255,7 +81143,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_ip_occupancy",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81275,7 +81163,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_lab_tat",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81295,7 +81183,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_opd_daily",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81315,7 +81203,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_payer_mix",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -81335,7 +81223,7 @@
       "get": {
         "operationId": "get_api_v1_dashboards_snapshot_teleconsult_ops",
         "tags": [
-          "dashboards"
+          "dashboard"
         ],
         "responses": {
           "200": {
@@ -82755,7 +82643,7 @@
       "get": {
         "operationId": "get_api_v1_departments_departments_with_doctors",
         "tags": [
-          "departments"
+          "department"
         ],
         "responses": {
           "200": {
@@ -85375,7 +85263,7 @@
       "get": {
         "operationId": "get_api_v1_documents_ccd_by_patientUid",
         "tags": [
-          "documents"
+          "document"
         ],
         "responses": {
           "200": {
@@ -85405,7 +85293,7 @@
       "get": {
         "operationId": "get_api_v1_documents_discharge_summary_by_admissionId_pdf",
         "tags": [
-          "documents"
+          "document"
         ],
         "responses": {
           "200": {
@@ -85435,7 +85323,7 @@
       "get": {
         "operationId": "get_api_v1_documents_discharge_summary_by_admissionId_pdf_persisted",
         "tags": [
-          "documents"
+          "document"
         ],
         "responses": {
           "200": {
@@ -85465,7 +85353,7 @@
       "get": {
         "operationId": "get_api_v1_documents_fhir_bundle_by_patientUid",
         "tags": [
-          "documents"
+          "document"
         ],
         "responses": {
           "200": {
@@ -85495,7 +85383,7 @@
       "post": {
         "operationId": "post_api_v1_documents_import_ccd",
         "tags": [
-          "documents"
+          "document"
         ],
         "responses": {
           "200": {
@@ -85515,7 +85403,7 @@
       "post": {
         "operationId": "post_api_v1_documents_import_fhir_bundle",
         "tags": [
-          "documents"
+          "document"
         ],
         "responses": {
           "200": {
@@ -85535,7 +85423,7 @@
       "get": {
         "operationId": "get_api_v1_documents_lab_report_by_investigationId_pdf",
         "tags": [
-          "documents"
+          "document"
         ],
         "responses": {
           "200": {
@@ -91569,7 +91457,7 @@
       "get": {
         "operationId": "get_api_v1_entitlements_capabilities",
         "tags": [
-          "entitlements"
+          "entitlement"
         ],
         "responses": {
           "200": {
@@ -121060,7 +120948,7 @@
       "post": {
         "operationId": "post_api_v1_staff_create",
         "tags": [
-          "create"
+          "staff-admin"
         ],
         "responses": {
           "200": {
@@ -121080,7 +120968,7 @@
       "get": {
         "operationId": "get_api_v1_staff_department_by_department",
         "tags": [
-          "department"
+          "staff-admin"
         ],
         "responses": {
           "200": {
@@ -122240,7 +122128,7 @@
       "get": {
         "operationId": "get_api_v1_staff_list",
         "tags": [
-          "list"
+          "staff-admin"
         ],
         "responses": {
           "200": {
@@ -122378,7 +122266,7 @@
       "get": {
         "operationId": "get_api_v1_staff_phone_home",
         "tags": [
-          "phone"
+          "hr"
         ],
         "responses": {
           "200": {
@@ -122398,7 +122286,7 @@
       "get": {
         "operationId": "get_api_v1_staff_prescriptions_my",
         "tags": [
-          "prescriptions"
+          "prescription"
         ],
         "responses": {
           "200": {
@@ -122418,7 +122306,7 @@
       "post": {
         "operationId": "post_api_v1_staff_prescriptions_upload",
         "tags": [
-          "prescriptions"
+          "prescription"
         ],
         "responses": {
           "200": {
@@ -122438,7 +122326,7 @@
       "post": {
         "operationId": "post_api_v1_staff_queries",
         "tags": [
-          "phone"
+          "hr"
         ],
         "responses": {
           "200": {
@@ -122458,7 +122346,7 @@
       "get": {
         "operationId": "get_api_v1_staff_queries_my",
         "tags": [
-          "phone"
+          "hr"
         ],
         "responses": {
           "200": {
@@ -123072,7 +122960,7 @@
       "get": {
         "operationId": "get_api_v1_staff_shift_by_shift",
         "tags": [
-          "shift"
+          "staff-admin"
         ],
         "responses": {
           "200": {
@@ -123102,7 +122990,7 @@
       "get": {
         "operationId": "get_api_v1_staff_stats_summary",
         "tags": [
-          "stats"
+          "staff-admin"
         ],
         "responses": {
           "200": {
@@ -123142,7 +123030,7 @@
       "get": {
         "operationId": "get_api_v1_staff_by_identifier",
         "tags": [
-          "unclassified"
+          "staff-admin"
         ],
         "responses": {
           "200": {
@@ -123170,7 +123058,7 @@
       "put": {
         "operationId": "put_api_v1_staff_by_identifier",
         "tags": [
-          "unclassified"
+          "staff-admin"
         ],
         "responses": {
           "200": {

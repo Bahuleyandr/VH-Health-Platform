@@ -4,6 +4,7 @@
 import express from 'express';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { markRouterDomain } from '../../config/openapiDomain.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import {
   ACCESS_POLICY_CODES,
@@ -356,5 +357,11 @@ router.post(
     return success(res, results, 'C-CDA document imported successfully');
   })
 );
+
+// This directory bootstrapped `documents` while admin/clinicalAi/documentRoutes.js
+// bootstrapped `document` — a plural split across one subject (clinical documents:
+// generated, exchanged and ingested). `document` is canonical, matching the
+// registry's singular house style for domain nouns.
+markRouterDomain(router, 'document');
 
 export default router;

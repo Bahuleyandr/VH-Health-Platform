@@ -3,6 +3,7 @@
 import express from 'express';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { markRouterDomain } from '../../config/openapiDomain.js';
 import {
   getRolePolicyHash,
   getRolePolicyVersion,
@@ -238,5 +239,11 @@ router.post('/queries', async (req, res) => {
     return error(res, 'Failed to submit staff query', 500);
   }
 });
+
+// Employee self-service: the staff home aggregate (own attendance, shift, unread
+// counts, quick actions incl. grievance) and the staff_queries workflow a staff
+// member raises about their own employment. `phone` — what the file name
+// bootstrapped — is a device form factor, not a domain.
+markRouterDomain(router, 'hr');
 
 export default router;

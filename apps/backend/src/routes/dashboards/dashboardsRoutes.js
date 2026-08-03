@@ -9,6 +9,7 @@
 
 import { Router } from 'express';
 import prisma from '../../lib/prisma.js';
+import { markRouterDomain } from '../../config/openapiDomain.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import * as snapshot from '../../services/dashboards/snapshotService.js';
 import { getTeleconsultOpsSnapshot } from '../../services/dashboards/teleconsultOpsService.js';
@@ -122,5 +123,11 @@ router.post('/embed/url', requireAdmin, wrap(async (req) =>
     role: roleOf(req),
   }),
 ));
+
+// `src/routes/dashboard/` and `src/routes/dashboards/` are sibling directories
+// differing only by a plural, so the directory bootstrap published `dashboard`
+// and `dashboards` as two tags for one subject. `dashboard` is canonical (the
+// registry's house style for domain nouns is singular).
+markRouterDomain(router, 'dashboard');
 
 export default router;
