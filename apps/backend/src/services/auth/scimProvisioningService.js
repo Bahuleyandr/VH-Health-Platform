@@ -3,6 +3,7 @@ import crypto from 'crypto';
 
 import { setTenant } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { encryptField } from '../../utils/fieldEncryption.js';
 import { ALL_STAFF_ROLES } from '../../utils/roleHelpers.js';
 import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { getTenantBySlug } from '../tenant/tenantService.js';
@@ -162,6 +163,98 @@ function sourceAfterScim(currentSource) {
   return 'hybrid';
 }
 
+function liveCommandKind({ existing, fields, mappedRole, method, realm }) {
+  if (!existing) return 'create';
+  if (method === 'delete') return 'delete';
+  if (!fields.active) return 'deactivate';
+  const inactive = existing.is_active === false
+    || String(existing.status || 'active').toLowerCase() !== 'active'
+    || (realm === 'staff' && (
+      existing.staff_is_active === false || existing.archived === true
+    ));
+  if (inactive) return 'reactivate';
+  if (mappedRole && mappedRole !== existing.role) return 'role_change';
+  return 'profile_update';
+}
+
+function exactScimBody(req, method) {
+  if (Buffer.isBuffer(req?.scimRawBody)) return Buffer.from(req.scimRawBody);
+  if (method === 'delete') return Buffer.alloc(0);
+  throw AppError.internal(
+    'Exact SCIM request body capture is required',
+    'SCIM_EXACT_BODY_REQUIRED',
+  );
+}
+
+async function recordLiveScimCommandTx(tx, {
+  context,
+  req,
+  method,
+  commandKind,
+  targetUid,
+  externalId,
+  deprovision,
+}) {
+  const normalizedMethod = String(method || '').trim().toUpperCase();
+  const body = exactScimBody(req, String(method || '').trim().toLowerCase());
+  const bodySha256 = crypto.createHash('sha256').update(body).digest('hex');
+  const payload = JSON.stringify({
+    schema: 'vhhealth.i13.scim-live-provider-command/v1',
+    method: normalizedMethod,
+    target_uid: String(targetUid),
+    body_sha256: bodySha256,
+  });
+  const payloadSha256 = crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
+  const breakGlassExcluded = deprovision?.excluded_break_glass === true;
+  const authenticatedAt = context.authenticatedAt || new Date();
+
+  const rows = await tx.$queryRawUnsafe(
+    `INSERT INTO scim_provisioning_commands
+       (tenant_id, provider_id, provider_key, direction, realm, command_source,
+        command_kind, http_method, target_uid, external_id, authenticated_at,
+        auth_binding_sha256, body_ciphertext, body_sha256, body_bytes,
+        payload_ciphertext, payload_sha256, payload_bytes, occurred_at,
+        effect_disposition, execution_disposition, access_shutdown_evidence,
+        evidence)
+     VALUES
+       ($1::uuid, $2::bigint, $3::text, 'inbound', $4::text,
+        'live_provider_push', $5::text, $6::text, $7::uuid, $8::text,
+        $9::timestamptz, $10::char(64), $11::text, $12::char(64),
+        $13::integer, $14::text, $15::char(64), $16::integer,
+        $17::timestamptz, $18::text, $19::text, $20::jsonb, $21::jsonb)
+     RETURNING id::text, body_sha256::text, body_bytes,
+               payload_sha256::text, payload_bytes, execution_disposition`,
+    context.tenant.id,
+    context.provider.id,
+    context.provider.provider_key,
+    context.provider.realm,
+    commandKind,
+    normalizedMethod,
+    targetUid,
+    externalId || null,
+    authenticatedAt,
+    context.provider.scim_bearer_token_hash,
+    encryptField(body.toString('base64'), { tenantId: context.tenant.id }),
+    bodySha256,
+    body.length,
+    encryptField(payload, { tenantId: context.tenant.id }),
+    payloadSha256,
+    Buffer.byteLength(payload, 'utf8'),
+    authenticatedAt,
+    breakGlassExcluded ? 'live_excluded' : 'live_applied',
+    breakGlassExcluded ? 'break_glass_excluded' : 'applied',
+    JSON.stringify(deprovision || {}),
+    JSON.stringify({
+      payload_schema: 'vhhealth.i13.scim-live-provider-command/v1',
+      exact_scim_body_byte_parity_verified: true,
+      provider_sequence_present: false,
+      push_replay_authorized: false,
+      request_id: req?.id || null,
+    }),
+  );
+  return rows[0];
+}
+
 export function scimErrorPayload(status, detail, scimType = null) {
   return {
     schemas: [SCIM_ERROR_SCHEMA],
@@ -237,13 +330,15 @@ export async function resolveScimContext({ tenantSlug, providerKey, req }) {
     }).catch(() => {});
     throw AppError.unauthorized('Invalid SCIM bearer token', 'SCIM_TOKEN_INVALID');
   }
+  const authenticatedAt = new Date();
   await setTenant(tenant.id, (tx) => tx.$executeRawUnsafe(
     `UPDATE tenant_identity_providers
-        SET scim_last_authenticated_at = NOW()
+        SET scim_last_authenticated_at = $2::timestamptz
       WHERE id = $1::bigint`,
     provider.id,
+    authenticatedAt,
   ));
-  return context;
+  return { ...context, authenticatedAt };
 }
 
 async function mappedRoleForGroups(context, groups) {
@@ -359,7 +454,7 @@ async function findStaffById(context, id) {
     `SELECT u.id, u.uid, u.name, u.email, u.role, u.is_active AS user_is_active,
             u.status AS user_status, u.identity_source AS user_identity_source,
             u.scim_external_id, u.is_break_glass_account, u.break_glass_name,
-            u.created_at, u.updated_at,
+            u.registered_at AS created_at, u.updated_at,
             s.id AS staff_id, s.employee_id, s.name AS staff_name, s.department,
             s.position, s.is_active AS staff_is_active, s.archived, s.archived_at,
             s.identity_source AS staff_identity_source, s.updated_at AS staff_updated_at
@@ -381,7 +476,7 @@ async function findStaffByIdTx(tx, context, id) {
     `SELECT u.id, u.uid, u.name, u.email, u.role, u.is_active AS user_is_active,
             u.status AS user_status, u.identity_source AS user_identity_source,
             u.scim_external_id, u.is_break_glass_account, u.break_glass_name,
-            u.created_at, u.updated_at,
+            u.registered_at AS created_at, u.updated_at,
             s.id AS staff_id, s.employee_id, s.name AS staff_name, s.department,
             s.position, s.is_active AS staff_is_active, s.archived, s.archived_at,
             s.identity_source AS staff_identity_source, s.updated_at AS staff_updated_at
@@ -414,8 +509,12 @@ async function findAdminById(context, id) {
 async function findExistingStaff(tx, context, fields, id = null) {
   if (id) {
     const byId = await tx.$queryRawUnsafe(
-      `SELECT u.id, u.uid, u.identity_source AS user_identity_source,
-              u.is_break_glass_account, s.id AS staff_id, s.identity_source AS staff_identity_source
+      `SELECT u.id, u.uid, u.role, u.is_active, u.status,
+              u.identity_source AS user_identity_source, u.scim_external_id,
+              u.is_break_glass_account, s.id AS staff_id,
+              s.is_active AS staff_is_active, s.archived,
+              s.identity_source AS staff_identity_source,
+              s.scim_external_id AS staff_external_id
          FROM users u
          JOIN staff s ON s.user_id = u.uid AND s.tenant_id = u.tenant_id
         WHERE u.tenant_id = $1::uuid AND u.uid = $2::uuid
@@ -434,8 +533,12 @@ async function findExistingStaff(tx, context, fields, id = null) {
   // / email / employee id could adopt a foreign provider's identity. Filter both
   // halves of the joined staff identity by provider ownership.
   const rows = await tx.$queryRawUnsafe(
-    `SELECT u.id, u.uid, u.identity_source AS user_identity_source,
-            u.is_break_glass_account, s.id AS staff_id, s.identity_source AS staff_identity_source
+    `SELECT u.id, u.uid, u.role, u.is_active, u.status,
+            u.identity_source AS user_identity_source, u.scim_external_id,
+            u.is_break_glass_account, s.id AS staff_id,
+            s.is_active AS staff_is_active, s.archived,
+            s.identity_source AS staff_identity_source,
+            s.scim_external_id AS staff_external_id
        FROM users u
        JOIN staff s ON s.user_id = u.uid AND s.tenant_id = u.tenant_id
       WHERE u.tenant_id = $1::uuid
@@ -464,7 +567,8 @@ async function findExistingStaff(tx, context, fields, id = null) {
 async function findExistingAdmin(tx, context, fields, id = null) {
   if (id) {
     const byId = await tx.$queryRawUnsafe(
-      `SELECT uid, identity_source, is_break_glass_account
+      `SELECT uid, role, is_active, status, identity_source,
+              scim_external_id, is_break_glass_account
          FROM admins
         WHERE tenant_id = $1::uuid AND uid = $2::uuid
           AND (scim_provider_id IS NULL OR scim_provider_id = $3::bigint)
@@ -477,7 +581,8 @@ async function findExistingAdmin(tx, context, fields, id = null) {
   }
   // Sol Ultra #5: filter by provider ownership (unowned or own), not just rank.
   const rows = await tx.$queryRawUnsafe(
-    `SELECT uid, identity_source, is_break_glass_account
+    `SELECT uid, role, is_active, status, identity_source,
+            scim_external_id, is_break_glass_account
        FROM admins
       WHERE tenant_id = $1::uuid
         AND (scim_provider_id IS NULL OR scim_provider_id = $5::bigint)
@@ -498,7 +603,14 @@ async function findExistingAdmin(tx, context, fields, id = null) {
   return rows[0] || null;
 }
 
-async function deactivateIdentity(tx, context, { uid, staffId = null, realm, breakGlass = false }) {
+export async function deactivateScimIdentityTx(tx, {
+  tenantId,
+  uid,
+  staffId = null,
+  realm,
+  breakGlass = false,
+  reason = 'SCIM deprovision',
+}) {
   if (breakGlass) {
     return { excluded_break_glass: true, revoked_sessions: 0, disabled_staff_devices: 0, deleted_staff_sessions: 0 };
   }
@@ -532,6 +644,46 @@ async function deactivateIdentity(tx, context, { uid, staffId = null, realm, bre
     );
   }
   await revokeAllUserTokens(uid);
+  if (realm === 'staff') {
+    await tx.$executeRawUnsafe(
+      `UPDATE users
+          SET is_active = false,
+              status = 'inactive',
+              status_reason = $3::text,
+              status_updated_at = NOW(),
+              updated_at = NOW()
+        WHERE uid = $1::uuid AND tenant_id = $2::uuid`,
+      uid,
+      tenantId,
+      reason,
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE staff
+          SET is_active = false,
+              archived = true,
+              archived_at = COALESCE(archived_at, NOW()),
+              archive_reason = COALESCE(archive_reason, $2::text),
+              updated_at = NOW()
+        WHERE id = $1`,
+      staffId,
+      reason,
+    );
+  } else if (realm === 'admin') {
+    await tx.$executeRawUnsafe(
+      `UPDATE admins
+          SET is_active = false,
+              status = 'inactive',
+              deactivation_reason = COALESCE(deactivation_reason, $3::text),
+              deactivated_at = COALESCE(deactivated_at, NOW()),
+              updated_at = NOW()
+        WHERE uid = $1::uuid AND tenant_id = $2::uuid`,
+      uid,
+      tenantId,
+      reason,
+    );
+  } else {
+    throw AppError.badRequest('SCIM identity realm is invalid', 'SCIM_REALM_INVALID');
+  }
   return {
     excluded_break_glass: false,
     revoked_sessions: activeCount,
@@ -545,9 +697,11 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
   const roleMapping = await mappedRoleForGroups(context, fields.groups);
   let mutation = null;
   let deprovision = null;
+  let commandReceipt = null;
   const row = await setTenant(context.tenant.id, async (tx) => {
     const existing = await findExistingStaff(tx, context, fields, id);
     const role = roleMapping.role || null;
+    const commandKind = liveCommandKind({ existing, fields, mappedRole: role, method, realm: 'staff' });
     if (!existing && !fields.active) {
       throw AppError.notFound('SCIM user not found', 'SCIM_USER_NOT_FOUND');
     }
@@ -595,19 +749,30 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
         context.provider.id,
       );
       mutation = 'created';
-      return await findStaffByIdTx(tx, context, user.uid) || {
+      const createdRow = await findStaffByIdTx(tx, context, user.uid) || {
         id: user.id, uid: user.uid, staff_id: staffRows[0].id,
         role, email: fields.userName, name: fields.displayName,
         employee_id: fields.employeeId, department: fields.department,
         user_is_active: fields.active, staff_is_active: fields.active,
       };
+      commandReceipt = await recordLiveScimCommandTx(tx, {
+        context,
+        req,
+        method,
+        commandKind,
+        targetUid: user.uid,
+        externalId: fields.externalId || fields.employeeId || fields.userName,
+        deprovision,
+      });
+      return createdRow;
     }
 
     const source = sourceAfterScim(existing.user_identity_source);
     const staffSource = sourceAfterScim(existing.staff_identity_source);
     const nextRole = role || undefined;
     if (!fields.active) {
-      deprovision = await deactivateIdentity(tx, context, {
+      deprovision = await deactivateScimIdentityTx(tx, {
+        tenantId: context.tenant.id,
         uid: existing.uid,
         staffId: existing.staff_id,
         realm: 'staff',
@@ -663,31 +828,18 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
       fields.externalId || fields.employeeId || fields.userName,
       context.provider.id,
     );
-    if (!fields.active && !existing.is_break_glass_account) {
-      await tx.$executeRawUnsafe(
-        `UPDATE users
-            SET is_active = false,
-                status = 'inactive',
-                status_reason = 'SCIM deprovision',
-                status_updated_at = NOW(),
-                updated_at = NOW()
-          WHERE uid = $1::uuid AND tenant_id = $2::uuid`,
-        existing.uid,
-        context.tenant.id,
-      );
-      await tx.$executeRawUnsafe(
-        `UPDATE staff
-            SET is_active = false,
-                archived = true,
-                archived_at = COALESCE(archived_at, NOW()),
-                archive_reason = COALESCE(archive_reason, 'SCIM deprovision'),
-                updated_at = NOW()
-          WHERE id = $1`,
-        existing.staff_id,
-      );
-    }
     mutation = fields.active ? 'updated' : 'deactivated';
-    return findStaffByIdTx(tx, context, existing.uid);
+    const updatedRow = await findStaffByIdTx(tx, context, existing.uid);
+    commandReceipt = await recordLiveScimCommandTx(tx, {
+      context,
+      req,
+      method,
+      commandKind,
+      targetUid: existing.uid,
+      externalId: fields.externalId || fields.employeeId || fields.userName,
+      deprovision,
+    });
+    return updatedRow;
   });
   await recordScimAuditEvent({
     context,
@@ -703,6 +855,7 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
       mapped_groups: roleMapping.mappedGroups,
       unmapped_group_count: roleMapping.unmappedGroups.length,
       deprovision,
+      command_receipt_id: commandReceipt?.id || null,
     },
   });
   const groups = await groupsForRole(context, row?.role || roleMapping.role);
@@ -715,8 +868,10 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
   const role = roleMapping.role || (fields.groups.length ? null : 'ADMIN');
   let mutation = null;
   let deprovision = null;
+  let commandReceipt = null;
   const row = await setTenant(context.tenant.id, async (tx) => {
     const existing = await findExistingAdmin(tx, context, fields, id);
+    const commandKind = liveCommandKind({ existing, fields, mappedRole: role, method, realm: 'admin' });
     if (!existing && !fields.active) throw AppError.notFound('SCIM user not found', 'SCIM_USER_NOT_FOUND');
     if (!existing && !role) {
       throw AppError.badRequest('Mapped SCIM group is required to create admin identity', 'SCIM_ROLE_REQUIRED');
@@ -744,11 +899,21 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
         context.provider.id,
       );
       mutation = 'created';
+      commandReceipt = await recordLiveScimCommandTx(tx, {
+        context,
+        req,
+        method,
+        commandKind,
+        targetUid: rows[0].uid,
+        externalId: fields.externalId || fields.userName,
+        deprovision,
+      });
       return rows[0];
     }
     const source = sourceAfterScim(existing.identity_source);
     if (!fields.active) {
-      deprovision = await deactivateIdentity(tx, context, {
+      deprovision = await deactivateScimIdentityTx(tx, {
+        tenantId: context.tenant.id,
         uid: existing.uid,
         realm: 'admin',
         breakGlass: existing.is_break_glass_account === true,
@@ -778,25 +943,21 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
       context.provider.id,
       context.tenant.id,
     );
-    if (!fields.active && !existing.is_break_glass_account) {
-      await tx.$executeRawUnsafe(
-        `UPDATE admins
-            SET is_active = false,
-                status = 'inactive',
-                deactivation_reason = COALESCE(deactivation_reason, 'SCIM deprovision'),
-                deactivated_at = COALESCE(deactivated_at, NOW()),
-                updated_at = NOW()
-          WHERE uid = $1::uuid AND tenant_id = $2::uuid`,
-        existing.uid,
-        context.tenant.id,
-      );
-    }
     mutation = fields.active ? 'updated' : 'deactivated';
     const rows = await tx.$queryRawUnsafe(
       'SELECT * FROM admins WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1',
       existing.uid,
       context.tenant.id,
     );
+    commandReceipt = await recordLiveScimCommandTx(tx, {
+      context,
+      req,
+      method,
+      commandKind,
+      targetUid: existing.uid,
+      externalId: fields.externalId || fields.userName,
+      deprovision,
+    });
     return rows[0];
   });
   await recordScimAuditEvent({
@@ -813,6 +974,7 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
       mapped_groups: roleMapping.mappedGroups,
       unmapped_group_count: roleMapping.unmappedGroups.length,
       deprovision,
+      command_receipt_id: commandReceipt?.id || null,
     },
   });
   const groups = await groupsForRole(context, row?.role || role);
@@ -858,7 +1020,8 @@ export async function listScimUsers(context, query = {}) {
     ));
     const rows = await setTenant(context.tenant.id, (tx) => tx.$queryRawUnsafe(
       `SELECT u.id, u.uid, u.name, u.email, u.role, u.is_active AS user_is_active,
-              u.status AS user_status, u.scim_external_id, u.created_at, u.updated_at,
+              u.status AS user_status, u.scim_external_id,
+              u.registered_at AS created_at, u.updated_at,
               s.employee_id, s.name AS staff_name, s.department, s.position,
               s.is_active AS staff_is_active, s.archived, s.archived_at,
               s.updated_at AS staff_updated_at

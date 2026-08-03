@@ -25,6 +25,9 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   // coverage must not invent a PACS outage, owner decision, or recovery cursor.
   'imaging_study_link_recovery_receipts',
   'patient_merge_requests',
+  // Owner reconciliation is required because SCIM exposes no provider-side
+  // sequence. Seed coverage must not invent identity commands or C-D15 effects.
+  'scim_provisioning_commands',
 ]);
 
 const intentionallyEmptySeedTableSet = new Set(INTENTIONALLY_EMPTY_SEED_TABLES);

@@ -513,6 +513,23 @@ async function persistLateImagingStudyLink({ tx, capability, inbox, tenantId, co
   });
 }
 
+async function persistLateScim({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateScimRecovery } = await import('./externalScimRecoveryService.js');
+  return persistLateScimRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    sourceToken: inbox.source_token,
+    predecessorToken: inbox.predecessor_token,
+    duplicateKey: inbox.duplicate_key,
+    occurredAt: inbox.occurred_at,
+    command,
+  });
+}
+
 async function persistLateLab({ tx, capability, config, inbox, tenantId, command }) {
   const { persistLateLabRecovery } = await import('./externalLabRecoveryService.js');
   return persistLateLabRecovery({
@@ -544,6 +561,7 @@ const EXTERNAL_INTERFACE_RECOVERY_ADAPTERS = Object.freeze({
   I06: persistLateImagingStudyLink,
   I09: persistLateVitals,
   I10: persistLateColdChain,
+  I13: persistLateScim,
   I15: persistLateVitals,
   I17: persistLateNotification,
 });
@@ -661,7 +679,7 @@ export async function processNextItemTx({
       interfaceFamily: config.id, effectDisposition: inbox.effect_disposition,
     });
     const domain = await persistLateDomain({ tx, capability, config, inbox, tenantId: tid, command });
-    const evidence = config.id === 'I17'
+    const evidence = config.id === 'I17' || config.id === 'I13'
       ? domain?.receipt
       : config.id === 'I04'
         ? domain?.acknowledgement || domain?.authority
@@ -708,7 +726,7 @@ export async function processNextItemTx({
     if (advanced.length !== 1) throw AppError.conflict('Recovery cursor fence was lost', 'EXTERNAL_RECOVERY_CURSOR_FENCE_LOST');
     return Object.freeze({
       ...terminal[0], cursor: advanced[0],
-      ...(config.id === 'I17'
+      ...(config.id === 'I17' || config.id === 'I13'
         ? { receipt_id: String(evidence.id || evidence.receipt_id) }
         : config.id === 'I04'
           ? domain?.acknowledgement

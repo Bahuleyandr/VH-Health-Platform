@@ -77,6 +77,20 @@ describe('external interface recovery catalog', () => {
         defaultEffectDisposition: 'late_pending_only',
         facilityScope: 'facility',
       });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I13' }))
+      .toMatchObject({
+        id: 'I13',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'inbound',
+        cursorKind: 'owner_reconciled_list_diff',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_provider_direction',
+        duplicateKeyKind: 'tenant_provider_method_resource_payload_sha256',
+        providerSequence: 'absent',
+        replayAuthority: 'owner_directed_list_diff_only',
+      });
     expect(resolveExternalInterfaceDisposition({
       interfaceFamily: 'I15',
       subpath: 'fhir_write',
