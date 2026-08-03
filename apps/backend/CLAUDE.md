@@ -224,9 +224,13 @@ Prefer `/my` endpoints that derive phone from JWT:
 Migrations 600–616 added the substrate for running the hospital through an
 external-interface outage and reconciling afterwards. **Almost all of it is
 inert.** The tables, constraints, and triggers exist and the database enforces
-them, but no request path activates most of it — every one of these migrations
-says so in its own header (600:5-6, 601:5-6, 602:5-7, 604:4-8, 606:1-5,
-611:2). Design authority is [`docs/continuity/`](../../docs/continuity/); start
+them, but no request path activates most of it. Twelve of the seventeen say so
+in their own header — 600:5-6, 601:5-6, 602:5-7, 604:5-8, 606:3-5, 611:2 and
+612–615:2 use the word *inert*, while 603:2-3 and 607:2 state that no worker,
+interface or adapter is activated. The other five (605, 608, 609, 610, 616)
+document effect fences and state-plane separation instead, so a header without
+an inertness note is **not** evidence that its path is live — check the callers.
+Design authority is [`docs/continuity/`](../../docs/continuity/); start
 at `activation-readiness-tracker.md`, then `c0-4-owner-decision-dossier.md`
 (the SQL pins to it by name). What follows is only the backend contract you
 must not break.
@@ -246,8 +250,11 @@ subsystem as live.
 ### The recovery catalog is the inventory, and it cannot drift
 
 [`src/config/externalInterfaceRecoveryCatalog.js`](src/config/externalInterfaceRecoveryCatalog.js)
-enumerates **30 external interface families, `I01`–`I30`** — every ingress and
-egress boundary the platform has. Each declares a disposition: `hwm_required`
+enumerates **30 external interface families, `I01`–`I30`** — the C6.1 census of
+the platform's *external* ingress and egress boundaries. Internal app-to-backend
+APIs, Postgres/Redis and the app's own WebSocket fabric are deliberately out of
+scope, and `I07`/`I08` are requested domains for which the census found no
+connector at all. Each declares a disposition: `hwm_required`
 (replayable stream, needs a high-water mark), `not_applicable_no_replayable_stream`,
 or `mixed` (splits by subpath — only `I06` PACS and `I15` FHIR/SMART, and
 `resolveExternalInterfaceDisposition` **throws** rather than guessing when the
@@ -296,9 +303,22 @@ covers INSERT and UPDATE only; there is no DELETE-side guard.
 
 ### The interop state-plane law
 
-Migration 610's header states the invariant governing every outbound interface
-(610:1-7): **transport evidence, parsed acknowledgement, permission to send, and
-cursor position are four separate state planes** — four columns, not one status.
+Migration 610's header states the invariant for **I04** (610:1-7): **transport
+evidence, parsed acknowledgement, permission to send, and cursor position are
+four separate state planes** — four columns, not one status.
+
+★ **I04 is the only interface that carries all four.** What the family shares is
+the *principle* — evidence never implies permission, and a cursor advances only
+on a positive acknowledgement — not the columns. 609's header names three planes
+(609:3-4), folding acknowledgement into `notification_provider_receipts.outcome`
+and leaving permission-to-send on `notification_outbox`; it has no
+`send_authority` and no `transport_state`. 611 adds `send_authority` alone
+(611:105), and spells it `('held','live_authorized','owner_authorized')`
+(611:144) against 610's `('authorized','held_owner_reconciliation','revoked')`
+(610:81). 616 is deliberately cursor-free (616:3) and tracks a single
+`receipt_status` (616:33). Even recurring columns diverge — 609's
+`receipt_source` carries four values to 610's two. **The table below is I04
+vocabulary; do not port these names or values to another letter.**
 
 | Plane | Where | Values |
 |---|---|---|
@@ -309,10 +329,10 @@ cursor position are four separate state planes** — four columns, not one statu
 
 Each rule is enforced twice — once in the service, once by a database trigger:
 
-- **Transport success is evidence, never delivery.** `deliverOne` returns transport facts with no verdict (`hl7OutboundService.js:392-402`); the status decision reads only the parsed ACK (`hl7OutboundDeliveryLedgerService.js:441`). Trigger `chk_hl7_outbound_sent_positive_ack` (610:594-613) rejects `status='sent'` unless a correlated `AA` evidence row physically exists — forging `acknowledgement_state='aa'` on the row is not enough. This cuts both ways: `httpStatus` is never consulted here, so an HTTP 500 carrying a correlated `MSA|AA` *does* mark the message sent. (The I05 interface-engine path additionally gates on `response.ok` — `interfaceEngineService.js:1110-1112`.)
-- **Acceptance requires exactly one `MSA` segment, `MSA-1 ∈ {AA, AE, AR}`, and `MSA-2` equal to the original `MSH-10`** (`hl7OutboundDeliveryLedgerService.js:62-89`). Two MSA segments is `invalid`, not "take the first". Correlation failure does not downgrade the code — it replaces it with `control_id_mismatch`, which can never transition anything.
-- **A correlated `AA` advances the cursor but never grants send authority.** Advance is `:331-345` plus trigger `chk_hl7_outbound_cursor_positive_ack` (610:483-499). Owner reconciliation records a positive `AA` and reaches `status='sent'` while authority stays `held_owner_reconciliation` — a hardcoded literal at `:674-691`, pinned by `hl7-outbound-recovery.deep.test.js:183-191`.
-- **Authority is granted only by a named actor with a recorded reason** (`authorizeOwnerRetryTx`, `:560-622`; trigger `chk_hl7_outbound_owner_release_required`, 610:569-593), and never for something already acknowledged.
+- **Transport success is evidence, never delivery.** `deliverOne` returns transport facts with no verdict (`hl7OutboundService.js:392-402`); the status decision reads only the parsed ACK (`hl7OutboundDeliveryLedgerService.js:441`). Trigger `hl7_outbound_message_transition_guard` (610:619), via `validate_hl7_outbound_message_transition()` (610:508), rejects `status='sent'` unless a correlated `AA` evidence row physically exists (guard block 610:596-614) — forging `acknowledgement_state='aa'` on the row is not enough. Its raise labels itself `CONSTRAINT = 'chk_hl7_outbound_sent_positive_ack'`, another synthetic label with no matching `pg_constraint` row. This cuts both ways: `httpStatus` is never consulted here, so an HTTP 500 carrying a correlated `MSA|AA` *does* mark the message sent. (The I05 interface-engine path additionally gates on `response.ok` — `interfaceEngineService.js:1111-1113`.)
+- **Acceptance requires exactly one `MSA` segment, `MSA-1 ∈ {AA, AE, AR}`, and `MSA-2` equal to the original `MSH-10`** (`hl7OutboundDeliveryLedgerService.js:62-89`). Two MSA segments is `invalid`, not "take the first". Correlation failure does not downgrade the code — it replaces it with `control_id_mismatch`, which can never move anything *forward*. It still transitions state backward: the message falls to `status='reconciliation_required'` with `send_authority='held_owner_reconciliation'` (`:441-467`) and the cursor pauses `paused_uncertain` blocked on it (`:348-360`). A mismatch is also the only outcome that persists an acknowledgement row with `correlation_matches=false` — `missing`/`invalid` are dropped for want of an MSA code (`:269`) — which is exactly why both guards test `correlation_matches`, not `msa_code` alone.
+- **A correlated `AA` advances the cursor but never grants send authority.** Advance is `:331-345` plus trigger `hl7_outbound_cursor_validate` (610:504), whose raise carries the synthetic label `chk_hl7_outbound_cursor_positive_ack` (610:483-499). Advance also has an unstated precondition — with an earlier un-acked message the cursor goes to `paused_uncertain` instead (`:319-329`). Owner reconciliation records a positive `AA` and reaches `status='sent'` while authority stays `held_owner_reconciliation` — a hardcoded literal at `:674-691`, pinned by `hl7-outbound-recovery.deep.test.js:183-191`.
+- **Authority is granted only by a named actor with a recorded reason** (`authorizeOwnerRetryTx`, `:560-622`; trigger `hl7_outbound_message_transition_guard`, owner-release branch 610:570-583 raising the label `chk_hl7_outbound_owner_release_required`), and never for something already acknowledged (`:582-587`).
 
 **Held work has no automated release path.** I04 requires an operator command.
 I05 has no executor at all: migration 611 declares
@@ -338,15 +358,29 @@ the release executor is a future extension of the C5.2 workbench (migration
 | 616 | I06 PACS study links | `imaging_study_link_recovery_receipts` |
 
 There is **no shared table-naming convention** — only 616 uses a
-`*_recovery_receipts` suffix. What is shared is the provenance quartet
-(`recovery_inbox_id`, `recovery_interface_family`, `owner_actor_uid`,
-`owner_reason`) plus `evidence JSONB`, and the composite FK back to the
-canonical inbox (608:48-51, 609:301-306, 610:125-130, 611:113-116, 616:56-59):
+`*_recovery_receipts` suffix. What *is* universal is the provenance **pair**
+(`recovery_inbox_id`, `recovery_interface_family`) and the composite FK back to
+the canonical inbox (608:48-51, 609:301-306, 610:125-130, 611:113-116,
+616:56-59):
 
 ```sql
 FOREIGN KEY (tenant_id, recovery_inbox_id, recovery_interface_family)
 REFERENCES public.pathway_projector_inbox (tenant_id, inbox_id, interface_family)
 ```
+
+The fuller provenance quartet — that pair plus `owner_actor_uid` /
+`owner_reason` — together with `evidence JSONB` lives on the dedicated
+receipt/acknowledgement tables, **not** on the domain rows:
+`notification_provider_receipts` (609:287-292), `hl7_outbound_acknowledgements`
+(610:237-242), `interop_backend_delivery_receipts` (611:189-193),
+`imaging_study_link_recovery_receipts` (616:29-36). In 609 and 616 that is the
+same table the FK above sits on; in 610 and 611 it is a *different* table, each
+carrying its own copy of that FK (610:262-267, 611:214-217) while the domain
+rows carry only the pair. Two traps: 610 spells its owner columns
+`owner_release_actor_uid` / `owner_release_reason` (610:35-36), and 608 creates
+no table at all — it adds `recovery_inbox_id`, `recovery_interface_family` and
+`recovery_pending_task_id` to the existing lab ingest tables (608:13-16) and has
+no owner or evidence columns anywhere.
 
 Distinguish the two paths when reading this code. The **steady-state** ledgers
 (`hl7_outbound_*`, `interop_backend_delivery_receipts`, `notification_delivery_*`)
@@ -362,7 +396,7 @@ Migration 605 adds three tables — `clinical_continuity_replay_receipts`,
 `clinical_continuity_replay_effect_evidence`, `clinical_continuity_replay_attempts`
 — for atomically claiming and finalizing an offline-queued clinical write.
 `source_kind` is deliberately an **open, regex-validated string**
-(`CHECK (source_kind ~ '^[a-z][a-z0-9_]{0,63}$')`, 605:122) rather than a closed
+(`CHECK (source_kind ~ '^[a-z][a-z0-9_]{0,63}$')`, 605:123) rather than a closed
 enum, so a new capture source inherits the spine without replacing the receipt
 model (605:3-5). Migration 606 exercised exactly that path, adding
 `'paper_back_entry'` alongside `'electronic_queue'` without touching the
@@ -379,13 +413,21 @@ and audit trail with `effect_disposition = 'late_pending_only'` (606:653-671).
 apply `ENABLE` + `FORCE ROW LEVEL SECURITY` and layer *two* policies per table:
 a permissive `tenant_isolation` that grants visibility, and a **restrictive**
 explicit-context policy that requires `app.current_tenant_id` to be present,
-non-empty, and not `'bypass'` (605:282-302; 606:1027-1077 loops it over all 16).
+non-empty, and not `'bypass'` (605:282-302).
 Where 075 is fail-open — its four-way `OR` makes an unset GUC show every row —
 these tables are fail-closed: an absent, empty, `bypass`, or wrong-tenant
 context returns **zero rows** and blocks writes, and `FORCE` removes the owner
-exemption so the guarantee survives even for the migration role. 606 stacks a
-third restrictive policy on the receipts table demanding a facility GUC for
-paper rows only (606:1009-1025).
+exemption so the guarantee survives even for the migration role.
+
+★ **606's workbench needs a facility GUC too, unconditionally.** Its loop
+(606:1027-1077) creates `cc_explicit_tenant_facility`, which adds two further
+conjuncts to both `USING` and `WITH CHECK` on **all 16** of its own tables:
+`app.current_facility_id` must match `^[1-9][0-9]*$` and equal the row's
+`facility_id`. A valid tenant GUC alone still returns zero rows across the whole
+workbench. The receipts table from 605 is *not* in that 16 — it keeps its
+tenant-only restrictive policy and separately gains a third policy
+(606:1009-1025) applying the facility match to paper rows while exempting
+`source_kind = 'electronic_queue'`.
 
 The layering across tables is **not** done with parent-row subqueries — no
 policy in either migration contains one. Parent containment is structural
@@ -437,7 +479,7 @@ child's own declaration overrides what it was mounted under (nearest ancestor
 wins). To fix a barrel, split its direct routes into per-domain sub-routers and
 mark each one. `markRouterDomain` lives in
 [`src/config/openapiDomain.js:42-58`](src/config/openapiDomain.js) — note that
-the docblock at `buildSpec.mjs:106` points at a `scripts/openapi/routerDomain.mjs`
+the docblock at `buildSpec.mjs:105` points at a `scripts/openapi/routerDomain.mjs`
 that does not exist.
 
 `UNCLASSIFIED_TAG_BUDGET` (`base.mjs:167`) is pinned at **2** and generation

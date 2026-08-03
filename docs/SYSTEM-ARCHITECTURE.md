@@ -410,9 +410,10 @@ On those tables an absent, empty, `bypass`, or wrong-tenant context therefore
 returns **zero rows** and rejects writes — the exact inverse of the 075
 behaviour above — and `FORCE` removes the owner exemption, so the guarantee
 holds for the migration role too. Migration 606 layers a further
-`app.current_facility_id` requirement on its paper-capture rows. When you read
-an RLS question in this codebase, check which posture the specific table is
-under; there are now two.
+`app.current_facility_id` requirement on all 16 of its own tables, so on those a
+correct tenant context alone is still not enough. When you read an RLS question
+in this codebase, check which posture the specific table is under; there are now
+two.
 
 ### Request → tenant context resolution
 
@@ -571,25 +572,48 @@ decision service/care-team/appointment/admission/referral/break-glass context.
 
 ## 9. Clinical service continuity + external-interface recovery
 
-Migrations 600–616 (landed 2026-07-28 → 08-03) add the substrate for operating
+Migrations 600–616 (landed 2026-07-29 → 08-03) add the substrate for operating
 the hospital through an outage — of an external interface, or of the platform
 itself — and reconciling once service returns.
 
-> **Read this first: the substrate is inert.** The tables, constraints, triggers
-> and RLS policies exist and Postgres enforces them, but almost nothing is
-> reachable from a request path yet. Every migration in the chain says so in its
-> own header. The master gate is a **compile-time constant** —
-> `CLINICAL_CONTINUITY_C_D14_APPROVED = false` in
+> **Read this first: nearly all of this is inert — with one live exception.**
+> The tables, constraints, triggers and RLS policies exist and Postgres enforces
+> them. Nothing behind the clinical-continuity gate is reachable: that gate is a
+> **compile-time constant** — `CLINICAL_CONTINUITY_C_D14_APPROVED = false` in
 > [`apps/backend/src/config/downtimeConfig.js:37-39`](../apps/backend/src/config/downtimeConfig.js),
 > commented "deliberately cannot be changed by deployment configuration." No env
-> var turns this on. Do not describe the platform as having live continuity
-> capability.
+> var activates it.
+>
+> **The exception is late-recovery ingestion for I01/I02/I09/I15**, which is
+> RBAC-gated only — no continuity flag anywhere on its call chain — and reaches
+> the migration 603/607/608 substrate synchronously from
+> `POST /api/v1/fhir/Observation/recovery`, the device-vitals ingest route when
+> the body carries a `recovery` envelope, and the lab ingest routes. Those calls
+> persist evidence, a domain fact, and a required follow-up task, but the
+> `late_pending_only` fence still blocks every live clinical side effect.
+> Nothing supplies I04, I05, I06 or I17. Apart from that ingestion path, do not
+> describe the platform as having live continuity capability.
 
-Design authority is **[`docs/continuity/`](continuity/)** (32 documents) — this
+Scope note on the gate: `CLINICAL_CONTINUITY_C_D14_APPROVED` governs the
+facility-context branch — `clinicalContinuityFacilityContextEnabled()` and
+`clinicalContinuityFacilityEnrollmentEnabled()` AND it directly, and replay
+receipts plus paper reconciliation inherit the `false` transitively. Two sibling
+flags are env-only and never touch the constant: `CLINICAL_CONTINUITY_PACKS_ENABLED`
+and `CLINICAL_CONTINUITY_ACTION_REGISTRY_ENABLED`. Neither can activate the
+subsystem — the pack path throws without an operator-injected signer, and the
+action-registry flag only stops the globally mounted middleware short-circuiting,
+after which it returns 403 `CONTINUITY_FACILITY_CONTEXT_UNAVAILABLE` — but
+setting the registry flag *is* a production behaviour change with no code edit.
+The external-interface-recovery migrations (603, 607–616) have no application
+flag at all; their inertness rests on no worker being wired.
+
+Design authority is **[`docs/continuity/`](continuity/)** (31 documents) — this
 section is a map, not a substitute. Start at
 [`activation-readiness-tracker.md`](continuity/activation-readiness-tracker.md),
-which consolidates every gate and marks each `MERGED-INERT` / `OPERATOR` /
-`OWNER-DECISION`; then
+which consolidates the known continuity gates and marks each `MERGED-INERT` /
+`OPERATOR` / `OWNER-DECISION` / `HARDWARE` / `EXTERNAL`, with `OPEN-QUESTION`
+where the gate is real but its completion or class is not verifiable from the
+authoritative records; then
 [`c0-4-owner-decision-dossier.md`](continuity/c0-4-owner-decision-dossier.md),
 the countersigned decision record that the SQL pins to by name.
 
@@ -681,8 +705,13 @@ explicit-context policy on top of the permissive `tenant_isolation` one.
 Restrictive policies AND together, and theirs demands a tenant GUC that is
 present, non-empty and not `'bypass'` — so where 075 fails **open** (an unset
 context sees every row), these fail **closed** (zero rows, and writes rejected),
-including for the table owner. 606 additionally demands a facility GUC for paper
-rows. Parent/child containment is structural rather than policy-based: child
+including for the table owner. 606 additionally demands an
+`app.current_facility_id` GUC — **unconditionally on all 16 of its own tables**,
+so a valid tenant context alone still returns zero rows across the workbench,
+and on migration 605's replay-receipts table only for `paper_back_entry` rows,
+since electronic replay keeps its tenant-only path.
+
+Parent/child containment is structural rather than policy-based: child
 foreign keys carry the parent's `(tenant_id, facility_id, incident_id)`, so a
 child row cannot exist outside its parent's scope in the first place.
 
