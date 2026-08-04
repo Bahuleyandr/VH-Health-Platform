@@ -22,6 +22,9 @@ import {
   listPaymentNoticeReviews,
   rejectPaymentNoticeReview,
 } from '../../services/nhcx/nhcxPaymentNoticeService.js';
+import {
+  claimStrandedInboundNHCXMessage,
+} from '../../services/integrations/externalNhcxRecoveryService.js';
 
 const router = express.Router();
 
@@ -226,6 +229,21 @@ router.post('/messages/:id/redrive', async (req, res, next) => {
       id: req.params.id,
     });
     return success(res, row, 'NHCX message redriven', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/messages/:id/claim-stranded-inbound', async (req, res, next) => {
+  try {
+    const result = await claimStrandedInboundNHCXMessage({
+      tenantId: req.tenantId,
+      messageId: req.params.id,
+      actorUid: req.user?.uid,
+      ownerReason: req.body?.owner_reason ?? req.body?.ownerReason,
+      ownerDisposition: req.body?.owner_disposition ?? req.body?.ownerDisposition,
+    });
+    return success(res, result, 'NHCX inbound callback claimed for owner review', 201);
   } catch (err) {
     return next(err);
   }

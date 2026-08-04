@@ -11414,6 +11414,8 @@ model users {
   mlc_completeness_reviews_mlc_completeness_reviews_certificate_signer_uidTousers                                               mlc_completeness_reviews[]                     @relation("mlc_completeness_reviews_certificate_signer_uidTousers")
   mlc_completeness_reviews_mlc_completeness_reviews_patient_uidTousers                                                          mlc_completeness_reviews[]                     @relation("mlc_completeness_reviews_patient_uidTousers")
   mlc_completeness_reviews_mlc_completeness_reviews_reviewed_by_uidTousers                                                      mlc_completeness_reviews[]                     @relation("mlc_completeness_reviews_reviewed_by_uidTousers")
+  nhcx_messages_inbound_owner                                                                                                   nhcx_messages[]                                @relation("nhcx_messages_inbound_owner")
+  nhcx_messages_recovery_owner                                                                                                  nhcx_messages[]                                @relation("nhcx_messages_recovery_owner")
   nicu_admission_newborn_links                                                                                                  nicu_admission_newborn_links[]
   nicu_cardiorespiratory_events                                                                                                 nicu_cardiorespiratory_events[]
   nicu_feed_fluid_entries                                                                                                       nicu_feed_fluid_entries[]
@@ -17174,54 +17176,80 @@ model composition_search_settings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model nhcx_messages {
-  id                            BigInt              @id @default(autoincrement())
-  tenant_id                     String              @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  environment                   String              @db.VarChar(20)
-  direction                     String              @db.VarChar(20)
-  cycle                         String              @db.VarChar(30)
-  endpoint                      String              @db.VarChar(120)
-  participant_code_self         String              @db.VarChar(255)
-  participant_code_counterparty String?             @db.VarChar(255)
-  hcx_api_call_id               String?             @db.VarChar(120)
-  hcx_correlation_id            String?             @db.VarChar(120)
-  hcx_workflow_id               String?             @db.VarChar(120)
-  hcx_status                    String?             @db.VarChar(80)
+  id                            BigInt                   @id @default(autoincrement())
+  tenant_id                     String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  environment                   String                   @db.VarChar(20)
+  direction                     String                   @db.VarChar(20)
+  cycle                         String                   @db.VarChar(30)
+  endpoint                      String                   @db.VarChar(120)
+  participant_code_self         String                   @db.VarChar(255)
+  participant_code_counterparty String?                  @db.VarChar(255)
+  hcx_api_call_id               String?                  @db.VarChar(120)
+  hcx_correlation_id            String?                  @db.VarChar(120)
+  hcx_workflow_id               String?                  @db.VarChar(120)
+  hcx_status                    String?                  @db.VarChar(80)
   claim_id                      Int?
   preauth_id                    Int?
   policy_id                     Int?
-  patient_uid                   String?             @db.Uuid
+  patient_uid                   String?                  @db.Uuid
   admission_id                  Int?
-  domain_resource_type          String?             @db.VarChar(80)
+  domain_resource_type          String?                  @db.VarChar(80)
   profile_url                   String?
-  profile_version               String?             @db.VarChar(40)
-  payload_hash                  String              @db.VarChar(128)
-  protected_headers             Json                @default("{}")
+  profile_version               String?                  @db.VarChar(40)
+  payload_hash                  String                   @db.VarChar(128)
+  protected_headers             Json                     @default("{}")
   payload_ciphertext            String?
-  signature_verified            Boolean             @default(false)
-  registry_key_id               String?             @db.VarChar(160)
-  certificate_thumbprint        String?             @db.VarChar(160)
-  validation_issues             Json                @default("[]")
-  status                        String              @default("pending") @db.VarChar(30)
-  attempt_count                 Int                 @default(0)
+  signature_verified            Boolean                  @default(false)
+  registry_key_id               String?                  @db.VarChar(160)
+  certificate_thumbprint        String?                  @db.VarChar(160)
+  validation_issues             Json                     @default("[]")
+  status                        String                   @default("pending") @db.VarChar(30)
+  attempt_count                 Int                      @default(0)
   last_error                    String?
-  next_retry_at                 DateTime?           @db.Timestamptz(6)
-  received_at                   DateTime?           @db.Timestamptz(6)
-  sent_at                       DateTime?           @db.Timestamptz(6)
-  processed_at                  DateTime?           @db.Timestamptz(6)
-  created_at                    DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at                    DateTime            @default(now()) @db.Timestamptz(6)
-  tenants                       tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nhcx_messages_tenant")
-  tpa_claims                    tpa_claims?         @relation(fields: [claim_id], references: [id], onUpdate: NoAction)
-  insurance_policies            insurance_policies? @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
-  insurance_preauth             insurance_preauth?  @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
+  next_retry_at                 DateTime?                @db.Timestamptz(6)
+  received_at                   DateTime?                @db.Timestamptz(6)
+  sent_at                       DateTime?                @db.Timestamptz(6)
+  processed_at                  DateTime?                @db.Timestamptz(6)
+  created_at                    DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                 @default(now()) @db.Timestamptz(6)
+  recovery_inbox_id             String?                  @db.Uuid
+  recovery_interface_family     String?                  @db.VarChar(8)
+  recovery_owner_uid            String?                  @db.Uuid
+  recovery_owner_reason         String?                  @db.VarChar(500)
+  recovery_disposition          String?                  @db.VarChar(48)
+  recovery_claimed_at           DateTime?                @db.Timestamptz(6)
+  recovery_prior_status         String?                  @db.VarChar(30)
+  recovery_evidence             Json?
+  source_partition              String?                  @db.VarChar(160)
+  source_position               BigInt?
+  source_token                  String?                  @db.VarChar(255)
+  predecessor_token             String?                  @db.VarChar(255)
+  duplicate_key                 String?                  @db.VarChar(255)
+  inbound_claim_token           String?                  @db.Uuid
+  inbound_claimed_at            DateTime?                @db.Timestamptz(6)
+  inbound_completed_at          DateTime?                @db.Timestamptz(6)
+  inbound_owner_uid             String?                  @db.Uuid
+  inbound_owner_reason          String?                  @db.VarChar(500)
+  inbound_owner_disposition     String?                  @db.VarChar(48)
+  inbound_owner_claimed_at      DateTime?                @db.Timestamptz(6)
+  inbound_owner                 users?                   @relation("nhcx_messages_inbound_owner", fields: [tenant_id, inbound_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_nhcx_messages_inbound_owner")
+  pathway_projector_inbox       pathway_projector_inbox? @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onUpdate: NoAction, map: "fk_nhcx_messages_recovery_inbox")
+  recovery_owner                users?                   @relation("nhcx_messages_recovery_owner", fields: [tenant_id, recovery_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_nhcx_messages_recovery_owner")
+  tenants                       tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nhcx_messages_tenant")
+  tpa_claims                    tpa_claims?              @relation(fields: [claim_id], references: [id], onUpdate: NoAction)
+  insurance_policies            insurance_policies?      @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
+  insurance_preauth             insurance_preauth?       @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
 
   @@unique([tenant_id, hcx_api_call_id, environment], map: "uniq_nhcx_messages_api_call")
   @@unique([tenant_id, hcx_correlation_id, endpoint, direction, payload_hash, environment], map: "uniq_nhcx_messages_correlation_payload")
+  @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_nhcx_messages_recovery_inbox", where: raw("(recovery_inbox_id IS NOT NULL)"))
+  @@unique([tenant_id, id], map: "ux_nhcx_messages_tenant_id")
   @@index([claim_id, created_at(sort: Desc)], map: "idx_nhcx_messages_claim", where: raw("(claim_id IS NOT NULL)"))
   @@index([tenant_id, hcx_correlation_id, created_at(sort: Desc)], map: "idx_nhcx_messages_correlation", where: raw("(hcx_correlation_id IS NOT NULL)"))
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_nhcx_messages_patient", where: raw("(patient_uid IS NOT NULL)"))
   @@index([policy_id, created_at(sort: Desc)], map: "idx_nhcx_messages_policy", where: raw("(policy_id IS NOT NULL)"))
   @@index([preauth_id, created_at(sort: Desc)], map: "idx_nhcx_messages_preauth", where: raw("(preauth_id IS NOT NULL)"))
+  @@index([tenant_id, inbound_claimed_at, id], map: "idx_nhcx_messages_inbound_processing", where: raw("(((direction)::text = 'inbound'::text) AND ((status)::text = 'processing'::text))"))
   @@index([tenant_id, status, next_retry_at], map: "idx_nhcx_messages_tenant_status")
 }
 
@@ -24751,6 +24779,7 @@ model pathway_projector_inbox {
   interop_messages                     interop_messages[]
   lab_interface_messages               lab_interface_messages?
   lab_oru_ingest_messages              lab_oru_ingest_messages?
+  nhcx_messages                        nhcx_messages?
   notification_provider_receipts       notification_provider_receipts[]
   facilities                           facilities?                           @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_facility")
   event_consumer_offsets               event_consumer_offsets?               @relation(fields: [tenant_id, offset_id], references: [tenant_id, offset_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_offset")

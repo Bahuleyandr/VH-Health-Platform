@@ -3,6 +3,7 @@ import request from 'supertest';
 import { jest } from '@jest/globals';
 
 const listPaymentNoticeReviewsMock = jest.fn();
+const claimStrandedInboundNHCXMessageMock = jest.fn();
 
 jest.unstable_mockModule('../../services/nhcx/nhcxOutboundDispatcherService.js', () => ({
   dispatchPendingNHCXMessages: jest.fn(),
@@ -27,6 +28,10 @@ jest.unstable_mockModule('../../services/nhcx/nhcxPaymentNoticeService.js', () =
   rejectPaymentNoticeReview: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../services/integrations/externalNhcxRecoveryService.js', () => ({
+  claimStrandedInboundNHCXMessage: claimStrandedInboundNHCXMessageMock,
+}));
+
 const { default: nhcxRoutes } = await import('../../routes/admin/nhcxRoutes.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -48,6 +53,29 @@ function makeApp(role) {
 
 beforeEach(() => {
   listPaymentNoticeReviewsMock.mockReset();
+  claimStrandedInboundNHCXMessageMock.mockReset();
+});
+
+describe('admin NHCX stranded callback route', () => {
+  it('records an explicit owner claim without invoking replay', async () => {
+    claimStrandedInboundNHCXMessageMock.mockResolvedValueOnce({
+      message: { id: '42', status: 'recovery_pending' },
+      task: { id: 71, status: 'open' },
+    });
+
+    const res = await request(makeApp('ADMIN'))
+      .post('/admin/nhcx/messages/42/claim-stranded-inbound')
+      .send({ owner_reason: 'Callback processing claim is stale', owner_disposition: 'investigate' });
+
+    expect(res.status).toBe(201);
+    expect(claimStrandedInboundNHCXMessageMock).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      messageId: '42',
+      actorUid: '22222222-2222-4222-8222-222222222222',
+      ownerReason: 'Callback processing claim is stale',
+      ownerDisposition: 'investigate',
+    });
+  });
 });
 
 describe('admin NHCX payment notice routes', () => {
