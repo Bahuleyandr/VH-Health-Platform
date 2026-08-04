@@ -24,6 +24,10 @@ import {
   getTenantBrandKit,
   updateTenantBrandKit,
 } from '../../services/tenant/brandKitService.js';
+import {
+  getEscalationRecipientRankings,
+  replaceEscalationRecipientRankings,
+} from '../../services/workflow/escalationRecipientRankingService.js';
 import { success } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -141,6 +145,32 @@ router.post('/:tenantId/interop-secrets', async (req, res, next) => {
       has_secret: row?.has_secret === true,
     });
     return success(res, row, 'Interop secret stored', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/:tenantId/escalation-recipient-rankings', async (req, res, next) => {
+  try {
+    const ranking = await getEscalationRecipientRankings(req.params.tenantId);
+    return success(res, ranking, 'Escalation recipient rankings retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/:tenantId/escalation-recipient-rankings', async (req, res, next) => {
+  try {
+    const ranking = await replaceEscalationRecipientRankings({
+      tenantId: req.params.tenantId,
+      mappings: req.body?.mappings,
+      presenceWindowMinutes: req.body?.presenceWindowMinutes,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.rawRole || req.user?.role,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    return success(res, ranking, 'Escalation recipient rankings replaced');
   } catch (err) {
     return next(err);
   }

@@ -53,9 +53,13 @@ import { sendSecurityWebhook } from '../../utils/securityWebhook.js';
 import { ROLES, DOCTOR_TIERS, LEADERSHIP_ROLES } from '../../utils/roleHelpers.js';
 import { runTransportEscalationSweep } from '../patientFlow/porterTransportService.js';
 import {
+  recordEscalationCandidateLockSkipped,
   recordEscalationCandidatePageFull,
+  recordEscalationRecipientRankingFailure,
   recordEscalationRecipientsTrimmed,
+  recordEscalationRecipientsTrimmedByRank,
 } from '../../observability/escalationMetrics.js';
+import { DEFAULT_PRESENCE_WINDOW_MINUTES } from './escalationRecipientRankingService.js';
 // Reuse the producer's role-token resolver + backfill entrypoint. resolveRoleCode
 // MUST be shared (not duplicated) so the mig-312 seed tokens (DUTY/LEADERSHIP)
 // resolve to the IDENTICAL concrete role on the assignment (producer) and
@@ -159,18 +163,210 @@ function finishRecipients({ rows, tenantId, role, arm }) {
   const matched = Number(rows?.[0]?.total_matched ?? recipients.length);
   if (Number.isFinite(matched) && matched > RECIPIENT_FANOUT_CAP) {
     const dropped = matched - RECIPIENT_FANOUT_CAP;
+    const droppedByRank = rows?.[0]?.dropped_by_rank || {};
+    const droppedByPresence = rows?.[0]?.dropped_by_presence || {};
     // Clinical-safety-adjacent: these are staff who will NOT be paged about an
     // unacknowledged critical result. Never let this be inferred from silence.
     logger.warn('escalation notify: recipient fan-out exceeded cap — tail of the role was NOT notified', {
-      tenantId, role, arm, matched, notified: recipients.length, dropped, cap: RECIPIENT_FANOUT_CAP,
+      tenantId, role, arm, matched, notified: recipients.length, dropped,
+      droppedByRank, droppedByPresence, cap: RECIPIENT_FANOUT_CAP,
     });
     try {
       recordEscalationRecipientsTrimmed({ role, arm, dropped });
     } catch (err) {
       logger.warn('escalation notify: recipient-trim metric failed', { err: err?.message });
     }
+    for (const [rank, count] of Object.entries(droppedByRank)) {
+      try {
+        recordEscalationRecipientsTrimmedByRank({ role, arm, rank, dropped: Number(count) });
+      } catch (err) {
+        logger.warn('escalation notify: recipient-trim-by-rank metric failed', {
+          rank, err: err?.message,
+        });
+      }
+    }
   }
   return recipients;
+}
+
+function parseRankingControl(row) {
+  const raw = row?.ranking_control;
+  if (!raw || typeof raw !== 'object' || raw.configured !== true) {
+    return {
+      configured: false,
+      revision: 0,
+      presenceWindowMinutes: DEFAULT_PRESENCE_WINDOW_MINUTES,
+      expectedMappingCount: 0,
+      observedMappingCount: Number(row?.observed_mapping_count || 0),
+    };
+  }
+  const window = Number(raw.presence_window_minutes);
+  return {
+    configured: true,
+    revision: Math.max(1, Number.parseInt(raw.revision, 10) || 1),
+    presenceWindowMinutes: Number.isInteger(window) && window >= 15 && window <= 2880
+      ? window
+      : DEFAULT_PRESENCE_WINDOW_MINUTES,
+    expectedMappingCount: Math.max(0, Number.parseInt(raw.expected_mapping_count, 10) || 0),
+    observedMappingCount: Number(row?.observed_mapping_count || 0),
+  };
+}
+
+async function loadRecipientRankingContext(tx, tenantId) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT settings -> 'escalation_recipient_ranking' AS ranking_control,
+            (
+              SELECT COUNT(*)::int
+                FROM escalation_recipient_rank_mappings mappings
+               WHERE mappings.tenant_id = tenants.id
+            ) AS observed_mapping_count
+       FROM tenants
+      WHERE id = $1::uuid
+      LIMIT 1`,
+    tenantId,
+  );
+  return parseRankingControl(rows?.[0]);
+}
+
+function reportRecipientRankingFailures({ context, rows, tenantId, role, arm }) {
+  if (!context.configured || context.expectedMappingCount <= 0) return;
+  const matched = Number(rows?.[0]?.total_matched || 0);
+  const rankedCandidates = Number(rows?.[0]?.ranked_candidates || 0);
+  const reasons = [];
+  if (context.observedMappingCount !== context.expectedMappingCount) {
+    reasons.push('mapping_count_mismatch');
+  }
+  if (matched > 0 && rankedCandidates === 0) {
+    reasons.push('zero_ranked_candidates');
+  }
+  for (const reason of reasons) {
+    logger.warn('escalation notify: configured recipient ranking failed visibility check', {
+      tenantId,
+      role,
+      arm,
+      reason,
+      expectedMappingCount: context.expectedMappingCount,
+      observedMappingCount: context.observedMappingCount,
+      rankedCandidates,
+      matched,
+      controlRevision: context.revision,
+      presenceWindowMinutes: context.presenceWindowMinutes,
+    });
+    try {
+      recordEscalationRecipientRankingFailure({ role, arm, reason });
+    } catch (err) {
+      logger.warn('escalation notify: recipient-ranking-failure metric failed', {
+        reason, err: err?.message,
+      });
+    }
+  }
+}
+
+async function resolveRankedRecipients({
+  tx,
+  tenantId,
+  role,
+  arm,
+  roleValue,
+  context,
+  clock,
+}) {
+  const rolePredicate = arm === 'family'
+    ? 'u.role = ANY($2::text[])'
+    : 'u.role = $2::text';
+  const rows = await tx.$queryRawUnsafe(
+    `WITH candidates AS (
+       SELECT u.id, u.uid, u.phone, u.role, u.last_sign_in_at,
+              staff_state.effective_rank,
+              CASE
+                WHEN u.last_sign_in_at >= $4::timestamptz
+                       - make_interval(mins => $5::int)
+                 AND COALESCE(staff_state.on_leave, FALSE) = FALSE
+                THEN 0
+                ELSE 1
+              END AS presence_bucket
+         FROM users u
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(
+                    MIN(m.priority_rank) FILTER (WHERE m.source_kind = 'position'),
+                    MIN(m.priority_rank) FILTER (WHERE m.source_kind = 'designation')
+                  ) AS effective_rank,
+                  BOOL_OR(s.on_leave) AS on_leave
+             FROM staff s
+             LEFT JOIN escalation_recipient_rank_mappings m
+               ON m.tenant_id = s.tenant_id
+              AND (
+                (
+                  m.source_kind = 'position'
+                  AND m.normalized_source_value = lower(
+                    regexp_replace(btrim(s.position), '[[:space:]]+', ' ', 'g')
+                  )
+                )
+                OR (
+                  m.source_kind = 'designation'
+                  AND m.normalized_source_value = lower(
+                    regexp_replace(btrim(s.designation), '[[:space:]]+', ' ', 'g')
+                  )
+                )
+              )
+            WHERE s.tenant_id = u.tenant_id
+              AND s.user_id = u.uid
+              AND s.is_active = TRUE
+              AND s.archived = FALSE
+         ) staff_state ON TRUE
+        WHERE u.tenant_id = $1::uuid
+          AND ${rolePredicate}
+          AND u.is_active = TRUE
+     ), ranked AS (
+       SELECT candidates.*,
+              COUNT(*) OVER () AS total_matched,
+              COUNT(*) FILTER (WHERE effective_rank IS NOT NULL) OVER () AS ranked_candidates,
+              ROW_NUMBER() OVER (
+                ORDER BY presence_bucket ASC,
+                         effective_rank ASC NULLS LAST,
+                         last_sign_in_at DESC NULLS LAST,
+                         id ASC
+              ) AS recipient_number
+         FROM candidates
+     ), dropped_groups AS (
+       SELECT COALESCE(effective_rank::text, 'unranked') AS rank_label,
+              presence_bucket,
+              COUNT(*)::int AS dropped
+         FROM ranked
+        WHERE recipient_number > $3::int
+        GROUP BY COALESCE(effective_rank::text, 'unranked'), presence_bucket
+     ), dropped_by_rank AS (
+       SELECT COALESCE(jsonb_object_agg(rank_label, dropped), '{}'::jsonb) AS value
+         FROM (
+           SELECT rank_label, SUM(dropped)::int AS dropped
+             FROM dropped_groups
+            GROUP BY rank_label
+         ) grouped
+     ), dropped_by_presence AS (
+       SELECT jsonb_build_object(
+                'plausibly_present', COALESCE(SUM(dropped) FILTER (WHERE presence_bucket = 0), 0),
+                'less_reachable', COALESCE(SUM(dropped) FILTER (WHERE presence_bucket = 1), 0)
+              ) AS value
+         FROM dropped_groups
+     )
+     SELECT ranked.id, ranked.uid, ranked.phone, ranked.role,
+            ranked.total_matched, ranked.ranked_candidates,
+            ranked.effective_rank, ranked.presence_bucket,
+            dropped_by_rank.value AS dropped_by_rank,
+            dropped_by_presence.value AS dropped_by_presence
+       FROM ranked
+       CROSS JOIN dropped_by_rank
+       CROSS JOIN dropped_by_presence
+      WHERE ranked.recipient_number <= $3::int
+      ORDER BY ranked.recipient_number ASC`,
+    tenantId,
+    roleValue,
+    RECIPIENT_FANOUT_CAP,
+    clock.toISOString(),
+    context.presenceWindowMinutes,
+  );
+  reportRecipientRankingFailures({ context, rows, tenantId, role, arm });
+  return rows;
 }
 
 // Resolve a concrete role code → real, active recipients in THIS tenant (the tx
@@ -188,39 +384,55 @@ function finishRecipients({ rows, tenantId, role, arm }) {
 // whoever happens to hold the highest user id. `id ASC` makes the order total,
 // so the page is deterministic across sweeps. If a real roster table ever lands,
 // this ORDER BY is the single place to join it.
-async function resolveRecipientsForRole(tx, tenantId, roleCode) {
+async function resolveRecipientsForRole(tx, tenantId, roleCode, clock = new Date()) {
   const role = roleCode == null ? '' : String(roleCode).trim();
   if (!role) return [];
-  const exact = await tx.$queryRawUnsafe(
-    `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
-       FROM users
-      WHERE tenant_id = $1::uuid
-        AND role = $2
-        AND is_active = TRUE
-      ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
-      LIMIT $3::int`,
-    tenantId,
-    role,
-    RECIPIENT_FANOUT_CAP,
-  );
+  const context = await loadRecipientRankingContext(tx, tenantId);
+  const rankingActive = context.configured && context.expectedMappingCount > 0;
+  const exact = rankingActive
+    ? await resolveRankedRecipients({
+      tx, tenantId, role, arm: 'exact', roleValue: role, context, clock,
+    })
+    : await tx.$queryRawUnsafe(
+      `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND role = $2
+          AND is_active = TRUE
+        ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
+        LIMIT $3::int`,
+      tenantId,
+      role,
+      RECIPIENT_FANOUT_CAP,
+    );
   if (Array.isArray(exact) && exact.length > 0) {
     return finishRecipients({ rows: exact, tenantId, role, arm: 'exact' });
   }
 
   const family = ROLE_FAMILY_FALLBACK[role];
   if (!Array.isArray(family) || family.length === 0) return [];
-  const widened = await tx.$queryRawUnsafe(
-    `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
-       FROM users
-      WHERE tenant_id = $1::uuid
-        AND role = ANY($2::text[])
-        AND is_active = TRUE
-      ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
-      LIMIT $3::int`,
-    tenantId,
-    family.map(String),
-    RECIPIENT_FANOUT_CAP,
-  );
+  const widened = rankingActive
+    ? await resolveRankedRecipients({
+      tx,
+      tenantId,
+      role,
+      arm: 'family',
+      roleValue: family.map(String),
+      context,
+      clock,
+    })
+    : await tx.$queryRawUnsafe(
+      `SELECT id, uid, phone, role, COUNT(*) OVER () AS total_matched
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND role = ANY($2::text[])
+          AND is_active = TRUE
+        ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
+        LIMIT $3::int`,
+      tenantId,
+      family.map(String),
+      RECIPIENT_FANOUT_CAP,
+    );
   return finishRecipients({ rows: widened, tenantId, role, arm: 'family' });
 }
 
@@ -329,6 +541,25 @@ function triggerHolds(taskRow, ruleRow, now) {
   return now.getTime() >= breachAt.getTime() + windowMin * 60_000;
 }
 
+function noKeyUpdateTaskMutationTx(tx) {
+  return new Proxy(tx, {
+    get(target, property, receiver) {
+      if (property !== '$queryRawUnsafe') return Reflect.get(target, property, receiver);
+      return (sql, ...params) => {
+        const statement = typeof sql === 'string' ? sql : '';
+        const isTaskServiceReread = /^\s*SELECT[\s\S]+FROM tasks\s+WHERE id = \$1 AND tenant_id = \$2::uuid\s+FOR UPDATE\s*$/i
+          .test(statement);
+        return tx.$queryRawUnsafe(
+          isTaskServiceReread
+            ? statement.replace(/FOR UPDATE\s*$/i, 'FOR NO KEY UPDATE')
+            : sql,
+          ...params,
+        );
+      };
+    },
+  });
+}
+
 /**
  * Apply a single rule's action to one task and record the tier in
  * metadata.escalations[] atomically. Returns the action label on success.
@@ -340,7 +571,7 @@ function triggerHolds(taskRow, ruleRow, now) {
  * reassign          → taskService.reassignTask to the resolved role.
  * auto_resolve      → taskService.transitionTask → 'completed'.
  */
-async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
+async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
   // S1b-b preserves the existing outward notification/webhook taxonomy for all
   // task rules. A generic clinical-task taxonomy needs owner-approved S1b-c
   // recipient and notification policy before it can become externally visible.
@@ -366,9 +597,14 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
 
   // reassign / auto_resolve go through the taskService state machine FIRST
   // (they own the row update); we then stamp the escalation marker separately.
+  // Their internal task reread must retain the claim's NO KEY UPDATE strength;
+  // upgrading that one reread to FOR UPDATE would block ordinary FK child inserts.
+  const taskMutationTx = noKeyUpdateTaskMutationTx(tx);
   if (action === 'reassign') {
     const role = resolveRoleCode(payload.notify_role || payload.role);
-    await taskService.reassignTask({ tenantId, id: taskRow.id, assignedToRole: role, tx });
+    await taskService.reassignTask({
+      tenantId, id: taskRow.id, assignedToRole: role, tx: taskMutationTx,
+    });
   } else if (action === 'auto_resolve') {
     if (taskRow.workflow_sla_instance_id || taskRow.sla_completion_semantics !== 'none') {
       throw new Error('Linked-SLA tasks cannot be auto-resolved by the generic escalation engine');
@@ -377,7 +613,7 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
       tenantId,
       id: taskRow.id,
       nextStatus: 'completed',
-      tx,
+      tx: taskMutationTx,
     });
   }
 
@@ -396,18 +632,33 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
     tenantId,
   );
 
-  // Notifications (best-effort, REAL DELIVERY). We resolve the tier's target
-  // (assignee uid for T1 re-notify; the notify_role → on-shift/active users for
-  // T2/T3) to concrete recipients and enqueue ONE outbox row PER recipient with
-  // a real recipientId + recipientPhone. The outbox is now drained
-  // (scheduler.js drainNotificationOutbox, audit C-6 fix), so these rows are
-  // actually delivered as a push/WS (by userId) and/or SMS (by phone) — no tier
-  // is a silent no-op. A failed notify must never undo the already-recorded
-  // escalation marker (it is appended above, before this point), so resolution
-  // + queueing is wrapped defensively.
+  return Object.freeze({
+    action,
+    payload: Object.freeze({ ...payload }),
+    task: Object.freeze({
+      id: taskRow.id,
+      title: taskRow.title || null,
+      patient_uid: taskRow.patient_uid || null,
+      assigned_to_uid: taskRow.assigned_to_uid || null,
+      assigned_to_role: taskRow.assigned_to_role || null,
+    }),
+    firedAt: nowIso,
+  });
+}
+
+// Phase 1.5/2: this runs only after the task transaction has committed and its
+// FOR NO KEY UPDATE lock has been released. Recipient reads use their own short
+// tenant-pinned transaction; outbox and webhook work never run on the task tx.
+async function dispatchAction({ tenantId, plan, now }) {
+  const { action, payload, task: taskRow } = plan;
+  const tier = payload.tier ?? null;
   if (action === 'escalate_priority' && payload.also_notify === 'assignee') {
     try {
-      const recipients = await resolveRecipientByUid(tx, tenantId, taskRow.assigned_to_uid);
+      const recipients = await setTenantTx(
+        tenantId,
+        (tx) => resolveRecipientByUid(tx, tenantId, taskRow.assigned_to_uid),
+        { readOnly: true },
+      );
       const queued = await queueRecipientNotifications({
         recipients,
         title: 'Critical result still needs review',
@@ -436,7 +687,11 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
     const role = resolveRoleCode(payload.notify_role);
     let queued = 0;
     try {
-      const recipients = await resolveRecipientsForRole(tx, tenantId, role);
+      const recipients = await setTenantTx(
+        tenantId,
+        (tx) => resolveRecipientsForRole(tx, tenantId, role, now),
+        { readOnly: true },
+      );
       queued = await queueRecipientNotifications({
         recipients,
         title: 'Critical result escalation',
@@ -481,6 +736,155 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
   return action;
 }
 
+const ELIGIBLE_TASK_COLUMNS = `t.id, t.tenant_id, t.task_kind, t.title,
+  t.status, t.priority, t.patient_uid, t.assigned_to_uid, t.assigned_to_role,
+  t.related_resource_type, t.related_resource_id, t.due_at,
+  t.sla_breached_at, t.created_at, t.metadata,
+  t.workflow_sla_instance_id, t.sla_completion_semantics`;
+
+function eligibilityParams({ tenantId, ruleRow, clock }) {
+  const filter = ruleRow.match_filter && typeof ruleRow.match_filter === 'object'
+    ? ruleRow.match_filter
+    : {};
+  const nullableString = (value) => value == null ? null : String(value);
+  return [
+    tenantId,
+    clock.toISOString(),
+    Number(ruleRow.trigger_window_minutes) || 0,
+    nullableString(filter.task_kind),
+    nullableString(filter.priority),
+    nullableString(filter.sla_key),
+    String(ruleRow.id),
+  ];
+}
+
+function taskStatusEligibilitySql() {
+  return `(
+    t.status IN ('open', 'overdue', 'blocked')
+    OR (
+      t.status = 'in_progress'
+      AND t.sla_completion_semantics = 'domain_evidence'
+    )
+  )`;
+}
+
+function firedMarkerEligibilitySql() {
+  return `NOT EXISTS (
+    SELECT 1
+      FROM jsonb_array_elements(
+        CASE
+          WHEN jsonb_typeof(t.metadata -> 'escalations') = 'array'
+          THEN t.metadata -> 'escalations'
+          ELSE '[]'::jsonb
+        END
+      ) AS fired(entry)
+     WHERE fired.entry ->> 'rule_id' = $7::text
+  )`;
+}
+
+// This is the one eligibility builder used by both Phase 0 paging and every
+// Phase 1 lock/revalidation arm. The supported filters, trigger boundary, and
+// fired-marker exclusion therefore cannot drift across the transaction split.
+function buildEligibilitySql(ruleRow) {
+  const commonFilters = `
+    AND ($4::text IS NULL OR t.task_kind::text = $4::text)
+    AND ($5::text IS NULL OR t.priority::text = $5::text)`;
+  if (ruleRow.trigger_condition === 'sla_breach') {
+    return {
+      select: `${ELIGIBLE_TASK_COLUMNS},
+        s.status AS sla_status, s.rule_code AS sla_rule_code,
+        COALESCE(s.breached_at, s.due_at, t.sla_breached_at) AS breach_at`,
+      from: `tasks t
+        LEFT JOIN workflow_sla_instances s
+          ON s.id = t.workflow_sla_instance_id
+         AND s.tenant_id = t.tenant_id`,
+      where: `t.tenant_id = $1::uuid
+        AND ${taskStatusEligibilitySql()}
+        AND s.completed_at IS NULL
+        AND (
+          s.status = 'breached'
+          OR (
+            s.status = 'active'
+            AND s.due_at IS NOT NULL
+            AND s.due_at < $2::timestamptz
+          )
+          OR t.sla_breached_at IS NOT NULL
+        )${commonFilters}
+        AND ($6::text IS NULL OR s.rule_code::text = $6::text)
+        AND COALESCE(s.breached_at, s.due_at, t.sla_breached_at) IS NOT NULL
+        AND COALESCE(s.breached_at, s.due_at, t.sla_breached_at)
+              <= $2::timestamptz - make_interval(mins => $3::int)
+        AND ${firedMarkerEligibilitySql()}`,
+    };
+  }
+  return {
+    select: `${ELIGIBLE_TASK_COLUMNS},
+      NULL::text AS sla_status,
+      NULL::text AS sla_rule_code,
+      NULL::timestamptz AS breach_at`,
+    from: 'tasks t',
+    where: `t.tenant_id = $1::uuid
+      AND ${taskStatusEligibilitySql()}${commonFilters}
+      AND $6::text IS NULL
+      AND t.created_at <= $2::timestamptz - make_interval(mins => $3::int)
+      AND ${ruleRow.trigger_condition === 'pending_too_long' ? 'TRUE' : 'FALSE'}
+      AND ${firedMarkerEligibilitySql()}`,
+  };
+}
+
+async function readEligibleCandidatePage(tx, { tenantId, ruleRow, clock, cap }) {
+  const eligibility = buildEligibilitySql(ruleRow);
+  return tx.$queryRawUnsafe(
+    `SELECT ${eligibility.select}
+       FROM ${eligibility.from}
+      WHERE ${eligibility.where}
+      ORDER BY t.id ASC
+      LIMIT $8::int`,
+    ...eligibilityParams({ tenantId, ruleRow, clock }),
+    cap,
+  );
+}
+
+async function claimEligibleCandidate(tx, { tenantId, taskId, ruleRow, clock }) {
+  const eligibility = buildEligibilitySql(ruleRow);
+  const params = [...eligibilityParams({ tenantId, ruleRow, clock }), taskId];
+  const results = await tx.$queryRawUnsafe(
+    `WITH claimed AS MATERIALIZED (
+       SELECT ${eligibility.select}
+         FROM ${eligibility.from}
+        WHERE ${eligibility.where}
+          AND t.id = $8::bigint
+        FOR NO KEY UPDATE OF t SKIP LOCKED
+     ), fallback AS MATERIALIZED (
+       SELECT EXISTS (
+                SELECT 1
+                  FROM ${eligibility.from}
+                 WHERE ${eligibility.where}
+                   AND t.id = $8::bigint
+              ) AS still_eligible
+        WHERE NOT EXISTS (SELECT 1 FROM claimed)
+     )
+     SELECT 'claimed'::text AS outcome, to_jsonb(claimed) AS task
+       FROM claimed
+     UNION ALL
+     SELECT CASE WHEN still_eligible THEN 'lock_skipped' ELSE 'stale' END,
+            NULL::jsonb AS task
+       FROM fallback
+      LIMIT 1`,
+    ...params,
+  );
+  const result = results?.[0] || { outcome: 'stale', task: null };
+  if (result.outcome !== 'claimed') return result;
+  const plan = await applyActionAndMarker({
+    tx,
+    tenantId,
+    taskRow: result.task,
+    ruleRow,
+    now: clock,
+  });
+  return { outcome: 'claimed', plan };
+}
+
 /**
  * Evaluate the active escalation_rules against overdue tasks / breached SLA
  * instances for every tenant, firing actions once per tier, plus a backfill
@@ -520,247 +924,192 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
   for (const t of (Array.isArray(tenants) ? tenants : [])) {
     const tenantId = t.tenant_id;
     if (!tenantId) continue;
-    try {
-      await setTenantTx(tenantId, async (tx) => {
-        // (a) Mark open/blocked tasks past due_at as 'overdue' (state hygiene).
-        // in_progress is the ACKED state (§4.5: acknowledge STOPS the clock) and
-        // is deliberately NOT flipped — flipping it would re-expose an
-        // acknowledged task to escalation, since 'overdue' is escalatable.
-        // (Producer tasks currently carry due_at=NULL — the mig-269 instance is
-        // the clock — so this is belt-and-suspenders for any task that does set
-        // due_at.) RETURNING ids → count.
-        const overdue = await tx.$queryRawUnsafe(
-          `UPDATE tasks
-              SET status = 'overdue', updated_at = NOW()
-            WHERE tenant_id = $1::uuid
-              AND status IN ('open', 'blocked')
-              AND due_at IS NOT NULL
-              AND due_at < $2::timestamptz
-            RETURNING id`,
-          tenantId,
-          clock.toISOString(),
-        );
-        counters.markedOverdue += Array.isArray(overdue) ? overdue.length : 0;
 
-        // (b) Active task-scope rules for this tenant.
-        const rules = await tx.$queryRawUnsafe(
+    try {
+      const overdue = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+        `UPDATE tasks
+            SET status = 'overdue', updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND status IN ('open', 'blocked')
+            AND due_at IS NOT NULL
+            AND due_at < $2::timestamptz
+          RETURNING id`,
+        tenantId,
+        clock.toISOString(),
+      ));
+      counters.markedOverdue += Array.isArray(overdue) ? overdue.length : 0;
+    } catch (err) {
+      logger.error('escalation sweep: overdue-state pass failed', { err: err?.message, tenantId });
+    }
+
+    let rules = [];
+    try {
+      rules = await setTenantTx(
+        tenantId,
+        (tx) => tx.$queryRawUnsafe(
           `SELECT id, tenant_id, scope, match_filter, trigger_condition,
                   trigger_window_minutes, action_kind, action_payload, is_active
              FROM escalation_rules
             WHERE tenant_id = $1::uuid AND is_active = TRUE AND scope = 'task'
             ORDER BY trigger_window_minutes ASC, id ASC`,
           tenantId,
-        );
-
-        for (const ruleRow of (Array.isArray(rules) ? rules : [])) {
-          // Candidate tasks: escalatable status, NOT acked/terminal; left-join
-          // the linked mig-269 instance (workflow_sla_instance_id) for the breach
-          // signal. For sla_breach rules we require SOME breach signal
-          // (registered instance breached, active-but-past-due under this task
-          // rule, or tasks.sla_breached_at). This evaluates a matching task; it
-          // does not reconcile table-wide SLA status (deferred to S1b-c).
-          // — the precise per-tier window is then checked in JS (triggerHolds)
-          // so `now` stays injectable. pending_too_long rules skip the SLA join.
-          let candidates;
-          try {
-            if (ruleRow.trigger_condition === 'sla_breach') {
-              candidates = await tx.$queryRawUnsafe(
-                `SELECT t.id, t.tenant_id, t.task_kind, t.title, t.status, t.priority,
-                        t.patient_uid, t.assigned_to_uid, t.assigned_to_role,
-                        t.related_resource_type, t.related_resource_id,
-                        t.due_at, t.sla_breached_at, t.created_at, t.metadata,
-                        t.workflow_sla_instance_id, t.sla_completion_semantics,
-                        s.status AS sla_status, s.rule_code AS sla_rule_code,
-                        COALESCE(s.breached_at, s.due_at, t.sla_breached_at) AS breach_at
-                   FROM tasks t
-                   LEFT JOIN workflow_sla_instances s
-                     ON s.id = t.workflow_sla_instance_id
-                    AND s.tenant_id = t.tenant_id
-                   WHERE t.tenant_id = $1::uuid
-                     AND (
-                       t.status IN ('open', 'overdue', 'blocked')
-                       OR (
-                         t.status = 'in_progress'
-                         AND t.sla_completion_semantics = 'domain_evidence'
-                       )
-                     )
-                     AND s.completed_at IS NULL
-                     AND (
-                       s.status = 'breached'
-                       OR (
-                         s.status = 'active'
-                         AND s.due_at IS NOT NULL
-                         AND s.due_at < $2::timestamptz
-                       )
-                       OR t.sla_breached_at IS NOT NULL
-                     )
-                  ORDER BY t.id ASC
-                  LIMIT $3::int`,
-                tenantId,
-                clock.toISOString(),
-                cap,
-              );
-            } else {
-              candidates = await tx.$queryRawUnsafe(
-                `SELECT t.id, t.tenant_id, t.task_kind, t.title, t.status, t.priority,
-                        t.patient_uid, t.assigned_to_uid, t.assigned_to_role,
-                        t.related_resource_type, t.related_resource_id,
-                        t.due_at, t.sla_breached_at, t.created_at, t.metadata,
-                        t.workflow_sla_instance_id, t.sla_completion_semantics,
-                        NULL AS sla_status, NULL AS sla_rule_code, NULL AS breach_at
-                   FROM tasks t
-                  WHERE t.tenant_id = $1::uuid
-                     AND (
-                       t.status IN ('open', 'overdue', 'blocked')
-                       OR (
-                         t.status = 'in_progress'
-                         AND t.sla_completion_semantics = 'domain_evidence'
-                       )
-                     )
-                  ORDER BY t.id ASC
-                  LIMIT $2::int`,
-                tenantId,
-                cap,
-              );
-            }
-          } catch (err) {
-            logger.error('escalation sweep: candidate query failed', {
-              err: err?.message, tenantId, ruleId: ruleRow.id,
-            });
-            continue;
-          }
-
-          // A full page means this rule had at least `cap` eligible tasks, so
-          // any task ordered after the page was NOT evaluated in this sweep.
-          // Because the ordering is a stable `t.id ASC` and an already-fired
-          // task stays eligible (the once-per-rule guard is applied in JS, after
-          // the page is fetched), a tenant that parks `cap` escalatable tasks
-          // starves everything behind them indefinitely rather than merely
-          // deferring it to the next sweep. Raising `limit` is the operator
-          // lever; making the truncation audible is this fix's job. The deeper
-          // change — excluding already-fired tasks in SQL so the page always
-          // advances — alters which tasks a sweep evaluates and is left to a
-          // separate, owner-reviewed change.
-          if (Array.isArray(candidates) && candidates.length >= cap) {
-            logger.warn('escalation sweep: candidate page full — tasks beyond the page were NOT evaluated', {
-              tenantId,
-              ruleId: ruleRow.id,
-              triggerCondition: ruleRow.trigger_condition,
-              cap,
-            });
-            try {
-              recordEscalationCandidatePageFull({ triggerCondition: ruleRow.trigger_condition });
-            } catch (err) {
-              logger.warn('escalation sweep: candidate-page metric failed', { err: err?.message });
-            }
-          }
-
-          for (const taskRow of (Array.isArray(candidates) ? candidates : [])) {
-            counters.scanned += 1;
-            // Per-task guard: a single bad row must never abort the sweep.
-            try {
-              if (alreadyFired(taskRow.metadata, ruleRow.id)) continue;
-              if (!matchesFilter(taskRow, ruleRow.match_filter)) continue;
-              if (!triggerHolds(taskRow, ruleRow, clock)) continue;
-
-              const action = await fireAction({ tx, tenantId, taskRow, ruleRow, now: clock });
-              if (action === 'auto_resolve') counters.autoResolved += 1;
-              else counters.escalated += 1;
-            } catch (err) {
-              logger.error('escalation sweep: per-task action failed', {
-                err: err?.message, tenantId, taskId: taskRow.id, ruleId: ruleRow.id,
-              });
-              // continue — do not abort the sweep for one task.
-            }
-          }
-        }
-
-        // (c) Backfill backstop: breached critical_result_ack instances with NO
-        // actionable task linking back to them (workflow_sla_instance_id) → re-create the
-        // task via the producer. Closes the net if a producer hook ever failed.
-        //
-        // TWO exclusions so we never re-alert an already-handled result (audit
-        // C-3): skip an instance if EITHER (1) a non-cancelled task already
-        // links it via workflow_sla_instance_id (its own producer-created task),
-        // OR (2) a completed task already exists for the same
-        // (source_table, source_id) resource. Cancellation is work withdrawal,
-        // not acknowledgement evidence; an active SLA behind a cancelled task
-        // must be eligible for task re-materialization. The producer's ON CONFLICT only
-        // de-dupes active tasks (migration 580 expands the partial unique index
-        // through overdue), so without guard (2) a stale
-        // breached instance whose task was acked→completed would spawn a FRESH
-        // open task for a result a clinician already actioned — the exact
-        // false-re-alert the audit flags. Acking now completes the linked
-        // instance too (taskService.completeLinkedSla), so the common path is
-        // already covered by status; (2) is the belt-and-braces for any instance
-        // that stayed breached after its task was completed.
-        let orphans;
-        try {
-          orphans = await tx.$queryRawUnsafe(
-            `SELECT s.id, s.tenant_id, s.rule_code, s.patient_uid,
-                    s.source_table, s.source_id, s.priority, s.metadata
-               FROM workflow_sla_instances s
-              WHERE s.tenant_id = $1::uuid
-                AND s.rule_code = $2
-                AND s.completed_at IS NULL
-                 AND (
-                   s.status = 'breached'
-                   OR (
-                     s.status = 'active'
-                     AND s.due_at IS NOT NULL
-                     AND s.due_at < $3::timestamptz
-                   )
-                 )
-                AND s.source_table IS NOT NULL
-                AND s.source_id IS NOT NULL
-                AND NOT EXISTS (
-                  SELECT 1 FROM tasks t
-                   WHERE t.tenant_id = s.tenant_id
-                     AND t.workflow_sla_instance_id = s.id
-                     AND t.status <> 'cancelled'
-                )
-                AND NOT EXISTS (
-                  SELECT 1 FROM tasks t2
-                   WHERE t2.tenant_id = s.tenant_id
-                      AND t2.related_resource_type = s.source_table
-                      AND t2.related_resource_id = s.source_id
-                      AND t2.status = 'completed'
-                )
-              ORDER BY s.id ASC
-              LIMIT $4::int`,
-            tenantId,
-            CRITICAL_RESULT_RULE_CODE,
-            clock.toISOString(),
-            cap,
-          );
-        } catch (err) {
-          logger.error('escalation sweep: backfill query failed', { err: err?.message, tenantId });
-          orphans = [];
-        }
-
-        for (const inst of (Array.isArray(orphans) ? orphans : [])) {
-          try {
-            const res = await enqueueCriticalResultTask({
-              tenantId,
-              patientUid: inst.patient_uid || null,
-              source: inst.metadata?.source || inst.source_table || 'result',
-              resourceType: inst.source_table,
-              resourceId: inst.source_id,
-              severity: inst.priority === 'critical' ? 'critical' : 'high',
-              slaKey: inst.rule_code || CRITICAL_RESULT_RULE_CODE,
-            });
-            if (res?.created) counters.backfilled += 1;
-          } catch (err) {
-            // enqueueCriticalResultTask is itself best-effort, but guard anyway.
-            logger.error('escalation sweep: backfill enqueue failed', {
-              err: err?.message, tenantId, instanceId: inst.id,
-            });
-          }
-        }
-      });
+        ),
+        { readOnly: true },
+      );
     } catch (err) {
-      // A whole-tenant failure (e.g. tx open failed) must not stop other tenants.
-      logger.error('escalation sweep: tenant pass failed', { err: err?.message, tenantId });
+      logger.error('escalation sweep: rule query failed', { err: err?.message, tenantId });
+      rules = [];
+    }
+
+    for (const ruleRow of (Array.isArray(rules) ? rules : [])) {
+      let candidates = [];
+      try {
+        candidates = await setTenantTx(
+          tenantId,
+          (tx) => readEligibleCandidatePage(tx, { tenantId, ruleRow, clock, cap }),
+          { readOnly: true },
+        );
+      } catch (err) {
+        logger.error('escalation sweep: candidate query failed', {
+          err: err?.message, tenantId, ruleId: ruleRow.id,
+        });
+        continue;
+      }
+
+      if (Array.isArray(candidates) && candidates.length >= cap) {
+        logger.warn('escalation sweep: candidate page full — tasks beyond the page were NOT evaluated', {
+          tenantId,
+          ruleId: ruleRow.id,
+          triggerCondition: ruleRow.trigger_condition,
+          cap,
+        });
+        try {
+          recordEscalationCandidatePageFull({ triggerCondition: ruleRow.trigger_condition });
+        } catch (err) {
+          logger.warn('escalation sweep: candidate-page metric failed', { err: err?.message });
+        }
+      }
+
+      let skippedLocked = 0;
+      for (const taskRow of (Array.isArray(candidates) ? candidates : [])) {
+        counters.scanned += 1;
+        let claim;
+        try {
+          claim = await setTenantTx(tenantId, (tx) => claimEligibleCandidate(tx, {
+            tenantId,
+            taskId: taskRow.id,
+            ruleRow,
+            clock,
+          }));
+        } catch (err) {
+          logger.error('escalation sweep: per-task atomic action failed', {
+            err: err?.message, tenantId, taskId: taskRow.id, ruleId: ruleRow.id,
+          });
+          continue;
+        }
+
+        if (claim.outcome === 'lock_skipped') {
+          skippedLocked += 1;
+          continue;
+        }
+        if (claim.outcome !== 'claimed') continue;
+
+        if (claim.plan.action === 'auto_resolve') counters.autoResolved += 1;
+        else counters.escalated += 1;
+        try {
+          await dispatchAction({ tenantId, plan: claim.plan, now: clock });
+        } catch (err) {
+          logger.error('escalation sweep: post-commit dispatch failed', {
+            err: err?.message, tenantId, taskId: taskRow.id, ruleId: ruleRow.id,
+          });
+        }
+      }
+
+      if (skippedLocked > 0) {
+        logger.warn('escalation sweep: eligible task claims skipped due to task-row contention', {
+          tenantId,
+          ruleId: ruleRow.id,
+          triggerCondition: ruleRow.trigger_condition,
+          skippedLocked,
+          cap,
+        });
+        try {
+          recordEscalationCandidateLockSkipped({
+            triggerCondition: ruleRow.trigger_condition,
+            count: skippedLocked,
+          });
+        } catch (err) {
+          logger.warn('escalation sweep: candidate-lock-skipped metric failed', {
+            err: err?.message,
+          });
+        }
+      }
+    }
+
+    let orphans = [];
+    try {
+      orphans = await setTenantTx(
+        tenantId,
+        (tx) => tx.$queryRawUnsafe(
+          `SELECT s.id, s.tenant_id, s.rule_code, s.patient_uid,
+                  s.source_table, s.source_id, s.priority, s.metadata
+             FROM workflow_sla_instances s
+            WHERE s.tenant_id = $1::uuid
+              AND s.rule_code = $2::text
+              AND s.completed_at IS NULL
+              AND (
+                s.status = 'breached'
+                OR (
+                  s.status = 'active'
+                  AND s.due_at IS NOT NULL
+                  AND s.due_at < $3::timestamptz
+                )
+              )
+              AND s.source_table IS NOT NULL
+              AND s.source_id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM tasks task
+                 WHERE task.tenant_id = s.tenant_id
+                   AND task.workflow_sla_instance_id = s.id
+                   AND task.status <> 'cancelled'
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM tasks completed_task
+                 WHERE completed_task.tenant_id = s.tenant_id
+                   AND completed_task.related_resource_type = s.source_table
+                   AND completed_task.related_resource_id = s.source_id
+                   AND completed_task.status = 'completed'
+              )
+            ORDER BY s.id ASC
+            LIMIT $4::int`,
+          tenantId,
+          CRITICAL_RESULT_RULE_CODE,
+          clock.toISOString(),
+          cap,
+        ),
+        { readOnly: true },
+      );
+    } catch (err) {
+      logger.error('escalation sweep: backfill query failed', { err: err?.message, tenantId });
+    }
+
+    for (const inst of (Array.isArray(orphans) ? orphans : [])) {
+      try {
+        const res = await enqueueCriticalResultTask({
+          tenantId,
+          patientUid: inst.patient_uid || null,
+          source: inst.metadata?.source || inst.source_table || 'result',
+          resourceType: inst.source_table,
+          resourceId: inst.source_id,
+          severity: inst.priority === 'critical' ? 'critical' : 'high',
+          slaKey: inst.rule_code || CRITICAL_RESULT_RULE_CODE,
+        });
+        if (res?.created) counters.backfilled += 1;
+      } catch (err) {
+        logger.error('escalation sweep: backfill enqueue failed', {
+          err: err?.message, tenantId, instanceId: inst.id,
+        });
+      }
     }
   }
 
@@ -800,6 +1149,13 @@ export const __testing__ = {
   resolveRecipientsForRole,
   resolveRecipientByUid,
   queueRecipientNotifications,
+  buildEligibilitySql,
+  eligibilityParams,
+  readEligibleCandidatePage,
+  claimEligibleCandidate,
+  parseRankingControl,
+  reportRecipientRankingFailures,
+  noKeyUpdateTaskMutationTx,
   ROLE_FAMILY_FALLBACK,
   RECIPIENT_FANOUT_CAP,
   clampFanoutCap,

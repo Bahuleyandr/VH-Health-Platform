@@ -132,6 +132,16 @@ function recipientPage({ size, totalMatched, role }) {
   }));
 }
 
+function claimed(taskRow) {
+  return [{ outcome: 'claimed', task: taskRow }];
+}
+
+const NO_RANKING = [{ ranking_control: null, observed_mapping_count: 0 }];
+
+function queryCallMatching(pattern, index = 0) {
+  return queryRawMock.mock.calls.filter(([sql]) => pattern.test(sql))[index];
+}
+
 // ── Fixtures ───────────────────────────────────────────────────────────────
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT = '11111111-1111-4111-8111-111111111111';
@@ -204,6 +214,47 @@ beforeEach(() => {
   enqueueCriticalResultTaskMock.mockReset().mockResolvedValue({ created: true, taskId: 999 });
 });
 
+describe('eligibility semantic mirror', () => {
+  it('preserves exact task-kind, priority, and SLA-key match semantics', () => {
+    const row = task({ task_kind: 'review', priority: 'high', sla_rule_code: 'critical_result_ack' });
+    expect(__testing__.matchesFilter(row, {})).toBe(true);
+    expect(__testing__.matchesFilter(row, {
+      task_kind: 'review', priority: 'high', sla_key: 'critical_result_ack',
+    })).toBe(true);
+    expect(__testing__.matchesFilter(row, { task_kind: 'Review' })).toBe(false);
+    expect(__testing__.matchesFilter(row, { priority: 'critical' })).toBe(false);
+    expect(__testing__.matchesFilter(row, { sla_key: 'other' })).toBe(false);
+    expect(__testing__.matchesFilter({ ...row, sla_rule_code: null }, { sla_key: 'null' }))
+      .toBe(false);
+  });
+
+  it('keeps pending and SLA trigger windows inclusive at the captured-clock boundary', () => {
+    const pendingRule = rule({ trigger_condition: 'pending_too_long', trigger_window_minutes: 10 });
+    expect(__testing__.triggerHolds(task({
+      created_at: new Date(NOW.getTime() - 10 * 60_000),
+    }), pendingRule, NOW)).toBe(true);
+    expect(__testing__.triggerHolds(task({
+      created_at: new Date(NOW.getTime() - 10 * 60_000 + 1),
+    }), pendingRule, NOW)).toBe(false);
+
+    const slaRule = rule({ trigger_condition: 'sla_breach', trigger_window_minutes: 10 });
+    expect(__testing__.triggerHolds(task({
+      breach_at: new Date(NOW.getTime() - 10 * 60_000),
+    }), slaRule, NOW)).toBe(true);
+    expect(__testing__.triggerHolds(task({
+      breach_at: new Date(NOW.getTime() - 10 * 60_000 + 1),
+    }), slaRule, NOW)).toBe(false);
+  });
+
+  it('recognizes a fired marker only for the same numeric rule identity', () => {
+    const metadata = { escalations: [{ rule_id: '5' }, { rule_id: 8 }] };
+    expect(__testing__.alreadyFired(metadata, 5)).toBe(true);
+    expect(__testing__.alreadyFired(metadata, '8')).toBe(true);
+    expect(__testing__.alreadyFired(metadata, 9)).toBe(false);
+    expect(__testing__.alreadyFired({ escalations: null }, 5)).toBe(false);
+  });
+});
+
 describe('runEscalationSweep', () => {
   it('marks open tasks past due_at as overdue (tenant-scoped UPDATE)', async () => {
     queryRawMock
@@ -232,6 +283,7 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([]) // q2 overdue-marking
       .mockResolvedValueOnce([rule()]) // q3 active rules → T1 escalate_priority
       .mockResolvedValueOnce([task()]) // q4 candidates for the rule
+      .mockResolvedValueOnce(claimed(task())) // Phase 1 one-task claim
       // fireAction (audit C-3): T1 re-notify resolves the assignee uid → the
       // recipient row, then enqueues a per-recipient outbox row with a REAL id.
       .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
@@ -316,6 +368,7 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([broadRule])
       .mockResolvedValueOnce([protectedTask])
+      .mockResolvedValueOnce(claimed(protectedTask))
       .mockResolvedValueOnce([]);
 
     const result = await runEscalationSweep({ now: NOW });
@@ -324,7 +377,7 @@ describe('runEscalationSweep', () => {
     expect(executeRawMock).not.toHaveBeenCalled();
     expect(queueNotificationMock).not.toHaveBeenCalled();
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'escalation sweep: per-task action failed',
+      'escalation sweep: per-task atomic action failed',
       expect.objectContaining({ tenantId: TENANT, taskId: 77, ruleId: 5 }),
     );
   });
@@ -359,6 +412,7 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([broadRule])
       .mockResolvedValueOnce([pathwayTask])
+      .mockResolvedValueOnce(claimed(pathwayTask))
       .mockResolvedValueOnce([]);
 
     const result = await runEscalationSweep({ now: NOW });
@@ -379,7 +433,7 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([{ tenant_id: TENANT }]) // q1 tenants
       .mockResolvedValueOnce([]) // q2 overdue-marking
       .mockResolvedValueOnce([rule()]) // q3 active rules
-      .mockResolvedValueOnce([already]) // q4 candidate already has tier-1 for rule 5
+      .mockResolvedValueOnce([]) // SQL excludes the already-fired marker before LIMIT
       .mockResolvedValueOnce([]); // q5 backfill
 
     const res = await runEscalationSweep({ now: NOW });
@@ -387,6 +441,7 @@ describe('runEscalationSweep', () => {
     expect(res.escalated).toBe(0);
     expect(executeRawMock).not.toHaveBeenCalled(); // no metadata append
     expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(queryRawMock.mock.calls[3][0]).toMatch(/NOT EXISTS[\s\S]+rule_id[\s\S]+LIMIT/i);
   });
 
   it('tier-2 notify enqueues a notification to the resolved DUTY role', async () => {
@@ -401,6 +456,8 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([t2])
       .mockResolvedValueOnce([task()]) // breach_at 11:45 + 10min = 11:55 < NOW 12:00 → fires
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
       // fireAction (audit C-3): notify resolves notify_role (DUTY→DUTY_DOCTOR) to
       // the active on-duty users via the EXACT-role query (non-empty → no family
       // fallback), then enqueues one outbox row per recipient with a real id.
@@ -439,6 +496,8 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([t2])
       .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
       // Exact-role query → empty, family-fallback query → empty: the tenant has
       // no clinician in the role or its family.
       .mockResolvedValueOnce([]) // resolveRecipientsForRole exact
@@ -467,8 +526,8 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([{ tenant_id: TENANT }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([t3])
-      // breach_at 11:45 + 30min = 12:15 > NOW 12:00 → must NOT fire yet
-      .mockResolvedValueOnce([task()])
+      // SQL excludes the task because its 30-minute window has not elapsed.
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
     const res = await runEscalationSweep({ now: NOW });
@@ -492,6 +551,8 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([t3])
       .mockResolvedValueOnce([breachedLongAgo])
+      .mockResolvedValueOnce(claimed(breachedLongAgo))
+      .mockResolvedValueOnce(NO_RANKING)
       // notify resolves LEADERSHIP→CMO to a real recipient (exact-role query
       // non-empty → no family fallback), so the security webhook fires ONCE from
       // the rule's security_webhook flag — NOT from the empty-recipient path.
@@ -527,6 +588,11 @@ describe('runEscalationSweep', () => {
         sla_completion_semantics: 'none',
         sla_rule_code: null,
       })])
+      .mockResolvedValueOnce(claimed(task({
+        workflow_sla_instance_id: null,
+        sla_completion_semantics: 'none',
+        sla_rule_code: null,
+      })))
       .mockResolvedValueOnce([]);
 
     const res = await runEscalationSweep({ now: NOW });
@@ -567,6 +633,10 @@ describe('runEscalationSweep', () => {
         status: 'in_progress',
         sla_completion_semantics: 'domain_evidence',
       })])
+      .mockResolvedValueOnce(claimed(task({
+        status: 'in_progress',
+        sla_completion_semantics: 'domain_evidence',
+      })))
       .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
       .mockResolvedValueOnce([]);
 
@@ -592,6 +662,13 @@ describe('runEscalationSweep', () => {
         sla_completion_semantics: 'domain_evidence',
         sla_rule_code: 'mortuary_unclaimed_body',
       })])
+      .mockResolvedValueOnce(claimed(task({
+        title: 'Unclaimed body custody follow-up',
+        status: 'in_progress',
+        sla_completion_semantics: 'domain_evidence',
+        sla_rule_code: 'mortuary_unclaimed_body',
+      })))
+      .mockResolvedValueOnce(NO_RANKING)
       .mockResolvedValueOnce([{
         id: 71,
         uid: '55555555-5555-4555-8555-555555555555',
@@ -638,11 +715,11 @@ describe('runEscalationSweep', () => {
 
     expect(res.backfilled).toBe(1);
     expect(enqueueCriticalResultTaskMock).toHaveBeenCalledTimes(1);
-    const backfillSql = queryRawMock.mock.calls[3][0];
+    const backfillSql = queryCallMatching(/FROM workflow_sla_instances s/)[0];
     expect(backfillSql).toMatch(/s\.completed_at\s+IS\s+NULL/i);
-    expect(backfillSql).toMatch(/t\.status\s*<>\s*'cancelled'/i);
-    expect(backfillSql).toMatch(/t2\.status\s*=\s*'completed'/i);
-    expect(backfillSql).not.toMatch(/t2\.status\s+IN\s*\([^)]*'cancelled'/i);
+    expect(backfillSql).toMatch(/task\.status\s*<>\s*'cancelled'/i);
+    expect(backfillSql).toMatch(/completed_task\.status\s*=\s*'completed'/i);
+    expect(backfillSql).not.toMatch(/completed_task\.status\s+IN\s*\([^)]*'cancelled'/i);
     const arg = enqueueCriticalResultTaskMock.mock.calls[0][0];
     expect(arg).toMatchObject({
       tenantId: TENANT,
@@ -660,6 +737,9 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([rule()])
       .mockResolvedValueOnce([t1, t2]) // two candidates
+      .mockResolvedValueOnce(claimed(t1))
+      .mockResolvedValueOnce(claimed(t2))
+      .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
       .mockResolvedValueOnce([]);
     // First task's metadata append throws; second must still process.
     executeRawMock
@@ -677,6 +757,102 @@ describe('runEscalationSweep', () => {
     queryRawMock.mockResolvedValueOnce([]); // q1 → no tenants with rules
     const res = await runEscalationSweep({ now: NOW });
     expect(res).toMatchObject({ scanned: 0, escalated: 0, autoResolved: 0, backfilled: 0 });
+  });
+});
+
+describe('shared SQL-complete eligibility and one-task claim shape', () => {
+  it.each([
+    ['sla_breach', { task_kind: 'review', priority: 'critical', sla_key: 'critical_result_ack' }],
+    ['pending_too_long', { task_kind: 'follow_up', priority: 'high' }],
+  ])('keeps %s filters, window, and fired marker before Phase-0 LIMIT', async (
+    triggerCondition,
+    matchFilter,
+  ) => {
+    const tx = { $queryRawUnsafe: jest.fn().mockResolvedValue([]) };
+    await __testing__.readEligibleCandidatePage(tx, {
+      tenantId: TENANT,
+      ruleRow: rule({ trigger_condition: triggerCondition, match_filter: matchFilter }),
+      clock: NOW,
+      cap: 17,
+    });
+    const [sql, ...params] = tx.$queryRawUnsafe.mock.calls[0];
+    const limitAt = sql.indexOf('LIMIT $8::int');
+    expect(limitAt).toBeGreaterThan(0);
+    for (const predicate of ['$4::text', '$5::text', '$6::text', 'make_interval', 'NOT EXISTS']) {
+      expect(sql.indexOf(predicate)).toBeGreaterThan(0);
+      expect(sql.indexOf(predicate)).toBeLessThan(limitAt);
+    }
+    expect(sql).not.toMatch(/FOR\s+(UPDATE|NO KEY UPDATE)/i);
+    expect(params).toHaveLength(8);
+    expect(params.at(-1)).toBe(17);
+  });
+
+  it('reuses the eligibility fragment in both Phase-1 arms and locks only one task', async () => {
+    const tx = { $queryRawUnsafe: jest.fn().mockResolvedValue([{ outcome: 'stale', task: null }]) };
+    await __testing__.claimEligibleCandidate(tx, {
+      tenantId: TENANT,
+      taskId: 77,
+      ruleRow: rule(),
+      clock: NOW,
+    });
+    const [sql, ...params] = tx.$queryRawUnsafe.mock.calls[0];
+    expect((sql.match(/NOT EXISTS \(/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect((sql.match(/make_interval\(mins => \$3::int\)/g) || [])).toHaveLength(2);
+    expect((sql.match(/t\.id = \$8::bigint/g) || [])).toHaveLength(2);
+    expect(sql).toMatch(/FOR NO KEY UPDATE OF t SKIP LOCKED/i);
+    expect(sql).not.toMatch(/FOR UPDATE/i);
+    expect(params.at(-1)).toBe(77);
+  });
+
+  it('prevents taskService from upgrading the claimed task to FOR UPDATE', async () => {
+    const tx = { $queryRawUnsafe: jest.fn().mockResolvedValue([]) };
+    const taskMutationTx = __testing__.noKeyUpdateTaskMutationTx(tx);
+    await taskMutationTx.$queryRawUnsafe(
+      `SELECT id, tenant_id FROM tasks
+        WHERE id = $1 AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      77,
+      TENANT,
+    );
+    await taskMutationTx.$queryRawUnsafe(
+      `SELECT id FROM workflow_sla_instances
+        WHERE id = $1::uuid
+        FOR UPDATE`,
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    );
+
+    expect(tx.$queryRawUnsafe.mock.calls[0][0]).toMatch(/FOR NO KEY UPDATE$/i);
+    expect(tx.$queryRawUnsafe.mock.calls[0][0]).not.toMatch(/FOR UPDATE$/i);
+    expect(tx.$queryRawUnsafe.mock.calls[1][0]).toMatch(/FOR UPDATE$/i);
+  });
+
+  it('treats a stale Phase-0 candidate as a no-op without a lock-skip signal', async () => {
+    const before = counterValue('vhhealth_escalation_candidate_lock_skipped_total', {
+      trigger_condition: 'pending_too_long',
+    });
+    const pendingRule = rule({
+      trigger_condition: 'pending_too_long',
+      trigger_window_minutes: 0,
+      match_filter: { task_kind: 'review' },
+    });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([pendingRule])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce([{ outcome: 'stale', task: null }])
+      .mockResolvedValueOnce([]);
+
+    const result = await runEscalationSweep({ now: NOW });
+
+    expect(result).toMatchObject({ scanned: 1, escalated: 0, autoResolved: 0 });
+    expect(loggerWarnMock).not.toHaveBeenCalledWith(
+      'escalation sweep: eligible task claims skipped due to task-row contention',
+      expect.anything(),
+    );
+    expect(counterValue('vhhealth_escalation_candidate_lock_skipped_total', {
+      trigger_condition: 'pending_too_long',
+    })).toBe(before);
   });
 });
 
@@ -714,12 +890,14 @@ describe('escalation recipient fan-out cap', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([notifyRule()])
       .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
       .mockResolvedValueOnce(recipientPage({ size: 1, totalMatched: 1, role: 'DUTY_DOCTOR' }))
       .mockResolvedValueOnce([]);
 
     await runEscalationSweep({ now: NOW });
 
-    const [sql, , , boundCap] = queryRawMock.mock.calls[4];
+    const [sql, , , boundCap] = queryCallMatching(/FROM users[\s\S]+role = \$2/);
     // The magic number is gone and the bound is a real parameter.
     expect(sql).not.toMatch(/LIMIT\s+50\b/i);
     expect(sql).toMatch(/LIMIT\s+\$3::int/i);
@@ -741,6 +919,8 @@ describe('escalation recipient fan-out cap', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([notifyRule()])
       .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
       // A full page (LIMIT CAP returned CAP rows) while CAP + 7 users matched.
       .mockResolvedValueOnce(recipientPage({
         size: CAP, totalMatched: CAP + dropped, role: 'DUTY_DOCTOR',
@@ -775,6 +955,8 @@ describe('escalation recipient fan-out cap', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([notifyRule()])
       .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
       // Nobody holds DUTY_DOCTOR exactly → widen to DOCTOR_TIERS, which overflows.
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(recipientPage({
@@ -790,7 +972,7 @@ describe('escalation recipient fan-out cap', () => {
     expect(counterValue(TRIM_METRIC, { role: 'DUTY_DOCTOR', arm: 'family' }))
       .toBe(before + dropped);
     // The widened query is capped and ordered identically to the exact arm.
-    const [familySql, , , boundCap] = queryRawMock.mock.calls[5];
+    const [familySql, , , boundCap] = queryCallMatching(/role\s*=\s*ANY\(\$2::text\[\]\)/i);
     expect(familySql).toMatch(/role\s*=\s*ANY\(\$2::text\[\]\)/i);
     expect(familySql).not.toMatch(/LIMIT\s+50\b/i);
     expect(boundCap).toBe(CAP);
@@ -803,6 +985,8 @@ describe('escalation recipient fan-out cap', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([notifyRule()])
       .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
       .mockResolvedValueOnce(recipientPage({ size: 3, totalMatched: 3, role: 'DUTY_DOCTOR' }))
       .mockResolvedValueOnce([]);
 
@@ -825,7 +1009,11 @@ describe('escalation recipient fan-out cap', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([notifyRule()])
       .mockResolvedValueOnce([task({ id: 77 }), task({ id: 78 })]) // page came back FULL
+      .mockResolvedValueOnce(claimed(task({ id: 77 })))
+      .mockResolvedValueOnce(NO_RANKING)
       .mockResolvedValueOnce(recipientPage({ size: 1, totalMatched: 1, role: 'DUTY_DOCTOR' }))
+      .mockResolvedValueOnce(claimed(task({ id: 78 })))
+      .mockResolvedValueOnce(NO_RANKING)
       .mockResolvedValueOnce(recipientPage({ size: 1, totalMatched: 1, role: 'DUTY_DOCTOR' }))
       .mockResolvedValueOnce([]);
 
@@ -849,6 +1037,8 @@ describe('escalation recipient fan-out cap', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([notifyRule()])
       .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
       .mockResolvedValueOnce([{ id: 51, uid: CLINICIAN, phone: '+919800000051', role: 'DUTY_DOCTOR' }])
       .mockResolvedValueOnce([]);
 
