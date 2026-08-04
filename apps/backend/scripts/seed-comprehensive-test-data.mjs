@@ -678,6 +678,12 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     recovery_critical_result_ids: [],
     recovery_pending_task_id: null,
   },
+  // mig 624: release receipt links are command evidence. Generic coverage
+  // rows must remain ordinary live/held messages and never synthesize release.
+  hl7_outbound_messages: {
+    tenant_id: (ctx) => ctx.tenantId,
+    owner_release_client_event_id: null,
+  },
   vitals_chart: {
     recovery_inbox_id: null,
     recovery_interface_family: null,
@@ -685,6 +691,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // mig 611: generic coverage represents an ordinary live HL7v2 message and
   // its protocol-adapter receipt. Recovery provenance is owner-supplied only.
   interop_messages: {
+    tenant_id: (ctx) => ctx.tenantId,
     protocol: 'hl7v2',
     direction: 'inbound',
     message_type: 'ADT^A01',
@@ -711,6 +718,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     delivery_claim_token: null,
     delivery_claimed_at: null,
     delivery_lease_expires_at: null,
+    owner_release_client_event_id: null,
   },
   // mig 618: generic coverage represents legacy/live ABDM rows. Recovery
   // ownership and canonical-inbox provenance are owner-supplied only.
@@ -738,6 +746,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   // mig 619: generic coverage represents an ordinary live NHCX envelope.
   // Recovery provenance and stranded-processing ownership are owner-supplied.
   nhcx_messages: {
+    tenant_id: (ctx) => ctx.tenantId,
     environment: 'sandbox',
     cycle: 'eligibility',
     recovery_inbox_id: null,
@@ -760,6 +769,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     inbound_owner_reason: null,
     inbound_owner_disposition: null,
     inbound_owner_claimed_at: null,
+    owner_release_client_event_id: null,
   },
   // mig 604: legacy staff-device rows remain valid only when both identity
   // pointers are absent, while user_devices must not infer continuity or

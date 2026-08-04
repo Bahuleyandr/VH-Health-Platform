@@ -11261,6 +11261,215 @@
           }
         }
       },
+      "ClinicalContinuityHeldMessageAttestationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "release_reason_code",
+          "release_reason_detail",
+          "expected_source_state_fingerprint"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "release_reason_code": {
+            "$ref": "#/components/schemas/ClinicalContinuityHeldMessageReleaseReason"
+          },
+          "release_reason_detail": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500
+          },
+          "expected_source_state_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "ClinicalContinuityHeldMessageBindRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "incident_interface_id",
+          "interface_family",
+          "message_id",
+          "expected_incident_interface_version",
+          "expected_source_state_fingerprint"
+        ],
+        "properties": {
+          "incident_interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_family": {
+            "$ref": "#/components/schemas/ClinicalContinuityHeldMessageFamily"
+          },
+          "message_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ]
+          },
+          "expected_incident_interface_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expected_source_state_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "ClinicalContinuityHeldMessageCommandResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityHeldMessageCommandResult"
+          }
+        }
+      },
+      "ClinicalContinuityHeldMessageCommandResult": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "exact_duplicate"
+            ]
+          },
+          "item": {
+            "$ref": "#/components/schemas/ClinicalContinuityReconciliationItem"
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "effect_evidence_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "audit_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "decision_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "command_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "outcome_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "prior_authority_state": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "next_authority_state": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "network_send_performed": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityHeldMessageFamily": {
+        "type": "string",
+        "enum": [
+          "I04",
+          "I05",
+          "I19"
+        ]
+      },
+      "ClinicalContinuityHeldMessageReleaseReason": {
+        "type": "string",
+        "enum": [
+          "downstream_readiness_confirmed",
+          "transport_configuration_corrected",
+          "duplicate_delivery_risk_reviewed",
+          "acknowledgement_uncertainty_reviewed",
+          "owner_recovery_evidence_reconciled"
+        ]
+      },
+      "ClinicalContinuityHeldMessageReleaseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "release_reason_code",
+          "release_reason_detail",
+          "expected_source_state_fingerprint"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "release_reason_code": {
+            "$ref": "#/components/schemas/ClinicalContinuityHeldMessageReleaseReason"
+          },
+          "release_reason_detail": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500
+          },
+          "expected_source_state_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "safety_attestation_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityHeldMessageSafetyClass": {
+        "type": "string",
+        "enum": [
+          "routine_operational",
+          "safety_critical",
+          "unclassified"
+        ]
+      },
       "ClinicalContinuityIdentityApprovalRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -12175,6 +12384,98 @@
             ],
             "nullable": true
           },
+          "incident_interface_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "interface_item_kind": {
+            "type": "string",
+            "enum": [
+              "held_message_release"
+            ],
+            "nullable": true
+          },
+          "interface_family": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClinicalContinuityHeldMessageFamily"
+              }
+            ],
+            "nullable": true
+          },
+          "hl7_outbound_message_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "interop_message_id": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "nhcx_message_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ],
+            "nullable": true
+          },
+          "hold_reason_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "hold_safety_class": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClinicalContinuityHeldMessageSafetyClass"
+              }
+            ],
+            "nullable": true
+          },
+          "source_state_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "source_safe_evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "release_attestation_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "release_receipt_disposition": {
+            "type": "string",
+            "nullable": true
+          },
+          "release_receipt_outcome_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "release_audit_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "can_attest_release": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "can_release": {
+            "type": "boolean",
+            "nullable": true
+          },
           "version": {
             "type": "integer",
             "minimum": 1
@@ -12407,7 +12708,8 @@
           "reconciliation_items",
           "temporary_identities",
           "device_offsets",
-          "interfaces"
+          "interfaces",
+          "capabilities"
         ],
         "properties": {
           "incidents": {
@@ -12456,6 +12758,18 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ClinicalContinuityInterfaceRequirement"
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "can_bind"
+            ],
+            "properties": {
+              "can_bind": {
+                "type": "boolean"
+              }
             }
           }
         }
@@ -86202,6 +86516,49 @@
         }
       }
     },
+    "/api/v1/downtime/reconciliation/incidents/{incidentId}/interface-held-messages": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incidents_by_incidentId_interface_held_messages",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityHeldMessageCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Bind one held interface message to continuity reconciliation",
+        "description": "Binds one exact held I04, I05, or non-payment outbound I19 message to an existing incident-interface requirement and creates or returns its C5.2 interface item/task. It performs no release, dispatch, ACK, cursor, payment, pathway, SLA, or notification effect. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "incidentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityHeldMessageBindRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/downtime/reconciliation/incidents/{incidentId}/interfaces/requirement": {
       "put": {
         "operationId": "put_api_v1_downtime_reconciliation_incidents_by_incidentId_interfaces_requirement",
@@ -86586,6 +86943,92 @@
         }
       }
     },
+    "/api/v1/downtime/reconciliation/reconciliation-items/{itemId}/held-message-release": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_reconciliation_items_by_itemId_held_message_release",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityHeldMessageCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Release send authority for one bound held message",
+        "description": "The current configured interface owner releases one exact bound held message by claiming/finalizing the C5.1 receipt and atomically recording exact prior/next authority. Exact duplicates return the prior outcome; drift fails closed; no network send, ACK, cursor, payment, pathway, SLA, or notification effect occurs in the command. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityHeldMessageReleaseRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/reconciliation-items/{itemId}/held-message-release/attestations": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_reconciliation_items_by_itemId_held_message_release_attestations",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityHeldMessageCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Attest a safety-critical held-message release",
+        "description": "The configured clinical safety lead co-attests one exact safety-critical held-release fingerprint. It performs no authority flip or dispatch, and the attester must differ from the interface releaser. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityHeldMessageAttestationRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/downtime/reconciliation/workbench": {
       "get": {
         "operationId": "get_api_v1_downtime_reconciliation_workbench",
@@ -86605,7 +87048,7 @@
           }
         },
         "summary": "Read the reconciliation workbench for the caller's facility",
-        "description": "Read-only snapshot of the clinical-continuity reconciliation workbench for the caller's facility, gated to a fixed set of continuity-admin/records/clinical-safety-lead roles. Returns incidents in every lifecycle state -- not just open ones -- optionally filtered to one via `incident_id`; paper items and reconciliation-queue items are capped at 500 rows and, for non-admin/non-safety-lead callers, limited to items they authored or are assigned to, while packets, paper ranges, temporary identities, device offsets, and interface requirements are populated only for admin or safety-lead callers. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it."
+        "description": "Returns the facility-scoped C5.2 workbench, including typed interface held-message items. Visibility does not grant release authority, payload/ciphertext is not returned, and I18 remains excluded. Read-only snapshot of the clinical-continuity reconciliation workbench for the caller's facility, gated to a fixed set of continuity-admin/records/clinical-safety-lead roles. Returns incidents in every lifecycle state -- not just open ones -- optionally filtered to one via `incident_id`; paper items and reconciliation-queue items are capped at 500 rows and, for non-admin/non-safety-lead callers, limited to items they authored or are assigned to, while packets, paper ranges, temporary identities, device offsets, and interface requirements are populated only for admin or safety-lead callers. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it."
       }
     },
     "/api/v1/downtime/wards": {
@@ -93427,36 +93870,6 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/hl7-feeds/messages/{id}/replay": {
-      "post": {
-        "operationId": "post_api_v1_hl7_feeds_messages_by_id_replay",
-        "tags": [
-          "hl7"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
       }
     },
     "/api/v1/hl7-feeds/subscriptions": {

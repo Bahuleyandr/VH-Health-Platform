@@ -697,6 +697,30 @@ export async function dispatchPendingNHCXMessages({
              AND direction = 'outbound'
              AND status IN ('pending', 'failed')
              AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+             AND (
+               (recovery_inbox_id IS NULL AND owner_release_client_event_id IS NULL)
+               OR (
+                 recovery_inbox_id IS NOT NULL
+                 AND recovery_disposition = 'manual_redrive_requested'
+                 AND cycle <> 'payment_notice'
+                 AND owner_release_client_event_id IS NOT NULL
+                 AND EXISTS (
+                   SELECT 1
+                     FROM clinical_continuity_replay_receipts AS receipt
+                     JOIN clinical_continuity_replay_effect_evidence AS effect
+                       ON effect.tenant_id = receipt.tenant_id
+                      AND effect.client_event_id = receipt.client_event_id
+                    WHERE receipt.tenant_id = nhcx_messages.tenant_id
+                      AND receipt.client_event_id = nhcx_messages.owner_release_client_event_id
+                      AND receipt.source_kind = 'held_message_release'
+                      AND receipt.disposition = 'applied'
+                      AND receipt.outcome_code = 'held_message_send_authority_rearmed'
+                      AND effect.interface_family = 'I19'
+                      AND effect.nhcx_message_id = nhcx_messages.id
+                      AND effect.network_send_performed = false
+                 )
+               )
+             )
            ORDER BY COALESCE(next_retry_at, created_at), id
            FOR UPDATE SKIP LOCKED
            LIMIT $2
@@ -711,6 +735,30 @@ export async function dispatchPendingNHCXMessages({
            WHERE direction = 'outbound'
              AND status IN ('pending', 'failed')
              AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+             AND (
+               (recovery_inbox_id IS NULL AND owner_release_client_event_id IS NULL)
+               OR (
+                 recovery_inbox_id IS NOT NULL
+                 AND recovery_disposition = 'manual_redrive_requested'
+                 AND cycle <> 'payment_notice'
+                 AND owner_release_client_event_id IS NOT NULL
+                 AND EXISTS (
+                   SELECT 1
+                     FROM clinical_continuity_replay_receipts AS receipt
+                     JOIN clinical_continuity_replay_effect_evidence AS effect
+                       ON effect.tenant_id = receipt.tenant_id
+                      AND effect.client_event_id = receipt.client_event_id
+                    WHERE receipt.tenant_id = nhcx_messages.tenant_id
+                      AND receipt.client_event_id = nhcx_messages.owner_release_client_event_id
+                      AND receipt.source_kind = 'held_message_release'
+                      AND receipt.disposition = 'applied'
+                      AND receipt.outcome_code = 'held_message_send_authority_rearmed'
+                      AND effect.interface_family = 'I19'
+                      AND effect.nhcx_message_id = nhcx_messages.id
+                      AND effect.network_send_performed = false
+                 )
+               )
+             )
            ORDER BY COALESCE(next_retry_at, created_at), id
            FOR UPDATE SKIP LOCKED
            LIMIT $1

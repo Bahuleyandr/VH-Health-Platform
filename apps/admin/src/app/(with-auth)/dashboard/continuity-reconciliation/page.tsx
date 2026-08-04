@@ -4,7 +4,9 @@ import { FormEvent, useCallback, useMemo, useState } from "react";
 
 import {
   approveClinicalContinuityIdentityMatch,
+  attestClinicalContinuityHeldMessageRelease,
   attestClinicalContinuityClosure,
+  bindClinicalContinuityHeldMessage,
   checkClinicalContinuityClosure,
   closeClinicalContinuityIncident,
   decideClinicalContinuityReconciliationItem,
@@ -14,9 +16,13 @@ import {
   recordClinicalContinuityDeviceOffset,
   recordClinicalContinuityInterfaceRequirement,
   recordClinicalContinuityRangeDisposition,
+  releaseClinicalContinuityHeldMessage,
   transitionClinicalContinuityIncident,
   type ClinicalContinuityClosure,
   type ClinicalContinuityFacilityAuthority,
+  type ClinicalContinuityHeldMessageFamily,
+  type ClinicalContinuityHeldMessageQueueItem,
+  type ClinicalContinuityHeldMessageReleaseReason,
   type ClinicalContinuityWorkbench,
 } from "@/lib/api/clinicalContinuityReconciliation";
 
@@ -516,6 +522,15 @@ export default function ContinuityReconciliationPage() {
               </div>
 
               <Panel title="Interface recovery requirements">
+                {workbench.capabilities?.can_bind ? (
+                  <HeldMessageBindingForm
+                    incident={incident}
+                    requirements={incidentRows.interfaces}
+                    authority={authority}
+                    busy={busy}
+                    run={run}
+                  />
+                ) : null}
                 {incidentRows.interfaces.length === 0 ? (
                   <Empty>No interface requirement is registered.</Empty>
                 ) : (
@@ -737,6 +752,19 @@ function QueueRow({
   run: (label: string, command: () => Promise<unknown>) => Promise<void>;
 }) {
   const [reason, setReason] = useState("");
+  if (
+    (item as Partial<ClinicalContinuityHeldMessageQueueItem>)
+      .interface_item_kind === "held_message_release"
+  ) {
+    return (
+      <HeldMessageReleaseRow
+        item={item as ClinicalContinuityHeldMessageQueueItem}
+        authority={authority}
+        busy={busy}
+        run={run}
+      />
+    );
+  }
   return (
     <div className="rounded-lg border border-border p-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -782,6 +810,158 @@ function QueueRow({
             {decision}
           </ActionButton>
         ))}
+      </div>
+    </div>
+  );
+}
+
+const HELD_RELEASE_REASONS: Array<{
+  value: ClinicalContinuityHeldMessageReleaseReason;
+  label: string;
+}> = [
+  {
+    value: "downstream_readiness_confirmed",
+    label: "Downstream readiness confirmed",
+  },
+  {
+    value: "transport_configuration_corrected",
+    label: "Transport configuration corrected",
+  },
+  {
+    value: "duplicate_delivery_risk_reviewed",
+    label: "Duplicate-delivery risk reviewed",
+  },
+  {
+    value: "acknowledgement_uncertainty_reviewed",
+    label: "Acknowledgement uncertainty reviewed",
+  },
+  {
+    value: "owner_recovery_evidence_reconciled",
+    label: "Owner recovery evidence reconciled",
+  },
+];
+
+function HeldMessageReleaseRow({
+  item,
+  authority,
+  busy,
+  run,
+}: {
+  item: ClinicalContinuityHeldMessageQueueItem;
+  authority: ClinicalContinuityFacilityAuthority;
+  busy: boolean;
+  run: (label: string, command: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [reason, setReason] =
+    useState<ClinicalContinuityHeldMessageReleaseReason>(
+      "downstream_readiness_confirmed",
+    );
+  const [detail, setDetail] = useState("");
+  const [idempotencyKey, setIdempotencyKey] = useState("");
+  const messageId =
+    item.hl7_outbound_message_id ??
+    item.interop_message_id ??
+    item.nhcx_message_id;
+  const command = {
+    expected_version: item.version,
+    release_reason_code: reason,
+    release_reason_detail: detail.trim(),
+    expected_source_state_fingerprint: item.source_state_fingerprint,
+  };
+  const detailReady = detail.trim().length >= 10 && detail.trim().length <= 500;
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <strong>
+          {item.interface_family} held message {String(messageId)}
+        </strong>
+        <Badge value={item.hold_safety_class} />
+      </div>
+      <p className="mt-1">
+        Send authority only · task {item.task_status ?? "not created"} · v
+        {item.version}
+      </p>
+      <p className="mt-1 break-all font-mono text-xs">
+        source {item.source_state_fingerprint}
+      </p>
+      <details className="mt-2">
+        <summary className="cursor-pointer font-medium">Safe source evidence</summary>
+        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-xs">
+          {JSON.stringify(item.source_safe_evidence, null, 2)}
+        </pre>
+      </details>
+      {item.release_receipt_outcome_code ? (
+        <p className="mt-2 font-medium">
+          Receipt outcome: {item.release_receipt_outcome_code.replaceAll("_", " ")}
+        </p>
+      ) : null}
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <select
+          aria-label={`Release reason ${item.id}`}
+          value={reason}
+          onChange={(event) =>
+            setReason(
+              event.target.value as ClinicalContinuityHeldMessageReleaseReason,
+            )
+          }
+          className="rounded-md border border-input bg-background px-2 py-1.5"
+        >
+          {HELD_RELEASE_REASONS.map((entry) => (
+            <option key={entry.value} value={entry.value}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label={`Release detail ${item.id}`}
+          placeholder="Reviewed evidence (10–500 characters)"
+          value={detail}
+          onChange={(event) => setDetail(event.target.value)}
+          className="rounded-md border border-input bg-background px-2 py-1.5"
+        />
+        <input
+          aria-label={`Release idempotency key ${item.id}`}
+          placeholder="Idempotency-Key for release"
+          value={idempotencyKey}
+          onChange={(event) => setIdempotencyKey(event.target.value)}
+          className="rounded-md border border-input bg-background px-2 py-1.5 sm:col-span-2"
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {item.can_attest_release ? (
+          <ActionButton
+            disabled={busy || !detailReady}
+            onClick={() =>
+              run("Held-message safety attestation recorded.", () =>
+                attestClinicalContinuityHeldMessageRelease(
+                  authority,
+                  item.id,
+                  command,
+                ),
+              )
+            }
+          >
+            Attest exact release
+          </ActionButton>
+        ) : null}
+        <ActionButton
+          disabled={busy || !item.can_release || !detailReady || !idempotencyKey.trim()}
+          onClick={() =>
+            run("Held-message send authority released.", () =>
+              releaseClinicalContinuityHeldMessage(
+                authority,
+                item.id,
+                idempotencyKey,
+                {
+                  ...command,
+                  safety_attestation_id: item.release_attestation_id ?? null,
+                },
+              ),
+            )
+          }
+        >
+          Release send authority
+        </ActionButton>
       </div>
     </div>
   );
@@ -958,6 +1138,92 @@ function DeviceRow({
           }
         >
           Assign gap
+        </ActionButton>
+      </div>
+    </div>
+  );
+}
+
+function HeldMessageBindingForm({
+  incident,
+  requirements,
+  authority,
+  busy,
+  run,
+}: {
+  incident: Incident;
+  requirements: InterfaceRequirement[];
+  authority: ClinicalContinuityFacilityAuthority;
+  busy: boolean;
+  run: (label: string, command: () => Promise<unknown>) => Promise<void>;
+}) {
+  const releaseable = requirements.filter((requirement) =>
+    ["I04", "I05", "I19"].includes(requirement.interface_family),
+  );
+  const [requirementId, setRequirementId] = useState("");
+  const [messageId, setMessageId] = useState("");
+  const [fingerprint, setFingerprint] = useState("");
+  const requirement =
+    releaseable.find((entry) => entry.id === requirementId) ?? null;
+  const ready = Boolean(
+    requirement &&
+      /^[1-9][0-9]*$/.test(messageId) &&
+      /^[0-9a-f]{64}$/.test(fingerprint.trim().toLowerCase()),
+  );
+  if (releaseable.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-dashed border-border p-3 text-sm">
+      <strong>Bind one exact held message</strong>
+      <p className="mt-1 text-muted-foreground">
+        I18 and predicate-bulk selection are unavailable. Binding performs no release.
+      </p>
+      <div className="mt-2 grid gap-2 lg:grid-cols-3">
+        <select
+          aria-label="Held-message incident interface"
+          value={requirementId}
+          onChange={(event) => setRequirementId(event.target.value)}
+          className="rounded-md border border-input bg-background px-2 py-1.5"
+        >
+          <option value="">Choose exact interface requirement</option>
+          {releaseable.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.interface_family} · {entry.source_partition} · v{entry.version}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label="Held-message ID"
+          inputMode="numeric"
+          placeholder="Exact message ID"
+          value={messageId}
+          onChange={(event) => setMessageId(event.target.value)}
+          className="rounded-md border border-input bg-background px-2 py-1.5"
+        />
+        <input
+          aria-label="Expected held-message source fingerprint"
+          placeholder="Expected SHA-256 source fingerprint"
+          value={fingerprint}
+          onChange={(event) => setFingerprint(event.target.value)}
+          className="rounded-md border border-input bg-background px-2 py-1.5"
+        />
+      </div>
+      <div className="mt-2">
+        <ActionButton
+          disabled={busy || !ready}
+          onClick={() =>
+            run("Held message bound to continuity reconciliation.", () =>
+              bindClinicalContinuityHeldMessage(authority, incident.id, {
+                incident_interface_id: requirement!.id,
+                interface_family:
+                  requirement!.interface_family as ClinicalContinuityHeldMessageFamily,
+                message_id: Number(messageId),
+                expected_incident_interface_version: requirement!.version,
+                expected_source_state_fingerprint: fingerprint.trim().toLowerCase(),
+              }),
+            )
+          }
+        >
+          Bind held message
         </ActionButton>
       </div>
     </div>

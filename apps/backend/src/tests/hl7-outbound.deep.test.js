@@ -2,8 +2,8 @@
 //
 // Spins a local HTTP receiver, subscribes it, emits ADT/ORU through the
 // hook-facing service functions, runs the delivery worker, and asserts:
-// delivery with the HL7 content type, retry/backoff on failures, replay,
-// and RBAC on the management surface.
+// delivery with the HL7 content type, retry/backoff on failures, and the
+// management surface without the retired generic replay authority.
 
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
@@ -236,7 +236,7 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     expect(rows[0].hl7_payload).toContain('7.2');
   });
 
-  test('message list + replay surface', async () => {
+  test('message list remains available while the retired generic replay route cannot release', async () => {
     const list = await tenantAuthClient('ADMIN')
       .get('/api/v1/hl7-feeds/messages')
       .query({ status: 'reconciliation_required' });
@@ -244,14 +244,37 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     const failed = list.body.data.messages.find((m) => m.subscription_name === 'C2TEST flaky');
     expect(failed).toBeDefined();
 
+    const before = await setTenantTx(TEST_TENANT_ID, async tx => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT status, send_authority, owner_release_client_event_id::text
+           FROM hl7_outbound_messages
+          WHERE tenant_id = $1::uuid AND id = $2::integer`,
+        TEST_TENANT_ID,
+        failed.id,
+      );
+      return rows[0];
+    });
+
     const replay = await tenantAuthClient('ADMIN')
       .post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`)
       .send({ owner_reason: 'Interface owner reviewed the receiver log and authorized one retry.' });
-    expect(replay.status).toBe(200);
-    expect(replay.body.data.message.status).toBe('queued');
-    expect(replay.body.data.message.send_authority).toBe('authorized');
+    expect(replay.status).toBe(404);
 
-    const nurse = await tenantAuthClient('NURSING_STAFF').post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`);
-    expect(nurse.status).toBe(403);
+    const after = await setTenantTx(TEST_TENANT_ID, async tx => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT status, send_authority, owner_release_client_event_id::text
+           FROM hl7_outbound_messages
+          WHERE tenant_id = $1::uuid AND id = $2::integer`,
+        TEST_TENANT_ID,
+        failed.id,
+      );
+      return rows[0];
+    });
+    expect(before).toMatchObject({
+      status: 'reconciliation_required',
+      send_authority: 'held_owner_reconciliation',
+      owner_release_client_event_id: null,
+    });
+    expect(after).toEqual(before);
   });
 });

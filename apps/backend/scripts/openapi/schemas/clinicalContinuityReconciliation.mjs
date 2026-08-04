@@ -46,6 +46,24 @@ export const schemas = {
     type: 'string',
     enum: ['unentered', 'claimed', 'applied', 'needs_review', 'excluded', 'voided', 'lost_revoked'],
   },
+  ClinicalContinuityHeldMessageFamily: {
+    type: 'string',
+    enum: ['I04', 'I05', 'I19'],
+  },
+  ClinicalContinuityHeldMessageSafetyClass: {
+    type: 'string',
+    enum: ['routine_operational', 'safety_critical', 'unclassified'],
+  },
+  ClinicalContinuityHeldMessageReleaseReason: {
+    type: 'string',
+    enum: [
+      'downstream_readiness_confirmed',
+      'transport_configuration_corrected',
+      'duplicate_delivery_risk_reviewed',
+      'acknowledgement_uncertainty_reviewed',
+      'owner_recovery_evidence_reconciled',
+    ],
+  },
   ClinicalContinuityIncident: {
     type: 'object',
     additionalProperties: true,
@@ -141,6 +159,28 @@ export const schemas = {
       task_status: { type: 'string', nullable: true },
       task_due_at: nullableDateTime,
       sla_completion_semantics: { type: 'string', enum: ['none', 'acknowledgement', 'domain_evidence'], nullable: true },
+      incident_interface_id: nullableUuid,
+      interface_item_kind: { type: 'string', enum: ['held_message_release'], nullable: true },
+      interface_family: {
+        allOf: [{ $ref: '#/components/schemas/ClinicalContinuityHeldMessageFamily' }],
+        nullable: true,
+      },
+      hl7_outbound_message_id: { type: 'integer', minimum: 1, nullable: true },
+      interop_message_id: { type: 'integer', minimum: 1, nullable: true },
+      nhcx_message_id: { ...bigintPositive, nullable: true },
+      hold_reason_code: { type: 'string', nullable: true },
+      hold_safety_class: {
+        allOf: [{ $ref: '#/components/schemas/ClinicalContinuityHeldMessageSafetyClass' }],
+        nullable: true,
+      },
+      source_state_fingerprint: { ...sha256, nullable: true },
+      source_safe_evidence: { type: 'object', additionalProperties: true, nullable: true },
+      release_attestation_id: nullableUuid,
+      release_receipt_disposition: { type: 'string', nullable: true },
+      release_receipt_outcome_code: { type: 'string', nullable: true },
+      release_audit_event_id: nullableUuid,
+      can_attest_release: { type: 'boolean', nullable: true },
+      can_release: { type: 'boolean', nullable: true },
       version: expectedVersion,
     },
   },
@@ -203,7 +243,7 @@ export const schemas = {
   ClinicalContinuityWorkbench: {
     type: 'object',
     additionalProperties: false,
-    required: ['incidents', 'packets', 'paper_ranges', 'paper_items', 'reconciliation_items', 'temporary_identities', 'device_offsets', 'interfaces'],
+    required: ['incidents', 'packets', 'paper_ranges', 'paper_items', 'reconciliation_items', 'temporary_identities', 'device_offsets', 'interfaces', 'capabilities'],
     properties: {
       incidents: { type: 'array', items: { $ref: '#/components/schemas/ClinicalContinuityIncident' } },
       packets: { type: 'array', items: { $ref: '#/components/schemas/ClinicalContinuityIncidentPacket' } },
@@ -213,6 +253,12 @@ export const schemas = {
       temporary_identities: { type: 'array', items: { $ref: '#/components/schemas/ClinicalContinuityTemporaryIdentity' } },
       device_offsets: { type: 'array', items: { $ref: '#/components/schemas/ClinicalContinuityDeviceOffset' } },
       interfaces: { type: 'array', items: { $ref: '#/components/schemas/ClinicalContinuityInterfaceRequirement' } },
+      capabilities: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['can_bind'],
+        properties: { can_bind: { type: 'boolean' } },
+      },
     },
   },
   ClinicalContinuityWorkbenchResponse: envelope('ClinicalContinuityWorkbench'),
@@ -347,6 +393,75 @@ export const schemas = {
       disposition: { type: 'string', enum: ['pending', 'reconciled', 'not_applicable', 'assigned_gap'] },
     },
   },
+  ClinicalContinuityHeldMessageBindRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'incident_interface_id',
+      'interface_family',
+      'message_id',
+      'expected_incident_interface_version',
+      'expected_source_state_fingerprint',
+    ],
+    properties: {
+      incident_interface_id: uuid,
+      interface_family: { $ref: '#/components/schemas/ClinicalContinuityHeldMessageFamily' },
+      message_id: bigintPositive,
+      expected_incident_interface_version: expectedVersion,
+      expected_source_state_fingerprint: sha256,
+    },
+  },
+  ClinicalContinuityHeldMessageAttestationRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'expected_version',
+      'release_reason_code',
+      'release_reason_detail',
+      'expected_source_state_fingerprint',
+    ],
+    properties: {
+      expected_version: expectedVersion,
+      release_reason_code: { $ref: '#/components/schemas/ClinicalContinuityHeldMessageReleaseReason' },
+      release_reason_detail: { type: 'string', minLength: 10, maxLength: 500 },
+      expected_source_state_fingerprint: sha256,
+    },
+  },
+  ClinicalContinuityHeldMessageReleaseRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'expected_version',
+      'release_reason_code',
+      'release_reason_detail',
+      'expected_source_state_fingerprint',
+    ],
+    properties: {
+      expected_version: expectedVersion,
+      release_reason_code: { $ref: '#/components/schemas/ClinicalContinuityHeldMessageReleaseReason' },
+      release_reason_detail: { type: 'string', minLength: 10, maxLength: 500 },
+      expected_source_state_fingerprint: sha256,
+      safety_attestation_id: nullableUuid,
+    },
+  },
+  ClinicalContinuityHeldMessageCommandResult: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      disposition: { type: 'string', enum: ['applied', 'exact_duplicate'] },
+      item: { $ref: '#/components/schemas/ClinicalContinuityReconciliationItem' },
+      receipt_id: nullableUuid,
+      effect_evidence_id: nullableUuid,
+      audit_event_id: nullableUuid,
+      decision_id: nullableUuid,
+      command_fingerprint: { ...sha256, nullable: true },
+      outcome_code: { type: 'string', nullable: true },
+      prior_authority_state: { type: 'object', additionalProperties: true, nullable: true },
+      next_authority_state: { type: 'object', additionalProperties: true, nullable: true },
+      network_send_performed: { type: 'boolean', enum: [false], nullable: true },
+    },
+  },
+  ClinicalContinuityHeldMessageCommandResponse: envelope('ClinicalContinuityHeldMessageCommandResult'),
   ClinicalContinuityIdentityMatchRequest: {
     type: 'object', additionalProperties: false,
     required: ['packet_id', 'paper_item_row_id', 'temporary_identity_id', 'target_patient_uid'],
@@ -408,7 +523,9 @@ export const operations = {
   [`GET ${base}/workbench`]: {
     summary: "Read the reconciliation workbench for the caller's facility",
     description:
-      "Read-only snapshot of the clinical-continuity reconciliation workbench for the caller's " +
+      "Returns the facility-scoped C5.2 workbench, including typed interface held-message items. " +
+      'Visibility does not grant release authority, payload/ciphertext is not returned, and I18 ' +
+      "remains excluded. Read-only snapshot of the clinical-continuity reconciliation workbench for the caller's " +
       'facility, gated to a fixed set of continuity-admin/records/clinical-safety-lead roles. ' +
       'Returns incidents in every lifecycle state -- not just open ones -- optionally filtered to ' +
       'one via `incident_id`; paper items and reconciliation-queue items are capped at 500 rows ' +
@@ -416,6 +533,41 @@ export const operations = {
       'assigned to, while packets, paper ranges, temporary identities, device offsets, and ' +
       'interface requirements are populated only for admin or safety-lead callers.' + ALWAYS_503,
     response: 'ClinicalContinuityWorkbenchResponse',
+  },
+  [`POST ${base}/incidents/{incidentId}/interface-held-messages`]: {
+    summary: 'Bind one held interface message to continuity reconciliation',
+    description:
+      'Binds one exact held I04, I05, or non-payment outbound I19 message to an existing ' +
+      'incident-interface requirement and creates or returns its C5.2 interface item/task. It ' +
+      'performs no release, dispatch, ACK, cursor, payment, pathway, SLA, or notification effect.' +
+      ALWAYS_503,
+    pathParameters: { incidentId: uuid },
+    request: 'ClinicalContinuityHeldMessageBindRequest',
+    response: 'ClinicalContinuityHeldMessageCommandResponse',
+    responseStatus: 201,
+  },
+  [`POST ${base}/reconciliation-items/{itemId}/held-message-release/attestations`]: {
+    summary: 'Attest a safety-critical held-message release',
+    description:
+      'The configured clinical safety lead co-attests one exact safety-critical held-release ' +
+      'fingerprint. It performs no authority flip or dispatch, and the attester must differ from ' +
+      'the interface releaser.' + ALWAYS_503,
+    pathParameters: { itemId: uuid },
+    request: 'ClinicalContinuityHeldMessageAttestationRequest',
+    response: 'ClinicalContinuityHeldMessageCommandResponse',
+    responseStatus: 201,
+  },
+  [`POST ${base}/reconciliation-items/{itemId}/held-message-release`]: {
+    summary: 'Release send authority for one bound held message',
+    description:
+      'The current configured interface owner releases one exact bound held message by claiming/' +
+      'finalizing the C5.1 receipt and atomically recording exact prior/next authority. Exact ' +
+      'duplicates return the prior outcome; drift fails closed; no network send, ACK, cursor, ' +
+      'payment, pathway, SLA, or notification effect occurs in the command.' + ALWAYS_503,
+    pathParameters: { itemId: uuid },
+    request: 'ClinicalContinuityHeldMessageReleaseRequest',
+    response: 'ClinicalContinuityHeldMessageCommandResponse',
+    responseStatus: 201,
   },
   [`POST ${base}/incidents/declare`]: {
     summary: 'Declare a clinical-continuity incident in real time',

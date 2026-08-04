@@ -51,6 +51,7 @@ describe('external interface recovery catalog', () => {
         facilityScope: 'tenant',
         partitionKind: 'tenant_subscription',
         duplicateKeyKind: 'tenant_subscription_source_event_message_type_payload_sha256',
+        lateRelease: 'c5_2_receipt_backed_per_message_safety_critical',
       });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I05' }))
       .toMatchObject({
@@ -62,6 +63,7 @@ describe('external interface recovery catalog', () => {
         implementedProtocols: expect.arrayContaining(['hl7v2']),
         facilityScope: 'tenant',
         partitionKind: 'tenant_channel_direction_target',
+        lateRelease: 'c5_2_receipt_backed_per_message_safety_critical',
       });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I09' }))
       .toMatchObject({
@@ -166,6 +168,7 @@ describe('external interface recovery catalog', () => {
         inboundIdentityKind: 'correlation_workflow_api_call_and_payload_sha256',
         replayAuthority: 'owner_directed_outbound_only',
         paymentNoticeRecovery: 'manual_only',
+        lateRelease: 'c5_2_receipt_backed_per_message_routine_non_payment_only',
       });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I23' }))
       .toMatchObject({

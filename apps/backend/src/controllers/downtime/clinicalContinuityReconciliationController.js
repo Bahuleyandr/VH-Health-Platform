@@ -3,6 +3,16 @@ import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistr
 import { authorizePatientAccessRequest } from '../../services/security/accessDecisionService.js';
 import { parseClinicalContinuityPaperCommand } from '../../validators/clinicalContinuityPaperSchemas.js';
 import {
+  parseHeldMessageAttestation,
+  parseHeldMessageBinding,
+  parseHeldMessageRelease,
+} from '../../validators/clinicalContinuityHeldReleaseSchemas.js';
+import {
+  attestClinicalContinuityHeldMessageRelease,
+  bindClinicalContinuityHeldMessage,
+  releaseClinicalContinuityHeldMessage,
+} from '../../services/downtime/clinicalContinuityHeldReleaseService.js';
+import {
   appendClinicalContinuityIncidentAlias,
   applyClinicalContinuityPaperBackEntry,
   attestClinicalContinuityClosure,
@@ -194,8 +204,65 @@ export async function listWorkbench(req, res, next) {
       actorUid: req.user?.uid,
       actorRole: req.user?.role,
       incidentId: req.query.incident_id,
+      queueType: req.query.queue_type,
+      interfaceItemKind: req.query.interface_item_kind,
     });
     return success(res, result, 'Clinical continuity reconciliation workbench');
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function bindHeldMessage(req, res, next) {
+  try {
+    const result = await bindClinicalContinuityHeldMessage({
+      ...authority(req),
+      incidentId: req.params.incidentId,
+      parsed: parseHeldMessageBinding(req.body),
+    });
+    return success(
+      res,
+      result,
+      'Held message bound to continuity reconciliation',
+      result.exact_duplicate ? 200 : 201,
+    );
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function attestHeldMessageRelease(req, res, next) {
+  try {
+    const result = await attestClinicalContinuityHeldMessageRelease({
+      ...authority(req),
+      itemId: req.params.itemId,
+      parsed: parseHeldMessageAttestation(req.body),
+    });
+    return success(res, result, 'Held-message release attestation recorded', 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function releaseHeldMessage(req, res, next) {
+  try {
+    const result = await releaseClinicalContinuityHeldMessage({
+      ...authority(req),
+      itemId: req.params.itemId,
+      parsed: parseHeldMessageRelease(req.body),
+      facilityContext: req.continuityFacilityContext,
+      appVersion: req.get('x-vh-client-app-version'),
+      devicePosture: req.user?.deviceType,
+      idempotencyKey: req.get('idempotency-key'),
+    });
+    return success(
+      res,
+      result,
+      result.disposition === 'exact_duplicate'
+        ? 'Prior held-message release outcome returned'
+        : 'Held-message send authority released',
+      result.disposition === 'exact_duplicate' ? 200 : 201,
+    );
   } catch (error) {
     return next(error);
   }

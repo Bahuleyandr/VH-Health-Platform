@@ -77,4 +77,18 @@ describe('I04 parsed MSA acknowledgement evidence', () => {
     expect(source).not.toMatch(/safeFetch|deliverPendingFeedMessages|deliverOne|endpoint_url/);
     expect(source).toMatch(/network_send_performed: false/);
   });
+
+  test('claim selector requires the exact applied C5.1 held-release proof', () => {
+    const path = fileURLToPath(new URL(
+      '../../services/hl7/hl7OutboundDeliveryLedgerService.js',
+      import.meta.url,
+    ));
+    const source = fs.readFileSync(path, 'utf8');
+    expect(source).toMatch(/receipt\.source_kind = 'held_message_release'/);
+    expect(source).toMatch(/receipt\.disposition = 'applied'/);
+    expect(source).toMatch(/effect\.interface_family = 'I04'/);
+    expect(source).toMatch(/effect\.hl7_outbound_message_id = message\.id/);
+    expect(source).toMatch(/effect\.network_send_performed = false/);
+    expect(source).not.toMatch(/authorizeOwnerRetry/);
+  });
 });

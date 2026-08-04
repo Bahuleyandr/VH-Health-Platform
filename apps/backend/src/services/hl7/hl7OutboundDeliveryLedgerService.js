@@ -134,8 +134,30 @@ export async function claimPendingFeedMessages({ tenantId, limit = 25 } = {}) {
           WHERE message.tenant_id = $1::uuid
             AND message.ledger_version = 1
             AND message.status IN ('queued', 'failed')
-            AND message.send_authority = 'authorized'
-            AND message.next_attempt_at <= NOW()
+             AND message.send_authority = 'authorized'
+             AND message.next_attempt_at <= NOW()
+             AND (
+               (message.recovery_inbox_id IS NULL AND message.owner_release_client_event_id IS NULL)
+               OR (
+                 message.recovery_inbox_id IS NOT NULL
+                 AND message.owner_release_client_event_id IS NOT NULL
+                 AND EXISTS (
+                   SELECT 1
+                     FROM clinical_continuity_replay_receipts AS receipt
+                     JOIN clinical_continuity_replay_effect_evidence AS effect
+                       ON effect.tenant_id = receipt.tenant_id
+                      AND effect.client_event_id = receipt.client_event_id
+                    WHERE receipt.tenant_id = message.tenant_id
+                      AND receipt.client_event_id = message.owner_release_client_event_id
+                      AND receipt.source_kind = 'held_message_release'
+                      AND receipt.disposition = 'applied'
+                      AND receipt.outcome_code = 'held_message_send_authority_rearmed'
+                      AND effect.interface_family = 'I04'
+                      AND effect.hl7_outbound_message_id = message.id
+                      AND effect.network_send_performed = false
+                 )
+               )
+             )
             AND EXISTS (
               SELECT 1
                 FROM hl7_feed_subscriptions AS active_subscription
@@ -165,8 +187,30 @@ export async function claimPendingFeedMessages({ tenantId, limit = 25 } = {}) {
                  AND first_due.subscription_id = message.subscription_id
                  AND first_due.ledger_version = 1
                  AND first_due.status IN ('queued', 'failed')
-                 AND first_due.send_authority = 'authorized'
-                 AND first_due.next_attempt_at <= NOW()
+                  AND first_due.send_authority = 'authorized'
+                  AND first_due.next_attempt_at <= NOW()
+                  AND (
+                    (first_due.recovery_inbox_id IS NULL AND first_due.owner_release_client_event_id IS NULL)
+                    OR (
+                      first_due.recovery_inbox_id IS NOT NULL
+                      AND first_due.owner_release_client_event_id IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1
+                          FROM clinical_continuity_replay_receipts AS receipt
+                          JOIN clinical_continuity_replay_effect_evidence AS effect
+                            ON effect.tenant_id = receipt.tenant_id
+                           AND effect.client_event_id = receipt.client_event_id
+                         WHERE receipt.tenant_id = first_due.tenant_id
+                           AND receipt.client_event_id = first_due.owner_release_client_event_id
+                           AND receipt.source_kind = 'held_message_release'
+                           AND receipt.disposition = 'applied'
+                           AND receipt.outcome_code = 'held_message_send_authority_rearmed'
+                           AND effect.interface_family = 'I04'
+                           AND effect.hl7_outbound_message_id = first_due.id
+                           AND effect.network_send_performed = false
+                      )
+                    )
+                  )
             )
           ORDER BY message.id
           LIMIT $2::integer
@@ -557,77 +601,6 @@ export async function reconcileExpiredClaims({ tenantId, limit = 50 } = {}) {
   }, { isolationLevel: 'Serializable' });
 }
 
-export async function authorizeOwnerRetryTx(tx, {
-  tenantId,
-  messageId,
-  actorUid,
-  ownerReason,
-  recoveryInboxId = null,
-} = {}) {
-  const tid = requireTenantId(tenantId);
-  const mid = requirePositiveInteger(messageId, 'message_id');
-  const actor = requireUuid(actorUid, 'actor_uid');
-  const reason = requireOwnerReason(ownerReason);
-  const inboxId = recoveryInboxId ? requireUuid(recoveryInboxId, 'recovery_inbox_id') : null;
-  const current = await tx.$queryRawUnsafe(
-    `SELECT id, ledger_version, status, acknowledgement_state,
-            send_authority, recovery_inbox_id::text
-       FROM hl7_outbound_messages
-      WHERE tenant_id = $1::uuid AND id = $2::integer
-      FOR UPDATE`,
-    tid, mid,
-  );
-  if (current.length !== 1) throw AppError.notFound('HL7 outbound message not found');
-  const message = current[0];
-  if (message.status === 'sent' || message.acknowledgement_state === 'aa') {
-    throw AppError.conflict(
-      'A positively acknowledged HL7 message cannot be replayed',
-      'HL7_OUTBOUND_ALREADY_ACKNOWLEDGED',
-    );
-  }
-  if (Number(message.ledger_version) === 0 && !inboxId && !message.recovery_inbox_id) {
-    throw AppError.conflict(
-      'Legacy HL7 delivery state requires recovery-inbox reconciliation',
-      'HL7_OUTBOUND_RECOVERY_INBOX_REQUIRED',
-    );
-  }
-  const updated = await tx.$queryRawUnsafe(
-    `UPDATE hl7_outbound_messages
-        SET send_authority = 'authorized', status = 'queued',
-            transport_state = 'not_attempted', acknowledgement_state = 'pending',
-            next_attempt_at = NOW(), last_error = NULL,
-            recovery_inbox_id = COALESCE(recovery_inbox_id, $5::uuid),
-            recovery_interface_family = CASE
-              WHEN COALESCE(recovery_inbox_id, $5::uuid) IS NULL THEN NULL ELSE 'I04'
-            END,
-            owner_release_actor_uid = $3::uuid,
-            owner_release_reason = $4::text, owner_released_at = NOW()
-      WHERE tenant_id = $1::uuid AND id = $2::integer
-      RETURNING id, subscription_id, status, transport_state,
-                acknowledgement_state, send_authority,
-                recovery_inbox_id::text, owner_release_actor_uid::text,
-                owner_release_reason, owner_released_at`,
-    tid, mid, actor, reason, inboxId,
-  );
-  await tx.$executeRawUnsafe(
-    `UPDATE hl7_outbound_delivery_cursors
-        SET state = 'ready', blocked_message_id = NULL,
-            inflight_message_id = NULL, updated_at = NOW()
-      WHERE tenant_id = $1::uuid AND subscription_id = $2::integer
-        AND state IN ('paused_rejected', 'paused_uncertain')
-        AND blocked_message_id = $3::integer`,
-    tid, updated[0].subscription_id, mid,
-  );
-  return Object.freeze(updated[0]);
-}
-
-export async function authorizeOwnerRetry(input = {}) {
-  const tid = requireTenantId(input.tenantId);
-  return setTenantTx(tid, tx => authorizeOwnerRetryTx(tx, { ...input, tenantId: tid }), {
-    isolationLevel: 'Serializable',
-  });
-}
-
 export async function recordOwnerAcknowledgementTx(tx, {
   tenantId,
   messageId,
@@ -708,8 +681,6 @@ export default Object.freeze({
   beginTransportAttempt,
   recordTransportOutcome,
   reconcileExpiredClaims,
-  authorizeOwnerRetry,
-  authorizeOwnerRetryTx,
   recordOwnerAcknowledgementTx,
   parseHl7MsaAcknowledgement,
   sha256Bytes,

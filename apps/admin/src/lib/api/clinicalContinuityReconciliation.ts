@@ -1,8 +1,39 @@
 import type { components } from "../openapi.generated";
 import { fetchAdminAPI } from "./core";
 
-export type ClinicalContinuityWorkbench =
-  components["schemas"]["ClinicalContinuityWorkbench"];
+type GeneratedWorkbench = components["schemas"]["ClinicalContinuityWorkbench"];
+type GeneratedQueueItem = GeneratedWorkbench["reconciliation_items"][number];
+export type ClinicalContinuityHeldMessageFamily = "I04" | "I05" | "I19";
+export type ClinicalContinuityHeldMessageReleaseReason =
+  | "downstream_readiness_confirmed"
+  | "transport_configuration_corrected"
+  | "duplicate_delivery_risk_reviewed"
+  | "acknowledgement_uncertainty_reviewed"
+  | "owner_recovery_evidence_reconciled";
+export type ClinicalContinuityHeldMessageQueueItem = GeneratedQueueItem & {
+  interface_item_kind: "held_message_release";
+  interface_family: ClinicalContinuityHeldMessageFamily;
+  hl7_outbound_message_id?: number | null;
+  interop_message_id?: number | null;
+  nhcx_message_id?: number | string | null;
+  hold_safety_class: "routine_operational" | "safety_critical" | "unclassified";
+  source_state_fingerprint: string;
+  source_safe_evidence: Record<string, unknown>;
+  release_attestation_id?: string | null;
+  release_receipt_disposition?: string | null;
+  release_receipt_outcome_code?: string | null;
+  can_attest_release: boolean;
+  can_release: boolean;
+};
+export type ClinicalContinuityWorkbench = Omit<
+  GeneratedWorkbench,
+  "reconciliation_items" | "capabilities"
+> & {
+  reconciliation_items: Array<
+    GeneratedQueueItem | ClinicalContinuityHeldMessageQueueItem
+  >;
+  capabilities?: { can_bind: boolean };
+};
 export type ClinicalContinuityIncident =
   components["schemas"]["ClinicalContinuityIncident"];
 export type ClinicalContinuityClosure =
@@ -21,6 +52,22 @@ export type ClinicalContinuityAttestationRequest =
   components["schemas"]["ClinicalContinuityAttestationRequest"];
 export type ClinicalContinuityDecisionRequest =
   components["schemas"]["ClinicalContinuityDecisionRequest"];
+
+export interface ClinicalContinuityHeldMessageBindRequest {
+  incident_interface_id: string;
+  interface_family: ClinicalContinuityHeldMessageFamily;
+  message_id: number;
+  expected_incident_interface_version: number;
+  expected_source_state_fingerprint: string;
+}
+
+export interface ClinicalContinuityHeldMessageReleaseRequest {
+  expected_version: number;
+  release_reason_code: ClinicalContinuityHeldMessageReleaseReason;
+  release_reason_detail: string;
+  expected_source_state_fingerprint: string;
+  safety_attestation_id?: string | null;
+}
 
 export interface ClinicalContinuityFacilityAuthority {
   facilityId: number;
@@ -51,12 +98,61 @@ function command<T = AdminCommandResult>(
   authority: ClinicalContinuityFacilityAuthority,
   method: "POST" | "PUT" | "PATCH",
   body?: unknown,
+  headers?: Record<string, string>,
 ): Promise<T> {
   return fetchAdminAPI<T>(path, {
     method,
     body,
-    headers: authorityHeaders(authority),
+    headers: { ...authorityHeaders(authority), ...headers },
   });
+}
+
+export function bindClinicalContinuityHeldMessage(
+  authority: ClinicalContinuityFacilityAuthority,
+  incidentId: string,
+  request: ClinicalContinuityHeldMessageBindRequest,
+) {
+  return command(
+    `/downtime/reconciliation/incidents/${encodeURIComponent(incidentId)}/interface-held-messages`,
+    authority,
+    "POST",
+    request,
+  );
+}
+
+export function attestClinicalContinuityHeldMessageRelease(
+  authority: ClinicalContinuityFacilityAuthority,
+  itemId: string,
+  request: Omit<
+    ClinicalContinuityHeldMessageReleaseRequest,
+    "safety_attestation_id"
+  >,
+) {
+  return command(
+    `/downtime/reconciliation/reconciliation-items/${encodeURIComponent(itemId)}/held-message-release/attestations`,
+    authority,
+    "POST",
+    request,
+  );
+}
+
+export function releaseClinicalContinuityHeldMessage(
+  authority: ClinicalContinuityFacilityAuthority,
+  itemId: string,
+  idempotencyKey: string,
+  request: ClinicalContinuityHeldMessageReleaseRequest,
+) {
+  const key = idempotencyKey.trim();
+  if (!key || key.length > 200) {
+    throw new TypeError("A bounded Idempotency-Key is required");
+  }
+  return command(
+    `/downtime/reconciliation/reconciliation-items/${encodeURIComponent(itemId)}/held-message-release`,
+    authority,
+    "POST",
+    request,
+    { "Idempotency-Key": key },
+  );
 }
 
 export function loadClinicalContinuityWorkbench(

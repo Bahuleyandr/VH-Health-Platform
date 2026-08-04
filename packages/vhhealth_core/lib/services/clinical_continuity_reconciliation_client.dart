@@ -85,6 +85,41 @@ class ClinicalContinuityReconciliationClient {
     idempotencyKey: idempotencyKey,
   );
 
+  Future<ClinicalContinuityHeldMessageCommandResult> bindHeldMessage({
+    required String incidentId,
+    required ClinicalContinuityHeldMessageBindRequest request,
+  }) => _heldCommand(
+    '/downtime/reconciliation/incidents/$incidentId/interface-held-messages',
+    request.toJson(),
+  );
+
+  Future<ClinicalContinuityHeldMessageCommandResult> attestHeldMessageRelease({
+    required String itemId,
+    required ClinicalContinuityHeldMessageAttestationRequest request,
+  }) => _heldCommand(
+    '/downtime/reconciliation/reconciliation-items/$itemId/held-message-release/attestations',
+    request.toJson(),
+  );
+
+  Future<ClinicalContinuityHeldMessageCommandResult> releaseHeldMessage({
+    required String itemId,
+    required ClinicalContinuityHeldMessageReleaseRequest request,
+    required String idempotencyKey,
+  }) {
+    final key = idempotencyKey.trim();
+    if (key.isEmpty || key.length > 200) {
+      throw const ClinicalContinuityReconciliationException(
+        'A bounded Idempotency-Key is required',
+        code: 'CONTINUITY_IDEMPOTENCY_KEY_REQUIRED',
+      );
+    }
+    return _heldCommand(
+      '/downtime/reconciliation/reconciliation-items/$itemId/held-message-release',
+      request.toJson(),
+      idempotencyKey: key,
+    );
+  }
+
   Future<ClinicalContinuityCommandResult> _command(
     String path,
     Map<String, dynamic> body, {
@@ -99,6 +134,25 @@ class ClinicalContinuityReconciliationClient {
       continuityFacilityContext: context.headerValue,
     );
     return _parse(response, ClinicalContinuityCommandResponse.fromJson).data;
+  }
+
+  Future<ClinicalContinuityHeldMessageCommandResult> _heldCommand(
+    String path,
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) async {
+    final context = await _requiredContext();
+    final response = await VHHttpClient.post(
+      path,
+      body: body,
+      idempotencyKey: idempotencyKey,
+      continuityFacilityId: context.facilityId,
+      continuityFacilityContext: context.headerValue,
+    );
+    return _parse(
+      response,
+      ClinicalContinuityHeldMessageCommandResponse.fromJson,
+    ).data;
   }
 
   Future<ClinicalContinuityFacilityContext> _requiredContext() async {

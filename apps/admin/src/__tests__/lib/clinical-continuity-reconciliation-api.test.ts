@@ -1,5 +1,7 @@
 import {
+  bindClinicalContinuityHeldMessage,
   loadClinicalContinuityWorkbench,
+  releaseClinicalContinuityHeldMessage,
   transitionClinicalContinuityIncident,
 } from "@/lib/api/clinicalContinuityReconciliation";
 import { fetchAdminAPI } from "@/lib/api/core";
@@ -53,6 +55,48 @@ describe("clinical continuity reconciliation API", () => {
     expect(JSON.stringify(options)).not.toMatch(/tenant|actor|role/i);
   });
 
+  it("binds one exact releaseable message without a bulk predicate", async () => {
+    await bindClinicalContinuityHeldMessage(authority, "incident-1", {
+      incident_interface_id: "11111111-1111-4111-8111-111111111111",
+      interface_family: "I05",
+      message_id: 47,
+      expected_incident_interface_version: 3,
+      expected_source_state_fingerprint: "a".repeat(64),
+    });
+
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/downtime/reconciliation/incidents/incident-1/interface-held-messages",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.objectContaining({ interface_family: "I05", message_id: 47 }),
+      }),
+    );
+    expect(JSON.stringify(mockedFetch.mock.calls[0])).not.toMatch(/predicate|I18/);
+  });
+
+  it("requires and forwards the release Idempotency-Key", async () => {
+    await releaseClinicalContinuityHeldMessage(
+      authority,
+      "item-1",
+      "held-release-47",
+      {
+        expected_version: 4,
+        release_reason_code: "downstream_readiness_confirmed",
+        release_reason_detail: "Downstream evidence was reviewed.",
+        expected_source_state_fingerprint: "b".repeat(64),
+        safety_attestation_id: "22222222-2222-4222-8222-222222222222",
+      },
+    );
+
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/downtime/reconciliation/reconciliation-items/item-1/held-message-release",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Idempotency-Key": "held-release-47" }),
+      }),
+    );
+  });
+
   it("rejects malformed authority before a request can leave the browser", () => {
     expect(() =>
       loadClinicalContinuityWorkbench({ facilityId: 0, facilityContext: "x" }),
@@ -63,6 +107,18 @@ describe("clinical continuity reconciliation API", () => {
         facilityContext: "not signed!",
       }),
     ).toThrow("server-issued facility context");
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty release Idempotency-Key before a request leaves the browser", () => {
+    expect(() =>
+      releaseClinicalContinuityHeldMessage(authority, "item-1", "  ", {
+        expected_version: 1,
+        release_reason_code: "owner_recovery_evidence_reconciled",
+        release_reason_detail: "Owner evidence was reconciled.",
+        expected_source_state_fingerprint: "c".repeat(64),
+      }),
+    ).toThrow("bounded Idempotency-Key");
     expect(mockedFetch).not.toHaveBeenCalled();
   });
 });
