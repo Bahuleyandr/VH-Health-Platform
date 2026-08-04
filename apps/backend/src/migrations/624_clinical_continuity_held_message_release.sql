@@ -759,7 +759,7 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER cc_hl7_held_release_transition
+CREATE TRIGGER zz_cc_hl7_held_release_transition
 BEFORE UPDATE OR DELETE ON public.hl7_outbound_messages
 FOR EACH ROW EXECUTE FUNCTION public.assert_cc_hl7_held_release_transition();
 
@@ -953,6 +953,12 @@ BEGIN
      AND OLD.recovery_inbox_id IS NOT NULL
      AND OLD.status IS DISTINCT FROM NEW.status THEN
     IF OLD.owner_release_client_event_id IS NULL THEN
+      IF OLD.recovery_disposition <> 'manual_redrive_requested' THEN
+        RAISE EXCEPTION USING
+          ERRCODE = '23514',
+          CONSTRAINT = 'chk_nhcx_i19_recovery_immutable',
+          MESSAGE = 'I19 outbound recovery evidence and disposition are immutable';
+      END IF;
       release_event := NULLIF(
         current_setting('app.cc_held_release_client_event_id', true), ''
       )::uuid;

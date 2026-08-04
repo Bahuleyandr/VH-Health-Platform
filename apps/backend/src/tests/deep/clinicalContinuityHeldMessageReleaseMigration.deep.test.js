@@ -255,9 +255,12 @@ describeIfDb('migration 624 C5.2 held-message release executor', () => {
     try {
       await expectFailure(client, () => client.query(
         `UPDATE hl7_outbound_messages
-            SET status = 'queued', send_authority = 'authorized'
+            SET status = 'queued', send_authority = 'authorized',
+                owner_release_actor_uid = $3::uuid,
+                owner_release_reason = 'forged direct SQL release',
+                owner_released_at = NOW()
           WHERE tenant_id = $1::uuid AND id = $2::integer`,
-        [tenantId, hl7MessageId],
+        [tenantId, hl7MessageId, actorUid],
       ), 'chk_hl7_outbound_held_release_receipt');
       await expectFailure(client, () => client.query(
         `UPDATE interop_messages
