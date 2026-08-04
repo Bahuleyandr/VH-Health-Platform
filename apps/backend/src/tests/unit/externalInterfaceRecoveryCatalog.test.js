@@ -182,6 +182,24 @@ describe('external interface recovery catalog', () => {
         pageAtomicity: 'catalog_upserts_and_page_completion_one_transaction',
         statusSemantics: 'completed_and_upsert_coverage_are_not_hwm',
       });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I25' }))
+      .toMatchObject({
+        id: 'I25',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'outbound',
+        cursorKind: 'per_target_positive_ack',
+        cursorEvidence: 'positive_acknowledgement_attempt_lineage_only',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_source_target',
+        duplicateKeyKind: 'event_target_attempt_payload_sha256',
+        captureCursorSemantics: 'capture_into_event_ledger_not_delivery',
+        deliveryTruth: 'per_target_attempts_never_shared_export_status',
+        captureScheduling: 'owner_activation_required_no_automatic_caller',
+        leaseSemantics: 'expiring_fenced_attempt_claim_with_reaper',
+        lateRelease: 'owner_directed_pending_review_only',
+      });
   });
 
   it('requires exact mixed-subpath selection without fallthrough', () => {
