@@ -52,6 +52,11 @@ export const WARD_PACK_FRESHNESS_WINDOW_MINUTES = 45;
  * being produced for. The coverage test mirrors the three properties the pack
  * has to have to be usable at the bedside: it exists, it is fresh, and it
  * carries at least one bed.
+ *
+ * A NULL `expires_at` does NOT count as coverage. The renderer prints "treat
+ * this pack as EXPIRED" on a pack whose validity window it cannot read, so a
+ * probe that counted one as covered would report a pack the printed sheet
+ * itself disowns.
  */
 const OUTPUT_COVERAGE_SQL = `
   WITH occupied_wards AS (
@@ -71,7 +76,8 @@ const OUTPUT_COVERAGE_SQL = `
                 AND s.tenant_id = occupied_wards.tenant_id
                 AND s.ward_id = occupied_wards.ward_id
                 AND s.created_at > NOW() - ($2::int * INTERVAL '1 minute')
-                AND (s.expires_at IS NULL OR s.expires_at > NOW())
+                AND s.expires_at IS NOT NULL
+                AND s.expires_at > NOW()
                 AND jsonb_array_length(COALESCE(s.payload->'beds', '[]'::jsonb)) > 0
            )
          )::int AS wards_covered
@@ -193,6 +199,9 @@ export async function observeWardDowntimePackOutput() {
           ward_id: row.ward_id,
           ward_name: row.ward_name,
         })),
+        // The sample is capped; say so rather than let a reader take 20 names
+        // for the whole list. wards_missing above is always exact.
+        uncovered_sample_truncated: wardsMissing > uncovered.length,
       },
     );
   }

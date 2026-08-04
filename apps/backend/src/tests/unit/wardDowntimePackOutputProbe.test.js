@@ -76,7 +76,25 @@ describe('observeWardDowntimePackOutput — measures output, not job liveness', 
         uncovered_sample: [
           expect.objectContaining({ ward_id: 7, ward_name: 'ICU-1' }),
         ],
+        // The sample is capped at 20; a reader must not take it for the whole
+        // list when it is short. wards_missing stays exact either way.
+        uncovered_sample_truncated: true,
       }),
+    );
+  });
+
+  it('does not claim truncation when the sample names every uncovered ward', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ wards_expected: 2, wards_covered: 1 }])
+      .mockResolvedValueOnce([
+        { tenant_id: '00000000-0000-4000-8000-000000000001', ward_id: 9, ward_name: 'GW-2' },
+      ]);
+
+    await observeWardDowntimePackOutput();
+
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ wards_missing: 1, uncovered_sample_truncated: false }),
     );
   });
 
@@ -193,8 +211,13 @@ describe('observeWardDowntimePackOutput — the coverage predicate', () => {
     // window count spliced in as `INTERVAL '45 minutes'` would show up here.
     expect(sql.match(/INTERVAL '[^']*'/g)).toEqual(["INTERVAL '1 minute'"]);
     expect(sql).not.toContain('${');
-    // Unexpired, and non-empty.
+    // Unexpired — and a NULL expiry is NOT coverage. The renderer prints
+    // "treat this pack as EXPIRED" when it cannot read the validity window, so
+    // counting one as covered would claim a pack the sheet itself disowns.
+    expect(sql).toMatch(/s\.expires_at IS NOT NULL/);
     expect(sql).toMatch(/s\.expires_at > NOW\(\)/);
+    expect(sql).not.toMatch(/s\.expires_at IS NULL OR/);
+    // Non-empty.
     expect(sql).toMatch(/jsonb_array_length\(COALESCE\(s\.payload->'beds', '\[\]'::jsonb\)\) > 0/);
 
     // Spread params, not an array (lint:raw-params class).
