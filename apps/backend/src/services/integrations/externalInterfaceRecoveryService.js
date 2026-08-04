@@ -508,6 +508,21 @@ async function persistLateClinicalTrialPage({ tx, capability, inbox, tenantId, c
   });
 }
 
+async function persistLateSiemAttempt({ tx, capability, inbox, tenantId, command }) {
+  const { persistLateSiemAttemptRecovery } = await import('./externalSiemRecoveryService.js');
+  return persistLateSiemAttemptRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    duplicateKey: inbox.duplicate_key,
+    occurredAt: inbox.occurred_at,
+    command,
+  });
+}
+
 async function persistLateInterfaceEngine({ tx, capability, config, inbox, tenantId, command }) {
   const { persistLateInterfaceEngineRecovery } = await import('./externalInterfaceEngineRecoveryService.js');
   return persistLateInterfaceEngineRecovery({
@@ -632,6 +647,7 @@ const EXTERNAL_INTERFACE_RECOVERY_ADAPTERS = Object.freeze({
   I18: persistLateWebhook,
   I19: persistLateNhcx,
   I23: persistLateClinicalTrialPage,
+  I25: persistLateSiemAttempt,
 });
 
 export const EXTERNAL_INTERFACE_RECOVERY_ADAPTER_FAMILIES = Object.freeze(
@@ -747,7 +763,8 @@ export async function processNextItemTx({
       interfaceFamily: config.id, effectDisposition: inbox.effect_disposition,
     });
     const domain = await persistLateDomain({ tx, capability, config, inbox, tenantId: tid, command });
-    const evidence = config.id === 'I17' || config.id === 'I18' || config.id === 'I23' || config.id === 'I13'
+    const evidence = config.id === 'I17' || config.id === 'I18' || config.id === 'I23'
+      || config.id === 'I25' || config.id === 'I13'
       || config.id === 'I16' || config.id === 'I19'
       ? domain?.receipt
       : config.id === 'I04'
@@ -795,7 +812,8 @@ export async function processNextItemTx({
     if (advanced.length !== 1) throw AppError.conflict('Recovery cursor fence was lost', 'EXTERNAL_RECOVERY_CURSOR_FENCE_LOST');
     return Object.freeze({
       ...terminal[0], cursor: advanced[0],
-      ...(config.id === 'I17' || config.id === 'I18' || config.id === 'I23' || config.id === 'I13'
+      ...(config.id === 'I17' || config.id === 'I18' || config.id === 'I23'
+        || config.id === 'I25' || config.id === 'I13'
         || config.id === 'I16' || config.id === 'I19'
         ? { receipt_id: String(evidence.id || evidence.receipt_id) }
         : config.id === 'I04'

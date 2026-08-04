@@ -1,15 +1,13 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
-const readOnlyQueryUnsafeMock = jest.fn();
 const warnMock = jest.fn();
 
 const prismaMock = { $queryRawUnsafe: queryUnsafeMock };
-const prismaReadOnlyMock = { $queryRawUnsafe: readOnlyQueryUnsafeMock };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
-  prismaReadOnly: prismaReadOnlyMock,
+  setTenantTx: jest.fn(async (_tenantId, callback) => callback(prismaMock)),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -39,7 +37,6 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
-  readOnlyQueryUnsafeMock.mockReset();
   warnMock.mockReset();
 });
 
@@ -116,7 +113,7 @@ describe('createSyntheticSecurityEvent', () => {
 describe('capturePendingSecurityAuditEvents', () => {
   it('reads audit_log through the read client, inserts events, and advances the cursor', async () => {
     mockNext([{ last_source_id: 41 }]);
-    readOnlyQueryUnsafeMock.mockResolvedValueOnce([
+    mockNext([
       {
         id: 42,
         tenant_id: TENANT,
@@ -141,8 +138,9 @@ describe('capturePendingSecurityAuditEvents', () => {
 
     const result = await capturePendingSecurityAuditEvents({ tenantId: TENANT, batchSize: 10 });
     expect(result.captured_count).toBe(1);
-    expect(readOnlyQueryUnsafeMock).toHaveBeenCalledTimes(1);
     expect(String(queryUnsafeMock.mock.calls.at(-1)[0])).toContain('INSERT INTO siem_export_cursors');
+    expect(String(queryUnsafeMock.mock.calls.at(-1)[0])).toContain('last_captured_at');
+    expect(String(queryUnsafeMock.mock.calls.at(-1)[0])).not.toContain('last_exported_at = NOW()');
   });
 });
 
@@ -153,6 +151,7 @@ describe('dispatchSiemDeliveries', () => {
       source: { id: 'synthetic:one' },
       redaction: { raw_payload_exported: false },
     };
+    mockNext([]);
     mockNext([{
       id: 500,
       tenant_id: TENANT,
@@ -163,6 +162,8 @@ describe('dispatchSiemDeliveries', () => {
       payload_snapshot: payload,
       payload_sha256: __testing__.hashPayload(payload),
       request_id: 'req',
+      lease_token: '11111111-1111-4111-8111-111111111111',
+      lease_generation: 1,
     }]);
     mockNext([{
       id: 20,
@@ -172,9 +173,9 @@ describe('dispatchSiemDeliveries', () => {
       status: 'active',
       object_drop_uri: 'D:/Dev/_codex/artifacts/scratch/test-siem',
       config: {},
+      acknowledgement_contract: 'local_file_transport_only',
     }]);
-    mockNext([]);
-    mockNext([]);
+    mockNext([{ id: 500 }]);
     const mkdirMock = jest.fn(async () => null);
     const writeFileMock = jest.fn(async () => null);
 
@@ -187,8 +188,16 @@ describe('dispatchSiemDeliveries', () => {
     expect(result).toEqual({ dispatched: 1, succeeded: 1, failed: 0, dead: 0 });
     expect(mkdirMock).toHaveBeenCalled();
     expect(writeFileMock.mock.calls[0][1]).toContain('"raw_payload_exported": false');
-    expect(String(queryUnsafeMock.mock.calls[2][0])).toContain('UPDATE siem_export_delivery_attempts');
-    expect(queryUnsafeMock.mock.calls[2][1]).toBe('succeeded');
+    const completion = queryUnsafeMock.mock.calls.find(call => (
+      String(call[0]).includes('UPDATE siem_export_delivery_attempts')
+      && String(call[0]).includes('acknowledgement_state = $6')
+    ));
+    expect(completion).toBeTruthy();
+    expect(completion[1]).toBe('succeeded');
+    expect(completion[6]).toBe('transport_only');
+    expect(queryUnsafeMock.mock.calls.some(call => (
+      String(call[0]).includes('UPDATE siem_export_events')
+    ))).toBe(false);
   });
 
   it('records a retry row for retryable webhook failures', async () => {
@@ -197,6 +206,7 @@ describe('dispatchSiemDeliveries', () => {
       source: { id: 'audit:42' },
       redaction: { raw_payload_exported: false },
     };
+    mockNext([]);
     mockNext([{
       id: 501,
       tenant_id: TENANT,
@@ -207,6 +217,8 @@ describe('dispatchSiemDeliveries', () => {
       payload_snapshot: payload,
       payload_sha256: __testing__.hashPayload(payload),
       request_id: 'req',
+      lease_token: '22222222-2222-4222-8222-222222222222',
+      lease_generation: 1,
     }]);
     mockNext([{
       id: 21,
@@ -216,9 +228,9 @@ describe('dispatchSiemDeliveries', () => {
       status: 'active',
       endpoint_url: 'https://siem.example/hook',
       config: {},
+      acknowledgement_contract: 'webhook_http_2xx_ingested',
     }]);
-    mockNext([]);
-    mockNext([]);
+    mockNext([{ id: 501 }]);
     mockNext([]);
 
     const result = await dispatchSiemDeliveries({
@@ -269,6 +281,8 @@ describe('runSyntheticSiemDrill', () => {
       payload_snapshot: { source: { id: 'synthetic:x' }, redaction: { raw_payload_exported: false } },
       payload_sha256: 'a'.repeat(64),
       request_id: 'req',
+      lease_token: '33333333-3333-4333-8333-333333333333',
+      lease_generation: 1,
     }]);
     mockNext([{
       id: 20,
@@ -278,9 +292,9 @@ describe('runSyntheticSiemDrill', () => {
       status: 'active',
       object_drop_uri: 'D:/Dev/_codex/artifacts/scratch/test-siem',
       config: {},
+      acknowledgement_contract: 'unclassified',
     }]);
-    mockNext([]);
-    mockNext([]);
+    mockNext([{ id: 100 }]);
     mockNext([{ id: 100, status: 'succeeded', evidence_uri: 'D:/x.json' }]);
     mockNext([]);
     mockNext([]);
@@ -294,5 +308,49 @@ describe('runSyntheticSiemDrill', () => {
 
     expect(result.dispatch.succeeded).toBe(1);
     expect(String(queryUnsafeMock.mock.calls.at(-2)[0])).toContain('UPDATE india_compliance_evidence');
+  });
+});
+
+describe('I25 acknowledgement policy', () => {
+  it('requires the configured receipt header before treating webhook transport as delivered', () => {
+    const headers = { get: jest.fn(name => name === 'x-siem-receipt' ? 'accepted' : null) };
+    const positive = __testing__.evaluateAcknowledgement({
+      ok: true,
+      httpStatus: 202,
+      responseHeaders: headers,
+    }, {
+      transport: 'webhook',
+      acknowledgement_contract: 'webhook_receipt_header',
+      acknowledgement_config: {
+        header_name: 'X-SIEM-Receipt',
+        expected_value: 'accepted',
+      },
+    });
+    expect(positive.acknowledgementState).toBe('positive');
+
+    const missing = __testing__.evaluateAcknowledgement({
+      ok: true,
+      httpStatus: 202,
+      responseHeaders: { get: () => null },
+    }, {
+      transport: 'webhook',
+      acknowledgement_contract: 'webhook_receipt_header',
+      acknowledgement_config: {
+        header_name: 'X-SIEM-Receipt',
+        expected_value: 'accepted',
+      },
+    });
+    expect(missing.acknowledgementState).toBe('uncertain');
+  });
+
+  it('never treats UDP send completion or a local file write as positive delivery', () => {
+    expect(__testing__.evaluateAcknowledgement({ ok: true }, {
+      transport: 'syslog',
+      acknowledgement_contract: 'syslog_udp_transport_only',
+    }).acknowledgementState).toBe('transport_only');
+    expect(__testing__.evaluateAcknowledgement({ ok: true }, {
+      transport: 'object_drop',
+      acknowledgement_contract: 'local_file_transport_only',
+    }).acknowledgementState).toBe('transport_only');
   });
 });

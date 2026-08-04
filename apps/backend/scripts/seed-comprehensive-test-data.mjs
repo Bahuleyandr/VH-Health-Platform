@@ -151,6 +151,7 @@ const MANUAL_SEED_TABLES = new Set([
   // NL12-S2 SIEM: transport/severity/source enums + CHAR(64) hex hashes +
   // a redaction CHECK that forbids raw_payload_exported=true.
   'siem_export_targets',
+  'siem_export_cursors',
   'siem_export_events',
   'siem_export_delivery_attempts',
   // NL-14 ICU chart depth rows have clinical review/provenance gates and
@@ -4726,7 +4727,27 @@ async function seedSiemExportTables() {
       transport: 'webhook',
       status: 'draft',
       min_severity: 'high',
+      acknowledgement_contract: 'unclassified',
+      acknowledgement_config: JSON.stringify({}),
+      acknowledgement_classified_by: null,
+      acknowledgement_owner_reason: null,
+      acknowledgement_owner_evidence: null,
       metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    }]);
+  }
+  if (!(await tableCount('siem_export_cursors'))) {
+    await insertIfEmpty('siem_export_cursors', [{
+      tenant_id: DEFAULT_TENANT_ID,
+      source_name: 'audit_log',
+      cursor_key: 'security',
+      cursor_semantics: 'capture_into_event_ledger',
+      writer_state: 'legacy_capture',
+      capture_schedule_decision: 'owner_activation_required',
+      metadata: JSON.stringify({
+        seed: true,
+        cursor_truth: 'capture_into_event_ledger_not_delivery',
+        automatic_scheduler_activated: false,
+      }),
     }]);
   }
   const target = await first('siem_export_targets', 'id, tenant_id', 'TRUE', []);
@@ -4753,6 +4774,10 @@ async function seedSiemExportTables() {
       transport: 'webhook',
       status: 'pending',
       payload_sha256: hex64,
+      lease_generation: 0,
+      acknowledgement_state: 'not_evaluated',
+      send_authority: 'normal',
+      effect_disposition: 'live',
       metadata: JSON.stringify({ seed: true }),
     }]);
   }
