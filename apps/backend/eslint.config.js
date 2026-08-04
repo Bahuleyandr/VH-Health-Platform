@@ -50,6 +50,22 @@ export default [
       sonarjs,
       import: importPlugin,
     },
+    settings: {
+      // `eslint-import-resolver-node` (the only resolver eslint-plugin-import
+      // ships with) predates the package.json `exports` field, so it cannot
+      // follow subpath exports that have no matching directory on disk.
+      // firebase-admin 14 publishes its modular entry points that way —
+      // `./app`, `./auth`, `./messaging` resolve through `exports` only, and
+      // `node_modules/firebase-admin/` contains just `lib/`. Node resolves
+      // them fine; the linter does not. Declaring them here is the documented
+      // escape hatch and keeps a new resolver dependency out of the tree.
+      // Add a line here if a further firebase-admin subpath is ever imported.
+      'import/core-modules': [
+        'firebase-admin/app',
+        'firebase-admin/auth',
+        'firebase-admin/messaging',
+      ],
+    },
     rules: {
       // --- Your Custom Rules ---
       // Ban raw console.* everywhere — Winston `logger.*` is the structured

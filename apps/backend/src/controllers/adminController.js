@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import admin from 'firebase-admin';
+import { getMessaging } from 'firebase-admin/messaging';
 import fs from 'fs';
 import path from 'path';
 import prisma from '../lib/prisma.js';
@@ -179,7 +179,7 @@ export const sendTestNotification = async (req, res) => {
       notification: { title, body }
     };
 
-    const response = await admin.messaging().send(message);
+    const response = await getMessaging().send(message);
 
     return res.json({
       success: true,

@@ -1,5 +1,12 @@
 // src/utils/firebaseAdmin.js
-import admin from 'firebase-admin';
+//
+// firebase-admin 14 removed the legacy namespace API — the default export no
+// longer carries `auth`, `messaging`, `credential` or `apps`. Everything below
+// goes through the modular entry points instead. The exported facade keeps the
+// `.auth()` / `.messaging()` shape its callers (and their test doubles) rely on.
+import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getMessaging } from 'firebase-admin/messaging';
 import logger from '../logging/logger.js';
 
 let firebaseAdmin;
@@ -13,10 +20,10 @@ try {
     process.env.FIREBASE_USE_APPLICATION_DEFAULT === 'true' ||
     !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-  if (!admin.apps.length) {
+  if (!getApps().length) {
     if (hasCertCredentials) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
+      initializeApp({
+        credential: cert({
           projectId,
           clientEmail,
           privateKey
@@ -24,9 +31,9 @@ try {
       });
       logger.info('Firebase Admin initialized from environment credentials');
     } else if (projectId && useApplicationDefault) {
-      admin.initializeApp({
+      initializeApp({
         projectId,
-        credential: admin.credential.applicationDefault()
+        credential: applicationDefault()
       });
       logger.info('Firebase Admin initialized from application default credentials');
     } else {
@@ -34,7 +41,12 @@ try {
     }
   }
 
-  firebaseAdmin = admin;
+  // Resolved lazily, exactly as `admin.auth()` / `admin.messaging()` were —
+  // both getters are memoised per app by the SDK.
+  firebaseAdmin = {
+    auth: () => getAuth(),
+    messaging: () => getMessaging()
+  };
 } catch (error) {
   logger.warn('⚠️ Firebase Admin not initialized:', error.message);
 
