@@ -89,6 +89,7 @@ were consolidated into it on 2026-06-22 and moved to [`archive/`](archive/).
 | --- | --- |
 | Translation review tracker | [`TRANSLATION_REVIEW_TRACKER.md`](TRANSLATION_REVIEW_TRACKER.md) |
 | Continuity activation-readiness tracker | [`continuity/activation-readiness-tracker.md`](continuity/activation-readiness-tracker.md) |
+| Continuity activation sequence | [`continuity/activation-sequence.md`](continuity/activation-sequence.md) |
 
 Older point-in-time investigations and consistency audits are archived under
 [`archive/audits/`](archive/audits/).
