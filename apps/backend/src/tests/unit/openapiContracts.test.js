@@ -17,8 +17,15 @@ import * as portal from '../../../scripts/openapi/schemas/portal.mjs';
 import * as cathConsumables from '../../../scripts/openapi/schemas/cathConsumables.mjs';
 import * as clinicalInbox from '../../../scripts/openapi/schemas/clinicalInbox.mjs';
 import * as lab from '../../../scripts/openapi/schemas/lab.mjs';
+import * as nhcx from '../../../scripts/openapi/schemas/nhcx.mjs';
 import * as carePathways from '../../../scripts/openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from '../../../scripts/openapi/schemas/outboxRecovery.mjs';
+import * as clientReadiness from '../../../scripts/openapi/schemas/clientReadiness.mjs';
+import * as clinicalContinuityPolicyDelivery from '../../../scripts/openapi/schemas/clinicalContinuityPolicyDelivery.mjs';
+import * as clinicalContinuityReconciliation from '../../../scripts/openapi/schemas/clinicalContinuityReconciliation.mjs';
+import * as downtimeWardPacks from '../../../scripts/openapi/schemas/downtimeWardPacks.mjs';
+import * as downtimeStaticMirror from '../../../scripts/openapi/schemas/downtimeStaticMirror.mjs';
+import * as continuityFacilityContextGrants from '../../../scripts/openapi/schemas/continuityFacilityContextGrants.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -37,8 +44,15 @@ const MODULES = [
   cathConsumables,
   clinicalInbox,
   lab,
+  nhcx,
   carePathways,
-  outboxRecovery
+  outboxRecovery,
+  clientReadiness,
+  clinicalContinuityPolicyDelivery,
+  clinicalContinuityReconciliation,
+  downtimeWardPacks,
+  downtimeStaticMirror,
+  continuityFacilityContextGrants
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

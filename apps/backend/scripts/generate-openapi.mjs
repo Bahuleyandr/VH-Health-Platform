@@ -33,6 +33,9 @@ import * as outboxRecovery from './openapi/schemas/outboxRecovery.mjs';
 import * as clientReadiness from './openapi/schemas/clientReadiness.mjs';
 import * as clinicalContinuityPolicyDelivery from './openapi/schemas/clinicalContinuityPolicyDelivery.mjs';
 import * as clinicalContinuityReconciliation from './openapi/schemas/clinicalContinuityReconciliation.mjs';
+import * as downtimeWardPacks from './openapi/schemas/downtimeWardPacks.mjs';
+import * as downtimeStaticMirror from './openapi/schemas/downtimeStaticMirror.mjs';
+import * as continuityFacilityContextGrants from './openapi/schemas/continuityFacilityContextGrants.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -54,7 +57,10 @@ const SCHEMA_MODULES = [
   outboxRecovery,
   clinicalContinuityPolicyDelivery,
   clientReadiness,
-  clinicalContinuityReconciliation
+  clinicalContinuityReconciliation,
+  downtimeWardPacks,
+  downtimeStaticMirror,
+  continuityFacilityContextGrants
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the
