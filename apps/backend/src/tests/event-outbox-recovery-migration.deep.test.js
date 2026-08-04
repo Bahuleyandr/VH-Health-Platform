@@ -119,7 +119,7 @@ describeWithDatabase('migration 588 database outbox recovery contract', () => {
     }
   });
 
-  test('installs exact columns, checks, and partial indexes without a webhook source FK', async () => {
+  test('installs exact recovery columns and the later I18 same-tenant webhook source FK', async () => {
     const columns = await client.query(
       `SELECT table_name, column_name, data_type, udt_name
          FROM information_schema.columns
@@ -177,7 +177,7 @@ describeWithDatabase('migration 588 database outbox recovery contract', () => {
           AND contype = 'f'
           AND pg_get_constraintdef(oid) ILIKE '%event_outbox%'`,
     );
-    expect(bridgeFks.rows).toHaveLength(0);
+    expect(bridgeFks.rows).toEqual([{ conname: 'fk_webhook_deliveries_source_event' }]);
   });
 
   test('keeps the projector insert-only trigger unchanged and adds no source-update trigger', async () => {
@@ -228,9 +228,10 @@ describeWithDatabase('migration 588 database outbox recovery contract', () => {
       () => client.query(
         `INSERT INTO webhook_deliveries
            (tenant_id, subscription_id, event_type, payload, status, attempt_number,
-            next_retry_at, redrive_count)
+            next_retry_at, redrive_count, source_kind, source_identity, payload_sha256)
          VALUES ($1::uuid, $2::integer, 'invalid.counter', '{}'::jsonb,
-                 'pending', 0, NOW(), -1)`,
+                 'pending', 0, NOW(), -1, 'adhoc', 'invalid-counter',
+                 encode(digest('{}'::jsonb::text, 'sha256'), 'hex'))`,
         [tenantId, subscriptionId],
       ),
       '23514',
@@ -242,9 +243,11 @@ describeWithDatabase('migration 588 database outbox recovery contract', () => {
     await client.query(
       `INSERT INTO webhook_deliveries
          (tenant_id, subscription_id, event_outbox_id, event_type, payload,
-          status, attempt_number, next_retry_at)
+          status, attempt_number, next_retry_at, source_kind, source_identity,
+          source_position, payload_sha256)
        VALUES ($1::uuid, $2::integer, $3::bigint, 'test.migration.588', '{}'::jsonb,
-               'pending', 0, NOW())`,
+               'pending', 0, NOW(), 'event_outbox', 'event_outbox:' || $3::bigint::text,
+               $3::bigint, encode(digest('{}'::jsonb::text, 'sha256'), 'hex'))`,
       [tenantId, subscriptionId, eventId],
     );
     await expectFailure(
@@ -252,9 +255,11 @@ describeWithDatabase('migration 588 database outbox recovery contract', () => {
       () => client.query(
         `INSERT INTO webhook_deliveries
            (tenant_id, subscription_id, event_outbox_id, event_type, payload,
-            status, attempt_number, next_retry_at)
+            status, attempt_number, next_retry_at, source_kind, source_identity,
+            source_position, payload_sha256)
          VALUES ($1::uuid, $2::integer, $3::bigint, 'test.migration.588', '{}'::jsonb,
-                 'pending', 0, NOW())`,
+                 'pending', 0, NOW(), 'event_outbox', 'event_outbox:' || $3::bigint::text,
+                 $3::bigint, encode(digest('{}'::jsonb::text, 'sha256'), 'hex'))`,
         [tenantId, subscriptionId, eventId],
       ),
       '23505',
@@ -263,9 +268,11 @@ describeWithDatabase('migration 588 database outbox recovery contract', () => {
     await expect(client.query(
       `INSERT INTO webhook_deliveries
          (tenant_id, subscription_id, event_outbox_id, event_type, payload,
-          status, attempt_number, next_retry_at)
-       VALUES ($1::uuid, $2::integer, NULL, 'test.adhoc.588', '{}'::jsonb, 'pending', 0, NOW()),
-              ($1::uuid, $2::integer, NULL, 'test.adhoc.588', '{}'::jsonb, 'pending', 0, NOW())`,
+          status, attempt_number, next_retry_at, source_kind, source_identity, payload_sha256)
+       VALUES ($1::uuid, $2::integer, NULL, 'test.adhoc.588', '{}'::jsonb, 'pending', 0, NOW(),
+               'adhoc', 'migration-588-adhoc-1', encode(digest('{}'::jsonb::text, 'sha256'), 'hex')),
+              ($1::uuid, $2::integer, NULL, 'test.adhoc.588', '{}'::jsonb, 'pending', 0, NOW(),
+               'adhoc', 'migration-588-adhoc-2', encode(digest('{}'::jsonb::text, 'sha256'), 'hex'))`,
       [tenantId, subscriptionId],
     )).resolves.toMatchObject({ rowCount: 2 });
   });

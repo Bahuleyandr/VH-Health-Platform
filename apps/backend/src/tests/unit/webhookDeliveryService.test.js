@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { createHash } from 'node:crypto';
 
 const queryUnsafeMock = jest.fn();
 const recordSuccessMock = jest.fn(async () => null);
@@ -32,6 +33,7 @@ jest.unstable_mockModule('../../services/integrations/integrationService.js', ()
 }));
 
 const {
+  deriveWebhookHighWaterMark,
   dispatchPendingDeliveries,
   enqueueDelivery,
   getDelivery,
@@ -112,47 +114,53 @@ function setupDispatch({ claim = claimRow(), subscription = subscriptionRow() } 
 describe('enqueueDelivery', () => {
   it('rejects empty event_type and source-bridge impersonation', async () => {
     await expect(enqueueDelivery({ tenantId: TENANT })).rejects.toThrow(/event_type/);
+    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' }))
+      .rejects.toThrow(/source_identity/);
     await expect(enqueueDelivery({
       tenantId: TENANT,
       eventType: 'patient.admitted',
+      sourceIdentity: 'admin:test:1',
       eventOutboxId: '1',
     })).rejects.toMatchObject({ code: 'WEBHOOK_SOURCE_BRIDGE_INTERNAL_ONLY' });
   });
 
   it('returns no work when no active empty-filter subscription matches', async () => {
     mockNext([]);
-    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' }))
+    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted', sourceIdentity: 'admin:test:2' }))
       .resolves.toEqual({ matched: 0, enqueued: [] });
   });
 
   it('fails loudly when the required schema is unavailable', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "webhook_subscriptions" does not exist'));
-    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' }))
+    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted', sourceIdentity: 'admin:test:3' }))
       .rejects.toThrow(/does not exist/);
   });
 
   it('uses one set-based insert and verifies complete coverage', async () => {
     mockNext([{ id: 1 }, { id: 2 }]);
+    mockNext([]);
     mockNext([
-      { id: 100, subscription_id: 1, status: 'pending', attempt_number: 0 },
-      { id: 101, subscription_id: 2, status: 'pending', attempt_number: 0 },
+      { id: 100, subscription_id: 1, status: 'pending', attempt_number: 0, payload_sha256: __testing__.payloadSha256({ patient_uid: 'X' }) },
+      { id: 101, subscription_id: 2, status: 'pending', attempt_number: 0, payload_sha256: __testing__.payloadSha256({ patient_uid: 'X' }) },
     ]);
     const result = await enqueueDelivery({
       tenantId: TENANT,
       eventType: 'patient.admitted',
       payload: { patient_uid: 'X' },
+      sourceIdentity: 'admin:test:4',
     });
     expect(result).toMatchObject({ matched: 2 });
     expect(result.enqueued).toHaveLength(2);
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO webhook_deliveries[\s\S]+SELECT/);
   });
 
   it('rolls back through the caller transaction when fan-out coverage is incomplete', async () => {
     mockNext([{ id: 1 }, { id: 2 }]);
-    mockNext([{ id: 100, subscription_id: 1 }]);
-    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted' }))
-      .rejects.toThrow(/coverage is incomplete/);
+    mockNext([]);
+    mockNext([{ id: 100, subscription_id: 1, payload_sha256: __testing__.payloadSha256({}) }]);
+    await expect(enqueueDelivery({ tenantId: TENANT, eventType: 'patient.admitted', sourceIdentity: 'admin:test:5' }))
+      .rejects.toMatchObject({ code: 'WEBHOOK_ADHOC_SOURCE_IDENTITY_CONFLICT' });
   });
 });
 
@@ -263,6 +271,59 @@ describe('backoff and retry contract', () => {
     expect(__testing__.isRetryable(408)).toBe(true);
     expect(__testing__.isRetryable(429)).toBe(true);
     expect(__testing__.isRetryable(500)).toBe(true);
+  });
+});
+
+describe('subscriber acknowledgement contract', () => {
+  it('never treats an HTTP response as acknowledgement while the contract is unclassified', () => {
+    expect(__testing__.acknowledgementForResponse({
+      contract: 'unclassified',
+      config: {},
+      responseBody: 'accepted',
+    })).toEqual({ state: 'unclassified', evidence: null });
+  });
+
+  it('advances only through ordered positive acknowledgement evidence', async () => {
+    mockNext([
+      { id: 1, source_position: '41', source_identity: 'event_outbox:41', payload_sha256: 'a'.repeat(64), acknowledgement_state: 'positive' },
+      { id: 2, source_position: '42', source_identity: 'event_outbox:42', payload_sha256: 'b'.repeat(64), acknowledgement_state: 'pending' },
+      { id: 3, source_position: '43', source_identity: 'event_outbox:43', payload_sha256: 'c'.repeat(64), acknowledgement_state: 'positive' },
+    ]);
+    await expect(deriveWebhookHighWaterMark({
+      tenantId: TENANT,
+      subscriptionId: 7,
+      currentPosition: '40',
+      cutoffPosition: '43',
+    })).resolves.toEqual({
+      partition: 'webhook-subscription:7:outbound',
+      current_position: '40',
+      cutoff_position: '43',
+      high_water_position: '41',
+      high_water_token: `event_outbox:41:${'a'.repeat(64)}`,
+      complete_through_cutoff: false,
+      blocked: {
+        delivery_id: 2,
+        source_position: '42',
+        acknowledgement_state: 'pending',
+      },
+    });
+  });
+
+  it('requires exact owner-configured response evidence for a positive acknowledgement', () => {
+    const expected = 'subscriber-accepted';
+    const expectedSha = createHash('sha256').update(expected).digest('hex');
+    expect(__testing__.acknowledgementForResponse({
+      contract: 'response_header_sha256',
+      config: { header_name: 'x-subscriber-ack', expected_sha256: expectedSha },
+      responseHeaders: { get: () => expected },
+      responseBody: '',
+    })).toMatchObject({ state: 'positive' });
+    expect(__testing__.acknowledgementForResponse({
+      contract: 'response_header_sha256',
+      config: { header_name: 'x-subscriber-ack', expected_sha256: expectedSha },
+      responseHeaders: { get: () => 'different' },
+      responseBody: '',
+    })).toMatchObject({ state: 'negative' });
   });
 });
 

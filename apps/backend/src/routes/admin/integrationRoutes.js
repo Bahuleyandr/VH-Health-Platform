@@ -198,6 +198,14 @@ integrationRouter.post('/:id/subscriptions', async (req, res, next) => {
       maxConsecutiveFailures: req.body?.max_consecutive_failures,
       metadata: req.body?.metadata || {},
       createdBy: req.user?.uid || null,
+      downstreamEffectClassification: req.body?.downstream_effect_classification || 'unclassified',
+      acknowledgementContract: req.body?.acknowledgement_contract || 'unclassified',
+      acknowledgementConfig: req.body?.acknowledgement_config || {},
+      recoveryContractOwnerUid: req.body?.downstream_effect_classification
+        && req.body.downstream_effect_classification !== 'unclassified'
+        ? req.user?.uid || null
+        : null,
+      recoveryContractOwnerReason: req.body?.recovery_contract_owner_reason || null,
     });
     await writeIntegrationLog({
       tenantId: req.tenantId,
@@ -253,6 +261,14 @@ subscriptionRouter.patch('/:id', async (req, res, next) => {
       isActive: req.body?.is_active,
       maxConsecutiveFailures: req.body?.max_consecutive_failures,
       metadata: req.body?.metadata,
+      downstreamEffectClassification: req.body?.downstream_effect_classification,
+      acknowledgementContract: req.body?.acknowledgement_contract,
+      acknowledgementConfig: req.body?.acknowledgement_config,
+      recoveryContractOwnerUid: req.body?.downstream_effect_classification
+        && req.body.downstream_effect_classification !== 'unclassified'
+        ? req.user?.uid || null
+        : null,
+      recoveryContractOwnerReason: req.body?.recovery_contract_owner_reason || null,
     });
     return success(res, row, 'Webhook subscription updated');
   } catch (err) {
@@ -294,6 +310,7 @@ deliveryRouter.post('/enqueue', async (req, res, next) => {
       tenantId: req.tenantId,
       eventType: req.body?.event_type,
       payload: req.body?.payload || {},
+      sourceIdentity: req.body?.source_identity,
       requestId: req.body?.request_id || null,
     });
     return success(res, result, 'Webhook deliveries enqueued', 201);

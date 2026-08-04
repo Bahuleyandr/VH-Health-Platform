@@ -326,9 +326,19 @@ export async function completeClaimedEventFanout({ claim } = {}) {
     const inserted = await tx.$queryRawUnsafe(
       `INSERT INTO webhook_deliveries
          (subscription_id, tenant_id, event_outbox_id, event_type, payload,
-          status, attempt_number, next_retry_at, request_id)
+          status, attempt_number, next_retry_at, request_id, source_kind,
+          source_identity, source_position, payload_sha256,
+          downstream_effect_classification, acknowledgement_contract,
+          acknowledgement_config, acknowledgement_state)
        SELECT subscription.id, subscription.tenant_id, $2::bigint,
-              $3::text, $4::jsonb, 'pending', 0, NOW(), gen_random_uuid()::text
+              $3::text, $4::jsonb, 'pending', 0, NOW(), gen_random_uuid()::text,
+              'event_outbox', 'event_outbox:' || $2::bigint::text,
+              $2::bigint, encode(digest($4::jsonb::text, 'sha256'), 'hex'),
+              subscription.downstream_effect_classification,
+              subscription.acknowledgement_contract,
+              subscription.acknowledgement_config,
+              CASE WHEN subscription.acknowledgement_contract = 'unclassified'
+                   THEN 'unclassified' ELSE 'pending' END
          FROM webhook_subscriptions AS subscription
          JOIN integrations AS integration
            ON integration.tenant_id = subscription.tenant_id

@@ -133,6 +133,23 @@ describe('external interface recovery catalog', () => {
         partitionKind: 'tenant_channel',
         duplicateKeyKind: 'tenant_source_recipient_channel_template_rendered_intent_sha256',
       });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I18' }))
+      .toMatchObject({
+        id: 'I18',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'outbound',
+        cursorKind: 'event_outbox_id_positive_ack',
+        cursorEvidence: 'contiguous_positive_subscriber_acknowledgement_only',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_subscription',
+        duplicateKeyKind: 'tenant_subscription_source_identity_payload_sha256',
+        transportEvidence: 'http_2xx_only',
+        acknowledgementPolicy: 'per_subscription_owner_contract',
+        downstreamEffectClassification: 'owner_input_per_subscription',
+        lateRelease: 'blocked_while_unclassified_and_owner_directed_only',
+      });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I19' }))
       .toMatchObject({
         id: 'I19',

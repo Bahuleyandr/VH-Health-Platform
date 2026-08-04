@@ -105,14 +105,20 @@ d('reliability metrics collector (QA DB)', () => {
     );
     await prisma.$executeRawUnsafe(
       `INSERT INTO webhook_deliveries
-         (event_type, payload, status, created_at, lease_owner, lease_expires_at)
-       VALUES ($1, '{}'::jsonb, 'pending', now(), NULL, NULL),
-              ($1, '{}'::jsonb, 'failed',  now(), NULL, NULL),
-              ($1, '{}'::jsonb, 'dead',    now(), NULL, NULL),
+         (event_type, payload, status, created_at, lease_owner, lease_expires_at,
+          source_kind, source_identity, payload_sha256)
+       VALUES ($1, '{}'::jsonb, 'pending', now(), NULL, NULL, 'legacy_orphan',
+               gen_random_uuid()::text, encode(digest('{}'::jsonb::text, 'sha256'), 'hex')),
+              ($1, '{}'::jsonb, 'failed', now(), NULL, NULL, 'legacy_orphan',
+               gen_random_uuid()::text, encode(digest('{}'::jsonb::text, 'sha256'), 'hex')),
+              ($1, '{}'::jsonb, 'dead', now(), NULL, NULL, 'legacy_orphan',
+               gen_random_uuid()::text, encode(digest('{}'::jsonb::text, 'sha256'), 'hex')),
               ($1, '{}'::jsonb, 'in_flight', now(), $2::uuid,
-               '2099-01-01T00:00:00Z'::timestamptz),
+               '2099-01-01T00:00:00Z'::timestamptz, 'legacy_orphan',
+               gen_random_uuid()::text, encode(digest('{}'::jsonb::text, 'sha256'), 'hex')),
               ($1, '{}'::jsonb, 'in_flight', now(), $3::uuid,
-               '2000-01-01T00:00:00Z'::timestamptz)`,
+               '2000-01-01T00:00:00Z'::timestamptz, 'legacy_orphan',
+               gen_random_uuid()::text, encode(digest('{}'::jsonb::text, 'sha256'), 'hex'))`,
       MARK,
       randomUUID(),
       randomUUID(),
