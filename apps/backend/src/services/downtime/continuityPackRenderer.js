@@ -2,8 +2,12 @@ const AGE_WARNING_MS = 15 * 60 * 1000;
 const HARD_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const DATE_TIME_LOCALE = 'en-GB';
 
-const ALLERGY_UNKNOWN_TEXT = 'Allergy status UNKNOWN — not recorded';
-const CODE_STATUS_UNKNOWN_TEXT = 'Code status NOT RECORDED — confirm per hospital policy';
+// C-D2's countersigned UNKNOWN-STATE WORDING, verbatim. Exported so the legacy
+// ward-pack renderer (wardDowntimePackService.js) speaks the same sentences —
+// two renderers wording an unknown safety field differently is how one of them
+// drifts back into asserting a negative it never verified.
+export const ALLERGY_UNKNOWN_TEXT = 'Allergy status UNKNOWN — not recorded';
+export const CODE_STATUS_UNKNOWN_TEXT = 'Code status NOT RECORDED — confirm per hospital policy';
 
 function escapeHtml(value) {
   return String(value ?? '')

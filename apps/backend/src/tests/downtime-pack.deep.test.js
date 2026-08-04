@@ -105,6 +105,10 @@ d('Ward downtime packs — deep round-trip (roadmap A3)', () => {
     expect(bed.mar_due.map((m) => m.medication_name)).toContain('DTPACK-Med');
     expect(payload.html).toContain('DTPACK-Allergen (SEVERE)');
     expect(payload.html).toContain('DTPACK-Med');
+    // C-D2: the printed sheet declares its own expiry, and the stored expiry
+    // is the same instant.
+    expect(payload.html).toContain('NOT VALID AFTER');
+    expect(payload.html).toContain('then use paper and phone.');
   });
 
   it('serves the latest pack over HTTP to clinical staff (JSON + HTML)', async () => {
@@ -124,6 +128,7 @@ d('Ward downtime packs — deep round-trip (roadmap A3)', () => {
     expect(html.status).toBe(200);
     expect(html.headers['content-type']).toContain('text/html');
     expect(html.text).toContain('DOWNTIME PACK');
+    expect(html.text).toContain('NOT VALID AFTER');
 
     const list = await request(app)
       .get('/api/v1/downtime/wards')
@@ -131,6 +136,30 @@ d('Ward downtime packs — deep round-trip (roadmap A3)', () => {
       .set('Authorization', `Bearer ${doctorToken()}`);
     expect(list.status).toBe(200);
     expect(list.body?.data?.packs?.some((p) => p.ward_id === wardId)).toBe(true);
+  });
+
+  it('re-renders a stored pack instead of replaying a superseded rendering', async () => {
+    // A pack generated before a renderer fix keeps its old HTML string in the
+    // payload for the whole 24-hour retention window. Simulate one and prove
+    // the ward PC is served the CURRENT renderer's output, not the stored
+    // string — the stored NKDA line must never reach a printer.
+    await prisma.$executeRawUnsafe(
+      `UPDATE downtime_snapshots
+          SET payload = jsonb_set(payload::jsonb, '{html}',
+                                  to_jsonb('<p>ALLERGIES: NKDA / none recorded</p>'::text))
+        WHERE scope = $1 AND ward_id = $2`,
+      WARD_PACK_SCOPE, wardId,
+    );
+
+    const html = await request(app)
+      .get(`/api/v1/downtime/wards/${wardId}/latest?format=html`)
+      .set('X-API-Key', API_KEY)
+      .set('Authorization', `Bearer ${doctorToken()}`);
+
+    expect(html.status).toBe(200);
+    expect(html.text).not.toContain('NKDA');
+    expect(html.text).toContain('DTPACK-Allergen (SEVERE)');
+    expect(html.text).toContain('NOT VALID AFTER');
   });
 
   it('rejects patients and unauthenticated callers', async () => {

@@ -20,6 +20,10 @@ import logger from '../../logging/logger.js';
 import { getUnifiedActiveAllergies } from '../clinical/allergySourceService.js';
 import { getDowntimeMirrorDir } from '../../config/downtimeConfig.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  ALLERGY_UNKNOWN_TEXT,
+  CODE_STATUS_UNKNOWN_TEXT,
+} from './continuityPackRenderer.js';
 
 export const WARD_PACK_SCOPE = 'ward_pack';
 const MAR_WINDOW_HOURS = 12;
@@ -42,7 +46,68 @@ function fmtTime(value) {
   if (!value) return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+  // C-D2 requires the zone to be NAMED on every printed timestamp. This path
+  // has no facility context (it is tenant + ward scoped, never facility
+  // scoped), so it names UTC rather than pretending to a local zone it cannot
+  // resolve. The facility-local rendering lives in continuityPackRenderer.js,
+  // which is handed a signed facility policy carrying the IANA zone.
+  return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+}
+
+/**
+ * Render the allergy line.
+ *
+ * C-D2, UNKNOWN-STATE WORDING: "Allergy status UNKNOWN — not recorded" (never
+ * NKDA). An empty list is NOT a verified negative — getUnifiedActiveAllergies
+ * returns [] for an unresolvable patient and for a failed lookup as well as for
+ * a patient with no recorded allergies (allergySourceService.js:106-129), and
+ * per-source faults degrade silently by design. Absence is therefore rendered
+ * as absence, at the same prominence as a known finding.
+ */
+function renderAllergyLine(bed) {
+  const recorded = (bed.allergies || [])
+    .map((a) => `${esc(a.allergen)}${a.severity ? ` (${esc(a.severity)})` : ''}`)
+    .join('; ');
+  if (!recorded) {
+    return `<p class="allergies safety-alert"><strong>SAFETY ALERT:</strong> ${ALLERGY_UNKNOWN_TEXT}</p>`;
+  }
+  return `<p class="allergies safety-alert"><strong>SAFETY ALERT — ALLERGIES:</strong> ${recorded}</p>`;
+}
+
+/**
+ * Render the code-status line.
+ *
+ * C-D2, UNKNOWN-STATE WORDING: "Code status NOT RECORDED — confirm per hospital
+ * policy" (never silently full code). A recorded full code is stated plainly
+ * and without the former green treatment: a reassuring colour on the pack a
+ * ward runs on during an outage is a clinical assertion in its own right.
+ */
+function renderCodeStatusLine(bed) {
+  const recorded = bed.code_status == null ? '' : String(bed.code_status).trim();
+  if (!recorded) {
+    return `<span class="safety-alert"><strong>SAFETY ALERT:</strong> ${CODE_STATUS_UNKNOWN_TEXT}</span>`;
+  }
+  const normalized = recorded.toLowerCase().replace(/[_-]+/g, ' ');
+  const className = normalized === 'full code' ? 'neutral' : 'alert';
+  return `<strong class="${className}">Code: ${esc(recorded)}</strong>`;
+}
+
+/**
+ * Render C-D2's self-invalidating validity line. The pack states its own
+ * expiry so a sheet that outlives its window says so on its face:
+ * "Generated <date time TZ> — NOT VALID AFTER <date time TZ>, then use paper
+ * and phone." A pack whose expiry cannot be read fails closed — it declares
+ * itself expired rather than dropping the line.
+ */
+function renderValidityLine(pack) {
+  const generated = fmtTime(pack.generated_at);
+  const notValidAfter = pack.not_valid_after ? new Date(pack.not_valid_after) : null;
+  if (!notValidAfter || Number.isNaN(notValidAfter.getTime())) {
+    return `<p class="validity safety-alert">Generated ${generated} — `
+      + 'NOT VALID AFTER unknown: treat this pack as EXPIRED and use paper and phone.</p>';
+  }
+  return `<p class="validity">Generated ${generated} — NOT VALID AFTER ${fmtTime(notValidAfter)}, `
+    + 'then use paper and phone.</p>';
 }
 
 /**
@@ -52,9 +117,6 @@ function fmtTime(value) {
  */
 export function buildWardPackHtml(pack) {
   const beds = (pack.beds || []).map((bed) => {
-    const allergies = (bed.allergies || []).length
-      ? bed.allergies.map((a) => `${esc(a.allergen)}${a.severity ? ` (${esc(a.severity)})` : ''}`).join('; ')
-      : 'NKDA / none recorded';
     const meds = (bed.mar_due || []).map((m) =>
       `<tr><td>${fmtTime(m.scheduled_time)}</td><td>${esc(m.medication_name)}</td>` +
       `<td>${esc(m.dose || m.dosage || '')}</td><td>${esc(m.route || '')}</td><td>${esc(m.status || '')}</td></tr>`).join('')
@@ -71,10 +133,10 @@ export function buildWardPackHtml(pack) {
   <section class="bed">
     <h3>Bed ${esc(bed.bed_number)} — ${esc(bed.patient_name || 'Unknown')}
       <span class="meta">${esc(bed.age != null ? bed.age + 'y' : '')} ${esc(bed.gender || '')} · MRN/UID ${esc(bed.patient_uid || '')}</span></h3>
-    <p><strong class="${(bed.code_status || 'full_code') === 'full_code' ? 'ok' : 'alert'}">Code: ${esc(bed.code_status || 'full_code')}</strong>
+    <p>${renderCodeStatusLine(bed)}
        · Attending: ${esc(bed.attending_name || '—')}
        · Dx: ${esc(bed.admitting_diagnosis || bed.chief_complaint || '—')}</p>
-    <p class="allergies"><strong>ALLERGIES:</strong> ${allergies}</p>
+    ${renderAllergyLine(bed)}
     <p class="vitals">${vitals}</p>
     <h4>Medications due (next ${MAR_WINDOW_HOURS}h)</h4>
     <table><thead><tr><th>Due</th><th>Medication</th><th>Dose</th><th>Route</th><th>Status</th></tr></thead><tbody>${meds}</tbody></table>
@@ -95,13 +157,20 @@ export function buildWardPackHtml(pack) {
   table{border-collapse:collapse;width:100%;margin-bottom:6px}
   th,td{border:1px solid #999;padding:3px 6px;text-align:left;font-size:12px}
   th{background:#eee}
-  .allergies{background:#fff3cd;border:1px solid #d9a40e;padding:4px 8px}
-  .alert{color:#b00020}.ok{color:#0a7a2f}
+  .allergies{background:#fff3cd;padding:4px 8px}
+  .alert{color:#b00020}
+  .neutral{font-weight:700}
+  /* C-D2 display parity: an unknown safety field must never render less
+     prominently than a known positive finding. Both get this treatment. */
+  .safety-alert{font-weight:700;padding:6px;border:3px double #7a0017;background:#ffe4e8;color:#52000f}
+  .validity{border:2px solid #111;padding:8px;font-weight:700}
   .bed{page-break-inside:avoid;margin-bottom:14px}
-  @media print {.bed{page-break-inside:avoid}}
+  @media print {.bed{page-break-inside:avoid}
+    .safety-alert{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head><body>
 <h1>DOWNTIME PACK — ${esc(pack.ward_name)}</h1>
-<p class="sub">Generated ${fmtTime(pack.generated_at)} · ${pack.beds?.length || 0} occupied bed(s) ·
+${renderValidityLine(pack)}
+<p class="sub">${pack.beds?.length || 0} occupied bed(s) ·
   Valid as a read-only reference only — record all care on paper downtime forms and
   back-enter after recovery (docs/DOWNTIME_PROCEDURE.md).</p>
 ${beds || '<p>No occupied beds at generation time.</p>'}
@@ -328,12 +397,18 @@ export async function generateWardDowntimePacks(options) {
         // Sequential on purpose: bounded load on the primary during the sweep.
         beds.push(await collectBedEntry(bed, { tenantId: tid }));
       }
+      // One instant governs the printed claim and the stored expiry. Computing
+      // them separately let the sheet in a nurse's hand and the row in the
+      // database disagree about when the pack stops being usable.
+      const generatedAt = new Date();
+      const notValidAfter = new Date(generatedAt.getTime() + PACK_EXPIRY_HOURS * 3600 * 1000);
       const pack = {
         scope: WARD_PACK_SCOPE,
         tenant_id: tid,
         ward_id: ward.id,
         ward_name: ward.name,
-        generated_at: new Date().toISOString(),
+        generated_at: generatedAt.toISOString(),
+        not_valid_after: notValidAfter.toISOString(),
         mar_window_hours: MAR_WINDOW_HOURS,
         beds,
       };
@@ -347,7 +422,7 @@ export async function generateWardDowntimePacks(options) {
           tenant_id: tid,
           generated_by: generatedBy,
           payload: pack,
-          expires_at: new Date(Date.now() + PACK_EXPIRY_HOURS * 3600 * 1000),
+          expires_at: notValidAfter,
         },
         select: { id: true, ward_id: true, created_at: true },
       });

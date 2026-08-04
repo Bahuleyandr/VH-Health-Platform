@@ -181,7 +181,12 @@ jest.unstable_mockModule('../../services/downtime/continuityEdgeAccessService.js
   buildContinuityEdgeGrantSet: buildEdgeGrantSet
 }));
 jest.unstable_mockModule('../../services/downtime/continuityPackRenderer.js', () => ({
-  buildContinuityPackHtml: renderPack
+  buildContinuityPackHtml: renderPack,
+  // C-D2's countersigned unknown-state wording. The legacy ward-pack renderer
+  // imports these from here so both renderers say the same sentence; the mock
+  // has to carry them or wardDowntimePackService cannot load.
+  ALLERGY_UNKNOWN_TEXT: 'Allergy status UNKNOWN — not recorded',
+  CODE_STATUS_UNKNOWN_TEXT: 'Code status NOT RECORDED — confirm per hospital policy'
 }));
 jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () => ({
   getUnifiedActiveAllergies

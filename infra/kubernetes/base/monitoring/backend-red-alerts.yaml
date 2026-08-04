@@ -80,45 +80,71 @@ spec:
             summary: "No backend targets up for 2m — downtime procedure may apply"
             runbook: "docs/DOWNTIME_PROCEDURE.md"
 
-        # REL-3 / WS2 B2.3: WardDowntimePacksStale — corrected to use the
-        # kube-state-metrics CronJob success timestamp metric.
+        # REL-3 / WS2 B2.3, REPLACED 2026-08-04: the ward-pack rule now asserts
+        # pack OUTPUT, not CronJob liveness.
         #
-        # Previous expression used kube_job_status_completion_time which is only
-        # emitted for Job objects that have completed — it was never emitted
-        # because no CronJob existed (packs ran in-process). With the new
-        # ward-downtime-packs CronJob, kube_cronjob_status_last_successful_time
-        # is set after every successful Job completion and is the right metric.
+        # The retired rule was `WardDowntimePacksStale`, which watched
+        # kube_cronjob_status_last_successful_time for ward-downtime-packs. It
+        # could not fire, and its silence meant nothing: the CronJob invokes
+        # `generateWardDowntimePacks()` with zero arguments, which branches to
+        # the governed C3 sweep, and that sweep returns an empty array without
+        # touching the database whenever CLINICAL_CONTINUITY_PACKS_ENABLED is
+        # unset (it is), no signed facility policy is active (none is), or no
+        # operator signer is wired (the CronJob passes none). The job exits 0
+        # every 15 minutes, the success timestamp stays fresh forever, and no
+        # ward has a pack to print. A rule that watches a producer's exit code
+        # cannot distinguish "produced every pack" from "produced nothing".
         #
-        # Alert logic:
-        #   - Fires when the CronJob's last successful run was >45 minutes ago.
-        #     The schedule is every 15 min; 45 min = 3 missed cycles before we page.
-        #   - absent() guard fires immediately if the metric is missing entirely
-        #     (e.g. the CronJob was deleted or the namespace is broken).
-        - alert: WardDowntimePacksStale
-          expr: |
-            (
-              time() - max(kube_cronjob_status_last_successful_time{
-                namespace="vhhealth",
-                cronjob="ward-downtime-packs"
-              }) > 2700
-            )
-            or
-            (
-              absent(kube_cronjob_status_last_successful_time{
-                namespace="vhhealth",
-                cronjob="ward-downtime-packs"
-              })
-            )
-          for: 5m
+        # The replacement reads a probe inside the scraped backend Deployment
+        # (src/services/downtime/wardDowntimePackOutputProbe.js), which counts
+        # wards that have an occupied bed but no pack that exists, is fresh
+        # (<45 min old — the retired rule's own threshold, so the replacement
+        # is no less sensitive to a stalled producer), is unexpired, and is
+        # non-empty. A CronJob pod is short-lived and never scraped, so the
+        # observation has to be taken in the long-running process.
+        #
+        # The alerting series is a COUNT OF WARDS IN THE BAD STATE, so no
+        # healthy ward can average away a sick one — the masking hazard that
+        # forced the per-facility labels on the continuity-edge rules, avoided
+        # here by shape rather than by labels. `for: 10m` rides out probe and
+        # scrape jitter only; the 45-minute freshness window already absorbs
+        # missed generation cycles.
+        - alert: WardDowntimePacksMissing
+          expr: max(vhhealth_ward_downtime_pack_wards_missing) > 0
+          for: 10m
           labels:
-            severity: warning
+            severity: critical
             team: continuity
           annotations:
-            summary: "Ward downtime packs CronJob (ward-downtime-packs) has not completed successfully in >45 min"
+            summary: "Occupied wards have no fresh downtime pack to print — nothing exists for an outage"
             description: |
-              kube_cronjob_status_last_successful_time for ward-downtime-packs is stale or absent.
+              One or more wards with occupied beds have no ward downtime pack that is
+              present, under 45 minutes old, unexpired, and non-empty. The backend log
+              line `Ward downtime packs missing for N occupied ward(s)` names the wards.
+              Generation is NOT automatic today — confirm the preconditions in
+              docs/DOWNTIME_PROCEDURE.md ("Why generation may produce nothing") and
+              regenerate with POST /api/v1/downtime/generate meanwhile.
               Check: kubectl get cronjob ward-downtime-packs -n vhhealth
-                     kubectl get jobs -n vhhealth -l app.kubernetes.io/name=ward-downtime-packs
+                     kubectl logs -n vhhealth -l app.kubernetes.io/name=ward-downtime-packs
+            runbook: "docs/DOWNTIME_PROCEDURE.md"
+
+        # The companion to the rule above: it can only fire while something is
+        # measuring. If the probe stops reporting, ward-pack coverage becomes
+        # unknown, and unknown is not healthy. 20m clears backend rollouts and
+        # the 5-minute probe cadence without flapping.
+        - alert: WardDowntimePackOutputUnobserved
+          expr: absent(vhhealth_ward_downtime_pack_wards_expected)
+          for: 20m
+          labels:
+            severity: critical
+            team: continuity
+          annotations:
+            summary: "No ward downtime-pack output observation is being reported — coverage is unknown"
+            description: |
+              vhhealth_ward_downtime_pack_wards_expected is absent from every backend
+              replica, so WardDowntimePacksMissing cannot fire and nothing is asserting
+              that a printable pack exists. Check the backend /metrics scrape and the
+              ward-downtime-pack-output-probe scheduler job.
             runbook: "docs/DOWNTIME_PROCEDURE.md"
 
         # CronJob failure rate guard — fires when any outage-critical job

@@ -122,7 +122,8 @@ These are the audit's blocker #2 (monitoring/DR not running) and the roadmap's
 Jun-30 reliability gate.
 
 - [ ] **G1.** Monitoring stack (`base/monitoring/`) deployed and **scraping**: Prometheus targets up, Grafana dashboards render, Alertmanager + deadman alert firing-path tested. (date / initials): ______
-- [ ] **G2.** Confirm outage-critical CronJobs run independently of the backend: `downtime-pack`, `backup-verify`, `canary` (B2.3) — and the `WardDowntimePacksStale` / `OutageCriticalCronFailing` alerts wire to real metrics. (date / initials): ______
+- [ ] **G2.** Confirm outage-critical CronJobs run independently of the backend: `downtime-pack`, `backup-verify`, `canary` (B2.3) — and the `OutageCriticalCronFailing` alert wires to real metrics. (date / initials): ______
+- [ ] **G2a.** Confirm ward downtime packs are actually **produced**, not merely that their job succeeds: `WardDowntimePacksMissing` reads a non-absent `vhhealth_ward_downtime_pack_wards_missing`, an occupied ward with no pack raises it, and generating a pack clears it. (`WardDowntimePacksStale` was retired 2026-08-04 — a CronJob-liveness rule cannot see a sweep that succeeds having published nothing; see [`DOWNTIME_PROCEDURE.md`](DOWNTIME_PROCEDURE.md#why-generation-may-produce-nothing).) (date / initials): ______
 - [ ] **G3.** Nightly CNPG backup to R2 succeeds with `encryption: AES256` + object-lock/versioning (check the Backup CR status). *(PHASE0 §7.2)* (date / initials): ______
 - [ ] **G4.** **Run the timed DR drill** ([`DR_RESTORE_DRILL.md`](DR_RESTORE_DRILL.md)): PITR restore into a scratch namespace, measure RPO/RTO vs targets, run clinical-invariant checks, file the artifact in `docs/qa-findings/`. (date / initials): ______
 - [ ] **G5.** k6 load test meets SLOs (roadmap reliability A+ column). (date / initials): ______

@@ -186,6 +186,34 @@ function withJobLock(jobName, fn) {
     }
   };
 }
+
+// Deliberately WITHOUT the cross-process advisory lock — for observation jobs
+// only, never for jobs that mutate.
+//
+// A Prometheus gauge lives in the process that set it. Under withJobLock only
+// one replica wins the advisory lock each tick, so only that replica refreshes
+// its gauge while every other replica keeps serving whatever it last observed.
+// An alert reading max() across replicas then latches on the stalest reading
+// and never clears; reading min() would let a stale replica mask a real
+// failure. A read-only probe is cheap enough to run on every replica, which
+// keeps every scraped series current. In-process overlap protection still
+// applies.
+function withReplicaLocalJobGuard(jobName, fn) {
+  return async () => {
+    if (runningJobs.has(jobName)) {
+      logger.warn(`Skipping ${jobName} — previous run still active`);
+      return;
+    }
+    runningJobs.add(jobName);
+    try {
+      await runWithSuperAdmin(fn);
+    } catch (err) {
+      logger.error(`Job ${jobName} failed:`, err);
+    } finally {
+      runningJobs.delete(jobName);
+    }
+  };
+}
 import purgeLogs from '../scripts/cleanup-logs.js';
 
 // R2 Maintenance Jobs
@@ -737,6 +765,21 @@ if (process.env.NODE_ENV !== 'test') {
   // The packs must already exist when an outage starts — never generated on
   // demand — but regeneration must run exactly once per tick, not once per
   // worker×replica. The CronJob is authoritative.
+
+  // 🔎 Every 5 minutes — observe whether ward downtime packs actually EXIST.
+  //
+  // The CronJob above can succeed having produced nothing (its sweep is gated;
+  // see services/downtime/wardDowntimePackOutputProbe.js), so its exit code is
+  // not evidence that a ward has a pack to print. This probe measures the
+  // output itself and publishes it for the WardDowntimePacksMissing rule. It
+  // is read-only and runs on every replica on purpose — see
+  // withReplicaLocalJobGuard.
+  registerCron('*/5 * * * *', withReplicaLocalJobGuard('ward-downtime-pack-output-probe', async () => {
+    const { observeWardDowntimePackOutput } = await import(
+      '../services/downtime/wardDowntimePackOutputProbe.js'
+    );
+    await observeWardDowntimePackOutput();
+  }));
 
   // 📡 Every 2 minutes — claim one owner-authorized outbound HL7v2 message
   // per tenant/subscription. A transport response alone never completes the
