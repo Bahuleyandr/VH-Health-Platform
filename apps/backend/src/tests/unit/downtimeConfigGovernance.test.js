@@ -1,5 +1,6 @@
 import {
   CLINICAL_CONTINUITY_C_D14_APPROVED,
+  CLINICAL_CONTINUITY_C_D14_CONTEXT_LIFETIME_MINUTES,
   clinicalContinuityActionRegistryEnabled,
   clinicalContinuityFacilityContextEnabled,
   clinicalContinuityFacilityContextPlumbingEnabled,
@@ -32,13 +33,14 @@ describe('clinical continuity publication configuration', () => {
     ).toBe(false);
   });
 
-  test('C-D14 gates activation while preserving testable plumbing', () => {
+  test('C-D14 2026-07-31: "re-confirmed at every login and at least every 12 hours" pins 720 minutes while activation stays closed', () => {
     const env = {
       CLINICAL_CONTINUITY_FACILITY_CONTEXT_ENABLED: 'true',
       CLINICAL_CONTINUITY_FACILITY_ENROLLMENT_ENABLED: 'true',
     };
 
     expect(CLINICAL_CONTINUITY_C_D14_APPROVED).toBe(false);
+    expect(CLINICAL_CONTINUITY_C_D14_CONTEXT_LIFETIME_MINUTES).toBe(720);
     expect(clinicalContinuityFacilityContextPlumbingEnabled(env)).toBe(true);
     expect(clinicalContinuityFacilityContextEnabled(env)).toBe(false);
     expect(clinicalContinuityFacilityEnrollmentEnabled(env)).toBe(false);

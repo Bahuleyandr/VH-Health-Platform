@@ -606,6 +606,12 @@ function normalizeEdgeAccess(value) {
     'policyDocument.edgeAccess.maximumOfflineAuthorizationMinutes',
     2_147_483_647
   );
+  if (maximumOfflineAuthorizationMinutes !== 720) {
+    policyConflict(
+      'Offline authorization does not match the approved C-D4 policy',
+      'CONTINUITY_POLICY_EDGE_OFFLINE_AUTHORIZATION_INVALID'
+    );
+  }
   const credentialLifetimeMinutes = positiveInteger(
     edgeAccess.credentialLifetimeMinutes,
     'policyDocument.edgeAccess.credentialLifetimeMinutes',
@@ -632,23 +638,32 @@ function normalizeRetention(value) {
     ['accessLogRetentionHours', 'edgePackRetentionHours', 'sourcePackRetentionHours'],
     'policyDocument.retention'
   );
-  return {
-    accessLogRetentionHours: positiveInteger(
-      retention.accessLogRetentionHours,
-      'policyDocument.retention.accessLogRetentionHours',
-      2_147_483_647
-    ),
-    edgePackRetentionHours: positiveInteger(
-      retention.edgePackRetentionHours,
-      'policyDocument.retention.edgePackRetentionHours',
-      2_147_483_647
-    ),
-    sourcePackRetentionHours: positiveInteger(
-      retention.sourcePackRetentionHours,
-      'policyDocument.retention.sourcePackRetentionHours',
-      2_147_483_647
-    )
-  };
+  const accessLogRetentionHours = positiveInteger(
+    retention.accessLogRetentionHours,
+    'policyDocument.retention.accessLogRetentionHours',
+    2_147_483_647
+  );
+  const edgePackRetentionHours = positiveInteger(
+    retention.edgePackRetentionHours,
+    'policyDocument.retention.edgePackRetentionHours',
+    2_147_483_647
+  );
+  const sourcePackRetentionHours = positiveInteger(
+    retention.sourcePackRetentionHours,
+    'policyDocument.retention.sourcePackRetentionHours',
+    2_147_483_647
+  );
+  if (
+    edgePackRetentionHours !== 168 ||
+    accessLogRetentionHours !== 8_760 ||
+    sourcePackRetentionHours !== 61_320
+  ) {
+    policyConflict(
+      'Retention does not match the approved C-D10 policy',
+      'CONTINUITY_POLICY_RETENTION_INVALID'
+    );
+  }
+  return { accessLogRetentionHours, edgePackRetentionHours, sourcePackRetentionHours };
 }
 
 /**

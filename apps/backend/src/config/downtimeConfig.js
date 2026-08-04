@@ -34,8 +34,10 @@ export const CLINICAL_CONTINUITY_REPLAY_RECEIPTS_FLAG =
 export const CLINICAL_CONTINUITY_PAPER_RECONCILIATION_FLAG =
   'CLINICAL_CONTINUITY_PAPER_RECONCILIATION_ENABLED';
 
-// C-D14 has no populated owner values or countersignatures. This compile-time
-// gate deliberately cannot be changed by deployment configuration.
+export const CLINICAL_CONTINUITY_C_D14_CONTEXT_LIFETIME_MINUTES = 720;
+
+// C-D14 was countersigned 2026-07-31. This compile-time activation gate stays
+// closed until a separate activation slice is authorized.
 export const CLINICAL_CONTINUITY_C_D14_APPROVED = false;
 
 /**
@@ -139,6 +141,7 @@ export default {
   DEFAULT_MIRROR_SUBDIR,
   CLINICAL_CONTINUITY_ACTION_REGISTRY_FLAG,
   CLINICAL_CONTINUITY_C_D14_APPROVED,
+  CLINICAL_CONTINUITY_C_D14_CONTEXT_LIFETIME_MINUTES,
   CLINICAL_CONTINUITY_FACILITY_CONTEXT_FLAG,
   CLINICAL_CONTINUITY_FACILITY_ENROLLMENT_FLAG,
   CLINICAL_CONTINUITY_REPLAY_RECEIPTS_FLAG,
