@@ -90,17 +90,67 @@ Until publication is activated, an ADMIN must run
 `POST /api/v1/downtime/generate` to produce packs — before planned maintenance,
 and whenever the missing-packs alert fires.
 
-## Recovery / backfill
+## Recovery / paper reconciliation
 
-1. Confirm `/health/ready` green and clinicians can log in.
-2. Back-enter in this order: admissions/transfers → orders → medication
-   administrations (mark with actual administration times, not entry time)
-   → vitals. The MAR back-entry must reference the paper record's
-   administering nurse.
-3. Ward clerk marks the paper pack "RECONCILED" with date/initials and files
-   it per retention policy.
-4. Admin triggers `POST /api/v1/downtime/generate` to refresh packs
-   immediately rather than waiting for the next cron tick.
+> **Activation boundary:** C5.2 is merged as a validation-only, default-off
+> workbench and is not production-ready. The sequence below describes its
+> closed contract; it does not authorize an operator to enable it, insert
+> prerequisite rows with SQL, or substitute generic chart-entry routes. See
+> the [C5.2 build runbook](continuity/c5-2-paper-reconciliation-build-runbook.md#4-operator-sequence).
+
+> **STOP:** do not begin this sequence until the
+> [activation tracker](continuity/activation-readiness-tracker.md#c5-replay-and-reconciliation-activation)
+> records accepted merged remediation for typed incident-packet provisioning
+> and cryptographic verification, complete per-identifier range accounting,
+> and alias-aware closure. Direct SQL and operator attestation are not
+> substitutes; until then, remain on the governed paper, phone, and handoff
+> paths.
+
+1. Confirm `/health/ready` is green, clinicians can log in, and the named
+   operational incident commander and distinct clinical safety lead are
+   available. Start only with fresh server-issued tenant/facility context.
+2. Open the C5.2 paper-reconciliation workbench. Select the server-known
+   incident, or import only a pre-provisioned one-use packet after the preceding
+   provisioning and cryptographic-verification gate is accepted. Confirm the
+   server response binds the tenant/facility, validity window, reserved
+   incident UUID, and paper range. Move the incident in order from `declared`
+   to `restored` to `reconciling`; never invent or rewrite an incident ID.
+3. Account for every issued, used, voided, lost, revoked, expired, and unused
+   paper identifier. Register the evidence and back-enter only medication
+   administration, laboratory specimen collection, or blood transfusion
+   verification through the three closed C5.2 adapters. Record the actual
+   occurrence time and exact paper ID; admissions, transfers, orders, and
+   vitals remain in their separately governed paper or handoff process.
+4. An ADMIN refreshes the read-only ward pack through
+   `POST /api/v1/downtime/generate`. The renderer fixed in
+   [#736](https://github.com/Bahuleyandr/VH-Health-Platform/pull/736) prints
+   `Allergy status UNKNOWN — not recorded` and `Code status NOT RECORDED —
+   confirm per hospital policy` when those facts are absent, plus `Generated
+   <time> — NOT VALID AFTER <time>, then use paper and phone` on every pack.
+   Verify the output itself: `WardDowntimePacksMissing` remains truthfully
+   firing until each occupied ward has a fresh, unexpired, non-empty pack. A
+   successful request is neither reconciliation nor incident-closure evidence.
+5. Send mismatches, conflicts, duplicates, and unresolved items to their typed
+   queues. HIM proposes a temporary-identity match; a distinct doctor or
+   clinical safety lead co-approves it. Execution creates an alias to the
+   existing patient and rewrites zero historical rows. Resolve or explicitly
+   hand off every canonical task.
+6. For one explicitly bound held I04, I05, or non-payment outbound I19 message,
+   use only the typed C5.2 release endpoint merged in
+   [#733](https://github.com/Bahuleyandr/VH-Health-Platform/pull/733). An
+   `applied` or `exact_duplicate` receipt rearms later ordinary dispatch; it
+   does not send, mark sent, infer an acknowledgement, or advance a cursor.
+   The former I05 wait-only procedure is retired; follow its
+   [current authority boundary](continuity/c6-1-i05-held-message-operator-procedure.md#current-authority-boundary)
+   and [implemented release boundary](continuity/c6-1-i05-held-message-operator-procedure.md#implemented-release-boundary).
+   Unclassified I18 release remains refused by the merged executor.
+7. Reconcile every required C4 device-journal and C6.1 interface high-water
+   mark. Safety-critical items must be resolved; non-critical work carried
+   forward needs a named owner, assignee, and attested handoff.
+8. Recompute closure after every change. The incident commander attests the
+   operational key and the distinct clinical safety lead attests the clinical
+   key against the same unblocked snapshot; only then may the incident close.
+   File and retain the paper evidence under the signed policy.
 
 ## Legacy route coexistence and retirement
 
