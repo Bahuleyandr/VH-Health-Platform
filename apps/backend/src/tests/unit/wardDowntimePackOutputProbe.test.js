@@ -130,6 +130,33 @@ describe('observeWardDowntimePackOutput — measures output, not job liveness', 
       .toBeGreaterThan(0);
   });
 
+  it.each([
+    ['no rows', []],
+    ['a row with null counts', [{ wards_expected: null, wards_covered: null }]],
+    ['a row with string counts', [{ wards_expected: '', wards_covered: '' }]],
+    ['a row missing the covered count', [{ wards_expected: 3 }]],
+    ['a non-array result', undefined],
+  ])('reports nothing rather than a fabricated all-clear when the read returns %s', async (
+    _label,
+    result,
+  ) => {
+    queryUnsafeMock.mockResolvedValueOnce([{ wards_expected: 3, wards_covered: 1 }]);
+    await observeWardDowntimePackOutput();
+    const before = serializeWardDowntimePackMetrics();
+
+    queryUnsafeMock.mockResolvedValueOnce(result);
+
+    // Defaulting a missing coverage row to 0/0 would publish "no wards need
+    // packs, none are missing" — exactly the fabricated all-clear this probe
+    // exists to end.
+    await expect(observeWardDowntimePackOutput()).resolves.toBeNull();
+    expect(serializeWardDowntimePackMetrics()).toBe(before);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Ward downtime pack output probe returned no usable coverage row',
+      expect.any(Object),
+    );
+  });
+
   it('leaves the series untouched when the observation itself fails', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ wards_expected: 3, wards_covered: 1 }]);
     await observeWardDowntimePackOutput();

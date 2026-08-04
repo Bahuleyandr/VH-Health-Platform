@@ -100,6 +100,18 @@ const UNCOVERED_WARD_SQL = `
    LIMIT 20`;
 
 /**
+ * Accept only what the `::int` casts in the coverage query can legitimately
+ * produce — a JS number, or a bigint if a driver widens the cast. Anything
+ * else (null, undefined, '', a string, an object) is an unusable reading, not
+ * a zero.
+ */
+function coverageCount(value) {
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return null;
+}
+
+/**
  * Measure ward downtime-pack coverage and publish it. Never throws — a probe
  * that crashes the scheduler would replace a wrong signal with no signal.
  *
@@ -120,8 +132,22 @@ export async function observeWardDowntimePackOutput() {
     return null;
   }
 
-  const wardsExpected = Number(rows?.[0]?.wards_expected ?? 0);
-  const wardsCovered = Number(rows?.[0]?.wards_covered ?? 0);
+  // An ungrouped aggregate always returns exactly one row, so a missing or
+  // malformed one means the read did not happen as written. Coercing it to 0/0
+  // would publish "no wards need packs, none are missing" — a fabricated
+  // all-clear, which is the precise failure this probe exists to end. Note
+  // that Number(null) is 0, so the check has to reject the value's SHAPE
+  // rather than lean on Number.isFinite. Report nothing and let the absent()
+  // guard speak instead.
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  const wardsExpected = coverageCount(row?.wards_expected);
+  const wardsCovered = coverageCount(row?.wards_covered);
+  if (wardsExpected == null || wardsCovered == null) {
+    logger.error('Ward downtime pack output probe returned no usable coverage row', {
+      row_count: Array.isArray(rows) ? rows.length : null,
+    });
+    return null;
+  }
   const wardsMissing = wardsExpected - wardsCovered;
 
   try {
@@ -142,14 +168,14 @@ export async function observeWardDowntimePackOutput() {
   if (wardsMissing > 0) {
     let uncovered = [];
     try {
-      const rows = await prisma.$queryRawUnsafe(
+      const uncoveredRows = await prisma.$queryRawUnsafe(
         UNCOVERED_WARD_SQL,
         WARD_PACK_SCOPE,
         WARD_PACK_FRESHNESS_WINDOW_MINUTES,
       );
       // Naming the wards is a nicety; the count is the signal. Never let the
       // nicety throw and lose the alarm.
-      uncovered = Array.isArray(rows) ? rows : [];
+      uncovered = Array.isArray(uncoveredRows) ? uncoveredRows : [];
     } catch (err) {
       logger.warn('Ward downtime pack output probe could not enumerate uncovered wards', {
         error: err?.message,
