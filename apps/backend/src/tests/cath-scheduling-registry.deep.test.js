@@ -60,6 +60,11 @@ function actor(uid, role) {
 
 async function maintenanceCleanup() {
   await prisma.$transaction(async (tx) => {
+    // Teardown runs only on the disposable deep-test database. Disabling user
+    // and constraint triggers for this one transaction is what keeps the whole
+    // cleanup inside Prisma's 5 s interactive-transaction budget — see the same
+    // note in cath-reporting.deep.test.js. Production paths are untouched.
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
     await tx.$executeRawUnsafe(
       `DELETE FROM clinical_audit_events WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
