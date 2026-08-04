@@ -3960,22 +3960,44 @@ model clinical_ai_translations {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model clinical_ai_trial_sync_runs {
-  id               Int       @id @default(autoincrement())
-  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  source           String    @default("clinicaltrials_gov_v2") @db.VarChar(60)
-  query_conditions String[]  @default([])
-  query_location   String?   @db.VarChar(60)
-  requested_by     String?   @db.Uuid
-  started_at       DateTime  @default(now()) @db.Timestamptz(6)
-  finished_at      DateTime? @db.Timestamptz(6)
-  status           String    @default("running") @db.VarChar(20)
-  fetched_count    Int       @default(0)
-  upserted_count   Int       @default(0)
-  error_message    String?
-  metadata         Json      @default("{}")
-  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                              Int                       @id @default(autoincrement())
+  tenant_id                       String                    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  source                          String                    @default("clinicaltrials_gov_v2") @db.VarChar(60)
+  query_conditions                String[]                  @default([])
+  query_location                  String?                   @db.VarChar(60)
+  requested_by                    String?                   @db.Uuid
+  started_at                      DateTime                  @default(now()) @db.Timestamptz(6)
+  finished_at                     DateTime?                 @db.Timestamptz(6)
+  status                          String                    @default("running") @db.VarChar(20)
+  fetched_count                   Int                       @default(0)
+  upserted_count                  Int                       @default(0)
+  error_message                   String?
+  metadata                        Json                      @default("{}")
+  source_partition                String                    @db.VarChar(160)
+  sync_session_id                 String                    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider_page_number            Int                       @default(1)
+  provider_page_token             String
+  provider_page_token_sha256      String                    @db.Char(64)
+  provider_next_page_token        String?
+  provider_next_page_token_sha256 String?                   @db.Char(64)
+  provider_revision               String?                   @db.VarChar(64)
+  provider_page_sha256            String?                   @db.Char(64)
+  provider_page_complete          Boolean                   @default(false)
+  recovery_inbox_id               String?                   @db.Uuid
+  recovery_interface_family       String?                   @db.VarChar(8)
+  recovery_owner_uid              String?                   @db.Uuid
+  recovery_owner_reason           String?                   @db.VarChar(500)
+  recovery_evidence               Json?
+  effect_disposition              String                    @default("live") @db.VarChar(32)
+  tenants                         tenants                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pathway_projector_inbox         pathway_projector_inbox?  @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onUpdate: NoAction, map: "fk_clinical_ai_trial_sync_runs_recovery_inbox")
+  users                           users?                    @relation(fields: [tenant_id, recovery_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_clinical_ai_trial_sync_runs_recovery_owner")
+  clinical_trials_catalog         clinical_trials_catalog[]
 
+  @@unique([tenant_id, id], map: "uq_clinical_ai_trial_sync_runs_tenant_id")
+  @@unique([tenant_id, source_partition, sync_session_id, provider_page_token_sha256], map: "ux_clinical_ai_trial_sync_runs_i23_page", where: raw("((source_partition)::text !~~ 'clinicaltrials_gov_v2:legacy:%'::text)"))
   @@index([tenant_id, started_at(sort: Desc)], map: "idx_clinical_ai_trial_sync_runs_tenant_time")
+  @@index([tenant_id, source_partition, id(sort: Desc)], map: "idx_clinical_ai_trial_sync_runs_i23_partition")
 }
 
 model clinical_ai_ventilator_bundle_audits {
@@ -4395,12 +4417,17 @@ model clinical_trials_catalog {
   location                     String?
   status                       String                         @default("recruiting") @db.VarChar(30)
   last_refreshed               DateTime                       @default(now()) @db.Timestamptz(6)
+  provider_revision            String?                        @db.VarChar(64)
+  source_payload_sha256        String?                        @db.Char(64)
+  source_sync_run_id           Int?
   clinical_trial_match_results clinical_trial_match_results[]
   tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  clinical_ai_trial_sync_runs  clinical_ai_trial_sync_runs?   @relation(fields: [tenant_id, source_sync_run_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_clinical_trials_catalog_source_sync_run")
   research_registries          research_registries[]
 
   @@unique([tenant_id, nct_id])
   @@index([tenant_id, status], map: "idx_clinical_trials_tenant_status")
+  @@index([tenant_id, source_sync_run_id], map: "idx_clinical_trials_catalog_i23_source_run", where: raw("(source_sync_run_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11283,6 +11310,7 @@ model users {
   cath_procedure_reports                                                                                                        cath_procedure_reports[]
   cath_report_addenda                                                                                                           cath_report_addenda[]
   chair_bookings                                                                                                                chair_bookings[]
+  clinical_ai_trial_sync_runs                                                                                                   clinical_ai_trial_sync_runs[]
   clinical_continuity_device_journal_offsets_clinical_continuity_device_journal_offsets_tenant_id_assigned_to_uidTousers        clinical_continuity_device_journal_offsets[]   @relation("clinical_continuity_device_journal_offsets_tenant_id_assigned_to_uidTousers")
   clinical_continuity_device_journal_offsets_clinical_continuity_device_journal_offsets_tenant_id_updated_byTousers             clinical_continuity_device_journal_offsets[]   @relation("clinical_continuity_device_journal_offsets_tenant_id_updated_byTousers")
   clinical_continuity_edge_access_grants_clinical_continuity_edge_access_grants_tenant_id_created_byTousers                     clinical_continuity_edge_access_grants[]       @relation("clinical_continuity_edge_access_grants_tenant_id_created_byTousers")
@@ -24803,6 +24831,7 @@ model pathway_projector_inbox {
   retention_until                      DateTime?                             @db.Timestamptz(6)
   abdm_data_requests                   abdm_data_requests?
   abdm_webhook_events                  abdm_webhook_events?
+  clinical_ai_trial_sync_runs          clinical_ai_trial_sync_runs[]
   cold_chain_readings                  cold_chain_readings[]
   event_outbox                         event_outbox[]
   hl7_outbound_acknowledgements        hl7_outbound_acknowledgements[]
