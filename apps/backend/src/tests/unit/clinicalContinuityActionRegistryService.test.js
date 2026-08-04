@@ -261,10 +261,120 @@ describe('action policy decisions', () => {
     ).toEqual(
       expect.objectContaining({
         decision: 'would_deny',
-        proceed: true,
+        proceed: false,
         reasonCode: 'CONTINUITY_ACTION_IDENTITY_INCOMPLETE'
       })
     );
+  });
+
+  test.each([
+    {
+      name: 'role-denied',
+      expectedReasonCode: 'CONTINUITY_ACTION_ROLE_DENIED',
+      buildRequest: current => request(current, current, { actorRole: 'PATIENT' })
+    },
+    {
+      name: 'capability-denied',
+      expectedReasonCode: 'CONTINUITY_ACTION_CAPABILITY_DENIED',
+      buildRequest: current => request(current, current, { actorCapabilities: [] })
+    },
+    {
+      name: 'schema-invalid',
+      expectedReasonCode: 'CONTINUITY_ACTION_SCHEMA_INVALID',
+      buildRequest: current => request(current, current, { body: {} })
+    },
+    {
+      name: 'untrusted-capture-policy',
+      expectedReasonCode: 'CONTINUITY_ACTION_CAPTURE_POLICY_UNTRUSTED',
+      buildRequest: current => {
+        const captured = {
+          ...current,
+          id: OLD_POLICY_ID,
+          policyChecksum: 'b'.repeat(64),
+          policySigningKeyId: 'continuity-policy-6',
+          policyVersion: '11',
+          trustState: 'invalid'
+        };
+        return request(current, captured);
+      }
+    },
+    {
+      name: 'missing-compatibility',
+      expectedReasonCode: 'CONTINUITY_ACTION_COMPATIBILITY_MISSING',
+      buildRequest: current => {
+        const captured = {
+          ...current,
+          id: OLD_POLICY_ID,
+          policyChecksum: 'b'.repeat(64),
+          policySigningKeyId: 'continuity-policy-6',
+          policyVersion: '11',
+          trustState: 'historical'
+        };
+        return request(current, captured);
+      }
+    }
+  ])('shadow $name records the would-deny result without authorizing mutation', ({
+    expectedReasonCode,
+    buildRequest
+  }) => {
+    const current = policy(
+      registry({ activation: { enforcedActionIds: [], mode: 'shadow' } })
+    );
+    expect(evaluateClinicalContinuityAction(buildRequest(current))).toEqual(
+      expect.objectContaining({
+        decision: 'would_deny',
+        mode: 'shadow',
+        proceed: false,
+        reasonCode: expectedReasonCode
+      })
+    );
+  });
+
+  test('shadow records a would-allow effect without authorizing mutation', () => {
+    const current = policy(
+      registry({ activation: { enforcedActionIds: [], mode: 'shadow' } })
+    );
+    expect(evaluateClinicalContinuityAction(request(current))).toEqual(
+      expect.objectContaining({
+        decision: 'would_allow',
+        mode: 'shadow',
+        proceed: false,
+        reasonCode: 'CONTINUITY_ACTION_ALLOWED'
+      })
+    );
+  });
+
+  test('keeps the enforce decision bytes identical across the shadow-fix paths', () => {
+    const current = policy();
+    const capturedUntrusted = {
+      ...current,
+      id: OLD_POLICY_ID,
+      policyChecksum: 'b'.repeat(64),
+      policySigningKeyId: 'continuity-policy-6',
+      policyVersion: '11',
+      trustState: 'invalid'
+    };
+    const capturedWithoutCompatibility = {
+      ...capturedUntrusted,
+      trustState: 'historical'
+    };
+    const serialized = [
+      request(current),
+      request(current, current, { actorRole: 'PATIENT' }),
+      request(current, current, { actorCapabilities: [] }),
+      request(current, current, { body: {} }),
+      request(current, capturedUntrusted),
+      request(current, capturedWithoutCompatibility)
+    ].map(value => JSON.stringify(evaluateClinicalContinuityAction(value)));
+
+    expect(serialized).toEqual([
+      '{"actionId":"emr.nursing_note.draft.store","decision":"allow","mode":"enforce","owner":"nursing_privacy_and_security_governance","proceed":true,"reasonCode":"CONTINUITY_ACTION_ALLOWED"}',
+      '{"actionId":"emr.nursing_note.draft.store","decision":"deny","mode":"enforce","owner":"nursing_privacy_and_security_governance","proceed":false,"reasonCode":"CONTINUITY_ACTION_ROLE_DENIED"}',
+      '{"actionId":"emr.nursing_note.draft.store","decision":"deny","mode":"enforce","owner":"nursing_privacy_and_security_governance","proceed":false,"reasonCode":"CONTINUITY_ACTION_CAPABILITY_DENIED"}',
+      '{"actionId":"emr.nursing_note.draft.store","decision":"needs_review","mode":"enforce","owner":"nursing_privacy_and_security_governance","proceed":false,"reasonCode":"CONTINUITY_ACTION_SCHEMA_INVALID"}',
+      '{"actionId":"emr.nursing_note.draft.store","decision":"needs_review","mode":"enforce","owner":"nursing_privacy_and_security_governance","proceed":false,"reasonCode":"CONTINUITY_ACTION_CAPTURE_POLICY_UNTRUSTED"}',
+      '{"actionId":"emr.nursing_note.draft.store","decision":"needs_review","mode":"enforce","owner":"nursing_privacy_and_security_governance","proceed":false,"reasonCode":"CONTINUITY_ACTION_COMPATIBILITY_MISSING"}'
+    ]);
   });
 
   test('allows an expired and superseded capture policy only through an exact rule', () => {

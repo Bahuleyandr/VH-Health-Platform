@@ -490,7 +490,7 @@ export async function applyClinicalContinuityReplay(input) {
               requestContext: input.authorization.requestContext,
               scopeRunner: async (_tenantId, callback) => callback(tx)
             });
-            if (policyResult.decision !== 'allow') {
+            if (!policyResult.proceed) {
               throw reviewError(policyResult.reasonCode);
             }
             const claimed = await claimReceiptTx(tx, {

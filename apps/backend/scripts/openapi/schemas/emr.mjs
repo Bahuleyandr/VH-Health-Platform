@@ -2480,7 +2480,12 @@ const EMR_ONLY_OPS = [
   // -------------------------------------------------------------------------
   // Clinical notes — drafts (static path; data nullable on GET).
   ['GET /notes/draft', { response: 'EmrNoteDraftResponse' }],
-  ['PUT /notes/draft', { request: 'EmrNoteDraftUpsertRequest', response: 'EmrNoteDraftUpsertResponse' }],
+  ['PUT /notes/draft', {
+    summary: 'Store an online private note draft or evaluate a continuity replay',
+    description: 'Ordinary authenticated online autosave stores the author\'s private draft. A request carrying a clinical-continuity action ID is evaluated against the facility policy: shadow records only PHI-free would-allow or would-deny evidence and never invokes the draft mutation; enforce preserves the exact approved-action behavior.',
+    request: 'EmrNoteDraftUpsertRequest',
+    response: 'EmrNoteDraftUpsertResponse'
+  }],
   ['DELETE /notes/draft', { response: 'EmrNoteDraftDeleteResponse' }],
   // Clinical notes — create / detail / update / addendum / sign.
   ['POST /notes', { request: 'EmrCreateNoteRequest', response: 'EmrClinicalNoteResponse' }],

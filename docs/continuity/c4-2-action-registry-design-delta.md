@@ -9,6 +9,13 @@ and countersigned decision C-D3 in the
 **Migration:** `602_clinical_continuity_action_registry.sql` (`601` was occupied)
 **Activation:** none
 
+**2026-08-04 pre-activation correction:** no new migration. The existing
+`activation.mode` and `enforcedActionIds` authority is sufficient. Shadow now
+records `would_allow` or `would_deny` plus the closed server binding's would-be
+effect contract with `proceed = false`; only enforce can authorize the bound
+domain handler. Enforce decisions retain their prior serialized result and audit
+shape.
+
 ## 1. Decision and boundary
 
 C4.2 extends the C3.1 clinical-continuity policy document from the closed v2
@@ -125,8 +132,9 @@ the boot assertion still runs. When true, only requests carrying a continuity
 action ID enter evaluation. Ordinary online calls are unchanged.
 
 The first facility policy is `shadow`. Shadow records compatibility and
-clinical-review evidence without converting those review outcomes into route
-authorization. Security-envelope failures are never shadow-permissive:
+clinical-review evidence without converting any outcome, including a clean
+would-allow outcome, into route authorization. Both `would_allow` and
+`would_deny` carry `proceed = false`. Security-envelope failures are never shadow-permissive:
 unknown actions, missing/non-executable bindings, non-v3 authority, signed
 audience mismatches, unsupported device posture, malformed app versions, and
 clients below the signed minimum safe version are refused.
@@ -146,10 +154,12 @@ capture age. Wildcards do not exist. Missing rules and explicit review rules
 produce owned `needs_review`. A captured policy whose key is now compromised
 or revoked also produces owned `needs_review`, never automatic replay.
 
-Denied, would-deny, and review decisions are audited without clinical payload,
-patient identity, idempotency key, or resource-bearing URL. The audit object is
-built from a fixed key list and format/enumeration validators; caller objects
-are never spread or passed through. The insert runs inside `setTenantTx` and
+Denied, would-allow, would-deny, and review decisions are audited without
+clinical payload, patient identity, idempotency key, or resource-bearing URL.
+Shadow evidence additionally records only the closed server-owned would-be
+effect contract. Enforce audit objects retain their prior byte shape. The audit
+object is built from a fixed key list and format/enumeration validators; caller
+objects are never spread or passed through. The insert runs inside `setTenantTx` and
 deliberately omits `audit_logs.tenant_id`; the column default stamps the active
 `app.current_tenant_id`, matching the existing audit convention and preventing
 an explicit value from disagreeing with the transaction GUC.
@@ -171,10 +181,11 @@ existing note-draft handler into a named controller, mounts it at the same
 read-only operator validation. No OpenAPI source or generated file is in the
 ledger.
 
-Therefore C4.2 can build in parallel with C2.2 PR #652. Its current ledger has
-zero overlap with #652. Both `npm run openapi:check` and
-`npm run openapi:check-core` remain mandatory negative proof; any drift stops
-the slice rather than regenerating OpenAPI.
+The 2026-08-04 correction changes no route, method, request, or response schema.
+It adds an operation description to the source overlay and regenerates both
+OpenAPI mirrors so the existing route contract states that shadow never invokes
+the draft mutation. Both `npm run openapi:check` and
+`npm run openapi:check-core` remain mandatory proof.
 
 ## 7. Tenant, integrity, privilege, and retention
 

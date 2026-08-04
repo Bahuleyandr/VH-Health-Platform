@@ -33,6 +33,10 @@ const { clinicalContinuityActionPolicyMiddleware } = await import(
   '../../middleware/clinicalContinuityActionPolicyMiddleware.js'
 );
 
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
 test('C4.2 consumes only the exact server-owned C5.1 facility seam', async () => {
   const seam = Object.freeze({
     contextId: 'context',
@@ -101,4 +105,57 @@ test('C4.2 consumes only the exact server-owned C5.1 facility seam', async () =>
   );
   expect(req.continuityFacilityContext).toBe(seam);
   expect(next).toHaveBeenCalledWith();
+});
+
+test.each([
+  ['role-denied', 'CONTINUITY_ACTION_ROLE_DENIED'],
+  ['capability-denied', 'CONTINUITY_ACTION_CAPABILITY_DENIED'],
+  ['schema-invalid', 'CONTINUITY_ACTION_SCHEMA_INVALID'],
+  ['untrusted-capture-policy', 'CONTINUITY_ACTION_CAPTURE_POLICY_UNTRUSTED'],
+  ['missing-compatibility', 'CONTINUITY_ACTION_COMPATIBILITY_MISSING'],
+])('shadow %s cannot reach the route mutation handler', async (_name, reasonCode) => {
+  resolveContext.mockResolvedValue({ facilityId: 41 });
+  evaluateAction.mockResolvedValue({
+    decision: 'would_deny',
+    mode: 'shadow',
+    proceed: false,
+    reasonCode,
+  });
+  const headers = {
+    'x-vh-continuity-action-id': 'emr.nursing_note.draft.store',
+    'x-vh-continuity-facility-context': 'canonical-context',
+    'x-vh-continuity-facility-id': '41',
+    'x-vh-continuity-policy-version': '7',
+    'x-vh-continuity-registry-version': '3',
+    'x-vh-continuity-revocation-epoch': '6',
+  };
+  const req = {
+    body: {},
+    get: name => headers[name.toLowerCase()],
+    id: 'request-1',
+    method: 'PUT',
+    path: '/api/v1/emr/notes/draft',
+    tenantId: 'tenant',
+    user: { deviceType: 'tablet', role: 'NURSE', uid: 'actor' },
+  };
+  const res = {
+    json: jest.fn(),
+    status: jest.fn().mockReturnThis(),
+  };
+  const next = jest.fn();
+
+  await clinicalContinuityActionPolicyMiddleware(req, res, next);
+
+  expect(next).not.toHaveBeenCalled();
+  expect(req).not.toHaveProperty('clinicalContinuityActionAuthorization');
+  expect(res.status).toHaveBeenCalledWith(403);
+  expect(res.json).toHaveBeenCalledWith(
+    expect.objectContaining({
+      details: expect.objectContaining({
+        code: reasonCode,
+        decision: 'would_deny',
+      }),
+      success: false,
+    }),
+  );
 });

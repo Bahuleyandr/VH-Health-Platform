@@ -89054,6 +89054,8 @@
             }
           }
         },
+        "summary": "Store an online private note draft or evaluate a continuity replay",
+        "description": "Ordinary authenticated online autosave stores the author's private draft. A request carrying a clinical-continuity action ID is evaluated against the facility policy: shadow records only PHI-free would-allow or would-deny evidence and never invokes the draft mutation; enforce preserves the exact approved-action behavior.",
         "requestBody": {
           "required": true,
           "content": {

@@ -24,7 +24,8 @@ const SEMVER_PATTERN = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0
 const APP_POSTURES = new Set(['desktop', 'tablet']);
 const ACTIVATION_MODES = new Set(['shadow', 'enforce']);
 const COMPATIBILITY_OUTCOMES = new Set(['allow', 'needs_review']);
-const AUDIT_DECISIONS = new Set(['deny', 'needs_review', 'would_deny']);
+const AUDIT_DECISIONS = new Set(['deny', 'needs_review', 'would_allow', 'would_deny']);
+const AUDIT_EFFECT_CONTRACTS = new Set(['private_draft_storage_only']);
 const AUDIT_ROUTE_TEMPLATES = new Set([
   '/api/v1/emr/notes/draft',
   ...CLINICAL_CONTINUITY_NEGATIVE_LEGACY_ALIASES.map(alias => alias.routePattern),
@@ -401,13 +402,13 @@ function decision({ mode, action, decision, reasonCode, proceed }) {
 }
 
 function finish(mode, action, desiredDecision, reasonCode) {
-  if (mode === 'shadow' && desiredDecision !== 'allow') {
+  if (mode === 'shadow') {
     return decision({
       mode,
       action,
-      decision: 'would_deny',
+      decision: desiredDecision === 'allow' ? 'would_allow' : 'would_deny',
       reasonCode,
-      proceed: true
+      proceed: false
     });
   }
   return decision({
@@ -619,7 +620,7 @@ export function buildClinicalContinuityAuditMetadata(value) {
     const normalized = String(uuid || '').toLowerCase();
     return UUID_PATTERN.test(normalized) ? normalized : null;
   };
-  return Object.freeze({
+  const metadata = {
     action_checksum: safeChecksum(value.actionChecksum),
     action_id: actionId,
     action_schema_checksum: safeChecksum(value.actionSchemaChecksum),
@@ -646,7 +647,15 @@ export function buildClinicalContinuityAuditMetadata(value) {
     route_template: AUDIT_ROUTE_TEMPLATES.has(value.routeTemplate)
       ? value.routeTemplate
       : 'unmatched'
-  });
+  };
+  if (value.mode === 'shadow') {
+    metadata.would_be_effect_contract = AUDIT_EFFECT_CONTRACTS.has(
+      value.wouldBeEffectContract
+    )
+      ? value.wouldBeEffectContract
+      : null;
+  }
+  return Object.freeze(metadata);
 }
 
 export async function auditClinicalContinuityActionDecision({
@@ -767,6 +776,7 @@ export async function evaluateClinicalContinuityActionRequest({
             decision: result.decision,
             devicePosture: requestContext.devicePosture,
             facilityId,
+            mode: result.mode,
             policyId: currentPolicy?.id || capturedPolicyId,
             policyVersion: currentPolicy?.policyVersion || capturedPolicyVersion,
             reasonCode: result.reasonCode,
@@ -774,7 +784,9 @@ export async function evaluateClinicalContinuityActionRequest({
             registryVersion: currentPolicy?.actionRegistryVersion || null,
             requestId: requestContext.requestId,
             reviewOwner: result.owner,
-            routeTemplate: requestContext.routeTemplate
+            routeTemplate: requestContext.routeTemplate,
+            wouldBeEffectContract:
+              result.mode === 'shadow' ? requestContext.binding?.effectContract : null
           }
         });
       }
