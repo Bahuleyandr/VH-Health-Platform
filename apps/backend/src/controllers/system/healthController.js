@@ -36,8 +36,10 @@ export const getSystemHealth = async (req, res) => {
 
   // 3. FCM / Push notifications
   try {
-    const admin = await import('firebase-admin').catch(() => null);
-    if (admin && admin.default?.apps?.length > 0) {
+    // firebase-admin 14 dropped the namespace default export (no `.apps`);
+    // the modular app entry point exposes the same registry via getApps().
+    const firebaseApp = await import('firebase-admin/app').catch(() => null);
+    if (firebaseApp && firebaseApp.getApps?.().length > 0) {
       checks.push_notifications = { status: 'healthy' };
     } else {
       checks.push_notifications = { status: 'not_initialized' };

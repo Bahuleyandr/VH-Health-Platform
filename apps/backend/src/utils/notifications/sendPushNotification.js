@@ -1,6 +1,6 @@
 // src\utils\notifications\sendPushNotification.js"
 
-import admin from 'firebase-admin';
+import { getMessaging } from 'firebase-admin/messaging';
 import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendToUser } from '../websocket/wsServer.js';
@@ -11,7 +11,7 @@ import { sendToUser } from '../websocket/wsServer.js';
 async function sendWithRetry(message, maxRetries = 2) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await admin.messaging().sendEachForMulticast(message);
+      return await getMessaging().sendEachForMulticast(message);
     } catch (err) {
       if (attempt === maxRetries) throw err;
       // Only retry on transient errors (network, server errors)
