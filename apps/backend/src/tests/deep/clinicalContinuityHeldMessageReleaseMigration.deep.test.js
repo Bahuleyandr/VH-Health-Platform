@@ -222,7 +222,14 @@ describeIfDb('migration 624 C5.2 held-message release executor', () => {
     const names = readdirSync(new URL('../../migrations/', import.meta.url))
       .filter(name => /^\d+.*\.sql$/.test(name))
       .sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
-    expect(names.at(-1)).toBe('624_clinical_continuity_held_message_release.sql');
+    // Migrations append, so latest-slot equality goes stale the moment anything
+    // lands after 624. "Occupies fresh slot 624" means 624 is this migration's
+    // own, uniquely-held number — which is also the collision this check exists
+    // to catch — so assert that directly. Same shape the sibling continuity
+    // migration suites use for 600 / 601 / 602 / 605.
+    expect(names.filter(name => name.startsWith('624_'))).toEqual([
+      '624_clinical_continuity_held_message_release.sql',
+    ]);
     expect(migrationSql).toContain('clinical_continuity_held_message_release');
     expect(migrationSql).toContain('clinical_continuity_held_release_attest');
     expect(migrationSql).not.toContain('I18\'');
