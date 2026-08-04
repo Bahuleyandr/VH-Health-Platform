@@ -1,4 +1,4 @@
--- Migration 624: index the I04 outbound contiguity scan by ledger generation.
+-- Migration 625: index the I04 outbound contiguity scan by ledger generation.
 --
 -- Migration 610 introduced hl7_outbound_messages.ledger_version and backfilled
 -- EVERY pre-existing row to ledger_version = 0 with
