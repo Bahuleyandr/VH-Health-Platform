@@ -33,6 +33,7 @@ const catalogEntries = [
     facilityScope: 'tenant',
     duplicateKeyKind: 'tenant_subscription_source_event_message_type_payload_sha256',
     partitionKind: 'tenant_subscription',
+    lateRelease: 'c5_2_receipt_backed_per_message_safety_critical',
   }),
   entry('I05', 'Generic integration-engine streams', HWM, {
     directions: Object.freeze(['inbound', 'outbound']),
@@ -41,6 +42,7 @@ const catalogEntries = [
     duplicateKeyKind: 'tenant_channel_direction_target_protocol_payload_sha256',
     partitionKind: 'tenant_channel_direction_target',
     implementedProtocols: Object.freeze(['hl7v2', 'csv', 'json', 'fhir_json', 'other']),
+    lateRelease: 'c5_2_receipt_backed_per_message_safety_critical',
   }),
   entry('I06', 'PACS and DICOM', MIXED, {
     subpaths: Object.freeze({
@@ -133,6 +135,7 @@ const catalogEntries = [
     inboundIdentityKind: 'correlation_workflow_api_call_and_payload_sha256',
     replayAuthority: 'owner_directed_outbound_only',
     paymentNoticeRecovery: 'manual_only',
+    lateRelease: 'c5_2_receipt_backed_per_message_routine_non_payment_only',
   }),
   entry('I20', 'Synchronous prior authorization', NOT_APPLICABLE),
   entry('I21', 'Teleconsult real-time media', NOT_APPLICABLE),

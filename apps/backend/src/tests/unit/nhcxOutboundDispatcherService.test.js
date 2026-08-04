@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { jest } from '@jest/globals';
 
 process.env.NHCX_ENABLED = 'true';
@@ -239,6 +242,20 @@ describe('nhcxOutboundDispatcherService JWE helpers', () => {
 });
 
 describe('dispatchPendingNHCXMessages', () => {
+  it('admits recovered non-payment rows only with exact applied I19 receipt proof', () => {
+    const path = fileURLToPath(new URL(
+      '../../services/nhcx/nhcxOutboundDispatcherService.js',
+      import.meta.url,
+    ));
+    const source = fs.readFileSync(path, 'utf8');
+    expect(source).toMatch(/recovery_disposition = 'manual_redrive_requested'/);
+    expect(source).toMatch(/cycle <> 'payment_notice'/);
+    expect(source).toMatch(/receipt\.source_kind = 'held_message_release'/);
+    expect(source).toMatch(/receipt\.disposition = 'applied'/);
+    expect(source).toMatch(/effect\.interface_family = 'I19'/);
+    expect(source).toMatch(/effect\.nhcx_message_id = nhcx_messages\.id/);
+  });
+
   it('encrypts the current preauth snapshot and marks gateway acceptance', async () => {
     const row = preauthRow();
     queryUnsafeMock.mockResolvedValueOnce([row]);

@@ -9,7 +9,6 @@ import {
   createSubscription,
   deactivateSubscription,
   listFeedMessages,
-  replayFeedMessage,
   deliverPendingFeedMessages,
 } from '../../services/hl7/hl7OutboundService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -75,22 +74,6 @@ router.get('/messages', async (req, res) => {
     return success(res, { messages, count: messages.length }, 'Outbound HL7 messages');
   } catch (err) {
     return handleFailure(res, err, 'list messages');
-  }
-});
-
-router.post('/messages/:id/replay', async (req, res) => {
-  try {
-    if (!canManage(req.user?.role)) {
-      return error(res, 'Only integration admins can replay messages', HTTP_STATUS.FORBIDDEN);
-    }
-    const message = await replayFeedMessage(Number.parseInt(req.params.id, 10), {
-      tenantId: requestTenantId(req),
-      actorUid: req.user?.uid || null,
-      ownerReason: req.body?.owner_reason,
-    });
-    return success(res, { message }, 'Owner-authorized send release recorded');
-  } catch (err) {
-    return handleFailure(res, err, 'replay message');
   }
 });
 

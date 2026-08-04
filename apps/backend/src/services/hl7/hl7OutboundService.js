@@ -17,7 +17,6 @@ import { assertSafeFeedUrl, safeFetch } from '../../utils/ssrfGuard.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
 import {
-  authorizeOwnerRetry,
   beginTransportAttempt,
   claimPendingFeedMessages,
   reconcileExpiredClaims,
@@ -476,19 +475,6 @@ export async function listFeedMessages({ status = null, limit = 50, tenantId = n
   ));
 }
 
-export async function replayFeedMessage(id, {
-  tenantId = null,
-  actorUid = null,
-  ownerReason = null,
-} = {}) {
-  return authorizeOwnerRetry({
-    tenantId,
-    messageId: id,
-    actorUid,
-    ownerReason,
-  });
-}
-
 export default {
   MAX_DELIVERY_ATTEMPTS,
   nextAttemptDelayMinutes,
@@ -501,7 +487,6 @@ export default {
   emitSignedResultsOru,
   deliverPendingFeedMessages,
   listFeedMessages,
-  replayFeedMessage,
 };
 
 export const __testing__ = Object.freeze({ deliverOne, readBoundedResponseBody });

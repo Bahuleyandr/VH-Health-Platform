@@ -212,10 +212,23 @@ class _PaperReconciliationWorkbenchScreenState
             )
           else
             ...queueItems.map(
-              (item) => _QueueItemCard(
-                item: item,
-                onDecide: _isOpen(item) ? () => _decide(item) : null,
-              ),
+              (item) =>
+                  item.interfaceItemKind ==
+                      ClinicalContinuityReconciliationItemInterfaceItemKind
+                          .heldMessageRelease
+                  ? _HeldMessageReleaseCard(
+                      item: item,
+                      onAttest: item.canAttestRelease == true
+                          ? () => _heldRelease(item, attest: true)
+                          : null,
+                      onRelease: item.canRelease == true
+                          ? () => _heldRelease(item, attest: false)
+                          : null,
+                    )
+                  : _QueueItemCard(
+                      item: item,
+                      onDecide: _isOpen(item) ? () => _decide(item) : null,
+                    ),
             ),
         ],
       ),
@@ -251,6 +264,22 @@ class _PaperReconciliationWorkbenchScreenState
           _ReconciliationDecisionDialog(client: widget.client, item: item),
     );
     if (decided == true) await _load();
+  }
+
+  Future<void> _heldRelease(
+    ClinicalContinuityReconciliationItem item, {
+    required bool attest,
+  }) async {
+    final completed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _HeldMessageReleaseDialog(
+        client: widget.client,
+        item: item,
+        attest: attest,
+      ),
+    );
+    if (completed == true) await _load();
   }
 }
 
@@ -440,6 +469,283 @@ class _QueueItemCard extends StatelessWidget {
               ),
       ),
     );
+  }
+}
+
+class _HeldMessageReleaseCard extends StatelessWidget {
+  const _HeldMessageReleaseCard({
+    required this.item,
+    this.onAttest,
+    this.onRelease,
+  });
+
+  final ClinicalContinuityReconciliationItem item;
+  final VoidCallback? onAttest;
+  final VoidCallback? onRelease;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    final evidence =
+        item.sourceSafeEvidence?.entries
+            .take(6)
+            .map((entry) => '${_label(entry.key)}: ${entry.value}')
+            .join('\n') ??
+        '-';
+    final family = item.interfaceFamily?.value ?? '-';
+    final messageId = switch (family) {
+      'I04' => item.hl7OutboundMessageId,
+      'I05' => item.interopMessageId,
+      'I19' => item.nhcxMessageId,
+      _ => null,
+    };
+    return Card(
+      key: Key('held-message-${item.id}'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  item.safetyCritical
+                      ? Icons.health_and_safety_outlined
+                      : Icons.outbox_outlined,
+                  color: item.safetyCritical
+                      ? Theme.of(context).colorScheme.error
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '$family · '
+                    '${strings.lookup('continuity.reconciliation.held_message')}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Chip(label: Text(_label(item.holdSafetyClass?.value ?? '-'))),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${strings.lookup('continuity.reconciliation.message_id')}: '
+              '${messageId ?? '-'} · '
+              '${strings.lookup('continuity.reconciliation.task')}: '
+              '${item.taskId ?? '-'}',
+            ),
+            const SizedBox(height: 8),
+            Text(
+              strings.lookup('continuity.reconciliation.safe_evidence'),
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 4),
+            SelectableText(evidence),
+            const SizedBox(height: 8),
+            SelectableText(
+              '${strings.lookup('continuity.reconciliation.source_fingerprint')}: '
+              '${item.sourceStateFingerprint ?? '-'}',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (onAttest != null)
+                  OutlinedButton.icon(
+                    key: Key('attest-held-message-${item.id}'),
+                    onPressed: onAttest,
+                    icon: const Icon(Icons.verified_user_outlined),
+                    label: Text(
+                      strings.lookup(
+                        'continuity.reconciliation.attest_release',
+                      ),
+                    ),
+                  ),
+                if (onRelease != null)
+                  FilledButton.icon(
+                    key: Key('release-held-message-${item.id}'),
+                    onPressed: onRelease,
+                    icon: const Icon(Icons.outbox_outlined),
+                    label: Text(
+                      strings.lookup('continuity.reconciliation.release'),
+                    ),
+                  ),
+                if (onAttest == null && onRelease == null)
+                  Text(
+                    strings.lookup(
+                      'continuity.reconciliation.release_unavailable',
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeldMessageReleaseDialog extends StatefulWidget {
+  const _HeldMessageReleaseDialog({
+    required this.client,
+    required this.item,
+    required this.attest,
+  });
+
+  final ClinicalContinuityReconciliationClient client;
+  final ClinicalContinuityReconciliationItem item;
+  final bool attest;
+
+  @override
+  State<_HeldMessageReleaseDialog> createState() =>
+      _HeldMessageReleaseDialogState();
+}
+
+class _HeldMessageReleaseDialogState extends State<_HeldMessageReleaseDialog> {
+  final _detail = TextEditingController();
+  var _reason = ClinicalContinuityHeldMessageReleaseReason
+      .ownerRecoveryEvidenceReconciled;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _detail.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return AlertDialog(
+      title: Text(
+        strings.lookup(
+          widget.attest
+              ? 'continuity.reconciliation.attest_release'
+              : 'continuity.reconciliation.release',
+        ),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<ClinicalContinuityHeldMessageReleaseReason>(
+              key: const Key('held-release-reason'),
+              initialValue: _reason,
+              decoration: InputDecoration(
+                labelText: strings.lookup(
+                  'continuity.reconciliation.release_reason',
+                ),
+                border: const OutlineInputBorder(),
+              ),
+              items: ClinicalContinuityHeldMessageReleaseReason.values
+                  .where((reason) => reason.value != null)
+                  .map(
+                    (reason) => DropdownMenuItem(
+                      value: reason,
+                      child: Text(_label(reason.value!)),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() => _reason = value ?? _reason),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('held-release-detail'),
+              controller: _detail,
+              minLines: 3,
+              maxLines: 6,
+              maxLength: 500,
+              decoration: InputDecoration(
+                labelText: strings.lookup(
+                  'continuity.reconciliation.release_detail',
+                ),
+                hintText: strings.lookup(
+                  'continuity.reconciliation.release_detail_hint',
+                ),
+                border: const OutlineInputBorder(),
+                errorText: _error,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: Text(strings.lookup('action.cancel')),
+        ),
+        FilledButton(
+          key: const Key('submit-held-release'),
+          onPressed: _saving ? null : _submit,
+          child: _saving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(strings.lookup('action.submit')),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _submit() async {
+    final detail = _detail.text.trim();
+    final fingerprint = widget.item.sourceStateFingerprint;
+    if (detail.length < 10 || fingerprint == null) {
+      setState(() {
+        _error = AppStrings.of(
+          context,
+        ).lookup('continuity.reconciliation.release_detail_hint');
+      });
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      if (widget.attest) {
+        await widget.client.attestHeldMessageRelease(
+          itemId: widget.item.id,
+          request: ClinicalContinuityHeldMessageAttestationRequest(
+            expectedVersion: widget.item.version,
+            releaseReasonCode: _reason,
+            releaseReasonDetail: detail,
+            expectedSourceStateFingerprint: fingerprint,
+          ),
+        );
+      } else {
+        await widget.client.releaseHeldMessage(
+          itemId: widget.item.id,
+          idempotencyKey:
+              'held-message-release:${widget.item.id}:v${widget.item.version}',
+          request: ClinicalContinuityHeldMessageReleaseRequest(
+            expectedVersion: widget.item.version,
+            releaseReasonCode: _reason,
+            releaseReasonDetail: detail,
+            expectedSourceStateFingerprint: fingerprint,
+            safetyAttestationId: widget.item.releaseAttestationId,
+          ),
+        );
+      }
+      if (mounted) Navigator.pop(context, true);
+    } on ClinicalContinuityReconciliationException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = error.code ?? error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = 'CONTINUITY_HELD_MESSAGE_RELEASE_FAILED';
+      });
+    }
   }
 }
 

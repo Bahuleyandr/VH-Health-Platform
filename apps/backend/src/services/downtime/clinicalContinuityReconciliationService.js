@@ -828,13 +828,47 @@ export async function listClinicalContinuityWorkbench({
   actorUid,
   actorRole,
   incidentId = null,
+  queueType = null,
+  interfaceItemKind = null,
 }) {
   const actor = uuid(actorUid, 'actor_uid');
-  const role = requireRole(actorRole, WORKBENCH_ROLES, 'CONTINUITY_WORKBENCH_ROLE_DENIED');
+  const role = normalizeRole(actorRole);
+  const queueFilter = queueType ? safeText(queueType, 'queue_type', 24) : null;
+  const interfaceKindFilter = interfaceItemKind
+    ? safeText(interfaceItemKind, 'interface_item_kind', 48)
+    : null;
+  if (queueFilter && !['needs_review', 'identity', 'interface'].includes(queueFilter)) {
+    throw AppError.badRequest('queue_type is invalid', 'CONTINUITY_WORKBENCH_FILTER_INVALID');
+  }
+  if (interfaceKindFilter && interfaceKindFilter !== 'held_message_release') {
+    throw AppError.badRequest('interface_item_kind is invalid', 'CONTINUITY_WORKBENCH_FILTER_INVALID');
+  }
+  if (interfaceKindFilter && queueFilter !== 'interface') {
+    throw AppError.badRequest(
+      'held-message items require queue_type=interface',
+      'CONTINUITY_WORKBENCH_FILTER_INVALID',
+    );
+  }
   return facilityTransaction(
     { tenantId, facilityId, isolationLevel: 'RepeatableRead', readOnly: true },
     async (tx, scope) => {
       const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+      const resourceScopedInterfaceOwner = queueFilter === 'interface'
+        && interfaceKindFilter === 'held_message_release'
+        && (
+          config.interface_owner_principal.toLowerCase() === `role:${role.toLowerCase()}`
+          || (
+            config.interface_owner_principal === config.fallback_principal
+            && config.clinical_safety_lead_uid === actor
+          )
+        );
+      if (!WORKBENCH_ROLES.has(role) && !resourceScopedInterfaceOwner) {
+        throw AppError.forbidden(
+          'Clinical continuity workbench was denied',
+          'CONTINUITY_WORKBENCH_ROLE_DENIED',
+          { safe: true },
+        );
+      }
       const aggregateView = WORKBENCH_AGGREGATE_ROLES.has(role)
         || config.clinical_safety_lead_uid === actor;
       const incidentFilter = incidentId ? uuid(incidentId, 'incident_id') : null;
@@ -892,21 +926,79 @@ export async function listClinicalContinuityWorkbench({
         aggregateView,
         actor,
       );
-      const reconciliationItems = await tx.$queryRawUnsafe(
+      const reconciliationRows = await tx.$queryRawUnsafe(
         `SELECT item.*, task.status AS task_status, task.due_at AS task_due_at,
-                task.sla_completion_semantics
+                task.sla_completion_semantics,
+                attestation.id::text AS release_attestation_id,
+                attestation.command_fingerprint AS release_attestation_fingerprint,
+                attestation.intended_releaser_uid::text AS release_attestation_releaser_uid,
+                attestation.resulting_version AS release_attestation_item_version,
+                receipt.disposition AS release_receipt_disposition,
+                receipt.outcome_code AS release_receipt_outcome_code,
+                effect.release_audit_event_id::text AS release_audit_event_id
            FROM clinical_continuity_reconciliation_items AS item
            LEFT JOIN tasks AS task ON task.id = item.task_id AND task.tenant_id = item.tenant_id
+           LEFT JOIN LATERAL (
+             SELECT decision.id, decision.command_fingerprint,
+                    decision.intended_releaser_uid, decision.resulting_version
+               FROM clinical_continuity_reconciliation_decisions AS decision
+              WHERE decision.tenant_id = item.tenant_id
+                AND decision.facility_id = item.facility_id
+                AND decision.reconciliation_item_id = item.id
+                AND decision.decision = 'release_attestation'
+              ORDER BY decision.resulting_version DESC, decision.id DESC
+              LIMIT 1
+           ) AS attestation ON TRUE
+           LEFT JOIN clinical_continuity_replay_receipts AS receipt
+             ON receipt.tenant_id = item.tenant_id
+            AND receipt.client_event_id = item.release_receipt_client_event_id
+           LEFT JOIN clinical_continuity_replay_effect_evidence AS effect
+             ON effect.tenant_id = item.tenant_id
+            AND effect.client_event_id = item.release_effect_client_event_id
           WHERE item.tenant_id = $1::uuid AND item.facility_id = $2::integer
             AND ($3::uuid IS NULL OR item.incident_id = $3::uuid)
             AND ($4::boolean OR item.assigned_to_uid = $5::uuid)
+            AND ($6::varchar IS NULL OR item.queue_type = $6::varchar)
+            AND ($7::varchar IS NULL OR item.interface_item_kind = $7::varchar)
           ORDER BY item.safety_critical DESC, item.created_at ASC LIMIT 500`,
         scope.tenantId,
         scope.facilityId,
         incidentFilter,
         aggregateView,
         actor,
+        queueFilter,
+        interfaceKindFilter,
       );
+      const reconciliationItems = reconciliationRows.map(item => {
+        if (item.interface_item_kind !== 'held_message_release') return item;
+        const open = ['open', 'in_progress'].includes(item.disposition)
+          && OPEN_TASK_STATUSES.includes(item.task_status)
+          && item.release_receipt_client_event_id == null;
+        const assigned = item.assigned_to_uid === actor;
+        const ownerRoleMatches = item.owner_principal?.toLowerCase() === `role:${role.toLowerCase()}`;
+        const fallbackMatches = item.owner_principal === config.fallback_principal
+          && config.clinical_safety_lead_uid === actor
+          && item.hold_safety_class === 'routine_operational';
+        const attestationMatches = item.release_attestation_id
+          && item.release_attestation_releaser_uid === actor
+          && Number(item.release_attestation_item_version) === Number(item.version);
+        return {
+          ...item,
+          source_safe_evidence: item.source_state_snapshot,
+          can_attest_release: open
+            && item.hold_safety_class === 'safety_critical'
+            && config.clinical_safety_lead_uid === actor
+            && item.assigned_to_uid !== actor,
+          can_release: open
+            && item.hold_safety_class !== 'unclassified'
+            && assigned
+            && (ownerRoleMatches || fallbackMatches)
+            && (
+              item.hold_safety_class === 'routine_operational'
+              || Boolean(attestationMatches)
+            ),
+        };
+      });
       const temporaryIdentities = aggregateView ? await tx.$queryRawUnsafe(
         `SELECT * FROM clinical_continuity_temporary_identities
           WHERE tenant_id = $1::uuid AND facility_id = $2::integer
@@ -951,6 +1043,9 @@ export async function listClinicalContinuityWorkbench({
         temporary_identities: temporaryIdentities,
         device_offsets: devices,
         interfaces,
+        capabilities: {
+          can_bind: INCIDENT_ADMIN_ROLES.has(role),
+        },
       };
     },
   );

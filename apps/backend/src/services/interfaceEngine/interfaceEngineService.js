@@ -1038,10 +1038,39 @@ export async function dispatchOutboundMessages({ tenantId = null, batchSize = 25
         AND m.direction IN ('outbound', 'bidirectional')
         AND m.status = 'queued'
         AND m.protocol = ANY($3::text[])
-        AND m.arrival_class = 'live'
-        AND m.effect_disposition = 'live'
-        AND m.send_authority = 'live_authorized'
-        AND m.owner_reconciliation_required = false
+         AND (
+           (
+             m.arrival_class = 'live'
+             AND m.effect_disposition = 'live'
+             AND m.send_authority = 'live_authorized'
+             AND m.owner_reconciliation_required = false
+             AND m.owner_release_client_event_id IS NULL
+           )
+           OR
+           (
+             m.recovery_ledger_version = 1
+             AND m.arrival_class = 'recovery_backlog'
+             AND m.effect_disposition = 'late_pending_only'
+             AND m.send_authority = 'owner_authorized'
+             AND m.owner_reconciliation_required = false
+             AND m.owner_release_client_event_id IS NOT NULL
+             AND EXISTS (
+               SELECT 1
+                 FROM clinical_continuity_replay_receipts AS receipt
+                 JOIN clinical_continuity_replay_effect_evidence AS effect
+                   ON effect.tenant_id = receipt.tenant_id
+                  AND effect.client_event_id = receipt.client_event_id
+                WHERE receipt.tenant_id = m.tenant_id
+                  AND receipt.client_event_id = m.owner_release_client_event_id
+                  AND receipt.source_kind = 'held_message_release'
+                  AND receipt.disposition = 'applied'
+                  AND receipt.outcome_code = 'held_message_send_authority_rearmed'
+                  AND effect.interface_family = 'I05'
+                  AND effect.interop_message_id = m.id
+                  AND effect.network_send_performed = false
+             )
+           )
+         )
         AND c.connector_kind = 'http_outbound'
         AND c.status = 'active'
       ORDER BY m.updated_at ASC, m.id ASC
@@ -1063,10 +1092,39 @@ export async function dispatchOutboundMessages({ tenantId = null, batchSize = 25
               updated_at = NOW()
         WHERE tenant_id = $1::uuid AND id = $2::integer
           AND status = 'queued'
-          AND arrival_class = 'live'
-          AND effect_disposition = 'live'
-          AND send_authority = 'live_authorized'
-          AND owner_reconciliation_required = false
+          AND (
+            (
+              arrival_class = 'live'
+              AND effect_disposition = 'live'
+              AND send_authority = 'live_authorized'
+              AND owner_reconciliation_required = false
+              AND owner_release_client_event_id IS NULL
+            )
+            OR
+            (
+              recovery_ledger_version = 1
+              AND arrival_class = 'recovery_backlog'
+              AND effect_disposition = 'late_pending_only'
+              AND send_authority = 'owner_authorized'
+              AND owner_reconciliation_required = false
+              AND owner_release_client_event_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                  FROM clinical_continuity_replay_receipts AS receipt
+                  JOIN clinical_continuity_replay_effect_evidence AS effect
+                    ON effect.tenant_id = receipt.tenant_id
+                   AND effect.client_event_id = receipt.client_event_id
+                 WHERE receipt.tenant_id = interop_messages.tenant_id
+                   AND receipt.client_event_id = interop_messages.owner_release_client_event_id
+                   AND receipt.source_kind = 'held_message_release'
+                   AND receipt.disposition = 'applied'
+                   AND receipt.outcome_code = 'held_message_send_authority_rearmed'
+                   AND effect.interface_family = 'I05'
+                   AND effect.interop_message_id = interop_messages.id
+                   AND effect.network_send_performed = false
+              )
+            )
+          )
           AND delivery_claim_token IS NULL
         RETURNING delivery_claim_token::text, delivery_claim_generation,
                   delivery_lease_expires_at`,

@@ -14,6 +14,9 @@ import {
   executeIdentityMatch,
   importIncident,
   listWorkbench,
+  attestHeldMessageRelease,
+  bindHeldMessage,
+  releaseHeldMessage,
   proposeIdentityMatch,
   recordDeviceOffset,
   recordInterfaceRequirement,
@@ -28,6 +31,12 @@ const router = express.Router();
 router.use(requireClinicalContinuityReconciliationContext);
 
 router.get('/workbench', listWorkbench);
+router.post('/incidents/:incidentId/interface-held-messages', bindHeldMessage);
+router.post(
+  '/reconciliation-items/:itemId/held-message-release/attestations',
+  attestHeldMessageRelease,
+);
+router.post('/reconciliation-items/:itemId/held-message-release', releaseHeldMessage);
 router.post('/incidents/declare', declareIncident);
 router.post('/incidents/import', importIncident);
 router.patch('/incidents/:incidentId/state', transitionIncident);

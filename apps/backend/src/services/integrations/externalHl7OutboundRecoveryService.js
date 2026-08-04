@@ -1,6 +1,5 @@
 import { AppError } from '../../utils/AppError.js';
 import {
-  authorizeOwnerRetryTx,
   recordOwnerAcknowledgementTx,
 } from '../hl7/hl7OutboundDeliveryLedgerService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -8,7 +7,7 @@ import { createTask } from '../workflow/taskService.js';
 import { requireExternalRecoveryCapability } from './externalRecoveryEffectGate.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ACTIONS = new Set(['record_acknowledgement', 'authorize_send']);
+const ACTIONS = new Set(['record_acknowledgement']);
 const COMMAND_KEYS = new Set([
   'action',
   'message_id',
@@ -91,53 +90,33 @@ export async function persistLateHl7OutboundRecovery({
   const ownerReason = requireReason(input.owner_reason);
   const evidence = requireEvidence(input.evidence);
 
-  let domain;
-  if (action === 'record_acknowledgement') {
-    const rawAcknowledgement = String(input.raw_acknowledgement || '');
-    if (!rawAcknowledgement.trim()) refuse('raw_acknowledgement is required');
-    const reconciled = await recordOwnerAcknowledgementTx(tx, {
-      tenantId: tid,
-      messageId,
-      rawAcknowledgement,
-      recoveryInboxId: inboxId,
-      actorUid,
-      ownerReason,
-      evidence,
-    });
-    domain = Object.freeze({
-      ...reconciled,
-      acknowledgement: Object.freeze({
-        ...reconciled.acknowledgement,
-        id: reconciled.acknowledgement.acknowledgement_id,
-      }),
-    });
-  } else {
-    if (input.raw_acknowledgement !== null && input.raw_acknowledgement !== undefined) {
-      refuse('authorize_send cannot carry acknowledgement evidence');
-    }
-    const authority = await authorizeOwnerRetryTx(tx, {
-      tenantId: tid,
-      messageId,
-      actorUid,
-      ownerReason,
-      recoveryInboxId: inboxId,
-    });
-    domain = Object.freeze({
-      authority: Object.freeze({ ...authority, id: String(authority.id) }),
-      recoveryCursorAction: 'pause',
-    });
-  }
+  const rawAcknowledgement = String(input.raw_acknowledgement || '');
+  if (!rawAcknowledgement.trim()) refuse('raw_acknowledgement is required');
+  const reconciled = await recordOwnerAcknowledgementTx(tx, {
+    tenantId: tid,
+    messageId,
+    rawAcknowledgement,
+    recoveryInboxId: inboxId,
+    actorUid,
+    ownerReason,
+    evidence,
+  });
+  const domain = Object.freeze({
+    ...reconciled,
+    acknowledgement: Object.freeze({
+      ...reconciled.acknowledgement,
+      id: reconciled.acknowledgement.acknowledgement_id,
+    }),
+  });
 
   const task = await createTask({
     tenantId: tid,
     taskKind: 'review',
     title: `Review I04 outbound HL7 ${action.replaceAll('_', ' ')}`,
-    description: action === 'record_acknowledgement'
-      ? 'Owner evidence reconciled a parsed HL7 MSA acknowledgement. This records downstream state and does not authorize another send.'
-      : 'The accountable owner explicitly released one held HL7 message for a future send. No network delivery occurs in the recovery transaction.',
+    description: 'Owner evidence reconciled a parsed HL7 MSA acknowledgement. This records downstream state and does not authorize another send.',
     relatedResourceType: 'hl7_outbound_message',
     relatedResourceId: String(messageId),
-    priority: action === 'authorize_send' ? 'high' : 'normal',
+    priority: 'normal',
     assignedToRole: 'TENANT_ADMIN',
     createdBy: actorUid,
     slaCompletionSemantics: 'none',
@@ -150,7 +129,7 @@ export async function persistLateHl7OutboundRecovery({
       action,
       transport_result_changed: false,
       acknowledgement_reconciled: action === 'record_acknowledgement',
-      send_authority_changed: action === 'authorize_send',
+      send_authority_changed: false,
       network_send_performed: false,
       cursor_advance_requires_correlated_msa_aa: true,
     },
@@ -159,9 +138,7 @@ export async function persistLateHl7OutboundRecovery({
   return Object.freeze({
     ...domain,
     task,
-    outcomeCode: action === 'record_acknowledgement'
-      ? `i04_msa_${domain.parsed.state}`
-      : 'i04_owner_send_authorized_ack_pending',
+    outcomeCode: `i04_msa_${domain.parsed.state}`,
   });
 }
 

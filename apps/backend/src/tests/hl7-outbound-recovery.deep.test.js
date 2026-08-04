@@ -192,7 +192,7 @@ describeIfDb('C6.1-E I04 owner-directed outbound HL7 recovery', () => {
     expect(state.recovery_inbox_id).toMatch(/^[0-9a-f-]{36}$/);
   }, 60_000);
 
-  test('a held late message becomes sendable only from an explicit owner command and is not sent in recovery', async () => {
+  test('the retired I04 recovery authorize_send command cannot release a held message', async () => {
     const message = await createQueuedMessage('release');
     const command = {
       action: 'authorize_send',
@@ -202,14 +202,8 @@ describeIfDb('C6.1-E I04 owner-directed outbound HL7 recovery', () => {
       evidence: { receiver_query_sha256: 'b'.repeat(64), result: 'not_found' },
     };
     const { envelope } = await prepareRecovery(message, command);
-    const recovered = await processNextItemTx(envelope);
-    expect(recovered).toMatchObject({
-      status: 'handled',
-      outcome_code: 'i04_owner_send_authorized_ack_pending',
-      cursor: {
-        high_water_position: String(message.id - 1),
-        recovery_state: 'reconciliation_required_provider_state',
-      },
+    await expect(processNextItemTx(envelope)).rejects.toMatchObject({
+      code: 'I04_OUTBOUND_RECONCILIATION_REFUSED',
     });
 
     const state = await setTenantTx(TENANT_ID, async (tx) => {
@@ -219,6 +213,7 @@ describeIfDb('C6.1-E I04 owner-directed outbound HL7 recovery', () => {
                 message.recovery_inbox_id::text,
                 message.owner_release_actor_uid::text,
                 message.owner_release_reason,
+                message.owner_release_client_event_id::text,
                 COUNT(attempt.attempt_id)::integer AS attempt_count
            FROM hl7_outbound_messages AS message
            LEFT JOIN hl7_outbound_transport_attempts AS attempt
@@ -231,14 +226,15 @@ describeIfDb('C6.1-E I04 owner-directed outbound HL7 recovery', () => {
       return rows[0];
     });
     expect(state).toMatchObject({
-      status: 'queued',
+      status: 'reconciliation_required',
       transport_state: 'not_attempted',
       acknowledgement_state: 'pending',
-      send_authority: 'authorized',
-      owner_release_actor_uid: ACTOR_UID,
+      send_authority: 'held_owner_reconciliation',
+      owner_release_actor_uid: null,
+      owner_release_client_event_id: null,
       attempt_count: 0,
     });
-    expect(state.owner_release_reason).toMatch(/authorized one future send/i);
-    expect(state.recovery_inbox_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(state.owner_release_reason).toBeNull();
+    expect(state.recovery_inbox_id).toBeNull();
   }, 60_000);
 });
