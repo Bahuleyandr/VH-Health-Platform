@@ -6,15 +6,19 @@
   // waived without dropping the whole high-severity gate. audit-ci keeps the
   // HIGH bar AND lets us waive individually-reviewed advisories below.
   "high": true,
-  "allowlist": [
-    // GHSA-h67p-54hq-rp68 — js-yaml <=4.1.1 quadratic-complexity DoS via YAML
-    // merge keys. DEV-ONLY: the sole path is
-    // @istanbuljs/load-nyc-config → js-yaml@3.14.2 (jest coverage tooling).
-    // It is never bundled into the running service and never parses untrusted
-    // YAML at runtime. No safe fix exists: js-yaml 3.x has no patched release,
-    // and js-yaml 4.2.0 removed `safeLoad` (which load-nyc-config calls), so a
-    // package override breaks coverage collection. Re-evaluate when
-    // babel-plugin-istanbul / load-nyc-config bump to js-yaml >=4.2.
-    "GHSA-h67p-54hq-rp68"
-  ]
+  // Intentionally empty. Keep it that way unless an advisory is genuinely
+  // unfixable — audit-ci warns ("Consider not allowlisting advisory: X") when
+  // an entry stops matching, and a stale waiver silently masks the next real
+  // finding for that package.
+  //
+  // Removed 2026-08-04: GHSA-h67p-54hq-rp68 (js-yaml merge-key quadratic DoS).
+  // The waiver was written when the sole path was
+  // @istanbuljs/load-nyc-config → js-yaml@3.14.2 and the 3.x line had no patch.
+  // That is no longer true: the advisory publishes patches for BOTH lines
+  // (< 3.15.0 → 3.15.0, and >= 4.0.0 <= 4.1.1 → 4.2.0), and this tree now
+  // resolves a 3.15.x under load-nyc-config plus a 4.3.x at the root — both
+  // at or above their patch. `npm audit` no longer reports it, so the entry
+  // was dead. (Exact patch versions are deliberately not named here; they
+  // move with every lockfile refresh and would make this comment stale.)
+  "allowlist": []
 }

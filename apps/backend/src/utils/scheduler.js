@@ -1,6 +1,11 @@
 // src/utils/scheduler.js
 
-import cron from 'node-cron';
+// Named import, not the default namespace: node-cron 4.6 added a top-level
+// `schedule` named export alongside the default object, which makes
+// `cron.schedule(...)` trip import/no-named-as-default-member (a warning, and
+// this package lints with --max-warnings=0). Both spellings resolve to the same
+// function; the named one is the unambiguous home.
+import { schedule as cronSchedule } from 'node-cron';
 import pg from 'pg';
 import path from 'path';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
@@ -22,7 +27,7 @@ const runningJobs = new Set();
 const scheduledTasks = [];
 
 function registerCron(...args) {
-  const task = cron.schedule(...args);
+  const task = cronSchedule(...args);
   scheduledTasks.push(task);
   return task;
 }
