@@ -650,7 +650,7 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     source_partition: `clinicaltrials_gov_v2:${'a'.repeat(64)}`,
     provider_page_number: 1,
     provider_page_token: 'origin',
-    provider_page_token_sha256: '181fdd46fc4a7246b9f4f1eba3129ba5d724011af5f10223b3589955d1df108a',
+    provider_page_token_sha256: createHash('sha256').update('origin', 'utf8').digest('hex'),
     provider_next_page_token: null,
     provider_next_page_token_sha256: null,
     provider_revision: null,
