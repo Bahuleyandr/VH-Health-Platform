@@ -28,6 +28,9 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   // Owner reconciliation is required because SCIM exposes no provider-side
   // sequence. Seed coverage must not invent identity commands or C-D15 effects.
   'scim_provisioning_commands',
+  // Recipient priority is tenant policy. Seed coverage must not invent a
+  // hospital hierarchy or silently activate ranking for any tenant.
+  'escalation_recipient_rank_mappings',
 ]);
 
 const intentionallyEmptySeedTableSet = new Set(INTENTIONALLY_EMPTY_SEED_TABLES);

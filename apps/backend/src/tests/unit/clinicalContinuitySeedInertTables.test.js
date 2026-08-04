@@ -39,11 +39,13 @@ describe('clinical continuity comprehensive seed boundary', () => {
       'clinical_continuity_replay_receipts',
       'unexpected_table',
       'clinical_continuity_edge_log_receipts',
+      'escalation_recipient_rank_mappings',
     ])).toEqual({
       intentionallyEmptyAppTables: [
         'clinical_continuity_edge_access_grants',
         'clinical_continuity_replay_receipts',
         'clinical_continuity_edge_log_receipts',
+        'escalation_recipient_rank_mappings',
       ],
       unexpectedEmptyAppTables: ['unexpected_table'],
     });

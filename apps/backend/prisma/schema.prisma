@@ -10390,6 +10390,7 @@ model tenants {
   engagement_suppression_events               engagement_suppression_events[]
   engagement_templates                        engagement_templates[]
   entitlement_audit_events                    entitlement_audit_events[]
+  escalation_recipient_rank_mappings          escalation_recipient_rank_mappings[]
   escalation_rules                            escalation_rules[]
   event_consumer_offsets                      event_consumer_offsets[]
   event_outbox                                event_outbox[]
@@ -26749,6 +26750,25 @@ model scim_provisioning_commands {
   @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_scim_provisioning_commands_recovery_inbox", where: raw("(recovery_inbox_id IS NOT NULL)"))
   @@unique([tenant_id, id], map: "ux_scim_provisioning_commands_tenant_id")
   @@index([tenant_id, provider_id, execution_disposition, occurred_at, id], map: "idx_scim_provisioning_commands_review")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model escalation_recipient_rank_mappings {
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id               String   @db.Uuid
+  source_kind             String   @db.VarChar(20)
+  source_value            String   @db.VarChar(100)
+  normalized_source_value String   @db.VarChar(100)
+  priority_rank           Int      @db.SmallInt
+  created_by              String?  @db.Uuid
+  updated_by              String?  @db.Uuid
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @default(now()) @db.Timestamptz(6)
+  tenants                 tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_escalation_recipient_rank_mappings_tenant")
+
+  @@unique([tenant_id, source_kind, normalized_source_value], map: "uq_escalation_recipient_rank_mappings_source")
+  @@index([tenant_id, priority_rank, source_kind, normalized_source_value], map: "idx_escalation_recipient_rank_mappings_tenant_rank")
 }
 
 enum transplant_organ_type {

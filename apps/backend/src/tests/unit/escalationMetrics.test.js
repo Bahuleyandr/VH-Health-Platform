@@ -12,13 +12,19 @@
 // absolute on a label combination unique to this file, or a before/after delta.
 
 import {
+  recordEscalationCandidateLockSkipped,
   recordEscalationCandidatePageFull,
+  recordEscalationRecipientRankingFailure,
   recordEscalationRecipientsTrimmed,
+  recordEscalationRecipientsTrimmedByRank,
   serializeEscalationMetrics,
 } from '../../observability/escalationMetrics.js';
 
 const TRIM = 'vhhealth_escalation_recipients_trimmed_total';
 const PAGE_FULL = 'vhhealth_escalation_candidate_page_full_total';
+const LOCK_SKIPPED = 'vhhealth_escalation_candidate_lock_skipped_total';
+const TRIM_BY_RANK = 'vhhealth_escalation_recipients_trimmed_by_rank_total';
+const RANK_FAILURE = 'vhhealth_escalation_recipient_ranking_failures_total';
 
 function seriesValue(name, labelPart) {
   const prefix = `${name}{${labelPart}} `;
@@ -27,10 +33,13 @@ function seriesValue(name, labelPart) {
 }
 
 describe('escalationMetrics', () => {
-  it('always exposes both counters with HELP and TYPE, even before anything is recorded', () => {
+  it('always exposes every escalation counter with HELP and TYPE', () => {
     const out = serializeEscalationMetrics();
     expect(out).toContain(`# TYPE ${TRIM} counter`);
     expect(out).toContain(`# TYPE ${PAGE_FULL} counter`);
+    expect(out).toContain(`# TYPE ${LOCK_SKIPPED} counter`);
+    expect(out).toContain(`# TYPE ${TRIM_BY_RANK} counter`);
+    expect(out).toContain(`# TYPE ${RANK_FAILURE} counter`);
     // The HELP text is what an on-call engineer reads in Grafana at 3am; it must
     // say what was lost, not merely name the counter.
     expect(out).toMatch(/# HELP vhhealth_escalation_recipients_trimmed_total .*dropped.*cap/i);
@@ -84,6 +93,40 @@ describe('escalationMetrics', () => {
     recordEscalationCandidatePageFull({ triggerCondition: 'Robert; DROP TABLE tasks' });
     expect(seriesValue(PAGE_FULL, 'trigger_condition="unknown"')).toBe(1);
     expect(serializeEscalationMetrics()).not.toContain('DROP TABLE');
+  });
+
+  it('counts every lock-skipped candidate and bounds the trigger label', () => {
+    const before = seriesValue(LOCK_SKIPPED, 'trigger_condition="sla_breach"');
+    recordEscalationCandidateLockSkipped({ triggerCondition: 'sla_breach', count: 4 });
+    expect(seriesValue(LOCK_SKIPPED, 'trigger_condition="sla_breach"')).toBe(before + 4);
+    expect(() => recordEscalationCandidateLockSkipped({ triggerCondition: 'sla_breach', count: 0 }))
+      .toThrow(TypeError);
+  });
+
+  it('partitions trimmed recipients by bounded rank and failure reason', () => {
+    recordEscalationRecipientsTrimmedByRank({
+      role: 'DOCTOR', arm: 'exact', rank: 1, dropped: 20,
+    });
+    recordEscalationRecipientsTrimmedByRank({
+      role: 'DOCTOR', arm: 'exact', rank: 'not-a-rank', dropped: 80,
+    });
+    expect(seriesValue(TRIM_BY_RANK, 'role="DOCTOR",arm="exact",rank="1"')).toBe(20);
+    expect(seriesValue(TRIM_BY_RANK, 'role="DOCTOR",arm="exact",rank="unranked"')).toBe(80);
+
+    recordEscalationRecipientRankingFailure({
+      role: 'DOCTOR', arm: 'exact', reason: 'mapping_count_mismatch',
+    });
+    recordEscalationRecipientRankingFailure({
+      role: 'DOCTOR', arm: 'exact', reason: 'zero_ranked_candidates',
+    });
+    expect(seriesValue(
+      RANK_FAILURE,
+      'role="DOCTOR",arm="exact",reason="mapping_count_mismatch"',
+    )).toBe(1);
+    expect(seriesValue(
+      RANK_FAILURE,
+      'role="DOCTOR",arm="exact",reason="zero_ranked_candidates"',
+    )).toBe(1);
   });
 
   it('serializes as valid Prometheus exposition text', () => {
