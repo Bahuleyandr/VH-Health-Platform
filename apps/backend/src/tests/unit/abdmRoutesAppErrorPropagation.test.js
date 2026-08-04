@@ -27,6 +27,8 @@ const verifySignedRequestMock = jest.fn();
 const assertSharedReplayOnceMock = jest.fn();
 const resolveTenantBySenderMock = jest.fn();
 const getInteropSecretMock = jest.fn();
+const recordAuthenticatedAbdmCallbackMock = jest.fn();
+const markAuthenticatedAbdmCallbackMock = jest.fn();
 
 jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
   ABDM_CONFIG: { enabled: true, hipId: 'TEST_HIP', callbackSecret: 'test-callback-secret' },
@@ -48,6 +50,11 @@ jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js',
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: TENANT,
+}));
+
+jest.unstable_mockModule('../../services/integrations/externalAbdmRecoveryService.js', () => ({
+  recordAuthenticatedAbdmCallback: recordAuthenticatedAbdmCallbackMock,
+  markAuthenticatedAbdmCallback: markAuthenticatedAbdmCallbackMock,
 }));
 
 jest.unstable_mockModule('../../services/abdm/abdmService.js', () => ({
@@ -93,6 +100,8 @@ beforeEach(() => {
   assertSharedReplayOnceMock.mockReset();
   resolveTenantBySenderMock.mockReset();
   getInteropSecretMock.mockReset();
+  recordAuthenticatedAbdmCallbackMock.mockReset();
+  markAuthenticatedAbdmCallbackMock.mockReset();
   globalHandlerSpy.mockReset();
   // Callback auth defaults: no per-tenant secret row, so the configured
   // global HIP id path (DEFAULT tenant + config secret) authenticates.
@@ -100,6 +109,11 @@ beforeEach(() => {
   getInteropSecretMock.mockResolvedValue(null);
   verifySignedRequestMock.mockReturnValue(undefined);
   assertSharedReplayOnceMock.mockResolvedValue(true);
+  recordAuthenticatedAbdmCallbackMock.mockResolvedValue({
+    event: { id: '71', external_event_id: 'cr-9', status: 'pending' },
+    duplicate: false,
+  });
+  markAuthenticatedAbdmCallbackMock.mockResolvedValue({ id: '71', status: 'processed' });
 });
 
 describe('abdmRoutes relays AppError code + details through relayAppError', () => {

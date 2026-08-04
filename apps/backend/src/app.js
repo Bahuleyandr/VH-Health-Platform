@@ -541,8 +541,13 @@ const HTTP_BODY_LIMIT = process.env.HTTP_BODY_LIMIT || '1mb';
 app.use(express.json({
   limit: HTTP_BODY_LIMIT,
   verify: (req, _res, body) => {
-    if (String(req.originalUrl || req.url || '').startsWith('/api/v1/scim/v2/')) {
+    const path = String(req.originalUrl || req.url || '');
+    if (path.startsWith('/api/v1/scim/v2/')) {
       req.scimRawBody = Buffer.from(body);
+    }
+    if (path === '/api/v1/abdm/consent/on-notify'
+        || path === '/api/v1/abdm/health-info/on-request') {
+      req.abdmRawBody = Buffer.from(body);
     }
   },
 }));

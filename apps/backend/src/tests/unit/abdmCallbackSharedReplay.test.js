@@ -34,6 +34,8 @@ jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
 // HMAC fast-path passes; shared replay guard is the unit under test.
 const verifySignedRequest = jest.fn();
 const assertSharedReplayOnce = jest.fn();
+const recordAuthenticatedAbdmCallback = jest.fn();
+const markAuthenticatedAbdmCallback = jest.fn();
 jest.unstable_mockModule('../../utils/signedRequest.js', () => ({
   verifySignedRequest,
   assertSharedReplayOnce,
@@ -56,6 +58,10 @@ jest.unstable_mockModule('../../services/abdm/abdmGateway.js', () => ({
 jest.unstable_mockModule('../../utils/ssrfGuard.js', () => ({
   assertSafeOutboundUrl: jest.fn(),
 }));
+jest.unstable_mockModule('../../services/integrations/externalAbdmRecoveryService.js', () => ({
+  recordAuthenticatedAbdmCallback,
+  markAuthenticatedAbdmCallback,
+}));
 
 let abdmService;
 let callbackRouter;
@@ -68,6 +74,13 @@ beforeAll(async () => {
 beforeEach(() => {
   verifySignedRequest.mockReset();
   assertSharedReplayOnce.mockReset();
+  recordAuthenticatedAbdmCallback.mockReset();
+  markAuthenticatedAbdmCallback.mockReset();
+  recordAuthenticatedAbdmCallback.mockResolvedValue({
+    event: { id: '71', external_event_id: 'cr-9', status: 'pending' },
+    duplicate: false,
+  });
+  markAuthenticatedAbdmCallback.mockResolvedValue({ id: '71', status: 'processed' });
 });
 
 afterEach(() => {
@@ -76,7 +89,11 @@ afterEach(() => {
 
 function buildApp() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({
+    verify: (req, _res, body) => {
+      req.abdmRawBody = Buffer.from(body);
+    },
+  }));
   app.use(callbackRouter);
   return app;
 }
@@ -116,6 +133,28 @@ describe('ABDM callback cross-replica replay protection', () => {
     expect(arg.requestId).toBe(REQUEST_ID);
     expect(String(arg.timestamp)).toBe(TIMESTAMP);
     expect(arg.signature).toBe(SIGNATURE);
+    expect(recordAuthenticatedAbdmCallback).toHaveBeenCalledTimes(1);
+    expect(assertSharedReplayOnce.mock.invocationCallOrder[0])
+      .toBeLessThan(recordAuthenticatedAbdmCallback.mock.invocationCallOrder[0]);
+    const receipt = recordAuthenticatedAbdmCallback.mock.calls[0][0];
+    expect(receipt).toMatchObject({
+      tenantId: expect.any(String),
+      callbackPath: '/consent/on-notify',
+      environment: 'sandbox',
+      auth: {
+        hipId: 'TEST_HIP',
+        requestId: REQUEST_ID,
+        timestamp: TIMESTAMP,
+        signature: SIGNATURE,
+      },
+    });
+    expect(JSON.parse(receipt.rawBody.toString('utf8'))).toEqual({
+      notification: {
+        consentRequestId: 'cr-9',
+        purpose: { code: 'CAREMGT' },
+        patient: { id: 'abha@sbx' },
+      },
+    });
   });
 
   it('rejects fail-closed and does NOT process the callback when the shared store signals a replay', async () => {
@@ -132,6 +171,7 @@ describe('ABDM callback cross-replica replay protection', () => {
 
     expect(res.status).toBe(401);
     expect(spy).not.toHaveBeenCalled();
+    expect(recordAuthenticatedAbdmCallback).not.toHaveBeenCalled();
   });
 
   it('rejects fail-closed when the shared replay store is unavailable (503)', async () => {
@@ -147,5 +187,6 @@ describe('ABDM callback cross-replica replay protection', () => {
 
     expect(res.status).toBe(503);
     expect(spy).not.toHaveBeenCalled();
+    expect(recordAuthenticatedAbdmCallback).not.toHaveBeenCalled();
   });
 });
