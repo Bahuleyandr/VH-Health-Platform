@@ -51,10 +51,13 @@ describeWithDatabase('webhook delivery recovery contracts (deep)', () => {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO webhook_deliveries
          (tenant_id, subscription_id, event_type, payload, status, attempt_number,
-          next_retry_at, request_id, lease_owner, lease_expires_at, started_at)
+          next_retry_at, request_id, lease_owner, lease_expires_at, started_at,
+          source_kind, source_identity, payload_sha256)
        VALUES ($1::uuid, $2::integer, $3::text, '{}'::jsonb, $4::text, $5::integer,
                NOW(), $6::text, $7::uuid, $8::timestamptz,
-               CASE WHEN $4::text = 'in_flight' THEN NOW() ELSE NULL END)
+               CASE WHEN $4::text = 'in_flight' THEN NOW() ELSE NULL END,
+               CASE WHEN $2::integer IS NULL THEN 'legacy_orphan' ELSE 'adhoc' END,
+               $6::text, encode(digest('{}'::jsonb::text, 'sha256'), 'hex'))
        RETURNING id, status, attempt_number, lease_owner, lease_expires_at`,
       TENANT,
       subscription,
@@ -109,10 +112,13 @@ describeWithDatabase('webhook delivery recovery contracts (deep)', () => {
   });
 
   afterEach(async () => {
-    await prisma.$executeRawUnsafe(
-      "DELETE FROM audit_logs WHERE tenant_id = $1::uuid AND resource = 'webhook_delivery'",
-      TENANT,
-    );
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+      await tx.$executeRawUnsafe(
+        "DELETE FROM audit_logs WHERE tenant_id = $1::uuid AND resource = 'webhook_delivery'",
+        TENANT,
+      );
+    });
     await prisma.$executeRawUnsafe('DELETE FROM webhook_deliveries WHERE tenant_id = $1::uuid', TENANT);
     await prisma.$executeRawUnsafe('DELETE FROM integration_logs WHERE tenant_id = $1::uuid', TENANT);
     await setIntegrationStatus('active');

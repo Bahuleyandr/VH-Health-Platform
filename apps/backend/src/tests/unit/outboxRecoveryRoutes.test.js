@@ -14,6 +14,7 @@ const phiAccessLoggerMock = jest.fn(() => phiAccessMiddlewareMock);
 const enqueueDeliveryMock = jest.fn();
 const markDeliveryDeadMock = jest.fn();
 const redriveDeliveryMock = jest.fn();
+const createSubscriptionMock = jest.fn();
 
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
   phiAccessLogger: phiAccessLoggerMock,
@@ -32,7 +33,7 @@ jest.unstable_mockModule('../../services/integrations/integrationService.js', ()
   writeIntegrationLog: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/integrations/webhookSubscriptionService.js', () => ({
-  createSubscription: jest.fn(),
+  createSubscription: createSubscriptionMock,
   deleteSubscription: jest.fn(),
   getSubscription: jest.fn(),
   listSubscriptions: jest.fn(),
@@ -48,7 +49,7 @@ jest.unstable_mockModule('../../services/integrations/webhookDeliveryService.js'
 }));
 
 const { default: eventOutboxRoutes } = await import('../../routes/admin/eventOutboxRoutes.js');
-const { deliveryRouter } = await import('../../routes/admin/integrationRoutes.js');
+const { deliveryRouter, integrationRouter } = await import('../../routes/admin/integrationRoutes.js');
 
 function buildApp() {
   const app = express();
@@ -60,6 +61,7 @@ function buildApp() {
     next();
   });
   app.use('/events', eventOutboxRoutes);
+  app.use('/integrations', integrationRouter);
   app.use('/webhook-deliveries', deliveryRouter);
   app.use((error, _req, res, _next) => {
     res.status(error.statusCode || 500).json({ code: error.code, message: error.message });
@@ -71,6 +73,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   listEventsMock.mockResolvedValue([]);
   redriveFailedEventMock.mockResolvedValue({ id: '9223372036854775807', status: 'pending' });
+  createSubscriptionMock.mockResolvedValue({
+    id: 3,
+    integration_id: 9,
+    event_type: 'patient.admitted',
+    endpoint_url: 'https://subscriber.example.test/webhook',
+  });
   enqueueDeliveryMock.mockResolvedValue({ matched: 0, enqueued: [] });
   markDeliveryDeadMock.mockResolvedValue({ id: 7, status: 'dead' });
   redriveDeliveryMock.mockResolvedValue({ id: 7, status: 'pending' });
@@ -135,6 +143,7 @@ describe('webhook recovery admin routes', () => {
       .send({
         event_type: 'patient.admitted',
         event_outbox_id: '9223372036854775807',
+        source_identity: 'admin:patient-admitted:1',
         payload: { patient_uid: 'secret' },
         request_id: 'client-request-id',
       });
@@ -143,9 +152,34 @@ describe('webhook recovery admin routes', () => {
       tenantId: TENANT,
       eventType: 'patient.admitted',
       payload: { patient_uid: 'secret' },
+      sourceIdentity: 'admin:patient-admitted:1',
       requestId: 'client-request-id',
     });
     expect(enqueueDeliveryMock.mock.calls[0][0]).not.toHaveProperty('eventOutboxId');
+  });
+
+  test('binds subscriber acknowledgement classification to the authenticated owner', async () => {
+    const response = await request(buildApp())
+      .post('/integrations/9/subscriptions')
+      .send({
+        event_type: 'patient.admitted',
+        endpoint_url: 'https://subscriber.example.test/webhook',
+        signing_algorithm: 'none',
+        downstream_effect_classification: 'clinical_or_operational_effect',
+        acknowledgement_contract: 'response_body_sha256',
+        acknowledgement_config: { expected_sha256: 'a'.repeat(64) },
+        recovery_contract_owner_reason: 'Subscriber contract reviewed',
+      });
+    expect(response.status).toBe(201);
+    expect(createSubscriptionMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      integrationId: '9',
+      downstreamEffectClassification: 'clinical_or_operational_effect',
+      acknowledgementContract: 'response_body_sha256',
+      acknowledgementConfig: { expected_sha256: 'a'.repeat(64) },
+      recoveryContractOwnerUid: ACTOR,
+      recoveryContractOwnerReason: 'Subscriber contract reviewed',
+    }));
   });
 
   test.each([

@@ -608,6 +608,38 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     facility_id: null,
     pending_task_id: null,
   },
+  // mig 620: generic coverage represents ordinary live webhook configuration
+  // and an ad-hoc occurrence. Recovery provenance and owner classifications
+  // are never invented by the comprehensive seed mirror.
+  webhook_subscriptions: {
+    downstream_effect_classification: 'unclassified',
+    acknowledgement_contract: 'unclassified',
+    acknowledgement_config: {},
+    recovery_contract_owner_uid: null,
+    recovery_contract_owner_reason: null,
+    recovery_contract_classified_at: null,
+  },
+  webhook_deliveries: {
+    event_outbox_id: null,
+    payload: {},
+    source_kind: 'adhoc',
+    source_identity: 'seed-webhook-delivery',
+    source_position: null,
+    payload_sha256: '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+    downstream_effect_classification: 'unclassified',
+    acknowledgement_contract: 'unclassified',
+    acknowledgement_config: {},
+    acknowledgement_state: 'unclassified',
+    acknowledgement_evidence: null,
+    acknowledged_at: null,
+    send_authority: 'live_authorized',
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+    recovery_owner_uid: null,
+    recovery_owner_reason: null,
+    recovery_evidence: null,
+    effect_disposition: 'live',
+  },
   // migs 607/608: recovery links and pending evidence are backed by exact
   // canonical-inbox rows. Generic coverage data has no such occurrence.
   lab_interface_messages: {

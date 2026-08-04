@@ -143,6 +143,37 @@ describe('createSubscription', () => {
     });
     expect(row.id).toBe(1);
   });
+  it('requires owner evidence and a closed acknowledgement contract for classification', async () => {
+    mockNext([{ id: 1 }]);
+    await expect(createSubscription({
+      tenantId: TENANT,
+      integrationId: 1,
+      eventType: 'patient.admitted',
+      endpointUrl: 'https://8.8.8.8/hook',
+      signingAlgorithm: 'none',
+      downstreamEffectClassification: 'clinical_or_operational_effect',
+      acknowledgementContract: 'response_body_sha256',
+      acknowledgementConfig: { expected_sha256: 'a'.repeat(64) },
+    })).rejects.toThrow(/Named owner and reason/);
+  });
+  it('inserts owner-classified acknowledgement input atomically', async () => {
+    mockNext([{ id: 1 }]);
+    mockNext([{ id: 2, downstream_effect_classification: 'no_downstream_effect' }]);
+    await createSubscription({
+      tenantId: TENANT,
+      integrationId: 1,
+      eventType: 'patient.admitted',
+      endpointUrl: 'https://8.8.8.8/hook',
+      signingAlgorithm: 'none',
+      downstreamEffectClassification: 'no_downstream_effect',
+      acknowledgementContract: 'response_body_sha256',
+      acknowledgementConfig: { expected_sha256: 'a'.repeat(64) },
+      recoveryContractOwnerUid: '11111111-1111-4111-8111-111111111111',
+      recoveryContractOwnerReason: 'Subscriber contract reviewed',
+    });
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/recovery_contract_owner_uid/);
+    expect(queryUnsafeMock.mock.calls[1]).toContain('no_downstream_effect');
+  });
   it('maps unique-violation to 409', async () => {
     mockNext([{ id: 1 }]); // integration ownership
     queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));

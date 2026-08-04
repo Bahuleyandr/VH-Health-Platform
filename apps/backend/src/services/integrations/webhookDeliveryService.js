@@ -35,6 +35,7 @@ const MAX_LEASE_SECONDS = 900;
 const REQUEST_TIMEOUT_MS = 8_000;
 const RESPONSE_EXCERPT_MAX = 2_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 function isMissingSchemaError(error) {
   return /does not exist|relation .* does not exist/i.test(String(error?.message || ''));
@@ -73,6 +74,75 @@ function normalizeUuid(value, label) {
 
 function normalizePayload(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map(key => [key, canonicalize(value[key])]),
+    );
+  }
+  return value;
+}
+
+function payloadSha256(payload) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(canonicalize(normalizePayload(payload))))
+    .digest('hex');
+}
+
+function normalizeSourceIdentity(value) {
+  return safeText(value, 255, 'source_identity', { required: true });
+}
+
+function normalizeNonnegativeBigInt(value, label) {
+  let parsed;
+  try {
+    parsed = BigInt(String(value ?? '0'));
+  } catch {
+    throw AppError.badRequest(`${label} must be a non-negative BIGINT`);
+  }
+  if (parsed < 0n) throw AppError.badRequest(`${label} must be a non-negative BIGINT`);
+  return parsed;
+}
+
+function acknowledgementForResponse({ contract, config, responseBody, responseHeaders }) {
+  const policy = String(contract || 'unclassified');
+  const settings = normalizePayload(config);
+  if (policy === 'response_body_sha256') {
+    const expected = String(settings.expected_sha256 || '').trim().toLowerCase();
+    if (!SHA256_PATTERN.test(expected)) return Object.freeze({ state: 'unclassified', evidence: null });
+    const actual = crypto.createHash('sha256').update(responseBody || '').digest('hex');
+    return Object.freeze({
+      state: crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'))
+        ? 'positive'
+        : 'negative',
+      evidence: Object.freeze({ contract: policy, response_body_sha256: actual }),
+    });
+  }
+  if (policy === 'response_header_sha256') {
+    const headerName = String(settings.header_name || '').trim().toLowerCase();
+    const expected = String(settings.expected_sha256 || '').trim().toLowerCase();
+    if (!headerName || !SHA256_PATTERN.test(expected)) {
+      return Object.freeze({ state: 'unclassified', evidence: null });
+    }
+    const headerValue = responseHeaders?.get?.(headerName);
+    if (!headerValue) {
+      return Object.freeze({
+        state: 'missing',
+        evidence: Object.freeze({ contract: policy, header_name: headerName }),
+      });
+    }
+    const actual = crypto.createHash('sha256').update(headerValue).digest('hex');
+    return Object.freeze({
+      state: crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'))
+        ? 'positive'
+        : 'negative',
+      evidence: Object.freeze({ contract: policy, header_name: headerName, header_value_sha256: actual }),
+    });
+  }
+  return Object.freeze({ state: 'unclassified', evidence: null });
 }
 
 function backoffSecondsForAttempt(attemptNumber) {
@@ -122,11 +192,15 @@ export async function enqueueDelivery({
   tenantId,
   eventType,
   payload = {},
+  sourceIdentity,
   eventOutboxId = null,
   requestId = null,
 } = {}) {
   const tid = requireTenantId(tenantId);
   const cleanType = safeText(eventType, 120, 'event_type', { required: true });
+  const source = normalizeSourceIdentity(sourceIdentity);
+  const cleanPayload = normalizePayload(payload);
+  const fingerprint = payloadSha256(cleanPayload);
   if (eventOutboxId !== null && eventOutboxId !== undefined) {
     throw AppError.badRequest(
       'Ad-hoc webhook enqueue cannot attach an event_outbox_id',
@@ -151,12 +225,21 @@ export async function enqueueDelivery({
       cleanType,
     );
     if (!subscriptions.length) return Object.freeze({ matched: 0, enqueued: Object.freeze([]) });
-    const rows = await tx.$queryRawUnsafe(
+    await tx.$queryRawUnsafe(
       `INSERT INTO webhook_deliveries
          (subscription_id, tenant_id, event_outbox_id, event_type, payload,
-          status, attempt_number, next_retry_at, request_id)
+          status, attempt_number, next_retry_at, request_id, source_kind,
+          source_identity, source_position, payload_sha256,
+          downstream_effect_classification, acknowledgement_contract,
+          acknowledgement_config, acknowledgement_state)
        SELECT subscription.id, subscription.tenant_id, NULL, $2::text,
-              $3::jsonb, 'pending', 0, NOW(), $4::text
+              $3::jsonb, 'pending', 0, NOW(), $4::text, 'adhoc',
+              $5::text, NULL, $6::char(64),
+              subscription.downstream_effect_classification,
+              subscription.acknowledgement_contract,
+              subscription.acknowledgement_config,
+              CASE WHEN subscription.acknowledgement_contract = 'unclassified'
+                   THEN 'unclassified' ELSE 'pending' END
          FROM webhook_subscriptions AS subscription
          JOIN integrations AS integration
            ON integration.tenant_id = subscription.tenant_id
@@ -166,19 +249,95 @@ export async function enqueueDelivery({
           AND subscription.event_type = $2::text
           AND subscription.is_active = TRUE
           AND subscription.event_filter = '{}'::jsonb
-      RETURNING id, subscription_id, tenant_id, event_outbox_id::text,
-                event_type, status, attempt_number, next_retry_at,
-                redrive_count, created_at`,
+       ON CONFLICT (tenant_id, subscription_id, source_identity)
+         WHERE source_kind = 'adhoc'
+       DO NOTHING`,
       tid,
       cleanType,
-      JSON.stringify(normalizePayload(payload)),
+      JSON.stringify(cleanPayload),
       request,
+      source,
+      fingerprint,
     );
-    if (rows.length !== subscriptions.length) {
-      throw new Error('Ad-hoc webhook enqueue coverage is incomplete');
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id, subscription_id, tenant_id, event_outbox_id::text,
+              event_type, status, attempt_number, next_retry_at,
+              redrive_count, source_kind, source_identity,
+              payload_sha256::text, created_at
+         FROM webhook_deliveries
+        WHERE tenant_id = $1::uuid
+          AND subscription_id = ANY($2::integer[])
+          AND source_kind = 'adhoc'
+          AND source_identity = $3::text
+        ORDER BY subscription_id`,
+      tid,
+      subscriptions.map(row => row.id),
+      source,
+    );
+    if (rows.length !== subscriptions.length
+        || rows.some(row => row.payload_sha256 !== fingerprint)) {
+      throw AppError.conflict(
+        'Ad-hoc webhook source identity was reused with different payload evidence',
+        'WEBHOOK_ADHOC_SOURCE_IDENTITY_CONFLICT',
+      );
     }
     return Object.freeze({ matched: subscriptions.length, enqueued: Object.freeze(rows) });
   }, { isolationLevel: 'Serializable' });
+}
+
+export async function deriveWebhookHighWaterMark({
+  tenantId,
+  subscriptionId,
+  currentPosition = 0,
+  cutoffPosition,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const sid = normalizeId(subscriptionId, 'subscription id');
+  const current = normalizeNonnegativeBigInt(currentPosition, 'current_position');
+  const cutoff = normalizeNonnegativeBigInt(cutoffPosition, 'cutoff_position');
+  if (cutoff < current) throw AppError.badRequest('cutoff_position precedes current_position');
+
+  const rows = await setTenantTx(tid, tx => tx.$queryRawUnsafe(
+    `SELECT id, source_position::text, source_identity,
+            payload_sha256::text, acknowledgement_state
+       FROM webhook_deliveries
+      WHERE tenant_id = $1::uuid
+        AND subscription_id = $2::integer
+        AND source_kind = 'event_outbox'
+        AND source_position > $3::bigint
+        AND source_position <= $4::bigint
+      ORDER BY source_position, id`,
+    tid,
+    sid,
+    current.toString(),
+    cutoff.toString(),
+  ));
+
+  let highWater = current;
+  let token = current === 0n ? 'origin' : `event_outbox:${current}`;
+  let blocked = null;
+  for (const row of rows) {
+    if (row.acknowledgement_state !== 'positive') {
+      blocked = Object.freeze({
+        delivery_id: row.id,
+        source_position: row.source_position,
+        acknowledgement_state: row.acknowledgement_state,
+      });
+      break;
+    }
+    highWater = BigInt(row.source_position);
+    token = `${row.source_identity}:${row.payload_sha256}`;
+  }
+
+  return Object.freeze({
+    partition: `webhook-subscription:${sid}:outbound`,
+    current_position: current.toString(),
+    cutoff_position: cutoff.toString(),
+    high_water_position: highWater.toString(),
+    high_water_token: token,
+    complete_through_cutoff: blocked === null && highWater === cutoff,
+    blocked,
+  });
 }
 
 async function claimDueDeliveries({ tenantId, batchSize, leaseOwner, leaseSeconds }) {
@@ -197,6 +356,7 @@ async function claimDueDeliveries({ tenantId, batchSize, leaseOwner, leaseSecond
           AND integration.status = 'active'
         WHERE ($1::uuid IS NULL OR delivery.tenant_id = $1::uuid)
           AND delivery.status IN ('pending', 'failed')
+          AND delivery.send_authority = 'live_authorized'
           AND delivery.next_retry_at <= NOW()
         ORDER BY delivery.next_retry_at, delivery.id
         FOR UPDATE OF delivery SKIP LOCKED
@@ -216,7 +376,8 @@ async function claimDueDeliveries({ tenantId, batchSize, leaseOwner, leaseSecond
     RETURNING delivery.id, delivery.subscription_id, delivery.tenant_id,
               delivery.event_outbox_id::text, delivery.event_type, delivery.payload,
               delivery.attempt_number, delivery.request_id, delivery.lease_owner,
-              delivery.lease_expires_at, due.prior_status`,
+              delivery.lease_expires_at, delivery.acknowledgement_contract,
+              delivery.acknowledgement_config, due.prior_status`,
     tenantId,
     batchSize,
     leaseOwner,
@@ -324,6 +485,8 @@ async function finishClaim(claim, {
   nextRetryAt = null,
   completedAt = null,
   subscriptionOutcome = null,
+  acknowledgementState = null,
+  acknowledgementEvidence = null,
 }) {
   return setTenantTx(claim.tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
@@ -335,6 +498,9 @@ async function finishClaim(claim, {
               signature = $10::text,
               next_retry_at = $11::timestamptz,
               completed_at = $12::timestamptz,
+              acknowledgement_state = COALESCE($13::text, acknowledgement_state),
+              acknowledgement_evidence = $14::jsonb,
+              acknowledged_at = CASE WHEN $13::text = 'positive' THEN NOW() ELSE NULL END,
               lease_owner = NULL,
               lease_expires_at = NULL,
               updated_at = NOW()
@@ -357,6 +523,8 @@ async function finishClaim(claim, {
       signature,
       nextRetryAt,
       completedAt,
+      acknowledgementState,
+      acknowledgementEvidence == null ? null : JSON.stringify(acknowledgementEvidence),
     );
     if (rows.length !== 1) return Object.freeze({ updated: false, lost_fence: true });
     if (subscriptionOutcome === 'success') {
@@ -453,6 +621,8 @@ export async function dispatchPendingDeliveries({
     const url = subscription.endpoint_url;
     let httpStatus = null;
     let responseExcerpt = null;
+    let responseBody = '';
+    let responseHeaders = null;
     let errorMessage = null;
     try {
       await assertSafeOutboundUrl(url, {
@@ -496,8 +666,10 @@ export async function dispatchPendingDeliveries({
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         httpStatus = response.status;
+        responseHeaders = response.headers || null;
         try {
           const text = await response.text();
+          responseBody = text || '';
           responseExcerpt = text ? text.slice(0, RESPONSE_EXCERPT_MAX) : null;
         } catch {
           responseExcerpt = null;
@@ -509,6 +681,12 @@ export async function dispatchPendingDeliveries({
 
     const ok = httpStatus != null && httpStatus >= 200 && httpStatus < 300;
     if (ok) {
+      const acknowledgement = acknowledgementForResponse({
+        contract: row.acknowledgement_contract,
+        config: row.acknowledgement_config,
+        responseBody,
+        responseHeaders,
+      });
       const result = await finishClaim(claim, {
         status: 'succeeded',
         httpStatus,
@@ -516,6 +694,8 @@ export async function dispatchPendingDeliveries({
         signature: signed.signature || null,
         completedAt: new Date(),
         subscriptionOutcome: 'success',
+        acknowledgementState: acknowledgement.state,
+        acknowledgementEvidence: acknowledgement.evidence,
       });
       if (!result.updated) {
         lostFence += 1;
@@ -826,9 +1006,12 @@ export const __testing__ = Object.freeze({
   backoffSecondsForAttempt,
   computeNextRetryAt,
   isRetryable,
+  acknowledgementForResponse,
+  payloadSha256,
 });
 
 export default {
+  deriveWebhookHighWaterMark,
   dispatchPendingDeliveries,
   enqueueDelivery,
   getDelivery,

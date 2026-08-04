@@ -30,6 +30,18 @@ const MAX_LIST_LIMIT = 500;
 const ENDPOINT_MAX = 2_000;
 const EVENT_TYPE_MAX = 120;
 const SECRET_MAX = 8_000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DOWNSTREAM_EFFECT_CLASSIFICATIONS = new Set([
+  'unclassified',
+  'no_downstream_effect',
+  'clinical_or_operational_effect',
+  'external_effect_unverified',
+]);
+const ACKNOWLEDGEMENT_CONTRACTS = new Set([
+  'unclassified',
+  'response_header_sha256',
+  'response_body_sha256',
+]);
 
 function resolveTenantId(options = {}) {
   return requireTenantId(options.tenantId);
@@ -87,6 +99,44 @@ function requireEmptyEventFilter(value) {
     );
   }
   return filter;
+}
+
+function normalizeRecoveryContract({
+  downstreamEffectClassification = 'unclassified',
+  acknowledgementContract = 'unclassified',
+  acknowledgementConfig = {},
+  ownerActorUid = null,
+  ownerReason = null,
+} = {}) {
+  const classification = String(downstreamEffectClassification || '').trim().toLowerCase();
+  const contract = String(acknowledgementContract || '').trim().toLowerCase();
+  const config = normalizeJsonObject(acknowledgementConfig, 'acknowledgement_config');
+  if (!DOWNSTREAM_EFFECT_CLASSIFICATIONS.has(classification)) {
+    throw AppError.badRequest('downstream_effect_classification is invalid');
+  }
+  if (!ACKNOWLEDGEMENT_CONTRACTS.has(contract)) {
+    throw AppError.badRequest('acknowledgement_contract is invalid');
+  }
+  if (classification === 'unclassified' || contract === 'unclassified') {
+    if (classification !== 'unclassified' || contract !== 'unclassified'
+        || Object.keys(config).length !== 0 || ownerActorUid || ownerReason) {
+      throw AppError.badRequest('Webhook recovery classification and acknowledgement contract must be supplied together');
+    }
+    return Object.freeze({ classification, contract, config, actorUid: null, reason: null });
+  }
+  const actorUid = String(ownerActorUid || '').trim().toLowerCase();
+  const reason = safeText(ownerReason, 500);
+  if (!UUID_PATTERN.test(actorUid) || !reason) {
+    throw AppError.badRequest('Named owner and reason are required for webhook recovery classification');
+  }
+  const expected = String(config.expected_sha256 || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(expected)) {
+    throw AppError.badRequest('acknowledgement_config.expected_sha256 must be lowercase SHA-256');
+  }
+  if (contract === 'response_header_sha256' && !safeText(config.header_name, 120)) {
+    throw AppError.badRequest('acknowledgement_config.header_name is required');
+  }
+  return Object.freeze({ classification, contract, config, actorUid, reason });
 }
 
 function isValidUrl(value) {
@@ -256,6 +306,11 @@ export async function createSubscription({
   maxConsecutiveFailures = 10,
   metadata = {},
   createdBy = null,
+  downstreamEffectClassification = 'unclassified',
+  acknowledgementContract = 'unclassified',
+  acknowledgementConfig = {},
+  recoveryContractOwnerUid = null,
+  recoveryContractOwnerReason = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const intId = normalizeId(integrationId, 'integration_id');
@@ -282,23 +337,43 @@ export async function createSubscription({
   const cleanFilter = requireEmptyEventFilter(eventFilter);
   const cleanMetadata = normalizeJsonObject(metadata, 'metadata');
   const cap = Math.max(1, Math.min(Number.parseInt(maxConsecutiveFailures, 10) || 10, 1_000));
+  const recovery = normalizeRecoveryContract({
+    downstreamEffectClassification,
+    acknowledgementContract,
+    acknowledgementConfig,
+    ownerActorUid: recoveryContractOwnerUid,
+    ownerReason: recoveryContractOwnerReason,
+  });
 
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO webhook_subscriptions
          (integration_id, tenant_id, event_type, event_filter, endpoint_url,
           signing_credential_id, signing_algorithm, is_active,
-          max_consecutive_failures, metadata, created_by)
-       VALUES ($1, $2::uuid, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11::uuid)
+          max_consecutive_failures, metadata, created_by,
+          downstream_effect_classification, acknowledgement_contract,
+          acknowledgement_config, recovery_contract_owner_uid,
+          recovery_contract_owner_reason, recovery_contract_classified_at)
+       VALUES ($1, $2::uuid, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11::uuid,
+               $12::text, $13::text, $14::jsonb, $15::uuid, $16::text,
+               CASE WHEN $15::uuid IS NULL THEN NULL ELSE NOW() END)
        RETURNING id, integration_id, tenant_id, event_type, event_filter,
                  endpoint_url, signing_credential_id, signing_algorithm,
                  is_active, last_delivered_at, last_failure_at,
                  consecutive_failures, max_consecutive_failures, metadata,
+                 downstream_effect_classification, acknowledgement_contract,
+                 acknowledgement_config, recovery_contract_owner_uid,
+                 recovery_contract_owner_reason, recovery_contract_classified_at,
                  created_by, created_at, updated_at`,
       intId, tid, cleanEvent, JSON.stringify(cleanFilter), cleanUrl,
       credentialId,
       algo, Boolean(isActive), cap,
       JSON.stringify(cleanMetadata), createdBy,
+      recovery.classification,
+      recovery.contract,
+      JSON.stringify(recovery.config),
+      recovery.actorUid,
+      recovery.reason,
     );
     return rows[0];
   } catch (err) {
@@ -340,6 +415,9 @@ export async function listSubscriptions({
               endpoint_url, signing_credential_id, signing_algorithm,
               is_active, last_delivered_at, last_failure_at,
               consecutive_failures, max_consecutive_failures, metadata,
+              downstream_effect_classification, acknowledgement_contract,
+              acknowledgement_config, recovery_contract_owner_uid,
+              recovery_contract_owner_reason, recovery_contract_classified_at,
               created_by, created_at, updated_at
        FROM webhook_subscriptions
        WHERE ${filters.join(' AND ')}
@@ -362,6 +440,9 @@ export async function getSubscription({ tenantId = null, id } = {}) {
             endpoint_url, signing_credential_id, signing_algorithm,
             is_active, last_delivered_at, last_failure_at,
             consecutive_failures, max_consecutive_failures, metadata,
+            downstream_effect_classification, acknowledgement_contract,
+            acknowledgement_config, recovery_contract_owner_uid,
+            recovery_contract_owner_reason, recovery_contract_classified_at,
             created_by, created_at, updated_at
      FROM webhook_subscriptions
      WHERE id = $1 AND tenant_id = $2::uuid
@@ -382,6 +463,11 @@ export async function updateSubscription({
   isActive = undefined,
   maxConsecutiveFailures = undefined,
   metadata = undefined,
+  downstreamEffectClassification = undefined,
+  acknowledgementContract = undefined,
+  acknowledgementConfig = undefined,
+  recoveryContractOwnerUid = null,
+  recoveryContractOwnerReason = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const sid = normalizeId(id, 'subscription id');
@@ -453,6 +539,35 @@ export async function updateSubscription({
     params.push(JSON.stringify(normalizeJsonObject(metadata, 'metadata')));
     updates.push(`metadata = $${params.length}::jsonb`);
   }
+  const recoveryFields = [
+    downstreamEffectClassification,
+    acknowledgementContract,
+    acknowledgementConfig,
+  ];
+  if (recoveryFields.some(value => value !== undefined)) {
+    if (recoveryFields.some(value => value === undefined)) {
+      throw AppError.badRequest('Webhook recovery classification fields must be updated together');
+    }
+    const recovery = normalizeRecoveryContract({
+      downstreamEffectClassification,
+      acknowledgementContract,
+      acknowledgementConfig,
+      ownerActorUid: recoveryContractOwnerUid,
+      ownerReason: recoveryContractOwnerReason,
+    });
+    params.push(recovery.classification);
+    updates.push(`downstream_effect_classification = $${params.length}::text`);
+    params.push(recovery.contract);
+    updates.push(`acknowledgement_contract = $${params.length}::text`);
+    params.push(JSON.stringify(recovery.config));
+    updates.push(`acknowledgement_config = $${params.length}::jsonb`);
+    params.push(recovery.actorUid);
+    updates.push(`recovery_contract_owner_uid = $${params.length}::uuid`);
+    params.push(recovery.reason);
+    updates.push(`recovery_contract_owner_reason = $${params.length}::text`);
+    updates.push(`recovery_contract_classified_at = CASE
+      WHEN $${params.length - 1}::uuid IS NULL THEN NULL ELSE NOW() END`);
+  }
   if (!updates.length) {
     return getSubscription({ tenantId: tid, id: sid });
   }
@@ -466,7 +581,10 @@ export async function updateSubscription({
      RETURNING id, integration_id, tenant_id, event_type, event_filter,
                endpoint_url, signing_credential_id, signing_algorithm,
                is_active, consecutive_failures, max_consecutive_failures,
-               metadata, created_at, updated_at`,
+               metadata, downstream_effect_classification,
+               acknowledgement_contract, acknowledgement_config,
+               recovery_contract_owner_uid, recovery_contract_owner_reason,
+               recovery_contract_classified_at, created_at, updated_at`,
     ...params,
   );
   if (!rows[0]) throw AppError.notFound('Webhook subscription not found');

@@ -6,7 +6,7 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I13', 'I15', 'I16', 'I17', 'I19'].includes(id),
+  implemented: ['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I13', 'I15', 'I16', 'I17', 'I18', 'I19'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
@@ -110,7 +110,18 @@ const catalogEntries = [
     duplicateKeyKind: 'tenant_source_recipient_channel_template_rendered_intent_sha256',
     partitionKind: 'tenant_channel',
   }),
-  entry('I18', 'Subscriber webhooks', HWM),
+  entry('I18', 'Subscriber webhooks', HWM, {
+    direction: 'outbound',
+    cursorKind: 'event_outbox_id_positive_ack',
+    cursorEvidence: 'contiguous_positive_subscriber_acknowledgement_only',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_subscription_source_identity_payload_sha256',
+    partitionKind: 'tenant_subscription',
+    transportEvidence: 'http_2xx_only',
+    acknowledgementPolicy: 'per_subscription_owner_contract',
+    downstreamEffectClassification: 'owner_input_per_subscription',
+    lateRelease: 'blocked_while_unclassified_and_owner_directed_only',
+  }),
   entry('I19', 'NHCX messages and callbacks', HWM, {
     direction: 'outbound',
     cursorKind: 'local_nhcx_message_id',

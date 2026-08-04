@@ -5226,6 +5226,7 @@ model event_outbox {
   discharge_pending_result_owner_actions discharge_pending_result_owner_actions?
   pathway_projector_inbox                pathway_projector_inbox?                @relation(fields: [tenant_id, recovery_inbox_id, occurred_at, recovery_fingerprint, recovery_effect_disposition], references: [tenant_id, inbox_id, occurred_at, command_fingerprint, effect_disposition], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_recovery_contract")
   tenants                                tenants                                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_tenant")
+  webhook_deliveries                     webhook_deliveries[]
 
   @@unique([tenant_id, id], map: "ux_event_outbox_tenant_id")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_event_outbox_patient_created")
@@ -11534,6 +11535,8 @@ model users {
   guardian_user                                                                                                                 users?                                         @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onUpdate: NoAction, map: "users_guardian_user_fk")
   dependents                                                                                                                    users[]                                        @relation("users_guardian_user_fk")
   tenants                                                                                                                       tenants                                        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  webhook_deliveries                                                                                                            webhook_deliveries[]
+  webhook_subscriptions                                                                                                         webhook_subscriptions[]
 
   @@unique([tenant_id, firebase_uid], map: "uniq_users_tenant_firebase_uid", where: raw("(firebase_uid IS NOT NULL)"))
   @@unique([tenant_id, phone], map: "uniq_users_tenant_phone")
@@ -11863,61 +11866,91 @@ model ward_indent_items {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model webhook_deliveries {
-  id                    Int                    @id @default(autoincrement())
-  subscription_id       Int?
-  tenant_id             String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  event_outbox_id       BigInt?
-  event_type            String                 @db.VarChar(120)
-  payload               Json
-  attempt_number        Int                    @default(0)
-  status                String                 @default("pending") @db.VarChar(20)
-  http_status           Int?
-  response_excerpt      String?
-  error_message         String?
-  signature             String?                @db.VarChar(255)
-  request_id            String?                @db.VarChar(64)
-  started_at            DateTime?              @db.Timestamptz(6)
-  completed_at          DateTime?              @db.Timestamptz(6)
-  next_retry_at         DateTime?              @db.Timestamptz(6)
-  metadata              Json                   @default("{}")
-  created_at            DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
-  lease_owner           String?                @db.Uuid
-  lease_expires_at      DateTime?              @db.Timestamptz(6)
-  redrive_count         Int                    @default(0)
-  webhook_subscriptions webhook_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
-  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                               Int                      @id @default(autoincrement())
+  subscription_id                  Int?
+  tenant_id                        String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  event_outbox_id                  BigInt?
+  event_type                       String                   @db.VarChar(120)
+  payload                          Json
+  attempt_number                   Int                      @default(0)
+  status                           String                   @default("pending") @db.VarChar(20)
+  http_status                      Int?
+  response_excerpt                 String?
+  error_message                    String?
+  signature                        String?                  @db.VarChar(255)
+  request_id                       String?                  @db.VarChar(64)
+  started_at                       DateTime?                @db.Timestamptz(6)
+  completed_at                     DateTime?                @db.Timestamptz(6)
+  next_retry_at                    DateTime?                @db.Timestamptz(6)
+  metadata                         Json                     @default("{}")
+  created_at                       DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                 @default(now()) @db.Timestamptz(6)
+  lease_owner                      String?                  @db.Uuid
+  lease_expires_at                 DateTime?                @db.Timestamptz(6)
+  redrive_count                    Int                      @default(0)
+  source_kind                      String                   @db.VarChar(24)
+  source_identity                  String                   @db.VarChar(255)
+  source_position                  BigInt?
+  payload_sha256                   String                   @db.Char(64)
+  downstream_effect_classification String                   @default("unclassified") @db.VarChar(48)
+  acknowledgement_contract         String                   @default("unclassified") @db.VarChar(48)
+  acknowledgement_config           Json                     @default("{}")
+  acknowledgement_state            String                   @default("unclassified") @db.VarChar(24)
+  acknowledgement_evidence         Json?
+  acknowledged_at                  DateTime?                @db.Timestamptz(6)
+  send_authority                   String                   @default("live_authorized") @db.VarChar(40)
+  recovery_inbox_id                String?                  @db.Uuid
+  recovery_interface_family        String?                  @db.VarChar(8)
+  recovery_owner_uid               String?                  @db.Uuid
+  recovery_owner_reason            String?                  @db.VarChar(500)
+  recovery_evidence                Json?
+  effect_disposition               String                   @default("live") @db.VarChar(32)
+  pathway_projector_inbox          pathway_projector_inbox? @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onUpdate: NoAction, map: "fk_webhook_deliveries_recovery_inbox")
+  users                            users?                   @relation(fields: [tenant_id, recovery_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_webhook_deliveries_recovery_owner")
+  event_outbox                     event_outbox?            @relation(fields: [tenant_id, event_outbox_id], references: [tenant_id, id], onUpdate: NoAction, map: "fk_webhook_deliveries_source_event")
+  webhook_subscriptions            webhook_subscriptions?   @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  tenants                          tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, event_outbox_id, subscription_id], map: "ux_webhook_deliveries_source_subscription", where: raw("((event_outbox_id IS NOT NULL) AND (subscription_id IS NOT NULL))"))
+  @@unique([tenant_id, subscription_id, source_identity], map: "ux_webhook_deliveries_adhoc_source_identity", where: raw("((source_kind)::text = 'adhoc'::text)"))
+  @@unique([tenant_id, recovery_inbox_id, recovery_interface_family], map: "ux_webhook_deliveries_i18_recovery_inbox", where: raw("(recovery_inbox_id IS NOT NULL)"))
   @@index([subscription_id, created_at(sort: Desc)], map: "idx_webhook_deliveries_subscription_time")
   @@index([tenant_id, status, next_retry_at], map: "idx_webhook_deliveries_tenant_status")
   @@index([event_outbox_id], map: "idx_webhook_deliveries_event_outbox", where: raw("(event_outbox_id IS NOT NULL)"))
   @@index([lease_expires_at, id], map: "idx_webhook_deliveries_stale_in_flight", where: raw("((status)::text = 'in_flight'::text)"))
+  @@index([tenant_id, subscription_id, source_position, acknowledgement_state], map: "idx_webhook_deliveries_i18_ack_hwm", where: raw("((source_kind)::text = 'event_outbox'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model webhook_subscriptions {
-  id                       Int                      @id @default(autoincrement())
-  integration_id           Int
-  tenant_id                String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  event_type               String                   @db.VarChar(120)
-  event_filter             Json                     @default("{}")
-  endpoint_url             String
-  signing_credential_id    Int?
-  signing_algorithm        String                   @default("hmac-sha256") @db.VarChar(40)
-  is_active                Boolean                  @default(true)
-  last_delivered_at        DateTime?                @db.Timestamptz(6)
-  last_failure_at          DateTime?                @db.Timestamptz(6)
-  consecutive_failures     Int                      @default(0)
-  max_consecutive_failures Int                      @default(10)
-  metadata                 Json                     @default("{}")
-  created_by               String?                  @db.Uuid
-  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
-  webhook_deliveries       webhook_deliveries[]
-  integrations             integrations             @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  integration_credentials  integration_credentials? @relation(fields: [signing_credential_id], references: [id], onUpdate: NoAction)
-  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                               Int                      @id @default(autoincrement())
+  integration_id                   Int
+  tenant_id                        String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  event_type                       String                   @db.VarChar(120)
+  event_filter                     Json                     @default("{}")
+  endpoint_url                     String
+  signing_credential_id            Int?
+  signing_algorithm                String                   @default("hmac-sha256") @db.VarChar(40)
+  is_active                        Boolean                  @default(true)
+  last_delivered_at                DateTime?                @db.Timestamptz(6)
+  last_failure_at                  DateTime?                @db.Timestamptz(6)
+  consecutive_failures             Int                      @default(0)
+  max_consecutive_failures         Int                      @default(10)
+  metadata                         Json                     @default("{}")
+  created_by                       String?                  @db.Uuid
+  created_at                       DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                 @default(now()) @db.Timestamptz(6)
+  downstream_effect_classification String                   @default("unclassified") @db.VarChar(48)
+  acknowledgement_contract         String                   @default("unclassified") @db.VarChar(48)
+  acknowledgement_config           Json                     @default("{}")
+  recovery_contract_owner_uid      String?                  @db.Uuid
+  recovery_contract_owner_reason   String?                  @db.VarChar(500)
+  recovery_contract_classified_at  DateTime?                @db.Timestamptz(6)
+  webhook_deliveries               webhook_deliveries[]
+  users                            users?                   @relation(fields: [tenant_id, recovery_contract_owner_uid], references: [tenant_id, uid], onUpdate: NoAction, map: "fk_webhook_subscriptions_recovery_contract_owner")
+  integrations                     integrations             @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  integration_credentials          integration_credentials? @relation(fields: [signing_credential_id], references: [id], onUpdate: NoAction)
+  tenants                          tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([integration_id, event_type, endpoint_url])
   @@index([integration_id, is_active], map: "idx_webhook_subs_integration")
@@ -24787,6 +24820,7 @@ model pathway_projector_inbox {
   tenants                              tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pathway_projector_inbox_tenant")
   scim_provisioning_commands           scim_provisioning_commands?
   vitals_chart                         vitals_chart?
+  webhook_deliveries                   webhook_deliveries?
 
   @@unique([tenant_id, interface_family, direction, source_partition, duplicate_key], map: "uq_pathway_projector_inbox_external_duplicate", where: raw("((scope_kind)::text = 'external_interface'::text)"))
   @@unique([tenant_id, offset_id, generation, source_position], map: "uq_pathway_projector_inbox_external_position", where: raw("((scope_kind)::text = 'external_interface'::text)"))
