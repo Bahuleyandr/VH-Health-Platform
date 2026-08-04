@@ -20,6 +20,15 @@ async function createClient() {
   const { default: Redis } = await import('ioredis');
 
   const client = new Redis(url, {
+    // ioredis 6 switched the default wire protocol to RESP3 (it sends HELLO 3
+    // on connect). We deliberately stay on RESP2: RESP3 needs Redis >= 6 on the
+    // server, and the deployed server version is not something this repo pins,
+    // so a silent protocol upgrade could turn a dependency bump into a
+    // connection failure in the hospital cluster. Nothing here needs RESP3 —
+    // the only commands issued are get/set/del/scan plus pattern pub/sub, whose
+    // reply shapes are identical under both protocols. Revisit (drop this line)
+    // once the deployed Redis version is confirmed >= 6.
+    protocol: 2,
     maxRetriesPerRequest: 3,
     retryStrategy(times) {
       const delay = Math.min(times * 200, 5000);
