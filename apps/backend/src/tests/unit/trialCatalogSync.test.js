@@ -1,4 +1,7 @@
-import { mapStudyToTrial } from '../../services/ai/trialCatalogSyncService.js';
+import {
+  canonicalTrialQuery,
+  mapStudyToTrial,
+} from '../../services/ai/trialCatalogSyncService.js';
 
 function buildStudy(overrides = {}) {
   return {
@@ -8,7 +11,10 @@ function buildStudy(overrides = {}) {
         briefTitle: 'Short title',
         officialTitle: 'Full official title — ' + (overrides.titleSuffix || 'Pneumonia trial'),
       },
-      statusModule: { overallStatus: 'RECRUITING' },
+      statusModule: {
+        overallStatus: 'RECRUITING',
+        lastUpdatePostDateStruct: { date: '2026-08-01', type: 'ACTUAL' },
+      },
       descriptionModule: { briefSummary: 'We study X in adults with Y.' },
       eligibilityModule: {
         eligibilityCriteria: 'Inclusion: age 18-65, stable Y. Exclusion: pregnancy.',
@@ -38,6 +44,7 @@ describe('mapStudyToTrial', () => {
       gender: 'all',
       location: 'India',
       status: 'recruiting',
+      providerRevision: '2026-08-01',
     });
   });
 
@@ -99,5 +106,21 @@ describe('mapStudyToTrial', () => {
     study.protocolSection.contactsLocationsModule = {};
     const out = mapStudyToTrial(study);
     expect(out.location).toBeNull();
+  });
+});
+
+describe('canonicalTrialQuery', () => {
+  it('uses a stable canonicalized query as the recovery partition', () => {
+    expect(canonicalTrialQuery({
+      condition: '  Chronic   Kidney Disease ',
+      location: ' INDIA ',
+    })).toEqual(canonicalTrialQuery({
+      condition: 'chronic kidney disease',
+      location: 'india',
+    }));
+    expect(canonicalTrialQuery({
+      condition: 'chronic kidney disease',
+      location: 'india',
+    }).sourcePartition).toMatch(/^clinicaltrials_gov_v2:[0-9a-f]{64}$/);
   });
 });

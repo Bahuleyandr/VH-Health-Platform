@@ -640,6 +640,34 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     recovery_evidence: null,
     effect_disposition: 'live',
   },
+  // mig 621: generic coverage represents an ordinary in-progress provider
+  // page. A seed row never invents provider completeness, revision evidence,
+  // opaque continuation, or canonical recovery ownership.
+  clinical_ai_trial_sync_runs: {
+    status: 'running',
+    finished_at: null,
+    error_message: null,
+    source_partition: `clinicaltrials_gov_v2:${'a'.repeat(64)}`,
+    provider_page_number: 1,
+    provider_page_token: 'origin',
+    provider_page_token_sha256: '181fdd46fc4a7246b9f4f1eba3129ba5d724011af5f10223b3589955d1df108a',
+    provider_next_page_token: null,
+    provider_next_page_token_sha256: null,
+    provider_revision: null,
+    provider_page_sha256: null,
+    provider_page_complete: false,
+    recovery_inbox_id: null,
+    recovery_interface_family: null,
+    recovery_owner_uid: null,
+    recovery_owner_reason: null,
+    recovery_evidence: null,
+    effect_disposition: 'live',
+  },
+  clinical_trials_catalog: {
+    provider_revision: null,
+    source_payload_sha256: null,
+    source_sync_run_id: null,
+  },
   // migs 607/608: recovery links and pending evidence are backed by exact
   // canonical-inbox rows. Generic coverage data has no such occurrence.
   lab_interface_messages: {

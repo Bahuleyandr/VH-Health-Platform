@@ -167,6 +167,21 @@ describe('external interface recovery catalog', () => {
         replayAuthority: 'owner_directed_outbound_only',
         paymentNoticeRecovery: 'manual_only',
       });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I23' }))
+      .toMatchObject({
+        id: 'I23',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'inbound',
+        cursorKind: 'opaque_page_token_revision',
+        cursorEvidence: 'complete_provider_page_only',
+        facilityScope: 'tenant',
+        partitionKind: 'stable_canonical_query',
+        duplicateKeyKind: 'tenant_sync_run_page_token_sha256_page_sha256',
+        pageAtomicity: 'catalog_upserts_and_page_completion_one_transaction',
+        statusSemantics: 'completed_and_upsert_coverage_are_not_hwm',
+      });
   });
 
   it('requires exact mixed-subpath selection without fallthrough', () => {

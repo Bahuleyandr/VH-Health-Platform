@@ -180,16 +180,85 @@ export async function matchPatientAgainstTrials({ patientUid, admissionId = null
   };
 }
 
-export async function upsertTrial({ tenantId = null, nctId, title, phase, conditions = [], eligibilitySummary, ageMin = null, ageMax = null, gender = null, location = null, status = 'recruiting' } = {}) {
+export async function upsertTrial({
+  tx = null,
+  tenantId = null,
+  nctId,
+  title,
+  phase,
+  conditions = [],
+  eligibilitySummary,
+  ageMin = null,
+  ageMax = null,
+  gender = null,
+  location = null,
+  status = 'recruiting',
+  providerRevision = null,
+  sourcePayloadSha256 = null,
+  sourceSyncRunId = null,
+} = {}) {
   const tid = resolveTenantId({ tenantId });
   if (!nctId || !title || !eligibilitySummary) {
     throw AppError.badRequest('nctId, title, eligibility_summary required');
   }
-  const rows = await prisma.$queryRawUnsafe(
+  const runner = tx?.$queryRawUnsafe?.bind(tx) || prisma.$queryRawUnsafe.bind(prisma);
+  const providerFields = [providerRevision, sourcePayloadSha256, sourceSyncRunId];
+  const providerBacked = providerFields.some(value => value !== null && value !== undefined);
+  if (providerBacked && providerFields.some(value => value === null || value === undefined)) {
+    throw AppError.badRequest('Provider revision, payload fingerprint, and sync run are required together');
+  }
+  if (providerBacked && !/^[0-9a-f]{64}$/.test(String(sourcePayloadSha256))) {
+    throw AppError.badRequest('source_payload_sha256 must be lowercase SHA-256');
+  }
+  const parsedSourceSyncRunId = Number(sourceSyncRunId);
+  if (providerBacked
+      && (!Number.isSafeInteger(parsedSourceSyncRunId) || parsedSourceSyncRunId <= 0)) {
+    throw AppError.badRequest('source_sync_run_id must be a positive safe integer');
+  }
+
+  if (!providerBacked) {
+    const rows = await runner(
+      `INSERT INTO clinical_trials_catalog
+         (tenant_id, nct_id, title, phase, conditions, eligibility_summary, age_min, age_max,
+          gender, location, status, last_refreshed)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+       ON CONFLICT (tenant_id, nct_id)
+       DO UPDATE SET
+         title = EXCLUDED.title,
+         phase = EXCLUDED.phase,
+         conditions = EXCLUDED.conditions,
+         eligibility_summary = EXCLUDED.eligibility_summary,
+         age_min = EXCLUDED.age_min,
+         age_max = EXCLUDED.age_max,
+         gender = EXCLUDED.gender,
+         location = EXCLUDED.location,
+         status = EXCLUDED.status,
+         last_refreshed = NOW()
+       RETURNING id, nct_id, title, status, last_refreshed,
+                 provider_revision, source_payload_sha256::text,
+                 source_sync_run_id`,
+      tid,
+      String(nctId),
+      String(title),
+      phase || null,
+      conditions,
+      String(eligibilitySummary),
+      ageMin,
+      ageMax,
+      gender,
+      location,
+      status,
+    );
+    return rows[0];
+  }
+
+  const rows = await runner(
     `INSERT INTO clinical_trials_catalog
        (tenant_id, nct_id, title, phase, conditions, eligibility_summary, age_min, age_max,
-        gender, location, status, last_refreshed)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+        gender, location, status, last_refreshed, provider_revision,
+        source_payload_sha256, source_sync_run_id)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(),
+             $12::text, $13::char(64), $14::integer)
      ON CONFLICT (tenant_id, nct_id)
      DO UPDATE SET
        title = EXCLUDED.title,
@@ -201,8 +270,19 @@ export async function upsertTrial({ tenantId = null, nctId, title, phase, condit
        gender = EXCLUDED.gender,
        location = EXCLUDED.location,
        status = EXCLUDED.status,
-       last_refreshed = NOW()
-     RETURNING id, nct_id, title, status, last_refreshed`,
+       last_refreshed = NOW(),
+       provider_revision = EXCLUDED.provider_revision,
+       source_payload_sha256 = EXCLUDED.source_payload_sha256,
+       source_sync_run_id = EXCLUDED.source_sync_run_id
+     WHERE clinical_trials_catalog.provider_revision IS NULL
+        OR EXCLUDED.provider_revision > clinical_trials_catalog.provider_revision
+        OR (
+          EXCLUDED.provider_revision = clinical_trials_catalog.provider_revision
+          AND EXCLUDED.source_payload_sha256 = clinical_trials_catalog.source_payload_sha256
+        )
+     RETURNING id, nct_id, title, status, last_refreshed,
+               provider_revision, source_payload_sha256::text,
+               source_sync_run_id`,
     tid,
     String(nctId),
     String(title),
@@ -213,9 +293,33 @@ export async function upsertTrial({ tenantId = null, nctId, title, phase, condit
     ageMax,
     gender,
     location,
-    status
+    status,
+    String(providerRevision),
+    String(sourcePayloadSha256),
+    parsedSourceSyncRunId,
   );
-  return rows[0];
+  if (rows[0]) return rows[0];
+
+  const existing = await runner(
+    `SELECT id, nct_id, title, status, last_refreshed,
+            provider_revision, source_payload_sha256::text,
+            source_sync_run_id
+       FROM clinical_trials_catalog
+      WHERE tenant_id = $1::uuid AND nct_id = $2::text
+      LIMIT 1`,
+    tid,
+    String(nctId),
+  );
+  const row = existing[0];
+  if (!row) throw AppError.conflict('Clinical trial source revision fence was lost', 'I23_TRIAL_SOURCE_FENCE_LOST');
+  if (row.provider_revision === String(providerRevision)
+      && row.source_payload_sha256 !== String(sourcePayloadSha256)) {
+    throw AppError.conflict(
+      'ClinicalTrials.gov reused a provider revision with different payload evidence',
+      'I23_PROVIDER_REVISION_CONFLICT',
+    );
+  }
+  return Object.freeze({ ...row, stale_source_revision: true });
 }
 
 export async function listTrialMatches({ tenantId = null, decision = null, limit = 50 } = {}) {

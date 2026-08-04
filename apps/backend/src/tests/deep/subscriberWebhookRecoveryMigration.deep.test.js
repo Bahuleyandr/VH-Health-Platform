@@ -151,7 +151,9 @@ describeIfDb('migration 620 I18 subscriber webhook recovery integrity', () => {
   test('follows migration 619 and retains all existing webhook tables', () => {
     const names = readdirSync(new URL('../../migrations/', import.meta.url))
       .filter(name => /^\d+.*\.sql$/.test(name)).sort();
-    expect(names.at(-1)).toBe('620_subscriber_webhook_recovery.sql');
+    expect(names.indexOf('620_subscriber_webhook_recovery.sql')).toBeGreaterThan(
+      names.indexOf('619_nhcx_message_recovery.sql'),
+    );
     expect(migrationSql).not.toMatch(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?(?:webhook_subscriptions|webhook_deliveries)/i);
     expect(migrationSql).toContain("event_outbox.status='delivered' continues to mean fan-out");
   });
