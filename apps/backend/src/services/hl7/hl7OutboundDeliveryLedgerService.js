@@ -172,12 +172,22 @@ export async function claimPendingFeedMessages({ tenantId, limit = 25 } = {}) {
                  AND cursor.subscription_id = message.subscription_id
                  AND cursor.state <> 'ready'
             )
+            -- Contiguity is a property of the LEDGER generation only.
+            -- Migration 610 backfilled every pre-existing row to
+            -- ledger_version = 0 / acknowledgement_state = 'legacy_unknown',
+            -- and those rows can never reach 'aa' (the old worker kept no
+            -- response body, and a legacy row may not even have an MSH-10 to
+            -- correlate against). Scanning them here makes contiguity
+            -- unsatisfiable forever on any feed with pre-610 history — ids are
+            -- IDENTITY-allocated, so every new message sorts after the whole
+            -- legacy backlog. Index: idx_hl7_outbound_messages_contiguity_gap.
             AND NOT EXISTS (
               SELECT 1
                 FROM hl7_outbound_messages AS earlier
                WHERE earlier.tenant_id = message.tenant_id
                  AND earlier.subscription_id = message.subscription_id
                  AND earlier.id < message.id
+                 AND earlier.ledger_version = 1
                  AND earlier.acknowledgement_state <> 'aa'
             )
             AND message.id = (
@@ -352,11 +362,17 @@ async function insertAcknowledgementTx(tx, {
 async function applyAcknowledgementToCursorTx(tx, { tenantId, message, parsed }) {
   const cursor = await ensureCursorTx(tx, tenantId, message.subscription_id);
   if (parsed.state === 'aa') {
+    // Same generation rule as claimPendingFeedMessages: only ledger_version = 1
+    // predecessors can hold the cursor back. A pre-610 row is held for owner
+    // reconciliation and can never be acknowledged, so treating it as an
+    // unresolved predecessor would pin the cursor at 'paused_uncertain'
+    // permanently on every feed that has history.
     const earlier = await tx.$queryRawUnsafe(
       `SELECT id
          FROM hl7_outbound_messages
         WHERE tenant_id = $1::uuid AND subscription_id = $2::integer
-          AND id < $3::integer AND acknowledgement_state <> 'aa'
+          AND id < $3::integer AND ledger_version = 1
+          AND acknowledgement_state <> 'aa'
         ORDER BY id LIMIT 1`,
       tenantId, message.subscription_id, message.id,
     );

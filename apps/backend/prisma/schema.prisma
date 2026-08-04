@@ -5865,6 +5865,7 @@ model hl7_outbound_messages {
   @@index([subscription_id, created_at(sort: Desc)], map: "idx_hl7_outbound_messages_subscription")
   @@index([tenant_id, subscription_id, status, next_attempt_at, id], map: "idx_hl7_outbound_messages_due", where: raw("(((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[])) AND ((send_authority)::text = 'authorized'::text))"))
   @@index([tenant_id, lease_expires_at, id], map: "idx_hl7_outbound_messages_expired_claim", where: raw("((status)::text = 'claimed'::text)"))
+  @@index([tenant_id, subscription_id, id], map: "idx_hl7_outbound_messages_contiguity_gap", where: raw("((ledger_version = 1) AND ((acknowledgement_state)::text <> 'aa'::text))"))
 }
 
 model hipaa_access_log {
