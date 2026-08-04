@@ -62,9 +62,38 @@ test('constructs PHI-free audit metadata from a closed value allowlist', async (
   ]);
   expect(data.resource_id).toBe('unknown');
   expect(data.metadata.route_template).toBe('unmatched');
+  expect(data.metadata).not.toHaveProperty('would_be_effect_contract');
   const serialized = JSON.stringify(data);
   expect(serialized).not.toContain(hostile.patient_uid);
   expect(serialized).not.toContain(hostile.idempotencyKey);
   expect(serialized).not.toContain(hostile.clinicalText);
   expect(serialized).not.toContain(hostile.resourceUrl);
+});
+
+test('records the closed shadow would-be effect contract without clinical payload', async () => {
+  const create = jest.fn(async args => args);
+  await auditClinicalContinuityActionDecision({
+    tx: { audit_logs: { create } },
+    actorUid: ACTOR,
+    actorRole: 'NURSING_STAFF',
+    value: {
+      actionId: 'emr.nursing_note.draft.store',
+      decision: 'would_allow',
+      mode: 'shadow',
+      reasonCode: 'CONTINUITY_ACTION_ALLOWED',
+      reviewOwner: 'nursing_privacy_and_security_governance',
+      routeTemplate: '/api/v1/emr/notes/draft',
+      wouldBeEffectContract: 'private_draft_storage_only'
+    }
+  });
+
+  expect(create.mock.calls[0][0].data).toEqual(
+    expect.objectContaining({
+      action: 'CONTINUITY_ACTION_WOULD_ALLOW',
+      metadata: expect.objectContaining({
+        decision: 'would_allow',
+        would_be_effect_contract: 'private_draft_storage_only'
+      })
+    })
+  );
 });

@@ -247,6 +247,40 @@ test('first apply uses the exact registered transaction handler and commits one 
   expect(tx.$executeRawUnsafe).toHaveBeenCalledTimes(2);
 });
 
+test('a shadow observation cannot claim a receipt or invoke the domain mutation', async () => {
+  const request = input();
+  resolveClinicalContinuityActionBinding.mockReturnValue(request.binding);
+  evaluateClinicalContinuityActionRequest.mockResolvedValue({
+    decision: 'would_allow',
+    mode: 'shadow',
+    proceed: false,
+    reasonCode: 'CONTINUITY_ACTION_ALLOWED'
+  });
+  const phaseOneTx = {
+    $executeRawUnsafe: jest.fn(),
+    $queryRawUnsafe: jest
+      .fn()
+      .mockResolvedValueOnce([{ '?column?': 1 }])
+      .mockResolvedValueOnce([{ id: 77 }])
+  };
+  const reviewTx = { $executeRawUnsafe: jest.fn().mockResolvedValue(1) };
+  setTenantTx
+    .mockImplementationOnce((_tenantId, callback) => callback(phaseOneTx))
+    .mockImplementationOnce((_tenantId, callback) => callback(reviewTx));
+
+  await expect(applyClinicalContinuityReplay(request)).rejects.toMatchObject({
+    code: 'CONTINUITY_ACTION_ALLOWED',
+    statusCode: 409
+  });
+  expect(phaseOneTx.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+  expect(phaseOneTx.$executeRawUnsafe).not.toHaveBeenCalled();
+  expect(request.binding.transactionalHandler).not.toHaveBeenCalled();
+  expect(reviewTx.$executeRawUnsafe).toHaveBeenCalledTimes(1);
+  expect(reviewTx.$executeRawUnsafe.mock.calls[0][0]).toContain(
+    'clinical_continuity_replay_attempts'
+  );
+});
+
 test('a draft CAS conflict commits needs_review without effect evidence', async () => {
   const request = input();
   request.binding.transactionalHandler.mockRejectedValue({
