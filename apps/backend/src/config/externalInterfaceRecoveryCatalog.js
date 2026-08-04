@@ -6,7 +6,7 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I15', 'I17'].includes(id),
+  implemented: ['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I13', 'I15', 'I17'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
@@ -72,7 +72,15 @@ const catalogEntries = [
   }),
   entry('I11', 'OIDC browser and token exchange', NOT_APPLICABLE),
   entry('I12', 'SAML browser and assertion exchange', NOT_APPLICABLE),
-  entry('I13', 'SCIM provisioning changes', HWM),
+  entry('I13', 'SCIM provisioning changes', HWM, {
+    direction: 'inbound',
+    cursorKind: 'owner_reconciled_list_diff',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_provider_method_resource_payload_sha256',
+    partitionKind: 'tenant_provider_direction',
+    providerSequence: 'absent',
+    replayAuthority: 'owner_directed_list_diff_only',
+  }),
   entry('I14', 'Firebase authentication and attestation', NOT_APPLICABLE),
   entry('I15', 'FHIR and SMART', MIXED, {
     subpaths: Object.freeze({

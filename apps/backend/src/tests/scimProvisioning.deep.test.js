@@ -76,10 +76,11 @@ function tenant(id, slug) {
   return { id, slug, name: slug, status: 'active' };
 }
 
-function req(token = TOKEN_A) {
+function req(token = TOKEN_A, rawBody = '{}') {
   return {
     id: 'req-scim',
     ip: '127.0.0.1',
+    scimRawBody: Buffer.from(rawBody, 'utf8'),
     headers: {
       authorization: `Bearer ${token}`,
       'user-agent': 'jest-scim',
@@ -195,6 +196,7 @@ function resetScenario(overrides = {}) {
     staffAuthSessions: 2,
     staffDevices: 2,
     audits: [],
+    commandReceipts: [],
     ...overrides,
   };
 }
@@ -248,6 +250,35 @@ function filterStaffRows(params, compact) {
 async function routeQuery(sql, ...params) {
   const compact = sql.replace(/\s+/g, ' ');
 
+  if (compact.includes('INSERT INTO scim_provisioning_commands')) {
+    const receipt = {
+      id: String(scenario.commandReceipts.length + 1),
+      tenantId: params[0],
+      providerId: params[1],
+      providerKey: params[2],
+      realm: params[3],
+      commandKind: params[4],
+      method: params[5],
+      targetUid: params[6],
+      externalId: params[7],
+      bodySha256: params[11],
+      bodyBytes: params[12],
+      payloadSha256: params[14],
+      payloadBytes: params[15],
+      effectDisposition: params[17],
+      executionDisposition: params[18],
+    };
+    scenario.commandReceipts.push(receipt);
+    return [{
+      id: receipt.id,
+      body_sha256: receipt.bodySha256,
+      body_bytes: receipt.bodyBytes,
+      payload_sha256: receipt.payloadSha256,
+      payload_bytes: receipt.payloadBytes,
+      execution_disposition: receipt.executionDisposition,
+    }];
+  }
+
   if (compact.includes('FROM tenant_identity_providers')) {
     return scenario.providers.filter((row) => (
       row.tenant_id === params[0]
@@ -294,10 +325,17 @@ async function routeQuery(sql, ...params) {
     return found ? [{
       id: found.user.id,
       uid: found.user.uid,
+      role: found.user.role,
+      is_active: found.user.is_active,
+      status: found.user.status,
       user_identity_source: found.user.identity_source,
+      scim_external_id: found.user.scim_external_id,
       is_break_glass_account: found.user.is_break_glass_account,
       staff_id: found.staff.id,
+      staff_is_active: found.staff.is_active,
+      archived: found.staff.archived,
       staff_identity_source: found.staff.identity_source,
+      staff_external_id: found.staff.scim_external_id,
     }] : [];
   }
 
@@ -548,6 +586,14 @@ describe('SCIM 2.0 provisioning service', () => {
       active: true,
       userType: 'NURSING_STAFF',
     });
+    expect(scenario.commandReceipts[0]).toMatchObject({
+      commandKind: 'create',
+      method: 'POST',
+      targetUid: created.resource.id,
+      bodyBytes: 2,
+      effectDisposition: 'live_applied',
+      executionDisposition: 'applied',
+    });
 
     const retried = await upsertScimUser(context, { ...payload, displayName: 'Priya R.' }, { method: 'post', req: req() });
     expect(retried.created).toBe(false);
@@ -624,6 +670,12 @@ describe('SCIM 2.0 provisioning service', () => {
         }),
       }),
     ]));
+    expect(scenario.commandReceipts.at(-1)).toMatchObject({
+      commandKind: 'deactivate',
+      method: 'PATCH',
+      targetUid: STAFF_UID,
+      executionDisposition: 'applied',
+    });
   });
 
   it('excludes break-glass accounts from SCIM deactivation', async () => {
@@ -637,6 +689,11 @@ describe('SCIM 2.0 provisioning service', () => {
     expect(result.resource.active).toBe(true);
     expect(findStaffByUid(STAFF_UID).user.is_active).toBe(true);
     expect(revokeAllUserTokens).not.toHaveBeenCalled();
+    expect(scenario.commandReceipts.at(-1)).toMatchObject({
+      commandKind: 'deactivate',
+      effectDisposition: 'live_excluded',
+      executionDisposition: 'break_glass_excluded',
+    });
     expect(scenario.audits).toEqual(expect.arrayContaining([
       expect.objectContaining({
         eventType: 'SCIM_USER_DEACTIVATED',

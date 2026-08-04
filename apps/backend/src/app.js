@@ -538,7 +538,14 @@ app.use(apiVersionMiddleware);
 // this knob explicitly; the ingress proxy-body-size (50m) covers multipart
 // uploads separately. Registered in validateEnv.js.
 const HTTP_BODY_LIMIT = process.env.HTTP_BODY_LIMIT || '1mb';
-app.use(express.json({ limit: HTTP_BODY_LIMIT }));
+app.use(express.json({
+  limit: HTTP_BODY_LIMIT,
+  verify: (req, _res, body) => {
+    if (String(req.originalUrl || req.url || '').startsWith('/api/v1/scim/v2/')) {
+      req.scimRawBody = Buffer.from(body);
+    }
+  },
+}));
 app.use(express.urlencoded({ limit: HTTP_BODY_LIMIT, extended: true }));
 app.use(corsMiddleware);
 
