@@ -12,6 +12,29 @@
 # needed.  The INTERNAL_JOB_TOKEN secret key gates the endpoint so it is not
 # callable by external clients.
 #
+# ⚠ THIS JOB CAN SUCCEED HAVING PUBLISHED NOTHING. The zero-argument call
+# below branches to the governed C3 sweep (generateClinicalContinuityPackSets),
+# which returns an empty array — no DB access, no filesystem access, exit 0 —
+# unless ALL THREE of these hold:
+#
+#   1. CLINICAL_CONTINUITY_PACKS_ENABLED=true. It is unset in
+#      vhhealth-backend-config and pinned "false" by the
+#      continuity-publication-rwx component; enabling publication is a
+#      separate, owner-approved change (see that component's README).
+#   2. DOWNTIME_MIRROR_DIR names the operator-provisioned durable publication
+#      root. C3 publication never falls back to a temp directory; without it
+#      generation raises instead of writing somewhere unreadable.
+#   3. An active signed facility continuity policy exists AND an operator
+#      signer is wired. This job passes no signer, so the signer preflight
+#      cannot pass even once (1) and (2) are satisfied.
+#
+# Until then the ONLY code path that writes a 'ward_pack' row is the
+# admin-triggered POST /api/v1/downtime/generate. Do NOT read this CronJob's
+# success as evidence that a ward has a pack to print — that is what the
+# WardDowntimePacksMissing alert is for (it reads an output probe in the
+# backend Deployment; see infra/kubernetes/base/monitoring/backend-red-alerts.yaml
+# and docs/DOWNTIME_PROCEDURE.md).
+#
 # Schedule: every 15 minutes (matches the in-process cron cadence).
 # The pack must already exist BEFORE an outage; generating on-demand is
 # too late.  See docs/DOWNTIME_PROCEDURE.md.
@@ -83,8 +106,18 @@ spec:
                         // Node process with full DB and RLS context, no HTTP hop.
                         const { generateWardDowntimePacks } = await import('/app/src/services/downtime/wardDowntimePackService.js');
                         const { runWithSuperAdmin } = await import('/app/src/lib/tenantContext.js');
-                        await runWithSuperAdmin(generateWardDowntimePacks);
-                        console.log('[ward-downtime-packs] Pack generation complete');
+                        const published = await runWithSuperAdmin(generateWardDowntimePacks);
+                        // Report the OUTPUT, never a bare 'complete'. A pass
+                        // that published nothing is the expected state while
+                        // the preconditions in this file's header are unmet,
+                        // and it must not read like a successful publication
+                        // in the log the way it used to.
+                        const count = Array.isArray(published) ? published.length : 0;
+                        if (count === 0) {
+                          console.warn('[ward-downtime-packs] PUBLISHED 0 pack sets — no ward has a pack to print from this pass; see the preconditions in ward-downtime-packs-cronjob.yaml and the WardDowntimePacksMissing alert');
+                        } else {
+                          console.log('[ward-downtime-packs] Published ' + count + ' pack set(s)');
+                        }
                         process.exit(0);
                       } catch (err) {
                         console.error('[ward-downtime-packs] FAILED:', err.message);

@@ -1,9 +1,16 @@
 # Downtime Procedure — Ward Packs (Roadmap A3)
 
 When the backend, network, or cluster is unavailable, wards run on the
-**downtime packs**: per-ward printable documents regenerated automatically
-every 15 minutes while the system is healthy. This is the VH Health
+**downtime packs**: per-ward printable documents. This is the VH Health
 equivalent of Epic's BCA (Business Continuity Access).
+
+> **Generation is not automatic today.** The `ward-downtime-packs` CronJob runs
+> every 15 minutes and exits successfully, but its sweep is gated and publishes
+> nothing until the preconditions below are met — see
+> [Why generation may produce nothing](#why-generation-may-produce-nothing).
+> Until then the only path that produces a ward pack is the admin-triggered
+> `POST /api/v1/downtime/generate`. Do not assume a pack exists; the
+> `WardDowntimePacksMissing` alert is what asserts that one does.
 
 ## What a pack contains
 
@@ -14,12 +21,22 @@ admission intake), **code status**, attending, admitting diagnosis, the
 NEWS2. Packs carry a generation timestamp; anything older than ~30 minutes
 at outage start means the generator itself was already degraded — escalate.
 
+**A pack never asserts a clinical fact it does not hold** (C-D2, countersigned
+2026-07-30). An unrecorded allergy prints `Allergy status UNKNOWN — not
+recorded`, never NKDA; an unrecorded code status prints `Code status NOT
+RECORDED — confirm per hospital policy`, never a defaulted full code; and both
+print with the same prominence as a known dangerous finding. Every pack states
+its own expiry on its face — `Generated <time> — NOT VALID AFTER <time>, then
+use paper and phone` — so a sheet that outlives its window says so. Treat an
+UNKNOWN line as a question to answer at the bedside, not as a negative result.
+
 ## Sources
 
 | Surface | Where | Notes |
 |---|---|---|
-| Scheduled generation | cron `*/15` (`ward-downtime-packs` job) | `withJobLock`, skips failed wards, 24 h retention |
-| Manual generation | `POST /api/v1/downtime/generate` | ADMIN only — run before planned maintenance |
+| Scheduled generation | cron `*/15` (`ward-downtime-packs` job) | **Publishes nothing today** — gated sweep, exits 0 regardless; see below |
+| Manual generation | `POST /api/v1/downtime/generate` | ADMIN only — currently the ONLY path that produces a ward pack |
+| Output monitoring | `WardDowntimePacksMissing` alert | Fires when an occupied ward has no fresh, unexpired, non-empty pack |
 | List latest per ward | `GET /api/v1/downtime/wards` | clinical roles |
 | Independent edge, printable | `https://<facility-edge-host>:8443/v1/tenants/<tenant-uuid>/facilities/<facility-id>/locations/<location-type>/<location-id>/pack.html` | target bookmark; requires the managed client certificate and launcher-supplied named staff/device context |
 | Independent edge, JSON | same exact path ending in `/pack.json` | read-only; no tenant, facility, or location index exists |
@@ -40,6 +57,38 @@ at outage start means the generator itself was already degraded — escalate.
    drugs (no electronic CDS is available).
 4. New admissions during downtime get a paper chart started from the blank
    downtime form set.
+
+## Why generation may produce nothing
+
+The `ward-downtime-packs` CronJob calls `generateWardDowntimePacks()` with no
+arguments. That signature is the **governed C3 sweep**
+(`generateClinicalContinuityPackSets`), not the legacy per-tenant generator, and
+it returns an empty result — without touching the database or the filesystem,
+and with a zero exit code — unless all three of these hold:
+
+1. **`CLINICAL_CONTINUITY_PACKS_ENABLED=true`.** Unset in the backend ConfigMap
+   and pinned `"false"` by the `continuity-publication-rwx` component. Enabling
+   publication is a separate owner-approved change.
+2. **`DOWNTIME_MIRROR_DIR` points at the operator-provisioned durable
+   publication root.** C3 publication never falls back to a temp directory.
+3. **An active signed facility continuity policy plus a wired operator
+   signer.** The CronJob supplies no signer, so the signer preflight cannot
+   pass even once (1) and (2) are satisfied.
+
+None of the three is satisfied in this repository's manifests, which is
+deliberate — pack publication is held pending the continuity activation
+decisions. The consequence to understand is that **the job succeeding is not
+evidence that a pack exists.** That is why the CronJob-liveness alert was
+replaced (2026-08-04) by `WardDowntimePacksMissing`, which reads an output
+probe in the backend and counts wards that have an occupied bed but no pack
+that exists, is under 45 minutes old, is unexpired, and is non-empty. The
+backend log line `Ward downtime packs missing for N occupied ward(s)` names
+them. `WardDowntimePackOutputUnobserved` covers the probe itself going quiet,
+so an unmeasured deployment never reads as a healthy one.
+
+Until publication is activated, an ADMIN must run
+`POST /api/v1/downtime/generate` to produce packs — before planned maintenance,
+and whenever the missing-packs alert fires.
 
 ## Recovery / backfill
 

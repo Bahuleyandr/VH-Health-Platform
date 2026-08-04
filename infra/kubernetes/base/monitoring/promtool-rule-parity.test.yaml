@@ -253,3 +253,118 @@ tests:
       - eval_time: 75m
         alertname: ContinuityCoverageIncomplete
         exp_alerts: []
+
+  # Ward downtime packs: the OUTPUT rules that replaced the CronJob-liveness
+  # rule. The scenario is the one the retired rule could not see — the
+  # ward-downtime-packs CronJob completes successfully every 15 minutes while
+  # its gated sweep produces nothing, so six occupied wards have no pack to
+  # print. kube_cronjob_status_last_successful_time advances the whole time,
+  # which is exactly why it is no longer what we alert on.
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_ward_downtime_pack_wards_expected{pod="backend-0"}'
+        values: '6x40'
+      - series: 'vhhealth_ward_downtime_pack_wards_covered{pod="backend-0"}'
+        values: '0x40'
+      - series: 'vhhealth_ward_downtime_pack_wards_missing{pod="backend-0"}'
+        values: '0 0 0 0 0 6x35'
+      - series: 'kube_cronjob_status_last_successful_time{namespace="vhhealth",cronjob="ward-downtime-packs"}'
+        values: '0+60x40'
+    alert_rule_test:
+      # Nothing missing yet — the rule is quiet while packs are covered.
+      - eval_time: 4m
+        alertname: WardDowntimePacksMissing
+        exp_alerts: []
+      # Coverage is lost at t=5m; `for: 10m` holds it until 15m.
+      - eval_time: 14m
+        alertname: WardDowntimePacksMissing
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: WardDowntimePacksMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "Occupied wards have no fresh downtime pack to print — nothing exists for an outage"
+              description: |
+                One or more wards with occupied beds have no ward downtime pack that is
+                present, under 45 minutes old, unexpired, and non-empty. The backend log
+                line `Ward downtime packs missing for N occupied ward(s)` names the wards.
+                Generation is NOT automatic today — confirm the preconditions in
+                docs/DOWNTIME_PROCEDURE.md ("Why generation may produce nothing") and
+                regenerate with POST /api/v1/downtime/generate meanwhile.
+                Check: kubectl get cronjob ward-downtime-packs -n vhhealth
+                       kubectl logs -n vhhealth -l app.kubernetes.io/name=ward-downtime-packs
+              runbook: "docs/DOWNTIME_PROCEDURE.md"
+      # The observation itself is being reported, so the "we cannot tell"
+      # companion stays quiet.
+      - eval_time: 30m
+        alertname: WardDowntimePackOutputUnobserved
+        exp_alerts: []
+
+  # A hospital with no occupied beds legitimately needs no packs. The probe
+  # still publishes its zeros, so this must NOT page — and the absent() guard
+  # must not fire either, because the deployment is observed, just empty.
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_ward_downtime_pack_wards_expected{pod="backend-0"}'
+        values: '0x40'
+      - series: 'vhhealth_ward_downtime_pack_wards_covered{pod="backend-0"}'
+        values: '0x40'
+      - series: 'vhhealth_ward_downtime_pack_wards_missing{pod="backend-0"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: WardDowntimePacksMissing
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: WardDowntimePackOutputUnobserved
+        exp_alerts: []
+
+  # One replica reporting a gap is enough: the series is a count of wards in
+  # the bad state, so a healthy replica cannot average it away. (Under the old
+  # per-entity gauge shape this is the case a bare max()/min() would have
+  # hidden.) With no series at all, the absent() companion fires instead of the
+  # deployment reading as healthy.
+  - interval: 1m
+    input_series:
+      - series: 'vhhealth_ward_downtime_pack_wards_missing{pod="backend-0"}'
+        values: '0x40'
+      - series: 'vhhealth_ward_downtime_pack_wards_missing{pod="backend-1"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: WardDowntimePacksMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "Occupied wards have no fresh downtime pack to print — nothing exists for an outage"
+              description: |
+                One or more wards with occupied beds have no ward downtime pack that is
+                present, under 45 minutes old, unexpired, and non-empty. The backend log
+                line `Ward downtime packs missing for N occupied ward(s)` names the wards.
+                Generation is NOT automatic today — confirm the preconditions in
+                docs/DOWNTIME_PROCEDURE.md ("Why generation may produce nothing") and
+                regenerate with POST /api/v1/downtime/generate meanwhile.
+                Check: kubectl get cronjob ward-downtime-packs -n vhhealth
+                       kubectl logs -n vhhealth -l app.kubernetes.io/name=ward-downtime-packs
+              runbook: "docs/DOWNTIME_PROCEDURE.md"
+      # Nothing is measuring ward-pack coverage in this scenario, so silence is
+      # reported as silence.
+      - eval_time: 30m
+        alertname: WardDowntimePackOutputUnobserved
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "No ward downtime-pack output observation is being reported — coverage is unknown"
+              description: |
+                vhhealth_ward_downtime_pack_wards_expected is absent from every backend
+                replica, so WardDowntimePacksMissing cannot fire and nothing is asserting
+                that a printable pack exists. Check the backend /metrics scrape and the
+                ward-downtime-pack-output-probe scheduler job.
+              runbook: "docs/DOWNTIME_PROCEDURE.md"
