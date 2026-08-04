@@ -96,7 +96,7 @@ describe('buildWardPackHtml', () => {
     expect(html).not.toContain('<b>Sulfa</b>');
   });
 
-  it('renders an empty-census pack and NKDA fallbacks without crashing', () => {
+  it('renders an empty-census pack and sparse beds without crashing', () => {
     const html = buildWardPackHtml({ ward_name: 'GW-2', generated_at: null, beds: [] });
     expect(html).toContain('No occupied beds at generation time.');
     const sparse = buildWardPackHtml({
@@ -104,9 +104,134 @@ describe('buildWardPackHtml', () => {
       generated_at: '2026-06-10T05:00:00Z',
       beds: [{ bed_number: 'GW-2-01', allergies: [], mar_due: [], active_orders: [], latest_vitals: null }],
     });
-    expect(sparse).toContain('NKDA / none recorded');
     expect(sparse).toContain('No doses scheduled in window');
     expect(sparse).toContain('No vitals recorded');
+  });
+});
+
+/**
+ * C-D2 (docs/continuity/c0-4-owner-decision-dossier.md, countersigned
+ * 2026-07-30) governs what a downtime pack may assert. Two clauses are pinned
+ * here because the legacy renderer violated both while the ops procedure
+ * directed admins into it:
+ *
+ *   UNKNOWN-STATE WORDING — "Allergy status UNKNOWN — not recorded" (never
+ *   NKDA); "Code status NOT RECORDED — confirm per hospital policy" (never
+ *   silently full code). Display parity: an unknown safety field must never
+ *   render less prominently than a known positive finding.
+ *
+ *   FRESHNESS — Printed packs are self-invalidating: each carries
+ *   "Generated <date time TZ> — NOT VALID AFTER <date time TZ>, then use paper
+ *   and phone."
+ *
+ * `getUnifiedActiveAllergies` returns [] for "no allergy rows", for an
+ * unresolvable patient, AND for a failed lookup (allergySourceService.js:127),
+ * so an empty list can never be read as a confirmed negative.
+ */
+describe('buildWardPackHtml — C-D2 unknown-state wording', () => {
+  const unrecordedBed = {
+    bed_number: 'GW-2-01',
+    patient_name: 'Sparse Patient',
+    mar_due: [],
+    active_orders: [],
+    latest_vitals: null,
+  };
+
+  function renderWith(bed) {
+    return buildWardPackHtml({
+      ward_name: 'GW-2',
+      generated_at: '2026-06-10T05:00:00Z',
+      not_valid_after: '2026-06-11T05:00:00Z',
+      beds: [bed],
+    });
+  }
+
+  it.each([
+    ['an empty allergy list', []],
+    ['an absent allergy list', undefined],
+  ])('renders %s as explicitly unknown, never as NKDA', (_label, allergies) => {
+    const html = renderWith({ ...unrecordedBed, allergies });
+    expect(html).toContain('Allergy status UNKNOWN — not recorded');
+    expect(html).not.toContain('NKDA');
+    expect(html).not.toContain('none recorded</p>');
+  });
+
+  it('still names recorded allergies', () => {
+    const html = renderWith({
+      ...unrecordedBed,
+      allergies: [{ allergen: 'Penicillin', severity: 'SEVERE' }],
+    });
+    expect(html).toContain('Penicillin (SEVERE)');
+    expect(html).not.toContain('Allergy status UNKNOWN');
+  });
+
+  it.each([
+    ['an absent code status', undefined],
+    ['a null code status', null],
+    ['a blank code status', '   '],
+  ])('renders %s as NOT RECORDED, never as a defaulted full code', (_label, codeStatus) => {
+    const html = renderWith({ ...unrecordedBed, allergies: [], code_status: codeStatus });
+    expect(html).toContain('Code status NOT RECORDED — confirm per hospital policy');
+    expect(html).not.toContain('full_code');
+    expect(html).not.toContain('Code: ');
+  });
+
+  it('never renders any code status with the reassuring green treatment', () => {
+    const unknown = renderWith({ ...unrecordedBed, allergies: [] });
+    const fullCode = renderWith({ ...unrecordedBed, allergies: [], code_status: 'full_code' });
+    const dnr = renderWith({ ...unrecordedBed, allergies: [], code_status: 'dnr' });
+
+    // The `ok` class was the green "full code" reassurance. It is gone from
+    // the stylesheet and from every rendering.
+    for (const html of [unknown, fullCode, dnr]) {
+      expect(html).not.toContain('class="ok"');
+      expect(html).not.toContain('.ok{');
+    }
+    expect(fullCode).toContain('Code: full_code');
+    expect(dnr).toContain('Code: dnr');
+  });
+
+  it('gives an unknown safety field no less prominence than a known finding', () => {
+    const unknown = renderWith({ ...unrecordedBed, allergies: [] });
+    const known = renderWith({ ...unrecordedBed, allergies: [], code_status: 'dnr' });
+    const alertOccurrences = (html) => html.split('safety-alert').length - 1;
+
+    // Both unknown safety fields carry the same critical treatment a known
+    // non-default code status gets — C-D2's display-parity rule.
+    expect(alertOccurrences(unknown)).toBeGreaterThanOrEqual(alertOccurrences(known));
+    expect(unknown).toMatch(/class="[^"]*safety-alert[^"]*"[^>]*>[^<]*<strong>SAFETY ALERT/);
+  });
+});
+
+describe('buildWardPackHtml — C-D2 self-invalidating printout', () => {
+  it('prints the NOT VALID AFTER line with the pack validity window', () => {
+    const html = buildWardPackHtml({
+      ward_name: 'GW-2',
+      generated_at: '2026-06-10T05:00:00Z',
+      not_valid_after: '2026-06-11T05:00:00Z',
+      beds: [],
+    });
+    expect(html).toContain(
+      'Generated 2026-06-10 05:00 UTC — NOT VALID AFTER 2026-06-11 05:00 UTC, '
+      + 'then use paper and phone.',
+    );
+  });
+
+  it.each([
+    ['a missing', undefined],
+    ['a null', null],
+    ['an unparseable', 'not-a-timestamp'],
+  ])('fails closed on %s expiry rather than omitting the line', (_label, notValidAfter) => {
+    const html = buildWardPackHtml({
+      ward_name: 'GW-2',
+      generated_at: '2026-06-10T05:00:00Z',
+      not_valid_after: notValidAfter,
+      beds: [],
+    });
+    expect(html).toContain('NOT VALID AFTER');
+    expect(html).toContain(
+      'NOT VALID AFTER unknown: treat this pack as EXPIRED and use paper and phone.',
+    );
   });
 });
 
@@ -164,5 +289,38 @@ describe('generateWardDowntimePacks — MAR window is parameterized (audit §5)'
       '00000000-0000-4000-8000-000000000001',
       12, // MAR_WINDOW_HOURS
     ]);
+  });
+
+  it('stamps one validity window onto the payload, the HTML, and expires_at', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([
+        {
+          id: 7,
+          name: 'ICU-1',
+          tenant_id: '00000000-0000-4000-8000-000000000001',
+          beds: [{ bed_number: 'ICU-1-03', patient_uid: 'aaaa1111-2222-4333-8444-555566667777', patient_name: 'P' }],
+        },
+      ])
+      .mockResolvedValueOnce([{ uid: 'aaaa1111-2222-4333-8444-555566667777', name: 'P' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    snapshotCreateMock.mockResolvedValueOnce({ id: 99, ward_id: 7, created_at: new Date() });
+    executeUnsafeMock.mockResolvedValueOnce(0);
+
+    await generateWardDowntimePacks({ tenantId: '00000000-0000-4000-8000-000000000001' });
+
+    const [{ data }] = snapshotCreateMock.mock.calls[0];
+    const generatedAt = Date.parse(data.payload.generated_at);
+    const notValidAfter = Date.parse(data.payload.not_valid_after);
+
+    expect(Number.isFinite(generatedAt)).toBe(true);
+    // PACK_EXPIRY_HOURS = 24, and the DB column must carry the SAME instant the
+    // printed pack claims — not a second one computed moments later.
+    expect(notValidAfter - generatedAt).toBe(24 * 3600 * 1000);
+    expect(data.expires_at.toISOString()).toBe(data.payload.not_valid_after);
+    expect(data.payload.html).toContain(
+      `NOT VALID AFTER ${new Date(notValidAfter).toISOString().replace('T', ' ').slice(0, 16)} UTC`,
+    );
   });
 });

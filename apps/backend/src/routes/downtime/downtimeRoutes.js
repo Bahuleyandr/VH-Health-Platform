@@ -10,6 +10,7 @@ import {
   generateWardDowntimePacks,
   listLatestWardPacks,
   getLatestWardPack,
+  buildWardPackHtml,
 } from '../../services/downtime/wardDowntimePackService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -72,9 +73,20 @@ router.get('/wards/:wardId/latest', async (req, res) => {
       return error(res, 'No downtime pack generated for this ward yet', HTTP_STATUS.NOT_FOUND);
     }
     if (String(req.query.format || '').toLowerCase() === 'html') {
+      if (!pack.payload || typeof pack.payload !== 'object') {
+        return error(res, 'Downtime pack payload is unusable', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      }
+      // Render from the payload rather than replaying payload.html. The stored
+      // string was produced by whichever renderer was deployed when the pack
+      // was generated, and packs live for 24 hours — replaying it would keep
+      // serving a superseded rendering of the safety-critical fields (C-D2)
+      // for a full day after a renderer fix ships. Never fall back to the
+      // stored string on failure: a pack that cannot be rendered by the
+      // current renderer must not be printed at all.
+      const html = buildWardPackHtml(pack.payload);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');
-      return res.send(pack.payload?.html || '<p>Pack payload missing HTML rendering.</p>');
+      return res.send(html);
     }
     // Strip the bulky HTML when serving JSON — clients re-render natively.
     const { html: _html, ...payload } = pack.payload || {};
