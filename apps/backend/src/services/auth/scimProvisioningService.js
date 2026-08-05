@@ -610,9 +610,18 @@ export async function deactivateScimIdentityTx(tx, {
   realm,
   breakGlass = false,
   reason = 'SCIM deprovision',
+  revokeTokens = true,
 }) {
   if (breakGlass) {
-    return { excluded_break_glass: true, revoked_sessions: 0, disabled_staff_devices: 0, deleted_staff_sessions: 0 };
+    return {
+      excluded_break_glass: true,
+      revoked_sessions: 0,
+      disabled_staff_devices: 0,
+      deleted_staff_sessions: 0,
+      cleared_pins: 0,
+      disabled_biometrics: 0,
+      tokens: null,
+    };
   }
   const activeRows = await tx.$queryRawUnsafe(
     'SELECT COUNT(*)::int AS count FROM user_active_sessions WHERE user_uid = $1::uuid',
@@ -622,17 +631,25 @@ export async function deactivateScimIdentityTx(tx, {
   await tx.$executeRawUnsafe('DELETE FROM user_active_sessions WHERE user_uid = $1::uuid', uid);
   let staffSessionCount = 0;
   let staffDeviceCount = 0;
+  let pinCount = 0;
+  let biometricCount = 0;
   if (realm === 'staff' && staffId) {
     const sessionRows = await tx.$queryRawUnsafe(
       'SELECT COUNT(*)::int AS count FROM staff_auth_sessions WHERE staff_id = $1',
       staffId,
     );
     const deviceRows = await tx.$queryRawUnsafe(
-      'SELECT COUNT(*)::int AS count FROM staff_devices WHERE staff_id = $1 AND is_active = true',
+      `SELECT COUNT(*) FILTER (WHERE is_active = true)::int AS active_count,
+              COUNT(*) FILTER (WHERE pin_hash IS NOT NULL)::int AS pin_count,
+              COUNT(*) FILTER (WHERE biometric_enabled = true)::int AS biometric_count
+         FROM staff_devices
+        WHERE staff_id = $1`,
       staffId,
     );
     staffSessionCount = Number(sessionRows[0]?.count || 0);
-    staffDeviceCount = Number(deviceRows[0]?.count || 0);
+    staffDeviceCount = Number(deviceRows[0]?.active_count ?? deviceRows[0]?.count ?? 0);
+    pinCount = Number(deviceRows[0]?.pin_count || 0);
+    biometricCount = Number(deviceRows[0]?.biometric_count || 0);
     await tx.$executeRawUnsafe('DELETE FROM staff_auth_sessions WHERE staff_id = $1', staffId);
     await tx.$executeRawUnsafe(
       `UPDATE staff_devices
@@ -643,7 +660,7 @@ export async function deactivateScimIdentityTx(tx, {
       staffId,
     );
   }
-  await revokeAllUserTokens(uid);
+  const tokens = revokeTokens ? await revokeAllUserTokens(uid) : null;
   if (realm === 'staff') {
     await tx.$executeRawUnsafe(
       `UPDATE users
@@ -689,7 +706,14 @@ export async function deactivateScimIdentityTx(tx, {
     revoked_sessions: activeCount,
     disabled_staff_devices: staffDeviceCount,
     deleted_staff_sessions: staffSessionCount,
+    cleared_pins: pinCount,
+    disabled_biometrics: biometricCount,
+    tokens,
   };
+}
+
+export async function revokeScimIdentityTokens({ uid }) {
+  return revokeAllUserTokens(uid, { requireEvidence: true });
 }
 
 async function upsertStaff(context, payload, { id = null, method = 'post', req = null } = {}) {

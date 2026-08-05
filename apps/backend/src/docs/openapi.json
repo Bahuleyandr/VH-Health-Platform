@@ -11153,6 +11153,258 @@
           }
         }
       },
+      "ClinicalContinuityDeviceLossFailureResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "operation": {
+                "$ref": "#/components/schemas/ClinicalContinuityDeviceLossOperation"
+              }
+            }
+          }
+        }
+      },
+      "ClinicalContinuityDeviceLossOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "state",
+          "stable_device_id",
+          "incident_reference",
+          "idempotent_replay",
+          "subjects",
+          "steps",
+          "wipe_order",
+          "request_id"
+        ],
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "incomplete_retryable",
+              "awaiting_device_contact",
+              "executed"
+            ]
+          },
+          "stable_device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incident_reference": {
+            "type": "string"
+          },
+          "idempotent_replay": {
+            "type": "boolean"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityDeviceLossSubject"
+            }
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "items": {
+              "$ref": "#/components/schemas/ClinicalContinuityDeviceLossStepEvidence"
+            }
+          },
+          "wipe_order": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClinicalContinuityDeviceWipeOrder"
+              }
+            ],
+            "nullable": true
+          },
+          "request_id": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityDeviceLossRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stable_device_id",
+          "affected_staff_uids",
+          "incident_reference",
+          "reason"
+        ],
+        "properties": {
+          "stable_device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "affected_staff_uids": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "incident_reference": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200,
+            "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500,
+            "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+          }
+        }
+      },
+      "ClinicalContinuityDeviceLossResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityDeviceLossOperation"
+          }
+        }
+      },
+      "ClinicalContinuityDeviceLossStepEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "state",
+          "attempt",
+          "evidence_ids",
+          "error_code"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "capture_grants",
+              "edge_read_grants",
+              "identity_access",
+              "tokens",
+              "wipe_order",
+              "needs_review_routing",
+              "offline_pack_risk"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "not_applicable",
+              "excluded",
+              "retryable_failed",
+              "awaiting_contact"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "error_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_no_later_than": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClinicalContinuityDeviceLossSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "staff_uid",
+          "break_glass",
+          "identity_revocation",
+          "token_revocation",
+          "evidence_ids"
+        ],
+        "properties": {
+          "staff_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "break_glass": {
+            "type": "boolean"
+          },
+          "identity_revocation": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "excluded_break_glass"
+            ]
+          },
+          "token_revocation": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "excluded_break_glass"
+            ]
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
       "ClinicalContinuityDeviceOffset": {
         "type": "object",
         "additionalProperties": true,
@@ -11257,6 +11509,54 @@
               "reconciled",
               "lost_assigned",
               "not_applicable"
+            ]
+          }
+        }
+      },
+      "ClinicalContinuityDeviceWipeOrder": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order_id",
+          "content",
+          "content_hash",
+          "algorithm",
+          "key_id",
+          "signature",
+          "delivery_state"
+        ],
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "algorithm": {
+            "type": "string",
+            "enum": [
+              "Ed25519"
+            ]
+          },
+          "key_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "signature": {
+            "type": "string",
+            "minLength": 1
+          },
+          "delivery_state": {
+            "type": "string",
+            "enum": [
+              "awaiting_contact",
+              "executed"
             ]
           }
         }
@@ -49263,6 +49563,112 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/devices/continuity-device-loss": {
+      "post": {
+        "operationId": "post_api_v1_admin_devices_continuity_device_loss",
+        "tags": [
+          "device-registry"
+        ],
+        "responses": {
+          "200": {
+            "description": "Idempotent replay of the same completed operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityDeviceLossResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityDeviceLossResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request or missing/invalid Idempotency-Key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityDeviceLossFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "SUPER_ADMIN authority or MFA step-up is absent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityDeviceLossFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Scope, authority, signer, fallback ownership, or in-flight operation conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityDeviceLossFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Idempotency-Key was reused with a different request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityDeviceLossFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Typed non-activation or an incomplete retryable post-commit step with evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityDeviceLossFailureResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Contain one reported continuity device loss",
+        "description": "SUPER_ADMIN-only, MFA step-up protected and idempotent device-loss orchestration. Phase 0 performs a read-only activation and authority preflight. Phase 1 atomically revokes the device capture grants and C3 edge-read grants, then invokes the existing C-D15 SCIM identity shutdown for sessions, staff sessions, devices, PINs and biometrics while preserving its exact named break-glass exclusion; the same transaction persists the operation projections and required append-only clinical audit evidence. Phase 1.5 revokes tokens through the existing Redis-plus-database revoker and issues exactly one canonical signed wipe order. Phase 2 arms the durable C-D6 fallback-principal route for later unsynced work and records the residual offline-pack risk window. Effects outside the Phase 1 transaction are best-effort with durable failure evidence: a non-final failure returns 503 with the incomplete operation, and re-invocation skips proved steps and retries the first unfinished step. Tenants without the exact typed active setting receive 503 CONTINUITY_DEVICE_LOSS_ORCHESTRATION_NOT_ACTIVATED without mutation. A new operation returns 202; an idempotent replay returns 200 and never mints a second order.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable key for this exact device, affected-subject set, incident reference, and reason. A retry with the same key and body resumes the first unfinished evidence-bearing step.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityDeviceLossRequest"
               }
             }
           }

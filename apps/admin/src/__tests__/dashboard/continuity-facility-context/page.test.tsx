@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import ContinuityFacilityContextPage from "@/app/(with-auth)/dashboard/continuity-facility-context/page";
 import { usePermissions } from "@/hooks/usePermissions";
 import { APIError } from "@/lib/api/core";
@@ -79,6 +79,13 @@ describe("<ContinuityFacilityContextPage /> inert posture", () => {
     expect(
       screen.queryByRole("button", { name: /Issue exact staff\/device grant/ }),
     ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Device loss" }));
+    expect(
+      screen.getByText("Unified device-loss containment"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Execute ordered containment" }),
+    ).toBeDisabled();
     expect(enrollContinuityFacilityGrant).not.toHaveBeenCalled();
     expect(revokeContinuityFacilityGrant).not.toHaveBeenCalled();
   });

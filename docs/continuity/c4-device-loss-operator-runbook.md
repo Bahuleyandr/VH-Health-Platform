@@ -1,138 +1,108 @@
 # C4 device-loss operator runbook
 
-**Status:** pre-activation operator procedure; the Admin portal performs only
-capture-grant revocation. This runbook does not activate C-D14, create a missing
-server capability, or authorize a clinical/organizational role.
+**Status:** post-orchestration physical handling and verification procedure. This
+runbook does not activate the tenant capability, grant SUPER_ADMIN authority, or
+replace server evidence.
 
-## 1. Authority and boundary
+## 1. Open the incident and prove the exact target
 
-The countersigned C-D14 record says:
+Before executing the Admin action, open one security/continuity incident and
+record:
 
-> “IT/security alone maintains the staff-to-facility authorization set and
-> performs device enrollment, re-provisioning, and revocation.”
-
-The countersigned C-D10 record requires immediate grant and session revocation,
-a signed governed wipe order on next contact, offline-pack expiry at no more
-than 24 hours, and preservation of unsynced work as `needs_review` for the C-D6
-fallback reconciliation principal.
-
-The facility-context Admin page can execute only individual revocations of
-`capture_fixed_device` and `capture_staff_facility` grants returned by the
-landed capture-grant ledger. It cannot revoke C3 `edge_read` grants, target a
-device session, issue or deliver a wipe order, shorten an already signed
-offline-pack expiry, or move unsynced work to `needs_review`.
-
-Until a unified device-loss orchestration contract lands, those duties are
-completed and evidenced elsewhere. A capture-grant receipt alone is never a
-completed device-loss response.
-
-## 2. Start record
-
-Open one incident/security record and capture these exact values before acting:
-
-- report time and reporter;
-- stable device UUID from authoritative device/provisioning evidence;
-- affected Staff UID or UIDs;
-- facility ID or IDs;
-- loss/theft circumstances and last-known contact time;
-- operator identity; and
-- the incident/audit reference that will bind every downstream receipt.
+- report time, reporter, loss or theft circumstances, and last-known contact;
+- the stable device UUID from authoritative provisioning evidence;
+- every affected Staff UID;
+- the incident reference and incident-specific containment reason; and
+- the accountable SUPER_ADMIN operator.
 
 Do not infer the stable device UUID from an FCM token, browser identity,
-hostname, friendly name, or clinical-device registry row. If the exact UUID is
-not proven, stop the portal portion and escalate through the security incident
-process; do not revoke a guessed device.
+hostname, friendly name, or clinical-device registry row. If the exact UUID or
+affected identity set cannot be proved, stop and escalate; never contain a
+guessed device.
 
-## 3. Revoke capture grants in the Admin portal
+## 2. Execute and preserve the server receipt
 
-1. Open **Facility Context > Device loss** as a temporarily authorized
-   `SUPER_ADMIN` account.
-2. Paste the full stable device UUID.
-3. Copy the explicit enumeration of active capture grants into the incident
-   record. The absence of a match does not prove the device safe.
-4. For each displayed grant, separately:
-   - verify the grant UUID, purpose, Staff UID if present, device UUID,
-     facility ID, and validity;
-   - enter the incident-specific reason;
-   - type the full grant UUID; and
-   - append the revocation.
-5. Record the server request ID, revocation UUID, grant UUID, capture revision,
-   revoker UID, timestamp, and reason from each response.
-6. Re-read the ledger. Do not continue treating a failed, denied, or unavailable
-   request as success. There is no bulk revoke and no optimistic completion.
+In **Facility Context > Device loss**, submit the exact device UUID, affected
+Staff UIDs, incident reference, reason, and exact-device confirmation once.
+Preserve the operation ID, request ID, ordered step states, evidence IDs,
+break-glass exclusions, signed wipe-order identity and hash, C-D6 route, and
+offline-pack risk deadline in the incident.
 
-## 4. Complete the duties outside this portal
+The server performs the ordered duties the old runbook handled manually:
+capture and C3 edge-read grant revocation; C-D15 session, staff-session, device,
+PIN and biometric shutdown through the existing SCIM service; token revocation;
+one signed wipe order; and durable `needs_review` routing to the configured C-D6
+fallback principal. Phase 1 relational shutdown and its audit evidence commit
+atomically. Token revocation, signing and standing-route creation run afterward
+with durable per-attempt evidence because they cannot share that transaction.
 
-Each item below requires an authoritative receipt from its owning control. Do
-not use a portal checkbox, local note, or capture-grant receipt as a substitute.
+If the response is incomplete or unavailable, keep the incident open and retry
+the unchanged request with the displayed idempotency key. Re-invocation keeps
+the same operation and wipe-order identity, skips proved steps, and retries the
+first unfinished step. Never replace a failed step with a local checkbox or an
+edited receipt.
 
-### 4.1 Sessions
+## 3. Control the physical device
 
-Revoke affected staff sessions through the established identity/security
-control and attach its receipt. The existing Admin auth operation revokes all
-sessions for a staff account; it is not an exact device-targeted C-D10
-orchestration seam. Confirm the affected staff identity and the blast radius
-before using it. If that broader action is not appropriate, escalate rather
-than claiming device-session revocation.
+If the device is recovered:
 
-### 4.2 C3 edge-read grants
+1. isolate it from clinical use and do not reconnect it to a trusted network;
+2. preserve chain-of-custody, recovery time, finder, condition, SIM/removable
+   media state, and photographs where policy permits;
+3. quarantine it for security/forensic inspection; and
+4. do not unlock, browse, factory-reset, repair, or reassign it before the
+   security owner records a disposition.
 
-Revoke every active `edge_read` grant for the exact device through the
-continuity-edge security control and attach the grant/revocation receipts. The
-facility-context Admin routes intentionally list and revoke capture purposes
-only; they cannot prove this step.
+If it remains missing, record the physical search and notification actions,
+including security, department leadership and any external authority required
+by hospital policy. The server receipt does not prove physical recovery.
 
-### 4.3 Signed governed wipe order
+## 4. Verify wipe delivery and execution
 
-Issue the signed governed wipe order through the approved device-management
-control, preserve issuer/signature/order identifiers, and preserve delivery and
-execution receipts. The order may execute only on the device's next contact.
-There is no landed wipe-order endpoint in the facility-context Admin contract.
+The signed wipe order is initially `awaiting_contact`. On the device's next
+authoritative contact, preserve the delivery acknowledgement and execution
+receipt and verify that both bind the server-issued order ID, content hash,
+stable device UUID and signing key. A queued or delivered order is not an
+executed wipe.
 
-### 4.4 Offline-pack risk window
+If the device never contacts the service, keep the residual risk open through
+at least the signed offline-pack expiry recorded by the operation. Revocation
+does not retroactively erase an already valid offline pack.
 
-Record the signed offline-pack expiry and verify it is no more than 24 hours as
-required by C-D10. Revocation does not retroactively erase a valid offline pack;
-do not claim pack access ended before its signed expiry unless an authoritative
-wipe receipt proves it.
+## 5. Verify preserved unsynced work
 
-### 4.5 Unsynced work and `needs_review`
+When late work arrives from the lost device, verify that it is held as
+`needs_review`, names the configured C-D6 fallback principal and assigned
+safety lead, and retains the originating device-loss operation ID. The fallback
+owner must reconcile the work through the existing C-D6 process. Never delete,
+discard, auto-accept, or mark it reviewed merely because containment completed.
 
-Preserve and route unsynced captured work to `needs_review` for the C-D6
-fallback reconciliation principal through the owning reconciliation control.
-Record its receipt and owner. Never delete, discard, or mark work reviewed from
-this Admin page. No landed facility-context endpoint performs this step.
+Record both positive routing receipts and the explicit result of checking for
+late work. A standing route with no arrivals is not evidence that no offline
+work exists.
 
-## 5. Completion ledger
+## 6. Recovery, reprovisioning and closure
 
-Keep the device-loss incident **incomplete** until every applicable row has an
-authoritative receipt:
+Reprovision only after the security owner has documented quarantine/forensic
+disposition, wipe execution or approved destruction, and the owning department
+has approved return to service. Use a new device credential and the ordinary
+C-D14 enrollment process; never restore a revoked credential or reuse the
+device-loss operation as enrollment authority.
 
-| Duty | Required evidence | Portal ownership |
-| --- | --- | --- |
-| Capture-grant revocation | One request ID and revocation row per explicitly enumerated grant | Facility Context page |
-| Session revocation | Identity/security control receipt with affected Staff UID and scope | Elsewhere |
-| C3 `edge_read` revocation | Exact edge grant and revocation receipts | Elsewhere |
-| Signed wipe order | Signed order plus delivery/execution state | Elsewhere |
-| Offline-pack expiry | Signed expiry and residual-risk record | Elsewhere |
-| Unsynced-work preservation | `needs_review` routing receipt and C-D6 owner | Elsewhere |
+Close the incident only when an accountable owner has verified:
 
-If a required control is unavailable, record the blocker, preserve all receipts
-already obtained, escalate to the security/continuity owner, and leave the
-incident visibly incomplete. Do not retry by inventing a client-side success or
-editing an append-only ledger row.
-
-## 6. Follow-up contract gap
-
-A separate backend slice must design and authorize a unified, idempotent
-device-loss orchestration contract that can bind capture-grant, `edge_read`,
-session, wipe-order, offline-risk, and `needs_review` receipts. Its capability
-and accountable-role mapping are owner decisions. That backend work, any Staff
-app work, and C-D14 activation are outside this Admin lane.
+- every server step is complete and its append-only evidence is attached;
+- every named break-glass exclusion was reviewed under its separate control;
+- physical recovery or missing-device handling is documented;
+- wipe delivery and execution, destruction, or accepted residual risk has an
+  owner and evidence;
+- late unsynced work was checked and any arrivals were reconciled from
+  `needs_review`; and
+- quarantine, forensics and reprovisioning decisions are signed off.
 
 ## References
 
 - [C-D10 countersigned record](c0-4-owner-decision-dossier.md#c-d10--break-glass-retention-device-loss-and-communications)
 - [C-D14 countersigned record](c0-4-owner-decision-dossier.md#c-d14--capture-side-facility-context-operating-model)
+- [Device-loss orchestration design delta](c4-device-loss-orchestration-design-delta.md)
 - [Facility-context establishment and lifecycle](c4-facility-context-design-delta.md#5-establishment-and-lifecycle)
-- [Admin-surface design delta](c4-facility-context-admin-surface-design-delta.md)

@@ -98,7 +98,7 @@ export async function cacheGet(key) {
  * Set a cached value with an optional TTL (seconds).
  */
 export async function cacheSet(key, value, ttlSeconds) {
-  if (!redis) return;
+  if (!redis) return false;
   try {
     const serialized = JSON.stringify(value);
     if (ttlSeconds) {
@@ -106,8 +106,10 @@ export async function cacheSet(key, value, ttlSeconds) {
     } else {
       await redis.set(key, serialized);
     }
+    return true;
   } catch (err) {
     logger.error('cacheSet error:', { key, error: err.message });
+    return false;
   }
 }
 
