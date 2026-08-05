@@ -9,10 +9,13 @@ import {
   backfillTransfusionVerification,
   checkClosure,
   closeIncident,
+  createIncidentContactSheet,
+  approveIncidentContactSheet,
   decideReconciliationItem,
   declareIncident,
   executeIdentityMatch,
   importIncident,
+  getProvisionedIncidentPacketArtifact,
   listWorkbench,
   attestHeldMessageRelease,
   bindHeldMessage,
@@ -21,7 +24,11 @@ import {
   recordDeviceOffset,
   recordInterfaceRequirement,
   recordRangeDisposition,
+  recordProvisionedIncidentPacketCustody,
   registerPaperItem,
+  provisionIncidentPacket,
+  refreshProvisionedIncidentPacket,
+  revokeProvisionedIncidentPacket,
   transitionIncident,
 } from '../../controllers/downtime/clinicalContinuityReconciliationController.js';
 import { requireClinicalContinuityReconciliationContext } from '../../middleware/clinicalContinuityReconciliationMiddleware.js';
@@ -31,6 +38,16 @@ const router = express.Router();
 router.use(requireClinicalContinuityReconciliationContext);
 
 router.get('/workbench', listWorkbench);
+router.post('/incident-packet-contact-sheets', createIncidentContactSheet);
+router.post(
+  '/incident-packet-contact-sheets/:contactSheetId/approve',
+  approveIncidentContactSheet,
+);
+router.post('/incident-packets/provision', provisionIncidentPacket);
+router.get('/incident-packets/:packetId/artifact', getProvisionedIncidentPacketArtifact);
+router.post('/incident-packets/:packetId/custody', recordProvisionedIncidentPacketCustody);
+router.post('/incident-packets/:packetId/refresh', refreshProvisionedIncidentPacket);
+router.post('/incident-packets/:packetId/revoke', revokeProvisionedIncidentPacket);
 router.post('/incidents/:incidentId/interface-held-messages', bindHeldMessage);
 router.post(
   '/reconciliation-items/:itemId/held-message-release/attestations',

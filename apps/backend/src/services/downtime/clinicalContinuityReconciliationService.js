@@ -16,6 +16,7 @@ import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { createTask, transitionTask } from '../workflow/taskService.js';
 import { loadActiveClinicalContinuityPolicyForFacilityTx } from './clinicalContinuityPolicyService.js';
+import { verifyProvisionedIncidentPacketTx } from './clinicalContinuityIncidentPacketProvisioningService.js';
 import { hashCanonicalValue } from './continuityPackCanonical.js';
 import {
   CLINICAL_CONTINUITY_PAPER_ACTIONS,
@@ -357,8 +358,9 @@ export async function declareClinicalContinuityIncident({
 
   return facilityTransaction({ tenantId, facilityId }, async (tx, scope) => {
     const packetRows = await tx.$queryRawUnsafe(
-      `SELECT *
+      `SELECT packet.*, clock_timestamp()::text AS trusted_now
          FROM clinical_continuity_incident_packets
+         AS packet
         WHERE tenant_id = $1::uuid AND facility_id = $2::integer AND id = $3::uuid
         FOR UPDATE`,
       scope.tenantId,
@@ -369,6 +371,7 @@ export async function declareClinicalContinuityIncident({
     if (!packetRow) {
       throw AppError.notFound('Incident packet not found', 'CONTINUITY_PACKET_NOT_FOUND');
     }
+    await verifyProvisionedIncidentPacketTx(tx, packetRow);
     if (
       String(packetRow.reserved_incident_id).toLowerCase() !== incident
       || packetRow.canonical_payload_hash !== evidenceHash
@@ -376,7 +379,7 @@ export async function declareClinicalContinuityIncident({
     ) {
       throw AppError.conflict('Incident packet evidence did not verify', 'CONTINUITY_PACKET_INVALID', { safe: true });
     }
-    const now = Date.now();
+    const now = Date.parse(packetRow.trusted_now);
     if (
       packetRow.status !== 'unused'
       || packetRow.revoked_at
@@ -487,14 +490,14 @@ export async function declareClinicalContinuityIncident({
       sourceSessionId,
       requestId,
     );
-    await tx.$executeRawUnsafe(
-      `UPDATE clinical_continuity_incident_packets
-          SET status = 'used', used_at = clock_timestamp(), used_by = $1::uuid
-        WHERE tenant_id = $2::uuid AND facility_id = $3::integer AND id = $4::uuid`,
-      actor,
+    await tx.$queryRawUnsafe(
+      `SELECT * FROM clinical_continuity_consume_incident_packet(
+         $1::uuid, $2::integer, $3::uuid, $4::uuid
+       )`,
       scope.tenantId,
       scope.facilityId,
       packet,
+      actor,
     );
     const audit = await requiredAudit(tx, {
       tenantId: scope.tenantId,

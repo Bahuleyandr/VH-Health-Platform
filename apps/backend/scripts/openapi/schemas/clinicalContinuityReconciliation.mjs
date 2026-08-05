@@ -100,8 +100,88 @@ export const schemas = {
       valid_until: dateTime,
       revoked_at: nullableDateTime,
       revocation_reason: { type: 'string', nullable: true },
+      packet_schema_version: { type: 'integer', enum: [1], nullable: true },
+      policy_id: nullableUuid,
+      policy_version: { ...bigintPositive, nullable: true },
+      policy_checksum: { ...sha256, nullable: true },
+      contact_sheet_id: nullableUuid,
+      contact_sheet_checksum: { ...sha256, nullable: true },
+      artifact_sha256: { ...sha256, nullable: true },
+      allowed_copy_count: { type: 'integer', minimum: 1, nullable: true },
+      authorization_audit_id: nullableUuid,
+      supersedes_packet_id: nullableUuid,
     },
   },
+  ClinicalContinuityIncidentContactSheetRequest: {
+    type: 'object', additionalProperties: false, required: ['content'],
+    properties: {
+      content: {
+        type: 'object', additionalProperties: false,
+        description: 'Owner-supplied phone-tree authority. Patient data is prohibited.',
+        required: ['schemaVersion', 'source', 'custodyLocation', 'contacts', 'instructions'],
+        properties: {
+          schemaVersion: { type: 'integer', enum: [1] },
+          source: { type: 'string', minLength: 1, maxLength: 240 },
+          custodyLocation: { type: 'string', minLength: 1, maxLength: 240 },
+          instructions: { type: 'string', minLength: 1, maxLength: 1000 },
+          contacts: {
+            type: 'array', minItems: 1, maxItems: 50,
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['role', 'label', 'escalationOrder', 'channels'],
+              properties: {
+                role: { type: 'string', pattern: '^[A-Z][A-Z0-9_]{1,79}$' },
+                label: { type: 'string', minLength: 1, maxLength: 120 },
+                escalationOrder: { type: 'integer', minimum: 1 },
+                channels: {
+                  type: 'array', minItems: 2, maxItems: 10,
+                  items: {
+                    type: 'object', additionalProperties: false,
+                    required: ['kind', 'value'],
+                    properties: {
+                      kind: { type: 'string', enum: ['phone', 'sms', 'messaging', 'radio'] },
+                      value: { type: 'string', minLength: 1, maxLength: 160 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  ClinicalContinuityIncidentPacketProvisionRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['request_id', 'contact_sheet_id'],
+    properties: { request_id: uuid, contact_sheet_id: uuid },
+  },
+  ClinicalContinuityIncidentPacketCustodyRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['event_type', 'copy_number', 'evidence_hash', 'occurred_at'],
+    properties: {
+      event_type: {
+        type: 'string',
+        enum: ['downloaded', 'printed', 'handed_over', 'received', 'destroyed'],
+      },
+      copy_number: { type: 'integer', minimum: 1 },
+      evidence_hash: sha256,
+      notes: { type: 'string', maxLength: 500, nullable: true },
+      occurred_at: dateTime,
+    },
+  },
+  ClinicalContinuityIncidentPacketRevokeRequest: {
+    type: 'object', additionalProperties: false, required: ['reason'],
+    properties: { reason: { type: 'string', minLength: 1, maxLength: 160 } },
+  },
+  ClinicalContinuityIncidentPacketCommand: {
+    type: 'object', additionalProperties: true,
+  },
+  ClinicalContinuityIncidentPacketArtifact: {
+    type: 'object', additionalProperties: true,
+  },
+  ClinicalContinuityIncidentPacketCommandResponse: envelope('ClinicalContinuityIncidentPacketCommand'),
+  ClinicalContinuityIncidentPacketArtifactResponse: envelope('ClinicalContinuityIncidentPacketArtifact'),
   ClinicalContinuityPaperRange: {
     type: 'object',
     additionalProperties: true,
@@ -708,6 +788,68 @@ export const operations = {
       'assigned to, while packets, paper ranges, temporary identities, device offsets, and ' +
       'interface requirements are populated only for admin or safety-lead callers.' + ALWAYS_503,
     response: 'ClinicalContinuityWorkbenchResponse',
+  },
+  [`POST ${base}/incident-packet-contact-sheets`]: {
+    summary: 'Create a versioned incident-packet contact sheet',
+    description:
+      'Creates append-only phone-tree/contact content under the active signed v4 policy. It ' +
+      'does not approve the sheet, mint a packet, reserve a paper range, or activate C5.2.' + ALWAYS_503,
+    request: 'ClinicalContinuityIncidentContactSheetRequest',
+    response: 'ClinicalContinuityIncidentPacketCommandResponse', responseStatus: 201,
+  },
+  [`POST ${base}/incident-packet-contact-sheets/{contactSheetId}/approve`]: {
+    summary: 'Approve an incident-packet contact sheet',
+    description:
+      'A policy-configured actor distinct from the creator appends approval for one exact contact ' +
+      'sheet version and checksum. It creates no packet or incident.' + ALWAYS_503,
+    pathParameters: { contactSheetId: uuid },
+    response: 'ClinicalContinuityIncidentPacketCommandResponse', responseStatus: 201,
+  },
+  [`POST ${base}/incident-packets/provision`]: {
+    summary: 'Provision a signed one-use incident packet',
+    description:
+      'Server-mints the packet and reserved incident UUID, allocates a disjoint paper range, ' +
+      'obtains and locally verifies an operator-injected Ed25519 signature, and stores the ' +
+      'controlled artifact and generated custody evidence. Every timing, range, role, key, ' +
+      'contact, and copy value comes from the active signed v4 policy. No incident is declared.' + ALWAYS_503,
+    request: 'ClinicalContinuityIncidentPacketProvisionRequest',
+    response: 'ClinicalContinuityIncidentPacketCommandResponse', responseStatus: 201,
+  },
+  [`GET ${base}/incident-packets/{packetId}/artifact`]: {
+    summary: 'Read a controlled incident-packet artifact',
+    description:
+      'Returns the exact stored, checksum-bound no-PHI artifact, including its visible exclusive ' +
+      'NOT VALID AFTER boundary. Reading it records no custody and grants no incident authority.' + ALWAYS_503,
+    pathParameters: { packetId: uuid },
+    response: 'ClinicalContinuityIncidentPacketArtifactResponse',
+  },
+  [`POST ${base}/incident-packets/{packetId}/custody`]: {
+    summary: 'Append incident-packet custody evidence',
+    description:
+      'Appends download, print, handover, receipt, or destruction custody evidence under the distinct signed-policy ' +
+      'custodian capability. Received custody is required before use; for a replacement, it is ' +
+      'also the event that revokes the old packet.' + ALWAYS_503,
+    pathParameters: { packetId: uuid },
+    request: 'ClinicalContinuityIncidentPacketCustodyRequest',
+    response: 'ClinicalContinuityIncidentPacketCommandResponse', responseStatus: 201,
+  },
+  [`POST ${base}/incident-packets/{packetId}/refresh`]: {
+    summary: 'Provision a replacement incident packet',
+    description:
+      'Mints a wholly new packet, incident UUID, signature, artifact, and paper range. It never ' +
+      'extends the original validity window; the old packet remains usable until replacement ' +
+      'receipt custody is recorded, then is revoked atomically.' + ALWAYS_503,
+    pathParameters: { packetId: uuid },
+    request: 'ClinicalContinuityIncidentPacketProvisionRequest',
+    response: 'ClinicalContinuityIncidentPacketCommandResponse', responseStatus: 201,
+  },
+  [`POST ${base}/incident-packets/{packetId}/revoke`]: {
+    summary: 'Revoke an unused incident packet',
+    description:
+      'Applies the one permitted terminal revocation transition with a reason under signed-policy ' +
+      'issuer authority. It cannot revive or rewrite packet evidence.' + ALWAYS_503,
+    pathParameters: { packetId: uuid }, request: 'ClinicalContinuityIncidentPacketRevokeRequest',
+    response: 'ClinicalContinuityIncidentPacketCommandResponse',
   },
   [`POST ${base}/incidents/{incidentId}/interface-held-messages`]: {
     summary: 'Bind one held interface message to continuity reconciliation',

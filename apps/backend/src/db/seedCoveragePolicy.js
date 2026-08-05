@@ -19,8 +19,16 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'clinical_continuity_device_loss_subjects',
   'clinical_continuity_incident_aliases',
   'clinical_continuity_incident_attestations',
+  // Incident-packet provisioning is dormant until a tenant registers its
+  // countersigned phone tree and signing authority. Seed coverage must not
+  // invent either authority, reserve paper serials, or fabricate custody.
+  'clinical_continuity_incident_contact_sheet_approvals',
+  'clinical_continuity_incident_contact_sheets',
   'clinical_continuity_incident_declarations',
   'clinical_continuity_incident_interfaces',
+  'clinical_continuity_incident_packet_allocations',
+  'clinical_continuity_incident_packet_artifacts',
+  'clinical_continuity_incident_packet_custody_events',
   'clinical_continuity_incident_packets',
   'clinical_continuity_incidents',
   'clinical_continuity_paper_items',
