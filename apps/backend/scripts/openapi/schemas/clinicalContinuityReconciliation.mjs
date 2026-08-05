@@ -294,19 +294,34 @@ export const schemas = {
   },
   ClinicalContinuityMarBackfillRequest: {
     type: 'object', additionalProperties: false,
-    required: [...commonPaperRequired, 'medication_administration_id'],
-    properties: { ...commonPaperProperties, medication_administration_id: { type: 'integer', minimum: 1 }, notes: { type: 'string', nullable: true, maxLength: 2000 } },
+    required: [...commonPaperRequired, 'admission_id', 'medication_administration_id', 'checker_uid', 'checker_role'],
+    properties: {
+      ...commonPaperProperties,
+      admission_id: { type: 'integer', minimum: 1 },
+      medication_administration_id: { type: 'integer', minimum: 1 },
+      checker_uid: uuid,
+      checker_role: { type: 'string', minLength: 1, maxLength: 80 },
+      notes: { type: 'string', nullable: true, maxLength: 2000 },
+    },
   },
   ClinicalContinuityLabBackfillRequest: {
     type: 'object', additionalProperties: false,
-    required: [...commonPaperRequired, 'investigation_id', 'specimen_barcode'],
-    properties: { ...commonPaperProperties, investigation_id: { type: 'integer', minimum: 1 }, specimen_barcode: { type: 'string', minLength: 1, maxLength: 100 }, collection_notes: { type: 'string', nullable: true, maxLength: 2000 } },
+    required: [...commonPaperRequired, 'investigation_id', 'specimen_barcode', 'checker_uid', 'checker_role'],
+    properties: {
+      ...commonPaperProperties,
+      investigation_id: { type: 'integer', minimum: 1 },
+      specimen_barcode: { type: 'string', minLength: 1, maxLength: 100 },
+      checker_uid: uuid,
+      checker_role: { type: 'string', minLength: 1, maxLength: 80 },
+      collection_notes: { type: 'string', nullable: true, maxLength: 2000 },
+    },
   },
   ClinicalContinuityTransfusionBackfillRequest: {
     type: 'object', additionalProperties: false,
     required: [...commonPaperRequired, 'blood_request_id', 'blood_unit_id', 'first_verifier_uid', 'second_verifier_uid', 'scanned_unit_number', 'unit_match', 'patient_match', 'group_compatible', 'expiry_ok'],
     properties: {
       ...commonPaperProperties,
+      encounter_id: uuid,
       blood_request_id: { type: 'integer', minimum: 1 },
       blood_unit_id: { type: 'integer', minimum: 1 },
       first_verifier_uid: uuid,
@@ -314,7 +329,6 @@ export const schemas = {
       scanned_unit_number: { type: 'string', minLength: 1, maxLength: 60 },
       unit_match: { type: 'boolean' }, patient_match: { type: 'boolean' },
       group_compatible: { type: 'boolean' }, expiry_ok: { type: 'boolean' },
-      override_reason: { type: 'string', nullable: true, maxLength: 2000 },
     },
   },
   ClinicalContinuityCommandResult: {
@@ -800,7 +814,9 @@ export const operations = {
     description:
       'Mutates: applies a retrospective medication-administration fact captured on paper during ' +
       'an outage onto the canonical clinical record, including updating the underlying ' +
-      'medication_administrations row itself when it is still scheduled/due/pending. Patient-' +
+      'medication_administrations row through the canonical MAR transaction core when it is still ' +
+      'scheduled or held. The paper command must bind the exact admission and a distinct, currently ' +
+      'authorized checker; it cannot claim a barcode scan or electronic override. Patient-' +
       'access-authorized and naturally idempotent on (incident id, paper item id, payload ' +
       'fingerprint); a client `Idempotency-Key` header, if sent, is only recorded in the attempt ' +
       "audit log and does not itself drive replay detection. Returns 409 with disposition " +
@@ -813,7 +829,8 @@ export const operations = {
     description:
       'Mutates: applies a retrospective specimen-collection fact captured on paper during an ' +
       'outage onto the canonical clinical record, including updating the underlying ' +
-      'investigations row itself when collection is still pending. Patient-access-authorized ' +
+      'investigations row itself when collection is still pending. A distinct, currently authorized ' +
+      'checker is required by the C4.2 paper contract. Patient-access-authorized ' +
       'and naturally idempotent on (incident id, paper item id, payload fingerprint); an ' +
       '`Idempotency-Key` header, if sent, is only recorded in the attempt audit log and does not ' +
       "itself drive replay detection. Returns 409 with disposition 'needs_review' when it " +
@@ -827,7 +844,8 @@ export const operations = {
       'unit/patient/group-compatibility/expiry checks normally performed at the bedside -- as ' +
       'canonical-timeline/audit evidence for an outage, checked for consistency against any ' +
       'already-recorded electronic verification. Unlike the MAR and lab back-entry commands, it ' +
-      'never writes a transfusion_verifications row itself. Patient-access-authorized and ' +
+      'never writes a transfusion_verifications row itself. Both verifiers must still be currently ' +
+      'authorized, encounter identity is mandatory, and no override field is accepted. Patient-access-authorized and ' +
       'idempotent on (incident id, paper item id, payload fingerprint) rather than on the ' +
       "`Idempotency-Key` header, which is only logged; returns 409 with disposition " +
       "'needs_review' on conflict and 200 on replay." + ALWAYS_503,

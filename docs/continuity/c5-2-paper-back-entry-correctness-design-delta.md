@@ -1,12 +1,12 @@
 # C5.2 paper back-entry correctness — design delta
 
-**Status:** Step 1 design delta and Step-0 preflight only; implementation is
-queued and not authorized
+**Status:** PR-1 local build authorized by GO-WITH-GATE; publication and PR-2
+remain queued behind the recovery-operability (Packet BV) merge
 
 **Branch:** `feat/continuity-c52-correctness`
 
 **Live authority re-fetched:** `github/main` at
-`10c4a3a66a32d2aa5bf23041d2de3737e59365bd` on 2026-08-05
+`4a3b2d21523bb3995d5efd9064ef664af905cad8` on 2026-08-05
 
 **Activation state:** C5.2 remains inert. The compile-time
 `CLINICAL_CONTINUITY_C_D14_APPROVED = false` guard makes the reconciliation
@@ -25,17 +25,17 @@ reconciliation, or activation.
 
 | Check | Live result | Step-1 ruling |
 |---|---|---|
-| Baseline | Re-fetched `github/main` is `10c4a3a66a32d2aa5bf23041d2de3737e59365bd` | Design authority only |
+| Baseline | Re-fetched `github/main` is `4a3b2d21523bb3995d5efd9064ef664af905cad8`; this lane was rebased onto it as `80adf2cab` | PR-1 local-build authority only |
 | C5.2 exposure | The hardcoded C-D14 approval constant remains false and the reconciliation middleware returns 503 | Pre-activation defects; do not lift the guard in this train |
-| Committed migration ceiling | `624_clinical_continuity_held_message_release.sql` | No new number is reserved |
-| PR #737 | Open at `e2f39071dbdd4ec763b0cec2e80f6488a72b4d96`; it now owns `625_hl7_outbound_contiguity_ledger_version.sql` | Wait for its renumbered migration to land, then re-fetch |
-| Packet BV predecessor | The refreshed activation tracker still marks Packet BV open for owner-audited activation commands, a completable clinician channel, and recovery observability; no BV implementation branch or PR is named in the repository | Wait for the coordinator to identify and clear the BV build; do not equate BV with another open PR |
-| Policy-value remediation | PR #739, `fix/continuity-pin-countersigned-values`, remains open at `47f5500f84efb2663050a7971b344af110277b0d` and owns policy/configuration surfaces Part C must consume | Wait or obtain an explicit post-rebase non-overlap ruling; this is separate from Packet BV |
-| Device-loss predecessor | Draft PR #741 is design-only at `c695b9d6ce6e559ff9dc150efa5ab8b5b766717c` and records a DDL/state-owner stop | This build remains behind the coordinator's device-loss gate and its eventual migration/Prisma ownership |
+| Committed migration ceiling | `627_clinical_continuity_device_loss_orchestration.sql` | PR-1 remains migration-free; no new number is reserved |
+| PR #737 | Merged into `github/main` by `392332d831d59ab9e16778ca687dc69e43483dea`; migration 625 is committed | Satisfied; later migration-owning PRs must derive their slots again |
+| Packet BV predecessor | Local branch `feat/continuity-recovery-operability` now has three commits through `9ace04ad6`, plus an uncommitted runtime worktree that currently names migration 628; it still has no remote PR and is unmerged | Gate closed: its build overlaps the reconciliation/OpenAPI lane, so prepare PR-1 locally but do not publish it or begin PR-2 until BV merges; this lane reserves no migration number from BV's local state |
+| Policy-value remediation | PR #739 merged into `github/main` as `0b6bb2f10e5e738710a7924c28d53ae6f828d65e` | Satisfied for later packet provisioning; Part C must consume the landed signed-policy parser |
+| Device-loss predecessor | PR #741 merged into `github/main` as `f0746de93996b6a255ed6d05008f471da4afaecc`, landing migration 627 | Satisfied for this rebase; later migration-owning parts must consume its landed DDL, Prisma, signer, Admin, and OpenAPI contracts without duplicating them |
 | Held-release composition | PR #733 is merged; migration 624 and the closed request schema admit I04, I05, and I19 only | I18 remains deliberately non-releaseable through that executor |
 | Expiry precedent | PR #736 is merged; a printed artifact and its stored expiry use one instant, visibly say `NOT VALID AFTER`, and missing/unreadable expiry fails closed | Incident packets inherit this discipline, not an invented duration |
-| Step-1 overlap | This branch adds one document only | Safe to commit without entering any occupied runtime lane |
-| Build readiness | #737, Packet BV, device-loss, and the policy-value remediation are not all settled; packet issuer/custodian and packet validity values are not countersigned | **WAIT — no Step 2 implementation** |
+| Step-1 overlap | PR-1 locally changes the paper schema/parser, MAR service core, reconciliation service, tests, and the two generated OpenAPI mirrors; BV also changes the continuity OpenAPI overlay | Local preparation remains authorized, but publication stays serial behind BV |
+| Build readiness | The explicit GO-WITH-GATE authorizes migration-free PR-1 preparation while BV remains unmerged; device-loss and policy-value work still constrain later parts | **GO for local PR-1 only; WAIT for publication and PR-2** |
 
 The migration verdict for the later train is **non-zero but not allocatable**.
 The webhook correction and incident-packet provisioning need additive DDL and
@@ -45,16 +45,17 @@ kickoff the lane re-fetches `github/main`, verifies the named predecessors,
 lists the committed and open migration owners, and derives the next free
 number. This delta does not call the next numbers 626 or 627.
 
-### 0.2 Step-2 stop conditions
+### 0.2 Publication and later-PR stop conditions
 
-No runtime edit begins until all of the following are recorded against the
-then-current main SHA:
+The explicit GO-WITH-GATE permits local PR-1 runtime edits. PR-1 publication
+and any PR-2 or PR-3 edit remain stopped until the applicable conditions below
+are recorded against the then-current main SHA:
 
-1. PR #737 has landed with its final migration number and Prisma shape.
-2. The coordinator has identified Packet BV's implementation authority and
-   confirmed that its activation-command, clinician-channel, observability,
-   migration, Prisma, and shared-service ownership has landed. The tracker
-   label is not permission to infer a branch or collapse BV into this train.
+1. **Satisfied for PR-1:** PR #737 landed as merge commit `392332d831d59ab9e16778ca687dc69e43483dea`
+   with migration 625 and its final Prisma shape.
+2. **Publication gate:** Packet BV's activation-command, clinician-channel,
+   observability, migration, Prisma, and shared-service implementation has
+   merged. Its current local design commit is not sufficient.
 3. PR #739 or its superseding policy-value remediation has landed. Packet
    provisioning must consume the corrected signed-policy parser rather than
    race or copy its values.
@@ -790,6 +791,6 @@ classify any I18 subscription's blast radius, create an I18 release executor,
 change MAR bedside policy, make paper actions electronically queueable, or
 claim C5.2 production readiness.
 
-Step 1 verdict remains **WAIT**. The committed design is the only authorized
-output until the named predecessors and owner stop lines are cleared and the
-coordinator supplies Step 2 GO against a newly re-fetched main SHA.
+PR-1 verdict is **GO for local preparation only; WAIT for publication**. PR-2
+remains stopped until the Packet BV implementation merges and this lane is
+rebased onto that merge. The later owner stop lines remain fail-closed.

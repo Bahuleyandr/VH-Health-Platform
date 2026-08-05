@@ -321,6 +321,264 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
   return results;
 }
 
+export const MAR_ADMINISTRATION_MODES = Object.freeze({
+  ONLINE_NO_SCAN: 'online_no_scan',
+  RETROSPECTIVE_PAPER_BACK_ENTRY: 'retrospective_paper_back_entry',
+});
+
+const MAR_ADMINISTRATION_MODE_VALUES = new Set(Object.values(MAR_ADMINISTRATION_MODES));
+
+function duplicateAdministrationError(duplicateId = null) {
+  return AppError.conflict(
+    'This dose has already been administered (another MAR row for the same medication and scheduled time)',
+    'MAR_DUPLICATE_ADMINISTRATION',
+    duplicateId === null ? undefined : { duplicate_id: duplicateId },
+  );
+}
+
+function inspectionError(inspection) {
+  if (inspection.code === 'MAR_TARGET_NOT_FOUND') {
+    return AppError.notFound('Medication administration record not found');
+  }
+  if (inspection.code === 'MAR_ALREADY_ADMINISTERED') {
+    return AppError.conflict('Medication has already been administered');
+  }
+  if (inspection.code === 'MAR_DUPLICATE_ADMINISTRATION') {
+    return duplicateAdministrationError(inspection.duplicateId);
+  }
+  if (inspection.code === 'MAR_STATE_CONFLICT') {
+    return AppError.invalidTransition(inspection.currentStatus, 'administered', ['scheduled', 'held']);
+  }
+  return AppError.conflict(
+    'Medication administration context is not valid for this write',
+    inspection.code || 'MAR_ADMINISTRATION_CONTEXT_INVALID',
+  );
+}
+
+function normalizedIso(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+/**
+ * Lock and inspect the canonical medication-administration row inside the
+ * caller's tenant transaction. Both online charting and C5.2 paper back-entry
+ * use this boundary; only the wrappers decide which canonical event to emit.
+ */
+export async function inspectMedicationAdministrationTx(tx, {
+  tenantId,
+  medicationAdministrationId,
+  administeredBy,
+  witnessUid = null,
+  witnessRole = null,
+  occurredAt = null,
+  expectedPatientUid = null,
+  expectedAdmissionId = null,
+  expectedEncounterId = null,
+  mode = MAR_ADMINISTRATION_MODES.ONLINE_NO_SCAN,
+} = {}) {
+  if (!tx?.$queryRawUnsafe || !MAR_ADMINISTRATION_MODE_VALUES.has(mode)) {
+    throw AppError.badRequest('Medication administration mode is invalid', 'MAR_ADMINISTRATION_MODE_INVALID');
+  }
+  const tid = requireTenantId(tenantId);
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id, patient_uid::text, medication_name, dose, dosage, route,
+            scheduled_time, administered_at, administered_by::text, status,
+            notes, witness_uid::text, override_reason, tenant_id::text,
+            created_at, updated_at, patient_scanned_at, medication_scanned_at
+       FROM medication_administrations
+      WHERE tenant_id = $1::uuid AND id = $2::integer
+      FOR UPDATE`,
+    tid,
+    medicationAdministrationId,
+  );
+  const row = rows[0];
+  if (!row) return { disposition: 'conflict', code: 'MAR_TARGET_NOT_FOUND' };
+  if (expectedPatientUid && row.patient_uid !== expectedPatientUid) {
+    return { disposition: 'conflict', code: 'MAR_TARGET_MISMATCH', row };
+  }
+
+  const retrospective = mode === MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY;
+  const occurredAtIso = normalizedIso(occurredAt);
+  if (retrospective) {
+    if (
+      !occurredAtIso
+      || !expectedPatientUid
+      || !Number.isSafeInteger(Number(expectedAdmissionId))
+      || Number(expectedAdmissionId) < 1
+      || !witnessUid
+      || !String(witnessRole || '').trim()
+    ) {
+      return { disposition: 'conflict', code: 'MAR_RETROSPECTIVE_CONTEXT_INVALID', row };
+    }
+    if (witnessUid === administeredBy) {
+      return { disposition: 'conflict', code: 'MAR_WITNESS_SEPARATION_REQUIRED', row };
+    }
+    const admissions = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid::text, encounter_id::text, admitted_at, discharged_at
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND id = $2::integer
+          AND patient_uid = $3::uuid
+          AND ($4::uuid IS NULL OR encounter_id = $4::uuid)
+          AND COALESCE(admitted_at, created_at) <= $5::timestamptz
+          AND (discharged_at IS NULL OR $5::timestamptz < discharged_at)
+        LIMIT 1
+        FOR KEY SHARE`,
+      tid,
+      Number(expectedAdmissionId),
+      expectedPatientUid,
+      expectedEncounterId,
+      occurredAtIso,
+    );
+    if (!admissions[0]) return { disposition: 'conflict', code: 'MAR_ADMISSION_MISMATCH', row };
+
+    const witnesses = await tx.$queryRawUnsafe(
+      `SELECT uid::text, upper(role) AS role
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND upper(role) = upper($3)
+          AND is_active = true
+          AND status = 'active'
+          AND is_deleted = false
+        LIMIT 1
+        FOR KEY SHARE`,
+      tid,
+      witnessUid,
+      String(witnessRole).trim(),
+    );
+    if (!witnesses[0]) return { disposition: 'conflict', code: 'MAR_WITNESS_NOT_AUTHORIZED', row };
+  }
+
+  const currentStatus = String(row.status || '').toLowerCase();
+  if (currentStatus === 'administered') {
+    const exactProjection = retrospective
+      && row.administered_by === administeredBy
+      && normalizedIso(row.administered_at) === occurredAtIso
+      && row.witness_uid === witnessUid;
+    return exactProjection
+      ? { disposition: 'exact_projection', row }
+      : { disposition: 'conflict', code: 'MAR_ALREADY_ADMINISTERED', currentStatus, row };
+  }
+  if (!['scheduled', 'held'].includes(currentStatus)) {
+    return { disposition: 'conflict', code: 'MAR_STATE_CONFLICT', currentStatus, row };
+  }
+
+  const siblings = await tx.$queryRawUnsafe(
+    `SELECT id
+       FROM medication_administrations
+      WHERE tenant_id = $1::uuid
+        AND id <> $2::integer
+        AND patient_uid = $3::uuid
+        AND medication_name = $4
+        AND scheduled_time >= ($5::timestamptz - INTERVAL '1 minute')
+        AND scheduled_time < ($5::timestamptz + INTERVAL '1 minute')
+        AND status = 'administered'
+      ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $5::timestamptz))) ASC, id ASC
+      LIMIT 1`,
+    tid,
+    medicationAdministrationId,
+    row.patient_uid,
+    row.medication_name,
+    row.scheduled_time,
+  );
+  if (siblings[0]) {
+    return {
+      disposition: 'conflict',
+      code: 'MAR_DUPLICATE_ADMINISTRATION',
+      duplicateId: siblings[0].id,
+      row,
+    };
+  }
+  return { disposition: 'apply', occurredAt: occurredAtIso, row };
+}
+
+/**
+ * Apply the detail-row mutation after inspectMedicationAdministrationTx has
+ * locked and validated the row. This function deliberately emits no timeline
+ * or audit event; the online and retrospective wrappers own different effects.
+ */
+export async function recordMedicationAdministrationTx(tx, {
+  tenantId,
+  medicationAdministrationId,
+  administeredBy,
+  notes = null,
+  witnessUid = null,
+  witnessRole = null,
+  overrideReason = null,
+  occurredAt = null,
+  expectedPatientUid = null,
+  expectedAdmissionId = null,
+  expectedEncounterId = null,
+  mode = MAR_ADMINISTRATION_MODES.ONLINE_NO_SCAN,
+  inspection = null,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const checked = inspection || await inspectMedicationAdministrationTx(tx, {
+    tenantId: tid,
+    medicationAdministrationId,
+    administeredBy,
+    witnessUid,
+    witnessRole,
+    occurredAt,
+    expectedPatientUid,
+    expectedAdmissionId,
+    expectedEncounterId,
+    mode,
+  });
+  if (checked.disposition === 'exact_projection') {
+    return { disposition: 'exact_projection', record: checked.row, previousStatus: 'administered' };
+  }
+  if (checked.disposition !== 'apply') throw inspectionError(checked);
+  if (
+    Number(checked.row?.id) !== Number(medicationAdministrationId)
+    || checked.row?.tenant_id !== tid
+  ) {
+    throw AppError.conflict('Medication inspection context changed', 'MAR_INSPECTION_CONTEXT_MISMATCH');
+  }
+
+  let rows;
+  try {
+    rows = await tx.$queryRawUnsafe(
+      `UPDATE medication_administrations
+          SET status = 'administered',
+              administered_at = COALESCE($1::timestamptz, NOW()),
+              administered_by = $2::uuid,
+              notes = COALESCE($3, notes),
+              witness_uid = $4::uuid,
+              override_reason = COALESCE($5, override_reason),
+              updated_at = clock_timestamp()
+        WHERE tenant_id = $6::uuid
+          AND id = $7::integer
+          AND lower(status) IN ('scheduled', 'held')
+        RETURNING id, patient_uid::text, medication_name, dose, dosage, route,
+                  scheduled_time, administered_at, status, administered_by::text,
+                  notes, witness_uid::text, override_reason, tenant_id::text,
+                  created_at, updated_at, patient_scanned_at, medication_scanned_at`,
+      mode === MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY
+        ? checked.occurredAt
+        : null,
+      administeredBy,
+      notes,
+      witnessUid,
+      mode === MAR_ADMINISTRATION_MODES.ONLINE_NO_SCAN ? overrideReason : null,
+      tid,
+      medicationAdministrationId,
+    );
+  } catch (err) {
+    if (err?.meta?.code === '23505' || /23505|duplicate key value/i.test(err?.message || '')) {
+      throw duplicateAdministrationError();
+    }
+    throw err;
+  }
+  if (rows.length !== 1) {
+    throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
+  }
+  return { disposition: 'recorded', record: rows[0], previousStatus: checked.row.status };
+}
+
 /**
  * Record medication administration.
  * @param {number} id - medication_administrations.id
@@ -330,15 +588,10 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
  * @param {Object} [options]
  * @param {string|null} [options.overrideReason] documented no-scan reason
  * @param {string|null} [options.tenantId] canonical tenant (req.tenantId). Falls
- *   back to the MA row's tenant_id, then DEFAULT_TENANT_ID. The write + audit run
- *   inside setTenantTx(tenantId) so they are provably tenant-isolated (B4.2).
+ *   back to the MA row's tenant_id when legacy callers omit it.
  * @returns {Object} Updated record
  */
 export async function recordAdministration(id, administeredBy, notes = null, witnessUid = null, options = {}) {
-  // Roadmap B1 — BCMA enforcement: bedside administration is scan-first.
-  // The non-scan path stays available for genuine downtime (dead scanner,
-  // damaged wristband) but requires an explicit override reason, which is
-  // persisted on the row and audited on the canonical event.
   const noScanOverrideReason = (options.overrideReason || '').trim() || null;
   if (BCMA_CONFIG.requireScanForMarAdministration && !noScanOverrideReason) {
     throw AppError.conflict(
@@ -348,113 +601,53 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
     );
   }
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status, patient_uid, medication_name, scheduled_time, tenant_id
-       FROM medication_administrations
-      WHERE id = $1`,
-    id
-  );
-
-  if (existing.length === 0) {
-    throw AppError.notFound('Medication administration record not found');
-  }
-
-  if (existing[0].status === 'administered') {
-    throw AppError.conflict('Medication has already been administered');
-  }
-
-  if (!['scheduled', 'held'].includes(existing[0].status)) {
-    throw AppError.invalidTransition(existing[0].status, 'administered', ['scheduled', 'held']);
-  }
-
-  // F-2 — cross-row duplicate guard. The id-level check above only
-  // blocks re-administering the same row; it can't see a sibling row
-  // for the same patient + medication + clinical slot that another
-  // nurse already administered. Without this guard the same dose was
-  // chartable twice. Findings:
-  // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard
-  // 2026-05-20-emergency-walk-in-nurse-7622bcce.
-  const sibling = await prisma.$queryRawUnsafe(
-    `SELECT id
-       FROM medication_administrations
-      WHERE id <> $1
-        AND patient_uid = $2::uuid
-        AND medication_name = $3
-        AND scheduled_time >= ($4::timestamptz - INTERVAL '1 minute')
-        AND scheduled_time < ($4::timestamptz + INTERVAL '1 minute')
-        AND status = 'administered'
-      ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $4::timestamptz))) ASC, id ASC
-      LIMIT 1`,
-    id, existing[0].patient_uid, existing[0].medication_name, existing[0].scheduled_time,
-  );
-  if (sibling.length) {
-    throw AppError.conflict(
-      `Another MAR row (id=${sibling[0].id}) for this medication and scheduled time has already been administered`,
-      'MAR_DUPLICATE_ADMINISTRATION',
-      { duplicate_id: sibling[0].id },
+  let tid;
+  if (options.tenantId) {
+    tid = requireTenantId(options.tenantId);
+  } else {
+    const tenantRows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id::text
+         FROM medication_administrations
+        WHERE id = $1::integer
+        LIMIT 1`,
+      id,
     );
+    if (!tenantRows[0]) throw AppError.notFound('Medication administration record not found');
+    tid = requireTenantId(tenantRows[0].tenant_id);
   }
 
-  // B4.2 — run the state mutation + canonical audit inside setTenantTx so both
-  // are provably tenant-isolated (a bare prisma.$transaction leaves the GUC unset
-  // → the tenant_isolation policy falls through to its permissive branch). Prefer
-  // the threaded tenant, fall back to the row's tenant_id (from the Phase-0 SELECT
-  // above), then the single-tenant floor. The WHERE re-asserts tenant_id so the
-  // write is scoped even if RLS is not yet force-enforced for the connection role.
-  // No scan timestamps are written here: this is the no-scan path (no wristband /
-  // barcode scan occurred), so patient_scanned_at / medication_scanned_at stay
-  // NULL — which is exactly what distinguishes a documented no-scan override from
-  // a real two-scan administration in the audit trail.
-  const tid = requireTenantId(options.tenantId || existing[0].tenant_id);
-
-  const record = await setTenantTx(tid, async (tx) => {
-    let rows;
-    try {
-      rows = await tx.$queryRawUnsafe(
-        `UPDATE medication_administrations
-         SET status = 'administered',
-             administered_at = NOW(),
-             administered_by = $2::uuid,
-             notes = COALESCE($3, notes),
-             witness_uid = $4::uuid,
-             override_reason = COALESCE($5, override_reason)
-         WHERE id = $1 AND tenant_id = $6::uuid
-         RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-                   administered_at, status, administered_by, notes, witness_uid,
-                   override_reason, tenant_id, created_at, updated_at,
-                   patient_scanned_at, medication_scanned_at`,
-        id, administeredBy, notes, witnessUid, noScanOverrideReason, tid
-      );
-    } catch (err) {
-      // uniq_mar_administered_dose (migration 327) rejects a second administered
-      // row for the same patient + medication + scheduled_time — the concurrent
-      // double-charting race the lock-free pre-check above cannot catch. Surface
-      // it as the same clean conflict instead of a generic 500.
-      if (err?.meta?.code === '23505' || /23505|duplicate key value/i.test(err?.message || '')) {
-        throw AppError.conflict(
-          'This dose has already been administered (another MAR row for the same medication and scheduled time)',
-          'MAR_DUPLICATE_ADMINISTRATION',
-        );
-      }
-      throw err;
-    }
-
+  const result = await setTenantTx(tid, async (tx) => {
+    const inspection = await inspectMedicationAdministrationTx(tx, {
+      tenantId: tid,
+      medicationAdministrationId: id,
+      administeredBy,
+      witnessUid,
+    });
+    if (inspection.disposition !== 'apply') throw inspectionError(inspection);
+    const applied = await recordMedicationAdministrationTx(tx, {
+      tenantId: tid,
+      medicationAdministrationId: id,
+      administeredBy,
+      notes,
+      witnessUid,
+      overrideReason: noScanOverrideReason,
+      inspection,
+    });
     await recordCanonicalMarEvent({
-      record: rows[0],
+      record: applied.record,
       eventType: 'mar.administered',
       actorUid: administeredBy,
-      previousStatus: existing[0].status,
+      previousStatus: applied.previousStatus,
       payload: noScanOverrideReason
         ? { scanner_used: false, no_scan_override: true, no_scan_override_reason: noScanOverrideReason }
         : { scanner_used: false },
       db: tx,
     });
-
-    return rows[0];
+    return applied.record;
   });
 
   logger.info(`Medication ${id} administered by ${administeredBy}`);
-  return record;
+  return result;
 }
 
 /**

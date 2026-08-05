@@ -58,7 +58,7 @@ d('User directory authz (CAN-055)', () => {
 
   it('GENERAL_STAFF can list but phone is masked', async () => {
     const res = await client('GENERAL_STAFF', { uid: 'c0de0102-0003-4c0d-8c0d-c0de01020003' })
-      .get('/api/v1/users/?limit=50');
+      .get('/api/v1/users/?search=Directory%20Subject&limit=50');
     expect(res.statusCode).toBeLessThan(300);
     const rows = res.body?.data?.users ?? res.body?.data ?? [];
     const subject = rows.find((u) => u.uid === SUBJECT_UID);
@@ -69,7 +69,7 @@ d('User directory authz (CAN-055)', () => {
 
   it('ADMIN sees unmasked directory', async () => {
     const res = await client('ADMIN', { uid: 'c0de0102-0004-4c0d-8c0d-c0de01020004' })
-      .get('/api/v1/users/?limit=50');
+      .get('/api/v1/users/?search=Directory%20Subject&limit=50');
     expect(res.statusCode).toBeLessThan(300);
     const rows = res.body?.data?.users ?? res.body?.data ?? [];
     const subject = rows.find((u) => u.uid === SUBJECT_UID);
