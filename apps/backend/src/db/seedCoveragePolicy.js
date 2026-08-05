@@ -6,6 +6,11 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'clinical_continuity_replay_effect_evidence',
   'clinical_continuity_replay_receipts',
   'clinical_continuity_device_journal_offsets',
+  // Device-loss rows are incident evidence and standing containment routes.
+  // Test seeds must not invent a lost device, affected identity, or C-D6 owner.
+  'clinical_continuity_device_loss_operations',
+  'clinical_continuity_device_loss_routes',
+  'clinical_continuity_device_loss_subjects',
   'clinical_continuity_incident_aliases',
   'clinical_continuity_incident_attestations',
   'clinical_continuity_incident_declarations',

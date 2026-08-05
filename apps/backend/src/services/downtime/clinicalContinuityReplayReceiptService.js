@@ -8,6 +8,7 @@ import {
   resolveClinicalContinuityActionBinding
 } from './clinicalContinuityActionBindingRegistry.js';
 import { hashCanonicalValue } from './continuityPackCanonical.js';
+import { loadClinicalContinuityDeviceLossRouteTx } from './clinicalContinuityDeviceLossService.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SERIALIZABLE_ATTEMPTS = 3;
@@ -32,15 +33,16 @@ function isSerializationFailure(error) {
   return ['40001', 'P2034'].includes(sqlState(error));
 }
 
-function reviewError(code = 'CONTINUITY_REPLAY_NEEDS_REVIEW') {
+function reviewError(code = 'CONTINUITY_REPLAY_NEEDS_REVIEW', details = {}) {
   return AppError.conflict('Clinical continuity replay requires manual review', code, {
     decision: 'needs_review',
-    safe: true
+    safe: true,
+    ...details
   });
 }
 
-function committedReview(code) {
-  return Object.freeze({ reviewCode: code });
+function committedReview(code, details = null) {
+  return Object.freeze({ reviewCode: code, reviewDetails: details });
 }
 
 function iso(value) {
@@ -463,6 +465,27 @@ export async function applyClinicalContinuityReplay(input) {
         result = await setTenantTx(
           input.tenantId,
           async tx => {
+            const deviceLossRoute = await loadClinicalContinuityDeviceLossRouteTx(tx, {
+              tenantId: input.tenantId,
+              stableDeviceId: envelope.device_id,
+              facilityId: input.facilityContext.facilityId
+            });
+            if (deviceLossRoute) {
+              await appendAttemptTx(tx, {
+                ...input,
+                clientEventId: envelope.client_event_id,
+                receiptLinked: false,
+                attemptClass: 'lost_device_route',
+                reasonCode: 'CONTINUITY_REPLAY_DEVICE_LOSS_NEEDS_REVIEW',
+                result: 'needs_review',
+                idempotencyKey: envelope.idempotency_key
+              });
+              return committedReview('CONTINUITY_REPLAY_DEVICE_LOSS_NEEDS_REVIEW', {
+                fallback_principal: deviceLossRoute.fallback_principal,
+                assigned_to_uid: deviceLossRoute.assigned_to_uid,
+                device_loss_operation_id: deviceLossRoute.operation_id
+              });
+            }
             await recheckFacilityTx(tx, input);
             const targetPatientId = await recheckPatientTx(tx, {
               tenantId: input.tenantId,
@@ -606,7 +629,7 @@ export async function applyClinicalContinuityReplay(input) {
     );
     throw error;
   }
-  if (result?.reviewCode) throw reviewError(result.reviewCode);
+  if (result?.reviewCode) throw reviewError(result.reviewCode, result.reviewDetails || {});
   return result;
 }
 

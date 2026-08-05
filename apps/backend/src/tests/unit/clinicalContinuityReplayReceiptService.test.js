@@ -3,8 +3,13 @@ import { jest } from '@jest/globals';
 const setTenantTx = jest.fn();
 const evaluateClinicalContinuityActionRequest = jest.fn();
 const resolveClinicalContinuityActionBinding = jest.fn();
+const loadClinicalContinuityDeviceLossRouteTx = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({ setTenantTx }));
+jest.unstable_mockModule(
+  '../../services/downtime/clinicalContinuityDeviceLossService.js',
+  () => ({ loadClinicalContinuityDeviceLossRouteTx })
+);
 jest.unstable_mockModule(
   '../../services/downtime/clinicalContinuityActionRegistryService.js',
   () => ({ evaluateClinicalContinuityActionRequest })
@@ -28,7 +33,9 @@ const UUIDS = Object.freeze({
   grant: '10000000-0000-4000-8000-000000000005',
   patient: '10000000-0000-4000-8000-000000000006',
   request: '10000000-0000-4000-8000-000000000007',
-  tenant: '10000000-0000-4000-8000-000000000008'
+  tenant: '10000000-0000-4000-8000-000000000008',
+  lossOperation: '10000000-0000-4000-8000-000000000010',
+  safetyLead: '10000000-0000-4000-8000-000000000011'
 });
 
 function input(overrides = {}) {
@@ -149,10 +156,49 @@ function existingReceipt(overrides = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  loadClinicalContinuityDeviceLossRouteTx.mockResolvedValue(null);
   evaluateClinicalContinuityActionRequest.mockResolvedValue({
     decision: 'allow',
     proceed: true
   });
+});
+
+test('a standing lost-device route commits needs_review before the current-grant recheck', async () => {
+  loadClinicalContinuityDeviceLossRouteTx.mockResolvedValueOnce({
+    operation_id: UUIDS.lossOperation,
+    fallback_principal: 'role:clinical_safety_lead',
+    assigned_to_uid: UUIDS.safetyLead
+  });
+  const tx = {
+    $executeRawUnsafe: jest.fn().mockResolvedValue(1),
+    $queryRawUnsafe: jest.fn()
+  };
+  setTenantTx.mockImplementation((_tenantId, callback) => callback(tx));
+
+  await expect(applyClinicalContinuityReplay(input())).rejects.toMatchObject({
+    code: 'CONTINUITY_REPLAY_DEVICE_LOSS_NEEDS_REVIEW',
+    statusCode: 409,
+    details: {
+      decision: 'needs_review',
+      fallback_principal: 'role:clinical_safety_lead',
+      assigned_to_uid: UUIDS.safetyLead,
+      device_loss_operation_id: UUIDS.lossOperation
+    }
+  });
+  expect(loadClinicalContinuityDeviceLossRouteTx).toHaveBeenCalledWith(tx, {
+    tenantId: UUIDS.tenant,
+    stableDeviceId: UUIDS.device,
+    facilityId: 41
+  });
+  expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
+  expect(tx.$executeRawUnsafe).toHaveBeenCalledTimes(1);
+  expect(tx.$executeRawUnsafe.mock.calls[0]).toEqual(
+    expect.arrayContaining([
+      'lost_device_route',
+      'CONTINUITY_REPLAY_DEVICE_LOSS_NEEDS_REVIEW',
+      'needs_review'
+    ])
+  );
 });
 
 test('precheck returns an authorized exact duplicate and appends its replay attempt', async () => {

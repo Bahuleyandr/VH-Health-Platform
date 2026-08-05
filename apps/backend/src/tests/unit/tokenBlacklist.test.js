@@ -55,19 +55,28 @@ describe('tokenBlacklist revoke-all fallback', () => {
   });
 
   it('refreshes the persistent revoke-all watermark on repeated revokes', async () => {
-    const originalSetImmediate = global.setImmediate;
-    global.setImmediate = (callback) => {
-      callback();
-      return null;
-    };
+    cacheSetMock.mockResolvedValueOnce(true);
     queryRawUnsafeMock.mockResolvedValueOnce([]);
 
-    try {
-      await revokeAllUserTokens('42');
-    } finally {
-      global.setImmediate = originalSetImmediate;
-    }
+    const evidence = await revokeAllUserTokens('42');
 
     expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/created_at\s*=\s*EXCLUDED\.created_at/);
+    expect(evidence).toMatchObject({
+      redis: { persisted: true },
+      database: { persisted: true },
+    });
+  });
+
+  it('preserves ordinary best effort but fails closed when evidence is required', async () => {
+    cacheSetMock.mockResolvedValue(false);
+    queryRawUnsafeMock.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(revokeAllUserTokens('42')).resolves.toMatchObject({
+      redis: { persisted: false },
+      database: { persisted: false },
+    });
+    await expect(
+      revokeAllUserTokens('42', { requireEvidence: true }),
+    ).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
   });
 });

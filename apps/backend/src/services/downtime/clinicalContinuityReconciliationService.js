@@ -196,7 +196,7 @@ async function requiredAudit(tx, input) {
   return row;
 }
 
-async function loadConfigTx(tx, tenantId, facilityId) {
+export async function loadClinicalContinuityReconciliationConfigTx(tx, tenantId, facilityId) {
   const rows = await tx.$queryRawUnsafe(
     `SELECT id::text, fallback_principal, clinical_safety_lead_uid::text,
             needs_review_owner_principal, identity_owner_principal,
@@ -217,7 +217,7 @@ async function loadConfigTx(tx, tenantId, facilityId) {
   return rows[0];
 }
 
-async function insertReconciliationItemTx(tx, {
+export async function insertClinicalContinuityReconciliationItemTx(tx, {
   tenantId,
   facilityId,
   incidentId,
@@ -231,7 +231,7 @@ async function insertReconciliationItemTx(tx, {
   safetyCritical = false,
   actorUid,
 }) {
-  const config = await loadConfigTx(tx, tenantId, facilityId);
+  const config = await loadClinicalContinuityReconciliationConfigTx(tx, tenantId, facilityId);
   const ownerPrincipal = queueType === 'identity'
     ? config.identity_owner_principal
     : queueType === 'interface'
@@ -663,7 +663,7 @@ export async function registerClinicalContinuityPaperItem({
       if (exactRegistration) {
         return { disposition: 'exact_duplicate', paper_item: existing[0] };
       }
-      const review = await insertReconciliationItemTx(tx, {
+      const review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: identity.incidentId,
@@ -779,7 +779,7 @@ export async function registerClinicalContinuityPaperItem({
     }
     let review = null;
     if (rangeBlocked) {
-      review = await insertReconciliationItemTx(tx, {
+      review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: identity.incidentId,
@@ -852,7 +852,7 @@ export async function listClinicalContinuityWorkbench({
   return facilityTransaction(
     { tenantId, facilityId, isolationLevel: 'RepeatableRead', readOnly: true },
     async (tx, scope) => {
-      const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+      const config = await loadClinicalContinuityReconciliationConfigTx(tx, scope.tenantId, scope.facilityId);
       const resourceScopedInterfaceOwner = queueFilter === 'interface'
         && interfaceKindFilter === 'held_message_release'
         && (
@@ -1494,7 +1494,7 @@ export async function applyClinicalContinuityPaperBackEntry({
       ? item.matched_patient_uid
       : item.patient_uid;
     if (!effectivePatientUid) {
-      const review = await insertReconciliationItemTx(tx, {
+      const review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: parsed.identity.incidentId,
@@ -1560,7 +1560,7 @@ export async function applyClinicalContinuityPaperBackEntry({
         });
         return receiptOutcome(existing, true);
       }
-      const review = await insertReconciliationItemTx(tx, {
+      const review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: parsed.identity.incidentId,
@@ -1599,7 +1599,7 @@ export async function applyClinicalContinuityPaperBackEntry({
       || item.original_actor_role !== parsed.normalized.original_actor_role
       || new Date(item.occurred_at).toISOString() !== parsed.normalized.occurred_at
     ) {
-      const review = await insertReconciliationItemTx(tx, {
+      const review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: parsed.identity.incidentId,
@@ -1626,7 +1626,7 @@ export async function applyClinicalContinuityPaperBackEntry({
       return { disposition: 'needs_review', code: 'CONTINUITY_PAPER_STATE_INVALID', reconciliation_item: review };
     }
     if (effectivePatientUid !== parsed.normalized.patient_uid) {
-      const review = await insertReconciliationItemTx(tx, {
+      const review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: parsed.identity.incidentId,
@@ -1647,7 +1647,7 @@ export async function applyClinicalContinuityPaperBackEntry({
       normalized: parsed.normalized,
     });
     if (inspection.disposition === 'conflict') {
-      const review = await insertReconciliationItemTx(tx, {
+      const review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: parsed.identity.incidentId,
@@ -1684,7 +1684,7 @@ export async function applyClinicalContinuityPaperBackEntry({
       const reasonCode = acceptanceExpired
         ? 'CONTINUITY_PAPER_ACCEPTANCE_EXPIRED'
         : 'CONTINUITY_PAPER_CAPTURE_POLICY_INVALID';
-      const review = await insertReconciliationItemTx(tx, {
+      const review = await insertClinicalContinuityReconciliationItemTx(tx, {
         tenantId: scope.tenantId,
         facilityId: scope.facilityId,
         incidentId: parsed.identity.incidentId,
@@ -2230,7 +2230,7 @@ export async function decideClinicalContinuityReconciliationItem({
   }
   const reason = safeText(reasonCode, 'reason_code', 120);
   return facilityTransaction({ tenantId, facilityId }, async (tx, scope) => {
-    const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+    const config = await loadClinicalContinuityReconciliationConfigTx(tx, scope.tenantId, scope.facilityId);
     const rows = await tx.$queryRawUnsafe(
       `SELECT * FROM clinical_continuity_reconciliation_items
         WHERE tenant_id = $1::uuid AND facility_id = $2::integer AND id = $3::uuid
@@ -2375,7 +2375,7 @@ export async function recordClinicalContinuityDeviceOffset({
     throw AppError.conflict('Device high-water mark is incomplete', 'CONTINUITY_DEVICE_HWM_INCOMPLETE');
   }
   return facilityTransaction({ tenantId, facilityId }, async (tx, scope) => {
-    const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+    const config = await loadClinicalContinuityReconciliationConfigTx(tx, scope.tenantId, scope.facilityId);
     const owner = config.needs_review_owner_principal;
     const rows = await tx.$queryRawUnsafe(
       `SELECT * FROM clinical_continuity_device_journal_offsets
@@ -2502,7 +2502,7 @@ export async function recordClinicalContinuityInterfaceRequirement({
     throw AppError.badRequest('interface offset shape is invalid', 'CONTINUITY_INTERFACE_INVALID');
   }
   return facilityTransaction({ tenantId, facilityId }, async (tx, scope) => {
-    const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+    const config = await loadClinicalContinuityReconciliationConfigTx(tx, scope.tenantId, scope.facilityId);
     const owner = config.interface_owner_principal;
     if (offset) {
       const live = await tx.$queryRawUnsafe(
@@ -2801,7 +2801,7 @@ export async function checkClinicalContinuityClosure({
   const role = normalizeRole(actorRole);
   const incident = uuid(incidentId, 'incident_id');
   return facilityTransaction({ tenantId, facilityId }, async (tx, scope) => {
-    const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+    const config = await loadClinicalContinuityReconciliationConfigTx(tx, scope.tenantId, scope.facilityId);
     const snapshot = await closureSnapshotTx(tx, {
       tenantId: scope.tenantId,
       facilityId: scope.facilityId,
@@ -2861,7 +2861,7 @@ export async function attestClinicalContinuityClosure({
     throw AppError.badRequest('attestation_kind is invalid', 'CONTINUITY_CLOSURE_ATTESTATION_INVALID');
   }
   return facilityTransaction({ tenantId, facilityId }, async (tx, scope) => {
-    const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+    const config = await loadClinicalContinuityReconciliationConfigTx(tx, scope.tenantId, scope.facilityId);
     const snapshot = await closureSnapshotTx(tx, {
       tenantId: scope.tenantId,
       facilityId: scope.facilityId,
@@ -2956,7 +2956,7 @@ export async function closeClinicalContinuityIncident({
   const incident = uuid(incidentId, 'incident_id');
   const expected = positiveInteger(expectedVersion, 'expected_version');
   return facilityTransaction({ tenantId, facilityId }, async (tx, scope) => {
-    const config = await loadConfigTx(tx, scope.tenantId, scope.facilityId);
+    const config = await loadClinicalContinuityReconciliationConfigTx(tx, scope.tenantId, scope.facilityId);
     const snapshot = await closureSnapshotTx(tx, {
       tenantId: scope.tenantId,
       facilityId: scope.facilityId,

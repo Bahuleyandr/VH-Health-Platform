@@ -1,6 +1,8 @@
 // src/routes/admin/deviceRegistryRoutes.js
 
 import express from 'express';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { requireRole, requireSuperAdminStepUp } from '../../middleware/rbacMiddleware.js';
 import {
   clinicalContinuityFacilityEnrollmentEnabled,
 } from '../../config/downtimeConfig.js';
@@ -22,6 +24,10 @@ import {
   listClinicalContinuityFacilityGrants,
   revokeClinicalContinuityFacilityGrant,
 } from '../../services/downtime/clinicalContinuityFacilityContextService.js';
+import {
+  assertClinicalContinuityDeviceLossActivated,
+  orchestrateClinicalContinuityDeviceLoss,
+} from '../../services/downtime/clinicalContinuityDeviceLossService.js';
 import prisma from '../../lib/prisma.js';
 
 const router = express.Router();
@@ -53,6 +59,15 @@ function requireContinuityEnrollmentEnabled(req, res, next) {
       },
     },
   );
+}
+
+async function requireContinuityDeviceLossActivated(req, res, next) {
+  try {
+    await assertClinicalContinuityDeviceLossActivated({ tenantId: requestTenantId(req) });
+    return next();
+  } catch (err) {
+    return handleFailure(res, err, 'check continuity device-loss activation');
+  }
 }
 
 router.get('/', async (req, res) => {
@@ -186,6 +201,35 @@ router.post(
       );
     } catch (err) {
       return handleFailure(res, err, 'revoke continuity facility grant');
+    }
+  },
+);
+
+router.post(
+  '/continuity-device-loss',
+  requireRole('SUPER_ADMIN'),
+  requireSuperAdminStepUp,
+  requireContinuityDeviceLossActivated,
+  requireIdempotencyKey({ scope: 'continuity-device-loss' }),
+  async (req, res) => {
+    try {
+      const result = await orchestrateClinicalContinuityDeviceLoss({
+        tenantId: requestTenantId(req),
+        actorUid: req.user?.uid,
+        actorRole: [req.user?.role, req.user?.rawRole]
+          .find(role => String(role || '').trim().toUpperCase() === 'SUPER_ADMIN'),
+        body: req.body,
+        requestId: req.id || null,
+        signer: req.app.locals.clinicalContinuitySigner,
+      });
+      return success(
+        res,
+        result,
+        'Continuity device-loss containment accepted',
+        result.idempotent_replay ? HTTP_STATUS.OK : 202,
+      );
+    } catch (err) {
+      return handleFailure(res, err, 'orchestrate continuity device loss');
     }
   },
 );

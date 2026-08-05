@@ -54,8 +54,8 @@ function PageHeader() {
         </span>
       </div>
       <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-        Exact capture-purpose grant lifecycle, partial device-loss execution,
-        and append-only ledger evidence for countersigned C-D14 duties.
+        Exact capture-purpose grant lifecycle, unified device-loss containment,
+        and append-only evidence for countersigned C-D14 duties.
       </p>
     </div>
   );
@@ -75,7 +75,7 @@ function LockedSurfaceMap() {
     },
     {
       title: "Device loss",
-      copy: "This portal can revoke capture grants only after activation. The rest must be completed elsewhere.",
+      copy: "The unified device-loss action has its own strict tenant activation state and remains available from the Device loss tab.",
       icon: ShieldAlert,
     },
     {
@@ -125,6 +125,44 @@ function LockedSurfaceMap() {
   );
 }
 
+function TabList({
+  activeTab,
+  onSelect,
+}: {
+  activeTab: SurfaceTab;
+  onSelect: (tab: SurfaceTab) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Facility-context duties"
+      className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1 shadow-sm"
+    >
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const selected = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onSelect(tab.id)}
+            className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              selected
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            <Icon className="h-4 w-4" aria-hidden="true" />
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function FacilityContextSurface() {
   const [activeTab, setActiveTab] = useState<SurfaceTab>("staff");
   const query = useQuery({
@@ -143,7 +181,10 @@ function FacilityContextSurface() {
       <div className="space-y-6">
         <PageHeader />
         <StatusPanel checking />
-        <LockedSurfaceMap />
+        <TabList activeTab={activeTab} onSelect={setActiveTab} />
+        <div role="tabpanel">
+          {activeTab === "device-loss" ? <DeviceLossPanel /> : <LockedSurfaceMap />}
+        </div>
       </div>
     );
   }
@@ -161,7 +202,10 @@ function FacilityContextSurface() {
           failure={safeFailure}
           onRetry={() => void query.refetch()}
         />
-        <LockedSurfaceMap />
+        <TabList activeTab={activeTab} onSelect={setActiveTab} />
+        <div role="tabpanel">
+          {activeTab === "device-loss" ? <DeviceLossPanel /> : <LockedSurfaceMap />}
+        </div>
       </div>
     );
   }
@@ -174,33 +218,7 @@ function FacilityContextSurface() {
       <PageHeader />
       <StatusPanel requestId={query.data.requestId} />
 
-      <div
-        role="tablist"
-        aria-label="Facility-context duties"
-        className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1 shadow-sm"
-      >
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const selected = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                selected
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      <TabList activeTab={activeTab} onSelect={setActiveTab} />
 
       <div role="tabpanel">
         {activeTab === "staff" && (
@@ -220,11 +238,7 @@ function FacilityContextSurface() {
           />
         )}
         {activeTab === "device-loss" && (
-          <DeviceLossPanel
-            grants={grants}
-            onRevoke={revokeContinuityFacilityGrant}
-            onChanged={refreshLedger}
-          />
+          <DeviceLossPanel onChanged={refreshLedger} />
         )}
         {activeTab === "evidence" && (
           <EvidencePanel grants={grants} requestId={query.data.requestId} />

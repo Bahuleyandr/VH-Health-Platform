@@ -5312,6 +5312,7 @@ model facilities {
   created_at                                  DateTime                                      @default(now()) @db.Timestamptz(6)
   updated_at                                  DateTime                                      @default(now()) @db.Timestamptz(6)
   appointment_queues                          appointment_queues[]
+  clinical_continuity_device_loss_routes      clinical_continuity_device_loss_routes[]
   clinical_continuity_edge_access_grants      clinical_continuity_edge_access_grants[]
   clinical_continuity_edge_access_revocations clinical_continuity_edge_access_revocations[]
   clinical_continuity_edge_log_receipts       clinical_continuity_edge_log_receipts[]
@@ -10319,6 +10320,7 @@ model tenants {
   clinical_ai_workflow_runs                   clinical_ai_workflow_runs[]
   clinical_alerts                             clinical_alerts[]
   clinical_ambient_encounters                 clinical_ambient_encounters[]
+  clinical_continuity_device_loss_operations  clinical_continuity_device_loss_operations[]
   clinical_continuity_edge_access_grants      clinical_continuity_edge_access_grants[]
   clinical_continuity_edge_access_revocations clinical_continuity_edge_access_revocations[]
   clinical_continuity_edge_log_receipts       clinical_continuity_edge_log_receipts[]
@@ -11322,6 +11324,8 @@ model users {
   clinical_ai_trial_sync_runs                                                                                                      clinical_ai_trial_sync_runs[]
   clinical_continuity_device_journal_offsets_clinical_continuity_device_journal_offsets_tenant_id_assigned_to_uidTousers           clinical_continuity_device_journal_offsets[]   @relation("clinical_continuity_device_journal_offsets_tenant_id_assigned_to_uidTousers")
   clinical_continuity_device_journal_offsets_clinical_continuity_device_journal_offsets_tenant_id_updated_byTousers                clinical_continuity_device_journal_offsets[]   @relation("clinical_continuity_device_journal_offsets_tenant_id_updated_byTousers")
+  clinical_continuity_device_loss_routes                                                                                           clinical_continuity_device_loss_routes[]
+  clinical_continuity_device_loss_subjects                                                                                         clinical_continuity_device_loss_subjects[]
   clinical_continuity_edge_access_grants_clinical_continuity_edge_access_grants_tenant_id_created_byTousers                        clinical_continuity_edge_access_grants[]       @relation("clinical_continuity_edge_access_grants_tenant_id_created_byTousers")
   clinical_continuity_edge_access_grants_clinical_continuity_edge_access_grants_tenant_id_staff_uidTousers                         clinical_continuity_edge_access_grants[]       @relation("clinical_continuity_edge_access_grants_tenant_id_staff_uidTousers")
   clinical_continuity_edge_access_revocations                                                                                      clinical_continuity_edge_access_revocations[]
@@ -16201,6 +16205,13 @@ model clinical_audit_events {
   cath_lab_cases                                                                                        cath_lab_cases[]
   cath_post_procedure_orders                                                                            cath_post_procedure_orders[]
   cath_procedure_logs                                                                                   cath_procedure_logs[]
+  clinical_continuity_device_loss_operations_capture                                                    clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_capture_audit")
+  clinical_continuity_device_loss_operations_edge                                                       clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_edge_audit")
+  clinical_continuity_device_loss_operations_offline_risk                                               clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_risk_audit")
+  clinical_continuity_device_loss_operations_routing                                                    clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_routing_audit")
+  clinical_continuity_device_loss_operations_wipe                                                       clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_wipe_audit")
+  clinical_continuity_device_loss_subjects_identity                                                     clinical_continuity_device_loss_subjects[]   @relation("cc_device_loss_subject_identity_audit")
+  clinical_continuity_device_loss_subjects_token                                                        clinical_continuity_device_loss_subjects[]   @relation("cc_device_loss_subject_token_audit")
   clinical_continuity_replay_effect_evidence                                                            clinical_continuity_replay_effect_evidence[]
   diagnostic_result_actions                                                                             diagnostic_result_actions[]
   diagnostic_result_generations                                                                         diagnostic_result_generations[]
@@ -16227,6 +16238,7 @@ model clinical_audit_events {
   @@unique([tenant_id, id], map: "ux_clinical_audit_events_tenant_id_for_cath")
   @@unique([tenant_id, id], map: "ux_clinical_audit_tenant_id_for_lab_ack_receipt")
   @@unique([tenant_id, id], map: "ux_diagnostic_audit_tenant_id")
+  @@unique([tenant_id, id], map: "ux_clinical_audit_events_tenant_device_loss")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time", where: raw("(actor_uid IS NOT NULL)"))
   @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource", where: raw("((resource_table IS NOT NULL) AND (resource_id IS NOT NULL))"))
@@ -26878,6 +26890,97 @@ model escalation_recipient_rank_mappings {
 
   @@unique([tenant_id, source_kind, normalized_source_value], map: "uq_escalation_recipient_rank_mappings_source")
   @@index([tenant_id, priority_rank, source_kind, normalized_source_value], map: "idx_escalation_recipient_rank_mappings_tenant_rank")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_device_loss_operations {
+  id                          String                                     @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                   String                                     @db.Uuid
+  stable_device_id            String                                     @db.Uuid
+  request_fingerprint         String                                     @db.Char(64)
+  incident_reference          String                                     @db.VarChar(200)
+  reason                      String                                     @db.VarChar(500)
+  actor_uid                   String                                     @db.Uuid
+  actor_role                  String                                     @db.VarChar(64)
+  state                       String                                     @default("phase1_pending") @db.VarChar(40)
+  wipe_order_id               String                                     @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wipe_issued_at              DateTime                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  wipe_content                Json?
+  wipe_content_hash           String?                                    @db.Char(64)
+  wipe_key_id                 String?                                    @db.VarChar(128)
+  wipe_signature              String?                                    @db.VarChar(128)
+  step_projection             Json                                       @default("{}")
+  capture_audit_event_id      String?                                    @db.Uuid
+  edge_audit_event_id         String?                                    @db.Uuid
+  wipe_audit_event_id         String?                                    @db.Uuid
+  routing_audit_event_id      String?                                    @db.Uuid
+  offline_risk_audit_event_id String?                                    @db.Uuid
+  version                     Int                                        @default(1)
+  created_at                  DateTime                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  updated_at                  DateTime                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  completed_at                DateTime?                                  @db.Timestamptz(6)
+  retention_until             DateTime                                   @default(dbgenerated("(clock_timestamp() + '365 days'::interval)")) @db.Timestamptz(6)
+  capture_audit               clinical_audit_events?                     @relation("cc_device_loss_operation_capture_audit", fields: [tenant_id, capture_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_operation_capture_audit")
+  edge_audit                  clinical_audit_events?                     @relation("cc_device_loss_operation_edge_audit", fields: [tenant_id, edge_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_operation_edge_audit")
+  offline_risk_audit          clinical_audit_events?                     @relation("cc_device_loss_operation_risk_audit", fields: [tenant_id, offline_risk_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_operation_risk_audit")
+  routing_audit               clinical_audit_events?                     @relation("cc_device_loss_operation_routing_audit", fields: [tenant_id, routing_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_operation_routing_audit")
+  tenants                     tenants                                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_operation_tenant")
+  wipe_audit                  clinical_audit_events?                     @relation("cc_device_loss_operation_wipe_audit", fields: [tenant_id, wipe_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_operation_wipe_audit")
+  routes                      clinical_continuity_device_loss_routes[]
+  subjects                    clinical_continuity_device_loss_subjects[]
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, request_fingerprint], map: "uq_cc_device_loss_operation_request")
+  @@unique([tenant_id, wipe_order_id], map: "uq_cc_device_loss_operation_order")
+  @@index([tenant_id, stable_device_id, created_at(sort: Desc)], map: "idx_cc_device_loss_operation_device")
+  @@index([tenant_id, state, updated_at(sort: Desc)], map: "idx_cc_device_loss_operation_state")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_device_loss_subjects {
+  tenant_id               String                                     @db.Uuid
+  operation_id            String                                     @db.Uuid
+  staff_uid               String                                     @db.Uuid
+  staff_id                Int?
+  realm                   String                                     @db.VarChar(16)
+  break_glass             Boolean
+  identity_state          String                                     @default("pending") @db.VarChar(32)
+  identity_evidence       Json?
+  identity_audit_event_id String?                                    @db.Uuid
+  token_state             String                                     @default("pending") @db.VarChar(32)
+  token_evidence          Json?
+  token_audit_event_id    String?                                    @db.Uuid
+  created_at              DateTime                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  updated_at              DateTime                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  identity_audit          clinical_audit_events?                     @relation("cc_device_loss_subject_identity_audit", fields: [tenant_id, identity_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_subject_identity_audit")
+  operation               clinical_continuity_device_loss_operations @relation(fields: [tenant_id, operation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_subject_operation")
+  token_audit             clinical_audit_events?                     @relation("cc_device_loss_subject_token_audit", fields: [tenant_id, token_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_subject_token_audit")
+  users                   users                                      @relation(fields: [tenant_id, staff_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_subject_user")
+
+  @@id([tenant_id, operation_id, staff_uid])
+  @@index([tenant_id, staff_uid, created_at(sort: Desc)], map: "idx_cc_device_loss_subject_uid")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_device_loss_routes {
+  tenant_id          String                                     @db.Uuid
+  stable_device_id   String                                     @db.Uuid
+  facility_id        Int
+  operation_id       String                                     @db.Uuid
+  fallback_principal String                                     @db.VarChar(120)
+  assigned_to_uid    String                                     @db.Uuid
+  active             Boolean                                    @default(true)
+  created_at         DateTime                                   @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  retention_until    DateTime                                   @default(dbgenerated("(clock_timestamp() + '365 days'::interval)")) @db.Timestamptz(6)
+  users              users                                      @relation(fields: [tenant_id, assigned_to_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_route_assignee")
+  facilities         facilities                                 @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_route_facility")
+  operation          clinical_continuity_device_loss_operations @relation(fields: [tenant_id, operation_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_device_loss_route_operation")
+
+  @@id([tenant_id, stable_device_id, facility_id])
+  @@index([tenant_id, assigned_to_uid, created_at(sort: Desc)], map: "idx_cc_device_loss_route_assignee", where: raw("(active = true)"))
 }
 
 enum transplant_organ_type {

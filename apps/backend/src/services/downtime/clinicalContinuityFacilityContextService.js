@@ -190,7 +190,7 @@ function policyKey(policy, keyId) {
   return decision.publicKey;
 }
 
-async function externalSignature({ signer, keyId, content }) {
+export async function signClinicalContinuityCanonicalValue({ signer, keyId, content }) {
   if (!signer || typeof signer.sign !== 'function') {
     throw denied('CONTINUITY_FACILITY_CONTEXT_SIGNER_UNAVAILABLE');
   }
@@ -203,6 +203,10 @@ async function externalSignature({ signer, keyId, content }) {
     throw denied('CONTINUITY_FACILITY_CONTEXT_SIGNER_UNAVAILABLE');
   }
   return signature;
+}
+
+export function verifyClinicalContinuityCanonicalSignature({ policy, keyId, content, signature }) {
+  return verifyCanonicalValue(content, signature, policyKey(policy, keyId));
 }
 
 function contextExpiry({ trustedAt, grant, policy, sessionExpiresAt, contextLifetimeMs }) {
@@ -414,8 +418,8 @@ export async function issueClinicalContinuityFacilityContext({
         tenantId: tenant,
       };
       const keyId = policy.currentPackSigningKeyId;
-      const signature = await externalSignature({ signer, keyId, content });
-      if (!verifyCanonicalValue(content, signature, policyKey(policy, keyId))) {
+      const signature = await signClinicalContinuityCanonicalValue({ signer, keyId, content });
+      if (!verifyClinicalContinuityCanonicalSignature({ policy, keyId, content, signature })) {
         throw denied('CONTINUITY_FACILITY_CONTEXT_SIGNER_UNAVAILABLE');
       }
       const envelope = Object.freeze({

@@ -258,11 +258,14 @@ export function postJSONEnvelope<T = unknown>(
   endpoint: string,
   body?: unknown,
   useAuth = true,
+  headers?: HeadersInit,
 ): Promise<APIResponse<T>> {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Type", "application/json");
   return requestJSON<APIResponse<T>>(endpoint, {
     method: "POST",
     body: serializeJsonBody(body),
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders,
     useAuth,
     _preserveEnvelope: true,
   });

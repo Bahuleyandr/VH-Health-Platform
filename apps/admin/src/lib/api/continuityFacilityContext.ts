@@ -6,9 +6,12 @@ import {
 } from "./core";
 
 const BASE_PATH = "/api/v1/admin/devices/continuity-facility-context";
+const DEVICE_LOSS_PATH = "/api/v1/admin/devices/continuity-device-loss";
 
 export const CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE =
   "CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE";
+export const CONTINUITY_DEVICE_LOSS_ORCHESTRATION_NOT_ACTIVATED =
+  "CONTINUITY_DEVICE_LOSS_ORCHESTRATION_NOT_ACTIVATED";
 
 export type ContinuityFacilityGrantPurpose =
   | "capture_fixed_device"
@@ -59,6 +62,69 @@ export interface RevokeContinuityFacilityGrantBody {
   facility_id: number;
   grant_id: string;
   reason: string;
+}
+
+export interface ContinuityDeviceLossRequest {
+  stable_device_id: string;
+  affected_staff_uids: string[];
+  incident_reference: string;
+  reason: string;
+}
+
+export type ContinuityDeviceLossStepName =
+  | "capture_grants"
+  | "edge_read_grants"
+  | "identity_access"
+  | "tokens"
+  | "wipe_order"
+  | "needs_review_routing"
+  | "offline_pack_risk";
+
+export interface ContinuityDeviceLossStepEvidence {
+  name: ContinuityDeviceLossStepName;
+  state:
+    | "completed"
+    | "not_applicable"
+    | "excluded"
+    | "retryable_failed"
+    | "awaiting_contact";
+  attempt: number;
+  evidence_ids: string[];
+  error_code: string | null;
+  expires_no_later_than?: string;
+}
+
+export interface ContinuityDeviceLossSubjectEvidence {
+  staff_uid: string;
+  break_glass: boolean;
+  identity_revocation: "pending" | "completed" | "excluded_break_glass";
+  token_revocation:
+    | "pending"
+    | "completed"
+    | "excluded_break_glass";
+  evidence_ids: string[];
+}
+
+export interface ContinuityDeviceWipeOrder {
+  order_id: string;
+  content: Record<string, unknown>;
+  content_hash: string;
+  algorithm: "Ed25519";
+  key_id: string;
+  signature: string;
+  delivery_state: "awaiting_contact" | "executed";
+}
+
+export interface ContinuityDeviceLossOperation {
+  operation_id: string;
+  state: "incomplete_retryable" | "awaiting_device_contact" | "executed";
+  stable_device_id: string;
+  incident_reference: string;
+  idempotent_replay: boolean;
+  subjects: ContinuityDeviceLossSubjectEvidence[];
+  steps: ContinuityDeviceLossStepEvidence[];
+  wipe_order: ContinuityDeviceWipeOrder | null;
+  request_id: string | null;
 }
 
 export interface ContinuityFacilitySuccessEnvelope<T> {
@@ -127,6 +193,30 @@ export async function revokeContinuityFacilityGrant(
     revocation: ContinuityFacilityRevocation;
   }>(`${BASE_PATH}/revoke`, body);
   return requireSuccessEnvelope(envelope);
+}
+
+export async function orchestrateContinuityDeviceLoss(
+  body: ContinuityDeviceLossRequest,
+  idempotencyKey: string,
+): Promise<ContinuityFacilitySuccessEnvelope<ContinuityDeviceLossOperation>> {
+  const envelope = await postJSONEnvelope<ContinuityDeviceLossOperation>(
+    DEVICE_LOSS_PATH,
+    body,
+    true,
+    { "Idempotency-Key": idempotencyKey },
+  );
+  return requireSuccessEnvelope(envelope);
+}
+
+export function extractContinuityDeviceLossOperation(
+  error: unknown,
+): ContinuityDeviceLossOperation | null {
+  if (!(error instanceof APIError) || !isRecord(error.data)) return null;
+  const details = isRecord(error.data.details) ? error.data.details : null;
+  const operation = details?.operation;
+  return isRecord(operation)
+    ? (operation as unknown as ContinuityDeviceLossOperation)
+    : null;
 }
 
 export function classifyContinuityFacilityError(

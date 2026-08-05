@@ -30,6 +30,15 @@ export class RevocationCheckUnavailableError extends Error {
   }
 }
 
+export class RevocationWriteUnavailableError extends Error {
+  constructor(message, causes = {}) {
+    super(message);
+    this.name = 'RevocationWriteUnavailableError';
+    this.code = 'REVOCATION_WRITE_UNAVAILABLE';
+    this.causes = causes;
+  }
+}
+
 /**
  * Blacklist a token by its jti. Sets Redis key with TTL, and persists to DB.
  * @param {string} jti - JWT ID to blacklist
@@ -115,30 +124,48 @@ export async function isTokenBlacklisted(jti) {
  * Any token issued before this timestamp is considered invalid.
  * @param {string} userId - User ID whose tokens to revoke
  */
-export async function revokeAllUserTokens(userId) {
-  if (!userId) return;
+export async function revokeAllUserTokens(userId, { requireEvidence = false } = {}) {
+  if (!userId) return null;
   const now = Math.floor(Date.now() / 1000);
   const ttl = 30 * 24 * 60 * 60; // 30 days (max token lifetime)
-
+  let redisError = null;
+  let redisPersisted = false;
   try {
-    await cacheSet(`${BLACKLIST_PREFIX}user:${userId}`, { revokedAt: now }, ttl);
+    redisPersisted = await cacheSet(
+      `${BLACKLIST_PREFIX}user:${userId}`,
+      { revokedAt: now },
+      ttl,
+    ) === true;
   } catch (err) {
+    redisError = err;
     logger.warn('Revoke-all Redis write failed:', err.message);
   }
-
-  setImmediate(async () => {
-    try {
-      await prisma.$queryRawUnsafe(`
-        INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
-        VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
-        ON CONFLICT (jti) DO UPDATE SET
-          expires_at = EXCLUDED.expires_at,
-          reason = EXCLUDED.reason,
-          created_at = EXCLUDED.created_at
-      `, `user:${userId}`, 'revoke_all_user_tokens');
-    } catch (err) {
-      logger.warn('Revoke-all DB write failed:', err.message);
-    }
+  let databaseError = null;
+  let databasePersisted = false;
+  try {
+    await prisma.$queryRawUnsafe(`
+      INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+      VALUES ($1, NOW() + INTERVAL '30 days', $2, to_timestamp($3))
+      ON CONFLICT (jti) DO UPDATE SET
+        expires_at = EXCLUDED.expires_at,
+        reason = EXCLUDED.reason,
+        created_at = EXCLUDED.created_at
+    `, `user:${userId}`, 'revoke_all_user_tokens', now);
+    databasePersisted = true;
+  } catch (err) {
+    databaseError = err;
+    logger.warn('Revoke-all DB write failed:', err.message);
+  }
+  if (requireEvidence && !redisPersisted && !databasePersisted) {
+    throw new RevocationWriteUnavailableError(
+      'No token revocation store accepted the revoke-all marker',
+      { redis: redisError, database: databaseError },
+    );
+  }
+  return Object.freeze({
+    revoked_at: new Date(now * 1000).toISOString(),
+    redis: Object.freeze({ persisted: redisPersisted }),
+    database: Object.freeze({ persisted: databasePersisted }),
   });
 }
 

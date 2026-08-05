@@ -8,6 +8,8 @@ import { AppError } from '../../utils/AppError.js';
 // device-registry handleFailure (previously `err.details ?? { code: err.code }`).
 
 const listDevicesMock = jest.fn();
+const assertClinicalContinuityDeviceLossActivatedMock = jest.fn();
+const orchestrateClinicalContinuityDeviceLossMock = jest.fn();
 
 jest.unstable_mockModule('../../services/devices/deviceRegistryService.js', () => ({
   createDevice: jest.fn(),
@@ -38,6 +40,14 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn(async () => []) },
 }));
 
+jest.unstable_mockModule(
+  '../../services/downtime/clinicalContinuityDeviceLossService.js',
+  () => ({
+    assertClinicalContinuityDeviceLossActivated: assertClinicalContinuityDeviceLossActivatedMock,
+    orchestrateClinicalContinuityDeviceLoss: orchestrateClinicalContinuityDeviceLossMock,
+  }),
+);
+
 const { default: deviceRegistryRoutes } = await import('../../routes/admin/deviceRegistryRoutes.js');
 
 const app = express();
@@ -52,6 +62,8 @@ app.use('/api/v1/admin/devices', deviceRegistryRoutes);
 
 beforeEach(() => {
   listDevicesMock.mockReset();
+  assertClinicalContinuityDeviceLossActivatedMock.mockReset();
+  orchestrateClinicalContinuityDeviceLossMock.mockReset();
 });
 
 describe('device registry handleFailure relays AppError code + details', () => {
@@ -100,5 +112,18 @@ describe('continuity facility enrollment stays activation locked', () => {
       code: 'CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE',
       success: false,
     });
+  });
+});
+
+describe('continuity device-loss route authority', () => {
+  test('rejects an ordinary ADMIN before activation or orchestration', async () => {
+    const response = await request(app)
+      .post('/api/v1/admin/devices/continuity-device-loss')
+      .set('Idempotency-Key', 'device-loss-rbac-test')
+      .send({});
+
+    expect(response.statusCode).toBe(403);
+    expect(assertClinicalContinuityDeviceLossActivatedMock).not.toHaveBeenCalled();
+    expect(orchestrateClinicalContinuityDeviceLossMock).not.toHaveBeenCalled();
   });
 });
