@@ -115,6 +115,26 @@ function policyDocument(overrides = {}) {
   };
 }
 
+function edgePolicyDocument({ edgeAccess = {}, retention = {}, ...overrides } = {}) {
+  return policyDocument({
+    policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
+    edgeAccess: {
+      authenticationMode: 'mtls_client_certificate',
+      credentialLifetimeMinutes: 720,
+      emergencyReadPosture: 'read_only',
+      maximumOfflineAuthorizationMinutes: 720,
+      ...edgeAccess
+    },
+    retention: {
+      accessLogRetentionHours: 8_760,
+      edgePackRetentionHours: 168,
+      sourcePackRetentionHours: 61_320,
+      ...retention
+    },
+    ...overrides
+  });
+}
+
 function unsignedPolicyRow(overrides = {}) {
   const document = overrides.policy_document ?? policyDocument();
   return {
@@ -241,14 +261,14 @@ function actionPolicyDocument(registry = actionRegistry()) {
     policySchemaVersion: CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION,
     edgeAccess: {
       authenticationMode: 'mtls_client_certificate',
-      credentialLifetimeMinutes: 480,
+      credentialLifetimeMinutes: 720,
       emergencyReadPosture: 'read_only',
-      maximumOfflineAuthorizationMinutes: 60
+      maximumOfflineAuthorizationMinutes: 720
     },
     retention: {
-      accessLogRetentionHours: 720,
-      edgePackRetentionHours: 48,
-      sourcePackRetentionHours: 72
+      accessLogRetentionHours: 8_760,
+      edgePackRetentionHours: 168,
+      sourcePackRetentionHours: 61_320
     }
   });
 }
@@ -291,21 +311,8 @@ describe('clinical continuity policy document', () => {
     expect(Object.isFrozen(parsed)).toBe(true);
   });
 
-  test('requires explicit signed C-D4/C-D10 fields in the closed v2 contract', () => {
-    const document = policyDocument({
-      policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
-      edgeAccess: {
-        authenticationMode: 'mtls_client_certificate',
-        credentialLifetimeMinutes: 480,
-        emergencyReadPosture: 'read_only',
-        maximumOfflineAuthorizationMinutes: 60
-      },
-      retention: {
-        accessLogRetentionHours: 720,
-        edgePackRetentionHours: 48,
-        sourcePackRetentionHours: 72
-      }
-    });
+  test('C-D4 2026-07-30: "authenticated within the last 12 hours" pins the offline authorization window', () => {
+    const document = edgePolicyDocument();
     const parsed = parseClinicalContinuityPolicyDocument(document, {
       tenantId: TENANT,
       facilityId: FACILITY,
@@ -314,6 +321,47 @@ describe('clinical continuity policy document', () => {
 
     expect(parsed.edgeAccess).toEqual(document.edgeAccess);
     expect(parsed.retention).toEqual(document.retention);
+  });
+
+  test.each([
+    [
+      'C-D4 2026-07-30: "authenticated within the last 12 hours" rejects an offline window other than 720 minutes',
+      document => {
+        document.edgeAccess.maximumOfflineAuthorizationMinutes = 721;
+      },
+      'CONTINUITY_POLICY_EDGE_OFFLINE_AUTHORIZATION_INVALID'
+    ],
+    [
+      'C-D10 2026-07-31: "accepts a queued offline command for at most 7 days after capture" rejects retention other than 168 hours',
+      document => {
+        document.retention.edgePackRetentionHours = 169;
+      },
+      'CONTINUITY_POLICY_RETENTION_INVALID'
+    ],
+    [
+      'C-D10 2026-07-31: "a first-applied replay receipt remains fully rearm-blocking for 365 days" rejects retention other than 8760 hours',
+      document => {
+        document.retention.accessLogRetentionHours = 8_761;
+      },
+      'CONTINUITY_POLICY_RETENTION_INVALID'
+    ],
+    [
+      'C-D10 2026-07-31: "the compact deduplication tombstone that replaces it is retained for 2555 days" rejects retention other than 61320 hours',
+      document => {
+        document.retention.sourcePackRetentionHours = 61_321;
+      },
+      'CONTINUITY_POLICY_RETENTION_INVALID'
+    ]
+  ])('%s', (_record, mutate, code) => {
+    const document = edgePolicyDocument();
+    mutate(document);
+    expect(() =>
+      parseClinicalContinuityPolicyDocument(document, {
+        tenantId: TENANT,
+        facilityId: FACILITY,
+        policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
+      })
+    ).toThrow(expect.objectContaining({ code }));
   });
 
   test('does not invent edge-access or retention defaults for schema v2', () => {
@@ -332,31 +380,20 @@ describe('clinical continuity policy document', () => {
   });
 
   test('rejects unsupported authentication and a lifetime below the risk window', () => {
-    const base = {
-      policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
-      edgeAccess: {
-        authenticationMode: 'shared_password',
-        credentialLifetimeMinutes: 30,
-        emergencyReadPosture: 'read_only',
-        maximumOfflineAuthorizationMinutes: 60
-      },
-      retention: {
-        accessLogRetentionHours: 720,
-        edgePackRetentionHours: 48,
-        sourcePackRetentionHours: 72
-      }
-    };
+    const document = edgePolicyDocument({
+      edgeAccess: { authenticationMode: 'shared_password', credentialLifetimeMinutes: 30 }
+    });
     expect(() =>
-      parseClinicalContinuityPolicyDocument(policyDocument(base), {
+      parseClinicalContinuityPolicyDocument(document, {
         tenantId: TENANT,
         facilityId: FACILITY,
         policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
       })
     ).toThrow('authentication mode');
 
-    base.edgeAccess.authenticationMode = 'mtls_client_certificate';
+    document.edgeAccess.authenticationMode = 'mtls_client_certificate';
     expect(() =>
-      parseClinicalContinuityPolicyDocument(policyDocument(base), {
+      parseClinicalContinuityPolicyDocument(document, {
         tenantId: TENANT,
         facilityId: FACILITY,
         policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION
@@ -369,20 +406,7 @@ describe('clinical continuity policy document', () => {
   });
 
   test('allows edge decisions only from the verified active schema-v2 object', () => {
-    const policy_document = policyDocument({
-      policySchemaVersion: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
-      edgeAccess: {
-        authenticationMode: 'mtls_client_certificate',
-        credentialLifetimeMinutes: 480,
-        emergencyReadPosture: 'read_only',
-        maximumOfflineAuthorizationMinutes: 60
-      },
-      retention: {
-        accessLogRetentionHours: 720,
-        edgePackRetentionHours: 48,
-        sourcePackRetentionHours: 72
-      }
-    });
+    const policy_document = edgePolicyDocument();
     const verified = verifyRow({
       policy_document,
       policy_schema_version: CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION

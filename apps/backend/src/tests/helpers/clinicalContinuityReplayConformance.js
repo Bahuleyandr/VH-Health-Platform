@@ -82,9 +82,9 @@ function policyDocument({ tenantId, facilityId, registry }) {
     audience: { tenantId, facilityId: String(facilityId) },
     edgeAccess: {
       authenticationMode: 'mtls_client_certificate',
-      credentialLifetimeMinutes: 480,
+      credentialLifetimeMinutes: 720,
       emergencyReadPosture: 'read_only',
-      maximumOfflineAuthorizationMinutes: 60
+      maximumOfflineAuthorizationMinutes: 720
     },
     fieldPolicy: {
       allergyUnknownText: 'Allergy status UNKNOWN — not recorded',
@@ -146,9 +146,9 @@ function policyDocument({ tenantId, facilityId, registry }) {
       ]
     },
     retention: {
-      accessLogRetentionHours: 720,
-      edgePackRetentionHours: 48,
-      sourcePackRetentionHours: 72
+      accessLogRetentionHours: 8_760,
+      edgePackRetentionHours: 168,
+      sourcePackRetentionHours: 61_320
     }
   };
 }
