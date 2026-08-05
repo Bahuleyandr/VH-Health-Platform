@@ -18,6 +18,7 @@ export const CLINICAL_CONTINUITY_POLICY_CANONICALIZATION = 'rfc8785-jcs';
 export const CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION = 1;
 export const CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION = 2;
 export const CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION = 3;
+export const CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION = 4;
 export const CLINICAL_CONTINUITY_POLICY_DELIVERY_FORMAT =
   'vhhealth_clinical_continuity_policy_delivery/v1';
 export const CLINICAL_CONTINUITY_POLICY_DELIVERY_MEDIA_TYPE =
@@ -51,6 +52,14 @@ export const REQUIRED_CONTEXT_FIELDS = Object.freeze([
 
 const POLICY_KEY_PURPOSE = 'clinical_continuity_policy_signing';
 const PACK_KEY_PURPOSE = 'clinical_continuity_pack_signing';
+export const INCIDENT_PACKET_SIGNING_KEY_PURPOSE =
+  'clinical_continuity_incident_packet_signing';
+export const INCIDENT_PACKET_SIGNING_PURPOSE =
+  'vhhealth/continuity/incident-packet/v1';
+export const INCIDENT_PACKET_ISSUER_CAPABILITY =
+  'continuity_incident_packet_issue';
+export const INCIDENT_PACKET_CUSTODIAN_CAPABILITY =
+  'continuity_incident_packet_custody';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const LOCATION_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
@@ -666,10 +675,129 @@ function normalizeRetention(value) {
   return { accessLogRetentionHours, edgePackRetentionHours, sourcePackRetentionHours };
 }
 
+function normalizeIncidentPacketProvisioning(value) {
+  const packet = objectValue(value, 'policyDocument.incidentPacketProvisioning');
+  exactKeys(
+    packet,
+    [
+      'allowedCopyCount',
+      'clockUncertaintySeconds',
+      'contactSheetApproverRoles',
+      'custodianCapability',
+      'custodianRoles',
+      'issuerCapability',
+      'issuerRoles',
+      'paperRangePrefix',
+      'paperRangeSize',
+      'purpose',
+      'refreshLeadMinutes',
+      'schemaVersion',
+      'signingKeyId',
+      'signingPublicKeySha256',
+      'validityMinutes'
+    ],
+    'policyDocument.incidentPacketProvisioning'
+  );
+  if (
+    packet.schemaVersion !== 1 ||
+    packet.purpose !== INCIDENT_PACKET_SIGNING_PURPOSE ||
+    packet.issuerCapability !== INCIDENT_PACKET_ISSUER_CAPABILITY ||
+    packet.custodianCapability !== INCIDENT_PACKET_CUSTODIAN_CAPABILITY
+  ) {
+    policyConflict(
+      'Incident-packet policy purpose or capability binding is unsupported',
+      'CONTINUITY_INCIDENT_PACKET_POLICY_INVALID'
+    );
+  }
+  const normalizeRoles = (roles, label) => {
+    const normalized = uniqueStrings(roles, label, {
+      pattern: /^[A-Z][A-Z0-9_]{1,79}$/,
+      maximumLength: 80
+    });
+    if (normalized.length === 0) {
+      policyConflict(
+        `${label} must contain an owner-approved role`,
+        'CONTINUITY_INCIDENT_PACKET_POLICY_INVALID'
+      );
+    }
+    return normalized;
+  };
+  const validityMinutes = positiveInteger(
+    packet.validityMinutes,
+    'policyDocument.incidentPacketProvisioning.validityMinutes',
+    525_600
+  );
+  const refreshLeadMinutes = positiveInteger(
+    packet.refreshLeadMinutes,
+    'policyDocument.incidentPacketProvisioning.refreshLeadMinutes',
+    525_600
+  );
+  const clockUncertaintySeconds = nonNegativeInteger(
+    packet.clockUncertaintySeconds,
+    'policyDocument.incidentPacketProvisioning.clockUncertaintySeconds',
+    86_400
+  );
+  if (
+    refreshLeadMinutes >= validityMinutes ||
+    clockUncertaintySeconds >= validityMinutes * 60
+  ) {
+    policyConflict(
+      'Incident-packet refresh and clock rules do not fit the validity window',
+      'CONTINUITY_INCIDENT_PACKET_TIME_POLICY_INVALID'
+    );
+  }
+  return {
+    allowedCopyCount: positiveInteger(
+      packet.allowedCopyCount,
+      'policyDocument.incidentPacketProvisioning.allowedCopyCount',
+      100
+    ),
+    clockUncertaintySeconds,
+    contactSheetApproverRoles: normalizeRoles(
+      packet.contactSheetApproverRoles,
+      'policyDocument.incidentPacketProvisioning.contactSheetApproverRoles'
+    ),
+    custodianCapability: INCIDENT_PACKET_CUSTODIAN_CAPABILITY,
+    custodianRoles: normalizeRoles(
+      packet.custodianRoles,
+      'policyDocument.incidentPacketProvisioning.custodianRoles'
+    ),
+    issuerCapability: INCIDENT_PACKET_ISSUER_CAPABILITY,
+    issuerRoles: normalizeRoles(
+      packet.issuerRoles,
+      'policyDocument.incidentPacketProvisioning.issuerRoles'
+    ),
+    paperRangePrefix: boundedString(
+      packet.paperRangePrefix,
+      'policyDocument.incidentPacketProvisioning.paperRangePrefix',
+      /^[A-Z0-9][A-Z0-9._-]{0,31}$/,
+      32
+    ),
+    paperRangeSize: positiveInteger(
+      packet.paperRangeSize,
+      'policyDocument.incidentPacketProvisioning.paperRangeSize',
+      1_000_000
+    ),
+    purpose: INCIDENT_PACKET_SIGNING_PURPOSE,
+    refreshLeadMinutes,
+    schemaVersion: 1,
+    signingKeyId: normalizedKeyId(
+      packet.signingKeyId,
+      'policyDocument.incidentPacketProvisioning.signingKeyId'
+    ),
+    signingPublicKeySha256: normalizedPublicKeySha256(
+      packet.signingPublicKeySha256,
+      'policyDocument.incidentPacketProvisioning.signingPublicKeySha256'
+    ),
+    validityMinutes
+  };
+}
+
 /**
  * Parse and validate the signed continuity policy language. Every version is
  * closed: v1 governs C3.1 packs, v2 adds C3.2 edge access and retention, and
- * v3 adds C4.2 action authority. Later extensions must increment
+ * v3 adds C4.2 action authority, and v4 adds the Packet BW issuer/custody
+ * authority and time policy. Later extensions must increment
  * policySchemaVersion rather than being interpreted through a fallback.
  */
 export function parseClinicalContinuityPolicyDocument(
@@ -687,7 +815,8 @@ export function parseClinicalContinuityPolicyDocument(
   const supportedSchema = [
     CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION,
     CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
-    CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+    CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION,
+    CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION
   ].includes(expectedSchemaVersion);
   if (!supportedSchema) {
     policyConflict(
@@ -710,8 +839,11 @@ export function parseClinicalContinuityPolicyDocument(
   if (expectedSchemaVersion >= CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION) {
     expectedKeys.push('edgeAccess', 'retention');
   }
-  if (expectedSchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
+  if (expectedSchemaVersion >= CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
     expectedKeys.push('actionRegistry');
+  }
+  if (expectedSchemaVersion === CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION) {
+    expectedKeys.push('incidentPacketProvisioning');
   }
   exactKeys(document, expectedKeys, 'policyDocument');
 
@@ -804,7 +936,7 @@ export function parseClinicalContinuityPolicyDocument(
   }
 
   const normalized = {
-    ...(expectedSchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+    ...(expectedSchemaVersion >= CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
       ? {
           actionRegistry: parseClinicalContinuityActionRegistry(document.actionRegistry, {
             effectiveFrom,
@@ -827,6 +959,13 @@ export function parseClinicalContinuityPolicyDocument(
       intervalMinutes: 15
     },
     includedAreas: { ...includedAreas },
+    ...(expectedSchemaVersion === CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION
+      ? {
+          incidentPacketProvisioning: normalizeIncidentPacketProvisioning(
+            document.incidentPacketProvisioning
+          )
+        }
+      : {}),
     medicationsDueWindow: normalizeMedicationsDueWindow(document.medicationsDueWindow),
     packSchemaVersion: positiveInteger(
       document.packSchemaVersion,
@@ -844,6 +983,22 @@ export function parseClinicalContinuityPolicyDocument(
 
   const canonical = canonicalizeJson(normalized);
   return deepFreeze(JSON.parse(canonical));
+}
+
+export function requireClinicalContinuityIncidentPacketPolicy(policy) {
+  if (
+    !VERIFIED_ACTIVE_POLICIES.has(policy) ||
+    policy.policySchemaVersion !== CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION ||
+    policy.policyDocument?.policySchemaVersion !==
+      CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION ||
+    !policy.policyDocument?.incidentPacketProvisioning
+  ) {
+    policyConflict(
+      'A verified active policy-schema v4 packet authority is required',
+      'CONTINUITY_INCIDENT_PACKET_POLICY_REQUIRED'
+    );
+  }
+  return policy.policyDocument.incidentPacketProvisioning;
 }
 
 export function requireClinicalContinuityEdgePolicy(policy) {
@@ -972,7 +1127,7 @@ export function buildClinicalContinuityPolicySigningPayload(value) {
     );
   }
   let actionRegistryFields = {};
-  if (policySchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
+  if (policySchemaVersion >= CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
     const actionRegistrySchemaVersion = positiveInteger(
       rowValue(value, 'actionRegistrySchemaVersion', 'action_registry_schema_version'),
       'actionRegistrySchemaVersion',
@@ -1150,7 +1305,7 @@ function assertApprovalEvidence(row, payload) {
     approvedAt < decidedAt ||
     !isPlainObject(receipt) ||
     receipt.policy_checksum !== payload.policyChecksum ||
-    (payload.policySchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION &&
+    (payload.policySchemaVersion >= CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION &&
       (Number(receipt.action_registry_schema_version) !== payload.actionRegistrySchemaVersion ||
         String(receipt.action_registry_version) !== payload.actionRegistryVersion ||
         receipt.action_registry_checksum !== payload.actionRegistryChecksum ||
@@ -1351,7 +1506,7 @@ function activePolicyFromRow(
 
   const policy = {
     id: String(row.id).toLowerCase(),
-    ...(payload.policySchemaVersion === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+    ...(payload.policySchemaVersion >= CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
       ? {
           actionRegistryChecksum: payload.actionRegistryChecksum,
           actionRegistrySchemaVersion: payload.actionRegistrySchemaVersion,
@@ -1562,9 +1717,9 @@ export async function loadActiveClinicalContinuityPolicyForFacilityTx({
 
 function historicalActionPolicyFromRow(row, { capturedAt }) {
   const payload = buildClinicalContinuityPolicySigningPayload(row);
-  if (payload.policySchemaVersion !== CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
+  if (payload.policySchemaVersion < CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION) {
     policyConflict(
-      'Only policy-schema v3 can be evaluated as captured action authority',
+      'Only policy-schema v3 or later can be evaluated as captured action authority',
       'CONTINUITY_ACTION_POLICY_V3_REQUIRED'
     );
   }

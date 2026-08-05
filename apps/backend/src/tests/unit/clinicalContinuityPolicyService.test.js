@@ -4,6 +4,7 @@ import {
   ALLERGY_UNKNOWN_TEXT,
   CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION,
   CLINICAL_CONTINUITY_EDGE_POLICY_SCHEMA_VERSION,
+  CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION,
   CLINICAL_CONTINUITY_POLICY_CANONICALIZATION,
   CLINICAL_CONTINUITY_POLICY_TYPE,
   CODE_STATUS_UNKNOWN_TEXT,
@@ -19,6 +20,7 @@ import {
   parseClinicalContinuityPolicyDocument,
   prepareClinicalContinuityPolicyDraft,
   requireClinicalContinuityEdgePolicy,
+  requireClinicalContinuityIncidentPacketPolicy,
   verifyActiveClinicalContinuityPolicyRow
 } from '../../services/downtime/clinicalContinuityPolicyService.js';
 import { CLINICAL_CONTINUITY_ACTION_CATALOG } from '../../config/clinicalContinuityActionCatalog.js';
@@ -213,7 +215,7 @@ function signedPolicyRow(overrides = {}) {
       clinical_continuity_policy_governance: {
         countersignature_complete: true,
         policy_checksum: row.policy_checksum,
-        ...(row.policy_schema_version === CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
+        ...(row.policy_schema_version >= CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION
           ? {
               action_registry_checksum: row.action_registry_checksum,
               action_registry_decision_id: 'C-D3',
@@ -271,6 +273,31 @@ function actionPolicyDocument(registry = actionRegistry()) {
       sourcePackRetentionHours: 61_320
     }
   });
+}
+
+function incidentPacketPolicyDocument(overrides = {}) {
+  return {
+    ...actionPolicyDocument(),
+    policySchemaVersion: CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION,
+    incidentPacketProvisioning: {
+      allowedCopyCount: 2,
+      clockUncertaintySeconds: 30,
+      contactSheetApproverRoles: ['CMO'],
+      custodianCapability: 'continuity_incident_packet_custody',
+      custodianRoles: ['NURSING_INCHARGE'],
+      issuerCapability: 'continuity_incident_packet_issue',
+      issuerRoles: ['MEDICAL_SUPERINTENDENT'],
+      paperRangePrefix: 'BW-',
+      paperRangeSize: 100,
+      purpose: 'vhhealth/continuity/incident-packet/v1',
+      refreshLeadMinutes: 60,
+      schemaVersion: 1,
+      signingKeyId: 'continuity-incident-packet-k1',
+      signingPublicKeySha256: publicPemSha256(currentPackKeys),
+      validityMinutes: 720,
+      ...overrides,
+    },
+  };
 }
 
 function verifyRow(overrides = {}, options = {}) {
@@ -446,6 +473,32 @@ describe('clinical continuity policy document', () => {
     });
   });
 
+  test('requires every packet authority, range, custody, and NOT-VALID-AFTER value in signed schema v4', () => {
+    const registry = actionRegistry();
+    const policy_document = incidentPacketPolicyDocument();
+    const verified = verifyRow({
+      action_registry_checksum: registry.registryChecksum,
+      action_registry_schema_version: registry.registrySchemaVersion,
+      action_registry_version: BigInt(registry.registryVersion),
+      policy_document,
+      policy_schema_version: CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION,
+    });
+
+    expect(requireClinicalContinuityIncidentPacketPolicy(verified)).toEqual(
+      policy_document.incidentPacketProvisioning,
+    );
+    expect(() => parseClinicalContinuityPolicyDocument(
+      incidentPacketPolicyDocument({ validityMinutes: undefined }),
+      {
+        effectiveFrom: EFFECTIVE_FROM,
+        effectiveUntil: EFFECTIVE_UNTIL,
+        tenantId: TENANT,
+        facilityId: FACILITY,
+        policySchemaVersion: CLINICAL_CONTINUITY_INCIDENT_PACKET_POLICY_SCHEMA_VERSION,
+      },
+    )).toThrow(expect.objectContaining({ code: 'CONTINUITY_POLICY_DOCUMENT_INVALID' }));
+  });
+
   test('refuses a schema-v3 row whose registry binding differs from the signed document', () => {
     const registry = actionRegistry();
     const policy_document = actionPolicyDocument(registry);
@@ -610,12 +663,12 @@ describe('clinical continuity policy document', () => {
     expect(() =>
       parseClinicalContinuityPolicyDocument(
         policyDocument({
-          policySchemaVersion: 4
+          policySchemaVersion: 5
         }),
         {
           tenantId: TENANT,
           facilityId: FACILITY,
-          policySchemaVersion: 4
+          policySchemaVersion: 5
         }
       )
     ).toThrow(

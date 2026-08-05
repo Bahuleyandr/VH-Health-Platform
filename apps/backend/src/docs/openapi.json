@@ -11917,6 +11917,109 @@
           }
         }
       },
+      "ClinicalContinuityIncidentContactSheetRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Owner-supplied phone-tree authority. Patient data is prohibited.",
+            "required": [
+              "schemaVersion",
+              "source",
+              "custodyLocation",
+              "contacts",
+              "instructions"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "type": "integer",
+                "enum": [
+                  1
+                ]
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "custodyLocation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "instructions": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "contacts": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "role",
+                    "label",
+                    "escalationOrder",
+                    "channels"
+                  ],
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]{1,79}$"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "escalationOrder": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "channels": {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 10,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "kind",
+                          "value"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "phone",
+                              "sms",
+                              "messaging",
+                              "radio"
+                            ]
+                          },
+                          "value": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 160
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "ClinicalContinuityIncidentPacket": {
         "type": "object",
         "additionalProperties": true,
@@ -11998,6 +12101,184 @@
           "revocation_reason": {
             "type": "string",
             "nullable": true
+          },
+          "packet_schema_version": {
+            "type": "integer",
+            "enum": [
+              1
+            ],
+            "nullable": true
+          },
+          "policy_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "policy_version": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            ],
+            "nullable": true
+          },
+          "policy_checksum": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "contact_sheet_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "contact_sheet_checksum": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "artifact_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "nullable": true
+          },
+          "allowed_copy_count": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "authorization_audit_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "supersedes_packet_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        }
+      },
+      "ClinicalContinuityIncidentPacketArtifact": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "ClinicalContinuityIncidentPacketArtifactResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketArtifact"
+          }
+        }
+      },
+      "ClinicalContinuityIncidentPacketCommand": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "ClinicalContinuityIncidentPacketCommandResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCommand"
+          }
+        }
+      },
+      "ClinicalContinuityIncidentPacketCustodyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_type",
+          "copy_number",
+          "evidence_hash",
+          "occurred_at"
+        ],
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "downloaded",
+              "printed",
+              "handed_over",
+              "received",
+              "destroyed"
+            ]
+          },
+          "copy_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "evidence_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClinicalContinuityIncidentPacketProvisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "contact_sheet_id"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contact_sheet_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ClinicalContinuityIncidentPacketRevokeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         }
       },
@@ -87333,6 +87614,265 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ClinicalContinuityIncidentAliasRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-packet-contact-sheets": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incident_packet_contact_sheets",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create a versioned incident-packet contact sheet",
+        "description": "Creates append-only phone-tree/contact content under the active signed v4 policy. It does not approve the sheet, mint a packet, reserve a paper range, or activate C5.2. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIncidentContactSheetRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-packet-contact-sheets/{contactSheetId}/approve": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incident_packet_contact_sheets_by_contactSheetId_approve",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Approve an incident-packet contact sheet",
+        "description": "A policy-configured actor distinct from the creator appends approval for one exact contact sheet version and checksum. It creates no packet or incident. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "contactSheetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-packets/provision": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incident_packets_provision",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Provision a signed one-use incident packet",
+        "description": "Server-mints the packet and reserved incident UUID, allocates a disjoint paper range, obtains and locally verifies an operator-injected Ed25519 signature, and stores the controlled artifact and generated custody evidence. Every timing, range, role, key, contact, and copy value comes from the active signed v4 policy. No incident is declared. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketProvisionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-packets/{packetId}/artifact": {
+      "get": {
+        "operationId": "get_api_v1_downtime_reconciliation_incident_packets_by_packetId_artifact",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketArtifactResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read a controlled incident-packet artifact",
+        "description": "Returns the exact stored, checksum-bound no-PHI artifact, including its visible exclusive NOT VALID AFTER boundary. Reading it records no custody and grants no incident authority. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "packetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-packets/{packetId}/custody": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incident_packets_by_packetId_custody",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Append incident-packet custody evidence",
+        "description": "Appends download, print, handover, receipt, or destruction custody evidence under the distinct signed-policy custodian capability. Received custody is required before use; for a replacement, it is also the event that revokes the old packet. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "packetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCustodyRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-packets/{packetId}/refresh": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incident_packets_by_packetId_refresh",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Provision a replacement incident packet",
+        "description": "Mints a wholly new packet, incident UUID, signature, artifact, and paper range. It never extends the original validity window; the old packet remains usable until replacement receipt custody is recorded, then is revoked atomically. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "packetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketProvisionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/downtime/reconciliation/incident-packets/{packetId}/revoke": {
+      "post": {
+        "operationId": "post_api_v1_downtime_reconciliation_incident_packets_by_packetId_revoke",
+        "tags": [
+          "downtime"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketCommandResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Revoke an unused incident packet",
+        "description": "Applies the one permitted terminal revocation transition with a reason under signed-policy issuer authority. It cannot revive or rewrite packet evidence. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "parameters": [
+          {
+            "name": "packetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClinicalContinuityIncidentPacketRevokeRequest"
               }
             }
           }

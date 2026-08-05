@@ -33,6 +33,7 @@ function freshState() {
       status: 'unused',
       valid_from: validFrom,
       valid_until: validUntil,
+      trusted_now: new Date().toISOString(),
       revoked_at: null,
       range_prefix: `C52-${index + 1}-`,
       range_first: 1,
@@ -60,6 +61,11 @@ const tx = {
     return 1;
   }),
   $queryRawUnsafe: jest.fn(async (sql, ...params) => {
+    if (sql.includes('clinical_continuity_consume_incident_packet')) {
+      const packet = drillState.packets.find(row => row.id === params[2]);
+      packet.status = 'used';
+      return [packet];
+    }
     if (sql.includes('FROM clinical_continuity_incident_packets')) {
       return drillState.packets.filter(row => row.id === params[2]);
     }
@@ -194,7 +200,10 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
   transitionTask: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/downtime/clinicalContinuityPolicyService.js', () => ({
+  INCIDENT_PACKET_SIGNING_KEY_PURPOSE: 'clinical_continuity_incident_packet_signing',
+  INCIDENT_PACKET_SIGNING_PURPOSE: 'vhhealth/continuity/incident-packet/v1',
   loadActiveClinicalContinuityPolicyForFacilityTx: jest.fn(),
+  requireClinicalContinuityIncidentPacketPolicy: jest.fn(),
 }));
 
 const {

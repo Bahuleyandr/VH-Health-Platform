@@ -13,6 +13,15 @@ import {
   releaseClinicalContinuityHeldMessage,
 } from '../../services/downtime/clinicalContinuityHeldReleaseService.js';
 import {
+  approveIncidentPacketContactSheet,
+  createIncidentPacketContactSheet,
+  getIncidentPacketArtifact,
+  provisionIncidentPacket as provisionIncidentPacketService,
+  recordIncidentPacketCustody,
+  refreshIncidentPacket,
+  revokeIncidentPacket,
+} from '../../services/downtime/clinicalContinuityIncidentPacketProvisioningService.js';
+import {
   appendClinicalContinuityIncidentAlias,
   applyClinicalContinuityPaperBackEntry,
   attestClinicalContinuityClosure,
@@ -88,6 +97,109 @@ export async function declareIncident(req, res, next) {
 
 export async function importIncident(req, res, next) {
   return recordIncidentDeclaration(req, res, next, 'offline_import');
+}
+
+export async function createIncidentContactSheet(req, res, next) {
+  try {
+    const result = await createIncidentPacketContactSheet({
+      ...authority(req),
+      content: req.body?.content,
+    });
+    return success(res, result, 'Incident-packet contact sheet created', 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function approveIncidentContactSheet(req, res, next) {
+  try {
+    const result = await approveIncidentPacketContactSheet({
+      ...authority(req),
+      contactSheetId: req.params.contactSheetId,
+    });
+    return success(res, result, 'Incident-packet contact sheet approved', 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function provisionIncidentPacket(req, res, next) {
+  try {
+    const result = await provisionIncidentPacketService({
+      ...authority(req),
+      contactSheetId: req.body?.contact_sheet_id,
+      requestId: req.body?.request_id,
+      signer: req.app?.locals?.clinicalContinuitySigner,
+    });
+    return success(
+      res,
+      result,
+      result.disposition === 'exact_duplicate'
+        ? 'Prior incident packet returned'
+        : 'Incident packet provisioned',
+      result.disposition === 'exact_duplicate' ? 200 : 201,
+    );
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function refreshProvisionedIncidentPacket(req, res, next) {
+  try {
+    const result = await refreshIncidentPacket({
+      ...authority(req),
+      packetId: req.params.packetId,
+      contactSheetId: req.body?.contact_sheet_id,
+      requestId: req.body?.request_id,
+      signer: req.app?.locals?.clinicalContinuitySigner,
+    });
+    return success(res, result, 'Replacement incident packet provisioned', 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function getProvisionedIncidentPacketArtifact(req, res, next) {
+  try {
+    const result = await getIncidentPacketArtifact({
+      ...authority(req),
+      packetId: req.params.packetId,
+    });
+    res.set('Cache-Control', 'no-store, max-age=0');
+    return success(res, result, 'Incident-packet artifact');
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function recordProvisionedIncidentPacketCustody(req, res, next) {
+  try {
+    const result = await recordIncidentPacketCustody({
+      ...authority(req),
+      packetId: req.params.packetId,
+      eventType: req.body?.event_type,
+      copyNumber: req.body?.copy_number,
+      evidenceHash: req.body?.evidence_hash,
+      notes: req.body?.notes,
+      occurredAt: req.body?.occurred_at,
+    });
+    return success(res, result, 'Incident-packet custody evidence recorded', 201);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function revokeProvisionedIncidentPacket(req, res, next) {
+  try {
+    const result = await revokeIncidentPacket({
+      ...authority(req),
+      packetId: req.params.packetId,
+      reason: req.body?.reason,
+    });
+    return success(res, result, 'Incident packet revoked');
+  } catch (error) {
+    return next(error);
+  }
 }
 
 export async function transitionIncident(req, res, next) {
