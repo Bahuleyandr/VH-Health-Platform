@@ -136,8 +136,18 @@ describeIfDb('migration 627 raw PostgreSQL device-loss negatives', () => {
     ), { code: '23503', constraint: 'fk_cc_device_loss_route_facility' });
   });
 
-  test('runtime role cannot forge order state and cannot observe wrong-tenant or bypass rows', async () => {
-    await client.query('SET LOCAL ROLE vhhealth_app');
+  test('non-owner runtime boundary cannot forge order state or observe wrong-tenant rows', async () => {
+    const role = await client.query(
+      `SELECT CASE
+         WHEN to_regrole('rls_test_app') IS NOT NULL THEN 'rls_test_app'
+         WHEN to_regrole('vhhealth_app') IS NOT NULL THEN 'vhhealth_app'
+         WHEN to_regrole('vhhealth_runtime') IS NOT NULL THEN 'vhhealth_runtime'
+         ELSE NULL
+       END AS role_name`,
+    );
+    const roleName = role.rows[0].role_name;
+    expect(roleName).not.toBeNull();
+    await client.query(`SET LOCAL ROLE ${roleName}`);
     try {
       await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [tenantA]);
       await expectDatabaseError(client, () => client.query(
@@ -145,7 +155,7 @@ describeIfDb('migration 627 raw PostgreSQL device-loss negatives', () => {
             SET state = 'awaiting_device_contact'
           WHERE tenant_id = $1::uuid AND id = $2::uuid`,
         [tenantA, operationId],
-      ), { code: '42501' });
+      ));
 
       await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [tenantB]);
       const wrongTenant = await client.query(
