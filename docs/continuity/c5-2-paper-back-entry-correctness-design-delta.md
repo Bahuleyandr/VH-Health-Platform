@@ -1,12 +1,12 @@
 # C5.2 paper back-entry correctness — design delta
 
-**Status:** PR-1 local build authorized by GO-WITH-GATE; publication and PR-2
-remain queued behind the recovery-operability (Packet BV) merge
+**Status:** PR-1 is merged; the coordinator has opened the PR-2 publication
+gate. PR-3 remains stopped until PR-2 merges.
 
 **Branch:** `feat/continuity-c52-correctness`
 
 **Live authority re-fetched:** `github/main` at
-`4a3b2d21523bb3995d5efd9064ef664af905cad8` on 2026-08-05
+`294169baf28814273ac64af524e08637f48e3e6c` on 2026-08-05
 
 **Activation state:** C5.2 remains inert. The compile-time
 `CLINICAL_CONTINUITY_C_D14_APPROVED = false` guard makes the reconciliation
@@ -15,9 +15,9 @@ surface return 503 before any facility can use it
 `apps/backend/src/middleware/clinicalContinuityReconciliationMiddleware.js:10-18`).
 These are pre-activation correctness defects, not a claim of live exposure.
 
-**Merge instruction:** never merge this lane. This document authorizes no
-implementation, migration, deployment, packet issue, webhook release, paper
-reconciliation, or activation.
+**Merge instruction:** never merge this lane. The coordinator authorizes PR-2
+publication with migration 629. This document authorizes no deployment, packet
+issue, webhook release, paper reconciliation, activation, or PR-3 build.
 
 ## 0. Step-0 preflight
 
@@ -25,37 +25,36 @@ reconciliation, or activation.
 
 | Check | Live result | Step-1 ruling |
 |---|---|---|
-| Baseline | Re-fetched `github/main` is `4a3b2d21523bb3995d5efd9064ef664af905cad8`; this lane was rebased onto it as `80adf2cab` | PR-1 local-build authority only |
+| Baseline | Re-fetched `github/main` is `294169baf28814273ac64af524e08637f48e3e6c`; PR #745 is merged at that SHA and the isolated PR-2 commit was replayed onto it as `a057fa2f4` | PR-2 publication gate is open; PR-3 remains stopped |
 | C5.2 exposure | The hardcoded C-D14 approval constant remains false and the reconciliation middleware returns 503 | Pre-activation defects; do not lift the guard in this train |
-| Committed migration ceiling | `627_clinical_continuity_device_loss_orchestration.sql` | PR-1 remains migration-free; no new number is reserved |
+| Committed migration ceiling | `628_external_recovery_operability.sql`; no migration 626 exists | PR-2 freshly allocates `629_clinical_continuity_held_webhook_disposition.sql` |
 | PR #737 | Merged into `github/main` by `392332d831d59ab9e16778ca687dc69e43483dea`; migration 625 is committed | Satisfied; later migration-owning PRs must derive their slots again |
-| Packet BV predecessor | Local branch `feat/continuity-recovery-operability` now has three commits through `9ace04ad6`, plus an uncommitted runtime worktree that currently names migration 628; it still has no remote PR and is unmerged | Gate closed: its build overlaps the reconciliation/OpenAPI lane, so prepare PR-1 locally but do not publish it or begin PR-2 until BV merges; this lane reserves no migration number from BV's local state |
+| Packet BV predecessor | PR #744 is merged and migration 628 is committed | Satisfied; PR-2 consumes the landed reconciliation and migration state |
 | Policy-value remediation | PR #739 merged into `github/main` as `0b6bb2f10e5e738710a7924c28d53ae6f828d65e` | Satisfied for later packet provisioning; Part C must consume the landed signed-policy parser |
 | Device-loss predecessor | PR #741 merged into `github/main` as `f0746de93996b6a255ed6d05008f471da4afaecc`, landing migration 627 | Satisfied for this rebase; later migration-owning parts must consume its landed DDL, Prisma, signer, Admin, and OpenAPI contracts without duplicating them |
 | Held-release composition | PR #733 is merged; migration 624 and the closed request schema admit I04, I05, and I19 only | I18 remains deliberately non-releaseable through that executor |
 | Expiry precedent | PR #736 is merged; a printed artifact and its stored expiry use one instant, visibly say `NOT VALID AFTER`, and missing/unreadable expiry fails closed | Incident packets inherit this discipline, not an invented duration |
-| Step-1 overlap | PR-1 locally changes the paper schema/parser, MAR service core, reconciliation service, tests, and the two generated OpenAPI mirrors; BV also changes the continuity OpenAPI overlay | Local preparation remains authorized, but publication stays serial behind BV |
-| Build readiness | The explicit GO-WITH-GATE authorizes migration-free PR-1 preparation while BV remains unmerged; device-loss and policy-value work still constrain later parts | **GO for local PR-1 only; WAIT for publication and PR-2** |
+| Step-1 overlap | PR #745 and Packet BV are both merged into the live baseline | Satisfied; PR-2 is rebased rather than stacked on either unmerged lane |
+| Build readiness | The coordinator opened the PR-2 gate after PR #745 merged and named main `294169baf` | **GO for PR-2 publication with freshly derived migration 629; PR-3 remains stopped** |
 
-The migration verdict for the later train is **non-zero but not allocatable**.
-The webhook correction and incident-packet provisioning need additive DDL and
-Prisma regeneration. The MAR correction is expected to need no DDL, but that
-is a pre-write assertion, not permission to claim a number. At each build
-kickoff the lane re-fetches `github/main`, verifies the named predecessors,
-lists the committed and open migration owners, and derives the next free
-number. This delta does not call the next numbers 626 or 627.
+The PR-2 migration verdict is **629 allocated after a fresh live inventory**.
+The webhook correction needs additive constraint, trigger, and policy DDL but
+no Prisma-modeled schema change, so Prisma validation must prove zero modeled
+drift. Migration 626 remains permanently vacant and migration 628 is the
+landed predecessor. Incident-packet provisioning must derive its later slot
+only after PR-2 merges and is still expected to require modeled DDL and Prisma
+regeneration.
 
 ### 0.2 Publication and later-PR stop conditions
 
-The explicit GO-WITH-GATE permits local PR-1 runtime edits. PR-1 publication
-and any PR-2 or PR-3 edit remain stopped until the applicable conditions below
-are recorded against the then-current main SHA:
+The coordinator has satisfied the PR-2 publication conditions below against
+the live `294169baf` baseline. Every PR-3 edit remains stopped until PR-2
+merges and a later gate is opened:
 
 1. **Satisfied for PR-1:** PR #737 landed as merge commit `392332d831d59ab9e16778ca687dc69e43483dea`
    with migration 625 and its final Prisma shape.
-2. **Publication gate:** Packet BV's activation-command, clinician-channel,
-   observability, migration, Prisma, and shared-service implementation has
-   merged. Its current local design commit is not sufficient.
+2. **Satisfied for PR-2:** Packet BV landed in PR #744 with migration 628 and
+   its reconciliation-service implementation.
 3. PR #739 or its superseding policy-value remediation has landed. Packet
    provisioning must consume the corrected signed-policy parser rather than
    race or copy its values.
@@ -597,7 +596,9 @@ Every added or altered continuity relation follows design §6.8:
 
 Altering already-recorded migrations 603, 606, or 620 is prohibited. Later
 migrations replace named constraints/triggers additively on upgraded and fresh
-databases, and Prisma is regenerated from the fully migrated schema.
+databases. Prisma is regenerated when the freshly derived migration changes a
+modeled schema; a constraint/trigger/policy-only migration instead records the
+validated no-schema-diff result.
 
 ### 5.2 Mandatory raw-PostgreSQL negatives
 
@@ -677,7 +678,8 @@ Expected responsibility:
 
 - one freshly derived migration replacing the event-outbox and migration-620
   constraints/triggers;
-- Prisma regeneration;
+- Prisma validation and schema-drift evidence; regenerate only if the
+  freshly allocated migration introduces a modeled schema change;
 - C5.2 typed outbox disposition and deletion of unread `suppress_*` flags;
 - event-outbox fan-out mapping;
 - webhook-delivery source integrity;
@@ -797,6 +799,6 @@ classify any I18 subscription's blast radius, create an I18 release executor,
 change MAR bedside policy, make paper actions electronically queueable, or
 claim C5.2 production readiness.
 
-PR-1 verdict is **GO for local preparation only; WAIT for publication**. PR-2
-remains stopped until the Packet BV implementation merges and this lane is
-rebased onto that merge. The later owner stop lines remain fail-closed.
+PR-1 is merged. PR-2 is **GO for publication** from current main with freshly
+derived migration 629. PR-3 remains stopped until PR-2 merges and the
+coordinator opens its gate; all later owner stop lines remain fail-closed.
