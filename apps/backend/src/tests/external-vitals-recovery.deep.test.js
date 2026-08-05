@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
   readExternalRecoveryResumeState,
-  registerExternalRecoveryOffset,
 } from '../services/integrations/externalInterfaceRecoveryService.js';
+import {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} from './helpers/externalRecoveryOperabilityTestHelper.js';
 import {
   I09_GATEWAY_SEQUENCE_CONTRACT,
   I15_FHIR_SEQUENCE_CONTRACT,
@@ -324,11 +326,8 @@ describeIfDb('C6.1-B I09/I15 late vitals recovery', () => {
     });
     expect(Number(evidence[0].recorded_epoch) * 1000)
       .toBe(Date.parse('2026-07-31T07:00:00.000Z'));
-    expect(await enqueueExternalRecoveryItem(operation(prepared))).toMatchObject({
-      duplicate: true,
-      status: 'handled',
-      outcome_code: 'i09_vitals_observation_pending_review',
-    });
+    await expect(enqueueExternalRecoveryItem(operation(prepared)))
+      .rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_OFFSET_NOT_REPLAYING' });
     expect(await effectCounts()).toEqual(after);
   }, 60_000);
 

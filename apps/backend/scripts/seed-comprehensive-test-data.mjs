@@ -601,6 +601,8 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     facility_id: null,
     historical_cutoff_event_id: 0,
     backfill_cursor_event_id: 0,
+    registration_operability_action_id: null,
+    resume_operability_action_id: null,
   },
   pathway_projector_inbox: {
     scope_kind: 'pathway_registry',

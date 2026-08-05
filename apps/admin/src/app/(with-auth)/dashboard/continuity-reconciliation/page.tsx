@@ -25,6 +25,7 @@ import {
   type ClinicalContinuityHeldMessageReleaseReason,
   type ClinicalContinuityWorkbench,
 } from "@/lib/api/clinicalContinuityReconciliation";
+import ExternalRecoveryPanel from "./ExternalRecoveryPanel";
 
 type Incident = ClinicalContinuityWorkbench["incidents"][number];
 type PaperRange = ClinicalContinuityWorkbench["paper_ranges"][number];
@@ -150,7 +151,39 @@ function ActionButton({
   );
 }
 
+function WorkbenchTabs({
+  active,
+  onChange,
+}: {
+  active: "paper" | "external";
+  onChange: (value: "paper" | "external") => void;
+}) {
+  return (
+    <nav aria-label="Continuity reconciliation surfaces" className="flex gap-2 border-b border-border">
+      {([
+        ["paper", "Paper reconciliation"],
+        ["external", "External recovery"],
+      ] as const).map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          aria-current={active === value ? "page" : undefined}
+          onClick={() => onChange(value)}
+          className={`border-b-2 px-4 py-2 text-sm font-semibold ${
+            active === value
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export default function ContinuityReconciliationPage() {
+  const [surface, setSurface] = useState<"paper" | "external">("paper");
   const [facilityId, setFacilityId] = useState("");
   const [facilityContext, setFacilityContext] = useState("");
   const [authority, setAuthority] =
@@ -278,6 +311,27 @@ export default function ContinuityReconciliationPage() {
     }
   }
 
+  if (surface === "external") {
+    return (
+      <main className="space-y-5 p-6" aria-labelledby="continuity-title">
+        <header>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            C6.1 recovery control
+          </p>
+          <h1 id="continuity-title" className="text-3xl font-bold text-foreground">
+            Continuity reconciliation workbench
+          </h1>
+          <p className="mt-1 max-w-4xl text-sm text-muted-foreground">
+            Authenticated, audited, exact-partition recovery state and command
+            evidence. This surface does not activate a family or start replay.
+          </p>
+        </header>
+        <WorkbenchTabs active={surface} onChange={setSurface} />
+        <ExternalRecoveryPanel />
+      </main>
+    );
+  }
+
   return (
     <main className="space-y-5 p-6" aria-labelledby="continuity-title">
       <header>
@@ -297,6 +351,8 @@ export default function ContinuityReconciliationPage() {
           the server.
         </p>
       </header>
+
+      <WorkbenchTabs active={surface} onChange={setSurface} />
 
       <div
         role="status"

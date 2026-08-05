@@ -4,11 +4,13 @@ import prisma, { setTenantTx } from '../lib/prisma.js';
 import { generateACK } from '../services/hl7/hl7Parser.js';
 import { queueFeedMessage } from '../services/hl7/hl7OutboundService.js';
 import {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
-  registerExternalRecoveryOffset,
 } from '../services/integrations/externalInterfaceRecoveryService.js';
+import {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} from './helpers/externalRecoveryOperabilityTestHelper.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;

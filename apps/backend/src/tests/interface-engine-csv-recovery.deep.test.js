@@ -3,11 +3,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import { encryptField } from '../utils/fieldEncryption.js';
 import {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
-  registerExternalRecoveryOffset,
 } from '../services/integrations/externalInterfaceRecoveryService.js';
+import {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} from './helpers/externalRecoveryOperabilityTestHelper.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;

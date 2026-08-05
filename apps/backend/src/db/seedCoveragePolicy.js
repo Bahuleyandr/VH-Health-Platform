@@ -6,6 +6,12 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'clinical_continuity_replay_effect_evidence',
   'clinical_continuity_replay_receipts',
   'clinical_continuity_device_journal_offsets',
+  // External-recovery rows are immutable operator and human-awareness
+  // evidence. Seed coverage must not register or resume a source partition,
+  // invent a late critical result, or fabricate a clinician acknowledgement.
+  'external_recovery_operability_actions',
+  'external_recovery_critical_review_obligations',
+  'external_recovery_critical_review_acknowledgements',
   // Device-loss rows are incident evidence and standing containment routes.
   // Test seeds must not invent a lost device, affected identity, or C-D6 owner.
   'clinical_continuity_device_loss_operations',

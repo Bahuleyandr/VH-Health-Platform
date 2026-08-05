@@ -157,6 +157,36 @@ function normalizeFingerprint(command, commandFingerprint = null) {
   return fingerprint;
 }
 
+function requireOperabilityCommand(value, action) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || value.action !== action) {
+    throw AppError.forbidden(
+      'Authenticated external-recovery operability evidence is required',
+      'EXTERNAL_RECOVERY_OPERABILITY_EVIDENCE_REQUIRED',
+      { safe: true },
+    );
+  }
+  return value;
+}
+
+async function runExternalRecoveryOperabilityCommand({ tenantId, tx, functionName, command }) {
+  const execute = async (db) => {
+    const rows = await db.$queryRawUnsafe(
+      `SELECT public.${functionName}($1::jsonb) AS receipt`,
+      JSON.stringify(command),
+    );
+    if (!rows[0]?.receipt) {
+      throw AppError.internal(
+        'External-recovery command returned no durable receipt',
+        'EXTERNAL_RECOVERY_OPERABILITY_RECEIPT_REQUIRED',
+      );
+    }
+    return rows[0].receipt;
+  };
+  return tx
+    ? execute(tx)
+    : setTenantTx(tenantId, execute, { isolationLevel: 'Serializable' });
+}
+
 export async function registerExternalRecoveryOffset({
   tenantId,
   facilityId = null,
@@ -174,6 +204,8 @@ export async function registerExternalRecoveryOffset({
   policySignature,
   retentionPolicy,
   retentionUntil,
+  operabilityCommand,
+  tx = null,
 } = {}) {
   const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
@@ -189,36 +221,32 @@ export async function registerExternalRecoveryOffset({
   const marker = normalizeMarker({ position: initialPosition, token: initialToken }, { optional: true });
   const retained = normalizeMarker({ position: retainedFromPosition, token: retainedFromToken }, { optional: true });
   const policy = normalizePolicy({ policyVersion, policySignature, retentionPolicy, retentionUntil });
-  const state = marker.position === null ? 'reconciliation_required_missing_marker' : 'paused';
-
-  return setTenantTx(tid, async (tx) => {
-    const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO event_consumer_offsets
-         (scope_kind, tenant_id, facility_scope, facility_id, interface_family,
-          direction, source_partition, consumer_key, generation, cursor_kind,
-          high_water_position, high_water_token, retained_from_position,
-          retained_from_token, recovery_state, reconciliation_reason,
-          policy_version, policy_signature, retention_policy, retention_until,
-          historical_cutoff_event_id, backfill_cursor_event_id)
-       VALUES
-         ('external_interface', $1::uuid, $2::text, $3::integer, $4::text,
-          $5::text, $6::text, $7::text, $8::integer,
-          $9::text, $10::bigint, $11::text, $12::bigint, $13::text, $14::text,
-          CASE WHEN $10::bigint IS NULL THEN 'marker_absent' ELSE NULL END,
-          $15::text, $16::text, $17::text, $18::timestamptz, NULL, NULL)
-       RETURNING offset_id::text, tenant_id::text, facility_scope, facility_id,
-                 interface_family, direction, source_partition, generation,
-                 high_water_position::text, high_water_token,
-                 retained_from_position::text, retained_from_token,
-                 recovery_state, reconciliation_reason, policy_version,
-                 policy_signature, retention_policy, retention_until`,
-      tid, facilityScope, facility, config.id, config.direction, partition, `external:${config.id}`,
-      safeGeneration, config.cursorKind || 'monotonic_position_and_predecessor',
-      marker.position, marker.token, retained.position, retained.token,
-      state, policy.policyVersion, policy.policySignature, policy.retentionPolicy, policy.retentionUntil,
-    );
-    return rows[0];
-  }, { isolationLevel: 'Serializable' });
+  const evidence = requireOperabilityCommand(operabilityCommand, 'register_offset');
+  return runExternalRecoveryOperabilityCommand({
+    tenantId: tid,
+    tx,
+    functionName: 'external_recovery_operability_register_offset',
+    command: {
+      ...evidence,
+      tenant_id: tid,
+      facility_scope: facilityScope,
+      facility_id: facility,
+      interface_family: config.id,
+      subpath: config.selectedSubpath || null,
+      protocol: config.id === 'I05' ? config.protocol : null,
+      direction: config.direction,
+      source_partition: partition,
+      generation: safeGeneration,
+      initial_position: marker.position,
+      initial_token: marker.token,
+      retained_from_position: retained.position,
+      retained_from_token: retained.token,
+      policy_version: policy.policyVersion,
+      policy_signature: policy.policySignature,
+      retention_policy: policy.retentionPolicy,
+      retention_until: policy.retentionUntil,
+    },
+  });
 }
 
 export async function readExternalRecoveryResumeState({
@@ -292,33 +320,30 @@ export async function authorizeExternalRecoveryResume({
   streamDirection = null,
   resumeCutoffPosition,
   resumeCutoffToken,
+  operabilityCommand,
+  tx = null,
 } = {}) {
   const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
   const oid = requireUuid(offsetId, 'offset_id');
   const cutoff = normalizeMarker({ position: resumeCutoffPosition, token: resumeCutoffToken });
-  return setTenantTx(tid, async (tx) => {
-    const rows = await tx.$queryRawUnsafe(
-      `UPDATE event_consumer_offsets
-          SET resume_cutoff_position = $3::bigint, resume_cutoff_token = $4::text,
-              recovery_state = 'replaying', reconciliation_reason = NULL, updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid
-          AND scope_kind = 'external_interface' AND interface_family = $5::text
-          AND recovery_state = 'paused'
-          AND high_water_position IS NOT NULL AND high_water_token IS NOT NULL
-          AND $3::bigint >= high_water_position
-        RETURNING offset_id::text, recovery_state, high_water_position::text,
-                  high_water_token, resume_cutoff_position::text, resume_cutoff_token`,
-      tid, oid, cutoff.position, cutoff.token, config.id,
-    );
-    if (rows.length !== 1) {
-      throw AppError.conflict(
-        `${config.id} recovery offset is not eligible for owner-authorized resume`,
-        'EXTERNAL_RECOVERY_RESUME_NOT_ELIGIBLE',
-      );
-    }
-    return rows[0];
-  }, { isolationLevel: 'Serializable' });
+  const evidence = requireOperabilityCommand(operabilityCommand, 'authorize_resume');
+  return runExternalRecoveryOperabilityCommand({
+    tenantId: tid,
+    tx,
+    functionName: 'external_recovery_operability_authorize_resume',
+    command: {
+      ...evidence,
+      tenant_id: tid,
+      offset_id: oid,
+      interface_family: config.id,
+      subpath: config.selectedSubpath || null,
+      protocol: config.id === 'I05' ? config.protocol : null,
+      direction: config.direction,
+      resume_cutoff_position: cutoff.position,
+      resume_cutoff_token: cutoff.token,
+    },
+  });
 }
 
 async function loadOffsetTx(tx, tenantId, offsetId, interfaceFamily, { lock = false } = {}) {
@@ -391,11 +416,14 @@ export async function enqueueExternalRecoveryItem({
         'EXTERNAL_RECOVERY_OFFSET_MISMATCH',
       );
     }
-    if (offset.recovery_state === 'reconciliation_required_missing_marker') {
-      return Object.freeze({ held: true, reason: 'missing_marker', offset });
-    }
     if (offset.recovery_state === 'retired') {
       throw AppError.conflict(`${config.id} recovery offset is retired`, 'EXTERNAL_RECOVERY_OFFSET_RETIRED');
+    }
+    if (offset.recovery_state !== 'replaying') {
+      throw AppError.conflict(
+        `${config.id} recovery offset is not in owner-authorized replay`,
+        'EXTERNAL_RECOVERY_OFFSET_NOT_REPLAYING',
+      );
     }
     const collisions = await tx.$queryRawUnsafe(
       `SELECT inbox_id::text, source_position::text, source_token, predecessor_token,

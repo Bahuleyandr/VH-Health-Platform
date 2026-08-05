@@ -26,6 +26,7 @@ import { success } from '../utils/responseHelper.js';
 import { getAuthenticatedActorRoles } from '../utils/roleHelpers.js';
 import { isValidIdempotencyKey } from '../services/idempotency/idempotencyService.js';
 import { acknowledgeCriticalAlertForInboxTask } from '../services/lab/labResultsService.js';
+import { acknowledgeExternalRecoveryCriticalReviewForInboxTask } from '../services/integrations/externalRecoveryCriticalReviewService.js';
 import {
   recordDoctorDiagnosticDisposition,
   reopenNormalDiagnosticGeneration,
@@ -125,17 +126,30 @@ router.post('/tasks/:id/acknowledge', async (req, res, next) => {
       readBackMethod: req.body?.read_back_method ?? null,
       notes: req.body?.notes ?? null,
     });
-    const row = criticalAlertResult.handled
-      ? criticalAlertResult.task
-      : await acknowledgeTask({
+    const recoveryCriticalResult = criticalAlertResult.handled
+      ? { handled: false }
+      : await acknowledgeExternalRecoveryCriticalReviewForInboxTask(req.params.id, {
         tenantId: req.tenantId,
-        id: req.params.id,
         actorUid: req.user?.uid || null,
         actorRoles,
         actorPrimaryRole: req.user?.role || null,
         actorRawRole: req.user?.rawRole || null,
         breakGlassId: req.body?.break_glass_id ?? null,
+        requestId: req.id,
       });
+    const row = criticalAlertResult.handled
+      ? criticalAlertResult.task
+      : recoveryCriticalResult.handled
+        ? recoveryCriticalResult.task
+        : await acknowledgeTask({
+            tenantId: req.tenantId,
+            id: req.params.id,
+            actorUid: req.user?.uid || null,
+            actorRoles,
+            actorPrimaryRole: req.user?.role || null,
+            actorRawRole: req.user?.rawRole || null,
+            breakGlassId: req.body?.break_glass_id ?? null,
+          });
     setPhiPatientContext(req, row?.patient_uid);
     return success(res, row, 'Task acknowledged');
   } catch (err) {

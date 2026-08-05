@@ -35,6 +35,37 @@ void main() {
     expect(find.textContaining('patient-1'), findsOneWidget);
   });
 
+  testWidgets(
+    'late-critical recovery is acknowledgement-required without a fresh alarm or SLA',
+    (tester) async {
+      final api = _FakeClinicalInboxApi(
+        tasks: [_task(id: '81', recoveredCriticalAwareness: true)],
+      );
+      final provider = ClinicalInboxProvider(api: api);
+
+      await tester.pumpWidget(_host(provider));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Recovered critical result — acknowledgement required'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Continuity awareness only — not a fresh alarm or SLA breach.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Acknowledge recovered result'), findsOneWidget);
+      expect(find.text('Acknowledge critical result'), findsNothing);
+
+      await tester.tap(find.text('Acknowledge recovered result'));
+      await tester.pumpAndSettle();
+      expect(api.acknowledgeCalls, 1);
+      expect(find.text('Acknowledged'), findsWidgets);
+    },
+  );
+
   testWidgets('acknowledge button fires once while pending', (tester) async {
     final releaseAck = Completer<void>();
     final api = _FakeClinicalInboxApi(
@@ -510,6 +541,7 @@ ClinicalInboxTask _task({
   String diagnosticAuthoritativeActionKind = '',
   String diagnosticAuthoritativeDisposition = '',
   bool canCrossSignPendingResult = false,
+  bool recoveredCriticalAwareness = false,
 }) {
   final now = DateTime.now();
   return ClinicalInboxTask(
@@ -524,7 +556,7 @@ ClinicalInboxTask _task({
     relatedResourceId: relatedResourceId ?? 'lr-$id',
     assignedToUid: assignedToUid,
     assignedToRole: assignedToUid.isEmpty ? 'DUTY_DOCTOR' : '',
-    slaCompletionSemantics: semantics,
+    slaCompletionSemantics: recoveredCriticalAwareness ? 'none' : semantics,
     diagnosticGenerationId:
         diagnosticGenerationId ??
         (semantics == 'domain_evidence'
@@ -543,7 +575,21 @@ ClinicalInboxTask _task({
     diagnosticAuthoritativeActionKind: diagnosticAuthoritativeActionKind,
     diagnosticAuthoritativeDisposition: diagnosticAuthoritativeDisposition,
     canCrossSignPendingResult: canCrossSignPendingResult,
-    dueAt: now.add(const Duration(minutes: 8)),
+    externalRecoveryCriticalReviewObligationId: recoveredCriticalAwareness
+        ? '11111111-1111-4111-8111-111111111111'
+        : '',
+    externalRecoveryInterfaceFamily: recoveredCriticalAwareness ? 'I01' : '',
+    externalRecoveryAwarenessAcknowledgementRequired:
+        recoveredCriticalAwareness,
+    externalRecoverySourceOccurredAt: recoveredCriticalAwareness
+        ? now.subtract(const Duration(days: 3))
+        : null,
+    externalRecoveryAwarenessRecordedAt: recoveredCriticalAwareness
+        ? now.subtract(const Duration(minutes: 2))
+        : null,
+    dueAt: recoveredCriticalAwareness
+        ? null
+        : now.add(const Duration(minutes: 8)),
     slaBreachedAt: null,
     createdAt: now.subtract(const Duration(minutes: 2)),
     metadata: metadata,

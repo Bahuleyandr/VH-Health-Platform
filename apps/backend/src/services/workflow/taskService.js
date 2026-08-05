@@ -4553,6 +4553,22 @@ export async function listInboxTasks({
                 AS diagnostic_authoritative_disposition,
               authoritative_action.occurred_at
                 AS diagnostic_authoritative_action_occurred_at,
+              recovery_obligation.id
+                AS external_recovery_critical_review_obligation_id,
+              recovery_obligation.interface_family
+                AS external_recovery_interface_family,
+              recovery_obligation.source_occurred_at
+                AS external_recovery_source_occurred_at,
+              recovery_obligation.recorded_at
+                AS external_recovery_awareness_recorded_at,
+              recovery_acknowledgement.id
+                AS external_recovery_critical_review_acknowledgement_id,
+              recovery_acknowledgement.recorded_at
+                AS external_recovery_awareness_acknowledged_at,
+              (
+                recovery_obligation.id IS NOT NULL
+                AND recovery_acknowledgement.id IS NULL
+              ) AS external_recovery_awareness_acknowledgement_required,
               (
                 pending_owner_action.id IS NOT NULL
                 AND $5::boolean
@@ -4671,6 +4687,14 @@ export async function listInboxTasks({
               action.id DESC
             LIMIT 1
          ) AS authoritative_action ON pending_owner_action.id IS NOT NULL
+         LEFT JOIN external_recovery_critical_review_obligations
+           AS recovery_obligation
+           ON recovery_obligation.tenant_id = inbox.tenant_id
+          AND recovery_obligation.task_id = inbox.id
+         LEFT JOIN external_recovery_critical_review_acknowledgements
+           AS recovery_acknowledgement
+           ON recovery_acknowledgement.tenant_id = recovery_obligation.tenant_id
+          AND recovery_acknowledgement.obligation_id = recovery_obligation.id
        ORDER BY
          CASE inbox.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
          inbox.due_at NULLS LAST,

@@ -92,6 +92,15 @@ export class Gauge {
     this.data.set(k, { labels, value });
   }
 
+  replace(entries) {
+    const next = new Map();
+    for (const { labels, value } of entries) {
+      const k = this.labelNames.map((n) => `${n}="${labels[n] || ''}"`).join(',');
+      next.set(k, { labels, value });
+    }
+    this.data = next;
+  }
+
   serialize() {
     const lines = [`# HELP ${this.name} ${this.help}`, `# TYPE ${this.name} gauge`];
     for (const [, entry] of this.data) {

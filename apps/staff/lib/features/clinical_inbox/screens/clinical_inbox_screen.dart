@@ -446,6 +446,36 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if (task.isRecoveredCriticalAwareness) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  strings
+                                      .clinicalInboxRecoveredCriticalRequired,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  strings
+                                      .clinicalInboxRecoveredCriticalBoundary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -540,7 +570,10 @@ class _ClinicalInboxTaskCard extends StatelessWidget {
                                     ? strings.clinicalInboxClaimReview
                                     : strings.clinicalInboxReviewAction
                               : task.needsAcknowledgement
-                              ? strings.clinicalInboxAcknowledgeCritical
+                              ? task.isRecoveredCriticalAwareness
+                                    ? strings
+                                          .clinicalInboxAcknowledgeRecoveredCritical
+                                    : strings.clinicalInboxAcknowledgeCritical
                               : strings.clinicalInboxAcknowledged,
                         ),
                 ),
@@ -691,6 +724,25 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                   label: strings.clinicalInboxDue,
                   value: _formatDateTime(currentTask.dueAt!),
                 ),
+              if (currentTask.isRecoveredCriticalAwareness) ...[
+                const SizedBox(height: 8),
+                Text(
+                  strings.clinicalInboxRecoveredCriticalRequired,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(strings.clinicalInboxRecoveredCriticalBoundary),
+                if (currentTask.externalRecoverySourceOccurredAt != null)
+                  _DetailLine(
+                    label: strings.clinicalInboxSourceEvent,
+                    value: _formatDateTime(
+                      currentTask.externalRecoverySourceOccurredAt!,
+                    ),
+                  ),
+              ],
               const SizedBox(height: 16),
               Text(
                 strings.clinicalInboxTierHistory,
@@ -778,7 +830,10 @@ class _ClinicalInboxTaskDetail extends StatelessWidget {
                                     ? strings.clinicalInboxClaimReview
                                     : strings.clinicalInboxReviewAction
                               : currentTask.needsAcknowledgement
-                              ? strings.clinicalInboxAcknowledgeCritical
+                              ? currentTask.isRecoveredCriticalAwareness
+                                    ? strings
+                                          .clinicalInboxAcknowledgeRecoveredCritical
+                                    : strings.clinicalInboxAcknowledgeCritical
                               : strings.clinicalInboxAcknowledged,
                         ),
                 ),

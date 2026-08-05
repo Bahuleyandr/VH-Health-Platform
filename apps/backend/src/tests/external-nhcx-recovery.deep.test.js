@@ -2,11 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 
 const { default: prisma, setTenantTx } = await import('../lib/prisma.js');
 const {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
-  registerExternalRecoveryOffset,
 } = await import('../services/integrations/externalInterfaceRecoveryService.js');
+const {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} = await import('./helpers/externalRecoveryOperabilityTestHelper.js');
 const {
   claimStrandedInboundNHCXMessage,
 } = await import('../services/integrations/externalNhcxRecoveryService.js');

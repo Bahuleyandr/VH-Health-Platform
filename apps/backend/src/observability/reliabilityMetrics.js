@@ -51,6 +51,47 @@ const deviceAssociationsActive = new Gauge('device_associations_active', 'Active
 const deviceUnassociatedMessages = new Gauge('device_unassociated_messages_total', 'Device ORU messages parked as DEVICE_NOT_ASSOCIATED');
 const deviceSamplesSuppressed = new Gauge('device_samples_suppressed_total', 'Device vital samples suppressed by bounded policy reason', ['reason']);
 const coldChainOpenExcursions = new Gauge('cold_chain_open_excursions', 'Open or acknowledged cold-chain excursions requiring staff action');
+const EXTERNAL_RECOVERY_SCOPE_LABELS = Object.freeze([
+  'tenant_id', 'facility_scope', 'facility_id', 'interface_family', 'direction',
+]);
+const externalRecoveryActiveOffsets = new Gauge(
+  'external_recovery_active_offsets',
+  'Live external-interface offsets in the exact current recovery state',
+  [...EXTERNAL_RECOVERY_SCOPE_LABELS, 'recovery_state'],
+);
+const externalRecoveryInboxPending = new Gauge(
+  'external_recovery_inbox_pending_rows',
+  'External-interface recovery inbox rows still pending',
+  EXTERNAL_RECOVERY_SCOPE_LABELS,
+);
+const externalRecoveryInboxOldestPendingAge = new Gauge(
+  'external_recovery_inbox_oldest_pending_age_seconds',
+  'Age since recovery recording of the oldest pending external-interface inbox row; 0 when none',
+  EXTERNAL_RECOVERY_SCOPE_LABELS,
+);
+const externalRecoveryInboxDead = new Gauge(
+  'external_recovery_inbox_dead_rows',
+  'External-interface recovery inbox rows in terminal dead state',
+  EXTERNAL_RECOVERY_SCOPE_LABELS,
+);
+const externalRecoveryCriticalReviewUnacknowledged = new Gauge(
+  'external_recovery_critical_review_unacknowledged_rows',
+  'Late-critical external-recovery awareness obligations without an acknowledgement receipt',
+  EXTERNAL_RECOVERY_SCOPE_LABELS,
+);
+const externalRecoveryCriticalReviewOldestAge = new Gauge(
+  'external_recovery_critical_review_oldest_unacknowledged_age_seconds',
+  'Age since recovery recording of the oldest unacknowledged late-critical awareness obligation; 0 when none',
+  EXTERNAL_RECOVERY_SCOPE_LABELS,
+);
+const externalRecoveryObservationTimestamp = new Gauge(
+  'external_recovery_observation_timestamp_seconds',
+  'Unix timestamp of the last complete valid external-recovery database-output observation',
+);
+const externalRecoveryOffsetsObserved = new Gauge(
+  'external_recovery_offsets_observed_total',
+  'Total live external-interface offsets in the last complete valid observation; emitted even when zero',
+);
 
 // ---- Counters (incremented inline at the event site) ----------------------
 const wsBroadcastDropped = new Counter('ws_broadcast_dropped_total', 'Observable WS broadcast/sendToUser drops (per-socket backpressure or cross-process fan-out fallback). NOTE: the at-most-once Redis-failover drop is invisible to the app — see ws_fanout_subscriber_errors_total for the failover-window proxy.', ['reason']);
@@ -104,6 +145,189 @@ export function recordNoteDraftSaveError() {
 
 function hasReadReplicaDsn() {
   return Boolean(process.env.DATABASE_READ_URL?.trim());
+}
+
+const EXTERNAL_RECOVERY_FACILITY_SCOPES = new Set(['tenant', 'facility']);
+const EXTERNAL_RECOVERY_DIRECTIONS = new Set(['inbound', 'outbound']);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const EXTERNAL_RECOVERY_STATES = new Set([
+  'paused', 'replaying', 'ready', 'retired',
+  'reconciliation_required_missing_marker',
+  'reconciliation_required_source_gap',
+  'reconciliation_required_retention_gap',
+  'reconciliation_required_provider_state',
+]);
+
+function externalRecoveryNumber(value, label) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new TypeError(`external recovery observation has invalid ${label}`);
+  }
+  return parsed;
+}
+
+function externalRecoveryLabels(scope) {
+  const tenantId = String(scope?.tenant_id || '').toLowerCase();
+  const facilityScope = String(scope?.facility_scope || '');
+  const interfaceFamily = String(scope?.interface_family || '');
+  const direction = String(scope?.direction || '');
+  if (
+    !UUID_PATTERN.test(tenantId)
+    || !EXTERNAL_RECOVERY_FACILITY_SCOPES.has(facilityScope)
+    || !/^I(?:0[1-9]|[12][0-9]|30)$/.test(interfaceFamily)
+    || !EXTERNAL_RECOVERY_DIRECTIONS.has(direction)
+  ) {
+    throw new TypeError('external recovery observation has invalid bounded labels');
+  }
+  const facilityId = facilityScope === 'tenant'
+    ? 'tenant-wide'
+    : String(scope?.facility_id || '');
+  if (facilityScope === 'facility' && !/^[1-9][0-9]*$/.test(facilityId)) {
+    throw new TypeError('external recovery observation has invalid facility label');
+  }
+  return {
+    tenant_id: tenantId,
+    facility_scope: facilityScope,
+    facility_id: facilityId,
+    interface_family: interfaceFamily,
+    direction,
+  };
+}
+
+async function collectExternalRecoveryOutputMetrics() {
+  const rows = await prisma.$queryRawUnsafe(`
+    WITH live_offsets AS (
+      SELECT offset_id, tenant_id, facility_scope, facility_id,
+             interface_family, direction, recovery_state
+        FROM event_consumer_offsets
+       WHERE scope_kind = 'external_interface'
+         AND intake_retired_at IS NULL
+    ), scopes AS (
+      SELECT DISTINCT tenant_id, facility_scope, facility_id,
+                      interface_family, direction
+        FROM live_offsets
+    ), state_counts AS (
+      SELECT tenant_id, facility_scope, facility_id, interface_family,
+             direction, recovery_state, COUNT(*)::bigint AS offset_count
+        FROM live_offsets
+       GROUP BY tenant_id, facility_scope, facility_id, interface_family,
+                direction, recovery_state
+    ), inbox_counts AS (
+      SELECT offsets.tenant_id, offsets.facility_scope, offsets.facility_id,
+             offsets.interface_family, offsets.direction,
+             COUNT(*) FILTER (WHERE inbox.status = 'pending')::bigint AS pending_rows,
+             COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(inbox.recorded_at)
+               FILTER (WHERE inbox.status = 'pending')), 0)::bigint
+               AS oldest_pending_age_seconds,
+             COUNT(*) FILTER (WHERE inbox.status = 'dead')::bigint AS dead_rows
+        FROM live_offsets AS offsets
+        LEFT JOIN pathway_projector_inbox AS inbox
+          ON inbox.tenant_id = offsets.tenant_id
+         AND inbox.offset_id = offsets.offset_id
+         AND inbox.scope_kind = 'external_interface'
+       GROUP BY offsets.tenant_id, offsets.facility_scope, offsets.facility_id,
+                offsets.interface_family, offsets.direction
+    ), critical_counts AS (
+      SELECT offsets.tenant_id, offsets.facility_scope, offsets.facility_id,
+             offsets.interface_family, offsets.direction,
+             COUNT(*) FILTER (
+               WHERE obligation.id IS NOT NULL AND acknowledgement.id IS NULL
+             )::bigint AS unacknowledged_rows,
+             COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(obligation.recorded_at)
+               FILTER (WHERE obligation.id IS NOT NULL AND acknowledgement.id IS NULL)), 0)::bigint
+               AS oldest_unacknowledged_age_seconds
+        FROM live_offsets AS offsets
+        LEFT JOIN external_recovery_critical_review_obligations AS obligation
+          ON obligation.tenant_id = offsets.tenant_id
+         AND obligation.offset_id = offsets.offset_id
+        LEFT JOIN external_recovery_critical_review_acknowledgements AS acknowledgement
+          ON acknowledgement.tenant_id = obligation.tenant_id
+         AND acknowledgement.obligation_id = obligation.id
+       GROUP BY offsets.tenant_id, offsets.facility_scope, offsets.facility_id,
+                offsets.interface_family, offsets.direction
+    )
+    SELECT EXTRACT(EPOCH FROM NOW())::double precision AS observed_at,
+           (SELECT COUNT(*)::bigint FROM live_offsets) AS offsets_observed,
+           COALESCE((
+             SELECT jsonb_agg(jsonb_build_object(
+               'tenant_id', scope.tenant_id,
+               'facility_scope', scope.facility_scope,
+               'facility_id', scope.facility_id,
+               'interface_family', scope.interface_family,
+               'direction', scope.direction,
+               'pending_rows', inbox.pending_rows,
+               'oldest_pending_age_seconds', inbox.oldest_pending_age_seconds,
+               'dead_rows', inbox.dead_rows,
+               'unacknowledged_rows', critical.unacknowledged_rows,
+               'oldest_unacknowledged_age_seconds',
+                 critical.oldest_unacknowledged_age_seconds,
+               'states', (
+                 SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                   'recovery_state', states.recovery_state,
+                   'offset_count', states.offset_count
+                 ) ORDER BY states.recovery_state), '[]'::jsonb)
+                   FROM state_counts AS states
+                  WHERE states.tenant_id = scope.tenant_id
+                    AND states.facility_scope = scope.facility_scope
+                    AND states.facility_id IS NOT DISTINCT FROM scope.facility_id
+                    AND states.interface_family = scope.interface_family
+                    AND states.direction = scope.direction
+               )
+             ) ORDER BY scope.tenant_id, scope.facility_scope, scope.facility_id,
+                        scope.interface_family, scope.direction)
+               FROM scopes AS scope
+               JOIN inbox_counts AS inbox
+                 ON inbox.tenant_id = scope.tenant_id
+                AND inbox.facility_scope = scope.facility_scope
+                AND inbox.facility_id IS NOT DISTINCT FROM scope.facility_id
+                AND inbox.interface_family = scope.interface_family
+                AND inbox.direction = scope.direction
+               JOIN critical_counts AS critical
+                 ON critical.tenant_id = scope.tenant_id
+                AND critical.facility_scope = scope.facility_scope
+                AND critical.facility_id IS NOT DISTINCT FROM scope.facility_id
+                AND critical.interface_family = scope.interface_family
+                AND critical.direction = scope.direction
+           ), '[]'::jsonb) AS scopes
+  `);
+  if (rows.length !== 1 || !Array.isArray(rows[0]?.scopes)) {
+    throw new TypeError('external recovery observation is incomplete');
+  }
+  const observation = rows[0];
+  const observedAt = externalRecoveryNumber(observation.observed_at, 'observation timestamp');
+  const total = externalRecoveryNumber(observation.offsets_observed, 'offset total');
+  const snapshots = {
+    offsets: [], pending: [], pendingAge: [], dead: [], critical: [], criticalAge: [],
+  };
+  for (const scope of observation.scopes) {
+    const labels = externalRecoveryLabels(scope);
+    const states = Array.isArray(scope.states) ? scope.states : null;
+    if (!states) throw new TypeError('external recovery observation has invalid state output');
+    for (const state of states) {
+      const recoveryState = String(state?.recovery_state || '');
+      if (!EXTERNAL_RECOVERY_STATES.has(recoveryState)) {
+        throw new TypeError('external recovery observation has invalid recovery state');
+      }
+      snapshots.offsets.push({
+        labels: { ...labels, recovery_state: recoveryState },
+        value: externalRecoveryNumber(state.offset_count, 'state count'),
+      });
+    }
+    snapshots.pending.push({ labels, value: externalRecoveryNumber(scope.pending_rows, 'pending count') });
+    snapshots.pendingAge.push({ labels, value: externalRecoveryNumber(scope.oldest_pending_age_seconds, 'pending age') });
+    snapshots.dead.push({ labels, value: externalRecoveryNumber(scope.dead_rows, 'dead count') });
+    snapshots.critical.push({ labels, value: externalRecoveryNumber(scope.unacknowledged_rows, 'critical review count') });
+    snapshots.criticalAge.push({ labels, value: externalRecoveryNumber(scope.oldest_unacknowledged_age_seconds, 'critical review age') });
+  }
+
+  externalRecoveryActiveOffsets.replace(snapshots.offsets);
+  externalRecoveryInboxPending.replace(snapshots.pending);
+  externalRecoveryInboxOldestPendingAge.replace(snapshots.pendingAge);
+  externalRecoveryInboxDead.replace(snapshots.dead);
+  externalRecoveryCriticalReviewUnacknowledged.replace(snapshots.critical);
+  externalRecoveryCriticalReviewOldestAge.replace(snapshots.criticalAge);
+  externalRecoveryOffsetsObserved.replace([{ labels: {}, value: total }]);
+  externalRecoveryObservationTimestamp.replace([{ labels: {}, value: observedAt }]);
 }
 
 async function collectReadReplicaLagMetric() {
@@ -221,6 +445,17 @@ export async function collectReliabilityMetrics() {
       PATHWAY_PROJECTOR_CONSUMER_KEY,
     );
     pathwayProjectorInboxRetiredPending.set({}, Number(retiredPi?.pending ?? 0));
+
+    try {
+      await collectExternalRecoveryOutputMetrics();
+    } catch (externalRecoveryError) {
+      // Preserve the prior complete external-recovery snapshot. In particular,
+      // never publish healthy zeros or a fresh observation timestamp after a
+      // missing/malformed/failed database-output read.
+      logger.warn(
+        `collectReliabilityMetrics: external recovery output skipped — ${externalRecoveryError?.message || externalRecoveryError}`,
+      );
+    }
 
     for (const pathwayKey of CANONICAL_PATHWAY_KEYS) {
       const labels = { pathway_key: pathwayKey };
@@ -387,6 +622,14 @@ export function serializeReliabilityMetrics() {
     pathwayProjectorInboxPending, pathwayProjectorInboxOldestAge,
     pathwayProjectorInboxLeased, pathwayProjectorInboxDead,
     pathwayProjectorInboxRetiredPending,
+    externalRecoveryActiveOffsets,
+    externalRecoveryInboxPending,
+    externalRecoveryInboxOldestPendingAge,
+    externalRecoveryInboxDead,
+    externalRecoveryCriticalReviewUnacknowledged,
+    externalRecoveryCriticalReviewOldestAge,
+    externalRecoveryObservationTimestamp,
+    externalRecoveryOffsetsObserved,
     pathwayReconciliationFailingShadowTenants,
     pathwayReconciliationTechnicalErrorTenants,
     pathwayReconciliationCurrentFindings,
@@ -405,3 +648,8 @@ export function serializeReliabilityMetrics() {
   if (hasReadReplicaDsn()) metrics.splice(12, 0, dbReadReplicaLagSeconds);
   return metrics.map((m) => m.serialize()).filter(Boolean).join('\n\n') + '\n';
 }
+
+export const __testing__ = Object.freeze({
+  collectExternalRecoveryOutputMetrics,
+  externalRecoveryLabels,
+});
