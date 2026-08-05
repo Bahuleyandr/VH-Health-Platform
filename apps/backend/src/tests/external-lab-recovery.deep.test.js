@@ -275,7 +275,9 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
               receipt.recovery_pending_task_id,
               receipt.message_sha256,
               receipt.critical_result_ids,
-              result.id AS result_id, result.is_critical, result.performed_at,
+               result.id AS result_id, result.is_critical,
+               to_char(result.performed_at AT TIME ZONE 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS performed_at_utc,
               task.task_kind, task.priority, task.status AS task_status,
               task.assigned_to_role, task.workflow_sla_instance_id,
               task.sla_completion_semantics, task.due_at, task.metadata
@@ -306,7 +308,7 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       sla_completion_semantics: 'none',
       due_at: null,
     });
-    expect(new Date(rows[0].performed_at).toISOString()).toBe(OCCURRED_AT);
+    expect(rows[0].performed_at_utc).toBe(OCCURRED_AT);
     expect(rows[0].critical_result_ids.map(Number)).toEqual([Number(rows[0].result_id)]);
     expect(rows[0].metadata).toMatchObject({
       contract: 'late_pending_only',
@@ -385,7 +387,9 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
               receipt.recovery_critical_result_ids,
               receipt.recovery_pending_task_id,
               lab_astm_canonical_message(receipt.raw_message) AS db_canonical_message,
-              result.id AS result_id, result.is_critical, result.performed_at,
+               result.id AS result_id, result.is_critical,
+               to_char(result.performed_at AT TIME ZONE 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS performed_at_utc,
               result.specimen_id, task.priority, task.status AS task_status,
               task.workflow_sla_instance_id, task.sla_completion_semantics,
               task.due_at, task.metadata
@@ -418,7 +422,7 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
       due_at: null,
       db_canonical_message: astmCanonicalMessage(message),
     });
-    expect(new Date(rows[0].performed_at).toISOString()).toBe(OCCURRED_AT);
+    expect(rows[0].performed_at_utc).toBe(OCCURRED_AT);
     expect(rows[0].recovery_critical_result_ids.map(Number))
       .toEqual([Number(rows[0].result_id)]);
     expect(rows[0].metadata).toMatchObject({

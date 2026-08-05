@@ -1642,7 +1642,8 @@ DECLARE
   family TEXT;
 BEGIN
   IF TG_TABLE_NAME = 'lab_oru_ingest_messages' THEN
-    IF NEW.recovery_interface_family <> 'I01' OR NEW.status <> 'completed' THEN
+    IF NEW.recovery_interface_family IS DISTINCT FROM 'I01'
+       OR NEW.status <> 'completed' THEN
       RETURN NEW;
     END IF;
     critical_ids := NEW.critical_result_ids;
@@ -1650,7 +1651,8 @@ BEGIN
     recovery_inbox := NEW.recovery_inbox_id;
     family := 'I01';
   ELSE
-    IF NEW.recovery_interface_family <> 'I02' OR NEW.status <> 'pending_review' THEN
+    IF NEW.recovery_interface_family IS DISTINCT FROM 'I02'
+       OR NEW.status <> 'pending_review' THEN
       RETURN NEW;
     END IF;
     critical_ids := NEW.recovery_critical_result_ids;
