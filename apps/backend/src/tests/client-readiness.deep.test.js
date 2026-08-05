@@ -11,10 +11,15 @@ jest.unstable_mockModule(
     CLINICAL_CONTINUITY_ACTION_POLICY_SCHEMA_VERSION: 3,
     CLINICAL_CONTINUITY_POLICY_SCHEMA_VERSION: 1,
     DEFAULT_TENANT_ID: TENANT,
+    INCIDENT_PACKET_SIGNING_KEY_PURPOSE:
+      'clinical_continuity_incident_packet_signing',
+    INCIDENT_PACKET_SIGNING_PURPOSE:
+      'vhhealth/continuity/incident-packet/v1',
     enumerateActiveClinicalContinuityPolicies: jest.fn(),
     loadActiveClinicalContinuityPoliciesForTenant: loadPolicies,
     loadActiveClinicalContinuityPolicyForFacilityTx: jest.fn(),
-    loadHistoricalClinicalContinuityPolicyForActionTx: jest.fn()
+    loadHistoricalClinicalContinuityPolicyForActionTx: jest.fn(),
+    requireClinicalContinuityIncidentPacketPolicy: jest.fn(),
   })
 );
 
