@@ -185,6 +185,31 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
       .toBe(canonicalCommandFingerprint({ nested: { a: 1, b: 2 }, z: 1 }));
   });
 
+  it('refuses a premature item without committing it as head-of-line work', async () => {
+    const offset = await registerOffset({
+      partition: `facility:${facilityId}:unit:${unitId}:sensor:${deviceId}:premature`,
+    });
+    const item = command(101, 5);
+    await expect(enqueueColdChainRecoveryItem({
+      tenantId: TENANT_ID,
+      offsetId: offset.offset_id,
+      sourcePosition: 101,
+      sourceToken: 'premature-token-101',
+      predecessorToken: 'token-100',
+      duplicateKey: item.source_reading_id,
+      occurredAt: item.recorded_at,
+      command: item,
+    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_OFFSET_NOT_REPLAYING' });
+    const rows = await setTenantTx(TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count
+         FROM pathway_projector_inbox
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      TENANT_ID,
+      offset.offset_id,
+    ));
+    expect(rows[0].count).toBe(0);
+  });
+
   it('resumes contiguously, creates only reading plus pending review, and deduplicates retry', async () => {
     const offset = await registerOffset({
       partition: `facility:${facilityId}:unit:${unitId}:sensor:${deviceId}:primary`,
@@ -227,6 +252,23 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
           recovery_state: position === 102 ? 'ready' : 'replaying',
         },
       });
+      if (position === 101) {
+        const duplicate = await enqueueColdChainRecoveryItem({
+          tenantId: TENANT_ID,
+          offsetId: offset.offset_id,
+          sourcePosition: 101,
+          sourceToken: 'token-101',
+          predecessorToken: 'token-100',
+          duplicateKey: item.source_reading_id,
+          occurredAt: item.recorded_at,
+          command: item,
+        });
+        expect(duplicate).toMatchObject({
+          duplicate: true,
+          status: 'handled',
+          outcome_code: 'cold_chain_reading_pending_review',
+        });
+      }
     }
 
     const after = await counts();
@@ -238,28 +280,18 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
       transitions: before.transitions,
     });
 
-    const retryCommand = command(101, 10);
-    const duplicate = await enqueueColdChainRecoveryItem({
-      tenantId: TENANT_ID,
-      offsetId: offset.offset_id,
-      sourcePosition: 101,
-      sourceToken: 'token-101',
-      predecessorToken: 'token-100',
-      duplicateKey: retryCommand.source_reading_id,
-      occurredAt: retryCommand.recorded_at,
-      command: retryCommand,
-    });
-    expect(duplicate).toMatchObject({
-      duplicate: true,
-      status: 'handled',
-      outcome_code: 'cold_chain_reading_pending_review',
-    });
     expect(await counts()).toEqual(after);
   }, 60_000);
 
   it('fails closed on conflicting duplicate evidence', async () => {
     const offset = await registerOffset({
       partition: `facility:${facilityId}:unit:${unitId}:sensor:${deviceId}:conflict`,
+    });
+    await authorizeColdChainRecoveryResume({
+      tenantId: TENANT_ID,
+      offsetId: offset.offset_id,
+      resumeCutoffPosition: 101,
+      resumeCutoffToken: 'conflict-token-101',
     });
     const first = command(101, 5);
     await enqueueColdChainRecoveryItem({
@@ -294,7 +326,7 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
     });
   });
 
-  it('holds a missing marker and never infers zero, head, or replay-all', async () => {
+  it('rejects a missing marker and never infers zero, head, or replay-all', async () => {
     const offset = await registerOffset({
       partition: `facility:${facilityId}:unit:${unitId}:sensor:${deviceId}:missing`,
       initialPosition: null,
@@ -314,7 +346,7 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
       resumeCutoffPosition: 1,
       resumeCutoffToken: 'token-1',
     })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_RESUME_NOT_ELIGIBLE' });
-    expect(await enqueueColdChainRecoveryItem({
+    await expect(enqueueColdChainRecoveryItem({
       tenantId: TENANT_ID,
       offsetId: offset.offset_id,
       sourcePosition: 1,
@@ -323,7 +355,7 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
       duplicateKey: item.source_reading_id,
       occurredAt: item.recorded_at,
       command: item,
-    })).toMatchObject({ held: true, reason: 'missing_marker' });
+    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_OFFSET_NOT_REPLAYING' });
   });
 
   it('freezes the partition at a retention gap before applying the domain fact', async () => {

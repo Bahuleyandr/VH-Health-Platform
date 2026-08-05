@@ -16,6 +16,7 @@ const acknowledgeTaskMock = jest.fn();
 const claimInboxTaskMock = jest.fn();
 const listInboxTasksMock = jest.fn();
 const acknowledgeCriticalAlertForInboxTaskMock = jest.fn();
+const acknowledgeExternalRecoveryCriticalReviewForInboxTaskMock = jest.fn();
 const recordDoctorDiagnosticDispositionMock = jest.fn();
 const reopenNormalDiagnosticGenerationMock = jest.fn();
 
@@ -31,6 +32,14 @@ jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () 
 jest.unstable_mockModule('../../services/lab/labResultsService.js', () => ({
   acknowledgeCriticalAlertForInboxTask: acknowledgeCriticalAlertForInboxTaskMock,
 }));
+
+jest.unstable_mockModule(
+  '../../services/integrations/externalRecoveryCriticalReviewService.js',
+  () => ({
+    acknowledgeExternalRecoveryCriticalReviewForInboxTask:
+      acknowledgeExternalRecoveryCriticalReviewForInboxTaskMock,
+  }),
+);
 
 jest.unstable_mockModule('../../services/diagnostics/diagnosticResultActionService.js', () => ({
   recordDoctorDiagnosticDisposition: recordDoctorDiagnosticDispositionMock,
@@ -64,9 +73,11 @@ describe('clinicalInboxRoutes — minimal clinician surface', () => {
     claimInboxTaskMock.mockReset();
     listInboxTasksMock.mockReset();
     acknowledgeCriticalAlertForInboxTaskMock.mockReset();
+    acknowledgeExternalRecoveryCriticalReviewForInboxTaskMock.mockReset();
     recordDoctorDiagnosticDispositionMock.mockReset();
     reopenNormalDiagnosticGenerationMock.mockReset();
     acknowledgeCriticalAlertForInboxTaskMock.mockResolvedValue({ handled: false, task: null });
+    acknowledgeExternalRecoveryCriticalReviewForInboxTaskMock.mockResolvedValue({ handled: false });
   });
 
   it('exposes only inbox, role claim, acknowledgement, disposition, and reopen', () => {

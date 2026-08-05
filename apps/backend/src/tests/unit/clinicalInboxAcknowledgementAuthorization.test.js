@@ -19,6 +19,13 @@ jest.unstable_mockModule('../../services/lab/labResultsService.js', () => ({
   acknowledgeCriticalAlertForInboxTask: async () => ({ handled: false, task: null }),
 }));
 
+jest.unstable_mockModule(
+  '../../services/integrations/externalRecoveryCriticalReviewService.js',
+  () => ({
+    acknowledgeExternalRecoveryCriticalReviewForInboxTask: async () => ({ handled: false }),
+  }),
+);
+
 const { default: clinicalInboxRoutes } = await import('../../routes/clinicalInboxRoutes.js');
 const { errorHandlerMiddleware } = await import('../../middleware/errorHandlerMiddleware.js');
 

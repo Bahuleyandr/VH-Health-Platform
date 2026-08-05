@@ -502,6 +502,143 @@ export const schemas = {
     type: 'object', additionalProperties: false,
     required: ['expected_version'], properties: { expected_version: expectedVersion },
   },
+  ExternalRecoveryOperabilityActionReceipt: {
+    type: 'object', additionalProperties: true,
+    required: ['action_id', 'action', 'command_class', 'outcome', 'effect_identity', 'command_fingerprint', 'recorded_at'],
+    properties: {
+      action_id: uuid,
+      action: { type: 'string', enum: ['register_offset', 'authorize_resume'] },
+      command_class: { type: 'string', enum: ['register_paused_offset', 'register_marker_absent_offset', 'authorize_partition_resume'] },
+      outcome: { type: 'string', enum: ['applied', 'refused_stale', 'refused_drift', 'refused_policy', 'refused_scope', 'infrastructure_failure'] },
+      disposition: { type: 'string', enum: ['applied', 'exact_duplicate'] },
+      offset_id: nullableUuid,
+      effect_identity: sha256,
+      command_fingerprint: sha256,
+      audit_event_id: nullableUuid,
+      recorded_at: dateTime,
+    },
+  },
+  ExternalRecoveryOperabilityOffset: {
+    type: 'object', additionalProperties: false,
+    required: [
+      'tenant_id', 'offset_id', 'facility_scope', 'facility_id',
+      'interface_family', 'direction', 'source_partition', 'generation',
+      'recovery_state', 'state_fingerprint', 'capabilities',
+      'refusal_reasons', 'observations',
+    ],
+    properties: {
+      tenant_id: uuid,
+      offset_id: uuid,
+      facility_scope: { type: 'string', enum: ['tenant', 'facility'] },
+      facility_id: { type: 'integer', minimum: 1, nullable: true },
+      interface_family: { type: 'string', pattern: '^I(?:0[1-9]|[12][0-9]|30)$' },
+      direction: { type: 'string', enum: ['inbound', 'outbound'] },
+      source_partition: { type: 'string', minLength: 1, maxLength: 160 },
+      generation: { type: 'integer', minimum: 1 },
+      high_water_position: { ...bigintNonNegative, nullable: true },
+      high_water_token: { type: 'string', maxLength: 255, nullable: true },
+      retained_from_position: { ...bigintNonNegative, nullable: true },
+      retained_from_token: { type: 'string', maxLength: 255, nullable: true },
+      resume_cutoff_position: { ...bigintNonNegative, nullable: true },
+      resume_cutoff_token: { type: 'string', maxLength: 255, nullable: true },
+      recovery_state: { type: 'string' },
+      reconciliation_reason: { type: 'string', nullable: true },
+      policy_version: { type: 'string' },
+      retention_policy: { type: 'string' },
+      retention_until: dateTime,
+      intake_retired_at: nullableDateTime,
+      state_fingerprint: sha256,
+      command_class: { type: 'string' },
+      capabilities: {
+        type: 'object', additionalProperties: false,
+        required: ['can_authorize_resume'],
+        properties: { can_authorize_resume: { type: 'boolean' } },
+      },
+      refusal_reasons: { type: 'array', items: { type: 'string' } },
+      observations: {
+        type: 'object', additionalProperties: false,
+        required: [
+          'pending_rows', 'oldest_pending_age_seconds', 'dead_rows',
+          'unacknowledged_critical_reviews', 'oldest_unacknowledged_age_seconds',
+        ],
+        properties: {
+          pending_rows: { type: 'integer', minimum: 0 },
+          oldest_pending_age_seconds: { type: 'number', minimum: 0 },
+          dead_rows: { type: 'integer', minimum: 0 },
+          unacknowledged_critical_reviews: { type: 'integer', minimum: 0 },
+          oldest_unacknowledged_age_seconds: { type: 'number', minimum: 0 },
+        },
+      },
+      latest_command_receipt: {
+        allOf: [{ $ref: '#/components/schemas/ExternalRecoveryOperabilityActionReceipt' }],
+        nullable: true,
+      },
+    },
+  },
+  ExternalRecoveryOperabilityWorkbench: {
+    type: 'object', additionalProperties: false,
+    required: ['offsets', 'count', 'capabilities'],
+    properties: {
+      offsets: { type: 'array', items: { $ref: '#/components/schemas/ExternalRecoveryOperabilityOffset' } },
+      count: { type: 'integer', minimum: 0 },
+      capabilities: {
+        type: 'object', additionalProperties: false,
+        required: ['can_register_exact_partition', 'supports_predicate_bulk_mutation'],
+        properties: {
+          can_register_exact_partition: { type: 'boolean' },
+          supports_predicate_bulk_mutation: { type: 'boolean', enum: [false] },
+        },
+      },
+    },
+  },
+  ExternalRecoveryOperabilityWorkbenchResponse: envelope('ExternalRecoveryOperabilityWorkbench'),
+  ExternalRecoveryOperabilityRegisterRequest: {
+    type: 'object', additionalProperties: false,
+    required: [
+      'interface_family', 'source_partition', 'generation',
+      'policy_version', 'policy_signature', 'retention_policy', 'retention_until',
+      'owner_evidence_reference', 'owner_evidence_signature',
+      'reason_code', 'reason_detail',
+    ],
+    properties: {
+      interface_family: { type: 'string', pattern: '^I(?:0[1-9]|[12][0-9]|30)$' },
+      subpath: { type: 'string', maxLength: 80, nullable: true },
+      protocol: { type: 'string', maxLength: 40, nullable: true },
+      stream_direction: { type: 'string', enum: ['inbound', 'outbound'], nullable: true },
+      source_partition: { type: 'string', minLength: 1, maxLength: 160 },
+      generation: { type: 'integer', minimum: 1 },
+      facility_id: { type: 'integer', minimum: 1, nullable: true },
+      initial_position: { ...bigintNonNegative, nullable: true },
+      initial_token: { type: 'string', maxLength: 255, nullable: true },
+      retained_from_position: { ...bigintNonNegative, nullable: true },
+      retained_from_token: { type: 'string', maxLength: 255, nullable: true },
+      policy_version: { type: 'string', minLength: 1, maxLength: 80 },
+      policy_signature: { type: 'string', minLength: 1, maxLength: 128 },
+      retention_policy: { type: 'string', minLength: 1, maxLength: 80 },
+      retention_until: dateTime,
+      owner_evidence_reference: { type: 'string', minLength: 1, maxLength: 255 },
+      owner_evidence_signature: { type: 'string', minLength: 1, maxLength: 512 },
+      reason_code: { type: 'string', enum: ['initial_marker_reconciled', 'retained_range_verified', 'marker_absence_recorded'] },
+      reason_detail: { type: 'string', minLength: 10, maxLength: 500 },
+    },
+  },
+  ExternalRecoveryOperabilityResumeRequest: {
+    type: 'object', additionalProperties: false,
+    required: [
+      'expected_state_fingerprint', 'resume_cutoff_position', 'resume_cutoff_token',
+      'owner_evidence_reference', 'owner_evidence_signature', 'reason_code', 'reason_detail',
+    ],
+    properties: {
+      expected_state_fingerprint: sha256,
+      resume_cutoff_position: bigintNonNegative,
+      resume_cutoff_token: { type: 'string', minLength: 1, maxLength: 255 },
+      owner_evidence_reference: { type: 'string', minLength: 1, maxLength: 255 },
+      owner_evidence_signature: { type: 'string', minLength: 1, maxLength: 512 },
+      reason_code: { type: 'string', enum: ['resume_cutoff_reconciled', 'source_count_reconciled', 'owner_recovery_evidence_reconciled'] },
+      reason_detail: { type: 'string', minLength: 10, maxLength: 500 },
+    },
+  },
+  ExternalRecoveryOperabilityCommandResponse: envelope('ExternalRecoveryOperabilityActionReceipt'),
 };
 
 const base = '/api/v1/downtime/reconciliation';
@@ -519,7 +656,31 @@ const ALWAYS_503 =
   'time C-D14 activation gate is hardcoded false in this codebase and no deployment ' +
   'configuration can override it.';
 
+const externalRecoveryBase = '/api/v1/admin/continuity/external-recovery';
+const externalRecoveryIdempotencyKey = {
+  name: 'Idempotency-Key', in: 'header', required: true,
+  schema: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9_\\-:.]+$' },
+};
+
 export const operations = {
+  [`GET ${externalRecoveryBase}/workbench`]: {
+    summary: 'Read external-recovery operability state',
+    description: 'Returns current-tenant external-recovery partition state, server-derived command capabilities, safe marker evidence, command receipts, and output observations. Visibility does not grant offset authority and no source payload, ciphertext, secret, or credential is returned.',
+    response: 'ExternalRecoveryOperabilityWorkbenchResponse',
+  },
+  [`POST ${externalRecoveryBase}/offsets`]: {
+    summary: 'Register one exact external-recovery partition',
+    description: 'Registers one exact implemented HWM partition as paused or marker-missing and atomically appends operator/audit evidence. It performs no family activation, worker start, replay, dispatch, cursor advance, clinical effect, or notification.',
+    parameters: [externalRecoveryIdempotencyKey], request: 'ExternalRecoveryOperabilityRegisterRequest',
+    response: 'ExternalRecoveryOperabilityCommandResponse', responseStatus: 201,
+  },
+  [`POST ${externalRecoveryBase}/offsets/{offsetId}/resume-authorizations`]: {
+    summary: 'Authorize one exact external-recovery partition resume',
+    description: 'Authorizes replay only for the exact paused offset, generation, state fingerprint, and cutoff marker and atomically appends operator/audit evidence. It performs no worker start, item claim, cursor advance, retrospective alert, pathway, SLA, or notification effect.',
+    pathParameters: { offsetId: uuid }, parameters: [externalRecoveryIdempotencyKey],
+    request: 'ExternalRecoveryOperabilityResumeRequest',
+    response: 'ExternalRecoveryOperabilityCommandResponse', responseStatus: 201,
+  },
   [`GET ${base}/workbench`]: {
     summary: "Read the reconciliation workbench for the caller's facility",
     description:

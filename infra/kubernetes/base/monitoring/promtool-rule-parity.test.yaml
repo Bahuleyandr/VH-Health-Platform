@@ -368,3 +368,167 @@ tests:
                 that a printable pack exists. Check the backend /metrics scrape and the
                 ward-downtime-pack-output-probe scheduler job.
               runbook: "docs/DOWNTIME_PROCEDURE.md"
+
+  # External-recovery alerts retain the honest database-output scope. Facility
+  # 41 is sick while facility 42 and a tenant-wide stream are healthy.
+  - interval: 1m
+    input_series:
+      - series: 'external_recovery_observation_timestamp_seconds{pod="backend-0"}'
+        values: '0+60x40'
+      - series: 'external_recovery_active_offsets{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="41",interface_family="I10",direction="inbound",recovery_state="reconciliation_required_source_gap",pod="backend-0"}'
+        values: '1x40'
+      - series: 'external_recovery_inbox_pending_rows{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="41",interface_family="I10",direction="inbound",pod="backend-0"}'
+        values: '501x40'
+      - series: 'external_recovery_inbox_oldest_pending_age_seconds{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="41",interface_family="I10",direction="inbound",pod="backend-0"}'
+        values: '1000x40'
+      - series: 'external_recovery_inbox_dead_rows{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="41",interface_family="I10",direction="inbound",pod="backend-0"}'
+        values: '1x40'
+      - series: 'external_recovery_critical_review_unacknowledged_rows{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="41",interface_family="I10",direction="inbound",pod="backend-0"}'
+        values: '1x40'
+      - series: 'external_recovery_active_offsets{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="42",interface_family="I10",direction="inbound",recovery_state="ready",pod="backend-0"}'
+        values: '1x40'
+      - series: 'external_recovery_inbox_pending_rows{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="42",interface_family="I10",direction="inbound",pod="backend-0"}'
+        values: '0x40'
+      - series: 'external_recovery_active_offsets{tenant_id="20000000-0000-4000-8000-000000000001",facility_scope="tenant",facility_id="tenant-wide",interface_family="I01",direction="inbound",recovery_state="ready",pod="backend-0"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ExternalRecoveryObservabilityUnobserved
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: ExternalRecoveryOffsetRequiresReconciliation
+        exp_alerts:
+          - exp_labels:
+              tenant_id: "10000000-0000-4000-8000-000000000001"
+              facility_scope: facility
+              facility_id: "41"
+              interface_family: I10
+              direction: inbound
+              recovery_state: reconciliation_required_source_gap
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "External recovery for 10000000-0000-4000-8000-000000000001/41 I10 inbound requires reconciliation"
+              description: "The database reports one or more live offsets in reconciliation_required_source_gap. Inspect the exact partition in the Admin Continuity Reconciliation workbench; do not bulk resume."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+      - eval_time: 20m
+        alertname: ExternalRecoveryInboxDeadRows
+        exp_alerts:
+          - exp_labels:
+              tenant_id: "10000000-0000-4000-8000-000000000001"
+              facility_scope: facility
+              facility_id: "41"
+              interface_family: I10
+              direction: inbound
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "External recovery has terminal dead work for 10000000-0000-4000-8000-000000000001/41 I10 inbound"
+              description: "The database reports terminal external-interface inbox rows. Inspect exact rows and preserved evidence; this alert grants no redrive or family activation authority."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+      - eval_time: 20m
+        alertname: ExternalRecoveryInboxPendingStalled
+        exp_alerts:
+          - exp_labels:
+              tenant_id: "10000000-0000-4000-8000-000000000001"
+              facility_scope: facility
+              facility_id: "41"
+              interface_family: I10
+              direction: inbound
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "External recovery pending work is stalled for 10000000-0000-4000-8000-000000000001/41 I10 inbound"
+              description: "At least one database inbox row has remained pending for more than 15 minutes after recovery recording. This is output evidence, not a worker-liveness proxy."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+      - eval_time: 20m
+        alertname: ExternalRecoveryInboxBacklogHigh
+        exp_alerts:
+          - exp_labels:
+              tenant_id: "10000000-0000-4000-8000-000000000001"
+              facility_scope: facility
+              facility_id: "41"
+              interface_family: I10
+              direction: inbound
+              severity: warning
+              team: continuity
+            exp_annotations:
+              summary: "External recovery backlog exceeds 500 rows for 10000000-0000-4000-8000-000000000001/41 I10 inbound"
+              description: "The database output reports a sustained capacity backlog. This signal is not permission to predicate-bulk replay or weaken cursor fences."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+      - eval_time: 20m
+        alertname: ExternalRecoveryCriticalReviewUnacknowledged
+        exp_alerts:
+          - exp_labels:
+              tenant_id: "10000000-0000-4000-8000-000000000001"
+              facility_scope: facility
+              facility_id: "41"
+              interface_family: I10
+              direction: inbound
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "Late critical result awaits continuity awareness for 10000000-0000-4000-8000-000000000001/41"
+              description: "Open the facility/tenant Critical Results / Clinical Inbox. This operational page reports a missing recovery-awareness acknowledgement; it is not a fresh lab alarm or SLA breach."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+
+  # Missing output cannot be made green by a zero offset total.
+  - interval: 1m
+    input_series:
+      - series: 'external_recovery_offsets_observed_total{pod="backend-0"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ExternalRecoveryObservabilityUnobserved
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "External-recovery database output has not been observed for five minutes — state is unknown"
+              description: "The output snapshot is absent or stale. Do not infer healthy offsets, inboxes, or late-critical awareness from backend liveness."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+
+  # Stale output is also unknown, even though a timestamp series exists.
+  - interval: 1m
+    input_series:
+      - series: 'external_recovery_observation_timestamp_seconds{pod="backend-0"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ExternalRecoveryObservabilityUnobserved
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "External-recovery database output has not been observed for five minutes — state is unknown"
+              description: "The output snapshot is absent or stale. Do not infer healthy offsets, inboxes, or late-critical awareness from backend liveness."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+
+  # The continuity page clears only when the acknowledgement output becomes 0.
+  - interval: 1m
+    input_series:
+      - series: 'external_recovery_observation_timestamp_seconds{pod="backend-0"}'
+        values: '0+60x20'
+      - series: 'external_recovery_critical_review_unacknowledged_rows{tenant_id="20000000-0000-4000-8000-000000000001",facility_scope="tenant",facility_id="tenant-wide",interface_family="I01",direction="inbound",pod="backend-0"}'
+        values: '1x5 0x15'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ExternalRecoveryCriticalReviewUnacknowledged
+        exp_alerts:
+          - exp_labels:
+              tenant_id: "20000000-0000-4000-8000-000000000001"
+              facility_scope: tenant
+              facility_id: tenant-wide
+              interface_family: I01
+              direction: inbound
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "Late critical result awaits continuity awareness for 20000000-0000-4000-8000-000000000001/tenant-wide"
+              description: "Open the facility/tenant Critical Results / Clinical Inbox. This operational page reports a missing recovery-awareness acknowledgement; it is not a fresh lab alarm or SLA breach."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+      - eval_time: 7m
+        alertname: ExternalRecoveryCriticalReviewUnacknowledged
+        exp_alerts: []

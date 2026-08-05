@@ -72,7 +72,7 @@ const idempotencyKeyParameter = {
 export const operations = {
   'POST /api/v1/clinical-inbox/tasks/{id}/acknowledge': {
     summary: 'Acknowledge a clinical inbox task',
-    description: 'Stops the linked escalation clock only when the caller has task assignment, assigned-role, task-administrator, or durable patient break-glass authority.',
+    description: 'Stops the linked escalation clock only when the caller has task assignment, assigned-role, task-administrator, or durable patient break-glass authority. For a C-D8 late-critical recovery task, appends the exact continuity-awareness acknowledgement while keeping the task no-SLA and pending clinical review. It does not create or complete a critical-result SLA and does not fire a lab alert, pathway transition, or notification.',
     request: 'ClinicalInboxTaskAcknowledgeRequest',
     requestRequired: false
   },

@@ -386,6 +386,13 @@ class ClinicalInboxTask {
   final String diagnosticAuthoritativeDisposition;
   final DateTime? diagnosticAuthoritativeActionOccurredAt;
   final bool canCrossSignPendingResult;
+  final String externalRecoveryCriticalReviewObligationId;
+  final String externalRecoveryCriticalReviewAcknowledgementId;
+  final String externalRecoveryInterfaceFamily;
+  final bool externalRecoveryAwarenessAcknowledgementRequired;
+  final DateTime? externalRecoverySourceOccurredAt;
+  final DateTime? externalRecoveryAwarenessRecordedAt;
+  final DateTime? externalRecoveryAwarenessAcknowledgedAt;
   final DateTime? dueAt;
   final DateTime? slaBreachedAt;
   final DateTime? createdAt;
@@ -425,6 +432,13 @@ class ClinicalInboxTask {
     this.diagnosticAuthoritativeDisposition = '',
     this.diagnosticAuthoritativeActionOccurredAt,
     this.canCrossSignPendingResult = false,
+    this.externalRecoveryCriticalReviewObligationId = '',
+    this.externalRecoveryCriticalReviewAcknowledgementId = '',
+    this.externalRecoveryInterfaceFamily = '',
+    this.externalRecoveryAwarenessAcknowledgementRequired = false,
+    this.externalRecoverySourceOccurredAt,
+    this.externalRecoveryAwarenessRecordedAt,
+    this.externalRecoveryAwarenessAcknowledgedAt,
     required this.dueAt,
     required this.slaBreachedAt,
     required this.createdAt,
@@ -489,6 +503,26 @@ class ClinicalInboxTask {
         json['diagnostic_authoritative_action_occurred_at'],
       ),
       canCrossSignPendingResult: json['can_cross_sign'] == true,
+      externalRecoveryCriticalReviewObligationId: _text(
+        json['external_recovery_critical_review_obligation_id'],
+      ),
+      externalRecoveryCriticalReviewAcknowledgementId: _text(
+        json['external_recovery_critical_review_acknowledgement_id'],
+      ),
+      externalRecoveryInterfaceFamily: _text(
+        json['external_recovery_interface_family'],
+      ).toUpperCase(),
+      externalRecoveryAwarenessAcknowledgementRequired:
+          json['external_recovery_awareness_acknowledgement_required'] == true,
+      externalRecoverySourceOccurredAt: _parseDate(
+        json['external_recovery_source_occurred_at'],
+      ),
+      externalRecoveryAwarenessRecordedAt: _parseDate(
+        json['external_recovery_awareness_recorded_at'],
+      ),
+      externalRecoveryAwarenessAcknowledgedAt: _parseDate(
+        json['external_recovery_awareness_acknowledged_at'],
+      ),
       dueAt: _parseDate(json['due_at']),
       slaBreachedAt: _parseDate(json['sla_breached_at']),
       createdAt: _parseDate(json['created_at']),
@@ -500,8 +534,16 @@ class ClinicalInboxTask {
       status == 'open' || status == 'in_progress' || status == 'overdue';
 
   bool get needsAcknowledgement =>
-      slaCompletionSemantics == 'acknowledgement' &&
+      (slaCompletionSemantics == 'acknowledgement' ||
+          isRecoveredCriticalAwareness) &&
       (status == 'open' || status == 'overdue');
+
+  bool get isRecoveredCriticalAwareness =>
+      externalRecoveryCriticalReviewObligationId.isNotEmpty &&
+      externalRecoveryAwarenessAcknowledgementRequired &&
+      slaCompletionSemantics == 'none' &&
+      dueAt == null &&
+      priority == 'critical';
 
   bool get needsDoctorAction =>
       slaCompletionSemantics == 'domain_evidence' &&
@@ -630,6 +672,17 @@ class ClinicalInboxTask {
       diagnosticAuthoritativeActionOccurredAt:
           diagnosticAuthoritativeActionOccurredAt,
       canCrossSignPendingResult: canCrossSignPendingResult,
+      externalRecoveryCriticalReviewObligationId:
+          externalRecoveryCriticalReviewObligationId,
+      externalRecoveryCriticalReviewAcknowledgementId:
+          externalRecoveryCriticalReviewAcknowledgementId,
+      externalRecoveryInterfaceFamily: externalRecoveryInterfaceFamily,
+      externalRecoveryAwarenessAcknowledgementRequired:
+          externalRecoveryAwarenessAcknowledgementRequired,
+      externalRecoverySourceOccurredAt: externalRecoverySourceOccurredAt,
+      externalRecoveryAwarenessRecordedAt: externalRecoveryAwarenessRecordedAt,
+      externalRecoveryAwarenessAcknowledgedAt:
+          externalRecoveryAwarenessAcknowledgedAt,
       dueAt: dueAt ?? this.dueAt,
       slaBreachedAt: slaBreachedAt ?? this.slaBreachedAt,
       createdAt: createdAt,

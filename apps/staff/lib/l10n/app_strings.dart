@@ -1505,6 +1505,12 @@ class AppStrings {
   String get clinicalInboxAcknowledge => _t('clinical_inbox.acknowledge');
   String get clinicalInboxAcknowledgeCritical =>
       _t('clinical_inbox.acknowledge_critical');
+  String get clinicalInboxAcknowledgeRecoveredCritical =>
+      _t('clinical_inbox.acknowledge_recovered_critical');
+  String get clinicalInboxRecoveredCriticalRequired =>
+      _t('clinical_inbox.recovered_critical.required');
+  String get clinicalInboxRecoveredCriticalBoundary =>
+      _t('clinical_inbox.recovered_critical.boundary');
   String get clinicalInboxAcknowledging => _t('clinical_inbox.acknowledging');
   String get clinicalInboxAcknowledged => _t('clinical_inbox.acknowledged');
   String clinicalInboxAckFailed(String reason) =>
@@ -4103,6 +4109,12 @@ class AppStrings {
       'clinical_inbox.empty': 'No pending critical results',
       'clinical_inbox.acknowledge': 'Acknowledge',
       'clinical_inbox.acknowledge_critical': 'Acknowledge critical result',
+      'clinical_inbox.acknowledge_recovered_critical':
+          'Acknowledge recovered result',
+      'clinical_inbox.recovered_critical.required':
+          'Recovered critical result — acknowledgement required',
+      'clinical_inbox.recovered_critical.boundary':
+          'Continuity awareness only — not a fresh alarm or SLA breach.',
       'clinical_inbox.acknowledging': 'Acknowledging...',
       'clinical_inbox.acknowledged': 'Acknowledged',
       'clinical_inbox.ack_failed_prefix': 'Could not acknowledge:',
@@ -10579,6 +10591,12 @@ class AppStrings {
       'clinical_inbox.acknowledge': 'स्वीकार करें',
       'clinical_inbox.acknowledging': 'स्वीकार किया जा रहा है...',
       'clinical_inbox.acknowledged': 'स्वीकार किया गया',
+      'clinical_inbox.acknowledge_recovered_critical':
+          'पुनर्प्राप्त परिणाम स्वीकार करें',
+      'clinical_inbox.recovered_critical.required':
+          'पुनर्प्राप्त गंभीर परिणाम — स्वीकृति आवश्यक',
+      'clinical_inbox.recovered_critical.boundary':
+          'केवल निरंतरता जागरूकता — नया अलार्म या SLA उल्लंघन नहीं।',
       'clinical_inbox.ack_failed_prefix': 'स्वीकार नहीं हो सका:',
       'clinical_inbox.patient': 'रोगी',
       'clinical_inbox.unknown_patient': 'अज्ञात रोगी',
@@ -16933,6 +16951,12 @@ class AppStrings {
       'clinical_inbox.acknowledge': 'ஏற்கவும்',
       'clinical_inbox.acknowledging': 'ஏற்கப்படுகிறது...',
       'clinical_inbox.acknowledged': 'ஏற்கப்பட்டது',
+      'clinical_inbox.acknowledge_recovered_critical':
+          'மீட்கப்பட்ட முடிவை ஏற்கவும்',
+      'clinical_inbox.recovered_critical.required':
+          'மீட்கப்பட்ட அவசர முடிவு — ஏற்பு தேவை',
+      'clinical_inbox.recovered_critical.boundary':
+          'தொடர்ச்சி விழிப்புணர்வு மட்டும் — புதிய எச்சரிக்கை அல்லது SLA மீறல் அல்ல.',
       'clinical_inbox.ack_failed_prefix': 'ஏற்க முடியவில்லை:',
       'clinical_inbox.patient': 'நோயாளர்',
       'clinical_inbox.unknown_patient': 'அறியப்படாத நோயாளர்',
@@ -23960,6 +23984,12 @@ class AppStrings {
       'clinical_inbox.acknowledge': 'అంగీకరించండి',
       'clinical_inbox.acknowledging': 'అంగీకరిస్తోంది...',
       'clinical_inbox.acknowledged': 'అంగీకరించబడింది',
+      'clinical_inbox.acknowledge_recovered_critical':
+          'రికవర్ చేసిన ఫలితాన్ని అంగీకరించండి',
+      'clinical_inbox.recovered_critical.required':
+          'రికవర్ చేసిన క్రిటికల్ ఫలితం — అంగీకారం అవసరం',
+      'clinical_inbox.recovered_critical.boundary':
+          'కంటిన్యుటీ అవగాహన మాత్రమే — కొత్త అలారం లేదా SLA ఉల్లంఘన కాదు.',
       'clinical_inbox.ack_failed_prefix': 'అంగీకరించలేకపోయాం:',
       'clinical_inbox.patient': 'రోగి',
       'clinical_inbox.unknown_patient': 'తెలియని రోగి',

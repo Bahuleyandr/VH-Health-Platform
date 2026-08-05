@@ -301,4 +301,47 @@ void main() {
     expect(withoutServerAuthority.needsPostDischargeCrossSign, isFalse);
     expect(withoutServerAuthority.needsClinicalAction, isFalse);
   });
+
+  test(
+    'parses late-critical continuity awareness as no-SLA acknowledgement work',
+    () {
+      final task = ClinicalInboxTask.fromJson({
+        'id': 81,
+        'priority': 'critical',
+        'status': 'open',
+        'sla_completion_semantics': 'none',
+        'due_at': null,
+        'external_recovery_critical_review_obligation_id':
+            '11111111-1111-4111-8111-111111111111',
+        'external_recovery_critical_review_acknowledgement_id': null,
+        'external_recovery_interface_family': 'i01',
+        'external_recovery_awareness_acknowledgement_required': true,
+        'external_recovery_source_occurred_at': '2026-08-01T01:00:00Z',
+        'external_recovery_awareness_recorded_at': '2026-08-05T01:00:00Z',
+      });
+
+      expect(task.isRecoveredCriticalAwareness, isTrue);
+      expect(task.needsAcknowledgement, isTrue);
+      expect(task.needsClinicalAction, isTrue);
+      expect(task.slaCompletionSemantics, 'none');
+      expect(task.dueAt, isNull);
+      expect(task.externalRecoveryInterfaceFamily, 'I01');
+    expect(
+      task.externalRecoverySourceOccurredAt,
+      DateTime.parse('2026-08-01T01:00:00Z').toLocal(),
+    );
+
+      final forgedSlaShape = ClinicalInboxTask.fromJson({
+        'id': 82,
+        'priority': 'critical',
+        'status': 'open',
+        'sla_completion_semantics': 'acknowledgement',
+        'due_at': '2026-08-05T01:15:00Z',
+        'external_recovery_critical_review_obligation_id':
+            '22222222-2222-4222-8222-222222222222',
+        'external_recovery_awareness_acknowledgement_required': true,
+      });
+      expect(forgedSlaShape.isRecoveredCriticalAwareness, isFalse);
+    },
+  );
 }

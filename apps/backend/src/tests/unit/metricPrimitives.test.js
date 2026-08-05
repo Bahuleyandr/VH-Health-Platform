@@ -19,6 +19,19 @@ describe('metricPrimitives', () => {
     expect(g.serialize()).toContain('demo_depth 42');
   });
 
+  it('Gauge replaces a complete labelled snapshot and removes stale labels', () => {
+    const g = new Gauge('demo_scope_depth', 'demo', ['facility_id']);
+    g.replace([
+      { labels: { facility_id: '41' }, value: 2 },
+      { labels: { facility_id: '42' }, value: 0 },
+    ]);
+    g.replace([{ labels: { facility_id: '42' }, value: 1 }]);
+
+    const out = g.serialize();
+    expect(out).not.toContain('facility_id="41"');
+    expect(out).toContain('demo_scope_depth{facility_id="42"} 1');
+  });
+
   it('Histogram emits cumulative buckets + sum + count', () => {
     const h = new Histogram('demo_seconds', 'demo', ['route'], [0.1, 0.5, 1]);
     h.observe({ route: '/x' }, 0.2);

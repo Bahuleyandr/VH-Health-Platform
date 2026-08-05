@@ -19,6 +19,7 @@ import {
   evaluateCriticalThreshold,
 } from '../lab/labCriticalThresholdService.js';
 import { createTask } from '../workflow/taskService.js';
+import { appendExternalRecoveryCriticalReviewObligationTx } from './externalRecoveryCriticalReviewService.js';
 import {
   enqueueExternalRecoveryItem,
   processNextItemTx,
@@ -727,6 +728,16 @@ async function persistI01({ tx, tenantId, recoveryInboxId, occurredAt, command }
     criticalResultIds,
     actorUid: trusted.actor.uid,
   });
+  const criticalReviewObligation = await appendExternalRecoveryCriticalReviewObligationTx({
+    tx,
+    tenantId,
+    recoveryInboxId,
+    interfaceFamily: 'I01',
+    task,
+    patientUid: source.patientUid,
+    criticalResultIds,
+    sourceOccurredAt: occurredAt,
+  });
   const completed = await tx.$queryRawUnsafe(
     `UPDATE lab_oru_ingest_messages
         SET status = 'completed', result_ids = $3::integer[],
@@ -745,6 +756,7 @@ async function persistI01({ tx, tenantId, recoveryInboxId, occurredAt, command }
     result: results[0],
     results,
     task,
+    criticalReviewObligation,
     receipt: completed[0],
     outcomeCode: 'i01_lab_results_pending_review',
   });
@@ -889,6 +901,16 @@ async function persistI02({ tx, tenantId, recoveryInboxId, occurredAt, command }
     criticalResultIds,
     actorUid: actor.actorUid,
   });
+  const criticalReviewObligation = await appendExternalRecoveryCriticalReviewObligationTx({
+    tx,
+    tenantId,
+    recoveryInboxId,
+    interfaceFamily: 'I02',
+    task,
+    patientUid: source.specimen.patient_uid,
+    criticalResultIds,
+    sourceOccurredAt: occurredAt,
+  });
   const pending = await tx.$queryRawUnsafe(
     `UPDATE lab_interface_messages
         SET status = 'pending_review', result_count = $3::integer,
@@ -910,6 +932,7 @@ async function persistI02({ tx, tenantId, recoveryInboxId, occurredAt, command }
     result: results[0],
     results,
     task,
+    criticalReviewObligation,
     receipt: pending[0],
     outcomeCode: 'i02_lab_results_pending_review',
   });

@@ -182,6 +182,69 @@ spec:
           annotations:
             summary: "Retired pathway projector generations still contain pending work"
             runbook: "docs/RUNBOOK_ONCALL.md#pathwayprojectordebt"
+    - name: external-recovery-operability
+      interval: 30s
+      rules:
+        - alert: ExternalRecoveryObservabilityUnobserved
+          expr: absent(external_recovery_observation_timestamp_seconds) or (time() - max(external_recovery_observation_timestamp_seconds) > 300)
+          for: 5m
+          labels:
+            severity: critical
+            team: continuity
+          annotations:
+            summary: "External-recovery database output has not been observed for five minutes — state is unknown"
+            description: "The output snapshot is absent or stale. Do not infer healthy offsets, inboxes, or late-critical awareness from backend liveness."
+            runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+        - alert: ExternalRecoveryOffsetRequiresReconciliation
+          expr: max by (tenant_id, facility_scope, facility_id, interface_family, direction, recovery_state) (external_recovery_active_offsets{recovery_state=~"reconciliation_required_.*"}) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: continuity
+          annotations:
+            summary: "External recovery for {{ $labels.tenant_id }}/{{ $labels.facility_id }} {{ $labels.interface_family }} {{ $labels.direction }} requires reconciliation"
+            description: "The database reports one or more live offsets in {{ $labels.recovery_state }}. Inspect the exact partition in the Admin Continuity Reconciliation workbench; do not bulk resume."
+            runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+        - alert: ExternalRecoveryInboxDeadRows
+          expr: max by (tenant_id, facility_scope, facility_id, interface_family, direction) (external_recovery_inbox_dead_rows) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: continuity
+          annotations:
+            summary: "External recovery has terminal dead work for {{ $labels.tenant_id }}/{{ $labels.facility_id }} {{ $labels.interface_family }} {{ $labels.direction }}"
+            description: "The database reports terminal external-interface inbox rows. Inspect exact rows and preserved evidence; this alert grants no redrive or family activation authority."
+            runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+        - alert: ExternalRecoveryInboxPendingStalled
+          expr: max by (tenant_id, facility_scope, facility_id, interface_family, direction) (external_recovery_inbox_pending_rows) > 0 and on (tenant_id, facility_scope, facility_id, interface_family, direction) max by (tenant_id, facility_scope, facility_id, interface_family, direction) (external_recovery_inbox_oldest_pending_age_seconds) > 900
+          for: 5m
+          labels:
+            severity: critical
+            team: continuity
+          annotations:
+            summary: "External recovery pending work is stalled for {{ $labels.tenant_id }}/{{ $labels.facility_id }} {{ $labels.interface_family }} {{ $labels.direction }}"
+            description: "At least one database inbox row has remained pending for more than 15 minutes after recovery recording. This is output evidence, not a worker-liveness proxy."
+            runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+        - alert: ExternalRecoveryInboxBacklogHigh
+          expr: max by (tenant_id, facility_scope, facility_id, interface_family, direction) (external_recovery_inbox_pending_rows) > 500
+          for: 15m
+          labels:
+            severity: warning
+            team: continuity
+          annotations:
+            summary: "External recovery backlog exceeds 500 rows for {{ $labels.tenant_id }}/{{ $labels.facility_id }} {{ $labels.interface_family }} {{ $labels.direction }}"
+            description: "The database output reports a sustained capacity backlog. This signal is not permission to predicate-bulk replay or weaken cursor fences."
+            runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+        - alert: ExternalRecoveryCriticalReviewUnacknowledged
+          expr: max by (tenant_id, facility_scope, facility_id, interface_family, direction) (external_recovery_critical_review_unacknowledged_rows) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: continuity
+          annotations:
+            summary: "Late critical result awaits continuity awareness for {{ $labels.tenant_id }}/{{ $labels.facility_id }}"
+            description: "Open the facility/tenant Critical Results / Clinical Inbox. This operational page reports a missing recovery-awareness acknowledgement; it is not a fresh lab alarm or SLA breach."
+            runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
     - name: backend-safety-signals
       interval: 30s
       rules:

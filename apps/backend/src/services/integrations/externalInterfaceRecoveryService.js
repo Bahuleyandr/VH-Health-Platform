@@ -391,11 +391,14 @@ export async function enqueueExternalRecoveryItem({
         'EXTERNAL_RECOVERY_OFFSET_MISMATCH',
       );
     }
-    if (offset.recovery_state === 'reconciliation_required_missing_marker') {
-      return Object.freeze({ held: true, reason: 'missing_marker', offset });
-    }
     if (offset.recovery_state === 'retired') {
       throw AppError.conflict(`${config.id} recovery offset is retired`, 'EXTERNAL_RECOVERY_OFFSET_RETIRED');
+    }
+    if (offset.recovery_state !== 'replaying') {
+      throw AppError.conflict(
+        `${config.id} recovery offset is not in owner-authorized replay`,
+        'EXTERNAL_RECOVERY_OFFSET_NOT_REPLAYING',
+      );
     }
     const collisions = await tx.$queryRawUnsafe(
       `SELECT inbox_id::text, source_position::text, source_token, predecessor_token,
