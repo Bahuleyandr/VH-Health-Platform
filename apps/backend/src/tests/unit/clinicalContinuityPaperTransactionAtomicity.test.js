@@ -545,7 +545,7 @@ describe('C5.2 single-transaction crash/retry contract', () => {
     expect(state.receipt).toMatchObject({ disposition: 'applied' });
   });
 
-  test('uses all three clocks and emits only late pending evidence with every re-trigger suppressed', async () => {
+  test('uses all three clocks and emits one typed late-pending disposition', async () => {
     await apply();
     expect(state.receipt).toMatchObject({
       captured_at: '2026-07-31T03:00:00.000Z',
@@ -571,14 +571,17 @@ describe('C5.2 single-transaction crash/retry contract', () => {
     );
     expect(publishEvent).toHaveBeenCalledWith(expect.objectContaining({
       occurredAt: '2026-07-31T03:00:00.000Z',
+      retrospectiveEffectDisposition: 'late_pending_only',
       payload: expect.objectContaining({
         event_time_source: 'physical_occurrence',
         effect_disposition: 'late_pending_only',
-        suppress_sla_breach_alarm: true,
-        suppress_care_pathway_transition: true,
-        suppress_patient_notification: true,
       }),
       tx,
+    }));
+    expect(publishEvent.mock.calls[0][0].payload).not.toEqual(expect.objectContaining({
+      suppress_sla_breach_alarm: expect.anything(),
+      suppress_care_pathway_transition: expect.anything(),
+      suppress_patient_notification: expect.anything(),
     }));
     expect(createTask).not.toHaveBeenCalled();
   });

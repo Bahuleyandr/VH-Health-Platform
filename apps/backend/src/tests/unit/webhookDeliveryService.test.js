@@ -165,6 +165,21 @@ describe('enqueueDelivery', () => {
 });
 
 describe('dispatchPendingDeliveries', () => {
+  it('does not claim or send source-held paper deliveries', async () => {
+    mockNext([]); // orphan sweep
+    mockNext([]); // no live-authorized claim
+    const fetchMock = jest.fn();
+
+    const result = await dispatchPendingDeliveries({
+      fetchImpl: fetchMock,
+      leaseOwner: LEASE_OWNER,
+    });
+
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain("delivery.send_authority = 'live_authorized'");
+    expect(result.dispatched).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('fences a successful delivery and records subscription success only after CAS', async () => {
     setupDispatch();
     mockNext([terminalRow('succeeded')]);

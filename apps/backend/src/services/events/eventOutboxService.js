@@ -116,6 +116,38 @@ function normalizeRecoveryContract(recovery, occurredAt) {
   });
 }
 
+function normalizeRetrospectiveEffectDisposition({
+  eventType,
+  aggregateType,
+  aggregateId,
+  patientUid,
+  tenantId,
+  occurredAt,
+  recovery,
+  retrospectiveEffectDisposition,
+}) {
+  if (retrospectiveEffectDisposition === null || retrospectiveEffectDisposition === undefined) {
+    return null;
+  }
+  const validPaperFact = (
+    retrospectiveEffectDisposition === 'late_pending_only'
+    && eventType === 'clinical_continuity.paper_fact.recorded'
+    && aggregateType === 'clinical_continuity_retrospective_fact'
+    && UUID_PATTERN.test(String(aggregateId || ''))
+    && UUID_PATTERN.test(String(patientUid || ''))
+    && UUID_PATTERN.test(String(tenantId || ''))
+    && (recovery === null || recovery === undefined)
+  );
+  if (!validPaperFact) {
+    throw AppError.badRequest(
+      'retrospective effect disposition is invalid for this event',
+      'EVENT_OUTBOX_RETROSPECTIVE_DISPOSITION_INVALID',
+    );
+  }
+  normalizeOccurredAt(occurredAt, { required: true });
+  return 'late_pending_only';
+}
+
 function backoffSecondsForAttempt(attemptNumber) {
   const index = Math.max(0, Math.min(attemptNumber - 1, BACKOFF_SECONDS.length - 1));
   return BACKOFF_SECONDS[index];
@@ -144,6 +176,7 @@ export async function publishEvent({
   tenantId = null,
   occurredAt = null,
   recovery = null,
+  retrospectiveEffectDisposition = null,
 }) {
   if (!eventType || !aggregateType) {
     logger.warn('Skipped event_outbox insert: missing eventType or aggregateType', {
@@ -154,6 +187,16 @@ export async function publishEvent({
   }
   const normalizedOccurredAt = normalizeOccurredAt(occurredAt);
   const recoveryContract = normalizeRecoveryContract(recovery, occurredAt);
+  const retrospectiveDisposition = normalizeRetrospectiveEffectDisposition({
+    eventType,
+    aggregateType,
+    aggregateId,
+    patientUid,
+    tenantId,
+    occurredAt,
+    recovery,
+    retrospectiveEffectDisposition,
+  });
   const client = tx ?? prisma;
   const insert = () => (tenantId
     ? client.$queryRawUnsafe(
@@ -180,7 +223,7 @@ export async function publishEvent({
       normalizedOccurredAt,
       recoveryContract.inboxId,
       recoveryContract.fingerprint,
-      recoveryContract.effectDisposition,
+      retrospectiveDisposition || recoveryContract.effectDisposition,
     )
     : client.$queryRawUnsafe(
       `WITH clock AS (SELECT NOW() AS inserted_at)
@@ -205,7 +248,7 @@ export async function publishEvent({
       normalizedOccurredAt,
       recoveryContract.inboxId,
       recoveryContract.fingerprint,
-      recoveryContract.effectDisposition,
+      retrospectiveDisposition || recoveryContract.effectDisposition,
     ));
   if (tx) return (await insert())[0];
   try {
@@ -306,7 +349,7 @@ export async function completeClaimedEventFanout({ claim } = {}) {
   const fence = normalizeClaim(claim);
   return setTenantTx(fence.tenantId, async (tx) => {
     const sourceRows = await tx.$queryRawUnsafe(
-      `SELECT id::text, event_type, payload
+      `SELECT id::text, event_type, payload, recovery_effect_disposition
          FROM event_outbox
         WHERE tenant_id = $1::uuid
           AND id = $2::bigint
@@ -329,16 +372,23 @@ export async function completeClaimedEventFanout({ claim } = {}) {
           status, attempt_number, next_retry_at, request_id, source_kind,
           source_identity, source_position, payload_sha256,
           downstream_effect_classification, acknowledgement_contract,
-          acknowledgement_config, acknowledgement_state)
+          acknowledgement_config, acknowledgement_state,
+          send_authority, effect_disposition)
        SELECT subscription.id, subscription.tenant_id, $2::bigint,
-              $3::text, $4::jsonb, 'pending', 0, NOW(), gen_random_uuid()::text,
+              $3::text, $4::jsonb, 'pending', 0,
+              CASE WHEN $5::text = 'late_pending_only' THEN NULL ELSE NOW() END,
+              gen_random_uuid()::text,
               'event_outbox', 'event_outbox:' || $2::bigint::text,
               $2::bigint, encode(digest($4::jsonb::text, 'sha256'), 'hex'),
               subscription.downstream_effect_classification,
               subscription.acknowledgement_contract,
               subscription.acknowledgement_config,
               CASE WHEN subscription.acknowledgement_contract = 'unclassified'
-                   THEN 'unclassified' ELSE 'pending' END
+                   THEN 'unclassified' ELSE 'pending' END,
+              CASE WHEN $5::text = 'late_pending_only'
+                   THEN 'held_owner_reconciliation' ELSE 'live_authorized' END,
+              CASE WHEN $5::text = 'late_pending_only'
+                   THEN 'late_pending_only' ELSE 'live' END
          FROM webhook_subscriptions AS subscription
          JOIN integrations AS integration
            ON integration.tenant_id = subscription.tenant_id
@@ -356,6 +406,7 @@ export async function completeClaimedEventFanout({ claim } = {}) {
       fence.id,
       source.event_type,
       JSON.stringify(normalizePayload(source.payload)),
+      source.recovery_effect_disposition,
     );
     const coverage = await tx.$queryRawUnsafe(
       `SELECT COUNT(*)::integer AS eligible_count,

@@ -1894,6 +1894,7 @@ export async function applyClinicalContinuityPaperBackEntry({
       patientUid: effectivePatientUid,
       tenantId: scope.tenantId,
       occurredAt: parsed.normalized.occurred_at,
+      retrospectiveEffectDisposition: 'late_pending_only',
       payload: {
         action_id: parsed.actionId,
         incident_id: parsed.identity.incidentId,
@@ -1903,9 +1904,6 @@ export async function applyClinicalContinuityPaperBackEntry({
         recorded_at: fact.recorded_at,
         event_time_source: 'physical_occurrence',
         effect_disposition: 'late_pending_only',
-        suppress_sla_breach_alarm: true,
-        suppress_care_pathway_transition: true,
-        suppress_patient_notification: true,
       },
       tx,
     });

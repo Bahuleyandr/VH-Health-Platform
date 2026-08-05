@@ -75,7 +75,8 @@ describe('C5.2 inert build and closed command boundary', () => {
     expect(serviceSource).toContain('clinical_continuity.device_offset.recorded');
     expect(serviceSource).toContain('clinical_continuity.interface_requirement.recorded');
     expect(serviceSource).toContain('createTask');
-    expect(serviceSource).toContain("suppress_patient_notification: true");
+    expect(serviceSource).toContain("retrospectiveEffectDisposition: 'late_pending_only'");
+    expect(serviceSource).not.toMatch(/suppress_(sla_breach_alarm|care_pathway_transition|patient_notification)/);
     expect(serviceSource).not.toContain('INSERT INTO transfusion_verifications');
     expect(serviceSource).not.toContain('assertBedsideVerified');
     expect(serviceSource).not.toMatch(/from ['"].*(?:transfer|notification|pathway).*Service\.js['"]/i);
