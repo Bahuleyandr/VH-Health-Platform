@@ -12209,7 +12209,9 @@
           "encounter_id",
           "evidence_hash",
           "investigation_id",
-          "specimen_barcode"
+          "specimen_barcode",
+          "checker_uid",
+          "checker_role"
         ],
         "properties": {
           "expected_version": {
@@ -12251,6 +12253,15 @@
             "minLength": 1,
             "maxLength": 100
           },
+          "checker_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "checker_role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
           "collection_notes": {
             "type": "string",
             "nullable": true,
@@ -12269,7 +12280,10 @@
           "patient_uid",
           "encounter_id",
           "evidence_hash",
-          "medication_administration_id"
+          "admission_id",
+          "medication_administration_id",
+          "checker_uid",
+          "checker_role"
         ],
         "properties": {
           "expected_version": {
@@ -12302,9 +12316,22 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
           },
+          "admission_id": {
+            "type": "integer",
+            "minimum": 1
+          },
           "medication_administration_id": {
             "type": "integer",
             "minimum": 1
+          },
+          "checker_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "checker_role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
           },
           "notes": {
             "type": "string",
@@ -12950,8 +12977,7 @@
           },
           "encounter_id": {
             "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "format": "uuid"
           },
           "evidence_hash": {
             "type": "string",
@@ -12989,11 +13015,6 @@
           },
           "expiry_ok": {
             "type": "boolean"
-          },
-          "override_reason": {
-            "type": "string",
-            "nullable": true,
-            "maxLength": 2000
           }
         }
       },
@@ -87754,7 +87775,7 @@
           }
         },
         "summary": "Back-enter a paper blood-transfusion verification fact",
-        "description": "Mutates: records a retrospective blood-transfusion verification fact -- the two-verifier unit/patient/group-compatibility/expiry checks normally performed at the bedside -- as canonical-timeline/audit evidence for an outage, checked for consistency against any already-recorded electronic verification. Unlike the MAR and lab back-entry commands, it never writes a transfusion_verifications row itself. Patient-access-authorized and idempotent on (incident id, paper item id, payload fingerprint) rather than on the `Idempotency-Key` header, which is only logged; returns 409 with disposition 'needs_review' on conflict and 200 on replay. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "description": "Mutates: records a retrospective blood-transfusion verification fact -- the two-verifier unit/patient/group-compatibility/expiry checks normally performed at the bedside -- as canonical-timeline/audit evidence for an outage, checked for consistency against any already-recorded electronic verification. Unlike the MAR and lab back-entry commands, it never writes a transfusion_verifications row itself. Both verifiers must still be currently authorized, encounter identity is mandatory, and no override field is accepted. Patient-access-authorized and idempotent on (incident id, paper item id, payload fingerprint) rather than on the `Idempotency-Key` header, which is only logged; returns 409 with disposition 'needs_review' on conflict and 200 on replay. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
         "parameters": [
           {
             "name": "incidentId",
@@ -87807,7 +87828,7 @@
           }
         },
         "summary": "Back-enter a paper specimen-collection fact",
-        "description": "Mutates: applies a retrospective specimen-collection fact captured on paper during an outage onto the canonical clinical record, including updating the underlying investigations row itself when collection is still pending. Patient-access-authorized and naturally idempotent on (incident id, paper item id, payload fingerprint); an `Idempotency-Key` header, if sent, is only recorded in the attempt audit log and does not itself drive replay detection. Returns 409 with disposition 'needs_review' when it cannot be reconciled automatically, and 200 on replay of an already-applied fact. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "description": "Mutates: applies a retrospective specimen-collection fact captured on paper during an outage onto the canonical clinical record, including updating the underlying investigations row itself when collection is still pending. A distinct, currently authorized checker is required by the C4.2 paper contract. Patient-access-authorized and naturally idempotent on (incident id, paper item id, payload fingerprint); an `Idempotency-Key` header, if sent, is only recorded in the attempt audit log and does not itself drive replay detection. Returns 409 with disposition 'needs_review' when it cannot be reconciled automatically, and 200 on replay of an already-applied fact. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
         "parameters": [
           {
             "name": "incidentId",
@@ -87860,7 +87881,7 @@
           }
         },
         "summary": "Back-enter a paper medication-administration fact",
-        "description": "Mutates: applies a retrospective medication-administration fact captured on paper during an outage onto the canonical clinical record, including updating the underlying medication_administrations row itself when it is still scheduled/due/pending. Patient-access-authorized and naturally idempotent on (incident id, paper item id, payload fingerprint); a client `Idempotency-Key` header, if sent, is only recorded in the attempt audit log and does not itself drive replay detection. Returns 409 with disposition 'needs_review' when it cannot be reconciled automatically, and 200 on replay of an already-applied fact. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
+        "description": "Mutates: applies a retrospective medication-administration fact captured on paper during an outage onto the canonical clinical record, including updating the underlying medication_administrations row through the canonical MAR transaction core when it is still scheduled or held. The paper command must bind the exact admission and a distinct, currently authorized checker; it cannot claim a barcode scan or electronic override. Patient-access-authorized and naturally idempotent on (incident id, paper item id, payload fingerprint); a client `Idempotency-Key` header, if sent, is only recorded in the attempt audit log and does not itself drive replay detection. Returns 409 with disposition 'needs_review' when it cannot be reconciled automatically, and 200 on replay of an already-applied fact. Currently always responds 503 CONTINUITY_PAPER_RECONCILIATION_UNAVAILABLE -- the compile-time C-D14 activation gate is hardcoded false in this codebase and no deployment configuration can override it.",
         "parameters": [
           {
             "name": "incidentId",

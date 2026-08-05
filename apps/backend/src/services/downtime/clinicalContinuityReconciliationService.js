@@ -7,6 +7,11 @@ import {
   recordCanonicalClinicalEvent,
   recordClinicalAuditEvent,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  inspectMedicationAdministrationTx,
+  MAR_ADMINISTRATION_MODES,
+  recordMedicationAdministrationTx,
+} from '../clinical/marService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { createTask, transitionTask } from '../workflow/taskService.js';
@@ -1161,29 +1166,92 @@ function receiptOutcome(row, replayed) {
   };
 }
 
-async function inspectRetrospectiveTargetTx(tx, { tenantId, actionId, normalized }) {
-  if (actionId === 'mar.administration.backfill') {
+async function inspectPaperWitnessContractTx(tx, { tenantId, actionId, normalized }) {
+  const allowedRoles = PAPER_ACTION_ROLES[actionId];
+  if (actionId === 'mar.administration.backfill' || actionId === 'lab.specimen_collection.backfill') {
+    const checkerRole = normalizeRole(normalized.checker_role);
+    if (
+      normalized.checker_uid === normalized.original_actor_uid
+      || !allowedRoles?.has(checkerRole)
+    ) {
+      return { disposition: 'conflict', code: 'CONTINUITY_PAPER_CHECKER_NOT_AUTHORIZED' };
+    }
     const rows = await tx.$queryRawUnsafe(
-      `SELECT id, patient_uid::text, status, administered_at, administered_by::text
-         FROM medication_administrations
-        WHERE tenant_id = $1::uuid AND id = $2::integer
-        FOR UPDATE`,
+      `SELECT uid::text, upper(role) AS role
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND upper(role) = $3
+          AND is_active = true
+          AND status = 'active'
+          AND is_deleted = false
+        LIMIT 1
+        FOR KEY SHARE`,
       tenantId,
-      normalized.medication_administration_id,
+      normalized.checker_uid,
+      checkerRole,
     );
-    const row = rows[0];
-    if (!row || row.patient_uid !== normalized.patient_uid) return { disposition: 'conflict', code: 'CONTINUITY_MAR_TARGET_MISMATCH' };
-    if (String(row.status || '').toLowerCase() === 'administered') {
-      const exact = row.administered_by === normalized.original_actor_uid
-        && new Date(row.administered_at).toISOString() === normalized.occurred_at;
-      return exact
-        ? { disposition: 'exact_projection', row }
-        : { disposition: 'conflict', code: 'CONTINUITY_MAR_STATE_CONFLICT' };
-    }
-    if (!['scheduled', 'due', 'pending'].includes(String(row.status || '').toLowerCase())) {
-      return { disposition: 'conflict', code: 'CONTINUITY_MAR_STATE_CONFLICT' };
-    }
-    return { disposition: 'apply', row };
+    return rows[0]
+      ? null
+      : { disposition: 'conflict', code: 'CONTINUITY_PAPER_CHECKER_NOT_AUTHORIZED' };
+  }
+
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid::text, upper(role) AS role
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid IN ($2::uuid, $3::uuid)
+        AND is_active = true
+        AND status = 'active'
+        AND is_deleted = false
+      FOR KEY SHARE`,
+    tenantId,
+    normalized.first_verifier_uid,
+    normalized.second_verifier_uid,
+  );
+  const currentVerifiers = new Map(rows.map(row => [row.uid, row.role]));
+  const authorized = [normalized.first_verifier_uid, normalized.second_verifier_uid]
+    .every(uid => allowedRoles?.has(currentVerifiers.get(uid)));
+  return authorized && currentVerifiers.size === 2
+    ? null
+    : { disposition: 'conflict', code: 'CONTINUITY_TRANSFUSION_VERIFIER_NOT_AUTHORIZED' };
+}
+
+async function inspectRetrospectiveTargetTx(tx, { tenantId, actionId, normalized }) {
+  const witnessConflict = await inspectPaperWitnessContractTx(tx, { tenantId, actionId, normalized });
+  if (witnessConflict) return witnessConflict;
+  if (actionId === 'mar.administration.backfill') {
+    const inspection = await inspectMedicationAdministrationTx(tx, {
+      tenantId,
+      medicationAdministrationId: normalized.medication_administration_id,
+      administeredBy: normalized.original_actor_uid,
+      witnessUid: normalized.checker_uid,
+      witnessRole: normalized.checker_role,
+      occurredAt: normalized.occurred_at,
+      expectedPatientUid: normalized.patient_uid,
+      expectedAdmissionId: normalized.admission_id,
+      expectedEncounterId: normalized.encounter_id,
+      mode: MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY,
+    });
+    if (inspection.disposition !== 'conflict') return inspection;
+    const targetCodes = new Set([
+      'MAR_TARGET_NOT_FOUND',
+      'MAR_TARGET_MISMATCH',
+      'MAR_ADMISSION_MISMATCH',
+    ]);
+    const witnessCodes = new Set([
+      'MAR_RETROSPECTIVE_CONTEXT_INVALID',
+      'MAR_WITNESS_SEPARATION_REQUIRED',
+      'MAR_WITNESS_NOT_AUTHORIZED',
+    ]);
+    return {
+      ...inspection,
+      code: targetCodes.has(inspection.code)
+        ? 'CONTINUITY_MAR_TARGET_MISMATCH'
+        : witnessCodes.has(inspection.code)
+          ? 'CONTINUITY_MAR_WITNESS_CONTRACT_INVALID'
+          : 'CONTINUITY_MAR_STATE_CONFLICT',
+    };
   }
   if (actionId === 'lab.specimen_collection.backfill') {
     const rows = await tx.$queryRawUnsafe(
@@ -1264,21 +1332,20 @@ async function inspectRetrospectiveTargetTx(tx, { tenantId, actionId, normalized
 async function applyRetrospectiveProjectionTx(tx, { tenantId, actionId, normalized, inspection }) {
   if (inspection.disposition === 'exact_projection') return 'projection_reconciled';
   if (actionId === 'mar.administration.backfill') {
-    const updated = await tx.$queryRawUnsafe(
-      `UPDATE medication_administrations
-          SET status = 'administered', administered_at = $1::timestamptz,
-              administered_by = $2::uuid, notes = COALESCE($3, notes),
-              updated_at = clock_timestamp()
-        WHERE tenant_id = $4::uuid AND id = $5::integer
-          AND lower(status) IN ('scheduled', 'due', 'pending')
-        RETURNING id`,
-      normalized.occurred_at,
-      normalized.original_actor_uid,
-      normalized.notes,
+    await recordMedicationAdministrationTx(tx, {
       tenantId,
-      normalized.medication_administration_id,
-    );
-    if (updated.length !== 1) throw AppError.conflict('Medication state changed', 'CONTINUITY_MAR_STATE_CONFLICT');
+      medicationAdministrationId: normalized.medication_administration_id,
+      administeredBy: normalized.original_actor_uid,
+      notes: normalized.notes,
+      witnessUid: normalized.checker_uid,
+      witnessRole: normalized.checker_role,
+      occurredAt: normalized.occurred_at,
+      expectedPatientUid: normalized.patient_uid,
+      expectedAdmissionId: normalized.admission_id,
+      expectedEncounterId: normalized.encounter_id,
+      mode: MAR_ADMINISTRATION_MODES.RETROSPECTIVE_PAPER_BACK_ENTRY,
+      inspection,
+    });
   } else if (actionId === 'lab.specimen_collection.backfill') {
     const updated = await tx.$queryRawUnsafe(
       `UPDATE investigations
@@ -1336,7 +1403,7 @@ function buildPaperReceipt({
 }) {
   const capturedAt = parsed.normalized.occurred_at;
   const payloadHash = hashCanonicalValue(parsed.normalized);
-  const actionChecksum = hashCanonicalValue(CLINICAL_CONTINUITY_ACTIONS_BY_ID[parsed.actionId]);
+  const actionChecksum = CLINICAL_CONTINUITY_ACTIONS_BY_ID[parsed.actionId].actionChecksum;
   const idempotencyIdentity = paperIdempotencyIdentity(parsed.identity);
   const expiresAt = new Date(Date.parse(capturedAt) + 7 * 24 * 60 * 60 * 1000).toISOString();
   if (!policy.effectiveUntil) {
@@ -1365,7 +1432,9 @@ function buildPaperReceipt({
     patient_uid: parsed.normalized.patient_uid,
     appointment_id: null,
     encounter_id: parsed.normalized.encounter_id,
-    admission_id: null,
+    admission_id: parsed.actionId === 'mar.administration.backfill'
+      ? parsed.normalized.admission_id
+      : null,
     unit_id: null,
     device_id: facilityContext.deviceId,
     device_posture: String(devicePosture || 'managed').slice(0, 32),

@@ -4,7 +4,7 @@ const IDS = Object.freeze({
   actor: '10000000-0000-4000-8000-000000000001',
   context: '10000000-0000-4000-8000-000000000002',
   device: '10000000-0000-4000-8000-000000000003',
-  encounter: null,
+  encounter: '10000000-0000-4000-8000-000000000014',
   fact: '10000000-0000-4000-8000-000000000004',
   incident: '10000000-0000-4000-8000-000000000005',
   item: '10000000-0000-4000-8000-000000000006',
@@ -76,7 +76,7 @@ const tx = {
         paper_item_id: 'WARD-01/0007',
         patient_uid: IDS.patient,
         temporary_identity_id: null,
-        encounter_id: null,
+        encounter_id: activeParsed.normalized.encounter_id,
         action_id: activeParsed.actionId,
         evidence_hash: 'a'.repeat(64),
         original_actor_uid: IDS.actor,
@@ -94,6 +94,15 @@ const tx = {
     if (sql.includes('SELECT id, uid::text FROM users')) {
       return [{ id: 901, uid: IDS.patient }];
     }
+    if (sql.includes('SELECT uid::text, upper(role) AS role') && sql.includes('uid IN')) {
+      return [
+        { uid: params[1], role: 'NURSING_STAFF' },
+        { uid: params[2], role: 'NURSING_STAFF' },
+      ];
+    }
+    if (sql.includes('SELECT uid::text, upper(role) AS role')) {
+      return [{ uid: params[1], role: String(params[2]).toUpperCase() }];
+    }
     if (sql.includes('FROM medication_administrations') && sql.includes('FOR UPDATE')) {
       if (state.domainConflict) {
         return [{
@@ -102,6 +111,10 @@ const tx = {
           status: 'administered',
           administered_at: '2026-07-31T04:00:00.000Z',
           administered_by: IDS.device,
+          medication_name: 'Paper medication',
+          scheduled_time: '2026-07-31T03:00:00.000Z',
+          tenant_id: IDS.tenant,
+          witness_uid: IDS.context,
         }];
       }
       return [{
@@ -110,8 +123,22 @@ const tx = {
         status: state.domainEffects ? 'administered' : 'scheduled',
         administered_at: state.domainEffects ? '2026-07-31T03:00:00.000Z' : null,
         administered_by: state.domainEffects ? IDS.actor : null,
+        medication_name: 'Paper medication',
+        scheduled_time: '2026-07-31T03:00:00.000Z',
+        tenant_id: IDS.tenant,
+        witness_uid: state.domainEffects ? IDS.context : null,
       }];
     }
+    if (sql.includes('FROM admissions')) {
+      return [{
+        id: 41,
+        patient_uid: IDS.patient,
+        encounter_id: activeParsed.normalized.encounter_id,
+        admitted_at: '2026-07-30T03:00:00.000Z',
+        discharged_at: null,
+      }];
+    }
+    if (sql.includes('FROM medication_administrations')) return [];
     if (sql.includes('FROM investigations') && sql.includes('FOR UPDATE')) {
       return [{
         id: 43,
@@ -159,9 +186,27 @@ const tx = {
         version: 1,
       }];
     }
-    if (sql.includes('UPDATE medication_administrations') || sql.includes('UPDATE investigations')) {
+    if (sql.includes('UPDATE medication_administrations')) {
       state.domainEffects += 1;
-      return [{ id: 42 }];
+      return [{
+        id: 42,
+        patient_uid: IDS.patient,
+        medication_name: 'Paper medication',
+        scheduled_time: '2026-07-31T03:00:00.000Z',
+        administered_at: '2026-07-31T03:00:00.000Z',
+        administered_by: IDS.actor,
+        status: 'administered',
+        notes: 'Signed MAR paper entry',
+        witness_uid: IDS.context,
+        override_reason: null,
+        tenant_id: IDS.tenant,
+        patient_scanned_at: null,
+        medication_scanned_at: null,
+      }];
+    }
+    if (sql.includes('UPDATE investigations')) {
+      state.domainEffects += 1;
+      return [{ id: 43 }];
     }
     if (sql.includes('INSERT INTO clinical_continuity_retrospective_facts')) {
       state.facts += 1;
@@ -264,7 +309,10 @@ const parsed = parseClinicalContinuityPaperCommand({
     patient_uid: IDS.patient,
     encounter_id: null,
     evidence_hash: 'a'.repeat(64),
+    admission_id: 41,
     medication_administration_id: 42,
+    checker_uid: IDS.context,
+    checker_role: 'NURSING_STAFF',
     notes: 'Signed MAR paper entry',
   },
 });
@@ -282,6 +330,8 @@ const parsedLab = parseClinicalContinuityPaperCommand({
     evidence_hash: 'a'.repeat(64),
     investigation_id: 43,
     specimen_barcode: 'SPECIMEN-43',
+    checker_uid: IDS.context,
+    checker_role: 'NURSING_STAFF',
     collection_notes: 'Paper collection evidence',
   },
 });
@@ -295,7 +345,7 @@ const parsedTransfusion = parseClinicalContinuityPaperCommand({
     original_actor_uid: IDS.actor,
     original_actor_role: 'NURSING_STAFF',
     patient_uid: IDS.patient,
-    encounter_id: null,
+    encounter_id: IDS.encounter,
     evidence_hash: 'a'.repeat(64),
     blood_request_id: 44,
     blood_unit_id: 45,
@@ -306,7 +356,6 @@ const parsedTransfusion = parseClinicalContinuityPaperCommand({
     patient_match: true,
     group_compatible: true,
     expiry_ok: true,
-    override_reason: null,
   },
 });
 
@@ -387,6 +436,11 @@ describe('C5.2 single-transaction crash/retry contract', () => {
         paperApplied: 1,
       });
       expect(state.receipt).toMatchObject({ disposition: 'applied' });
+      expect(state.receipt).toMatchObject({
+        action_checksum: '26884e408883b51609058a037fe08e90d23223a04244f41a03eb3e3824a281b4',
+        admission_id: 41,
+        schema_version: 2,
+      });
 
       const beforeDuplicate = snapshotAuthoritativeState();
       const duplicate = await apply();
