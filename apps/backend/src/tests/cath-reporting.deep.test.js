@@ -35,6 +35,16 @@ function actor(uid, role, requestId) {
 
 async function maintenanceCleanup() {
   await prisma.$transaction(async (tx) => {
+    // Teardown runs only on the disposable deep-test database. Disabling user
+    // and constraint triggers for this one transaction is what keeps the whole
+    // cleanup inside Prisma's 5 s interactive-transaction budget: deleting the
+    // fixture rows from `users` and `tenants` otherwise costs ~16 s on a
+    // comprehensively seeded database, because Postgres revalidates the 317 and
+    // 692 foreign keys that reference them (235 of the `users` ones have no
+    // supporting index) once per deleted row. Overrunning that budget fails the
+    // suite in `afterAll` with "a commit cannot be executed on an expired
+    // transaction" while every assertion passes. Production paths are untouched.
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
     await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
     await tx.$executeRawUnsafe("SELECT set_config('app.cath_report_mutation_bypass', 'on', true)");
     await tx.$executeRawUnsafe(
