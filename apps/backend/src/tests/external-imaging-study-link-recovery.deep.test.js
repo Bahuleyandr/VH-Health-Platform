@@ -2,11 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
-  registerExternalRecoveryOffset,
 } from '../services/integrations/externalInterfaceRecoveryService.js';
+import {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} from './helpers/externalRecoveryOperabilityTestHelper.js';
 import { linkStudy } from '../services/radiology/pacsService.js';
 import { decryptField } from '../utils/fieldEncryption.js';
 

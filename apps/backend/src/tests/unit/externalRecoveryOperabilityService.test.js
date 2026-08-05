@@ -2,6 +2,8 @@ import { jest } from '@jest/globals';
 
 const setTenantTxMock = jest.fn();
 const recordClinicalAuditEventMock = jest.fn();
+const registerExternalRecoveryOffsetMock = jest.fn();
+const authorizeExternalRecoveryResumeMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {},
@@ -10,6 +12,11 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordClinicalAuditEvent: recordClinicalAuditEventMock,
+}));
+
+jest.unstable_mockModule('../../services/integrations/externalInterfaceRecoveryService.js', () => ({
+  authorizeExternalRecoveryResume: authorizeExternalRecoveryResumeMock,
+  registerExternalRecoveryOffset: registerExternalRecoveryOffsetMock,
 }));
 
 const {
@@ -77,17 +84,25 @@ describe('externalRecoveryOperabilityService', () => {
   let tx;
 
   beforeEach(() => {
-    tx = { $queryRawUnsafe: jest.fn() };
+    tx = { $queryRawUnsafe: jest.fn().mockResolvedValue([]) };
     setTenantTxMock.mockReset();
     setTenantTxMock.mockImplementation(async (_tenantId, callback) => callback(tx));
     recordClinicalAuditEventMock.mockReset();
     recordClinicalAuditEventMock.mockResolvedValue({ id: 'audit-event-1' });
+    registerExternalRecoveryOffsetMock.mockReset();
+    registerExternalRecoveryOffsetMock.mockResolvedValue({
+      disposition: 'applied',
+      recovery_state: 'paused',
+    });
+    authorizeExternalRecoveryResumeMock.mockReset();
+    authorizeExternalRecoveryResumeMock.mockResolvedValue({
+      disposition: 'applied',
+      recovery_state: 'replaying',
+    });
   });
 
   it('registers one exact partition with server-derived catalog and current-admin fields', async () => {
-    tx.$queryRawUnsafe
-      .mockResolvedValueOnce([{ uid: ACTOR, role: 'ADMIN' }])
-      .mockResolvedValueOnce([{ receipt: { disposition: 'applied', recovery_state: 'paused' } }]);
+    tx.$queryRawUnsafe.mockResolvedValueOnce([{ uid: ACTOR, role: 'ADMIN' }]);
 
     const receipt = await registerExternalRecoveryOperabilityOffset({
       tenantId: TENANT,
@@ -108,10 +123,8 @@ describe('externalRecoveryOperabilityService', () => {
       }),
       { db: tx },
     );
-    const commandCall = tx.$queryRawUnsafe.mock.calls.find(([sql]) => (
-      sql.includes('external_recovery_operability_register_offset')
-    ));
-    const command = JSON.parse(commandCall[1]);
+    expect(registerExternalRecoveryOffsetMock).toHaveBeenCalledTimes(1);
+    const command = registerExternalRecoveryOffsetMock.mock.calls[0][0].operabilityCommand;
     expect(command).toMatchObject({
       tenant_id: TENANT,
       interface_family: 'I01',
@@ -140,16 +153,16 @@ describe('externalRecoveryOperabilityService', () => {
       parsed: registerInput(),
     })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_OPERABILITY_FORBIDDEN' });
 
-    expect(tx.$queryRawUnsafe.mock.calls.some(([sql]) => (
-      sql.includes('external_recovery_operability_register_offset')
-    ))).toBe(false);
+    expect(registerExternalRecoveryOffsetMock).not.toHaveBeenCalled();
     expect(recordClinicalAuditEventMock).not.toHaveBeenCalled();
   });
 
   it('rejects resume state drift before an audit or state-changing command', async () => {
     tx.$queryRawUnsafe
       .mockResolvedValueOnce([{ uid: ACTOR, role: 'SUPER_ADMIN' }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([offsetRow()])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ uid: ACTOR, role: 'SUPER_ADMIN' }])
       .mockResolvedValueOnce([{ receipt: { outcome: 'refused_drift' } }]);
     const parsed = parseExternalRecoveryResume({
@@ -173,9 +186,7 @@ describe('externalRecoveryOperabilityService', () => {
     })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_OPERABILITY_STATE_DRIFT' });
 
     expect(recordClinicalAuditEventMock).not.toHaveBeenCalled();
-    expect(tx.$queryRawUnsafe.mock.calls.some(([sql]) => (
-      sql.includes('external_recovery_operability_authorize_resume')
-    ))).toBe(false);
+    expect(authorizeExternalRecoveryResumeMock).not.toHaveBeenCalled();
     const refusalCall = tx.$queryRawUnsafe.mock.calls.find(([sql]) => (
       sql.includes('external_recovery_operability_record_refusal')
     ));

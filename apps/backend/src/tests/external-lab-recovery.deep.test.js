@@ -4,9 +4,13 @@ import { Client } from 'pg';
 
 import prisma from '../lib/prisma.js';
 import {
+  __testing__ as reliabilityMetricsTesting,
+  serializeReliabilityMetrics,
+} from '../observability/reliabilityMetrics.js';
+import {
   authorizeExternalRecoveryResume,
   registerExternalRecoveryOffset,
-} from '../services/integrations/externalInterfaceRecoveryService.js';
+} from './helpers/externalRecoveryOperabilityTestHelper.js';
 import {
   I01_ORU_SEQUENCE_CONTRACT,
   I02_ASTM_SEQUENCE_CONTRACT,
@@ -19,6 +23,9 @@ import {
   ingestSequencedOruRecovery,
 } from '../services/integrations/externalLabRecoveryService.js';
 import { sha256Utf8 } from '../services/integrations/externalVitalsRecoveryService.js';
+import {
+  acknowledgeExternalRecoveryCriticalReviewForInboxTask,
+} from '../services/integrations/externalRecoveryCriticalReviewService.js';
 import { listInboxTasks } from '../services/workflow/taskService.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -444,6 +451,84 @@ describeIfDb('C6.1-C I01/I02 constrained late laboratory recovery', () => {
        VALUES ($1::uuid, 'push', 'blocked', 'blocked')`,
       [TENANT_ID],
     );
+  });
+
+  it('pages from durable unacknowledged output and clears only after human acknowledgement', async () => {
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT obligation.id::text, obligation.task_id,
+              obligation.interface_family, acknowledgement.id::text AS acknowledgement_id
+         FROM external_recovery_critical_review_obligations AS obligation
+         LEFT JOIN external_recovery_critical_review_acknowledgements AS acknowledgement
+           ON acknowledgement.tenant_id = obligation.tenant_id
+          AND acknowledgement.obligation_id = obligation.id
+        WHERE obligation.tenant_id = $1::uuid
+        ORDER BY obligation.interface_family`,
+      TENANT_ID,
+    );
+    expect(before).toHaveLength(2);
+    expect(before.map(row => row.interface_family)).toEqual(['I01', 'I02']);
+    expect(before.every(row => row.acknowledgement_id == null)).toBe(true);
+
+    await reliabilityMetricsTesting.collectExternalRecoveryOutputMetrics();
+    let metrics = serializeReliabilityMetrics();
+    expect(metrics).toContain(
+      `external_recovery_critical_review_unacknowledged_rows{tenant_id="${TENANT_ID}",facility_scope="tenant",facility_id="tenant-wide",interface_family="I01",direction="inbound"} 1`,
+    );
+    expect(metrics).toContain(
+      `external_recovery_critical_review_unacknowledged_rows{tenant_id="${TENANT_ID}",facility_scope="tenant",facility_id="tenant-wide",interface_family="I02",direction="inbound"} 1`,
+    );
+
+    const result = await acknowledgeExternalRecoveryCriticalReviewForInboxTask(
+      before[0].task_id,
+      {
+        tenantId: TENANT_ID,
+        actorUid: REVIEWER_UID,
+        actorRoles: ['DUTY_DOCTOR'],
+        actorPrimaryRole: 'DUTY_DOCTOR',
+        actorRawRole: 'DUTY_DOCTOR',
+        requestId: `c61c-awareness-${SUFFIX}`,
+      },
+    );
+    expect(result).toMatchObject({
+      handled: true,
+      acknowledgement: {
+        disposition: 'applied',
+        actor_uid: REVIEWER_UID,
+      },
+      task: {
+        status: 'in_progress',
+        workflow_sla_instance_id: null,
+        sla_completion_semantics: 'none',
+        due_at: null,
+        external_recovery_awareness_acknowledgement_required: false,
+      },
+    });
+    const duplicate = await acknowledgeExternalRecoveryCriticalReviewForInboxTask(
+      before[0].task_id,
+      {
+        tenantId: TENANT_ID,
+        actorUid: REVIEWER_UID,
+        actorRoles: ['DUTY_DOCTOR'],
+        actorPrimaryRole: 'DUTY_DOCTOR',
+        actorRawRole: 'DUTY_DOCTOR',
+        requestId: `c61c-awareness-retry-${SUFFIX}`,
+      },
+    );
+    expect(duplicate.acknowledgement).toMatchObject({ disposition: 'exact_duplicate' });
+
+    await reliabilityMetricsTesting.collectExternalRecoveryOutputMetrics();
+    metrics = serializeReliabilityMetrics();
+    expect(metrics).toContain(
+      `external_recovery_critical_review_unacknowledged_rows{tenant_id="${TENANT_ID}",facility_scope="tenant",facility_id="tenant-wide",interface_family="${before[0].interface_family}",direction="inbound"} 0`,
+    );
+    expect(await effectSnapshot()).toEqual({
+      critical_results: 2,
+      pending_tasks: 2,
+      critical_alerts: 0,
+      slas: 0,
+      pathway_transitions: 0,
+      notifications: 0,
+    });
   });
 
   it('raw PostgreSQL rejects cross-family provenance and pending evidence mutation', async () => {

@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
-  authorizeColdChainRecoveryResume,
   canonicalCommandFingerprint,
   enqueueColdChainRecoveryItem,
   processNextItemTx,
-  registerColdChainRecoveryOffset,
 } from '../services/integrations/externalInterfaceRecoveryService.js';
+import {
+  authorizeColdChainRecoveryResume,
+  registerColdChainRecoveryOffset,
+} from './helpers/externalRecoveryOperabilityTestHelper.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -345,7 +347,7 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
       offsetId: offset.offset_id,
       resumeCutoffPosition: 1,
       resumeCutoffToken: 'token-1',
-    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_RESUME_NOT_ELIGIBLE' });
+    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_OPERABILITY_RESUME_NOT_ELIGIBLE' });
     await expect(enqueueColdChainRecoveryItem({
       tenantId: TENANT_ID,
       offsetId: offset.offset_id,

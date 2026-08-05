@@ -8,6 +8,7 @@ import {
   processClaimedInboxRow,
 } from '../services/events/pathwayProjectorService.js';
 import { createPathwayProjectorRegistry } from '../services/events/pathwayProjectorRegistry.js';
+import { registerExternalRecoveryOffset } from './helpers/externalRecoveryOperabilityTestHelper.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -129,26 +130,21 @@ describeIfDb('late external-recovery effect fences', () => {
       `synthetic-${SUFFIX}`,
     );
     taskId = tasks[0].id;
+    const offset = await registerExternalRecoveryOffset({
+      tenantId: TENANT_ID,
+      facilityId,
+      interfaceFamily: 'I10',
+      sourcePartition: `late-fence-${SUFFIX}`,
+      generation: 1,
+      initialPosition: 10,
+      initialToken: 'token-10',
+      policyVersion: 'c-d8-v1',
+      policySignature: 'synthetic-signature',
+      retentionPolicy: 'cold-chain-730d',
+      retentionUntil: new Date(Date.now() + 730 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    offsetId = offset.offset_id;
     await setTenantTx(TENANT_ID, async (tx) => {
-      const offsets = await tx.$queryRawUnsafe(
-        `INSERT INTO event_consumer_offsets
-           (scope_kind, tenant_id, facility_scope, facility_id, interface_family,
-            direction, source_partition, consumer_key, generation, cursor_kind,
-            high_water_position, high_water_token, recovery_state,
-            policy_version, policy_signature, retention_policy, retention_until,
-            historical_cutoff_event_id, backfill_cursor_event_id)
-         VALUES
-           ('external_interface', $1::uuid, 'facility', $2::integer, 'I10',
-            'inbound', $3::text, 'external:I10', 1,
-            'monotonic_position_and_predecessor', 10, 'token-10', 'paused',
-            'c-d8-v1', 'synthetic-signature', 'cold-chain-730d',
-            NOW() + INTERVAL '730 days', NULL, NULL)
-         RETURNING offset_id::text`,
-        TENANT_ID,
-        facilityId,
-        `late-fence-${SUFFIX}`,
-      );
-      offsetId = offsets[0].offset_id;
       const inbox = await tx.$queryRawUnsafe(
         `INSERT INTO pathway_projector_inbox
            (scope_kind, tenant_id, consumer_key, generation, offset_id, facility_id,

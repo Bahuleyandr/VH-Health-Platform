@@ -5,11 +5,13 @@ const {
   syncTrialsFromPublicRegistry,
 } = await import('../services/ai/trialCatalogSyncService.js');
 const {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
-  registerExternalRecoveryOffset,
 } = await import('../services/integrations/externalInterfaceRecoveryService.js');
+const {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} = await import('./helpers/externalRecoveryOperabilityTestHelper.js');
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;

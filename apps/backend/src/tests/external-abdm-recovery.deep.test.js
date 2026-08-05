@@ -4,11 +4,13 @@ process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'i16-abdm
 
 const { default: prisma, setTenantTx } = await import('../lib/prisma.js');
 const {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
-  registerExternalRecoveryOffset,
 } = await import('../services/integrations/externalInterfaceRecoveryService.js');
+const {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} = await import('./helpers/externalRecoveryOperabilityTestHelper.js');
 const {
   markAuthenticatedAbdmCallback,
   recordAuthenticatedAbdmCallback,

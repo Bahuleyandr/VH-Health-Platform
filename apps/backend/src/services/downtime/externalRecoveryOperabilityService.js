@@ -6,12 +6,16 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset
+} from '../integrations/externalInterfaceRecoveryService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { EXTERNAL_RECOVERY_OPERABILITY_SCHEMA } from '../../validators/externalRecoveryOperabilitySchemas.js';
-import { hashCanonicalValue } from './continuityPackCanonical.js';
 
 const ACTION_VERSION = 1;
 const BINDING_VERSION = 1;
+const SERIALIZABLE_ATTEMPTS = 3;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ADMIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 const RECOVERY_STATES = new Set([
@@ -25,10 +29,157 @@ const RECOVERY_STATES = new Set([
   'reconciliation_required_provider_state'
 ]);
 
+function sqlState(error) {
+  return (
+    error?.meta?.code ||
+    error?.meta?.driverAdapterError?.cause?.originalCode ||
+    error?.cause?.code ||
+    error?.code
+  );
+}
+
+function isRetryableCommandConflict(error) {
+  return ['23505', '40001', 'P2002', 'P2034'].includes(sqlState(error));
+}
+
+async function runSerializableCommand(tenantId, command) {
+  for (let attempt = 1; attempt <= SERIALIZABLE_ATTEMPTS; attempt += 1) {
+    try {
+      return await setTenantTx(tenantId, command, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      if (attempt < SERIALIZABLE_ATTEMPTS && isRetryableCommandConflict(error)) continue;
+      throw error;
+    }
+  }
+  throw new Error('External-recovery serializable command retry exhausted');
+}
+
 function normalizedRole(value) {
   return String(value || '')
     .trim()
     .toUpperCase();
+}
+
+function boundHash(values) {
+  const hash = createHash('sha256');
+  for (const value of values) {
+    if (value === null || value === undefined) {
+      hash.update('N;', 'utf8');
+      continue;
+    }
+    const text = String(value);
+    hash.update(`V${Buffer.byteLength(text, 'utf8')}:`, 'utf8');
+    hash.update(text, 'utf8');
+    hash.update(';', 'utf8');
+  }
+  return hash.digest('hex');
+}
+
+function externalRecoveryStateFingerprint(state) {
+  return boundHash([
+    state.tenant_id,
+    state.offset_id,
+    state.facility_scope,
+    state.facility_id,
+    state.interface_family,
+    state.direction,
+    state.source_partition,
+    state.generation,
+    state.high_water_position,
+    state.high_water_token,
+    state.retained_from_position,
+    state.retained_from_token,
+    state.resume_cutoff_position,
+    state.resume_cutoff_token,
+    state.recovery_state,
+    state.reconciliation_reason,
+    state.policy_version,
+    state.retention_policy,
+    state.retention_until,
+    state.intake_retired_at
+  ]);
+}
+
+function registerEffectHash(effect) {
+  return boundHash([
+    effect.action,
+    effect.action_version,
+    effect.binding_version,
+    effect.schema_id,
+    effect.schema_version,
+    effect.tenant_id,
+    effect.facility_scope,
+    effect.facility_id,
+    effect.interface_family,
+    effect.subpath,
+    effect.protocol,
+    effect.direction,
+    effect.source_partition,
+    effect.generation,
+    effect.initial_position,
+    effect.initial_token,
+    effect.retained_from_position,
+    effect.retained_from_token,
+    effect.policy_version,
+    effect.policy_signature_sha256,
+    effect.retention_policy,
+    effect.retention_until,
+    effect.owner_evidence_reference,
+    effect.owner_evidence_signature_sha256
+  ]);
+}
+
+function registerCommandFingerprint({ effectIdentity, actor, parsed, nextState }) {
+  return boundHash([
+    effectIdentity,
+    actor.uid,
+    actor.role,
+    parsed.reasonCode,
+    parsed.reasonDetail,
+    'POST',
+    '/api/v1/admin/continuity/external-recovery/offsets',
+    null,
+    nextState.recovery_state,
+    nextState.reconciliation_reason
+  ]);
+}
+
+function resumeEffectHash(effect) {
+  return boundHash([
+    effect.action,
+    effect.action_version,
+    effect.binding_version,
+    effect.schema_id,
+    effect.schema_version,
+    effect.tenant_id,
+    effect.offset_id,
+    effect.facility_scope,
+    effect.facility_id,
+    effect.interface_family,
+    effect.direction,
+    effect.source_partition,
+    effect.generation,
+    effect.expected_state_fingerprint,
+    effect.resume_cutoff_position,
+    effect.resume_cutoff_token,
+    effect.owner_evidence_reference,
+    effect.owner_evidence_signature_sha256
+  ]);
+}
+
+function resumeCommandFingerprint({ effectIdentity, actor, parsed, offsetId,
+  priorStateFingerprint, nextStateFingerprint }) {
+  return boundHash([
+    effectIdentity,
+    actor.uid,
+    actor.role,
+    parsed.reasonCode,
+    parsed.reasonDetail,
+    'POST',
+    `/api/v1/admin/continuity/external-recovery/offsets/${offsetId}/resume-authorizations`,
+    priorStateFingerprint,
+    nextStateFingerprint
+  ]);
 }
 
 function requiredUuid(value, label) {
@@ -201,7 +352,7 @@ function registerIdentity({ tenantId, config, parsed }) {
   });
 }
 
-function registerCommand({ effectIdentity, actor, parsed, idempotency, requestId }) {
+function registerCommand({ effectIdentity, actor, parsed }) {
   const nextState =
     parsed.initialPosition == null
       ? {
@@ -215,13 +366,107 @@ function registerCommand({ effectIdentity, actor, parsed, idempotency, requestId
     actor_role: actor.role,
     reason_code: parsed.reasonCode,
     reason_detail: parsed.reasonDetail,
-    idempotency_key_sha256: idempotency.sha256,
-    request_id: requestId || null,
     http_method: 'POST',
     http_path: '/api/v1/admin/continuity/external-recovery/offsets',
     prior_state: null,
     next_state: nextState
   });
+}
+
+async function loadAppliedRegistrationActionTx(tx, {
+  tenantId,
+  actionId,
+  effectIdentity,
+  idempotencyKeySha256
+}) {
+  return tx.$queryRawUnsafe(
+    `SELECT id::text, offset_id::text, actor_uid::text, actor_role,
+            facility_scope, facility_id, interface_family, subpath, protocol,
+            direction, source_partition, generation,
+            initial_position::text, initial_token,
+            retained_from_position::text, retained_from_token,
+            reason_code, reason_detail, owner_evidence_reference,
+            owner_evidence_signature_sha256, policy_version,
+            policy_signature_sha256, retention_policy, retention_until::text,
+            effect_identity, command_fingerprint, receipt
+       FROM external_recovery_operability_actions
+      WHERE tenant_id = $1::uuid
+        AND action = 'register_offset'
+        AND outcome = 'applied'
+        AND (
+          id = $2::uuid
+          OR effect_identity = $3::text
+          OR idempotency_key_sha256 = $4::text
+        )
+      ORDER BY recorded_at
+      LIMIT 2
+      FOR SHARE`,
+    tenantId,
+    actionId,
+    effectIdentity,
+    idempotencyKeySha256
+  );
+}
+
+function exactRegistrationReceipt(rows, {
+  actor,
+  config,
+  parsed,
+  actionId,
+  effectIdentity,
+  commandFingerprint
+}) {
+  if (rows.length === 0) return null;
+  const expected = {
+    action_id: actionId,
+    actor_uid: actor.uid,
+    actor_role: actor.role,
+    facility_scope: config.facilityScope,
+    facility_id: parsed.facilityId,
+    interface_family: config.id,
+    subpath: config.selectedSubpath || null,
+    protocol: config.id === 'I05' ? parsed.protocol : null,
+    direction: config.direction,
+    source_partition: parsed.sourcePartition,
+    generation: parsed.generation,
+    initial_position: parsed.initialPosition,
+    initial_token: parsed.initialToken,
+    retained_from_position: parsed.retainedFromPosition,
+    retained_from_token: parsed.retainedFromToken,
+    reason_code: parsed.reasonCode,
+    reason_detail: parsed.reasonDetail,
+    owner_evidence_reference: parsed.ownerEvidence.reference,
+    owner_evidence_signature_sha256: createHash('sha256')
+      .update(parsed.ownerEvidence.signature)
+      .digest('hex'),
+    policy_version: parsed.policyVersion,
+    policy_signature_sha256: createHash('sha256')
+      .update(parsed.policySignature)
+      .digest('hex'),
+    retention_policy: parsed.retentionPolicy,
+    retention_until: parsed.retentionUntil,
+    effect_identity: effectIdentity,
+    command_fingerprint: commandFingerprint
+  };
+  const row = rows[0];
+  const exact = rows.length === 1 && Object.entries(expected).every(([key, value]) => {
+    if (key === 'action_id') return row.id === value;
+    if (key === 'facility_id' || key === 'generation') {
+      return (row[key] == null ? null : Number(row[key])) === value;
+    }
+    if (key === 'retention_until') {
+      return new Date(row[key]).toISOString() === value;
+    }
+    return row[key] === value;
+  });
+  if (!exact) {
+    throw AppError.conflict(
+      'External-recovery registration identity drifted',
+      'EXTERNAL_RECOVERY_OPERABILITY_IDEMPOTENCY_DRIFT',
+      { safe: true }
+    );
+  }
+  return Object.freeze({ ...row.receipt, disposition: 'exact_duplicate' });
 }
 
 function offsetSafeState(row) {
@@ -288,6 +533,70 @@ async function recordRefusal({ tenantId, actorUid, actorRole, action, requestId,
   }
 }
 
+async function loadAppliedResumeActionTx(tx, {
+  tenantId,
+  offsetId,
+  idempotencyKeySha256,
+  expectedStateFingerprint
+}) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT id::text, offset_id::text, actor_uid::text, actor_role,
+            idempotency_key_sha256, expected_state_fingerprint,
+            resume_cutoff_position::text, resume_cutoff_token,
+            reason_code, reason_detail, owner_evidence_reference,
+            owner_evidence_signature_sha256, receipt
+       FROM external_recovery_operability_actions
+      WHERE tenant_id = $1::uuid
+        AND action = 'authorize_resume'
+        AND outcome = 'applied'
+        AND (
+          idempotency_key_sha256 = $3::text
+          OR (
+            offset_id = $2::uuid
+            AND expected_state_fingerprint = $4::text
+          )
+        )
+      ORDER BY recorded_at
+      LIMIT 2
+      FOR SHARE`,
+    tenantId,
+    offsetId,
+    idempotencyKeySha256,
+    expectedStateFingerprint
+  );
+  return rows;
+}
+
+function exactResumeReceipt(rows, {
+  actor,
+  offsetId,
+  parsed
+}) {
+  if (rows.length === 0) return null;
+  const ownerSignatureSha256 = createHash('sha256')
+    .update(parsed.ownerEvidence.signature)
+    .digest('hex');
+  const exact = rows.length === 1 &&
+    rows[0].offset_id === offsetId &&
+    rows[0].actor_uid === actor.uid &&
+    normalizedRole(rows[0].actor_role) === actor.role &&
+    rows[0].expected_state_fingerprint === parsed.expectedStateFingerprint &&
+    rows[0].resume_cutoff_position === parsed.resumeCutoffPosition &&
+    rows[0].resume_cutoff_token === parsed.resumeCutoffToken &&
+    rows[0].reason_code === parsed.reasonCode &&
+    rows[0].reason_detail === parsed.reasonDetail &&
+    rows[0].owner_evidence_reference === parsed.ownerEvidence.reference &&
+    rows[0].owner_evidence_signature_sha256 === ownerSignatureSha256;
+  if (!exact) {
+    throw AppError.conflict(
+      'External-recovery resume identity drifted',
+      'EXTERNAL_RECOVERY_OPERABILITY_IDEMPOTENCY_DRIFT',
+      { safe: true }
+    );
+  }
+  return Object.freeze({ ...rows[0].receipt, disposition: 'exact_duplicate' });
+}
+
 export async function registerExternalRecoveryOperabilityOffset({
   tenantId,
   actorUid,
@@ -299,7 +608,7 @@ export async function registerExternalRecoveryOperabilityOffset({
   const tid = requireTenantId(tenantId);
   const requestIdentity = idempotencyIdentity(idempotencyKey);
   try {
-    return await setTenantTx(
+    return await runSerializableCommand(
       tid,
       async tx => {
         const actor = await loadCurrentAdminTx(tx, {
@@ -309,17 +618,35 @@ export async function registerExternalRecoveryOperabilityOffset({
         });
         const config = deriveConfig(parsed);
         const effect = registerIdentity({ tenantId: tid, config, parsed });
-        const effectHash = hashCanonicalValue(effect);
+        const effectHash = registerEffectHash(effect);
         const offsetId = deterministicUuid(`external-recovery-offset:${effectHash}`);
         const actionId = deterministicUuid(`external-recovery-action:${effectHash}`);
         const command = registerCommand({
-          effectIdentity: effect,
+          effectIdentity: effectHash,
+          actor,
+          parsed
+        });
+        const commandFingerprint = registerCommandFingerprint({
+          effectIdentity: effectHash,
           actor,
           parsed,
-          idempotency: requestIdentity,
-          requestId
+          nextState: command.next_state
         });
-        const commandFingerprint = hashCanonicalValue(command);
+        const appliedRows = await loadAppliedRegistrationActionTx(tx, {
+          tenantId: tid,
+          actionId,
+          effectIdentity: effectHash,
+          idempotencyKeySha256: requestIdentity.sha256
+        });
+        const priorReceipt = exactRegistrationReceipt(appliedRows, {
+          actor,
+          config,
+          parsed,
+          actionId,
+          effectIdentity: effectHash,
+          commandFingerprint
+        });
+        if (priorReceipt) return priorReceipt;
         const audit = await requiredAudit(tx, {
           tenantId: tid,
           action: 'external_recovery.offset.register',
@@ -338,9 +665,25 @@ export async function registerExternalRecoveryOperabilityOffset({
           },
           idempotencyKey: `external-recovery-register:${effectHash}`
         });
-        const rows = await tx.$queryRawUnsafe(
-          `SELECT public.external_recovery_operability_register_offset($1::jsonb) AS receipt`,
-          JSON.stringify({
+        return registerExternalRecoveryOffset({
+          tenantId: tid,
+          facilityId: parsed.facilityId,
+          interfaceFamily: config.id,
+          subpath: config.selectedSubpath || null,
+          protocol: config.id === 'I05' ? parsed.protocol : null,
+          streamDirection: config.id === 'I05' ? config.direction : null,
+          sourcePartition: parsed.sourcePartition,
+          generation: parsed.generation,
+          initialPosition: parsed.initialPosition,
+          initialToken: parsed.initialToken,
+          retainedFromPosition: parsed.retainedFromPosition,
+          retainedFromToken: parsed.retainedFromToken,
+          policyVersion: parsed.policyVersion,
+          policySignature: parsed.policySignature,
+          retentionPolicy: parsed.retentionPolicy,
+          retentionUntil: parsed.retentionUntil,
+          tx,
+          operabilityCommand: {
             ...effect,
             action_id: actionId,
             offset_id: offsetId,
@@ -361,17 +704,9 @@ export async function registerExternalRecoveryOperabilityOffset({
             policy_signature: parsed.policySignature,
             schema_checksum: EXTERNAL_RECOVERY_OPERABILITY_SCHEMA.checksum,
             audit_event_id: audit.id
-          })
-        );
-        if (!rows[0]?.receipt) {
-          throw AppError.internal(
-            'External-recovery registration returned no durable receipt',
-            'EXTERNAL_RECOVERY_OPERABILITY_RECEIPT_REQUIRED'
-          );
-        }
-        return rows[0].receipt;
-      },
-      { isolationLevel: 'Serializable' }
+          }
+        });
+      }
     );
   } catch (error) {
     await recordRefusal({
@@ -399,7 +734,7 @@ export async function authorizeExternalRecoveryOperabilityResume({
   const oid = requiredUuid(offsetId, 'offset_id');
   const requestIdentity = idempotencyIdentity(idempotencyKey);
   try {
-    return await setTenantTx(
+    return await runSerializableCommand(
       tid,
       async tx => {
         const actor = await loadCurrentAdminTx(tx, {
@@ -407,6 +742,18 @@ export async function authorizeExternalRecoveryOperabilityResume({
           actorUid,
           authenticatedRole: actorRole
         });
+        let appliedRows = await loadAppliedResumeActionTx(tx, {
+          tenantId: tid,
+          offsetId: oid,
+          idempotencyKeySha256: requestIdentity.sha256,
+          expectedStateFingerprint: parsed.expectedStateFingerprint
+        });
+        let priorReceipt = exactResumeReceipt(appliedRows, {
+          actor,
+          offsetId: oid,
+          parsed
+        });
+        if (priorReceipt) return priorReceipt;
         const rows = await tx.$queryRawUnsafe(
           `SELECT offsets.offset_id::text, offsets.tenant_id::text,
                 offsets.facility_scope, offsets.facility_id,
@@ -434,6 +781,18 @@ export async function authorizeExternalRecoveryOperabilityResume({
           tid,
           oid
         );
+        appliedRows = await loadAppliedResumeActionTx(tx, {
+          tenantId: tid,
+          offsetId: oid,
+          idempotencyKeySha256: requestIdentity.sha256,
+          expectedStateFingerprint: parsed.expectedStateFingerprint
+        });
+        priorReceipt = exactResumeReceipt(appliedRows, {
+          actor,
+          offsetId: oid,
+          parsed
+        });
+        if (priorReceipt) return priorReceipt;
         if (rows.length !== 1) {
           throw AppError.notFound(
             'External-recovery offset not found',
@@ -442,7 +801,7 @@ export async function authorizeExternalRecoveryOperabilityResume({
           );
         }
         const priorState = offsetSafeState(rows[0]);
-        const stateFingerprint = hashCanonicalValue(priorState);
+        const stateFingerprint = externalRecoveryStateFingerprint(priorState);
         if (stateFingerprint !== parsed.expectedStateFingerprint) {
           throw AppError.conflict(
             'External-recovery offset state changed',
@@ -485,7 +844,7 @@ export async function authorizeExternalRecoveryOperabilityResume({
             .update(parsed.ownerEvidence.signature)
             .digest('hex')
         });
-        const effectHash = hashCanonicalValue(effect);
+        const effectHash = resumeEffectHash(effect);
         const actionId = deterministicUuid(`external-recovery-action:${effectHash}`);
         const nextState = Object.freeze({
           ...priorState,
@@ -494,18 +853,13 @@ export async function authorizeExternalRecoveryOperabilityResume({
           resume_cutoff_position: parsed.resumeCutoffPosition,
           resume_cutoff_token: parsed.resumeCutoffToken
         });
-        const commandFingerprint = hashCanonicalValue({
-          effect_identity: effect,
-          actor_uid: actor.uid,
-          actor_role: actor.role,
-          reason_code: parsed.reasonCode,
-          reason_detail: parsed.reasonDetail,
-          idempotency_key_sha256: requestIdentity.sha256,
-          request_id: requestId || null,
-          http_method: 'POST',
-          http_path: `/api/v1/admin/continuity/external-recovery/offsets/${oid}/resume-authorizations`,
-          prior_state: priorState,
-          next_state: nextState
+        const commandFingerprint = resumeCommandFingerprint({
+          effectIdentity: effectHash,
+          actor,
+          parsed,
+          offsetId: oid,
+          priorStateFingerprint: stateFingerprint,
+          nextStateFingerprint: externalRecoveryStateFingerprint(nextState)
         });
         const audit = await requiredAudit(tx, {
           tenantId: tid,
@@ -527,9 +881,19 @@ export async function authorizeExternalRecoveryOperabilityResume({
           },
           idempotencyKey: `external-recovery-resume:${effectHash}`
         });
-        const commandRows = await tx.$queryRawUnsafe(
-          `SELECT public.external_recovery_operability_authorize_resume($1::jsonb) AS receipt`,
-          JSON.stringify({
+        return authorizeExternalRecoveryResume({
+          tenantId: tid,
+          offsetId: oid,
+          interfaceFamily: priorState.interface_family,
+          subpath: rows[0].subpath || null,
+          protocol: rows[0].protocol || null,
+          streamDirection: priorState.interface_family === 'I05'
+            ? priorState.direction
+            : null,
+          resumeCutoffPosition: parsed.resumeCutoffPosition,
+          resumeCutoffToken: parsed.resumeCutoffToken,
+          tx,
+          operabilityCommand: {
             ...effect,
             action_id: actionId,
             command_class: 'authorize_partition_resume',
@@ -546,17 +910,9 @@ export async function authorizeExternalRecoveryOperabilityResume({
             prior_state: priorState,
             next_state: nextState,
             audit_event_id: audit.id
-          })
-        );
-        if (!commandRows[0]?.receipt) {
-          throw AppError.internal(
-            'External-recovery resume returned no durable receipt',
-            'EXTERNAL_RECOVERY_OPERABILITY_RECEIPT_REQUIRED'
-          );
-        }
-        return commandRows[0].receipt;
-      },
-      { isolationLevel: 'Serializable' }
+          }
+        });
+      }
     );
   } catch (error) {
     await recordRefusal({
@@ -573,7 +929,7 @@ export async function authorizeExternalRecoveryOperabilityResume({
 
 function workbenchItem(row) {
   const state = offsetSafeState(row);
-  const stateFingerprint = hashCanonicalValue(state);
+  const stateFingerprint = externalRecoveryStateFingerprint(state);
   return Object.freeze({
     ...state,
     state_fingerprint: stateFingerprint,

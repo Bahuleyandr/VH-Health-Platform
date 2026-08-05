@@ -326,10 +326,10 @@ void main() {
       expect(task.slaCompletionSemantics, 'none');
       expect(task.dueAt, isNull);
       expect(task.externalRecoveryInterfaceFamily, 'I01');
-    expect(
-      task.externalRecoverySourceOccurredAt,
-      DateTime.parse('2026-08-01T01:00:00Z').toLocal(),
-    );
+      expect(
+        task.externalRecoverySourceOccurredAt,
+        DateTime.parse('2026-08-01T01:00:00Z').toLocal(),
+      );
 
       final forgedSlaShape = ClinicalInboxTask.fromJson({
         'id': 82,

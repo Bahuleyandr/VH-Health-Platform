@@ -3,11 +3,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { encryptField } from '../../utils/fieldEncryption.js';
 import {
-  authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
   processNextItemTx,
-  registerExternalRecoveryOffset,
 } from '../../services/integrations/externalInterfaceRecoveryService.js';
+import {
+  authorizeExternalRecoveryResume,
+  registerExternalRecoveryOffset,
+} from './externalRecoveryOperabilityTestHelper.js';
 
 export function defineI05AdapterRecoveryContract({
   protocol,
