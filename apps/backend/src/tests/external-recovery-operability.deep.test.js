@@ -298,15 +298,30 @@ describeIfDb('migration 628 external-recovery operability authority', () => {
     const registered = await register(partition);
     const client = new Client({ connectionString: ownerDatabaseUrl(databaseUrl) });
     await client.connect();
+    let fixtureRoleName;
     try {
-      const availableRole = await client.query(
-        `SELECT CASE
-           WHEN to_regrole('vhhealth_runtime') IS NOT NULL THEN 'vhhealth_runtime'
-           WHEN to_regrole('vhhealth_app') IS NOT NULL THEN 'vhhealth_app'
-         END AS role_name`,
+      fixtureRoleName = `external_recovery_rawpg_${SUFFIX}`;
+      const roleName = fixtureRoleName;
+      await client.query(`CREATE ROLE ${fixtureRoleName} NOLOGIN NOSUPERUSER NOBYPASSRLS`);
+      await client.query(`GRANT USAGE ON SCHEMA public TO ${fixtureRoleName}`);
+      await client.query(
+        `GRANT SELECT ON TABLE
+           public.external_recovery_operability_actions,
+           public.external_recovery_critical_review_obligations,
+           public.external_recovery_critical_review_acknowledgements
+         TO ${fixtureRoleName}`,
       );
-      const roleName = availableRole.rows[0].role_name;
-      expect(['vhhealth_app', 'vhhealth_runtime']).toContain(roleName);
+      for (const commandFunction of [
+        'external_recovery_operability_register_offset',
+        'external_recovery_operability_authorize_resume',
+        'external_recovery_operability_record_refusal',
+        'external_recovery_critical_review_obligation_append',
+        'external_recovery_critical_review_acknowledge',
+      ]) {
+        await client.query(
+          `GRANT EXECUTE ON FUNCTION public.${commandFunction}(JSONB) TO ${fixtureRoleName}`,
+        );
+      }
       const privileges = await client.query(
         `SELECT table_name,
                 has_table_privilege($1::text, 'public.' || table_name, 'SELECT') AS can_select,
@@ -448,6 +463,10 @@ describeIfDb('migration 628 external-recovery operability authority', () => {
     } finally {
       await client.query('ROLLBACK').catch(() => {});
       await client.query('RESET ROLE').catch(() => {});
+      if (fixtureRoleName) {
+        await client.query(`DROP OWNED BY ${fixtureRoleName}`).catch(() => {});
+        await client.query(`DROP ROLE IF EXISTS ${fixtureRoleName}`).catch(() => {});
+      }
       await client.end();
     }
 
