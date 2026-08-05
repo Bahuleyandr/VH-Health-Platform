@@ -408,17 +408,29 @@ export async function authorizeExternalRecoveryOperabilityResume({
           authenticatedRole: actorRole
         });
         const rows = await tx.$queryRawUnsafe(
-          `SELECT offset_id::text, tenant_id::text, facility_scope, facility_id,
-                interface_family, direction, source_partition, generation,
+          `SELECT offsets.offset_id::text, offsets.tenant_id::text,
+                offsets.facility_scope, offsets.facility_id,
+                offsets.interface_family, offsets.direction,
+                offsets.source_partition, offsets.generation,
                 high_water_position::text, high_water_token,
                 retained_from_position::text, retained_from_token,
                 resume_cutoff_position::text, resume_cutoff_token,
                 recovery_state, reconciliation_reason, policy_version,
-                retention_policy, retention_until::text, intake_retired_at::text
-           FROM event_consumer_offsets
-          WHERE tenant_id = $1::uuid AND offset_id = $2::uuid
-            AND scope_kind = 'external_interface'
-          FOR UPDATE`,
+                retention_policy, retention_until::text, intake_retired_at::text,
+                registration.subpath, registration.protocol
+           FROM event_consumer_offsets AS offsets
+           LEFT JOIN LATERAL (
+             SELECT action.subpath, action.protocol
+               FROM external_recovery_operability_actions AS action
+              WHERE action.tenant_id = offsets.tenant_id
+                AND action.offset_id = offsets.offset_id
+                AND action.action = 'register_offset'
+                AND action.outcome = 'applied'
+              LIMIT 1
+           ) AS registration ON TRUE
+          WHERE offsets.tenant_id = $1::uuid AND offsets.offset_id = $2::uuid
+            AND offsets.scope_kind = 'external_interface'
+          FOR UPDATE OF offsets`,
           tid,
           oid
         );

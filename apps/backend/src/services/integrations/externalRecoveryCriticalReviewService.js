@@ -151,7 +151,6 @@ export async function acknowledgeExternalRecoveryCriticalReviewForInboxTask(
         JSON.stringify({
           ...acknowledgementIdentity,
           id: acknowledgementId,
-          actor_role: task.metadata?.acknowledged_role || actorPrimaryRole,
           request_id: requestId,
           receipt_hash: hashCanonicalValue(acknowledgementIdentity)
         })
