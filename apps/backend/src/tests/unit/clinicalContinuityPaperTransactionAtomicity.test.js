@@ -287,7 +287,10 @@ jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/downtime/clinicalContinuityPolicyService.js', () => ({
+  INCIDENT_PACKET_SIGNING_KEY_PURPOSE: 'clinical_continuity_incident_packet_signing',
+  INCIDENT_PACKET_SIGNING_PURPOSE: 'vhhealth/continuity/incident-packet/v1',
   loadActiveClinicalContinuityPolicyForFacilityTx: jest.fn(),
+  requireClinicalContinuityIncidentPacketPolicy: jest.fn(),
 }));
 
 const { applyClinicalContinuityPaperBackEntry } = await import(
