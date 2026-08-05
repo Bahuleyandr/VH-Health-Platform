@@ -724,7 +724,8 @@ as activation authority by this document.
 - retrospective occurrence time preserved without a live scan or live
   canonical MAR double event;
 - C5.1 receipt/fact/timeline/audit/outbox rollback fault injection; and
-- both OpenAPI mirrors byte-identical.
+- both OpenAPI mirrors byte-identical, followed by Flutter client codegen and
+  `melos run analyze` across the core and Staff consumers.
 
 ### 7.2 PR B
 
@@ -741,7 +742,10 @@ as activation authority by this document.
 - I18 classification values copied from the subscription without authorizing
   release;
 - the PR #733 schema/service/migration still refuse I18; and
-- no network call under the paper-fact test, including scheduler/drain runs.
+- no network call under the paper-fact test, including scheduler/drain runs;
+  and
+- Flutter client codegen plus `melos run analyze` across the core and Staff
+  consumers after the OpenAPI artifact changes.
 
 ### 7.3 PR C
 
@@ -761,6 +765,8 @@ as activation authority by this document.
 - route authorization, PHI/security logging, no-store responses, SSRF/file
   safety where applicable, and typed error envelopes;
 - both OpenAPI mirrors byte-identical; and
+- Flutter client codegen plus `melos run analyze` across the core and Staff
+  consumers after the OpenAPI artifact changes; and
 - no C-D14 gate, deployment flag, facility policy, packet, contact seed, or
   production activation changed by the build.
 

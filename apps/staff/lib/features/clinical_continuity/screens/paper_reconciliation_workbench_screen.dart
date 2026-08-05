@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth_core/api/vhhealth_api.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
+import '../../../core/config/api_config.dart' as staff_api;
+import '../../../core/services/medical_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -824,6 +826,10 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
   final _firstVerifier = TextEditingController();
   final _secondVerifier = TextEditingController();
   final _notes = TextEditingController();
+  List<Map<String, dynamic>> _admissionRows = const [];
+  int? _selectedAdmissionId;
+  bool _loadingAdmissions = true;
+  bool _admissionLoadFailed = false;
   _PaperAction _action = _PaperAction.medication;
   bool _unitMatch = false;
   bool _patientMatch = false;
@@ -836,6 +842,33 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
   void initState() {
     super.initState();
     _occurredAt.text = DateTime.now().toUtc().toIso8601String();
+    unawaited(_loadAdmissions());
+  }
+
+  Future<void> _loadAdmissions() async {
+    try {
+      final result = await MedicalApiService.getActiveAdmissions(limit: 100);
+      final rawRows = result['admissions'];
+      final rows = rawRows is List
+          ? rawRows
+                .whereType<Map>()
+                .map((row) => Map<String, dynamic>.from(row))
+                .where((row) => _positiveInt(row['id']) != null)
+                .toList(growable: false)
+          : const <Map<String, dynamic>>[];
+      if (!mounted) return;
+      setState(() {
+        _admissionRows = rows;
+        _loadingAdmissions = false;
+        _admissionLoadFailed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingAdmissions = false;
+        _admissionLoadFailed = true;
+      });
+    }
   }
 
   @override
@@ -967,6 +1000,50 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
   List<Widget> _actionFields(AppStrings strings) {
     if (_action == _PaperAction.medication) {
       return [
+        DropdownButtonFormField<int>(
+          key: const Key('paper-admission'),
+          initialValue: _selectedAdmissionId,
+          isExpanded: true,
+          decoration: _decoration(strings.admissionTitle).copyWith(
+            helperText: _loadingAdmissions
+                ? strings.lookup('continuity.reconciliation.loading')
+                : _admissionLoadFailed
+                ? strings.lookup('continuity.reconciliation.unavailable')
+                : _admissionRows.isEmpty
+                ? strings.admissionNoActive
+                : null,
+          ),
+          items: [
+            for (final row in _admissionRows)
+              if (_positiveInt(row['id']) case final admissionId?)
+                DropdownMenuItem<int>(
+                  value: admissionId,
+                  child: Text(
+                    _admissionLabel(strings, row, admissionId),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+          ],
+          onChanged: _loadingAdmissions
+              ? null
+              : (value) {
+                  setState(() => _selectedAdmissionId = value);
+                  final row = _admissionRows
+                      .where(
+                        (candidate) => _positiveInt(candidate['id']) == value,
+                      )
+                      .firstOrNull;
+                  if (row == null) return;
+                  final patientUid = _rowText(row['patient_uid']);
+                  final encounterId = _rowText(row['encounter_id']);
+                  if (patientUid.isNotEmpty) _patientUid.text = patientUid;
+                  if (encounterId.isNotEmpty) _encounterId.text = encounterId;
+                },
+          validator: (value) =>
+              value == null ? strings.admissionRequired : null,
+        ),
+        const SizedBox(height: 12),
         _field(
           _domainId,
           strings.lookup('continuity.reconciliation.medication_id'),
@@ -1044,11 +1121,6 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
         onChanged: (value) => setState(() => _expiryOk = value ?? false),
         title: Text(strings.lookup('continuity.reconciliation.expiry_ok')),
       ),
-      _field(
-        _notes,
-        strings.lookup('continuity.reconciliation.override_reason'),
-        optional: true,
-      ),
     ];
   }
 
@@ -1111,6 +1183,16 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
     });
     try {
       final paperId = _paperItem.text.trim().toUpperCase();
+      final checkerUid = (await staff_api.ApiConfig.getStaffUid())?.trim();
+      final checkerRole = (await staff_api.ApiConfig.getRole()).trim();
+      if (checkerUid == null ||
+          !_uuid.hasMatch(checkerUid) ||
+          checkerRole.isEmpty) {
+        throw const ClinicalContinuityReconciliationException(
+          'Signed-in staff checker identity is unavailable',
+          code: 'CONTINUITY_CHECKER_IDENTITY_REQUIRED',
+        );
+      }
       final existing = widget.workbench.paperItems
           .where(
             (item) =>
@@ -1145,7 +1227,13 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
           );
         }
       }
-      await _apply(version, paperId);
+      await _apply(
+        version,
+        paperId,
+        admissionId: _selectedAdmissionId,
+        checkerUid: checkerUid,
+        checkerRole: checkerRole,
+      );
       if (!mounted) return;
       Navigator.pop(context, true);
     } on ClinicalContinuityReconciliationException catch (error) {
@@ -1167,7 +1255,13 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
     }
   }
 
-  Future<void> _apply(int version, String paperId) async {
+  Future<void> _apply(
+    int version,
+    String paperId, {
+    required int? admissionId,
+    required String checkerUid,
+    required String checkerRole,
+  }) async {
     final occurred = DateTime.parse(_occurredAt.text.trim()).toUtc();
     final common = (
       expectedVersion: version,
@@ -1182,6 +1276,12 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
         'cc-paper:${widget.incidentId}:$paperId:${_action.value}';
     switch (_action) {
       case _PaperAction.medication:
+        if (admissionId == null) {
+          throw const ClinicalContinuityReconciliationException(
+            'An admission must be selected for medication back-entry',
+            code: 'CONTINUITY_MAR_ADMISSION_REQUIRED',
+          );
+        }
         await widget.client.recordMedicationAdministration(
           incidentId: widget.incidentId,
           paperItemId: paperId,
@@ -1194,7 +1294,10 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
             patientUid: common.patientUid,
             encounterId: common.encounterId,
             evidenceHash: common.evidenceHash,
+            admissionId: admissionId,
             medicationAdministrationId: int.parse(_domainId.text.trim()),
+            checkerUid: checkerUid,
+            checkerRole: checkerRole,
             notes: _emptyToNull(_notes.text),
           ),
         );
@@ -1213,10 +1316,19 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
             evidenceHash: common.evidenceHash,
             investigationId: int.parse(_domainId.text.trim()),
             specimenBarcode: _barcode.text.trim(),
+            checkerUid: checkerUid,
+            checkerRole: checkerRole,
             collectionNotes: _emptyToNull(_notes.text),
           ),
         );
       case _PaperAction.transfusion:
+        final encounterId = common.encounterId;
+        if (encounterId == null) {
+          throw const ClinicalContinuityReconciliationException(
+            'Encounter ID is required for transfusion back-entry',
+            code: 'CONTINUITY_TRANSFUSION_ENCOUNTER_REQUIRED',
+          );
+        }
         await widget.client.recordTransfusionVerification(
           incidentId: widget.incidentId,
           paperItemId: paperId,
@@ -1227,7 +1339,7 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
             originalActorUid: common.originalActorUid,
             originalActorRole: common.originalActorRole,
             patientUid: common.patientUid,
-            encounterId: common.encounterId,
+            encounterId: encounterId,
             evidenceHash: common.evidenceHash,
             bloodRequestId: int.parse(_domainId.text.trim()),
             bloodUnitId: int.parse(_secondDomainId.text.trim()),
@@ -1238,7 +1350,6 @@ class _PaperFactDialogState extends State<_PaperFactDialog> {
             patientMatch: _patientMatch,
             groupCompatible: _groupCompatible,
             expiryOk: _expiryOk,
-            overrideReason: _emptyToNull(_notes.text),
           ),
         );
     }
@@ -1383,6 +1494,28 @@ final _uuid = RegExp(
   caseSensitive: false,
 );
 final _hash = RegExp(r'^[0-9a-f]{64}$');
+
+int? _positiveInt(Object? value) {
+  final parsed = value is int ? value : int.tryParse(_rowText(value));
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+String _rowText(Object? value) => (value ?? '').toString().trim();
+
+String _admissionLabel(
+  AppStrings strings,
+  Map<String, dynamic> row,
+  int admissionId,
+) {
+  final patient = _rowText(row['patient_name']);
+  final patientUid = _rowText(row['patient_uid']);
+  final ward = _rowText(row['ward'] ?? row['bed_ward_name']);
+  return [
+    strings.admissionNumber(admissionId),
+    if (patient.isNotEmpty) patient else if (patientUid.isNotEmpty) patientUid,
+    if (ward.isNotEmpty) ward,
+  ].join(' · ');
+}
 
 String? _emptyToNull(String value) {
   final normalized = value.trim();
