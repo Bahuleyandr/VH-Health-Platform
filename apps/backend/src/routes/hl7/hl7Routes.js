@@ -6,6 +6,7 @@ import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js';
+import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireAnyRole } from '../../middleware/rbacMiddleware.js';
 import { parseHL7, generateACK } from '../../services/hl7/hl7Parser.js';
@@ -516,6 +517,11 @@ router.post(
   jwtAuth,
   requireAnyRole(...HL7_EXPORT_ROLES),
   tenantContextMiddleware,
+  // Tenancy hardening: this router is mounted before the global RLS
+  // middleware, so seed the AsyncLocalStorage tenant context here too —
+  // the prod auto-setTenant wrap then backstops the hand-written
+  // tenant_id predicates below.
+  tenantRlsMiddleware,
   wrapAsync(async (req, res) => {
     const { event_type, admission_id, investigation_id } = req.body;
 

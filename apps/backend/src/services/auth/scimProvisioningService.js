@@ -331,12 +331,17 @@ export async function resolveScimContext({ tenantSlug, providerKey, req }) {
     throw AppError.unauthorized('Invalid SCIM bearer token', 'SCIM_TOKEN_INVALID');
   }
   const authenticatedAt = new Date();
+  // Explicit tenant predicate (tenancy hardening): id is a global bigint
+  // sequence, so the tenant_id conjunct backstops the setTenant RLS wrap in
+  // environments where the enforce flag is off.
   await setTenant(tenant.id, (tx) => tx.$executeRawUnsafe(
     `UPDATE tenant_identity_providers
         SET scim_last_authenticated_at = $2::timestamptz
-      WHERE id = $1::bigint`,
+      WHERE id = $1::bigint
+        AND tenant_id = $3::uuid`,
     provider.id,
     authenticatedAt,
+    tenant.id,
   ));
   return { ...context, authenticatedAt };
 }
@@ -623,6 +628,15 @@ export async function deactivateScimIdentityTx(tx, {
       tokens: null,
     };
   }
+  // NOTE (tenancy hardening, deliberately NOT tenant-scoped): the session and
+  // device kill queries below match on user_uid / staff_id ALONE. Both keys are
+  // globally-unique identities (uid is a global uuid; staff_id FKs one staff
+  // row), so no cross-tenant collision exists — and the migration-617 C-D15
+  // trigger on scim_provisioning_commands requires the COMPLETE access
+  // shut-off: zero surviving sessions/devices for the identity regardless of
+  // each row's tenant_id stamp. A tenant conjunct here would let a session
+  // whose tenant_id was mis-stamped by the GUC default survive deprovisioning
+  // (verified: it trips chk_scim_provisioning_command_revocation_effect).
   const activeRows = await tx.$queryRawUnsafe(
     'SELECT COUNT(*)::int AS count FROM user_active_sessions WHERE user_uid = $1::uuid',
     uid,
@@ -681,9 +695,10 @@ export async function deactivateScimIdentityTx(tx, {
               archived_at = COALESCE(archived_at, NOW()),
               archive_reason = COALESCE(archive_reason, $2::text),
               updated_at = NOW()
-        WHERE id = $1`,
+        WHERE id = $1 AND tenant_id = $3::uuid`,
       staffId,
       reason,
+      tenantId,
     );
   } else if (realm === 'admin') {
     await tx.$executeRawUnsafe(
@@ -841,7 +856,7 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
               scim_provider_id = $9::bigint,
               scim_last_synced_at = NOW(),
               updated_at = NOW()
-        WHERE id = $1`,
+        WHERE id = $1 AND tenant_id = $10::uuid`,
       existing.staff_id,
       fields.employeeId || fields.externalId,
       fields.displayName,
@@ -851,6 +866,7 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
       staffSource,
       fields.externalId || fields.employeeId || fields.userName,
       context.provider.id,
+      context.tenant.id,
     );
     mutation = fields.active ? 'updated' : 'deactivated';
     const updatedRow = await findStaffByIdTx(tx, context, existing.uid);
