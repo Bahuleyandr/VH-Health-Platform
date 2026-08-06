@@ -329,7 +329,7 @@ export async function getActiveProblemList(patientUid, { tenantId = null } = {})
     if (rankDiff !== 0) return rankDiff;
     return b.created_at - a.created_at;
   });
-  return attachResourceCodings(sorted, { resourceType: 'diagnosis' });
+  return attachResourceCodings(sorted, { resourceType: 'diagnosis', tenantId });
 }
 
 // ===================================================================
@@ -356,7 +356,7 @@ export async function getEncounterDiagnoses(encounterId, { tenantId = null } = {
     if (rankDiff !== 0) return rankDiff;
     return a.created_at - b.created_at;
   });
-  return attachResourceCodings(sorted, { resourceType: 'diagnosis' });
+  return attachResourceCodings(sorted, { resourceType: 'diagnosis', tenantId });
 }
 
 // ===================================================================
@@ -378,7 +378,7 @@ export async function getPatientDiagnosisHistory(patientUid, { tenantId = null }
     select: DIAGNOSIS_SELECT,
     orderBy: { created_at: 'desc' },
   });
-  return attachResourceCodings(rows, { resourceType: 'diagnosis' });
+  return attachResourceCodings(rows, { resourceType: 'diagnosis', tenantId });
 }
 
 // ===================================================================

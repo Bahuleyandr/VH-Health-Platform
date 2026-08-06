@@ -1,6 +1,7 @@
 // Structured clinical code bindings for diagnoses and problem-list rows.
 
 import prisma from '../../lib/prisma.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { normalizeSystemKey } from './terminologyService.js';
 
 const RESOURCE_TYPES = new Set(['diagnosis', 'patient_problem']);
@@ -163,21 +164,33 @@ export async function attachResourceCodings(rows, {
   db = prisma,
   resourceType,
   idField = 'id',
+  tenantId = null,
 } = {}) {
   assertResourceType(resourceType);
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const ids = rows.map((row) => String(row[idField])).filter(Boolean);
   if (ids.length === 0) return rows;
+  // Tenant-scope the lookup (audit / cross-tenant fix): clinical_code_bindings
+  // carries tenant_id (migration 297) but this query previously matched on
+  // resource_type + resource_id only. resource_id values are per-table SERIAL
+  // ids shared across tenants, so an id collision attached another tenant's
+  // ICD-10/SNOMED codings to this tenant's diagnoses/problem rows. The tenant
+  // predicate is load-bearing defense-in-depth even before the RLS enforce
+  // flip. requireTenantId keeps the house fail-closed semantics: a falsy
+  // tenant throws unless ALLOW_DEFAULT_TENANT single-tenant floor is on.
+  const scopedTenantId = requireTenantId(tenantId);
   const bindings = await db.$queryRawUnsafe(
     `SELECT resource_id, system_key, code, display, release_id, language,
             linearization_uri, foundation_uri, coding_role, source, metadata
        FROM clinical_code_bindings
       WHERE resource_type = $1 AND resource_id = ANY($2::text[])
+        AND tenant_id = $3::uuid
       ORDER BY resource_id,
         CASE system_key WHEN 'ICD11' THEN 1 WHEN 'ICD10' THEN 2 WHEN 'SNOMED_CT' THEN 3 ELSE 4 END,
         code`,
     resourceType,
     ids,
+    scopedTenantId,
   );
   const byId = new Map();
   for (const row of bindings) {
