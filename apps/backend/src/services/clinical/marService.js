@@ -328,7 +328,7 @@ export const MAR_ADMINISTRATION_MODES = Object.freeze({
 
 const MAR_ADMINISTRATION_MODE_VALUES = new Set(Object.values(MAR_ADMINISTRATION_MODES));
 
-function duplicateAdministrationError(duplicateId = null) {
+export function duplicateAdministrationError(duplicateId = null) {
   return AppError.conflict(
     'This dose has already been administered (another MAR row for the same medication and scheduled time)',
     'MAR_DUPLICATE_ADMINISTRATION',
