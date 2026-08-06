@@ -32,7 +32,7 @@ dependencies:
   firebase_core: ^4.10.0
   firebase_messaging: ^16.3.0
   firebase_crashlytics: ^5.2.3
-  flutter_local_notifications: ^21.0.0
+  flutter_local_notifications: ^22.2.0
   mobile_scanner: ^7.2.0
   geolocator: ^14.0.0
   table_calendar: ^3.1.2
@@ -57,7 +57,7 @@ dependencies:
   # macOS/Windows/Linux; `path_provider` is needed to drop the recorded
   # WAV into a temp dir before upload. Wired through
   # `lib/core/widgets/voice_dictate_button.dart`.
-  record: ^6.2.1
+  record: ^7.1.1
   path_provider: ^2.1.5
   # PDF generation + system print dialog. Used by the bed-board's
   # printer button to render a clean A4 occupancy sheet (still common
