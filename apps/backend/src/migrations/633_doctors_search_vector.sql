@@ -1,4 +1,4 @@
--- Migration 632: doctors full-text search vector.
+-- Migration 633: doctors full-text search vector.
 --
 -- searchDoctors (src/utils/search/searchService.js) queries doctors.search_vector
 -- with to_tsquery/@@ on every multi-word search, but no migration ever created
