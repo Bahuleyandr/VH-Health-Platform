@@ -27,6 +27,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import { duplicateAdministrationError } from './marService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_WINDOW_MINUTES = 60;
@@ -256,34 +257,73 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
   const tid = requireTenantId(tenantId || evaluation.ma?.tenant_id);
 
   const record = await setTenantTx(tid, async (tx) => {
-    const rows = await tx.$queryRawUnsafe(
-      `UPDATE medication_administrations
-         SET status                = 'administered',
-             administered_at       = COALESCE($9::timestamptz, NOW()),
-             administered_by       = $2::uuid,
-             scanned_patient_uid   = $3::uuid,
-             scanned_barcode       = $4,
-             rights_passed         = $5::jsonb,
-             all_rights_passed     = $6,
-             override_reason       = $7,
-             patient_scanned_at    = COALESCE($9::timestamptz, NOW()),
-             medication_scanned_at = COALESCE($9::timestamptz, NOW())
-       WHERE id = $1 AND tenant_id = $8::uuid
-       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-                 status, notes, tenant_id, created_at, updated_at,
-                 administered_at, administered_by, rights_passed,
-                 all_rights_passed, override_reason,
-                 patient_scanned_at, medication_scanned_at`,
+    // Concurrency guard (mirrors marService.recordMedicationAdministrationTx).
+    // evaluate5Rights read the row UNLOCKED and OUTSIDE this tx to compute the
+    // rights verdict; that read is not a safe basis for the state flip. Lock the
+    // target row FOR UPDATE and re-read its status inside the tx so two nurses
+    // scanning the same due dose serialize here — the second blocks until the
+    // first commits, then sees status='administered' and is rejected instead of
+    // silently overwriting the first administration on the single physical row.
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT id, status
+         FROM medication_administrations
+        WHERE id = $1 AND tenant_id = $2::uuid
+        FOR UPDATE`,
       ma_id,
-      administeredBy,
-      scanned_patient_uid,
-      scanned_barcode,
-      JSON.stringify(evaluation.rights),
-      evaluation.allPassed,
-      overrideReason,
       tid,
-      admAt,
     );
+    const locked = lockedRows[0];
+    if (!locked) throw AppError.notFound('Medication administration record not found');
+    if (!['scheduled', 'held'].includes(String(locked.status || '').toLowerCase())) {
+      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
+    }
+
+    let rows;
+    try {
+      rows = await tx.$queryRawUnsafe(
+        `UPDATE medication_administrations
+           SET status                = 'administered',
+               administered_at       = COALESCE($9::timestamptz, NOW()),
+               administered_by       = $2::uuid,
+               scanned_patient_uid   = $3::uuid,
+               scanned_barcode       = $4,
+               rights_passed         = $5::jsonb,
+               all_rights_passed     = $6,
+               override_reason       = $7,
+               patient_scanned_at    = COALESCE($9::timestamptz, NOW()),
+               medication_scanned_at = COALESCE($9::timestamptz, NOW())
+         WHERE id = $1 AND tenant_id = $8::uuid
+           AND lower(status) IN ('scheduled', 'held')
+         RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+                   status, notes, tenant_id, created_at, updated_at,
+                   administered_at, administered_by, rights_passed,
+                   all_rights_passed, override_reason,
+                   patient_scanned_at, medication_scanned_at`,
+        ma_id,
+        administeredBy,
+        scanned_patient_uid,
+        scanned_barcode,
+        JSON.stringify(evaluation.rights),
+        evaluation.allPassed,
+        overrideReason,
+        tid,
+        admAt,
+      );
+    } catch (err) {
+      // A sibling MAR row for the same dose already administered trips the
+      // uniq_mar_administered_dose unique index. Surface it as the same clean
+      // 409 marService throws, not a raw 500.
+      if (err?.meta?.code === '23505' || /23505|duplicate key value/i.test(err?.message || '')) {
+        throw duplicateAdministrationError();
+      }
+      throw err;
+    }
+    // Lost race: the status guard above matched 0 rows because another
+    // administration committed first between our lock and this UPDATE. Reject
+    // rather than return a null record (same shape as recordMedicationAdministrationTx).
+    if (rows.length !== 1) {
+      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
+    }
 
     const updated = rows[0];
     if (updated?.id) {

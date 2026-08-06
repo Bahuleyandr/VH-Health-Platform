@@ -4,11 +4,21 @@ const setTenantTxMock = jest.fn();
 const publishOpChildResourceLinkedTxMock = jest.fn();
 const recordAppointmentCreatedEvidenceTxMock = jest.fn();
 const publishEventMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {},
   setTenantTx: setTenantTxMock,
 }));
+// createFollowUp now emits a canonical timeline + audit event atomically on the
+// caller transaction. Stub it so the real writer does not run against the tx's
+// $queryRawUnsafe mock and throw CANONICAL_TIMELINE_REQUIRED.
+jest.unstable_mockModule(
+  '../../services/clinical/canonicalClinicalPlatformService.js',
+  () => ({
+    recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+  }),
+);
 jest.unstable_mockModule(
   '../../services/appointment/opChildResourceEventService.js',
   () => ({
@@ -42,6 +52,10 @@ beforeEach(() => {
   publishOpChildResourceLinkedTxMock.mockReset();
   recordAppointmentCreatedEvidenceTxMock.mockReset();
   publishEventMock.mockReset();
+  recordCanonicalClinicalEventMock.mockReset().mockResolvedValue({
+    timeline: { id: 1 },
+    audit: { id: 1 },
+  });
 });
 
 test('bookAppointment=false records the plan on the caller transaction without nesting', async () => {

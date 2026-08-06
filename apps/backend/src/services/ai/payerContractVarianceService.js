@@ -252,15 +252,25 @@ export function matchClaimToContract({ claim, contracts, procedureCode = null })
   return null;
 }
 
-async function loadClaim(claimId) {
+async function loadClaim(tenantId, claimId) {
+  // Tenant-scope the lookup (audit / cross-tenant fix): insurance_claims carries
+  // tenant_id (migration 239) but this query previously matched on id only — a
+  // cross-tenant claim id would load another tenant's claim (patient_uid,
+  // insurance_provider, policy_number, amounts) into this tenant's variance
+  // analysis and its persisted review row. SERIAL ids are not globally unique,
+  // so the tenant predicate is load-bearing defense-in-depth even before the RLS
+  // enforce flip. Sibling clinicalAiWorkflowService / appealLetterGeneratorService
+  // loadClaim were already fixed this way.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT c.id, c.claim_number, c.patient_uid, c.insurance_provider,
             c.policy_number, c.claim_amount, c.approved_amount, c.status,
             c.submitted_at, c.reviewed_at, c.rejection_reason
      FROM insurance_claims c
      WHERE c.id = $1
+       AND c.tenant_id = $2::uuid
      LIMIT 1`,
-    claimId
+    claimId,
+    resolveTenantId({ tenantId })
   );
   const claim = rows[0];
   if (!claim) throw AppError.notFound('Insurance claim not found');
@@ -545,7 +555,7 @@ export async function evaluateClaimVariance({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const claim = await loadClaim(safeClaimId);
+  const claim = await loadClaim(tenantId, safeClaimId);
   const payerName = claim.insurance_provider;
   const contracts = await loadActiveContracts(tenantId, payerName, procedureCode);
   const contract = matchClaimToContract({ claim, contracts, procedureCode });
