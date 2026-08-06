@@ -893,12 +893,17 @@ export async function recordPreauthResponse({
   }
 
   // Insert response row (timeline).
+  // Tenant-scope the INSERT (audit / cross-tenant fix): this NHCX ingest path
+  // runs on plain prisma with no request tenant context, so omitting tenant_id
+  // let the migration-336 GUC-reading column DEFAULT fall back to the DEFAULT
+  // tenant and silently mis-place the insurer's response. tenantId is already
+  // verified above — getPreauth matched the pre-auth row against it.
   const respRows = await prisma.$queryRawUnsafe(
     `INSERT INTO insurance_preauth_responses
-       (preauth_id, response_type, sanctioned_amount, validity_until,
+       (tenant_id, preauth_id, response_type, sanctioned_amount, validity_until,
         conditions, query_text, denial_reason, raw_response,
         decided_by_tpa_user, decided_at, recorded_by)
-     VALUES ($1::int, $2, $3::numeric, $4::timestamptz, $5, $6, $7,
+     VALUES ($12::uuid, $1::int, $2, $3::numeric, $4::timestamptz, $5, $6, $7,
              $8::jsonb, $9, $10::timestamptz, $11::uuid)
      RETURNING *`,
     Number(preauth_id), response_type,
@@ -909,6 +914,7 @@ export async function recordPreauthResponse({
     decided_by_tpa_user || null,
     decided_at || new Date().toISOString(),
     recorded_by ? String(recorded_by) : null,
+    tenantId,
   );
 
   // Project response onto pre-auth row.
@@ -929,13 +935,15 @@ export async function recordPreauthResponse({
             query_text = CASE WHEN $1::varchar = 'queried' THEN $4::text ELSE query_text END,
             denial_reason = CASE WHEN $1::varchar = 'denied' THEN $5::text ELSE denial_reason END,
             updated_at = NOW()
-      WHERE id = $6::int`,
+      WHERE id = $6::int
+        AND tenant_id = $7::uuid`,
     newStatus,
     sanctioned_amount ? Number(sanctioned_amount) : null,
     validity_until || null,
     query_text || null,
     denial_reason || null,
     Number(preauth_id),
+    tenantId,
   );
 
   // Wave-4B-1 — room-cap detection. If the partial approval text downgrades
@@ -946,6 +954,7 @@ export async function recordPreauthResponse({
   if (response_type === 'partially_approved' && pre.admission_id) {
     try {
       await emitRoomCapAlertIfNeeded({
+        tenantId,
         preauth_id: Number(preauth_id),
         admission_id: pre.admission_id,
         conditions_text: conditions || '',
@@ -1004,12 +1013,16 @@ function detectCappedRoomCategory(conditionsText) {
   return matched;
 }
 
-async function emitRoomCapAlertIfNeeded({ preauth_id, admission_id, conditions_text, recorded_by }) {
+async function emitRoomCapAlertIfNeeded({ tenantId, preauth_id, admission_id, conditions_text, recorded_by }) {
   const cappedCat = detectCappedRoomCategory(conditions_text);
   if (!cappedCat) return;
 
-  const admission = await prisma.admissions.findUnique({
-    where: { id: Number(admission_id) },
+  // Tenant-scope the admission lookup (audit / cross-tenant fix): admissions
+  // carries tenant_id but the previous findUnique matched on id only — SERIAL
+  // ids are shared across tenants, so a collision read another tenant's
+  // admission (room_category, patient_uid) into this tenant's alert.
+  const admission = await prisma.admissions.findFirst({
+    where: { id: Number(admission_id), tenant_id: tenantId },
     select: { id: true, room_category: true, patient_uid: true },
   });
   if (!admission?.room_category) return;
@@ -1024,8 +1037,13 @@ async function emitRoomCapAlertIfNeeded({ preauth_id, admission_id, conditions_t
     select: { id: true },
   });
 
+  // Stamp tenant_id explicitly (audit / cross-tenant fix): clinical_alerts has
+  // a migration-238 GUC-reading DEFAULT that falls back to the DEFAULT tenant
+  // when app.current_tenant_id is unset — which it always is on this plain-
+  // prisma NHCX ingest path — so the alert landed on the wrong tenant's board.
   await prisma.clinical_alerts.create({
     data: {
+      tenant_id: tenantId,
       patient_id: patient?.id ?? null,
       alert_type: 'TPA_ROOM_CATEGORY_CAP',
       severity: 'medium',
