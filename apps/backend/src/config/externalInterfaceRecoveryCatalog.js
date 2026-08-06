@@ -6,7 +6,7 @@ const entry = (id, name, disposition, extra = {}) => Object.freeze({
   id,
   name,
   disposition,
-  implemented: ['I01', 'I02', 'I04', 'I05', 'I06', 'I09', 'I10', 'I13', 'I15', 'I16', 'I17', 'I18', 'I19', 'I23', 'I25'].includes(id),
+  implemented: ['I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I09', 'I10', 'I13', 'I15', 'I16', 'I17', 'I18', 'I19', 'I23', 'I25'].includes(id),
   defaultEffectDisposition: disposition === HWM ? 'late_pending_only' : null,
   ...extra,
 });
@@ -26,7 +26,17 @@ const catalogEntries = [
     duplicateKeyKind: 'tenant_analyzer_canonical_astm_sha256',
     partitionKind: 'tenant_analyzer',
   }),
-  entry('I03', 'HL7 ADT and ORM inbound', HWM),
+  entry('I03', 'HL7 ADT and ORM inbound', HWM, {
+    direction: 'inbound',
+    cursorKind: 'monotonic_position_and_predecessor',
+    facilityScope: 'tenant',
+    duplicateKeyKind: 'tenant_signing_credential_message_type_trigger_msh10',
+    duplicateFingerprintKind: 'exact_payload_sha256',
+    partitionKind: 'tenant_signing_credential_message_family',
+    messageFamilies: Object.freeze(['adt', 'orm']),
+    replayGuardRole: 'pre_auth_short_ttl_only',
+    providerSequence: 'required_no_inferred_start',
+  }),
   entry('I04', 'HL7 outbound', HWM, {
     direction: 'outbound',
     cursorKind: 'monotonic_position_and_predecessor',

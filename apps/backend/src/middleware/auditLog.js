@@ -14,6 +14,7 @@
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { normalizeAuditLogUserId } from '../utils/auditLogIdentity.js';
+import { isHl7ReceiveEndpoint } from '../utils/urlRedaction.js';
 
 let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
@@ -329,6 +330,12 @@ export function sanitizeBody(body) {
   }
 }
 
+export function excludesAuditRequestBody(cleanPath) {
+  // HL7 fields can carry PHI at arbitrary positions, including hostile query
+  // input, so this endpoint cannot safely derive audit context from either.
+  return isHl7ReceiveEndpoint(String(cleanPath || ''));
+}
+
 // ─── Paths to skip entirely ──────────────────────────────────────────────────
 const SKIP_PATHS = [
   '/health', '/ping', '/favicon',
@@ -421,15 +428,17 @@ export function deriveAuditResourceContext(
   const pathContext = derivePathContext(cleanPath);
   const trustedDeviceType = normalizeDeviceType(deviceType) || deviceType || null;
   const headerDeviceType = requestDeviceType(req);
-  const sources = [
-    req.params,
-    req.body,
-    req.query,
-    req.body?.patient,
-    req.body?.appointment,
-    req.body?.admission,
-    req.body?.invoice,
-  ];
+  const sources = excludesAuditRequestBody(cleanPath)
+    ? [req.params]
+    : [
+      req.params,
+      req.body,
+      req.query,
+      req.body?.patient,
+      req.body?.appointment,
+      req.body?.admission,
+      req.body?.invoice,
+    ];
 
   const context = {
     request_id: req.id || null,
@@ -498,7 +507,7 @@ export function auditLogMiddleware(req, res, next) {
           userOnDrop?.id ?? userOnDrop?.userId ?? userOnDrop?.user_id ?? null,
         ),
         userRole: userOnDrop?.role || userOnDrop?.claims?.role || null,
-        path: req.originalUrl,
+        path: excludesAuditRequestBody(cleanPathOnDrop) ? cleanPathOnDrop : req.originalUrl,
         method: req.method,
         status_code: res.statusCode,
         tenant_id: auditTenantId(req),
@@ -554,8 +563,10 @@ export function auditLogMiddleware(req, res, next) {
           auditContext.resource,
           auditContext.resourceId == null ? null : String(auditContext.resourceId),
           JSON.stringify(auditContext.metadata),
-          Object.keys(query || {}).length ? JSON.stringify(query) : null,
-          method !== 'GET' ? sanitizeBody(body) : null,
+          !excludesAuditRequestBody(cleanPath) && Object.keys(query || {}).length
+            ? JSON.stringify(query)
+            : null,
+          method !== 'GET' && !excludesAuditRequestBody(cleanPath) ? sanitizeBody(body) : null,
           statusCode,
           responseTimeMs,
           isSuccess,
@@ -570,7 +581,7 @@ export function auditLogMiddleware(req, res, next) {
         _auditLogToFile('DB write failed', {
           action: deriveAction(method, cleanPath),
           userId: userId,
-          path: req.originalUrl,
+          path: excludesAuditRequestBody(cleanPath) ? cleanPath : req.originalUrl,
           method: req.method,
           timestamp: new Date().toISOString(),
           error: err?.message

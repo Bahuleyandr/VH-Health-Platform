@@ -19,8 +19,17 @@ import {
 } from '../../services/hl7/hl7Transformer.js';
 import { AppError } from '../../utils/AppError.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
-import { resolveTenantBySender, getInteropSecret } from '../../services/interop/tenantInteropSecretService.js';
+import {
+  getInteropSecret,
+  resolveInteropCredentialSnapshot,
+  resolveTenantBySender,
+} from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import {
+  assertEnvBackedHl7InboundLivePathAvailable,
+  prepareHl7InboundRecoveryAuthentication,
+  submitHl7InboundRecovery,
+} from '../../services/integrations/externalHl7InboundRecoveryService.js';
 
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
@@ -46,12 +55,33 @@ function assertLocalInvestigationExportContract(investigation, { requireResults 
   }
 }
 
-// C-4: this router is mounted BEFORE the global JWT auth + rate limiters
-// (app.js), and /receive is unauthenticated (HMAC-signed only). DB work happens
-// around the HMAC check, so without a limiter here it is a brute-force / DoS
-// surface. Throttle every inbound HL7 request per-IP (the generic profile keys
-// by IP when no JWT/api-key identity is present).
-router.use(genericLimiter);
+const rawHl7RecoveryResponses = middleware => (req, res, next) => {
+  if (req.hl7InboundRecoveryRequest !== true) return middleware(req, res, next);
+  const originalJson = res.json;
+  const restoreAndNext = (err) => {
+    res.json = originalJson;
+    return next(err);
+  };
+  res.json = function sendRawHl7RecoveryRejection() {
+    res.json = originalJson;
+    const status = Number(res.statusCode) || 500;
+    const ackCode = status >= 500 || status === 429 ? 'AE' : 'AR';
+    res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+    return res.send(generateACK('UNKNOWN', ackCode, 'HL7 receive request rejected'));
+  };
+  try {
+    const pending = middleware(req, res, restoreAndNext);
+    if (pending && typeof pending.catch === 'function') pending.catch(restoreAndNext);
+    return pending;
+  } catch (err) {
+    return restoreAndNext(err);
+  }
+};
+
+// Preserve the legacy router-level generic limiter and its authenticated
+// tenant/API-key bucket. Recovery requests keep that same limiter; only their
+// wire-format rejection is converted to an HL7 ACK.
+router.use(rawHl7RecoveryResponses(genericLimiter));
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -60,8 +90,37 @@ function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-async function assertHl7InboundAuthentic(req, { message, controlId, receivingFacility }) {
-  const requestId = req.headers['x-hl7-message-id'] || req.headers['x-request-id'] || controlId;
+async function assertHl7InboundAuthentic(req, {
+  message,
+  controlId,
+  receivingFacility,
+  recoveryAuthentication = null,
+}) {
+  const explicitRecoveryRequestId = String(req.headers['x-hl7-message-id'] || '').trim();
+  if (recoveryAuthentication && !explicitRecoveryRequestId) {
+    throw AppError.unauthorized(
+      'HL7 recovery request id is required',
+      'HL7_I03_RECOVERY_REQUEST_ID_REQUIRED',
+    );
+  }
+  if (
+    recoveryAuthentication
+    && (
+      explicitRecoveryRequestId.length > 200
+      || [...explicitRecoveryRequestId].some((character) => {
+        const codePoint = character.codePointAt(0);
+        return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159);
+      })
+    )
+  ) {
+    throw AppError.unauthorized(
+      'HL7 recovery request id is invalid',
+      'HL7_I03_RECOVERY_REQUEST_ID_INVALID',
+    );
+  }
+  const requestId = recoveryAuthentication
+    ? explicitRecoveryRequestId
+    : req.headers['x-hl7-message-id'] || req.headers['x-request-id'] || controlId;
   const signature = req.headers['x-hl7-signature'] || req.headers['x-vhhealth-hl7-signature'];
   const timestamp = req.headers['x-hl7-timestamp'] || req.headers.timestamp;
 
@@ -73,14 +132,32 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
   // HL7_RECEIVING_FACILITY unset, the global secret backs the default tenant for
   // any receiver (unchanged); once it is set, the facility must match. An
   // unrecognized receiver with no usable secret is rejected.
-  let tenantId = await resolveTenantBySender('hl7_inbound', receivingFacility);
-  let secret = tenantId ? await getInteropSecret(tenantId, 'hl7_inbound') : null;
+  let credentialSnapshot = null;
+  let tenantId;
+  let secret;
+  if (recoveryAuthentication) {
+    credentialSnapshot = await resolveInteropCredentialSnapshot(
+      'hl7_inbound',
+      receivingFacility,
+    );
+    if (!credentialSnapshot) {
+      throw AppError.unauthorized(
+        'HL7 recovery requires an active DB-backed credential',
+        'HL7_I03_RECOVERY_CREDENTIAL_REQUIRED',
+      );
+    }
+    tenantId = credentialSnapshot.tenant_id;
+    secret = credentialSnapshot.secret;
+  } else {
+    tenantId = await resolveTenantBySender('hl7_inbound', receivingFacility);
+    secret = tenantId ? await getInteropSecret(tenantId, 'hl7_inbound') : null;
+  }
   // CAN-021: a per-tenant inbound secret authenticates a SPECIFIC tenant's feed,
   // so the named patient MUST belong to that tenant (strict). The shared-secret
   // fallback is the legacy single-tenant/default path and writes to the
   // patient's own resolved tenant (not strict) — see hl7-receive-tenant-binding.
   let strictTenant = !!(tenantId && secret);
-  if (!secret && process.env.HL7_INBOUND_SHARED_SECRET) {
+  if (!recoveryAuthentication && !secret && process.env.HL7_INBOUND_SHARED_SECRET) {
     const configuredFacility = String(process.env.HL7_RECEIVING_FACILITY || '').trim();
     if (!configuredFacility || String(receivingFacility || '').trim() === configuredFacility) {
       tenantId = DEFAULT_TENANT_ID;
@@ -98,12 +175,24 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
     signature,
     timestamp,
     requestId,
-    payload: message,
+    payload: recoveryAuthentication?.signedPayload || message,
     context: 'HL7 inbound message',
     codePrefix: 'HL7_INBOUND',
     replayNamespace: 'hl7-inbound',
   };
   verifySignedRequest({ ...signedRequest, claimLocalReplay: false });
+  if (
+    recoveryAuthentication
+    && (
+      String(credentialSnapshot.id) !== recoveryAuthentication.signingCredentialId
+      || String(credentialSnapshot.tenant_id).toLowerCase() !== recoveryAuthentication.tenantId
+    )
+  ) {
+    throw AppError.unauthorized(
+      'HL7 recovery credentials do not match the signed recovery envelope',
+      'HL7_I03_RECOVERY_CREDENTIAL_MISMATCH',
+    );
+  }
   // A DB-backed API key is tenant-owned. This router is mounted before the
   // global JWT/tenant middleware, so enforce the same credential equality
   // here after HMAC verification (no tenant oracle) but before consuming the
@@ -133,6 +222,22 @@ async function assertHl7InboundAuthentic(req, { message, controlId, receivingFac
   });
   req.tenantId = tenantId; // the authenticated destination tenant
   req.hl7StrictTenant = strictTenant; // CAN-021: enforce patient-tenant match on the per-tenant-secret path
+  req.hl7CredentialSnapshot = credentialSnapshot;
+}
+
+function i03MessageFamily(messageType) {
+  if (['ADT^A01', 'ADT^A02', 'ADT^A03'].includes(messageType)) return 'adt';
+  if (messageType === 'ORM^O01') return 'orm';
+  return null;
+}
+
+function sendHl7Ack(res, status, controlId, code, text) {
+  res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+  return res.status(status).send(generateACK(controlId || 'UNKNOWN', code, text));
+}
+
+export function hl7AuthenticityAckCode(error, { recovery = false } = {}) {
+  return recovery && Number(error?.statusCode) >= 500 ? 'AE' : 'AR';
 }
 
 // Resolve the patient by uid GLOBALLY (the sender's tenant is not in the
@@ -164,42 +269,122 @@ async function loadHl7Patient(patientUid, authenticatedTenantId, strictTenant) {
 router.post(
   '/receive',
   wrapAsync(async (req, res) => {
-    const { message } = req.body;
+    const body = req.body;
+    const hasRecovery = Boolean(
+      body
+      && typeof body === 'object'
+      && Object.prototype.hasOwnProperty.call(body, 'recovery'),
+    );
+    const message = body?.message;
+    let recoveryAuthentication = null;
+    let parsed;
 
-    if (!message || typeof message !== 'string') {
+    if (hasRecovery) {
+      try {
+        recoveryAuthentication = prepareHl7InboundRecoveryAuthentication({ body });
+        parsed = recoveryAuthentication.parsed;
+      } catch (err) {
+        logger.warn('HL7 I03 recovery contract rejected', {
+          interfaceFamily: 'I03',
+          code: err?.code,
+        });
+        return sendHl7Ack(res, err?.statusCode || 400, 'UNKNOWN', 'AR', 'Recovery request rejected');
+      }
+    } else if (!message || typeof message !== 'string') {
       throw AppError.badRequest('Request body must include a "message" string containing the HL7v2 message');
     }
 
-    let parsed;
-    try {
-      parsed = parseHL7(message);
-    } catch (err) {
-      logger.error('HL7 parse error', { error: err.message, requestId: req.id });
-      res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-      return res.status(400).send(generateACK('UNKNOWN', 'AR', 'Parse error: Invalid HL7 message format'));
+    if (!parsed) {
+      try {
+        parsed = parseHL7(message);
+      } catch (err) {
+        logger.error('HL7 parse error', { error: err.message, requestId: req.id });
+        return sendHl7Ack(res, 400, 'UNKNOWN', 'AR', 'Parse error: Invalid HL7 message format');
+      }
     }
 
     if (!parsed.msh) {
-      res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-      return res.status(400).send(generateACK('UNKNOWN', 'AR', 'Missing MSH segment'));
+      return sendHl7Ack(res, 400, 'UNKNOWN', 'AR', 'Missing MSH segment');
     }
 
     const messageType = parsed.msh.messageType || '';
     const controlId = parsed.msh.messageControlId || '';
 
     try {
-      await assertHl7InboundAuthentic(req, { message, controlId, receivingFacility: parsed.msh?.receivingFacility });
+      await assertHl7InboundAuthentic(req, {
+        message,
+        controlId,
+        receivingFacility: parsed.msh?.receivingFacility,
+        recoveryAuthentication,
+      });
     } catch (err) {
       logger.warn('HL7 inbound message rejected by authenticity check', {
         messageType,
-        controlId,
+        ...(hasRecovery ? { interfaceFamily: 'I03' } : { controlId, requestId: req.id }),
         code: err.code,
-        requestId: req.id,
       });
-      res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-      return res
-        .status(err.statusCode || 401)
-        .send(generateACK(controlId || 'UNKNOWN', 'AR', err.message || 'HL7 message authentication failed'));
+      return sendHl7Ack(
+        res,
+        err.statusCode || 401,
+        controlId,
+        hl7AuthenticityAckCode(err, { recovery: hasRecovery }),
+        hasRecovery ? 'Recovery request rejected' : (err.message || 'HL7 message authentication failed'),
+      );
+    }
+
+    if (hasRecovery) {
+      try {
+        const result = await submitHl7InboundRecovery({
+          message,
+          recovery: recoveryAuthentication.recovery,
+          parsed,
+          credentialSnapshot: req.hl7CredentialSnapshot,
+        });
+        logger.info('HL7 I03 recovery item accepted for reconciliation', {
+          interfaceFamily: 'I03',
+          messageFamily: recoveryAuthentication.messageFamily,
+          generation: recoveryAuthentication.generation,
+          duplicate: result.duplicate,
+        });
+        res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+        return res.status(result.httpStatus).send(result.ack);
+      } catch (err) {
+        logger.warn('HL7 I03 recovery item refused', {
+          interfaceFamily: 'I03',
+          messageFamily: recoveryAuthentication.messageFamily,
+          generation: recoveryAuthentication.generation,
+          code: err?.code,
+        });
+        const status = err?.statusCode || 500;
+        const ackCode = status === 400 || status === 401 || status === 403 ? 'AR' : 'AE';
+        return sendHl7Ack(res, status, controlId, ackCode, 'Recovery request rejected');
+      }
+    }
+
+    const enrolledFamily = i03MessageFamily(messageType);
+    if (enrolledFamily) {
+      try {
+        if (String(parsed.msh?.receivingFacility || '').trim()) {
+          await assertEnvBackedHl7InboundLivePathAvailable({
+            receivingFacility: parsed.msh?.receivingFacility,
+            messageFamily: enrolledFamily,
+          });
+        }
+      } catch (err) {
+        logger.warn('HL7 live ingress blocked by I03 recovery state', {
+          interfaceFamily: 'I03',
+          messageFamily: enrolledFamily,
+          code: err?.code,
+          requestId: req.id,
+        });
+        return sendHl7Ack(
+          res,
+          err?.statusCode || 500,
+          controlId,
+          'AE',
+          'Signed recovery envelope required',
+        );
+      }
     }
 
     logger.info('HL7 message received', {

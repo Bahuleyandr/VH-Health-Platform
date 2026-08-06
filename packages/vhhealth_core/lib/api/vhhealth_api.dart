@@ -17,3 +17,4 @@
 export 'generated/openapi.swagger.dart';
 export 'generated/openapi.enums.swagger.dart';
 export 'generated/client_index.dart';
+export 'hl7_inbound_receive_request.dart';

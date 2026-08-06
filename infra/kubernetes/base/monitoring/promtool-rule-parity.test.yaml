@@ -370,7 +370,7 @@ tests:
               runbook: "docs/DOWNTIME_PROCEDURE.md"
 
   # External-recovery alerts retain the honest database-output scope. Facility
-  # 41 is sick while facility 42 and a tenant-wide stream are healthy.
+  # 41 and tenant-wide I03 require reconciliation while facility 42 is healthy.
   - interval: 1m
     input_series:
       - series: 'external_recovery_observation_timestamp_seconds{pod="backend-0"}'
@@ -389,7 +389,7 @@ tests:
         values: '1x40'
       - series: 'external_recovery_inbox_pending_rows{tenant_id="10000000-0000-4000-8000-000000000001",facility_scope="facility",facility_id="42",interface_family="I10",direction="inbound",pod="backend-0"}'
         values: '0x40'
-      - series: 'external_recovery_active_offsets{tenant_id="20000000-0000-4000-8000-000000000001",facility_scope="tenant",facility_id="tenant-wide",interface_family="I01",direction="inbound",recovery_state="ready",pod="backend-0"}'
+      - series: 'external_recovery_active_offsets{tenant_id="20000000-0000-4000-8000-000000000001",facility_scope="tenant",facility_id="tenant-wide",interface_family="I03",direction="inbound",recovery_state="reconciliation_required_missing_marker",pod="backend-0"}'
         values: '1x40'
     alert_rule_test:
       - eval_time: 20m
@@ -410,6 +410,19 @@ tests:
             exp_annotations:
               summary: "External recovery for 10000000-0000-4000-8000-000000000001/41 I10 inbound requires reconciliation"
               description: "The database reports one or more live offsets in reconciliation_required_source_gap. Inspect the exact partition in the Admin Continuity Reconciliation workbench; do not bulk resume."
+              runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
+          - exp_labels:
+              tenant_id: "20000000-0000-4000-8000-000000000001"
+              facility_scope: tenant
+              facility_id: tenant-wide
+              interface_family: I03
+              direction: inbound
+              recovery_state: reconciliation_required_missing_marker
+              severity: critical
+              team: continuity
+            exp_annotations:
+              summary: "External recovery for 20000000-0000-4000-8000-000000000001/tenant-wide I03 inbound requires reconciliation"
+              description: "The database reports one or more live offsets in reconciliation_required_missing_marker. Inspect the exact partition in the Admin Continuity Reconciliation workbench; do not bulk resume."
               runbook: "docs/runbooks/C6_1_EXTERNAL_RECOVERY_OPERABILITY.md"
       - eval_time: 20m
         alertname: ExternalRecoveryInboxDeadRows

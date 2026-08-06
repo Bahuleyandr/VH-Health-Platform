@@ -8,7 +8,10 @@
 import crypto from 'crypto';
 import prisma from '../lib/prisma.js';
 import {
-  resolveTenantBySender, getInteropSecret, upsertInteropSecret,
+  resolveInteropCredentialSnapshot,
+  resolveTenantBySender,
+  getInteropSecret,
+  upsertInteropSecret,
 } from '../services/interop/tenantInteropSecretService.js';
 import { verifySignedRequest } from '../utils/signedRequest.js';
 
@@ -19,6 +22,10 @@ const HIP_A = `HIP-A-${SFX}`;
 const HIP_B = `HIP-B-${SFX}`;
 const SECRET_A = 'tenant-a-abdm-secret';
 const SECRET_B = 'tenant-b-abdm-secret';
+const HL7_FACILITY_A = `HL7-FAC-A-${SFX}`;
+const HL7_FACILITY_A_ALT = `HL7-FAC-A-ALT-${SFX}`;
+const HL7_SECRET_A = 'tenant-a-hl7-exact-secret';
+const ALT_SECRET = 'tenant-a-hl7-other-row-secret';
 
 function signed(secret, payload) {
   const timestamp = String(Date.now());
@@ -39,15 +46,41 @@ async function ensureTenant(id, slug) {
 
 describe('W3 WS6 — per-tenant interop secrets', () => {
   beforeAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier IN ($1,$2)`, HIP_A, HIP_B).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM tenant_interop_secrets
+        WHERE sender_identifier IN ($1,$2,$3,$4)`,
+      HIP_A,
+      HIP_B,
+      HL7_FACILITY_A,
+      HL7_FACILITY_A_ALT,
+    ).catch(() => {});
     await ensureTenant(TENANT_A, `w3-ws6-a-${SFX}`);
     await ensureTenant(TENANT_B, `w3-ws6-b-${SFX}`);
     await upsertInteropSecret({ tenantId: TENANT_A, kind: 'abdm_callback', senderIdentifier: HIP_A, secret: SECRET_A });
     await upsertInteropSecret({ tenantId: TENANT_B, kind: 'abdm_callback', senderIdentifier: HIP_B, secret: SECRET_B });
+    await upsertInteropSecret({
+      tenantId: TENANT_A,
+      kind: 'hl7_inbound',
+      senderIdentifier: HL7_FACILITY_A,
+      secret: HL7_SECRET_A,
+    });
+    await upsertInteropSecret({
+      tenantId: TENANT_A,
+      kind: 'hl7_inbound',
+      senderIdentifier: HL7_FACILITY_A_ALT,
+      secret: ALT_SECRET,
+    });
   }, 30000);
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier IN ($1,$2)`, HIP_A, HIP_B).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM tenant_interop_secrets
+        WHERE sender_identifier IN ($1,$2,$3,$4)`,
+      HIP_A,
+      HIP_B,
+      HL7_FACILITY_A,
+      HL7_FACILITY_A_ALT,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id IN ($1::uuid,$2::uuid)`, TENANT_A, TENANT_B).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   }, 30000);
@@ -64,6 +97,13 @@ describe('W3 WS6 — per-tenant interop secrets', () => {
   it('round-trips the encrypted per-tenant secret', async () => {
     expect(await getInteropSecret(TENANT_A, 'abdm_callback')).toBe(SECRET_A);
     expect(await getInteropSecret(TENANT_B, 'abdm_callback')).toBe(SECRET_B);
+  });
+
+  it('retains legacy tenant-wide selection with two active HL7 credential rows', async () => {
+    const tenantId = await resolveTenantBySender('hl7_inbound', HL7_FACILITY_A);
+
+    expect(tenantId).toBe(TENANT_A);
+    expect(await getInteropSecret(tenantId, 'hl7_inbound')).toBe(ALT_SECRET);
   });
 
   it("tenant A's callback verifies under A's secret but NOT under B's", async () => {
@@ -84,5 +124,57 @@ describe('W3 WS6 — per-tenant interop secrets', () => {
       secret: secretForB, signature, timestamp, requestId, payload,
       context: 'ABDM callback', codePrefix: 'ABDM_CALLBACK', replayNamespace: `ws6-bad-${SFX}`,
     })).toThrow();
+  });
+
+  it('resolves one exact active DB credential row without selecting another tenant secret', async () => {
+    const snapshot = await resolveInteropCredentialSnapshot('hl7_inbound', HL7_FACILITY_A);
+    const other = await resolveInteropCredentialSnapshot('hl7_inbound', HL7_FACILITY_A_ALT);
+
+    expect(snapshot).toMatchObject({
+      id: expect.stringMatching(/^[1-9][0-9]*$/),
+      tenant_id: TENANT_A,
+      kind: 'hl7_inbound',
+      sender_identifier: HL7_FACILITY_A,
+      status: 'active',
+      secret: HL7_SECRET_A,
+    });
+    expect(other).toMatchObject({
+      tenant_id: TENANT_A,
+      sender_identifier: HL7_FACILITY_A_ALT,
+      secret: ALT_SECRET,
+    });
+    expect(snapshot.id).not.toBe(other.id);
+    expect(Object.isFrozen(snapshot)).toBe(true);
+  });
+
+  it('refuses inactive credentials and fails closed when exact-row decryption fails', async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE tenant_interop_secrets SET status = 'inactive'
+        WHERE kind = 'hl7_inbound' AND sender_identifier = $1`,
+      HL7_FACILITY_A,
+    );
+    expect(await resolveInteropCredentialSnapshot('hl7_inbound', HL7_FACILITY_A)).toBeNull();
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE tenant_interop_secrets
+          SET status = 'active', secret_ciphertext = $2
+        WHERE kind = 'hl7_inbound' AND sender_identifier = $1`,
+      HL7_FACILITY_A,
+      'enc:v2:not-a-valid-envelope',
+    );
+    await expect(resolveInteropCredentialSnapshot('hl7_inbound', HL7_FACILITY_A))
+      .rejects.toMatchObject({ code: 'INTEROP_CREDENTIAL_LOOKUP_FAILED' });
+    expect(await resolveInteropCredentialSnapshot(
+      'hl7_inbound',
+      HL7_FACILITY_A,
+      { failClosed: false },
+    )).toBeNull();
+
+    await upsertInteropSecret({
+      tenantId: TENANT_A,
+      kind: 'hl7_inbound',
+      senderIdentifier: HL7_FACILITY_A,
+      secret: HL7_SECRET_A,
+    });
   });
 });

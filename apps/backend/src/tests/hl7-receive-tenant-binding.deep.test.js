@@ -16,12 +16,27 @@
 
 import crypto from 'crypto';
 import express from 'express';
+import { Client } from 'pg';
 import request from 'supertest';
 
 import prisma from '../lib/prisma.js';
 import hl7Routes from '../routes/hl7/hl7Routes.js';
+import {
+  I03_RECOVERY_SCHEMA,
+  buildI03RecoverySignedPayload,
+  i03DuplicateKey,
+  i03SourceToken,
+  sha256Utf8,
+} from '../services/integrations/externalHl7InboundRecoveryService.js';
+import {
+  resolveInteropCredentialSnapshot,
+  upsertInteropSecret,
+} from '../services/interop/tenantInteropSecretService.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { registerExternalRecoveryOffset } from './helpers/externalRecoveryOperabilityTestHelper.js';
 
-const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
+const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+const DB_CONFIGURED = !!databaseUrl;
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const SECRET = 'hl7-tenant-binding-test-secret';
@@ -29,6 +44,60 @@ const TENANT_B = 'b7100000-0000-4000-8000-00000000b001';
 const TENANT_SLUG = 'hl7-tenant-binding-b';
 const PATIENT_UID = 'b7100000-0000-4000-8000-0000000007b1';
 const PATIENT_PHONE = '+919000070701';
+
+function ownerDatabaseUrl(value) {
+  const url = new URL(value);
+  if (url.hostname === '127.0.0.1' && url.port === '55432') {
+    url.username = 'postgres';
+    url.password = '';
+  }
+  return url.toString();
+}
+
+async function cleanupEnrolledOffset(offsetId) {
+  const client = new Client({ connectionString: ownerDatabaseUrl(databaseUrl) });
+  await client.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL session_replication_role = 'replica'`);
+    const auditRows = await client.query(
+      `SELECT clinical_audit_event_id::text
+         FROM external_recovery_operability_actions
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      [TENANT_B, offsetId],
+    );
+    await client.query(
+      `DELETE FROM event_consumer_offsets
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      [TENANT_B, offsetId],
+    );
+    await client.query(
+      `DELETE FROM external_recovery_operability_actions
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      [TENANT_B, offsetId],
+    );
+    for (const row of auditRows.rows) {
+      await client.query(
+        `DELETE FROM clinical_audit_events
+          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        [TENANT_B, row.clinical_audit_event_id],
+      );
+    }
+    await client.query(
+      `DELETE FROM tenant_interop_secrets
+        WHERE tenant_id = $1::uuid
+          AND kind = 'hl7_inbound'
+          AND sender_identifier = 'VHFAC'`,
+      [TENANT_B],
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
 
 function buildApp() {
   const app = express();
@@ -50,11 +119,82 @@ function signHeaders({ message, controlId }) {
   };
 }
 
+function buildRecoveryRequest(controlId) {
+  const occurrence = '20260806103045+0530';
+  const message = [
+    `MSH|^~\\&|SENDER|SFAC|VH|VHFAC|${occurrence}||ADT^A01|${controlId}|P|2.5|1042`,
+    `EVN|A01|${occurrence}`,
+    `PID|1||${PATIENT_UID}||HL7 Tenant Patient||19900101|M|||Addr|||${PATIENT_PHONE}`,
+    'PV1|1|I|WARD-3',
+  ].join('\r');
+  const signingCredentialId = '999999';
+  const tenantId = TENANT_B;
+  const sourcePartition = `i03/credential/${signingCredentialId}/family/adt`;
+  const predecessorToken = 'a'.repeat(64);
+  const sourcePosition = '11';
+  const generation = 1;
+  const messageSha256 = sha256Utf8(message);
+  const duplicateKey = i03DuplicateKey({
+    tenantId,
+    signingCredentialId,
+    messageFamily: 'adt',
+    messageType: 'ADT',
+    triggerEvent: 'A01',
+    messageControlId: controlId,
+  });
+  const recovery = {
+    schema: I03_RECOVERY_SCHEMA,
+    interface_family: 'I03',
+    arrival_class: 'recovery_backlog',
+    tenant_id: tenantId,
+    signing_credential_id: signingCredentialId,
+    offset_id: 'b7100000-0000-4000-8000-00000000f003',
+    source_partition: sourcePartition,
+    generation,
+    source_position: sourcePosition,
+    source_token: i03SourceToken({
+      tenantId,
+      sourcePartition,
+      generation,
+      sourcePosition,
+      predecessorToken,
+      duplicateKey,
+      messageSha256,
+    }),
+    predecessor_token: predecessorToken,
+    duplicate_key: duplicateKey,
+    message_family: 'adt',
+    message_type: 'ADT',
+    trigger_event: 'A01',
+    message_control_id: controlId,
+    message_sha256: messageSha256,
+    source_observed_at: '2026-08-06T10:30:45+05:30',
+    source_received_at: '2026-08-06T10:30:45.500+05:30',
+    clock_evidence: {
+      source_clock_id: 'env-only-fixture',
+      synchronized_at: '2026-08-06T10:29:00+05:30',
+      maximum_error_ms: 1000,
+    },
+  };
+  return { message, recovery };
+}
+
 async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM interop_replay_guard WHERE namespace = 'hl7-inbound'`).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM tenant_interop_secrets
+      WHERE tenant_id IN ($1::uuid, $2::uuid)
+        AND kind = 'hl7_inbound'
+        AND sender_identifier = 'VHFAC'`,
+    DEFAULT_TENANT_ID,
+    TENANT_B,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM users WHERE tenant_id = $1::uuid`,
+    TENANT_B,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_B).catch(() => {});
 }
 
@@ -88,7 +228,20 @@ d('HL7 /receive tenant binding (C-4)', () => {
     // prisma.$disconnect() is handled by the global jest teardown.
   }, 30000);
 
-  test('ADT^A01 admission is written under the patient tenant, not the default', async () => {
+  test('legacy env-backed ADT remains live with no I03 enrollment and writes under the patient tenant', async () => {
+    const enrollment = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count
+         FROM event_consumer_offsets AS offset_row
+         JOIN tenant_interop_secrets AS credential
+           ON credential.tenant_id = offset_row.tenant_id
+          AND offset_row.source_partition =
+              'i03/credential/' || credential.id::text || '/family/adt'
+        WHERE offset_row.interface_family = 'I03'
+          AND offset_row.intake_retired_at IS NULL
+          AND credential.kind = 'hl7_inbound'
+          AND credential.sender_identifier = 'VHFAC'`,
+    );
+    expect(enrollment).toEqual([{ count: 0 }]);
     const controlId = `ADT${Date.now()}`;
     const message = [
       `MSH|^~\\&|SENDER|SFAC|VH|VHFAC|20260101120000||ADT^A01|${controlId}|P|2.5`,
@@ -111,6 +264,83 @@ d('HL7 /receive tenant binding (C-4)', () => {
     expect(rows.length).toBe(1);
     expect(rows[0].tenant_id).toBe(TENANT_B);
   });
+
+  test.each([
+    ['inactive', async () => {
+      await prisma.$executeRawUnsafe(
+        `UPDATE tenant_interop_secrets
+            SET status = 'inactive'
+          WHERE tenant_id = $1::uuid
+            AND kind = 'hl7_inbound'
+            AND sender_identifier = 'VHFAC'`,
+        TENANT_B,
+      );
+    }],
+    ['unreadable', async () => {
+      await prisma.$executeRawUnsafe(
+        `UPDATE tenant_interop_secrets
+            SET status = 'active', secret_ciphertext = 'enc:v2:not-readable'
+          WHERE tenant_id = $1::uuid
+            AND kind = 'hl7_inbound'
+            AND sender_identifier = 'VHFAC'`,
+        TENANT_B,
+      );
+    }],
+  ])('env fallback cannot bypass an enrolled I03 offset with an %s credential row', async (
+    _label,
+    makeUnavailable,
+  ) => {
+    const row = await upsertInteropSecret({
+      tenantId: TENANT_B,
+      kind: 'hl7_inbound',
+      senderIdentifier: 'VHFAC',
+      secret: `db-only-${Date.now()}`,
+    });
+    const credential = await resolveInteropCredentialSnapshot('hl7_inbound', 'VHFAC');
+    expect(credential.id).toBe(String(row.id));
+    const sourcePartition = `i03/credential/${credential.id}/family/adt`;
+    const offset = await registerExternalRecoveryOffset({
+      tenantId: TENANT_B,
+      interfaceFamily: 'I03',
+      sourcePartition,
+      initialPosition: '10',
+      initialToken: 'a'.repeat(64),
+      retainedFromPosition: '10',
+      retainedFromToken: 'a'.repeat(64),
+      policyVersion: 'c6-1-i03-env-fence-v1',
+      policySignature: `env-fence-${Date.now()}`,
+      retentionPolicy: 'hl7-clinical-recovery-730d',
+      retentionUntil: '2029-08-06T00:00:00.000Z',
+    });
+    try {
+      await makeUnavailable();
+      const controlId = `ENVFENCE${Date.now()}`;
+      const message = [
+        `MSH|^~\\&|SENDER|SFAC|VH|VHFAC|20260101120000||ADT^A01|${controlId}|P|2.5`,
+        `PID|1||${PATIENT_UID}||HL7 Tenant Patient||19900101|M|||Addr|||${PATIENT_PHONE}`,
+        'PV1|1|I|WARD-3^^^|||||',
+      ].join('\r');
+      const before = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::integer AS count FROM admissions WHERE patient_uid = $1::uuid`,
+        PATIENT_UID,
+      );
+      const response = await request(app)
+        .post('/api/v1/hl7/receive')
+        .set(signHeaders({ message, controlId }))
+        .send({ message });
+
+      expect(response.status).toBe(409);
+      expect(response.text).toContain('MSA|AE');
+      expect(response.text).not.toContain('MSA|AA');
+      const after = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::integer AS count FROM admissions WHERE patient_uid = $1::uuid`,
+        PATIENT_UID,
+      );
+      expect(after).toEqual(before);
+    } finally {
+      await cleanupEnrolledOffset(offset.offset_id);
+    }
+  }, 60_000);
 
   test('ORU^R01 is rejected without a legacy investigation/result write', async () => {
     const controlId = `ORU${Date.now()}`;
@@ -135,6 +365,48 @@ d('HL7 /receive tenant binding (C-4)', () => {
       PATIENT_UID,
     );
     expect(rows).toHaveLength(0);
+  });
+
+  test('environment-only legacy secret cannot authenticate I03 recovery', async () => {
+    const controlId = `I03ENV${Date.now()}`;
+    const body = buildRecoveryRequest(controlId);
+    const { signedPayload } = buildI03RecoverySignedPayload(body);
+    const timestamp = Math.floor(Date.now() / 1000);
+    const requestId = `hl7-${controlId}-${Date.now()}`;
+    const signature = crypto.createHmac('sha256', SECRET)
+      .update(`${timestamp}.${requestId}.${signedPayload}`)
+      .digest('hex');
+    const beforeAdmissions = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count FROM admissions WHERE patient_uid = $1::uuid`,
+      PATIENT_UID,
+    );
+
+    const res = await request(app)
+      .post('/api/v1/hl7/receive')
+      .set({
+        'x-hl7-signature': `sha256=${signature}`,
+        'x-hl7-timestamp': String(timestamp),
+        'x-hl7-message-id': requestId,
+      })
+      .send(body);
+
+    expect(res.status).toBe(401);
+    expect(res.text).toContain('MSA|AR');
+    expect(res.text).not.toContain('HL7_I03_RECOVERY_CREDENTIAL_REQUIRED');
+
+    const afterAdmissions = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count FROM admissions WHERE patient_uid = $1::uuid`,
+      PATIENT_UID,
+    );
+    expect(afterAdmissions).toEqual(beforeAdmissions);
+    const replayRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count
+         FROM interop_replay_guard
+        WHERE namespace = 'hl7-inbound'
+          AND request_id = $1::text`,
+      [requestId, timestamp, signature].join(':'),
+    );
+    expect(replayRows[0].count).toBe(0);
   });
 
   test('an unknown patient is rejected with an HL7 AE (not written to any tenant)', async () => {

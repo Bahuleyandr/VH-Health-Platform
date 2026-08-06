@@ -91,6 +91,17 @@ function requireTimestamp(value, label) {
   return parsed.toISOString();
 }
 
+function requirePreciseTimestamp(value, label) {
+  if (
+    typeof value !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    || Number.isNaN(Date.parse(value))
+  ) {
+    throw AppError.badRequest(`${label} must be a precise explicit-offset timestamp`, 'EXTERNAL_RECOVERY_INPUT_INVALID');
+  }
+  return value;
+}
+
 function normalizeMarker({ position, token }, { optional = false } = {}) {
   const normalizedPosition = optional ? optionalPosition(position, 'marker position') : requirePosition(position, 'marker position');
   const normalizedToken = optional ? optionalText(token, 'marker token', 255) : requireText(token, 'marker token', 255);
@@ -290,7 +301,11 @@ export async function readExternalRecoveryResumeState({
     }
     const row = rows[0];
     return Object.freeze({
-      contract: config.id === 'I09' ? 'vhhealth.i09.gateway-sequence/v1' : `vhhealth.${config.id.toLowerCase()}.recovery/v1`,
+      contract: config.id === 'I09'
+        ? 'vhhealth.i09.gateway-sequence/v1'
+        : config.id === 'I03'
+          ? 'vhhealth.i03.adt-orm-sequence/v1'
+          : `vhhealth.${config.id.toLowerCase()}.recovery/v1`,
       interface_family: config.id,
       tenant_id: tid,
       offset_id: row.offset_id,
@@ -349,11 +364,13 @@ export async function authorizeExternalRecoveryResume({
 async function loadOffsetTx(tx, tenantId, offsetId, interfaceFamily, { lock = false } = {}) {
   const rows = await tx.$queryRawUnsafe(
     `SELECT offset_id::text, tenant_id::text, facility_scope, facility_id,
-            interface_family, direction, source_partition, generation,
+            interface_family, direction, source_partition, consumer_key,
+            cursor_kind, generation,
             high_water_position::text, high_water_token,
             retained_from_position::text, retained_from_token,
             resume_cutoff_position::text, resume_cutoff_token, recovery_state,
-            policy_version, policy_signature, retention_policy, retention_until
+            policy_version, policy_signature, retention_policy, retention_until,
+            intake_retired_at::text
        FROM event_consumer_offsets
       WHERE tenant_id = $1::uuid AND offset_id = $2::uuid
         AND scope_kind = 'external_interface' AND interface_family = $3::text
@@ -363,15 +380,74 @@ async function loadOffsetTx(tx, tenantId, offsetId, interfaceFamily, { lock = fa
   return rows[0] || null;
 }
 
-async function markSourceGap(tenantId, offsetId, reason) {
-  await setTenantTx(tenantId, (tx) => tx.$executeRawUnsafe(
+async function markSourceGapTx(tx, tenantId, offsetId, interfaceFamily, reason) {
+  const updated = await tx.$executeRawUnsafe(
     `UPDATE event_consumer_offsets
         SET recovery_state = 'reconciliation_required_source_gap',
-            reconciliation_reason = $3::text, updated_at = NOW()
+            reconciliation_reason = $4::text, updated_at = NOW()
       WHERE tenant_id = $1::uuid AND offset_id = $2::uuid
-        AND scope_kind = 'external_interface'`,
-    tenantId, offsetId, String(reason).slice(0, 160),
-  ));
+        AND scope_kind = 'external_interface'
+        AND interface_family = $3::text`,
+    tenantId,
+    offsetId,
+    interfaceFamily,
+    String(reason).slice(0, 160),
+  );
+  if (Number(updated) !== 1) {
+    throw AppError.internal(
+      'Recovery source conflict could not quarantine its canonical offset',
+      'EXTERNAL_RECOVERY_CONFLICT_QUARANTINE_FAILED',
+    );
+  }
+  return Object.freeze({ conflict: true, conflict_reason: reason });
+}
+
+export async function quarantineI03RecoveryEvidenceConflictTx({
+  tx,
+  tenantId,
+  offsetId,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const oid = requireUuid(String(offsetId), 'offset_id');
+  const updated = await tx.$executeRawUnsafe(
+    `UPDATE event_consumer_offsets
+        SET recovery_state = 'reconciliation_required_source_gap',
+            reconciliation_reason = 'exact_retry_evidence_conflict',
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid AND offset_id = $2::uuid
+        AND scope_kind = 'external_interface'
+        AND interface_family = 'I03'
+        AND recovery_state <> 'retired'
+        AND intake_retired_at IS NULL`,
+    tid,
+    oid,
+  );
+  if (Number(updated) !== 1) {
+    throw AppError.internal(
+      'I03 exact-retry evidence conflict could not quarantine its canonical offset',
+      'EXTERNAL_RECOVERY_CONFLICT_QUARANTINE_FAILED',
+    );
+  }
+  return Object.freeze({
+    conflict: true,
+    conflict_reason: 'exact_retry_evidence_conflict',
+  });
+}
+
+function i03ResumeCutoffViolation(offset, sourcePosition, sourceToken) {
+  if (offset.resume_cutoff_position === null || offset.resume_cutoff_token === null) {
+    return 'resume_cutoff_missing';
+  }
+  if (BigInt(sourcePosition) > BigInt(offset.resume_cutoff_position)) {
+    return 'source_position_exceeds_resume_cutoff';
+  }
+  if (
+    sourcePosition === offset.resume_cutoff_position
+    && sourceToken !== offset.resume_cutoff_token
+  ) {
+    return 'resume_cutoff_token_mismatch';
+  }
+  return null;
 }
 
 export async function enqueueExternalRecoveryItem({
@@ -391,6 +467,7 @@ export async function enqueueExternalRecoveryItem({
   command,
   commandFingerprint = null,
   arrivalClass = 'recovery_backlog',
+  leaseOwner = null,
 } = {}) {
   const config = recoveryConfig(interfaceFamily, subpath, { protocol, streamDirection });
   const tid = requireTenantId(tenantId);
@@ -399,7 +476,12 @@ export async function enqueueExternalRecoveryItem({
   const token = requireText(sourceToken, 'source_token', 255);
   const predecessor = requireText(predecessorToken, 'predecessor_token', 255);
   const duplicate = requireText(duplicateKey, 'duplicate_key', 255);
-  const occurred = requireTimestamp(occurredAt, 'occurred_at');
+  const initialLeaseOwner = config.id === 'I03' && leaseOwner !== null
+    ? requireUuid(leaseOwner, 'lease_owner')
+    : null;
+  const occurred = config.id === 'I03'
+    ? requirePreciseTimestamp(occurredAt, 'occurred_at')
+    : requireTimestamp(occurredAt, 'occurred_at');
   if (arrivalClass !== 'recovery_backlog') {
     throw AppError.conflict(`${config.id} recovery accepts backlog items only`, 'EXTERNAL_RECOVERY_WORKER_PAUSED');
   }
@@ -410,14 +492,110 @@ export async function enqueueExternalRecoveryItem({
     if (
       (sourcePartition !== null && sourcePartition !== offset.source_partition)
       || (generation !== null && Number(generation) !== Number(offset.generation))
+      || (config.id === 'I03' && (
+        offset.consumer_key !== 'external:I03'
+        || offset.cursor_kind !== 'monotonic_position_and_predecessor'
+      ))
     ) {
       throw AppError.conflict(
         'Recovery envelope partition or generation does not match its canonical offset',
         'EXTERNAL_RECOVERY_OFFSET_MISMATCH',
       );
     }
+    if (
+      config.id === 'I03'
+      && (offset.recovery_state === 'retired' || offset.intake_retired_at !== null)
+    ) {
+      throw AppError.conflict(
+        `${config.id} recovery offset is retired`,
+        'EXTERNAL_RECOVERY_OFFSET_RETIRED',
+      );
+    }
+    let collisions = null;
+    let i03CollisionRequiresQuarantine = false;
+    if (config.id === 'I03') {
+      collisions = await tx.$queryRawUnsafe(
+        `SELECT inbox.inbox_id::text, inbox.source_position::text,
+                inbox.source_token, inbox.predecessor_token,
+                inbox.duplicate_key, inbox.command_fingerprint,
+                inbox.occurred_at::text, inbox.status,
+                (inbox.occurred_at = $7::timestamptz) AS occurred_matches,
+                inbox.outcome_code, inbox.pending_task_id,
+                receipt.id::text AS receipt_id,
+                receipt.source_position::text AS receipt_source_position,
+                receipt.source_token::text AS receipt_source_token,
+                receipt.predecessor_token::text AS receipt_predecessor_token,
+                receipt.duplicate_key::text AS receipt_duplicate_key,
+                receipt.payload_sha256::text AS receipt_payload_sha256,
+                receipt.status AS receipt_status,
+                receipt.outcome_code AS receipt_outcome_code,
+                receipt.pending_task_id AS receipt_pending_task_id
+           FROM pathway_projector_inbox AS inbox
+           LEFT JOIN hl7_inbound_recovery_receipts AS receipt
+             ON receipt.tenant_id = inbox.tenant_id
+            AND receipt.recovery_inbox_id = inbox.inbox_id
+          WHERE inbox.tenant_id = $1::uuid
+            AND inbox.scope_kind = 'external_interface'
+            AND inbox.interface_family = 'I03'
+            AND inbox.direction = 'inbound'
+            AND inbox.source_partition = $2::text
+            AND (inbox.duplicate_key = $3::text OR
+              (inbox.offset_id = $4::uuid AND inbox.generation = $5::integer
+               AND inbox.source_position = $6::bigint))
+          FOR UPDATE OF inbox`,
+        tid,
+        offset.source_partition,
+        duplicate,
+        oid,
+        offset.generation,
+        position,
+        occurred,
+      );
+      if (collisions.length > 0) {
+        const exact = collisions.find((row) => row.source_position === position
+          && row.source_token === token && row.predecessor_token === predecessor
+          && row.duplicate_key === duplicate && row.command_fingerprint === fingerprint
+          && row.occurred_matches === true);
+        if (exact?.status === 'handled') {
+          const terminalEvidenceMatches = collisions.length === 1
+            && exact.receipt_id
+            && exact.receipt_source_position === position
+            && exact.receipt_source_token === token
+            && exact.receipt_predecessor_token === predecessor
+            && exact.receipt_duplicate_key === duplicate
+            && exact.receipt_payload_sha256 === fingerprint
+            && exact.receipt_status === 'pending_review'
+            && exact.receipt_outcome_code === exact.outcome_code
+            && Number(exact.receipt_pending_task_id) === Number(exact.pending_task_id);
+          if (!terminalEvidenceMatches) {
+            i03CollisionRequiresQuarantine = true;
+          } else {
+            return Object.freeze({
+              duplicate: true,
+              inbox_id: exact.inbox_id,
+              status: exact.status,
+              outcome_code: exact.outcome_code,
+              pending_task_id: exact.pending_task_id,
+              receipt_id: exact.receipt_id,
+            });
+          }
+        }
+        if (!exact || collisions.length !== 1) {
+          i03CollisionRequiresQuarantine = true;
+        }
+      }
+    }
     if (offset.recovery_state === 'retired') {
       throw AppError.conflict(`${config.id} recovery offset is retired`, 'EXTERNAL_RECOVERY_OFFSET_RETIRED');
+    }
+    if (i03CollisionRequiresQuarantine && offset.recovery_state === 'ready') {
+      return markSourceGapTx(
+        tx,
+        tid,
+        oid,
+        config.id,
+        'duplicate_or_position_fingerprint_conflict',
+      );
     }
     if (offset.recovery_state !== 'replaying') {
       throw AppError.conflict(
@@ -425,7 +603,25 @@ export async function enqueueExternalRecoveryItem({
         'EXTERNAL_RECOVERY_OFFSET_NOT_REPLAYING',
       );
     }
-    const collisions = await tx.$queryRawUnsafe(
+    if (i03CollisionRequiresQuarantine) {
+      return markSourceGapTx(
+        tx,
+        tid,
+        oid,
+        config.id,
+        'duplicate_or_position_fingerprint_conflict',
+      );
+    }
+    if (config.id === 'I03') {
+      const cutoffViolation = i03ResumeCutoffViolation(offset, position, token);
+      if (cutoffViolation === 'resume_cutoff_missing') {
+        return Object.freeze({ cutoff_missing: true });
+      }
+      if (cutoffViolation) {
+        return markSourceGapTx(tx, tid, oid, config.id, cutoffViolation);
+      }
+    }
+    collisions ??= await tx.$queryRawUnsafe(
       `SELECT inbox_id::text, source_position::text, source_token, predecessor_token,
               duplicate_key, command_fingerprint, occurred_at::text, status,
               outcome_code, pending_task_id
@@ -442,12 +638,46 @@ export async function enqueueExternalRecoveryItem({
       const exact = collisions.find((row) => row.source_position === position
         && row.source_token === token && row.predecessor_token === predecessor
         && row.duplicate_key === duplicate && row.command_fingerprint === fingerprint
-        && new Date(row.occurred_at).toISOString() === occurred);
+        && (config.id === 'I03'
+          ? row.occurred_matches === true
+          : new Date(row.occurred_at).toISOString() === occurred));
       if (exact && collisions.length === 1) {
+        if (config.id === 'I03' && exact.status === 'pending' && initialLeaseOwner) {
+          const takeover = await tx.$queryRawUnsafe(
+            `UPDATE pathway_projector_inbox
+                SET lease_owner = $3::uuid,
+                    lease_expires_at = NOW() + INTERVAL '5 minutes'
+              WHERE tenant_id = $1::uuid
+                AND inbox_id = $2::uuid
+                AND status = 'pending'
+                AND (
+                  (lease_owner IS NULL AND received_at <= NOW() - INTERVAL '5 minutes')
+                  OR lease_expires_at <= NOW()
+                )
+              RETURNING inbox_id::text, status`,
+            tid,
+            exact.inbox_id,
+            initialLeaseOwner,
+          );
+          if (takeover.length === 1) {
+            return Object.freeze({
+              duplicate: true,
+              inbox_id: takeover[0].inbox_id,
+              status: takeover[0].status,
+              lease_acquired: true,
+            });
+          }
+        }
         return Object.freeze({ duplicate: true, inbox_id: exact.inbox_id, status: exact.status,
           outcome_code: exact.outcome_code, pending_task_id: exact.pending_task_id });
       }
-      return Object.freeze({ conflict: true });
+      return markSourceGapTx(
+        tx,
+        tid,
+        oid,
+        config.id,
+        'duplicate_or_position_fingerprint_conflict',
+      );
     }
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO pathway_projector_inbox
@@ -455,23 +685,43 @@ export async function enqueueExternalRecoveryItem({
           interface_family, direction, source_partition, source_position,
           source_token, predecessor_token, duplicate_key, command_fingerprint,
           occurred_at, received_at, recorded_at, arrival_class, effect_disposition,
-          status, next_attempt_at, policy_version, policy_signature, retention_policy, retention_until)
+          status, next_attempt_at, policy_version, policy_signature, retention_policy, retention_until,
+          lease_owner, lease_expires_at)
        VALUES ('external_interface', $1::uuid, $2::text, $3::integer, $4::uuid,
           $5::integer, $6::text, $7::text, $8::text, $9::bigint, $10::text,
           $11::text, $12::text, $13::char(64), $14::timestamptz, NOW(), NOW(),
           'recovery_backlog', 'late_pending_only', 'pending', NOW(), $15::text,
-          $16::text, $17::text, $18::timestamptz)
-       RETURNING inbox_id::text, source_position::text, source_token, duplicate_key,
+          $16::text, $17::text, $18::timestamptz, $19::uuid,
+          CASE WHEN $19::uuid IS NULL THEN NULL ELSE NOW() + INTERVAL '5 minutes' END)
+        RETURNING inbox_id::text, source_position::text, source_token, duplicate_key,
                  command_fingerprint, status, arrival_class, effect_disposition, occurred_at`,
       tid, `external:${config.id}`, offset.generation, oid, offset.facility_id, config.id,
       config.direction, offset.source_partition, position, token, predecessor, duplicate, fingerprint,
       occurred, offset.policy_version, offset.policy_signature, offset.retention_policy, offset.retention_until,
+      initialLeaseOwner,
     );
     return rows[0];
   }, { isolationLevel: 'Serializable' });
 
+  if (result.cutoff_missing) {
+    throw AppError.conflict(
+      `${config.id} recovery resume cutoff is missing`,
+      'EXTERNAL_RECOVERY_RESUME_CUTOFF_MISSING',
+    );
+  }
   if (result.conflict) {
-    await markSourceGap(tid, oid, 'duplicate_or_position_fingerprint_conflict');
+    if (result.conflict_reason === 'source_position_exceeds_resume_cutoff') {
+      throw AppError.conflict(
+        `${config.id} recovery item exceeds the owner-authorized resume cutoff`,
+        'EXTERNAL_RECOVERY_RESUME_CUTOFF_EXCEEDED',
+      );
+    }
+    if (result.conflict_reason === 'resume_cutoff_token_mismatch') {
+      throw AppError.conflict(
+        `${config.id} recovery item does not match the owner-authorized terminal token`,
+        'EXTERNAL_RECOVERY_RESUME_CUTOFF_TOKEN_MISMATCH',
+      );
+    }
     throw AppError.conflict(
       `${config.id} recovery identity was reused with different evidence`,
       'EXTERNAL_RECOVERY_IDENTITY_CONFLICT',
@@ -493,6 +743,24 @@ async function persistLateHl7Outbound({ tx, capability, inbox, tenantId, command
   return persistLateHl7OutboundRecovery({
     tx, capability, tenantId,
     recoveryInboxId: inbox.inbox_id,
+    command,
+  });
+}
+
+async function persistLateHl7Inbound({ tx, capability, inbox, tenantId, offset, command }) {
+  const { persistLateHl7InboundRecovery } = await import('./externalHl7InboundRecoveryService.js');
+  return persistLateHl7InboundRecovery({
+    tx,
+    capability,
+    tenantId,
+    recoveryInboxId: inbox.inbox_id,
+    sourcePartition: inbox.source_partition,
+    sourcePosition: inbox.source_position,
+    sourceToken: inbox.source_token,
+    predecessorToken: inbox.predecessor_token,
+    duplicateKey: inbox.duplicate_key,
+    occurredAt: inbox.occurred_at,
+    offset,
     command,
   });
 }
@@ -663,6 +931,7 @@ async function persistLateVitals({ tx, capability, config, inbox, tenantId, comm
 const EXTERNAL_INTERFACE_RECOVERY_ADAPTERS = Object.freeze({
   I01: persistLateLab,
   I02: persistLateLab,
+  I03: persistLateHl7Inbound,
   I04: persistLateHl7Outbound,
   I05: persistLateInterfaceEngine,
   I06: persistLateImagingStudyLink,
@@ -726,6 +995,10 @@ export async function processNextItemTx({
     if (
       (sourcePartition !== null && sourcePartition !== offset.source_partition)
       || (generation !== null && Number(generation) !== Number(offset.generation))
+      || (config.id === 'I03' && (
+        offset.consumer_key !== 'external:I03'
+        || offset.cursor_kind !== 'monotonic_position_and_predecessor'
+      ))
     ) {
       throw AppError.conflict(
         'Recovery envelope partition or generation does not match its canonical offset',
@@ -741,7 +1014,14 @@ export async function processNextItemTx({
     const rows = await tx.$queryRawUnsafe(
       `SELECT inbox_id::text, tenant_id::text, facility_id, offset_id::text,
               interface_family, generation, source_position::text, source_token,
-              predecessor_token, duplicate_key, command_fingerprint, occurred_at::text,
+              predecessor_token, duplicate_key, command_fingerprint,
+              CASE WHEN interface_family = 'I03'
+                THEN to_char(
+                  occurred_at AT TIME ZONE 'UTC',
+                  'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+                )
+                ELSE occurred_at::text
+              END AS occurred_at,
               source_partition, arrival_class, effect_disposition, status, attempts,
               outcome_code, pending_task_id
          FROM pathway_projector_inbox
@@ -756,6 +1036,27 @@ export async function processNextItemTx({
     if (!matchesQueuedItem(inbox, { sourcePosition: position, sourceToken: token,
       predecessorToken: predecessor, duplicateKey: duplicate, fingerprint })) {
       throw AppError.conflict('Worker command does not match the next durable recovery item', 'EXTERNAL_RECOVERY_COMMAND_MISMATCH');
+    }
+    if (config.id === 'I03') {
+      const cutoffViolation = i03ResumeCutoffViolation(
+        offset,
+        inbox.source_position,
+        inbox.source_token,
+      );
+      if (cutoffViolation === 'resume_cutoff_missing') {
+        throw AppError.conflict(
+          `${config.id} recovery resume cutoff is missing`,
+          'EXTERNAL_RECOVERY_RESUME_CUTOFF_MISSING',
+        );
+      }
+      if (cutoffViolation) {
+        await markSourceGapTx(tx, tid, oid, config.id, cutoffViolation);
+        return Object.freeze({
+          held: true,
+          reason: cutoffViolation,
+          inbox_id: inbox.inbox_id,
+        });
+      }
     }
     const expectedPosition = (BigInt(offset.high_water_position) + 1n).toString();
     if (inbox.source_position !== expectedPosition || inbox.predecessor_token !== offset.high_water_token) {
@@ -775,10 +1076,14 @@ export async function processNextItemTx({
       return Object.freeze({ held: true, reason: 'retention_gap', inbox_id: inbox.inbox_id });
     }
     const claimed = await tx.$queryRawUnsafe(
-      `UPDATE pathway_projector_inbox SET lease_owner = $3::uuid,
-              lease_expires_at = NOW() + INTERVAL '5 minutes', attempts = attempts + 1
-        WHERE tenant_id = $1::uuid AND inbox_id = $2::uuid AND status = 'pending' AND lease_owner IS NULL
-        RETURNING attempts`, tid, inbox.inbox_id, owner,
+       `UPDATE pathway_projector_inbox SET lease_owner = $3::uuid,
+                lease_expires_at = NOW() + INTERVAL '5 minutes', attempts = attempts + 1
+         WHERE tenant_id = $1::uuid AND inbox_id = $2::uuid AND status = 'pending'
+           AND (
+             lease_owner IS NULL
+             OR ($4::boolean AND (lease_owner = $3::uuid OR lease_expires_at <= NOW()))
+           )
+         RETURNING attempts`, tid, inbox.inbox_id, owner, config.id === 'I03',
     );
     if (claimed.length !== 1) throw AppError.conflict('Recovery claim fence was lost', 'EXTERNAL_RECOVERY_CLAIM_FENCE_LOST');
 
@@ -790,10 +1095,18 @@ export async function processNextItemTx({
       inboxId: inbox.inbox_id, tenantId: tid, facilityId: inbox.facility_id,
       interfaceFamily: config.id, effectDisposition: inbox.effect_disposition,
     });
-    const domain = await persistLateDomain({ tx, capability, config, inbox, tenantId: tid, command });
+    const domain = await persistLateDomain({
+      tx,
+      capability,
+      config,
+      inbox,
+      offset,
+      tenantId: tid,
+      command,
+    });
     const evidence = config.id === 'I17' || config.id === 'I18' || config.id === 'I23'
       || config.id === 'I25' || config.id === 'I13'
-      || config.id === 'I16' || config.id === 'I19'
+      || config.id === 'I16' || config.id === 'I19' || config.id === 'I03'
       ? domain?.receipt
       : config.id === 'I04'
         ? domain?.acknowledgement || domain?.authority
@@ -829,20 +1142,29 @@ export async function processNextItemTx({
         )
       : await tx.$queryRawUnsafe(
           `UPDATE event_consumer_offsets SET high_water_position = $3::bigint,
-                  high_water_token = $4::text,
-                  recovery_state = CASE WHEN resume_cutoff_position = $3::bigint THEN 'ready' ELSE 'replaying' END,
-                  updated_at = NOW()
+                   high_water_token = $4::text,
+                    recovery_state = CASE
+                      WHEN resume_cutoff_position = $3::bigint
+                       AND (
+                         NOT $7::boolean
+                         OR resume_cutoff_token = $4::text
+                       )
+                      THEN 'ready'
+                      ELSE 'replaying'
+                    END,
+                   updated_at = NOW()
             WHERE tenant_id = $1::uuid AND offset_id = $2::uuid AND recovery_state = 'replaying'
               AND high_water_position = $5::bigint AND high_water_token = $6::text
             RETURNING high_water_position::text, high_water_token, recovery_state`,
-          tid, oid, inbox.source_position, inbox.source_token, offset.high_water_position, offset.high_water_token,
+          tid, oid, inbox.source_position, inbox.source_token, offset.high_water_position,
+          offset.high_water_token, config.id === 'I03',
         );
     if (advanced.length !== 1) throw AppError.conflict('Recovery cursor fence was lost', 'EXTERNAL_RECOVERY_CURSOR_FENCE_LOST');
     return Object.freeze({
       ...terminal[0], cursor: advanced[0],
       ...(config.id === 'I17' || config.id === 'I18' || config.id === 'I23'
         || config.id === 'I25' || config.id === 'I13'
-        || config.id === 'I16' || config.id === 'I19'
+        || config.id === 'I16' || config.id === 'I19' || config.id === 'I03'
         ? { receipt_id: String(evidence.id || evidence.receipt_id) }
         : config.id === 'I04'
           ? domain?.acknowledgement

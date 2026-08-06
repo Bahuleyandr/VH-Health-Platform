@@ -80,4 +80,26 @@ describe('external recovery effect capability', () => {
     expect(recoveryService).not.toMatch(/notificationOutbox|realtimeEmitter|firebase|twilio/i);
     expect(recoveryService).not.toMatch(/sendNotification|sendSms|sendEmail|emitColdChainEvent/);
   });
+
+  it('keeps the I03 late adapter isolated from live clinical and downstream effect modules', () => {
+    const recoveryService = readFileSync(
+      new URL(
+        '../../services/integrations/externalHl7InboundRecoveryService.js',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    const imports = recoveryService
+      .split('\n')
+      .filter(line => /^\s*(?:import|const\s+\{?.*require\()/.test(line))
+      .join('\n');
+
+    expect(imports).not.toMatch(/admission|discharge|transfer|investigation/i);
+    expect(imports).not.toMatch(/clinicalTimeline|clinicalAudit|canonicalClinical/i);
+    expect(imports).not.toMatch(/eventOutbox|notificationOutbox|webhook|realtime/i);
+    expect(imports).not.toMatch(/pathway|workflowSla|alert|escalation/i);
+    expect(recoveryService).not.toMatch(/admitPatient|createInvestigationOrder|recordCanonicalClinicalEvent/);
+    expect(recoveryService).not.toMatch(/sendNotification|sendSms|sendEmail|firebase|twilio/i);
+    expect(recoveryService).not.toMatch(/from ['"]pg['"]|new Client\s*\(/);
+  });
 });

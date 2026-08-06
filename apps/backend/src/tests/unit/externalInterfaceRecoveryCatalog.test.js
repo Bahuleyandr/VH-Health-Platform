@@ -40,6 +40,22 @@ describe('external interface recovery catalog', () => {
         facilityScope: 'tenant',
         duplicateKeyKind: 'tenant_analyzer_canonical_astm_sha256',
       });
+    expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I03' }))
+      .toMatchObject({
+        id: 'I03',
+        disposition: 'hwm_required',
+        defaultEffectDisposition: 'late_pending_only',
+        implemented: true,
+        direction: 'inbound',
+        cursorKind: 'monotonic_position_and_predecessor',
+        facilityScope: 'tenant',
+        partitionKind: 'tenant_signing_credential_message_family',
+        duplicateKeyKind: 'tenant_signing_credential_message_type_trigger_msh10',
+        duplicateFingerprintKind: 'exact_payload_sha256',
+        messageFamilies: ['adt', 'orm'],
+        replayGuardRole: 'pre_auth_short_ttl_only',
+        providerSequence: 'required_no_inferred_start',
+      });
     expect(resolveExternalInterfaceDisposition({ interfaceFamily: 'I04' }))
       .toMatchObject({
         id: 'I04',
