@@ -1079,6 +1079,108 @@ describe('src/lib/prisma.js coverage completion', () => {
         'REVOKE INSERT, UPDATE, DELETE, TRUNCATE\n          ON TABLE public.clinical_continuity_policy_versions\n          FROM vhhealth_app',
       );
       expect(grantSql).toContain(
+        "pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts')",
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON TABLE public.hl7_inbound_recovery_receipts\n          FROM vhhealth_app',
+      );
+      expect(grantSql.indexOf(
+        'REVOKE ALL PRIVILEGES\n          ON TABLE public.hl7_inbound_recovery_receipts',
+      )).toBeGreaterThan(grantSql.indexOf(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public',
+      ));
+      expect(grantSql).toContain(
+        'GRANT SELECT\n          ON TABLE public.hl7_inbound_recovery_receipts\n          TO vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'GRANT INSERT (\n          id, tenant_id, recovery_inbox_id, interface_family,',
+      );
+      expect(grantSql).toContain(
+        'retention_policy, retention_until\n        ) ON TABLE public.hl7_inbound_recovery_receipts TO vhhealth_app',
+      );
+      const i03InsertGrant = grantSql.match(
+        /GRANT INSERT \(\s*([\s\S]*?)\s*\) ON TABLE public\.hl7_inbound_recovery_receipts TO vhhealth_app/,
+      );
+      expect(i03InsertGrant).not.toBeNull();
+      expect(i03InsertGrant[1].split(',').map(column => column.trim())).toEqual([
+        'id',
+        'tenant_id',
+        'recovery_inbox_id',
+        'interface_family',
+        'signing_credential_id',
+        'source_partition',
+        'generation',
+        'source_position',
+        'source_token',
+        'predecessor_token',
+        'duplicate_key',
+        'message_family',
+        'message_type',
+        'trigger_event',
+        'message_control_id_sha256',
+        'payload_ciphertext',
+        'payload_sha256',
+        'payload_bytes',
+        'source_observed_at',
+        'source_received_at',
+        'clock_evidence',
+        'patient_uid',
+        'visit_identity_sha256',
+        'order_identity_sha256',
+        'pending_task_id',
+        'review_role',
+        'status',
+        'outcome_code',
+        'ack_ciphertext',
+        'ack_sha256',
+        'ack_bytes',
+        'ack_code',
+        'http_status',
+        'policy_version',
+        'policy_signature',
+        'retention_policy',
+        'retention_until',
+      ]);
+      expect(grantSql).toContain(
+        "pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts_id_seq')",
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq\n          FROM vhhealth_app',
+      );
+      expect(grantSql.indexOf(
+        'REVOKE ALL PRIVILEGES\n          ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq',
+      )).toBeGreaterThan(grantSql.indexOf(
+        'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public',
+      ));
+      expect(grantSql).toContain(
+        'GRANT USAGE, SELECT\n          ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq\n          TO vhhealth_app',
+      );
+      const i03FunctionGrant = grantSql.indexOf(
+        'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO vhhealth_app',
+      );
+      const i03DefaultFunctionGrant = grantSql.indexOf(
+        'GRANT EXECUTE ON FUNCTIONS TO vhhealth_app',
+      );
+      for (const signature of [
+        'public.hl7_i03_length_prefixed_sha256(text[])',
+        'public.assert_hl7_inbound_recovery_task(uuid,integer,bigint,uuid,uuid,text)',
+        'public.validate_hl7_inbound_recovery_receipt()',
+        'public.validate_hl7_inbound_recovery_convergence()',
+        'public.hl7_inbound_recovery_receipt_append_only()',
+      ]) {
+        expect(grantSql).toContain(`'${signature}'`);
+      }
+      for (const revoke of [
+        'ON FUNCTION public.hl7_i03_length_prefixed_sha256(text[])',
+        'ON FUNCTION public.assert_hl7_inbound_recovery_task(',
+        'ON FUNCTION public.validate_hl7_inbound_recovery_receipt()',
+        'ON FUNCTION public.validate_hl7_inbound_recovery_convergence()',
+        'ON FUNCTION public.hl7_inbound_recovery_receipt_append_only()',
+      ]) {
+        expect(grantSql.indexOf(revoke)).toBeGreaterThan(i03FunctionGrant);
+        expect(grantSql.indexOf(revoke)).toBeGreaterThan(i03DefaultFunctionGrant);
+      }
+      expect(grantSql).toContain(
         'REVOKE UPDATE, TRUNCATE\n          ON TABLE public.downtime_snapshots\n          FROM vhhealth_app',
       );
       expect(grantSql).toContain(

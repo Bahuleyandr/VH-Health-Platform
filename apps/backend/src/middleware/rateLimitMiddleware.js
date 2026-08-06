@@ -67,6 +67,7 @@ const defaultKeyGenerator = (req) => {
 // under `t:default:` (behaviour-identical for the single existing tenant).
 const tenantPrefix = (req) => `t:${req?.tenantId || 'default'}:`;
 export const tenantKeyGenerator = (req) => `${tenantPrefix(req)}${defaultKeyGenerator(req)}`;
+const ipOnlyKeyGenerator = (req) => ipKeyGenerator(req.ip);
 
 // W3: replica-safe counters via a shared Redis store. Returns undefined (the
 // express-rate-limit default per-process MemoryStore) when REDIS_URL is unset,
@@ -134,14 +135,23 @@ const defaultHandler = (req, res, _next, options) => {
  * Profiles live in ../config/rateLimitProfiles.js
  * Ensures IPv6 compliance by providing both keyGenerator and keyGeneratorIpFallback.
  */
-export const getRateLimiter = (profileName = 'default') => {
+export const getRateLimiter = (profileName = 'default', {
+  keyMode = 'default',
+  tenantScoped = true,
+  storePrefix = null,
+  enforceOnMatchedPath = false,
+} = {}) => {
   const profile = RATE_LIMIT_PROFILES[profileName] || RATE_LIMIT_PROFILES.default;
 
   const baseKeyGen =
-    typeof profile.keyGenerator === 'function'
+    keyMode === 'ip'
+      ? ipOnlyKeyGenerator
+      : typeof profile.keyGenerator === 'function'
       ? profile.keyGenerator
       : defaultKeyGenerator;
-  const keyGen = (req) => `${tenantPrefix(req)}${baseKeyGen(req)}`;
+  const keyGen = tenantScoped
+    ? (req) => `${tenantPrefix(req)}${baseKeyGen(req)}`
+    : baseKeyGen;
 
   const handlerFn = typeof profile.handler === 'function'
     ? profile.handler
@@ -153,6 +163,7 @@ export const getRateLimiter = (profileName = 'default') => {
     : (req) => {
         if (isRateLimitingDisabled()) return true;
         if (isTestEnv && profile.enforceInTest !== true) return true;
+        if (enforceOnMatchedPath) return false;
         if (profile.enforceOnHealthRoutes === true) return false;
         const p = req.path || '';
         return (
@@ -181,7 +192,7 @@ export const getRateLimiter = (profileName = 'default') => {
     keyGenerator: keyGen,
 
     // W3: replica-safe shared counter (per-profile namespace); MemoryStore when REDIS_URL unset
-    store: selectStore(`rl:${profileName}:`),
+    store: selectStore(storePrefix || `rl:${profileName}:`),
 
     handler: handlerFn,
     skip: skipFn
@@ -216,7 +227,12 @@ const authRateLimiterConfig = {
   skip: isRateLimitingDisabled
 };
 
-export const __testing__ = { defaultKeyGenerator, authKeyGenerator, authRateLimiterConfig };
+export const __testing__ = {
+  defaultKeyGenerator,
+  ipOnlyKeyGenerator,
+  authKeyGenerator,
+  authRateLimiterConfig,
+};
 
 export const authRateLimiter = expressRateLimit(authRateLimiterConfig);
 

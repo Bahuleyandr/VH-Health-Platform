@@ -285,6 +285,97 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
     expect(await counts()).toEqual(after);
   }, 60_000);
 
+  it('keeps I10 null-only claims and position-only ready semantics', async () => {
+    const offset = await registerOffset({
+      partition: `facility:${facilityId}:unit:${unitId}:sensor:${deviceId}:legacy-claim`,
+    });
+    await authorizeColdChainRecoveryResume({
+      tenantId: TENANT_ID,
+      offsetId: offset.offset_id,
+      resumeCutoffPosition: 101,
+      resumeCutoffToken: 'owner-cutoff-token-not-used-by-i10',
+    });
+    const item = {
+      ...command(101, 6),
+      source_reading_id: `legacy-claim-${SUFFIX}`,
+    };
+    const suppliedLeaseOwner = randomUUID();
+    const enqueued = await enqueueColdChainRecoveryItem({
+      tenantId: TENANT_ID,
+      offsetId: offset.offset_id,
+      sourcePosition: 101,
+      sourceToken: 'legacy-token-101',
+      predecessorToken: 'token-100',
+      duplicateKey: item.source_reading_id,
+      occurredAt: item.recorded_at,
+      command: item,
+      leaseOwner: suppliedLeaseOwner,
+    });
+    expect(enqueued).not.toHaveProperty('lease_owner');
+
+    const initialLease = await setTenantTx(TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT lease_owner::text, lease_expires_at
+         FROM pathway_projector_inbox
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      TENANT_ID,
+      offset.offset_id,
+    ));
+    expect(initialLease).toEqual([{ lease_owner: null, lease_expires_at: null }]);
+
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE pathway_projector_inbox
+          SET lease_owner = $3::uuid,
+              lease_expires_at = NOW() + INTERVAL '5 minutes'
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      TENANT_ID,
+      offset.offset_id,
+      suppliedLeaseOwner,
+    ));
+    const operation = {
+      tenantId: TENANT_ID,
+      offsetId: offset.offset_id,
+      sourcePosition: 101,
+      sourceToken: 'legacy-token-101',
+      predecessorToken: 'token-100',
+      duplicateKey: item.source_reading_id,
+      command: item,
+    };
+    await expect(processNextItemTx({
+      ...operation,
+      leaseOwner: suppliedLeaseOwner,
+    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_CLAIM_FENCE_LOST' });
+
+    const nextOwner = randomUUID();
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE pathway_projector_inbox
+          SET lease_expires_at = NOW() - INTERVAL '1 second'
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      TENANT_ID,
+      offset.offset_id,
+    ));
+    await expect(processNextItemTx({
+      ...operation,
+      leaseOwner: nextOwner,
+    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_CLAIM_FENCE_LOST' });
+
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE pathway_projector_inbox
+          SET lease_owner = NULL, lease_expires_at = NULL
+        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
+      TENANT_ID,
+      offset.offset_id,
+    ));
+    const outcome = await processNextItemTx({ ...operation, leaseOwner: nextOwner });
+    expect(outcome).toMatchObject({
+      status: 'handled',
+      cursor: {
+        high_water_position: '101',
+        high_water_token: 'legacy-token-101',
+        recovery_state: 'ready',
+      },
+    });
+  }, 60_000);
+
   it('fails closed on conflicting duplicate evidence', async () => {
     const offset = await registerOffset({
       partition: `facility:${facilityId}:unit:${unitId}:sensor:${deviceId}:conflict`,

@@ -53,6 +53,7 @@ import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache } from './middleware/cacheControlMiddleware.js';
 import { success, error } from './utils/responseHelper.js';
+import { isHl7ReceiveEndpoint } from './utils/urlRedaction.js';
 import { PATIENT_LOOKUP_ROLES } from './config/patientAccessRoles.js';
 import {
   ADMIN_ROUTE_ROLES,
@@ -195,6 +196,7 @@ import documentRoutes from './routes/documents/documentRoutes.js';
 
 // HL7v2 messaging
 import hl7Routes from './routes/hl7/hl7Routes.js';
+import { generateACK } from './services/hl7/hl7Parser.js';
 
 // Admin (centralized under /api/v1/admin)
 
@@ -538,19 +540,104 @@ app.use(apiVersionMiddleware);
 // this knob explicitly; the ingress proxy-body-size (50m) covers multipart
 // uploads separately. Registered in validateEnv.js.
 const HTTP_BODY_LIMIT = process.env.HTTP_BODY_LIMIT || '1mb';
-app.use(express.json({
+function bodyLimitBytes(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.floor(value);
+  const match = String(value || '').trim().match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb)?$/i);
+  if (!match) return null;
+  const units = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4 };
+  return Math.floor(Number(match[1]) * units[(match[2] || 'b').toLowerCase()]);
+}
+const LEGACY_JSON_LIMIT_BYTES = bodyLimitBytes(HTTP_BODY_LIMIT);
+// I03 recovery retains up to 2,000,000 decoded UTF-8 message bytes. A JSON
+// string can represent one input byte as a six-byte Unicode escape, so this
+// endpoint gets a parser that covers worst-case encoding overhead while the
+// recovery service enforces the exact decoded-byte ceiling. An operator's
+// larger legacy limit remains authoritative; for smaller limits, the verify
+// gate retains that boundary for every envelope-less request.
+const I03_RECOVERY_ENCODED_JSON_LIMIT_BYTES = 12_100_000;
+const HL7_RECEIVE_JSON_LIMIT_BYTES = Math.max(
+  LEGACY_JSON_LIMIT_BYTES ?? 0,
+  I03_RECOVERY_ENCODED_JSON_LIMIT_BYTES,
+);
+function captureJsonRawBody(req, body) {
+  const path = String(req.originalUrl || req.url || '');
+  if (path.startsWith('/api/v1/scim/v2/')) {
+    req.scimRawBody = Buffer.from(body);
+  }
+  if (path === '/api/v1/abdm/consent/on-notify'
+      || path === '/api/v1/abdm/health-info/on-request') {
+    req.abdmRawBody = Buffer.from(body);
+  }
+}
+
+function legacyBodyLimitError(length) {
+  const err = new Error('request entity too large');
+  err.status = 413;
+  err.statusCode = 413;
+  err.type = 'entity.too.large';
+  err.limit = LEGACY_JSON_LIMIT_BYTES;
+  err.length = length;
+  return err;
+}
+
+const legacyJsonParser = express.json({
   limit: HTTP_BODY_LIMIT,
+  verify: (req, _res, body) => captureJsonRawBody(req, body),
+});
+const hl7ReceiveJsonParser = express.json({
+  limit: HL7_RECEIVE_JSON_LIMIT_BYTES,
   verify: (req, _res, body) => {
-    const path = String(req.originalUrl || req.url || '');
-    if (path.startsWith('/api/v1/scim/v2/')) {
-      req.scimRawBody = Buffer.from(body);
+    let parsedBody;
+    try {
+      parsedBody = JSON.parse(body.toString('utf8'));
+    } catch {
+      if (LEGACY_JSON_LIMIT_BYTES !== null && body.length > LEGACY_JSON_LIMIT_BYTES) {
+        throw legacyBodyLimitError(body.length);
+      }
+      return;
     }
-    if (path === '/api/v1/abdm/consent/on-notify'
-        || path === '/api/v1/abdm/health-info/on-request') {
-      req.abdmRawBody = Buffer.from(body);
+
+    const hasRecovery = parsedBody
+      && typeof parsedBody === 'object'
+      && !Array.isArray(parsedBody)
+      && Object.prototype.hasOwnProperty.call(parsedBody, 'recovery');
+    if (hasRecovery) {
+      req.hl7InboundRecoveryRequest = true;
+      return;
+    }
+    if (LEGACY_JSON_LIMIT_BYTES !== null && body.length > LEGACY_JSON_LIMIT_BYTES) {
+      throw legacyBodyLimitError(body.length);
     }
   },
-}));
+});
+app.use((req, res, next) => {
+  const parser = isHl7ReceiveEndpoint(String(req.originalUrl || req.url || ''))
+    ? hl7ReceiveJsonParser
+    : legacyJsonParser;
+  return parser(req, res, next);
+});
+const rawHl7RecoveryResponses = middleware => (req, res, next) => {
+  if (req.hl7InboundRecoveryRequest !== true) return middleware(req, res, next);
+  const originalJson = res.json;
+  const restoreAndNext = (err) => {
+    res.json = originalJson;
+    return next(err);
+  };
+  res.json = function sendRawHl7PreparseRejection() {
+    res.json = originalJson;
+    const status = Number(res.statusCode) || 500;
+    const ackCode = status >= 500 || status === 429 ? 'AE' : 'AR';
+    res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+    return res.send(generateACK('UNKNOWN', ackCode, 'HL7 receive request rejected'));
+  };
+  try {
+    const pending = middleware(req, res, restoreAndNext);
+    if (pending && typeof pending.catch === 'function') pending.catch(restoreAndNext);
+    return pending;
+  } catch (err) {
+    return restoreAndNext(err);
+  }
+};
 app.use(express.urlencoded({ limit: HTTP_BODY_LIMIT, extended: true }));
 app.use(corsMiddleware);
 
@@ -676,7 +763,7 @@ app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntim
 // Apply to all routes below this point
 // ====================================
 
-app.use(validateApiKey);
+app.use(rawHl7RecoveryResponses(validateApiKey));
 
 // Infrastructure routes (debug, swagger, version, rbac) — require API key
 // In production, API-key-only is not enough for API catalogs and diagnostics:

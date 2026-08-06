@@ -116,7 +116,11 @@ export async function getTenantKek(tenantId) {
 
 /** Ensure the tenant's KEK is registered in the sync provider (idempotent). */
 export async function loadTenantKekIntoProvider(tenantId) {
-  return getTenantKek(tenantId);
+  const kek = await getTenantKek(tenantId);
+  const kid = tenantKeyId(tenantId);
+  const provider = getKekProvider();
+  if (!provider.hasKek(kid)) provider.registerTenantKek(kid, kek);
+  return kek;
 }
 
 /**

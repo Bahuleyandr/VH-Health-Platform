@@ -65,16 +65,19 @@ export function parseHL7(message) {
 
   // HL7v2 uses \r as segment separator; also handle \n and \r\n
   const segments = message.trim().split(/\r\n|\r|\n/).filter(Boolean);
-  const parsed = { segments: [] };
+  const parsed = { segments: [], segmentCounts: {} };
 
   for (const line of segments) {
     const fields = line.split('|');
     const segmentType = fields[0]; // MSH, PID, PV1, OBR, OBX, etc.
     parsed.segments.push({ type: segmentType, fields });
+    parsed.segmentCounts[segmentType] = (parsed.segmentCounts[segmentType] || 0) + 1;
 
     if (segmentType === 'MSH') parsed.msh = parseMSH(fields);
     if (segmentType === 'PID') parsed.pid = parsePID(fields);
+    if (segmentType === 'EVN') parsed.evn = parseEVN(fields);
     if (segmentType === 'PV1') parsed.pv1 = parsePV1(fields);
+    if (segmentType === 'ORC') parsed.orc = parseORC(fields);
     if (segmentType === 'OBR') parsed.obr = parseOBR(fields);
     if (segmentType === 'OBX') {
       if (!parsed.obx) parsed.obx = [];
@@ -82,6 +85,7 @@ export function parseHL7(message) {
     }
   }
 
+  parsed.segmentCounts = Object.freeze({ ...parsed.segmentCounts });
   return parsed;
 }
 
@@ -100,6 +104,7 @@ function parseMSH(fields) {
     messageControlId: fields[9] || '',
     processingId: fields[10] || '',
     version: fields[11] || '',
+    sequenceNumber: fields[12] || '',
   };
 }
 
@@ -114,13 +119,27 @@ function parsePID(fields) {
   };
 }
 
+function parseEVN(fields) {
+  return {
+    recordedDateTime: fields[2] || '',
+  };
+}
+
 function parsePV1(fields) {
   return {
     patientClass: fields[2] || '',
     assignedLocation: fields[3] || '',
     attendingDoctor: fields[7] || '',
+    visitNumber: fields[19] || '',
     admitDate: fields[44] || '',
     dischargeDate: fields[45] || '',
+  };
+}
+
+function parseORC(fields) {
+  return {
+    placerOrderNumber: fields[2] || '',
+    transactionDateTime: fields[9] || '',
   };
 }
 

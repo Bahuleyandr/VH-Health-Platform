@@ -6,7 +6,7 @@
 // PER-TENANT (tenant_interop_secrets, mig 338), keyed by a sender_identifier the
 // caller presents BEFORE the signature is checked:
 //   - ABDM: the `x-hip-id` request header.
-//   - HL7:  the MSH-4 sending facility.
+//   - HL7:  the MSH-6 receiving facility.
 // The route resolves the tenant from that identifier, then verifies the HMAC with
 // THAT tenant's secret — so one hospital's secret can never authenticate a
 // callback aimed at another. An unresolved sender is rejected (no global
@@ -49,6 +49,58 @@ function maskedRow(row) {
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+/**
+ * Resolve one active credential row and its secret as a single snapshot. The
+ * sender identifier participates in the same query that selects the row, so a
+ * caller can never resolve one credential identity and then decrypt another
+ * row for the tenant.
+ */
+export async function resolveInteropCredentialSnapshot(
+  kind,
+  senderIdentifier,
+  { failClosed = true } = {},
+) {
+  const cleanKind = normalizeKind(kind);
+  const sid = normalizeSender(senderIdentifier);
+  if (!KINDS.has(cleanKind) || !sid) return null;
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id::text, tenant_id::text AS tenant_id, kind,
+              sender_identifier, status, secret_ciphertext
+         FROM tenant_interop_secrets
+        WHERE kind = $1::text
+          AND sender_identifier = $2::text
+          AND status = 'active'`,
+      cleanKind,
+      sid,
+    );
+    if (rows.length === 0) return null;
+    if (rows.length !== 1 || !rows[0].secret_ciphertext) {
+      throw new Error('Active interop credential snapshot is ambiguous or incomplete');
+    }
+    const row = rows[0];
+    return Object.freeze({
+      id: row.id,
+      tenant_id: row.tenant_id,
+      kind: row.kind,
+      sender_identifier: row.sender_identifier,
+      status: row.status,
+      secret: decryptField(row.secret_ciphertext),
+    });
+  } catch (err) {
+    logger.warn('resolveInteropCredentialSnapshot: lookup failed', {
+      kind: cleanKind,
+      code: err?.code,
+    });
+    if (!failClosed) return null;
+    throw AppError.internal(
+      'Interop credential lookup is unavailable',
+      'INTEROP_CREDENTIAL_LOOKUP_FAILED',
+    );
+  }
 }
 
 /**
@@ -175,6 +227,7 @@ export async function upsertInteropSecret({ tenantId, kind, senderIdentifier, se
 }
 
 export default {
+  resolveInteropCredentialSnapshot,
   resolveTenantBySender,
   getInteropSecret,
   listInteropSecretsForTenant,

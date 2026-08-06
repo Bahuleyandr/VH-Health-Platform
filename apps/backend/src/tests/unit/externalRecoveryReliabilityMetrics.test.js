@@ -63,14 +63,14 @@ beforeEach(() => {
 });
 
 describe('external-recovery database-output metrics', () => {
-  it('publishes honest facility and tenant-wide labels without item-cardinality labels', async () => {
+  it('publishes I03 as tenant-wide without item-cardinality labels', async () => {
     queryRawUnsafeMock.mockResolvedValueOnce(
       observation(1000, [
         scope({ pending: 4, pendingAge: 901, dead: 1, critical: 1, criticalAge: 120 }),
         scope({
           tenantId: TENANT_B,
           facilityScope: 'tenant',
-          interfaceFamily: 'I01',
+          interfaceFamily: 'I03',
           state: 'replaying'
         })
       ])
@@ -83,8 +83,18 @@ describe('external-recovery database-output metrics', () => {
       `external_recovery_inbox_pending_rows{tenant_id="${TENANT_A}",facility_scope="facility",facility_id="41",interface_family="I10",direction="inbound"} 4`
     );
     expect(out).toContain(
-      `external_recovery_active_offsets{tenant_id="${TENANT_B}",facility_scope="tenant",facility_id="tenant-wide",interface_family="I01",direction="inbound",recovery_state="replaying"} 1`
+      `external_recovery_active_offsets{tenant_id="${TENANT_B}",facility_scope="tenant",facility_id="tenant-wide",interface_family="I03",direction="inbound",recovery_state="replaying"} 1`
     );
+    const i03Series = out
+      .split('\n')
+      .filter((line) => line.includes('interface_family="I03"'));
+    expect(i03Series.length).toBeGreaterThan(0);
+    for (const series of i03Series) {
+      expect(series).toContain(
+        'facility_scope="tenant",facility_id="tenant-wide"'
+      );
+      expect(series).not.toMatch(/credential|control|patient|partition/);
+    }
     expect(out).not.toMatch(/source_partition|offset_id|patient_uid|task_id|result_id/);
   });
 

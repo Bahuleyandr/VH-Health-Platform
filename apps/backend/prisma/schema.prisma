@@ -10160,6 +10160,7 @@ model tasks {
   engagement_follow_up_steps                  engagement_follow_up_steps[]
   external_recovery_critical_acknowledgements external_recovery_critical_review_acknowledgements?
   external_recovery_critical_obligations      external_recovery_critical_review_obligations?
+  hl7_inbound_recovery_receipts               hl7_inbound_recovery_receipts?
   lab_critical_alert_acknowledgement_receipts lab_critical_alert_acknowledgement_receipts?
   lab_critical_alerts                         lab_critical_alerts[]                               @relation("lab_critical_alert_ack_task")
   lab_interface_messages                      lab_interface_messages?
@@ -10583,6 +10584,7 @@ model tenants {
   help_center_categories                          help_center_categories[]
   hipaa_access_log                                hipaa_access_log[]
   hl7_feed_subscriptions                          hl7_feed_subscriptions[]
+  hl7_inbound_recovery_receipts                   hl7_inbound_recovery_receipts[]
   hl7_outbound_messages                           hl7_outbound_messages[]
   housekeeping_floor_assignments                  housekeeping_floor_assignments[]
   housekeeping_logs                               housekeeping_logs[]
@@ -11562,6 +11564,7 @@ model users {
   geofence_breaches_geofence_breaches_staff_idTousers                                                                              geofence_breaches[]                                    @relation("geofence_breaches_staff_idTousers")
   geofence_breaches_geofence_breaches_staff_uidTousers                                                                             geofence_breaches[]                                    @relation("geofence_breaches_staff_uidTousers")
   hai_cases                                                                                                                        hai_cases[]
+  hl7_inbound_recovery_receipts                                                                                                    hl7_inbound_recovery_receipts[]
   housekeeping_logs_housekeeping_logs_staff_idTousers                                                                              housekeeping_logs[]                                    @relation("housekeeping_logs_staff_idTousers")
   housekeeping_logs_housekeeping_logs_staff_uidTousers                                                                             housekeeping_logs[]                                    @relation("housekeeping_logs_staff_uidTousers")
   housekeeping_logs_housekeeping_logs_verified_byTousers                                                                           housekeeping_logs[]                                    @relation("housekeeping_logs_verified_byTousers")
@@ -17257,17 +17260,19 @@ model totp_challenges {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model tenant_interop_secrets {
-  id                Int      @id @default(autoincrement())
-  tenant_id         String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  kind              String   @db.VarChar(40)
-  sender_identifier String   @db.VarChar(255)
-  secret_ciphertext String
-  status            String   @default("active") @db.VarChar(20)
-  created_at        DateTime @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime @default(now()) @db.Timestamptz(6)
-  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_interop_secrets_tenant")
+  id                            Int                             @id @default(autoincrement())
+  tenant_id                     String                          @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  kind                          String                          @db.VarChar(40)
+  sender_identifier             String                          @db.VarChar(255)
+  secret_ciphertext             String
+  status                        String                          @default("active") @db.VarChar(20)
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  hl7_inbound_recovery_receipts hl7_inbound_recovery_receipts[]
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tenant_interop_secrets_tenant")
 
   @@unique([kind, sender_identifier], map: "uniq_tenant_interop_secrets_kind_sender")
+  @@unique([tenant_id, id], map: "ux_tenant_interop_secrets_tenant_id")
   @@index([tenant_id], map: "idx_tenant_interop_secrets_tenant_id")
 }
 
@@ -25075,6 +25080,7 @@ model pathway_projector_inbox {
   cold_chain_readings                    cold_chain_readings[]
   event_outbox                           event_outbox[]
   external_recovery_critical_obligations external_recovery_critical_review_obligations?
+  hl7_inbound_recovery_receipts          hl7_inbound_recovery_receipts?
   hl7_outbound_acknowledgements          hl7_outbound_acknowledgements[]
   hl7_outbound_messages                  hl7_outbound_messages[]
   imaging_study_link_recovery_receipts   imaging_study_link_recovery_receipts?
@@ -27307,6 +27313,64 @@ model clinical_continuity_incident_packet_custody_events {
 
   @@unique([tenant_id, facility_id, packet_id, copy_number], map: "uq_cc_packet_custody_received", where: raw("((event_type)::text = 'received'::text)"))
   @@unique([tenant_id, facility_id, id], map: "uq_cc_packet_custody_scope")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model hl7_inbound_recovery_receipts {
+  id                        BigInt                  @id @default(autoincrement())
+  tenant_id                 String                  @db.Uuid
+  recovery_inbox_id         String                  @db.Uuid
+  interface_family          String                  @db.VarChar(8)
+  signing_credential_id     Int
+  source_partition          String                  @db.VarChar(160)
+  generation                Int
+  source_position           BigInt
+  source_token              String                  @db.Char(64)
+  predecessor_token         String                  @db.Char(64)
+  duplicate_key             String                  @db.Char(64)
+  message_family            String                  @db.VarChar(8)
+  message_type              String                  @db.VarChar(8)
+  trigger_event             String                  @db.VarChar(8)
+  message_control_id_sha256 String                  @db.Char(64)
+  payload_ciphertext        String
+  payload_sha256            String                  @db.Char(64)
+  payload_bytes             Int
+  source_observed_at        DateTime                @db.Timestamptz(6)
+  source_received_at        DateTime                @db.Timestamptz(6)
+  clock_evidence            Json
+  patient_uid               String?                 @db.Uuid
+  visit_identity_sha256     String?                 @db.Char(64)
+  order_identity_sha256     String?                 @db.Char(64)
+  pending_task_id           Int
+  review_role               String                  @db.VarChar(64)
+  status                    String                  @db.VarChar(32)
+  outcome_code              String                  @db.VarChar(80)
+  ack_ciphertext            String
+  ack_sha256                String                  @db.Char(64)
+  ack_bytes                 Int
+  ack_code                  String                  @db.VarChar(8)
+  http_status               Int                     @db.SmallInt
+  policy_version            String                  @db.VarChar(80)
+  policy_signature          String                  @db.VarChar(128)
+  retention_policy          String                  @db.VarChar(80)
+  retention_until           DateTime                @db.Timestamptz(6)
+  recorded_at               DateTime                @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  tenant_interop_secrets    tenant_interop_secrets  @relation(fields: [tenant_id, signing_credential_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_recovery_receipts_credential")
+  pathway_projector_inbox   pathway_projector_inbox @relation(fields: [tenant_id, recovery_inbox_id, interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_recovery_receipts_inbox")
+  users                     users?                  @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_recovery_receipts_patient")
+  tasks                     tasks                   @relation(fields: [tenant_id, pending_task_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_recovery_receipts_task")
+  tenants                   tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_recovery_receipts_tenant")
+
+  @@unique([tenant_id, signing_credential_id, message_family, message_type, trigger_event, message_control_id_sha256], map: "ux_hl7_inbound_recovery_receipts_duplicate_identity")
+  @@unique([tenant_id, duplicate_key], map: "ux_hl7_inbound_recovery_receipts_duplicate_key")
+  @@unique([tenant_id, recovery_inbox_id], map: "ux_hl7_inbound_recovery_receipts_inbox")
+  @@unique([tenant_id, recovery_inbox_id, interface_family], map: "ux_hl7_inbound_recovery_receipts_inbox_family")
+  @@unique([tenant_id, source_partition, generation, source_position], map: "ux_hl7_inbound_recovery_receipts_source_occurrence")
+  @@unique([tenant_id, pending_task_id], map: "ux_hl7_inbound_recovery_receipts_task")
+  @@unique([tenant_id, id], map: "ux_hl7_inbound_recovery_receipts_tenant_id")
+  @@index([tenant_id, review_role, status, recorded_at, id], map: "idx_hl7_inbound_recovery_receipts_review")
 }
 
 enum transplant_organ_type {

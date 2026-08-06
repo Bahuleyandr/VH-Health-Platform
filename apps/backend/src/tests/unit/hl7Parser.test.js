@@ -4,7 +4,7 @@
 //   - Pipe-delimited only (no `^~\&` escape handling).
 //   - CR/LF/CRLF segment separators all accepted.
 //   - Missing segments / fields default to empty string, not throw.
-//   - MSH, PID, PV1, OBR, OBX recognised; unknown segments preserved
+//   - MSH, EVN, PID, PV1, ORC, OBR, OBX recognised; unknown segments preserved
 //     in `parsed.segments` but not given a typed accessor.
 
 import { parseHL7 } from '../../services/hl7/hl7Parser.js';
@@ -93,6 +93,79 @@ describe('parseHL7', () => {
         receivingApp: '',
         receivingFacility: '',
       });
+    });
+
+    it('retains MSH-13 only as non-authoritative sender sequence evidence', () => {
+      const parsed = parseHL7(
+        'MSH|^~\\&|A|B|C|D|20260806103045+0530||ADT^A01|MSG-13|P|2.5|1042',
+      );
+      expect(parsed.msh.sequenceNumber).toBe('1042');
+    });
+  });
+
+  describe('I03 reconciliation evidence', () => {
+    it('extracts EVN-2, PV1-19, PV1-44, and PV1-45 without timestamp coercion', () => {
+      const pv1 = Array(46).fill('');
+      pv1[0] = 'PV1';
+      pv1[1] = '1';
+      pv1[2] = 'I';
+      pv1[19] = 'VISIT-ADT-1042';
+      pv1[44] = '20260806103045+0530';
+      pv1[45] = '20260806113045+0530';
+      const parsed = parseHL7([
+        'MSH|^~\\&|A|B|C|D|20260806103045+0530||ADT^A03|MSG-EVN|P|2.5|1042',
+        'EVN|A03|20260806103045+0530',
+        'PID|1||11111111-1111-4111-8111-111111111111',
+        pv1.join('|'),
+      ].join('\r'));
+
+      expect(parsed.evn).toEqual({ recordedDateTime: '20260806103045+0530' });
+      expect(parsed.pv1).toMatchObject({
+        visitNumber: 'VISIT-ADT-1042',
+        admitDate: '20260806103045+0530',
+        dischargeDate: '20260806113045+0530',
+      });
+      expect(parsed.segmentCounts).toMatchObject({ MSH: 1, EVN: 1, PID: 1, PV1: 1 });
+      expect(Object.isFrozen(parsed.segmentCounts)).toBe(true);
+    });
+
+    it('extracts ORC-2 and ORC-9 while retaining OBR order identities', () => {
+      const orc = Array(10).fill('');
+      orc[0] = 'ORC';
+      orc[1] = 'NW';
+      orc[2] = 'PLACER-ORM-42';
+      orc[9] = '20260806103145+0530';
+      const parsed = parseHL7([
+        'MSH|^~\\&|A|B|C|D|20260806103145+0530||ORM^O01|MSG-ORC|P|2.5|2042',
+        'PID|1||11111111-1111-4111-8111-111111111111',
+        orc.join('|'),
+        'OBR|1|PLACER-OBR-42|FILLER-OBR-42|CBC^Complete Blood Count',
+      ].join('\r'));
+
+      expect(parsed.orc).toEqual({
+        placerOrderNumber: 'PLACER-ORM-42',
+        transactionDateTime: '20260806103145+0530',
+      });
+      expect(parsed.obr).toMatchObject({
+        placerOrderNumber: 'PLACER-OBR-42',
+        fillerOrderNumber: 'FILLER-OBR-42',
+        testCode: 'CBC^Complete Blood Count',
+      });
+      expect(parsed.segmentCounts).toMatchObject({ MSH: 1, PID: 1, ORC: 1, OBR: 1 });
+    });
+
+    it('counts duplicate identity segments so recovery validation can fail closed', () => {
+      const parsed = parseHL7([
+        'MSH|^~\\&|A|B|C|D|20260806103045+0530||ADT^A01|MSG-DUP|P|2.5',
+        'EVN|A01|20260806103045+0530',
+        'EVN|A01|20260806103046+0530',
+        'PID|1||11111111-1111-4111-8111-111111111111',
+        'PID|1||22222222-2222-4222-8222-222222222222',
+      ].join('\r'));
+
+      expect(parsed.segmentCounts).toMatchObject({ MSH: 1, EVN: 2, PID: 2 });
+      expect(parsed.segments.filter(segment => segment.type === 'EVN')).toHaveLength(2);
+      expect(parsed.segments.filter(segment => segment.type === 'PID')).toHaveLength(2);
     });
   });
 

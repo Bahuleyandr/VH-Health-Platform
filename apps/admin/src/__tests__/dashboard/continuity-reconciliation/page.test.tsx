@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import ContinuityReconciliationPage from "@/app/(with-auth)/dashboard/continuity-reconciliation/page";
 import {
@@ -7,6 +13,7 @@ import {
   loadClinicalContinuityWorkbench,
   releaseClinicalContinuityHeldMessage,
 } from "@/lib/api/clinicalContinuityReconciliation";
+import { loadExternalRecoveryWorkbench } from "@/lib/api/externalRecoveryOperability";
 
 jest.mock("@/lib/api/clinicalContinuityReconciliation", () => ({
   approveClinicalContinuityIdentityMatch: jest.fn(),
@@ -26,6 +33,12 @@ jest.mock("@/lib/api/clinicalContinuityReconciliation", () => ({
   transitionClinicalContinuityIncident: jest.fn(),
 }));
 
+jest.mock("@/lib/api/externalRecoveryOperability", () => ({
+  authorizeExternalRecoveryResume: jest.fn(),
+  loadExternalRecoveryWorkbench: jest.fn(),
+  registerExternalRecoveryOffset: jest.fn(),
+}));
+
 const mockedLoad = loadClinicalContinuityWorkbench as jest.MockedFunction<
   typeof loadClinicalContinuityWorkbench
 >;
@@ -39,6 +52,10 @@ const mockedAttest =
 const mockedRelease = releaseClinicalContinuityHeldMessage as jest.MockedFunction<
   typeof releaseClinicalContinuityHeldMessage
 >;
+const mockedExternalLoad =
+  loadExternalRecoveryWorkbench as jest.MockedFunction<
+    typeof loadExternalRecoveryWorkbench
+  >;
 const incidentId = "11111111-1111-4111-8111-111111111111";
 
 const workbench = {
@@ -76,6 +93,14 @@ describe("continuity reconciliation workbench", () => {
     });
     mockedAttest.mockResolvedValue({} as never);
     mockedRelease.mockResolvedValue({} as never);
+    mockedExternalLoad.mockResolvedValue({
+      offsets: [],
+      count: 0,
+      capabilities: {
+        can_register_exact_partition: true,
+        supports_predicate_bulk_mutation: false,
+      },
+    });
   });
 
   it("is explicitly validation-only and exposes no activation action", () => {
@@ -84,6 +109,31 @@ describe("continuity reconciliation workbench", () => {
     expect(
       screen.queryByRole("button", { name: /activate/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("offers I03 on both exact-partition external-recovery controls", async () => {
+    render(<ContinuityReconciliationPage />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "External recovery" }),
+    );
+
+    await waitFor(() =>
+      expect(mockedExternalLoad).toHaveBeenCalledWith({
+        interfaceFamily: "",
+        recoveryState: "",
+      }),
+    );
+
+    expect(
+      within(screen.getByLabelText("Family filter")).getByRole("option", {
+        name: "I03",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("Interface family")).getByRole("option", {
+        name: "I03",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("keeps the signed context in memory and renders the server-authoritative lanes", async () => {

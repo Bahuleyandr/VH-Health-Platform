@@ -5,6 +5,21 @@ import sourceMapSupport from 'source-map-support';
 import logger from '../logging/logger.js';
 import { AppError } from '../utils/AppError.js';
 import { sanitizeErrorMessage } from '../utils/responseHelper.js';
+import { generateACK } from '../services/hl7/hl7Parser.js';
+import { redactSensitiveQueryParams } from '../utils/urlRedaction.js';
+
+function sendHl7RecoveryError(res, statusCode) {
+  const ackCode = statusCode >= 500 || statusCode === 409 || statusCode === 429 ? 'AE' : 'AR';
+  res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+  return res.status(statusCode).send(
+    generateACK('UNKNOWN', ackCode, 'HL7 receive request rejected'),
+  );
+}
+
+function boundedErrorIdentifier(value) {
+  const identifier = String(value || '');
+  return /^[a-z0-9_.-]{1,64}$/i.test(identifier) ? identifier : null;
+}
 
 /**
  * Centralized error handling middleware.
@@ -19,15 +34,25 @@ export const errorHandlerMiddleware = (err, req, res, _next) => {
 
   // 2. Get the original stack trace using source maps
   const stack = sourceMapSupport.getErrorSource(err) || err.stack;
+  const safeRequestUrl = redactSensitiveQueryParams(req.originalUrl || req.url);
+  const isHl7Recovery = req.hl7InboundRecoveryRequest === true;
+  const loggedError = isHl7Recovery
+    ? {
+        message: 'HL7 receive request processing failed',
+        status_code: statusCode,
+        code: boundedErrorIdentifier(err.code),
+        type: boundedErrorIdentifier(err.type),
+      }
+    : {
+        message: err.message,
+        stack,
+      };
 
   // 3. Log the error using a structured format
   logger.error('An error occurred while processing a request', {
-    error: {
-      message: err.message,
-      stack: stack,
-    },
+    error: loggedError,
     request: {
-      url: req.originalUrl,
+      url: safeRequestUrl,
       method: req.method,
       ip: req.ip,
     },
@@ -41,7 +66,7 @@ export const errorHandlerMiddleware = (err, req, res, _next) => {
       success: false,
       message: sanitizeErrorMessage(err.message, err.statusCode, {
         safe: true,
-        context: req.originalUrl,
+        context: safeRequestUrl,
       }),
       code: err.code,
     };
@@ -49,14 +74,24 @@ export const errorHandlerMiddleware = (err, req, res, _next) => {
     if (req.id) response.requestId = req.id;
     // Only report non-operational errors to Sentry
     if (!err.isOperational && statusCode >= 500) {
-      Sentry.captureException(err);
+      Sentry.captureException(isHl7Recovery
+        ? new Error(`HL7 receive request failed with status ${statusCode}`)
+        : err);
+    }
+    if (isHl7Recovery) {
+      return sendHl7RecoveryError(res, statusCode);
     }
     return res.status(err.statusCode).json(response);
   }
 
   // 5. Report to Sentry, but only for server errors (5xx)
   if (statusCode >= 500) {
-    Sentry.captureException(err);
+    Sentry.captureException(isHl7Recovery
+      ? new Error(`HL7 receive request failed with status ${statusCode}`)
+      : err);
+  }
+  if (isHl7Recovery) {
+    return sendHl7RecoveryError(res, statusCode);
   }
 
   // 6. Create the response body — never leak internal error details in production.
@@ -71,7 +106,7 @@ export const errorHandlerMiddleware = (err, req, res, _next) => {
   const exposeStack = isDev && process.env.EXPOSE_DEV_STACK === 'true';
   const errorResponse = {
     success: false,
-    message: sanitizeErrorMessage(err.message, statusCode, { context: req.originalUrl }),
+    message: sanitizeErrorMessage(err.message, statusCode, { context: safeRequestUrl }),
     ...(req.id && { requestId: req.id }),
     ...(exposeStack && { stack }),
   };

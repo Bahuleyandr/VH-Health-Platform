@@ -16,6 +16,7 @@ import * as config from '../../../scripts/openapi/schemas/config.mjs';
 import * as portal from '../../../scripts/openapi/schemas/portal.mjs';
 import * as cathConsumables from '../../../scripts/openapi/schemas/cathConsumables.mjs';
 import * as clinicalInbox from '../../../scripts/openapi/schemas/clinicalInbox.mjs';
+import * as hl7 from '../../../scripts/openapi/schemas/hl7.mjs';
 import * as lab from '../../../scripts/openapi/schemas/lab.mjs';
 import * as nhcx from '../../../scripts/openapi/schemas/nhcx.mjs';
 import * as carePathways from '../../../scripts/openapi/schemas/carePathways.mjs';
@@ -43,6 +44,7 @@ const MODULES = [
   portal,
   cathConsumables,
   clinicalInbox,
+  hl7,
   lab,
   nhcx,
   carePathways,
@@ -88,6 +90,253 @@ describe('OpenAPI contract overlays (static gate)', () => {
     for (const name of Object.keys(spec.components.schemas)) {
       expect(ajv.getSchema(`openapi.json#/components/schemas/${name}`)).toBeTruthy();
     }
+  });
+
+  it('publishes the existing HL7 receive path as a typed JSON request with raw ACK responses', () => {
+    const operation = spec.paths['/api/v1/hl7/receive'].post;
+    expect(operation.requestBody.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/Hl7InboundReceiveRequest',
+    });
+    expect(Object.keys(operation.responses).sort()).toEqual([
+      '200', '400', '401', '403', '404', '409', '413', '429', '500', '503',
+    ]);
+
+    for (const status of [
+      '200', '400', '401', '403', '404', '409', '429', '500', '503',
+    ]) {
+      expect(operation.responses[status].content['application/hl7-v2'].schema).toEqual({
+        $ref: '#/components/schemas/Hl7V2Ack',
+      });
+    }
+    for (const status of ['400', '401', '413', '429', '500']) {
+      expect(operation.responses[status].content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/Hl7LegacyJsonError',
+      });
+    }
+    for (const status of ['200', '403', '404', '409', '503']) {
+      expect(operation.responses[status].content['application/json']).toBeUndefined();
+    }
+    expect(operation.responses['413'].content['application/hl7-v2']).toBeUndefined();
+    expect(operation.responses['404'].description).toMatch(/Legacy live branch only/);
+    expect(operation.description).toMatch(/DB-backed HL7 credential/);
+    expect(operation.description).toMatch(/downgrade fence/);
+    expect(operation.description).toMatch(/exact stored ACK bytes/);
+    expect(operation.description).toMatch(/never directly creates/);
+
+    const parameters = Object.fromEntries(
+      operation.parameters.map(parameter => [parameter.name, parameter]),
+    );
+    expect(parameters['X-HL7-Message-Id'].required).toBe(false);
+    expect(parameters['X-HL7-Message-Id'].description).toMatch(/Mandatory for recovery/);
+    expect(parameters['X-HL7-Timestamp'].required).toBe(true);
+    expect(parameters['X-HL7-Signature'].required).toBe(true);
+  });
+
+  it('keeps legacy HL7 input compatible and closes the exact I03 recovery shape', () => {
+    const schemas = spec.components.schemas;
+    expect(schemas.Hl7InboundReceiveRequest.allOf).toEqual([{
+      oneOf: [
+        { $ref: '#/components/schemas/Hl7InboundLiveRequest' },
+        { $ref: '#/components/schemas/Hl7InboundRecoveryRequest' },
+      ],
+    }]);
+    expect(schemas.Hl7InboundReceiveRequest).toEqual(expect.objectContaining({
+      type: 'object',
+      required: ['message'],
+      properties: {
+        message: expect.objectContaining({
+          type: 'string',
+          maxLength: 2_000_000,
+          'x-vhhealth-maxUtf8Bytes': 2_000_000,
+        }),
+        recovery: { $ref: '#/components/schemas/Hl7I03RecoveryEnvelope' },
+      },
+    }));
+    expect(schemas.Hl7InboundLiveRequest).toEqual(expect.objectContaining({
+      additionalProperties: true,
+      required: ['message'],
+      not: { required: ['recovery'] },
+    }));
+    expect(schemas.Hl7InboundLiveRequest.properties.message).toEqual(expect.objectContaining({
+      maxLength: 1_048_576,
+      'x-vhhealth-maxRequestBytes': 1_048_576,
+    }));
+    expect(schemas.Hl7InboundLiveRequest.properties.message.description).toMatch(
+      /does not widen this branch/,
+    );
+    expect(schemas.Hl7InboundRecoveryRequest).toEqual(expect.objectContaining({
+      additionalProperties: false,
+      required: ['message', 'recovery'],
+    }));
+    expect(Object.keys(schemas.Hl7InboundRecoveryRequest.properties).sort()).toEqual([
+      'message', 'recovery',
+    ]);
+    expect(schemas.Hl7InboundRecoveryRequest.properties.recovery).toEqual({
+      $ref: '#/components/schemas/Hl7I03RecoveryEnvelope',
+    });
+    expect(schemas.Hl7InboundRecoveryRequest.properties.message).toEqual(expect.objectContaining({
+      maxLength: 2_000_000,
+      'x-vhhealth-maxUtf8Bytes': 2_000_000,
+    }));
+    expect(schemas.Hl7InboundRecoveryRequest.properties.message.description).toMatch(
+      /Runtime enforcement measures the UTF-8 bytes/,
+    );
+
+    const recoveryFields = [
+      'schema',
+      'interface_family',
+      'arrival_class',
+      'tenant_id',
+      'signing_credential_id',
+      'offset_id',
+      'source_partition',
+      'generation',
+      'source_position',
+      'source_token',
+      'predecessor_token',
+      'duplicate_key',
+      'message_family',
+      'message_type',
+      'trigger_event',
+      'message_control_id',
+      'message_sha256',
+      'source_observed_at',
+      'source_received_at',
+      'clock_evidence',
+    ];
+    expect(schemas.Hl7I03RecoveryEnvelope.additionalProperties).toBe(false);
+    expect(schemas.Hl7I03RecoveryEnvelope.required).toEqual(recoveryFields);
+    expect(Object.keys(schemas.Hl7I03RecoveryEnvelope.properties)).toEqual(recoveryFields);
+    expect(schemas.Hl7I03RecoveryEnvelope.properties.effect_disposition).toBeUndefined();
+    expect(schemas.Hl7I03RecoveryEnvelope.properties.clock_evidence).toEqual({
+      $ref: '#/components/schemas/Hl7I03ClockEvidence',
+    });
+    expect(schemas.Hl7I03RecoveryEnvelope.properties.signing_credential_id)
+      .toEqual(expect.objectContaining({
+        type: 'string',
+        pattern: '^[1-9][0-9]*$',
+        maxLength: 10,
+        'x-vhhealth-maximumDecimal': '2147483647',
+      }));
+    expect(schemas.Hl7I03RecoveryEnvelope.properties.source_position)
+      .toEqual(expect.objectContaining({
+        type: 'string',
+        pattern: '^(0|[1-9][0-9]*)$',
+        maxLength: 19,
+        'x-vhhealth-maximumDecimal': '9223372036854775807',
+      }));
+    expect(schemas.Hl7I03RecoveryEnvelope.properties.source_partition.maxLength).toBe(160);
+    expect(schemas.Hl7I03RecoveryEnvelope.properties.message_control_id.maxLength).toBe(199);
+
+    const clock = schemas.Hl7I03ClockEvidence;
+    expect(clock.additionalProperties).toBe(false);
+    expect(clock.required).toEqual([
+      'source_clock_id', 'synchronized_at', 'maximum_error_ms',
+    ]);
+    expect(Object.keys(clock.properties)).toEqual(clock.required);
+  });
+
+  it('validates live compatibility and I03 family/trigger restrictions through ajv', () => {
+    const ajv = new Ajv({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema(ajvReadySpec(spec), 'openapi.json');
+    const validate = ajv.getSchema(
+      'openapi.json#/components/schemas/Hl7InboundReceiveRequest',
+    );
+
+    const message = 'MSH|^~\\&|SENDER|SITE|VH|TENANT|20260806120000+0530||ADT^A01|MSG-1|P|2.5';
+    const recovery = {
+      schema: 'vhhealth.i03.adt-orm-sequence/v1',
+      interface_family: 'I03',
+      arrival_class: 'recovery_backlog',
+      tenant_id: '00000000-0000-4000-8000-000000000001',
+      signing_credential_id: '7',
+      offset_id: '00000000-0000-4000-8000-000000000002',
+      source_partition: 'i03/credential/7/family/adt',
+      generation: 1,
+      source_position: '1',
+      source_token: 'a'.repeat(64),
+      predecessor_token: 'b'.repeat(64),
+      duplicate_key: 'c'.repeat(64),
+      message_family: 'adt',
+      message_type: 'ADT',
+      trigger_event: 'A01',
+      message_control_id: 'MSG-1',
+      message_sha256: 'd'.repeat(64),
+      source_observed_at: '2026-08-06T12:00:00+05:30',
+      source_received_at: '2026-08-06T12:00:01+05:30',
+      clock_evidence: {
+        source_clock_id: 'sender-ntp-1',
+        synchronized_at: '2026-08-06T11:59:30+05:30',
+        maximum_error_ms: 1000,
+      },
+    };
+
+    expect(validate({ message, legacy_extension: 'preserved' })).toBe(true);
+    expect(validate({ message, recovery })).toBe(true);
+
+    const orm = {
+      ...recovery,
+      source_partition: 'i03/credential/7/family/orm',
+      message_family: 'orm',
+      message_type: 'ORM',
+      trigger_event: 'O01',
+    };
+    expect(validate({ message, recovery: orm })).toBe(true);
+    expect(validate({ message, recovery: null })).toBe(false);
+    expect(validate({ message, recovery, unexpected: true })).toBe(false);
+    expect(validate({ message, recovery: { ...recovery, unexpected: true } })).toBe(false);
+    expect(validate({
+      message,
+      recovery: {
+        ...recovery,
+        clock_evidence: { ...recovery.clock_evidence, source: 'unsupported' },
+      },
+    })).toBe(false);
+    expect(validate({ message, recovery: { ...recovery, effect_disposition: 'late_pending_only' } }))
+      .toBe(false);
+    expect(validate({ message, recovery: { ...recovery, signing_credential_id: 7 } })).toBe(false);
+    expect(validate({ message, recovery: { ...recovery, source_position: 1 } })).toBe(false);
+    expect(validate({ message, recovery: { ...recovery, message_sha256: 'D'.repeat(64) } }))
+      .toBe(false);
+    expect(validate({
+      message,
+      recovery: {
+        ...recovery,
+        source_observed_at: '2026-08-06T12:00:00',
+      },
+    })).toBe(false);
+    expect(validate({
+      message,
+      recovery: {
+        ...recovery,
+        source_observed_at: '2026-08-06T12:00:00.1234567+05:30',
+      },
+    })).toBe(false);
+    for (const invalidRecovery of [
+      { ...recovery, source_observed_at: '2026-08-06T12:00:00-00:00' },
+      { ...recovery, source_received_at: '2026-08-06T12:00:01-00:00' },
+      {
+        ...recovery,
+        clock_evidence: {
+          ...recovery.clock_evidence,
+          synchronized_at: '2026-08-06T11:59:30-00:00',
+        },
+      },
+    ]) {
+      expect(validate({ message, recovery: invalidRecovery })).toBe(false);
+    }
+    expect(validate({
+      message,
+      recovery: {
+        ...recovery,
+        clock_evidence: { ...recovery.clock_evidence, maximum_error_ms: 300_001 },
+      },
+    })).toBe(false);
+    expect(validate({
+      message,
+      recovery: { ...recovery, message_type: 'ORM', trigger_event: 'O01' },
+    })).toBe(false);
   });
 
   it('models BIGINT billing source references as safe integers or decimal strings', () => {

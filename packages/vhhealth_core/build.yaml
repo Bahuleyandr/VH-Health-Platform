@@ -40,6 +40,15 @@ targets:
           default_values_map:
             - type_name: 'bool'
               default_value: 'false'
+          # The I03 endpoint selects recovery by own-property presence. The
+          # generator serializes optional fields as explicit nulls by default,
+          # so override only this union wrapper to omit `recovery` for live
+          # requests while retaining the generated typed recovery envelope.
+          overriden_models:
+            - file_name: 'openapi'
+              import_url: '../hl7_inbound_receive_request.dart'
+              overriden_models:
+                - 'Hl7InboundReceiveRequest'
           # Drop the single FHIR bulk-export operation whose path contains a
           # literal `$` (`/api/v1/fhir/Patient/{id}/$everything`). chopper_generator
           # emits the path verbatim into `@GET(path: '...$everything')`; Dart reads

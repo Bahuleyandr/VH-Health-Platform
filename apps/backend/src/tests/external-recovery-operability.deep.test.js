@@ -3,7 +3,8 @@ import { readdirSync } from 'node:fs';
 
 import { Client } from 'pg';
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
+import { upsertInteropSecret } from '../services/interop/tenantInteropSecretService.js';
 import {
   authorizeExternalRecoveryOperabilityResume,
   listExternalRecoveryOperabilityWorkbench,
@@ -14,6 +15,10 @@ import {
   parseExternalRecoveryRegister,
   parseExternalRecoveryResume,
 } from '../validators/externalRecoveryOperabilitySchemas.js';
+import {
+  authorizeExternalRecoveryResume as authorizeThroughOperability,
+  registerExternalRecoveryOffset as registerThroughOperability,
+} from './helpers/externalRecoveryOperabilityTestHelper.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -243,6 +248,77 @@ describeIfDb('migration 628 external-recovery operability authority', () => {
         direction: 'outbound',
         source_partition: targetPartition,
         cursor_kind: 'per_target_positive_ack',
+      },
+    ]);
+  });
+
+  test('I03 registers independent ADT and ORM partitions through the operability authority', async () => {
+    const sender = `I03-OPERABILITY-${SUFFIX}`;
+    const credential = await upsertInteropSecret({
+      tenantId: TENANT_ID,
+      kind: 'hl7_inbound',
+      senderIdentifier: sender,
+      secret: `i03-operability-secret-${SUFFIX}`,
+    });
+    const credentialId = String(credential.id);
+    const adtPartition = `i03/credential/${credentialId}/family/adt`;
+    const ormPartition = `i03/credential/${credentialId}/family/orm`;
+    const common = {
+      tenantId: TENANT_ID,
+      interfaceFamily: 'I03',
+      generation: 3,
+      initialPosition: '10',
+      initialToken: 'a'.repeat(64),
+      retainedFromPosition: '1',
+      retainedFromToken: 'b'.repeat(64),
+      policyVersion: 'c-d8-i03-v1',
+      policySignature: `i03-policy-${SUFFIX}`,
+      retentionPolicy: 'hl7-i03-730d',
+      retentionUntil: RETENTION_UNTIL,
+    };
+    const adt = await registerThroughOperability({
+      ...common,
+      sourcePartition: adtPartition,
+    });
+    const orm = await registerThroughOperability({
+      ...common,
+      sourcePartition: ormPartition,
+    });
+    expect(adt.offset_id).not.toBe(orm.offset_id);
+
+    await authorizeThroughOperability({
+      tenantId: TENANT_ID,
+      interfaceFamily: 'I03',
+      offsetId: adt.offset_id,
+      resumeCutoffPosition: '11',
+      resumeCutoffToken: 'c'.repeat(64),
+    });
+    const offsets = await setTenantTx(TENANT_ID, tx => tx.$queryRawUnsafe(
+      `SELECT offset_id::text, source_partition, cursor_kind, recovery_state,
+              high_water_position::text, resume_cutoff_position::text
+         FROM event_consumer_offsets
+        WHERE tenant_id = $1::uuid AND offset_id IN ($2::uuid, $3::uuid)
+        ORDER BY source_partition`,
+      TENANT_ID,
+      adt.offset_id,
+      orm.offset_id,
+    ));
+    expect(offsets).toEqual([
+      {
+        offset_id: adt.offset_id,
+        source_partition: adtPartition,
+        cursor_kind: 'monotonic_position_and_predecessor',
+        recovery_state: 'replaying',
+        high_water_position: '10',
+        resume_cutoff_position: '11',
+      },
+      {
+        offset_id: orm.offset_id,
+        source_partition: ormPartition,
+        cursor_kind: 'monotonic_position_and_predecessor',
+        recovery_state: 'paused',
+        high_water_position: '10',
+        resume_cutoff_position: null,
       },
     ]);
   });

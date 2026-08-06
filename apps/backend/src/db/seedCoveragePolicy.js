@@ -12,6 +12,10 @@ export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
   'external_recovery_operability_actions',
   'external_recovery_critical_review_obligations',
   'external_recovery_critical_review_acknowledgements',
+  // Inbound ADT/ORM recovery receipts require exact encrypted HL7 and ACK
+  // bytes, signed cursor/retention evidence, and a real no-SLA owner task.
+  // Seeds must not fabricate a sender outage or activate an I03 partition.
+  'hl7_inbound_recovery_receipts',
   // Device-loss rows are incident evidence and standing containment routes.
   // Test seeds must not invent a lost device, affected identity, or C-D6 owner.
   'clinical_continuity_device_loss_operations',

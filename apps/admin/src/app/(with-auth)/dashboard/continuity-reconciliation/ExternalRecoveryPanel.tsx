@@ -15,6 +15,7 @@ import {
 const IMPLEMENTED_FAMILIES = [
   "I01",
   "I02",
+  "I03",
   "I04",
   "I05",
   "I06",

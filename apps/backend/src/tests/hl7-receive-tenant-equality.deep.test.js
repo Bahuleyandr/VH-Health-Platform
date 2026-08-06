@@ -10,7 +10,16 @@ import request from 'supertest';
 
 import prisma from '../lib/prisma.js';
 import hl7Routes from '../routes/hl7/hl7Routes.js';
-import { upsertInteropSecret } from '../services/interop/tenantInteropSecretService.js';
+import {
+  buildI03RecoverySignedPayload,
+  i03DuplicateKey,
+  i03SourceToken,
+  sha256Utf8,
+} from '../services/integrations/externalHl7InboundRecoveryService.js';
+import {
+  resolveInteropCredentialSnapshot,
+  upsertInteropSecret,
+} from '../services/interop/tenantInteropSecretService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -21,6 +30,7 @@ const TENANT_A = 'c0de0210-0000-4000-8000-00000000a001';
 const TENANT_B = 'c0de0210-0000-4000-8000-00000000b001';
 const PATIENT_A = 'c0de0210-0000-4000-8000-0000000007a1'; // in tenant A
 const PATIENT_B = 'c0de0210-0000-4000-8000-0000000007b1'; // in tenant B
+const I03_OFFSET_ID = 'c0de0210-0000-4000-8000-00000000f003';
 
 function buildApp({ apiClientTenantId = null } = {}) {
   const app = express();
@@ -48,6 +58,80 @@ function signHeaders({ message, controlId }) {
   };
 }
 
+function recoveryAdt(patientUid, controlId) {
+  return [
+    `MSH|^~\\&|SENDER|SFAC|VH|${FACILITY}|20260806103045+0530||ADT^A01|${controlId}|P|2.5|1042`,
+    'EVN|A01|20260806103045+0530',
+    `PID|1||${patientUid}`,
+    'PV1|1|I|WARD-3',
+  ].join('\r');
+}
+
+function recoveryEnvelope(message, controlId, credentialId, {
+  tenantId = TENANT_A,
+  signingCredentialId = credentialId,
+} = {}) {
+  const sourcePartition = `i03/credential/${signingCredentialId}/family/adt`;
+  const messageSha256 = sha256Utf8(message);
+  const predecessorToken = 'a'.repeat(64);
+  const duplicateKey = i03DuplicateKey({
+    tenantId,
+    signingCredentialId,
+    messageFamily: 'adt',
+    messageType: 'ADT',
+    triggerEvent: 'A01',
+    messageControlId: controlId,
+  });
+  return {
+    schema: 'vhhealth.i03.adt-orm-sequence/v1',
+    interface_family: 'I03',
+    arrival_class: 'recovery_backlog',
+    tenant_id: tenantId,
+    signing_credential_id: signingCredentialId,
+    offset_id: I03_OFFSET_ID,
+    source_partition: sourcePartition,
+    generation: 1,
+    source_position: '1',
+    source_token: i03SourceToken({
+      tenantId,
+      sourcePartition,
+      generation: 1,
+      sourcePosition: '1',
+      predecessorToken,
+      duplicateKey,
+      messageSha256,
+    }),
+    predecessor_token: predecessorToken,
+    duplicate_key: duplicateKey,
+    message_family: 'adt',
+    message_type: 'ADT',
+    trigger_event: 'A01',
+    message_control_id: controlId,
+    message_sha256: messageSha256,
+    source_observed_at: '2026-08-06T10:30:45+05:30',
+    source_received_at: '2026-08-06T10:30:45.500+05:30',
+    clock_evidence: {
+      source_clock_id: 'can021-ntp',
+      synchronized_at: '2026-08-06T10:29:00+05:30',
+      maximum_error_ms: 1000,
+    },
+  };
+}
+
+function signRecoveryHeaders({ message, recovery, controlId }) {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const requestId = `hl7-recovery-${controlId}-${Date.now()}-${Math.random()}`;
+  const { signedPayload } = buildI03RecoverySignedPayload({ message, recovery });
+  const signature = crypto.createHmac('sha256', SECRET)
+    .update(`${timestamp}.${requestId}.${signedPayload}`)
+    .digest('hex');
+  return {
+    'x-hl7-signature': `sha256=${signature}`,
+    'x-hl7-timestamp': String(timestamp),
+    'x-hl7-message-id': requestId,
+  };
+}
+
 function adt(patientUid, controlId) {
   return [
     `MSH|^~\\&|SENDER|SFAC|VH|${FACILITY}|20260101120000||ADT^A01|${controlId}|P|2.5`,
@@ -66,6 +150,7 @@ async function cleanup() {
 
 d('HL7 /receive per-tenant patient equality (CAN-021)', () => {
   let app;
+  let credentialSnapshot;
   beforeAll(async () => {
     await cleanup();
     await prisma.$executeRawUnsafe(
@@ -78,6 +163,7 @@ d('HL7 /receive per-tenant patient equality (CAN-021)', () => {
       PATIENT_A, PATIENT_B, TENANT_A, TENANT_B);
     // Per-tenant inbound secret: the receiving facility maps to TENANT A.
     await upsertInteropSecret({ tenantId: TENANT_A, kind: 'hl7_inbound', senderIdentifier: FACILITY, secret: SECRET });
+    credentialSnapshot = await resolveInteropCredentialSnapshot('hl7_inbound', FACILITY);
     app = buildApp();
   }, 30000);
   afterAll(async () => { await cleanup(); }, 30000);
@@ -166,5 +252,84 @@ d('HL7 /receive per-tenant patient equality (CAN-021)', () => {
       sharedReplayRequestId,
     );
     expect(afterAccepted[0]).toEqual({ admission_count: 1, replay_count: 1 });
+  });
+
+  it.each([
+    ['DB API tenant', { apiClientTenantId: TENANT_B }],
+    ['signed envelope tenant', { envelopeTenantId: TENANT_B }],
+    ['signed credential id', { signingCredentialId: '999999' }],
+  ])('rejects a mismatched recovery %s before consuming replay state', async (
+    _label,
+    mismatch,
+  ) => {
+    const controlId = `EQREC${Date.now()}${Math.round(Math.random() * 1000)}`;
+    const message = recoveryAdt(PATIENT_A, controlId);
+    const recovery = recoveryEnvelope(message, controlId, credentialSnapshot.id, {
+      tenantId: mismatch.envelopeTenantId || TENANT_A,
+      signingCredentialId: mismatch.signingCredentialId || credentialSnapshot.id,
+    });
+    const headers = signRecoveryHeaders({ message, recovery, controlId });
+    const replayRequestId = [
+      headers['x-hl7-message-id'],
+      headers['x-hl7-timestamp'],
+      headers['x-hl7-signature'].replace(/^sha256=/i, ''),
+    ].join(':');
+    const targetApp = buildApp({ apiClientTenantId: mismatch.apiClientTenantId || null });
+    const res = await request(targetApp)
+      .post('/api/v1/hl7/receive')
+      .set(headers)
+      .send({ message, recovery });
+
+    expect([401, 403]).toContain(res.status);
+    expect(res.text).toContain('MSA|AR');
+    const replayRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count
+         FROM interop_replay_guard
+        WHERE namespace = 'hl7-inbound' AND request_id = $1::text`,
+      replayRequestId,
+    );
+    expect(replayRows[0].count).toBe(0);
+  });
+
+  it('requires an explicit non-empty recovery message id before replay or enqueue', async () => {
+    const controlId = `EQRECNOID${Date.now()}`;
+    const message = recoveryAdt(PATIENT_A, controlId);
+    const recovery = recoveryEnvelope(message, controlId, credentialSnapshot.id);
+    const headers = signRecoveryHeaders({ message, recovery, controlId });
+    delete headers['x-hl7-message-id'];
+    const before = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::integer
+            FROM interop_replay_guard
+           WHERE namespace = 'hl7-inbound') AS replay_count,
+         (SELECT COUNT(*)::integer
+            FROM pathway_projector_inbox
+           WHERE tenant_id = $1::uuid
+             AND scope_kind = 'external_interface'
+             AND interface_family = 'I03') AS inbox_count`,
+      TENANT_A,
+    );
+
+    const res = await request(app)
+      .post('/api/v1/hl7/receive')
+      .set(headers)
+      .send({ message, recovery });
+
+    expect(res.status).toBe(401);
+    expect(res.text).toContain('MSA|AR');
+    expect(res.text).not.toContain('HL7_I03_RECOVERY_REQUEST_ID_REQUIRED');
+    const after = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::integer
+            FROM interop_replay_guard
+           WHERE namespace = 'hl7-inbound') AS replay_count,
+         (SELECT COUNT(*)::integer
+            FROM pathway_projector_inbox
+           WHERE tenant_id = $1::uuid
+             AND scope_kind = 'external_interface'
+             AND interface_family = 'I03') AS inbox_count`,
+      TENANT_A,
+    );
+    expect(after).toEqual(before);
   });
 });

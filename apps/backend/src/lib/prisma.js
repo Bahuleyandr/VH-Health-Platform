@@ -1142,6 +1142,36 @@ BEGIN
       GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role};
       GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role};
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${role};
+      -- Migration 631 intentionally exposes this append-only receipt through
+      -- column-scoped INSERT only. Reapply that fence after every broad grant.
+      IF pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON TABLE public.hl7_inbound_recovery_receipts
+          FROM ${role};
+        GRANT SELECT
+          ON TABLE public.hl7_inbound_recovery_receipts
+          TO ${role};
+        GRANT INSERT (
+          id, tenant_id, recovery_inbox_id, interface_family,
+          signing_credential_id, source_partition, generation, source_position,
+          source_token, predecessor_token, duplicate_key, message_family,
+          message_type, trigger_event, message_control_id_sha256,
+          payload_ciphertext, payload_sha256, payload_bytes, source_observed_at,
+          source_received_at, clock_evidence, patient_uid,
+          visit_identity_sha256, order_identity_sha256, pending_task_id,
+          review_role, status, outcome_code, ack_ciphertext, ack_sha256,
+          ack_bytes, ack_code, http_status, policy_version, policy_signature,
+          retention_policy, retention_until
+        ) ON TABLE public.hl7_inbound_recovery_receipts TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts_id_seq') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq
+          FROM ${role};
+        GRANT USAGE, SELECT
+          ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq
+          TO ${role};
+      END IF;
       IF pg_catalog.to_regclass('public.clinical_continuity_policy_versions') IS NOT NULL THEN
         REVOKE INSERT, UPDATE, DELETE, TRUNCATE
           ON TABLE public.clinical_continuity_policy_versions
@@ -1239,6 +1269,47 @@ BEGIN
         GRANT EXECUTE ON FUNCTIONS TO ${role};
     EXCEPTION WHEN insufficient_privilege THEN
       RAISE NOTICE 'default-privilege grants for ${role} skipped (insufficient privilege)';
+    END;
+    BEGIN
+      IF pg_catalog.to_regprocedure(
+        'public.hl7_i03_length_prefixed_sha256(text[])'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.hl7_i03_length_prefixed_sha256(text[])
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.assert_hl7_inbound_recovery_task(uuid,integer,bigint,uuid,uuid,text)'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.assert_hl7_inbound_recovery_task(
+            uuid, integer, bigint, uuid, uuid, text
+          )
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.validate_hl7_inbound_recovery_receipt()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.validate_hl7_inbound_recovery_receipt()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.validate_hl7_inbound_recovery_convergence()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.validate_hl7_inbound_recovery_convergence()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.hl7_inbound_recovery_receipt_append_only()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.hl7_inbound_recovery_receipt_append_only()
+          FROM ${role};
+      END IF;
+    EXCEPTION WHEN insufficient_privilege OR undefined_function THEN
+      RAISE NOTICE 'I03 recovery function revokes for ${role} skipped';
     END;
     BEGIN
       REVOKE CREATE ON SCHEMA public FROM PUBLIC;
