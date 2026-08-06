@@ -5428,58 +5428,61 @@ model external_system_mappings {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model facilities {
-  id                                              Int                                               @id @default(autoincrement())
-  tenant_id                                       String                                            @unique(map: "uq_facility_default", where: raw("(is_default = true)")) @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  facility_code                                   String                                            @db.VarChar(80)
-  display_name                                    String                                            @db.VarChar(255)
-  facility_kind                                   String                                            @default("hospital") @db.VarChar(40)
-  legal_entity_name                               String?                                           @db.VarChar(255)
-  registration_number                             String?                                           @db.VarChar(120)
-  address_line1                                   String?                                           @db.VarChar(255)
-  address_line2                                   String?                                           @db.VarChar(255)
-  city                                            String?                                           @db.VarChar(120)
-  state                                           String?                                           @db.VarChar(120)
-  country                                         String                                            @default("IN") @db.VarChar(80)
-  postal_code                                     String?                                           @db.VarChar(20)
-  timezone                                        String                                            @default("Asia/Kolkata") @db.VarChar(60)
-  phone                                           String?                                           @db.VarChar(40)
-  email                                           String?                                           @db.VarChar(255)
-  status                                          String                                            @default("active") @db.VarChar(20)
-  is_default                                      Boolean                                           @default(false)
-  geo_lat                                         Decimal?                                          @db.Decimal(10, 6)
-  geo_lng                                         Decimal?                                          @db.Decimal(10, 6)
-  metadata                                        Json                                              @default("{}")
-  created_by                                      String?                                           @db.Uuid
-  created_at                                      DateTime                                          @default(now()) @db.Timestamptz(6)
-  updated_at                                      DateTime                                          @default(now()) @db.Timestamptz(6)
-  appointment_queues                              appointment_queues[]
-  clinical_continuity_device_loss_routes          clinical_continuity_device_loss_routes[]
-  clinical_continuity_edge_access_grants          clinical_continuity_edge_access_grants[]
-  clinical_continuity_edge_access_revocations     clinical_continuity_edge_access_revocations[]
-  clinical_continuity_edge_log_receipts           clinical_continuity_edge_log_receipts[]
-  clinical_continuity_incident_contact_sheets     clinical_continuity_incident_contact_sheets[]
-  clinical_continuity_incident_packet_allocations clinical_continuity_incident_packet_allocations[]
-  clinical_continuity_incident_packets            clinical_continuity_incident_packets[]
-  clinical_continuity_incidents                   clinical_continuity_incidents[]
-  clinical_continuity_policy_versions             clinical_continuity_policy_versions[]
-  clinical_continuity_reconciliation_config       clinical_continuity_reconciliation_config?
-  clinical_continuity_replay_receipts             clinical_continuity_replay_receipts[]
-  cold_chain_readings                             cold_chain_readings[]
-  cold_chain_units                                cold_chain_units[]
-  downtime_snapshots                              downtime_snapshots[]
-  emergency_visits                                emergency_visits[]
-  event_consumer_offsets                          event_consumer_offsets[]
-  external_recovery_critical_obligations          external_recovery_critical_review_obligations[]
-  external_recovery_operability_actions           external_recovery_operability_actions[]
-  tenants                                         tenants                                           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  facility_locations                              facility_locations[]
-  facility_rooms                                  facility_rooms[]
-  lab_analyzers                                   lab_analyzers[]
-  pathway_projector_inbox                         pathway_projector_inbox[]
-  queue_display_profiles                          queue_display_profiles[]
-  service_catalog                                 service_catalog[]
-  user_devices                                    user_devices[]
-  wards                                           wards[]
+  id                                                   Int                                                    @id @default(autoincrement())
+  tenant_id                                            String                                                 @unique(map: "uq_facility_default", where: raw("(is_default = true)")) @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_code                                        String                                                 @db.VarChar(80)
+  display_name                                         String                                                 @db.VarChar(255)
+  facility_kind                                        String                                                 @default("hospital") @db.VarChar(40)
+  legal_entity_name                                    String?                                                @db.VarChar(255)
+  registration_number                                  String?                                                @db.VarChar(120)
+  address_line1                                        String?                                                @db.VarChar(255)
+  address_line2                                        String?                                                @db.VarChar(255)
+  city                                                 String?                                                @db.VarChar(120)
+  state                                                String?                                                @db.VarChar(120)
+  country                                              String                                                 @default("IN") @db.VarChar(80)
+  postal_code                                          String?                                                @db.VarChar(20)
+  timezone                                             String                                                 @default("Asia/Kolkata") @db.VarChar(60)
+  phone                                                String?                                                @db.VarChar(40)
+  email                                                String?                                                @db.VarChar(255)
+  status                                               String                                                 @default("active") @db.VarChar(20)
+  is_default                                           Boolean                                                @default(false)
+  geo_lat                                              Decimal?                                               @db.Decimal(10, 6)
+  geo_lng                                              Decimal?                                               @db.Decimal(10, 6)
+  metadata                                             Json                                                   @default("{}")
+  created_by                                           String?                                                @db.Uuid
+  created_at                                           DateTime                                               @default(now()) @db.Timestamptz(6)
+  updated_at                                           DateTime                                               @default(now()) @db.Timestamptz(6)
+  appointment_queues                                   appointment_queues[]
+  clinical_continuity_activation_evidence_gate_configs clinical_continuity_activation_evidence_gate_configs[]
+  clinical_continuity_activation_key_roster            clinical_continuity_activation_key_roster[]
+  clinical_continuity_activation_transition_events     clinical_continuity_activation_transition_events[]
+  clinical_continuity_device_loss_routes               clinical_continuity_device_loss_routes[]
+  clinical_continuity_edge_access_grants               clinical_continuity_edge_access_grants[]
+  clinical_continuity_edge_access_revocations          clinical_continuity_edge_access_revocations[]
+  clinical_continuity_edge_log_receipts                clinical_continuity_edge_log_receipts[]
+  clinical_continuity_incident_contact_sheets          clinical_continuity_incident_contact_sheets[]
+  clinical_continuity_incident_packet_allocations      clinical_continuity_incident_packet_allocations[]
+  clinical_continuity_incident_packets                 clinical_continuity_incident_packets[]
+  clinical_continuity_incidents                        clinical_continuity_incidents[]
+  clinical_continuity_policy_versions                  clinical_continuity_policy_versions[]
+  clinical_continuity_reconciliation_config            clinical_continuity_reconciliation_config?
+  clinical_continuity_replay_receipts                  clinical_continuity_replay_receipts[]
+  cold_chain_readings                                  cold_chain_readings[]
+  cold_chain_units                                     cold_chain_units[]
+  downtime_snapshots                                   downtime_snapshots[]
+  emergency_visits                                     emergency_visits[]
+  event_consumer_offsets                               event_consumer_offsets[]
+  external_recovery_critical_obligations               external_recovery_critical_review_obligations[]
+  external_recovery_operability_actions                external_recovery_operability_actions[]
+  tenants                                              tenants                                                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_locations                                   facility_locations[]
+  facility_rooms                                       facility_rooms[]
+  lab_analyzers                                        lab_analyzers[]
+  pathway_projector_inbox                              pathway_projector_inbox[]
+  queue_display_profiles                               queue_display_profiles[]
+  service_catalog                                      service_catalog[]
+  user_devices                                         user_devices[]
+  wards                                                wards[]
 
   @@unique([tenant_id, facility_code])
   @@unique([tenant_id, id], map: "ux_facilities_tenant_id")
@@ -10259,714 +10262,717 @@ model teleconsultations {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model tenants {
-  id                                              String                                               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug                                            String                                               @unique @db.VarChar(64)
-  name                                            String                                               @db.VarChar(200)
-  region                                          String                                               @default("IN") @db.VarChar(10)
-  compliance_profile                              String                                               @default("DPDP") @db.VarChar(20)
-  status                                          String                                               @default("active") @db.VarChar(20)
-  settings                                        Json                                                 @default("{}")
-  created_at                                      DateTime                                             @default(now()) @db.Timestamptz(6)
-  updated_at                                      DateTime                                             @default(now()) @db.Timestamptz(6)
-  abdm_care_contexts                              abdm_care_contexts[]
-  abdm_consent_artifacts                          abdm_consent_artifacts[]
-  abdm_consent_requests                           abdm_consent_requests[]
-  abdm_consents                                   abdm_consents[]
-  abdm_data_requests                              abdm_data_requests[]
-  abdm_data_transfers                             abdm_data_transfers[]
-  abdm_facility_mappings                          abdm_facility_mappings[]
-  abdm_practitioner_mappings                      abdm_practitioner_mappings[]
-  abdm_webhook_events                             abdm_webhook_events[]
-  abha_profiles                                   abha_profiles[]
-  admin_activity_logs                             admin_activity_logs[]
-  admins                                          admins[]
-  admissions                                      admissions[]
-  advance_deductions                              advance_deductions[]
-  allergies                                       allergies[]
-  ambulance_partner_fleet_configs                 ambulance_partner_fleet_configs[]
-  ambulance_requests                              ambulance_requests[]
-  analytics_benchmark_pack_exports                analytics_benchmark_pack_exports[]
-  analytics_exec_digest_deliveries                analytics_exec_digest_deliveries[]
-  analytics_exec_digest_settings                  analytics_exec_digest_settings?
-  analytics_exec_digest_subscriptions             analytics_exec_digest_subscriptions[]
-  anesthesia_records                              anesthesia_records[]
-  annual_review_reminders                         annual_review_reminders[]
-  annual_tax_summaries                            annual_tax_summaries[]
-  anomalies                                       anomalies[]
-  ap_blocks                                       ap_blocks[]
-  ap_case_specimens                               ap_case_specimens[]
-  ap_cases                                        ap_cases[]
-  ap_gross_records                                ap_gross_records[]
-  ap_report_addenda                               ap_report_addenda[]
-  ap_reports                                      ap_reports[]
-  ap_slides                                       ap_slides[]
-  ap_tat_thresholds                               ap_tat_thresholds[]
-  api_access_logs                                 api_access_logs[]
-  api_clients                                     api_clients[]
-  api_keys                                        api_keys[]
-  appointment_documents                           appointment_documents[]
-  appointment_queue_status_history                appointment_queue_status_history[]
-  appointment_queues                              appointment_queues[]
-  appointment_slot_holds                          appointment_slot_holds[]
-  appointment_status_history                      appointment_status_history[]
-  appointment_waitlist                            appointment_waitlist[]
-  appointments                                    appointments[]
-  approvals                                       approvals[]
-  attendance_disputes                             attendance_disputes[]
-  attendance_logs                                 attendance_logs[]
-  attendance_regularization                       attendance_regularization[]
-  audit_log                                       audit_log[]
-  audit_logs                                      audit_logs[]
-  auth_logs                                       auth_logs[]
-  automation_rules                                automation_rules[]
-  batch_upload_logs                               batch_upload_logs[]
-  bed_transfers                                   bed_transfers[]
-  beds                                            beds[]
-  billing_advance_settlements                     billing_advance_settlements[]
-  billing_invoice_items                           billing_invoice_items[]
-  biomed_calibration_certificates                 biomed_calibration_certificates[]
-  biomed_maintenance_schedules                    biomed_maintenance_schedules[]
-  biomed_work_order_recipients                    biomed_work_order_recipients[]
-  biomed_work_order_updates                       biomed_work_order_updates[]
-  biomed_work_orders                              biomed_work_orders[]
-  blood_bank_register_exports                     blood_bank_register_exports[]
-  blood_requests                                  blood_requests[]
-  blood_unit_discard_events                       blood_unit_discard_events[]
-  blood_units                                     blood_units[]
-  body_custody_events                             body_custody_events[]
-  bookable_resources                              bookable_resources[]
-  bulk_operation_logs                             bulk_operation_logs[]
-  bulk_revision_jobs                              bulk_revision_jobs[]
-  burn_charts                                     burn_charts[]
-  burn_fluid_references                           burn_fluid_references[]
-  burn_fluid_worksheets                           burn_fluid_worksheets[]
-  burn_protocol_content_links                     burn_protocol_content_links[]
-  burn_reassessment_media                         burn_reassessment_media[]
-  burn_reassessments                              burn_reassessments[]
-  burn_tbsa_references                            burn_tbsa_references[]
-  burn_wound_regions                              burn_wound_regions[]
-  care_handoff_instances                          care_handoff_instances[]
-  care_pathway_definition_governance              care_pathway_definition_governance[]
-  care_pathway_instances                          care_pathway_instances[]
-  care_pathway_reconciliation_checks              care_pathway_reconciliation_checks[]
-  care_pathway_transition_events                  care_pathway_transition_events[]
-  care_plan_activities                            care_plan_activities[]
-  care_plan_goals                                 care_plan_goals[]
-  care_plan_review_log                            care_plan_review_log[]
-  care_plans                                      care_plans[]
-  care_team_member_status_history                 care_team_member_status_history[]
-  care_team_members                               care_team_members[]
-  care_team_status_history                        care_team_status_history[]
-  care_teams                                      care_teams[]
-  cath_case_consumable_usage                      cath_case_consumable_usage[]
-  cath_case_schedule_links                        cath_case_schedule_links[]
-  cath_complication_registry                      cath_complication_registry[]
-  cath_consumable_catalog                         cath_consumable_catalog[]
-  cath_consumables_billing_settings               cath_consumables_billing_settings?
-  cath_contrast_radiation_records                 cath_contrast_radiation_records[]
-  cath_device_links                               cath_device_links[]
-  cath_dose_alert_settings                        cath_dose_alert_settings?
-  cath_hemodynamic_summaries                      cath_hemodynamic_summaries[]
-  cath_lab_cases                                  cath_lab_cases[]
-  cath_lab_readiness_checks                       cath_lab_readiness_checks[]
-  cath_post_procedure_orders                      cath_post_procedure_orders[]
-  cath_procedure_logs                             cath_procedure_logs[]
-  cath_procedure_reports                          cath_procedure_reports[]
-  cath_report_addenda                             cath_report_addenda[]
-  cath_report_templates                           cath_report_templates[]
-  cds_alerts                                      cds_alerts[]
-  chair_bookings                                  chair_bookings[]
-  chat_session_messages                           chat_session_messages[]
-  chat_sessions                                   chat_sessions[]
-  chemo_administrations                           chemo_administrations[]
-  chemo_cumulative_doses                          chemo_cumulative_doses[]
-  chemo_cycles                                    chemo_cycles[]
-  chemo_protocol_drugs                            chemo_protocol_drugs[]
-  chemo_protocols                                 chemo_protocols[]
-  chemo_treatment_plans                           chemo_treatment_plans[]
-  claim_denials                                   claim_denials[]
-  clinical_ai_acuity_staffing_forecasts           clinical_ai_acuity_staffing_forecasts[]
-  clinical_ai_agent_health_reports                clinical_ai_agent_health_reports[]
-  clinical_ai_agent_registry                      clinical_ai_agent_registry[]
-  clinical_ai_antimicrobial_reviews               clinical_ai_antimicrobial_reviews[]
-  clinical_ai_appeal_letters                      clinical_ai_appeal_letters[]
-  clinical_ai_approvals                           clinical_ai_approvals[]
-  clinical_ai_bed_forecasts                       clinical_ai_bed_forecasts[]
-  clinical_ai_bed_turnover_predictions            clinical_ai_bed_turnover_predictions[]
-  clinical_ai_biomed_devices                      clinical_ai_biomed_devices[]
-  clinical_ai_biomed_maintenance_predictions      clinical_ai_biomed_maintenance_predictions[]
-  clinical_ai_blood_bank_forecast_reviews         clinical_ai_blood_bank_forecast_reviews[]
-  clinical_ai_blood_bank_inventory_snapshots      clinical_ai_blood_bank_inventory_snapshots[]
-  clinical_ai_break_glass_sessions                clinical_ai_break_glass_sessions[]
-  clinical_ai_canary_cases                        clinical_ai_canary_cases[]
-  clinical_ai_canary_runs                         clinical_ai_canary_runs[]
-  clinical_ai_charge_capture_audits               clinical_ai_charge_capture_audits[]
-  clinical_ai_chart_gap_audits                    clinical_ai_chart_gap_audits[]
-  clinical_ai_command_center_snapshots            clinical_ai_command_center_snapshots[]
-  clinical_ai_context_snapshots                   clinical_ai_context_snapshots[]
-  clinical_ai_corpus                              clinical_ai_corpus[]
-  clinical_ai_decision_memory                     clinical_ai_decision_memory[]
-  clinical_ai_deterioration_snapshots             clinical_ai_deterioration_snapshots[]
-  clinical_ai_ed_triage_predictions               clinical_ai_ed_triage_predictions[]
-  clinical_ai_explainability_reports              clinical_ai_explainability_reports[]
-  clinical_ai_family_updates                      clinical_ai_family_updates[]
-  clinical_ai_federation_rounds                   clinical_ai_federation_rounds[]
-  clinical_ai_federation_sites                    clinical_ai_federation_sites[]
-  clinical_ai_generations                         clinical_ai_generations[]
-  clinical_ai_imaging_findings                    clinical_ai_imaging_findings[]
-  clinical_ai_imaging_studies                     clinical_ai_imaging_studies[]
-  clinical_ai_infection_control_audits            clinical_ai_infection_control_audits[]
-  clinical_ai_inventory_alerts                    clinical_ai_inventory_alerts[]
-  clinical_ai_kg_edges                            clinical_ai_kg_edges[]
-  clinical_ai_kg_health_reports                   clinical_ai_kg_health_reports[]
-  clinical_ai_kg_nodes                            clinical_ai_kg_nodes[]
-  clinical_ai_lab_autoverifications               clinical_ai_lab_autoverifications[]
-  clinical_ai_labeling_annotations                clinical_ai_labeling_annotations[]
-  clinical_ai_labeling_tasks                      clinical_ai_labeling_tasks[]
-  clinical_ai_model_eval_runs                     clinical_ai_model_eval_runs[]
-  clinical_ai_model_registry                      clinical_ai_model_registry[]
-  clinical_ai_no_show_predictions                 clinical_ai_no_show_predictions[]
-  clinical_ai_obstetric_risk_assessments          clinical_ai_obstetric_risk_assessments[]
-  clinical_ai_operational_alerts                  clinical_ai_operational_alerts[]
-  clinical_ai_ot_block_suggestions                clinical_ai_ot_block_suggestions[]
-  clinical_ai_ot_duration_predictions             clinical_ai_ot_duration_predictions[]
-  clinical_ai_pathway_bundle_audits               clinical_ai_pathway_bundle_audits[]
-  clinical_ai_patient_genotypes                   clinical_ai_patient_genotypes[]
-  clinical_ai_patient_timeline_snapshots          clinical_ai_patient_timeline_snapshots[]
-  clinical_ai_payer_contracts                     clinical_ai_payer_contracts[]
-  clinical_ai_payer_variance_reviews              clinical_ai_payer_variance_reviews[]
-  clinical_ai_pediatric_dose_checks               clinical_ai_pediatric_dose_checks[]
-  clinical_ai_pgx_advisories                      clinical_ai_pgx_advisories[]
-  clinical_ai_pharmacy_forecasts                  clinical_ai_pharmacy_forecasts[]
-  clinical_ai_policy_diffs                        clinical_ai_policy_diffs[]
-  clinical_ai_polypharmacy_reviews                clinical_ai_polypharmacy_reviews[]
-  clinical_ai_prior_auth_requests                 clinical_ai_prior_auth_requests[]
-  clinical_ai_privacy_sentinel_audits             clinical_ai_privacy_sentinel_audits[]
-  clinical_ai_procurement_opportunities           clinical_ai_procurement_opportunities[]
-  clinical_ai_prompt_assignments                  clinical_ai_prompt_assignments[]
-  clinical_ai_prompt_experiments                  clinical_ai_prompt_experiments[]
-  clinical_ai_prompts                             clinical_ai_prompts[]
-  clinical_ai_radiology_report_reviews            clinical_ai_radiology_report_reviews[]
-  clinical_ai_radiology_worklist_priorities       clinical_ai_radiology_worklist_priorities[]
-  clinical_ai_rca_drafts                          clinical_ai_rca_drafts[]
-  clinical_ai_reviews                             clinical_ai_reviews[]
-  clinical_ai_roi_snapshots                       clinical_ai_roi_snapshots[]
-  clinical_ai_safety_reviews                      clinical_ai_safety_reviews[]
-  clinical_ai_security_anomalies                  clinical_ai_security_anomalies[]
-  clinical_ai_self_healing_runs                   clinical_ai_self_healing_runs[]
-  clinical_ai_sepsis_bundle_audits                clinical_ai_sepsis_bundle_audits[]
-  clinical_ai_staff_burnout_reviews               clinical_ai_staff_burnout_reviews[]
-  clinical_ai_synthetic_cases                     clinical_ai_synthetic_cases[]
-  clinical_ai_task_candidates                     clinical_ai_task_candidates[]
-  clinical_ai_teach_back_sessions                 clinical_ai_teach_back_sessions[]
-  clinical_ai_tenant_modules                      clinical_ai_tenant_modules[]
-  clinical_ai_training_modules                    clinical_ai_training_modules[]
-  clinical_ai_translations                        clinical_ai_translations[]
-  clinical_ai_trial_sync_runs                     clinical_ai_trial_sync_runs[]
-  clinical_ai_ventilator_bundle_audits            clinical_ai_ventilator_bundle_audits[]
-  clinical_ai_voice_ivr_sessions                  clinical_ai_voice_ivr_sessions[]
-  clinical_ai_workflow_runs                       clinical_ai_workflow_runs[]
-  clinical_alerts                                 clinical_alerts[]
-  clinical_ambient_encounters                     clinical_ambient_encounters[]
-  clinical_continuity_device_loss_operations      clinical_continuity_device_loss_operations[]
-  clinical_continuity_edge_access_grants          clinical_continuity_edge_access_grants[]
-  clinical_continuity_edge_access_revocations     clinical_continuity_edge_access_revocations[]
-  clinical_continuity_edge_log_receipts           clinical_continuity_edge_log_receipts[]
-  clinical_continuity_incident_contact_sheets     clinical_continuity_incident_contact_sheets[]
-  clinical_continuity_incident_packet_allocations clinical_continuity_incident_packet_allocations[]
-  clinical_continuity_incident_packets            clinical_continuity_incident_packets[]
-  clinical_continuity_incidents                   clinical_continuity_incidents[]
-  clinical_continuity_policy_versions             clinical_continuity_policy_versions[]
-  clinical_continuity_replay_attempts             clinical_continuity_replay_attempts[]
-  clinical_continuity_replay_receipts             clinical_continuity_replay_receipts[]
-  clinical_document_extraction_events             clinical_document_extraction_events[]
-  clinical_document_intake                        clinical_document_intake[]
-  clinical_document_signatures                    clinical_document_signatures[]
-  clinical_longitudinal_risk                      clinical_longitudinal_risk[]
-  clinical_notes                                  clinical_notes[]
-  clinical_nursing_ambient_sessions               clinical_nursing_ambient_sessions[]
-  clinical_order_set_items                        clinical_order_set_items[]
-  clinical_orders                                 clinical_orders[]
-  clinical_trial_match_results                    clinical_trial_match_results[]
-  clinical_trials_catalog                         clinical_trials_catalog[]
-  clinical_voice_notes                            clinical_voice_notes[]
-  cold_chain_blood_bank_review_flags              cold_chain_blood_bank_review_flags[]
-  cold_chain_excursions                           cold_chain_excursions[]
-  cold_chain_readings                             cold_chain_readings[]
-  cold_chain_units                                cold_chain_units[]
-  component_preparations                          component_preparations[]
-  composition_search_settings                     composition_search_settings?
-  consent_signatures                              consent_signatures[]
-  consultations                                   consultations[]
-  content_studio_settings                         content_studio_settings?
-  credential_document_uploads                     credential_document_uploads[]
-  credential_expiry_alerts                        credential_expiry_alerts[]
-  ctvs_case_overlays                              ctvs_case_overlays[]
-  data_breaches                                   data_breaches[]
-  data_processing_activities                      data_processing_activities[]
-  data_retention_policies                         data_retention_policies[]
-  dental_procedures                               dental_procedures[]
-  dental_tooth_findings                           dental_tooth_findings[]
-  department_audit_log                            department_audit_log[]
-  departments                                     departments[]
-  developer_portal_audit_events                   developer_portal_audit_events[]
-  device_presence_logs                            device_presence_logs[]
-  devices                                         devices[]
-  diagnoses                                       diagnoses[]
-  diagnostic_result_generations                   diagnostic_result_generations[]
-  diagnostic_result_release_states                diagnostic_result_release_states[]
-  dialysis_billing_settings                       dialysis_billing_settings?
-  dialysis_intra_obs                              dialysis_intra_obs[]
-  dialysis_machine_qa_logs                        dialysis_machine_qa_logs[]
-  dialysis_prescriptions                          dialysis_prescriptions[]
-  dialysis_serology                               dialysis_serology[]
-  dialysis_session_events                         dialysis_session_events[]
-  dialyzer_reuse_register                         dialyzer_reuse_register[]
-  diet_orders                                     diet_orders[]
-  discharge_consults                              discharge_consults[]
-  discharge_summary_sections                      discharge_summary_sections[]
-  doctors                                         doctors[]
-  donation_events                                 donation_events[]
-  donor_camps                                     donor_camps[]
-  donor_consents                                  donor_consents[]
-  donor_deferrals                                 donor_deferrals[]
-  donor_screenings                                donor_screenings[]
-  donors                                          donors[]
-  downtime_snapshots                              downtime_snapshots[]
-  drug_return_lines                               drug_return_lines[]
-  e_prescriptions                                 e_prescriptions[]
-  ed_encounter_evidence                           ed_encounter_evidence[]
-  ed_injury_diagram_attachments                   ed_injury_diagram_attachments[]
-  emergency_visits                                emergency_visits[]
-  encryption_keys                                 encryption_keys[]
-  engagement_audience_snapshots                   engagement_audience_snapshots[]
-  engagement_campaign_recipients                  engagement_campaign_recipients[]
-  engagement_campaigns                            engagement_campaigns[]
-  engagement_follow_up_events                     engagement_follow_up_events[]
-  engagement_follow_up_loops                      engagement_follow_up_loops[]
-  engagement_follow_up_steps                      engagement_follow_up_steps[]
-  engagement_settings                             engagement_settings?
-  engagement_suppression_events                   engagement_suppression_events[]
-  engagement_templates                            engagement_templates[]
-  entitlement_audit_events                        entitlement_audit_events[]
-  escalation_recipient_rank_mappings              escalation_recipient_rank_mappings[]
-  escalation_rules                                escalation_rules[]
-  event_consumer_offsets                          event_consumer_offsets[]
-  event_outbox                                    event_outbox[]
-  external_recovery_critical_acknowledgements     external_recovery_critical_review_acknowledgements[]
-  external_recovery_critical_obligations          external_recovery_critical_review_obligations[]
-  external_recovery_operability_actions           external_recovery_operability_actions[]
-  external_system_mappings                        external_system_mappings[]
-  facilities                                      facilities?
-  facility_locations                              facility_locations[]
-  facility_rooms                                  facility_rooms[]
-  failed_notifications                            failed_notifications[]
-  fall_risk_assessments                           fall_risk_assessments[]
-  family_members                                  family_members[]
-  federated_identities                            federated_identities[]
-  feedback                                        feedback[]
-  feedback_nps_responses                          feedback_nps_responses[]
-  feedback_nps_rollups                            feedback_nps_rollups[]
-  file_access_logs                                file_access_logs[]
-  file_deletion_log                               file_deletion_log[]
-  file_metadata                                   file_metadata[]
-  follow_up_plans                                 follow_up_plans[]
-  full_final_settlements                          full_final_settlements[]
-  gdpr_erasure_log                                gdpr_erasure_log[]
-  geofence_breaches                               geofence_breaches[]
-  growth_charts                                   growth_charts[]
-  hai_cases                                       hai_cases[]
-  hand_hygiene_audits                             hand_hygiene_audits[]
-  hand_hygiene_moments                            hand_hygiene_moments[]
-  health_milestone_claims                         health_milestone_claims[]
-  health_point_ledger                             health_point_ledger[]
-  health_records                                  health_records[]
-  help_center_categories                          help_center_categories[]
-  hipaa_access_log                                hipaa_access_log[]
-  hl7_feed_subscriptions                          hl7_feed_subscriptions[]
-  hl7_inbound_recovery_receipts                   hl7_inbound_recovery_receipts[]
-  hl7_outbound_messages                           hl7_outbound_messages[]
-  housekeeping_floor_assignments                  housekeeping_floor_assignments[]
-  housekeeping_logs                               housekeeping_logs[]
-  housekeeping_request_recipients                 housekeeping_request_recipients[]
-  housekeeping_request_updates                    housekeeping_request_updates[]
-  housekeeping_requests                           housekeeping_requests[]
-  housekeeping_zones                              housekeeping_zones[]
-  hr_activity_logs                                hr_activity_logs[]
-  icu_chart_audit_events                          icu_chart_audit_events[]
-  icu_chart_policy_versions                       icu_chart_policy_versions[]
-  icu_chart_settings                              icu_chart_settings?
-  icu_chart_ui_preferences                        icu_chart_ui_preferences[]
-  icu_daily_chart_summaries                       icu_daily_chart_summaries[]
-  icu_device_observation_links                    icu_device_observation_links[]
-  icu_line_tube_drain_events                      icu_line_tube_drain_events[]
-  icu_scoring_outputs                             icu_scoring_outputs[]
-  icu_ventilation_episodes                        icu_ventilation_episodes[]
-  icu_weaning_trials                              icu_weaning_trials[]
-  idempotency_keys                                idempotency_keys[]
-  identity_audit_events                           identity_audit_events[]
-  identity_saml_replay_cache                      identity_saml_replay_cache[]
-  imaging_study_link_recovery_receipts            imaging_study_link_recovery_receipts[]
-  immunisation_schedule_import_batches            immunisation_schedule_import_batches[]
-  incident_reports                                incident_reports[]
-  india_compliance_evidence                       india_compliance_evidence[]
-  infection_cases                                 infection_cases[]
-  infusion_chairs                                 infusion_chairs[]
-  instrument_sets                                 instrument_sets[]
-  insurance_claim_caps                            insurance_claim_caps[]
-  insurance_claims                                insurance_claims[]
-  insurance_preauth_responses                     insurance_preauth_responses[]
-  intake_output                                   intake_output[]
-  integration_credentials                         integration_credentials[]
-  integration_logs                                integration_logs[]
-  integrations                                    integrations[]
-  interop_backend_delivery_receipts               interop_backend_delivery_receipts[]
-  interop_channel_versions                        interop_channel_versions[]
-  interop_channels                                interop_channels[]
-  interop_message_attempts                        interop_message_attempts[]
-  interop_messages                                interop_messages[]
-  interop_replay_batches                          interop_replay_batches[]
-  interop_systems                                 interop_systems[]
-  interop_transform_tests                         interop_transform_tests[]
-  interop_worker_leases                           interop_worker_leases[]
-  intraop_notes                                   intraop_notes[]
-  investigation_booking_history                   investigation_booking_history[]
-  investigation_bookings                          investigation_bookings[]
-  investigation_files                             investigation_files[]
-  investigation_template_tests                    investigation_template_tests[]
-  investigation_templates                         investigation_templates[]
-  investigations                                  investigations[]
-  investment_declarations                         investment_declarations[]
-  invoices                                        invoices[]
-  isolation_order_checklist_items                 isolation_order_checklist_items[]
-  isolation_orders                                isolation_orders[]
-  knowledge_access_policies                       knowledge_access_policies[]
-  knowledge_bases                                 knowledge_bases[]
-  knowledge_chunks                                knowledge_chunks[]
-  knowledge_documents                             knowledge_documents[]
-  knowledge_import_batches                        knowledge_import_batches[]
-  knowledge_retrieval_logs                        knowledge_retrieval_logs[]
-  lab_analyzer_qc_runs                            lab_analyzer_qc_runs[]
-  lab_analyzer_status_history                     lab_analyzer_status_history[]
-  lab_analyzers                                   lab_analyzers[]
-  lab_interface_messages                          lab_interface_messages[]
-  lab_oru_ingest_messages                         lab_oru_ingest_messages[]
-  lab_result_ingest_commands                      lab_result_ingest_commands[]
-  lab_specimen_status_history                     lab_specimen_status_history[]
-  lab_specimens                                   lab_specimens[]
-  learning_assignments                            learning_assignments[]
-  learning_completions                            learning_completions[]
-  learning_modules                                learning_modules[]
-  leave_applications                              leave_applications[]
-  leave_balance_overrides                         leave_balance_overrides[]
-  leave_encashments                               leave_encashments[]
-  leave_types                                     leave_types[]
-  legal_holds                                     legal_holds[]
-  linen_item_types                                linen_item_types[]
-  linen_laundry_cycle_items                       linen_laundry_cycle_items[]
-  linen_laundry_cycles                            linen_laundry_cycles[]
-  linen_ward_par_levels                           linen_ward_par_levels[]
-  maternity_apgar_scores                          maternity_apgar_scores[]
-  medical_activity_logs                           medical_activity_logs[]
-  medical_records                                 medical_records[]
-  medication_administrations                      medication_administrations[]
-  medication_reconciliation_items                 medication_reconciliation_items[]
-  medication_reconciliations                      medication_reconciliations[]
-  medication_reminders                            medication_reminders[]
-  mfa_backup_codes                                mfa_backup_codes[]
-  mfa_challenges                                  mfa_challenges[]
-  mfa_devices                                     mfa_devices[]
-  micro_isolates                                  micro_isolates[]
-  micro_sensitivities                             micro_sensitivities[]
-  migration_acceptance_reports                    migration_acceptance_reports[]
-  migration_commit_batches                        migration_commit_batches[]
-  migration_commit_records                        migration_commit_records[]
-  migration_hl7_adt_batches                       migration_hl7_adt_batches[]
-  migration_hl7_adt_messages                      migration_hl7_adt_messages[]
-  migration_import_jobs                           migration_import_jobs[]
-  migration_import_records                        migration_import_records[]
-  migration_mapping_profiles                      migration_mapping_profiles[]
-  migration_merge_queue_items                     migration_merge_queue_items[]
-  migration_rehearsal_reports                     migration_rehearsal_reports[]
-  migration_source_files                          migration_source_files[]
-  migration_validation_findings                   migration_validation_findings[]
-  mlc_completeness_audit_events                   mlc_completeness_audit_events[]
-  mlc_completeness_reviews                        mlc_completeness_reviews[]
-  mlc_records                                     mlc_records[]
-  mortuary_slots                                  mortuary_slots[]
-  nabh_indicator_snapshots                        nabh_indicator_snapshots[]
-  news2_scores                                    news2_scores[]
-  nhcx_messages                                   nhcx_messages[]
-  nicu_admission_newborn_links                    nicu_admission_newborn_links[]
-  nicu_cardiorespiratory_events                   nicu_cardiorespiratory_events[]
-  nicu_feed_fluid_entries                         nicu_feed_fluid_entries[]
-  nicu_jaundice_phototherapy_events               nicu_jaundice_phototherapy_events[]
-  nicu_picu_chart_settings                        nicu_picu_chart_settings?
-  nicu_picu_score_definitions                     nicu_picu_score_definitions[]
-  nicu_picu_scoring_outputs                       nicu_picu_scoring_outputs[]
-  nicu_respiratory_support_observations           nicu_respiratory_support_observations[]
-  nicu_thermal_environment_observations           nicu_thermal_environment_observations[]
-  note_drafts                                     note_drafts[]
-  notification_delivery_cursors                   notification_delivery_cursors[]
-  notification_delivery_log                       notification_delivery_log[]
-  notification_events                             notification_events[]
-  notification_outbox                             notification_outbox[]
-  notification_templates                          notification_templates[]
-  notifications                                   notifications[]
-  nuclear_medicine_orders                         nuclear_medicine_orders[]
-  numbering_series                                numbering_series[]
-  nurse_handovers                                 nurse_handovers[]
-  oncology_completion_settings                    oncology_completion_settings?
-  oncology_diagnoses                              oncology_diagnoses[]
-  oncology_registry_exports                       oncology_registry_exports[]
-  oncology_staging_records                        oncology_staging_records[]
-  oncology_toxicity_events                        oncology_toxicity_events[]
-  ophthalmic_biometry                             ophthalmic_biometry[]
-  ophthalmic_exams                                ophthalmic_exams[]
-  ophthalmic_imaging_attachments                  ophthalmic_imaging_attachments[]
-  ophthalmic_refractions                          ophthalmic_refractions[]
-  order_set_import_batches                        order_set_import_batches[]
-  order_set_review_events                         order_set_review_events[]
-  ot_schedules                                    ot_schedules[]
-  otp_logs                                        otp_logs[]
-  otp_sessions                                    otp_sessions[]
-  outbreak_episode_cases                          outbreak_episode_cases[]
-  outbreak_episodes                               outbreak_episodes[]
-  overtime_requests                               overtime_requests[]
-  package_items                                   package_items[]
-  packages                                        packages[]
-  pain_assessments                                pain_assessments[]
-  password_reset_otps                             password_reset_otps[]
-  pathway_projector_inbox                         pathway_projector_inbox[]
-  patient_access_audit_log                        patient_access_audit_log[]
-  patient_access_break_glass                      patient_access_break_glass[]
-  patient_access_break_glass_status_history       patient_access_break_glass_status_history[]
-  patient_allergies                               patient_allergies[]
-  patient_chat_conversations                      patient_chat_conversations[]
-  patient_chat_messages                           patient_chat_messages[]
-  patient_consents                                patient_consents[]
-  patient_data_rights_requests                    patient_data_rights_requests[]
-  patient_duplicate_candidates                    patient_duplicate_candidates[]
-  patient_feedback                                patient_feedback[]
-  patient_flow_checkins                           patient_flow_checkins[]
-  patient_flow_kiosk_sessions                     patient_flow_kiosk_sessions[]
-  patient_flow_kiosk_settings                     patient_flow_kiosk_settings[]
-  patient_identifiers                             patient_identifiers[]
-  patient_merge_requests                          patient_merge_requests[]
-  patient_problems                                patient_problems[]
-  patient_records                                 patient_records[]
-  patient_vitals                                  patient_vitals[]
-  payer_tariff_links                              payer_tariff_links[]
-  payers                                          payers[]
-  payment_transactions                            payment_transactions[]
-  payroll_runs                                    payroll_runs[]
-  payslip_queries                                 payslip_queries[]
-  payslip_query_replies                           payslip_query_replies[]
-  payslips                                        payslips[]
-  perfusion_device_links                          perfusion_device_links[]
-  perfusion_records                               perfusion_records[]
-  perfusion_signoffs                              perfusion_signoffs[]
-  pharmacy_activity_logs                          pharmacy_activity_logs[]
-  pharmacy_catalog                                pharmacy_catalog[]
-  pharmacy_expiry_alerts                          pharmacy_expiry_alerts[]
-  pharmacy_goods_receipt_items                    pharmacy_goods_receipt_items[]
-  pharmacy_goods_receipts                         pharmacy_goods_receipts[]
-  pharmacy_inventory_batches                      pharmacy_inventory_batches[]
-  pharmacy_inventory_items                        pharmacy_inventory_items[]
-  pharmacy_order_history                          pharmacy_order_history[]
-  pharmacy_orders                                 pharmacy_orders[]
-  pharmacy_purchase_order_items                   pharmacy_purchase_order_items[]
-  pharmacy_purchase_orders                        pharmacy_purchase_orders[]
-  pharmacy_stock_movements                        pharmacy_stock_movements[]
-  pharmacy_substitutes                            pharmacy_substitutes[]
-  pharmacy_suppliers                              pharmacy_suppliers[]
-  physio_assessments                              physio_assessments[]
-  physio_outcome_scores                           physio_outcome_scores[]
-  physio_sessions                                 physio_sessions[]
-  portal_proxy_grants                             portal_proxy_grants[]
-  porter_transport_settings                       porter_transport_settings?
-  porter_transport_task_recipients                porter_transport_task_recipients[]
-  porter_transport_task_updates                   porter_transport_task_updates[]
-  porter_transport_tasks                          porter_transport_tasks[]
-  porter_transport_zone_assignments               porter_transport_zone_assignments[]
-  porter_transport_zones                          porter_transport_zones[]
-  postop_complication_alerts                      postop_complication_alerts[]
-  postop_notes                                    postop_notes[]
-  prehospital_device_links                        prehospital_device_links[]
-  prehospital_handover_acceptances                prehospital_handover_acceptances[]
-  prehospital_handover_events                     prehospital_handover_events[]
-  prehospital_handovers                           prehospital_handovers[]
-  preop_checklists                                preop_checklists[]
-  prescription_safety_overrides                   prescription_safety_overrides[]
-  prescriptions                                   prescriptions[]
-  privilege_catalog                               privilege_catalog[]
-  problem_episode_links                           problem_episode_links[]
-  problem_list_snapshots                          problem_list_snapshots[]
-  provider_availability_template_audit            provider_availability_template_audit[]
-  provider_availability_template_exceptions       provider_availability_template_exceptions[]
-  provider_availability_templates                 provider_availability_templates[]
-  provider_leaves                                 provider_leaves[]
-  quality_incidents                               quality_incidents[]
-  queue_display_profiles                          queue_display_profiles[]
-  queue_display_settings                          queue_display_settings?
-  radiation_coordination_settings                 radiation_coordination_settings?
-  radiation_oncology_referrals                    radiation_oncology_referrals[]
-  radiation_safety_evidence                       radiation_safety_evidence[]
-  radioisotope_administration_records             radioisotope_administration_records[]
-  radiology_orders                                radiology_orders[]
-  radiology_peer_review_settings                  radiology_peer_review_settings?
-  radiology_peer_reviews                          radiology_peer_reviews[]
-  radiology_report_addenda                        radiology_report_addenda[]
-  radiology_report_templates                      radiology_report_templates[]
-  radiology_tat_thresholds                        radiology_tat_thresholds[]
-  radiotherapy_fraction_schedules                 radiotherapy_fraction_schedules[]
-  radiotherapy_plan_refs                          radiotherapy_plan_refs[]
-  referrals                                       referrals[]
-  remote_prescriptions                            remote_prescriptions[]
-  replacement_requests                            replacement_requests[]
-  report_updates                                  report_updates[]
-  research_crf_forms                              research_crf_forms[]
-  research_crf_responses                          research_crf_responses[]
-  research_enrollments                            research_enrollments[]
-  research_registries                             research_registries[]
-  resource_bookings                               resource_bookings[]
-  resuscitation_device_links                      resuscitation_device_links[]
-  resuscitation_event_timeline                    resuscitation_event_timeline[]
-  resuscitation_events                            resuscitation_events[]
-  resuscitation_medication_links                  resuscitation_medication_links[]
-  resuscitation_qa_reviews                        resuscitation_qa_reviews[]
-  resuscitation_settings                          resuscitation_settings?
-  resuscitation_team_roles                        resuscitation_team_roles[]
-  revenue_cycle_runs                              revenue_cycle_runs[]
-  roster_calendar_events                          roster_calendar_events[]
-  roster_weather_signals                          roster_weather_signals[]
-  salary_advances                                 salary_advances[]
-  salary_arrears                                  salary_arrears[]
-  salary_revisions                                salary_revisions[]
-  scheduled_notifications                         scheduled_notifications[]
-  scheduling_overbook_audit_events                scheduling_overbook_audit_events[]
-  scheduling_overbook_policies                    scheduling_overbook_policies[]
-  scheduling_resource_compatibility               scheduling_resource_compatibility[]
-  scim_provisioning_commands                      scim_provisioning_commands[]
-  service_catalog                                 service_catalog[]
-  set_issue_log                                   set_issue_log[]
-  siem_export_cursors                             siem_export_cursors[]
-  siem_export_delivery_attempts                   siem_export_delivery_attempts[]
-  siem_export_events                              siem_export_events[]
-  siem_export_targets                             siem_export_targets[]
-  sla_definitions                                 sla_definitions[]
-  smart_access_tokens                             smart_access_tokens[]
-  smart_apps                                      smart_apps[]
-  smart_authz_codes                               smart_authz_codes[]
-  smart_fhir_write_resource_plan                  smart_fhir_write_resource_plan[]
-  smart_launch_contexts                           smart_launch_contexts[]
-  sos_alerts                                      sos_alerts[]
-  staff                                           staff[]
-  staff_access_audit_log                          staff_access_audit_log[]
-  staff_attendance                                staff_attendance[]
-  staff_auth_sessions                             staff_auth_sessions[]
-  staff_breaks                                    staff_breaks[]
-  staff_commute_profile_audit                     staff_commute_profile_audit[]
-  staff_commute_profiles                          staff_commute_profiles[]
-  staff_credentials                               staff_credentials[]
-  staff_devices                                   staff_devices[]
-  staff_grievances                                staff_grievances[]
-  staff_leave_forecast_audit                      staff_leave_forecast_audit[]
-  staff_leave_forecast_runs                       staff_leave_forecast_runs[]
-  staff_leave_forecast_scores                     staff_leave_forecast_scores[]
-  staff_leave_forecast_shift_risks                staff_leave_forecast_shift_risks[]
-  staff_message_attachments                       staff_message_attachments[]
-  staff_message_thread_participants               staff_message_thread_participants[]
-  staff_message_threads                           staff_message_threads[]
-  staff_messages                                  staff_messages[]
-  staff_onboarding_tasks                          staff_onboarding_tasks[]
-  staff_performance_reviews                       staff_performance_reviews[]
-  staff_roster_preferences                        staff_roster_preferences[]
-  staff_roster_runs                               staff_roster_runs[]
-  staff_salary                                    staff_salary[]
-  staff_shift_assignments                         staff_shift_assignments[]
-  staff_shift_roster_assignment_audit             staff_shift_roster_assignment_audit[]
-  staff_shift_roster_assignments                  staff_shift_roster_assignments[]
-  staff_shift_roster_boards                       staff_shift_roster_boards[]
-  staff_shift_roster_request_audit                staff_shift_roster_request_audit[]
-  staff_shift_roster_requests                     staff_shift_roster_requests[]
-  staff_shifts                                    staff_shifts[]
-  stemi_activations                               stemi_activations[]
-  stemi_pathway_events                            stemi_pathway_events[]
-  stemi_pathway_settings                          stemi_pathway_settings?
-  stemi_team_notifications                        stemi_team_notifications[]
-  step_profiles                                   step_profiles[]
-  step_rewards                                    step_rewards[]
-  step_sessions                                   step_sessions[]
-  sterilization_loads                             sterilization_loads[]
-  stroke_activations                              stroke_activations[]
-  stroke_nihss_assessments                        stroke_nihss_assessments[]
-  stroke_pathway_events                           stroke_pathway_events[]
-  stroke_pathway_settings                         stroke_pathway_settings?
-  stroke_thrombolysis_decisions                   stroke_thrombolysis_decisions[]
-  surgical_implants                               surgical_implants[]
-  surgical_safety_checklists                      surgical_safety_checklists[]
-  tariff_items                                    tariff_items[]
-  tariff_plans                                    tariff_plans?
-  task_comments                                   task_comments[]
-  tasks                                           tasks[]
-  teleconsult_follow_up_settings                  teleconsult_follow_up_settings?
-  teleconsult_provider_configs                    teleconsult_provider_configs?
-  teleconsultations                               teleconsultations[]
-  tenant_ed_policies                              tenant_ed_policies?
-  tenant_entitlements                             tenant_entitlements[]
-  tenant_identity_providers                       tenant_identity_providers[]
-  tenant_idp_role_mappings                        tenant_idp_role_mappings[]
-  tenant_interop_secrets                          tenant_interop_secrets[]
-  tenant_terminology_settings                     tenant_terminology_settings?
-  tour_definitions                                tour_definitions[]
-  tour_events                                     tour_events[]
-  tpa_claim_correspondence                        tpa_claim_correspondence[]
-  tpa_claim_documents                             tpa_claim_documents[]
-  tpas                                            tpas[]
-  training_evidence_ledger                        training_evidence_ledger[]
-  transfusion_reactions                           transfusion_reactions[]
-  transfusion_verifications                       transfusion_verifications[]
-  transplant_candidates                           transplant_candidates[]
-  transplant_committee_reviews                    transplant_committee_reviews[]
-  transplant_donor_referrals                      transplant_donor_referrals[]
-  transplant_immunosuppression_plans              transplant_immunosuppression_plans[]
-  transplant_match_reviews                        transplant_match_reviews[]
-  transplant_notto_exports                        transplant_notto_exports[]
-  transplant_program_settings                     transplant_program_settings?
-  transplant_programs                             transplant_programs[]
-  transplant_waitlist_status_history              transplant_waitlist_status_history[]
-  trauma_activation_team_roles                    trauma_activation_team_roles[]
-  trauma_activations                              trauma_activations[]
-  trauma_survey_records                           trauma_survey_records[]
-  trauma_timeline_events                          trauma_timeline_events[]
-  triage_assessments                              triage_assessments[]
-  tti_tests                                       tti_tests[]
-  tumor_board_cases                               tumor_board_cases[]
-  tumor_board_meetings                            tumor_board_meetings[]
-  tumor_board_recommendations                     tumor_board_recommendations[]
-  user_action_logs                                user_action_logs[]
-  user_active_sessions                            user_active_sessions[]
-  user_deactivation_log                           user_deactivation_log[]
-  user_devices                                    user_devices[]
-  user_reactivation_log                           user_reactivation_log[]
-  user_role_audit                                 user_role_audit[]
-  user_sessions                                   user_sessions[]
-  user_status_history                             user_status_history[]
-  users                                           users[]
-  vascular_access                                 vascular_access[]
-  video_sessions                                  video_sessions[]
-  virtual_ward_check_ins                          virtual_ward_check_ins[]
-  virtual_ward_enrollments                        virtual_ward_enrollments[]
-  virtual_ward_escalations                        virtual_ward_escalations[]
-  vitals_chart                                    vitals_chart[]
-  ward_indent_items                               ward_indent_items[]
-  wards                                           wards[]
-  webhook_deliveries                              webhook_deliveries[]
-  webhook_subscriptions                           webhook_subscriptions[]
-  workflow_definitions                            workflow_definitions[]
-  workflow_runs                                   workflow_runs[]
-  workflow_steps                                  workflow_steps[]
+  id                                                   String                                                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                                                 String                                                 @unique @db.VarChar(64)
+  name                                                 String                                                 @db.VarChar(200)
+  region                                               String                                                 @default("IN") @db.VarChar(10)
+  compliance_profile                                   String                                                 @default("DPDP") @db.VarChar(20)
+  status                                               String                                                 @default("active") @db.VarChar(20)
+  settings                                             Json                                                   @default("{}")
+  created_at                                           DateTime                                               @default(now()) @db.Timestamptz(6)
+  updated_at                                           DateTime                                               @default(now()) @db.Timestamptz(6)
+  abdm_care_contexts                                   abdm_care_contexts[]
+  abdm_consent_artifacts                               abdm_consent_artifacts[]
+  abdm_consent_requests                                abdm_consent_requests[]
+  abdm_consents                                        abdm_consents[]
+  abdm_data_requests                                   abdm_data_requests[]
+  abdm_data_transfers                                  abdm_data_transfers[]
+  abdm_facility_mappings                               abdm_facility_mappings[]
+  abdm_practitioner_mappings                           abdm_practitioner_mappings[]
+  abdm_webhook_events                                  abdm_webhook_events[]
+  abha_profiles                                        abha_profiles[]
+  admin_activity_logs                                  admin_activity_logs[]
+  admins                                               admins[]
+  admissions                                           admissions[]
+  advance_deductions                                   advance_deductions[]
+  allergies                                            allergies[]
+  ambulance_partner_fleet_configs                      ambulance_partner_fleet_configs[]
+  ambulance_requests                                   ambulance_requests[]
+  analytics_benchmark_pack_exports                     analytics_benchmark_pack_exports[]
+  analytics_exec_digest_deliveries                     analytics_exec_digest_deliveries[]
+  analytics_exec_digest_settings                       analytics_exec_digest_settings?
+  analytics_exec_digest_subscriptions                  analytics_exec_digest_subscriptions[]
+  anesthesia_records                                   anesthesia_records[]
+  annual_review_reminders                              annual_review_reminders[]
+  annual_tax_summaries                                 annual_tax_summaries[]
+  anomalies                                            anomalies[]
+  ap_blocks                                            ap_blocks[]
+  ap_case_specimens                                    ap_case_specimens[]
+  ap_cases                                             ap_cases[]
+  ap_gross_records                                     ap_gross_records[]
+  ap_report_addenda                                    ap_report_addenda[]
+  ap_reports                                           ap_reports[]
+  ap_slides                                            ap_slides[]
+  ap_tat_thresholds                                    ap_tat_thresholds[]
+  api_access_logs                                      api_access_logs[]
+  api_clients                                          api_clients[]
+  api_keys                                             api_keys[]
+  appointment_documents                                appointment_documents[]
+  appointment_queue_status_history                     appointment_queue_status_history[]
+  appointment_queues                                   appointment_queues[]
+  appointment_slot_holds                               appointment_slot_holds[]
+  appointment_status_history                           appointment_status_history[]
+  appointment_waitlist                                 appointment_waitlist[]
+  appointments                                         appointments[]
+  approvals                                            approvals[]
+  attendance_disputes                                  attendance_disputes[]
+  attendance_logs                                      attendance_logs[]
+  attendance_regularization                            attendance_regularization[]
+  audit_log                                            audit_log[]
+  audit_logs                                           audit_logs[]
+  auth_logs                                            auth_logs[]
+  automation_rules                                     automation_rules[]
+  batch_upload_logs                                    batch_upload_logs[]
+  bed_transfers                                        bed_transfers[]
+  beds                                                 beds[]
+  billing_advance_settlements                          billing_advance_settlements[]
+  billing_invoice_items                                billing_invoice_items[]
+  biomed_calibration_certificates                      biomed_calibration_certificates[]
+  biomed_maintenance_schedules                         biomed_maintenance_schedules[]
+  biomed_work_order_recipients                         biomed_work_order_recipients[]
+  biomed_work_order_updates                            biomed_work_order_updates[]
+  biomed_work_orders                                   biomed_work_orders[]
+  blood_bank_register_exports                          blood_bank_register_exports[]
+  blood_requests                                       blood_requests[]
+  blood_unit_discard_events                            blood_unit_discard_events[]
+  blood_units                                          blood_units[]
+  body_custody_events                                  body_custody_events[]
+  bookable_resources                                   bookable_resources[]
+  bulk_operation_logs                                  bulk_operation_logs[]
+  bulk_revision_jobs                                   bulk_revision_jobs[]
+  burn_charts                                          burn_charts[]
+  burn_fluid_references                                burn_fluid_references[]
+  burn_fluid_worksheets                                burn_fluid_worksheets[]
+  burn_protocol_content_links                          burn_protocol_content_links[]
+  burn_reassessment_media                              burn_reassessment_media[]
+  burn_reassessments                                   burn_reassessments[]
+  burn_tbsa_references                                 burn_tbsa_references[]
+  burn_wound_regions                                   burn_wound_regions[]
+  care_handoff_instances                               care_handoff_instances[]
+  care_pathway_definition_governance                   care_pathway_definition_governance[]
+  care_pathway_instances                               care_pathway_instances[]
+  care_pathway_reconciliation_checks                   care_pathway_reconciliation_checks[]
+  care_pathway_transition_events                       care_pathway_transition_events[]
+  care_plan_activities                                 care_plan_activities[]
+  care_plan_goals                                      care_plan_goals[]
+  care_plan_review_log                                 care_plan_review_log[]
+  care_plans                                           care_plans[]
+  care_team_member_status_history                      care_team_member_status_history[]
+  care_team_members                                    care_team_members[]
+  care_team_status_history                             care_team_status_history[]
+  care_teams                                           care_teams[]
+  cath_case_consumable_usage                           cath_case_consumable_usage[]
+  cath_case_schedule_links                             cath_case_schedule_links[]
+  cath_complication_registry                           cath_complication_registry[]
+  cath_consumable_catalog                              cath_consumable_catalog[]
+  cath_consumables_billing_settings                    cath_consumables_billing_settings?
+  cath_contrast_radiation_records                      cath_contrast_radiation_records[]
+  cath_device_links                                    cath_device_links[]
+  cath_dose_alert_settings                             cath_dose_alert_settings?
+  cath_hemodynamic_summaries                           cath_hemodynamic_summaries[]
+  cath_lab_cases                                       cath_lab_cases[]
+  cath_lab_readiness_checks                            cath_lab_readiness_checks[]
+  cath_post_procedure_orders                           cath_post_procedure_orders[]
+  cath_procedure_logs                                  cath_procedure_logs[]
+  cath_procedure_reports                               cath_procedure_reports[]
+  cath_report_addenda                                  cath_report_addenda[]
+  cath_report_templates                                cath_report_templates[]
+  cds_alerts                                           cds_alerts[]
+  chair_bookings                                       chair_bookings[]
+  chat_session_messages                                chat_session_messages[]
+  chat_sessions                                        chat_sessions[]
+  chemo_administrations                                chemo_administrations[]
+  chemo_cumulative_doses                               chemo_cumulative_doses[]
+  chemo_cycles                                         chemo_cycles[]
+  chemo_protocol_drugs                                 chemo_protocol_drugs[]
+  chemo_protocols                                      chemo_protocols[]
+  chemo_treatment_plans                                chemo_treatment_plans[]
+  claim_denials                                        claim_denials[]
+  clinical_ai_acuity_staffing_forecasts                clinical_ai_acuity_staffing_forecasts[]
+  clinical_ai_agent_health_reports                     clinical_ai_agent_health_reports[]
+  clinical_ai_agent_registry                           clinical_ai_agent_registry[]
+  clinical_ai_antimicrobial_reviews                    clinical_ai_antimicrobial_reviews[]
+  clinical_ai_appeal_letters                           clinical_ai_appeal_letters[]
+  clinical_ai_approvals                                clinical_ai_approvals[]
+  clinical_ai_bed_forecasts                            clinical_ai_bed_forecasts[]
+  clinical_ai_bed_turnover_predictions                 clinical_ai_bed_turnover_predictions[]
+  clinical_ai_biomed_devices                           clinical_ai_biomed_devices[]
+  clinical_ai_biomed_maintenance_predictions           clinical_ai_biomed_maintenance_predictions[]
+  clinical_ai_blood_bank_forecast_reviews              clinical_ai_blood_bank_forecast_reviews[]
+  clinical_ai_blood_bank_inventory_snapshots           clinical_ai_blood_bank_inventory_snapshots[]
+  clinical_ai_break_glass_sessions                     clinical_ai_break_glass_sessions[]
+  clinical_ai_canary_cases                             clinical_ai_canary_cases[]
+  clinical_ai_canary_runs                              clinical_ai_canary_runs[]
+  clinical_ai_charge_capture_audits                    clinical_ai_charge_capture_audits[]
+  clinical_ai_chart_gap_audits                         clinical_ai_chart_gap_audits[]
+  clinical_ai_command_center_snapshots                 clinical_ai_command_center_snapshots[]
+  clinical_ai_context_snapshots                        clinical_ai_context_snapshots[]
+  clinical_ai_corpus                                   clinical_ai_corpus[]
+  clinical_ai_decision_memory                          clinical_ai_decision_memory[]
+  clinical_ai_deterioration_snapshots                  clinical_ai_deterioration_snapshots[]
+  clinical_ai_ed_triage_predictions                    clinical_ai_ed_triage_predictions[]
+  clinical_ai_explainability_reports                   clinical_ai_explainability_reports[]
+  clinical_ai_family_updates                           clinical_ai_family_updates[]
+  clinical_ai_federation_rounds                        clinical_ai_federation_rounds[]
+  clinical_ai_federation_sites                         clinical_ai_federation_sites[]
+  clinical_ai_generations                              clinical_ai_generations[]
+  clinical_ai_imaging_findings                         clinical_ai_imaging_findings[]
+  clinical_ai_imaging_studies                          clinical_ai_imaging_studies[]
+  clinical_ai_infection_control_audits                 clinical_ai_infection_control_audits[]
+  clinical_ai_inventory_alerts                         clinical_ai_inventory_alerts[]
+  clinical_ai_kg_edges                                 clinical_ai_kg_edges[]
+  clinical_ai_kg_health_reports                        clinical_ai_kg_health_reports[]
+  clinical_ai_kg_nodes                                 clinical_ai_kg_nodes[]
+  clinical_ai_lab_autoverifications                    clinical_ai_lab_autoverifications[]
+  clinical_ai_labeling_annotations                     clinical_ai_labeling_annotations[]
+  clinical_ai_labeling_tasks                           clinical_ai_labeling_tasks[]
+  clinical_ai_model_eval_runs                          clinical_ai_model_eval_runs[]
+  clinical_ai_model_registry                           clinical_ai_model_registry[]
+  clinical_ai_no_show_predictions                      clinical_ai_no_show_predictions[]
+  clinical_ai_obstetric_risk_assessments               clinical_ai_obstetric_risk_assessments[]
+  clinical_ai_operational_alerts                       clinical_ai_operational_alerts[]
+  clinical_ai_ot_block_suggestions                     clinical_ai_ot_block_suggestions[]
+  clinical_ai_ot_duration_predictions                  clinical_ai_ot_duration_predictions[]
+  clinical_ai_pathway_bundle_audits                    clinical_ai_pathway_bundle_audits[]
+  clinical_ai_patient_genotypes                        clinical_ai_patient_genotypes[]
+  clinical_ai_patient_timeline_snapshots               clinical_ai_patient_timeline_snapshots[]
+  clinical_ai_payer_contracts                          clinical_ai_payer_contracts[]
+  clinical_ai_payer_variance_reviews                   clinical_ai_payer_variance_reviews[]
+  clinical_ai_pediatric_dose_checks                    clinical_ai_pediatric_dose_checks[]
+  clinical_ai_pgx_advisories                           clinical_ai_pgx_advisories[]
+  clinical_ai_pharmacy_forecasts                       clinical_ai_pharmacy_forecasts[]
+  clinical_ai_policy_diffs                             clinical_ai_policy_diffs[]
+  clinical_ai_polypharmacy_reviews                     clinical_ai_polypharmacy_reviews[]
+  clinical_ai_prior_auth_requests                      clinical_ai_prior_auth_requests[]
+  clinical_ai_privacy_sentinel_audits                  clinical_ai_privacy_sentinel_audits[]
+  clinical_ai_procurement_opportunities                clinical_ai_procurement_opportunities[]
+  clinical_ai_prompt_assignments                       clinical_ai_prompt_assignments[]
+  clinical_ai_prompt_experiments                       clinical_ai_prompt_experiments[]
+  clinical_ai_prompts                                  clinical_ai_prompts[]
+  clinical_ai_radiology_report_reviews                 clinical_ai_radiology_report_reviews[]
+  clinical_ai_radiology_worklist_priorities            clinical_ai_radiology_worklist_priorities[]
+  clinical_ai_rca_drafts                               clinical_ai_rca_drafts[]
+  clinical_ai_reviews                                  clinical_ai_reviews[]
+  clinical_ai_roi_snapshots                            clinical_ai_roi_snapshots[]
+  clinical_ai_safety_reviews                           clinical_ai_safety_reviews[]
+  clinical_ai_security_anomalies                       clinical_ai_security_anomalies[]
+  clinical_ai_self_healing_runs                        clinical_ai_self_healing_runs[]
+  clinical_ai_sepsis_bundle_audits                     clinical_ai_sepsis_bundle_audits[]
+  clinical_ai_staff_burnout_reviews                    clinical_ai_staff_burnout_reviews[]
+  clinical_ai_synthetic_cases                          clinical_ai_synthetic_cases[]
+  clinical_ai_task_candidates                          clinical_ai_task_candidates[]
+  clinical_ai_teach_back_sessions                      clinical_ai_teach_back_sessions[]
+  clinical_ai_tenant_modules                           clinical_ai_tenant_modules[]
+  clinical_ai_training_modules                         clinical_ai_training_modules[]
+  clinical_ai_translations                             clinical_ai_translations[]
+  clinical_ai_trial_sync_runs                          clinical_ai_trial_sync_runs[]
+  clinical_ai_ventilator_bundle_audits                 clinical_ai_ventilator_bundle_audits[]
+  clinical_ai_voice_ivr_sessions                       clinical_ai_voice_ivr_sessions[]
+  clinical_ai_workflow_runs                            clinical_ai_workflow_runs[]
+  clinical_alerts                                      clinical_alerts[]
+  clinical_ambient_encounters                          clinical_ambient_encounters[]
+  clinical_continuity_activation_evidence_gate_configs clinical_continuity_activation_evidence_gate_configs[]
+  clinical_continuity_activation_key_roster            clinical_continuity_activation_key_roster[]
+  clinical_continuity_activation_transition_events     clinical_continuity_activation_transition_events[]
+  clinical_continuity_device_loss_operations           clinical_continuity_device_loss_operations[]
+  clinical_continuity_edge_access_grants               clinical_continuity_edge_access_grants[]
+  clinical_continuity_edge_access_revocations          clinical_continuity_edge_access_revocations[]
+  clinical_continuity_edge_log_receipts                clinical_continuity_edge_log_receipts[]
+  clinical_continuity_incident_contact_sheets          clinical_continuity_incident_contact_sheets[]
+  clinical_continuity_incident_packet_allocations      clinical_continuity_incident_packet_allocations[]
+  clinical_continuity_incident_packets                 clinical_continuity_incident_packets[]
+  clinical_continuity_incidents                        clinical_continuity_incidents[]
+  clinical_continuity_policy_versions                  clinical_continuity_policy_versions[]
+  clinical_continuity_replay_attempts                  clinical_continuity_replay_attempts[]
+  clinical_continuity_replay_receipts                  clinical_continuity_replay_receipts[]
+  clinical_document_extraction_events                  clinical_document_extraction_events[]
+  clinical_document_intake                             clinical_document_intake[]
+  clinical_document_signatures                         clinical_document_signatures[]
+  clinical_longitudinal_risk                           clinical_longitudinal_risk[]
+  clinical_notes                                       clinical_notes[]
+  clinical_nursing_ambient_sessions                    clinical_nursing_ambient_sessions[]
+  clinical_order_set_items                             clinical_order_set_items[]
+  clinical_orders                                      clinical_orders[]
+  clinical_trial_match_results                         clinical_trial_match_results[]
+  clinical_trials_catalog                              clinical_trials_catalog[]
+  clinical_voice_notes                                 clinical_voice_notes[]
+  cold_chain_blood_bank_review_flags                   cold_chain_blood_bank_review_flags[]
+  cold_chain_excursions                                cold_chain_excursions[]
+  cold_chain_readings                                  cold_chain_readings[]
+  cold_chain_units                                     cold_chain_units[]
+  component_preparations                               component_preparations[]
+  composition_search_settings                          composition_search_settings?
+  consent_signatures                                   consent_signatures[]
+  consultations                                        consultations[]
+  content_studio_settings                              content_studio_settings?
+  credential_document_uploads                          credential_document_uploads[]
+  credential_expiry_alerts                             credential_expiry_alerts[]
+  ctvs_case_overlays                                   ctvs_case_overlays[]
+  data_breaches                                        data_breaches[]
+  data_processing_activities                           data_processing_activities[]
+  data_retention_policies                              data_retention_policies[]
+  dental_procedures                                    dental_procedures[]
+  dental_tooth_findings                                dental_tooth_findings[]
+  department_audit_log                                 department_audit_log[]
+  departments                                          departments[]
+  developer_portal_audit_events                        developer_portal_audit_events[]
+  device_presence_logs                                 device_presence_logs[]
+  devices                                              devices[]
+  diagnoses                                            diagnoses[]
+  diagnostic_result_generations                        diagnostic_result_generations[]
+  diagnostic_result_release_states                     diagnostic_result_release_states[]
+  dialysis_billing_settings                            dialysis_billing_settings?
+  dialysis_intra_obs                                   dialysis_intra_obs[]
+  dialysis_machine_qa_logs                             dialysis_machine_qa_logs[]
+  dialysis_prescriptions                               dialysis_prescriptions[]
+  dialysis_serology                                    dialysis_serology[]
+  dialysis_session_events                              dialysis_session_events[]
+  dialyzer_reuse_register                              dialyzer_reuse_register[]
+  diet_orders                                          diet_orders[]
+  discharge_consults                                   discharge_consults[]
+  discharge_summary_sections                           discharge_summary_sections[]
+  doctors                                              doctors[]
+  donation_events                                      donation_events[]
+  donor_camps                                          donor_camps[]
+  donor_consents                                       donor_consents[]
+  donor_deferrals                                      donor_deferrals[]
+  donor_screenings                                     donor_screenings[]
+  donors                                               donors[]
+  downtime_snapshots                                   downtime_snapshots[]
+  drug_return_lines                                    drug_return_lines[]
+  e_prescriptions                                      e_prescriptions[]
+  ed_encounter_evidence                                ed_encounter_evidence[]
+  ed_injury_diagram_attachments                        ed_injury_diagram_attachments[]
+  emergency_visits                                     emergency_visits[]
+  encryption_keys                                      encryption_keys[]
+  engagement_audience_snapshots                        engagement_audience_snapshots[]
+  engagement_campaign_recipients                       engagement_campaign_recipients[]
+  engagement_campaigns                                 engagement_campaigns[]
+  engagement_follow_up_events                          engagement_follow_up_events[]
+  engagement_follow_up_loops                           engagement_follow_up_loops[]
+  engagement_follow_up_steps                           engagement_follow_up_steps[]
+  engagement_settings                                  engagement_settings?
+  engagement_suppression_events                        engagement_suppression_events[]
+  engagement_templates                                 engagement_templates[]
+  entitlement_audit_events                             entitlement_audit_events[]
+  escalation_recipient_rank_mappings                   escalation_recipient_rank_mappings[]
+  escalation_rules                                     escalation_rules[]
+  event_consumer_offsets                               event_consumer_offsets[]
+  event_outbox                                         event_outbox[]
+  external_recovery_critical_acknowledgements          external_recovery_critical_review_acknowledgements[]
+  external_recovery_critical_obligations               external_recovery_critical_review_obligations[]
+  external_recovery_operability_actions                external_recovery_operability_actions[]
+  external_system_mappings                             external_system_mappings[]
+  facilities                                           facilities?
+  facility_locations                                   facility_locations[]
+  facility_rooms                                       facility_rooms[]
+  failed_notifications                                 failed_notifications[]
+  fall_risk_assessments                                fall_risk_assessments[]
+  family_members                                       family_members[]
+  federated_identities                                 federated_identities[]
+  feedback                                             feedback[]
+  feedback_nps_responses                               feedback_nps_responses[]
+  feedback_nps_rollups                                 feedback_nps_rollups[]
+  file_access_logs                                     file_access_logs[]
+  file_deletion_log                                    file_deletion_log[]
+  file_metadata                                        file_metadata[]
+  follow_up_plans                                      follow_up_plans[]
+  full_final_settlements                               full_final_settlements[]
+  gdpr_erasure_log                                     gdpr_erasure_log[]
+  geofence_breaches                                    geofence_breaches[]
+  growth_charts                                        growth_charts[]
+  hai_cases                                            hai_cases[]
+  hand_hygiene_audits                                  hand_hygiene_audits[]
+  hand_hygiene_moments                                 hand_hygiene_moments[]
+  health_milestone_claims                              health_milestone_claims[]
+  health_point_ledger                                  health_point_ledger[]
+  health_records                                       health_records[]
+  help_center_categories                               help_center_categories[]
+  hipaa_access_log                                     hipaa_access_log[]
+  hl7_feed_subscriptions                               hl7_feed_subscriptions[]
+  hl7_inbound_recovery_receipts                        hl7_inbound_recovery_receipts[]
+  hl7_outbound_messages                                hl7_outbound_messages[]
+  housekeeping_floor_assignments                       housekeeping_floor_assignments[]
+  housekeeping_logs                                    housekeeping_logs[]
+  housekeeping_request_recipients                      housekeeping_request_recipients[]
+  housekeeping_request_updates                         housekeeping_request_updates[]
+  housekeeping_requests                                housekeeping_requests[]
+  housekeeping_zones                                   housekeeping_zones[]
+  hr_activity_logs                                     hr_activity_logs[]
+  icu_chart_audit_events                               icu_chart_audit_events[]
+  icu_chart_policy_versions                            icu_chart_policy_versions[]
+  icu_chart_settings                                   icu_chart_settings?
+  icu_chart_ui_preferences                             icu_chart_ui_preferences[]
+  icu_daily_chart_summaries                            icu_daily_chart_summaries[]
+  icu_device_observation_links                         icu_device_observation_links[]
+  icu_line_tube_drain_events                           icu_line_tube_drain_events[]
+  icu_scoring_outputs                                  icu_scoring_outputs[]
+  icu_ventilation_episodes                             icu_ventilation_episodes[]
+  icu_weaning_trials                                   icu_weaning_trials[]
+  idempotency_keys                                     idempotency_keys[]
+  identity_audit_events                                identity_audit_events[]
+  identity_saml_replay_cache                           identity_saml_replay_cache[]
+  imaging_study_link_recovery_receipts                 imaging_study_link_recovery_receipts[]
+  immunisation_schedule_import_batches                 immunisation_schedule_import_batches[]
+  incident_reports                                     incident_reports[]
+  india_compliance_evidence                            india_compliance_evidence[]
+  infection_cases                                      infection_cases[]
+  infusion_chairs                                      infusion_chairs[]
+  instrument_sets                                      instrument_sets[]
+  insurance_claim_caps                                 insurance_claim_caps[]
+  insurance_claims                                     insurance_claims[]
+  insurance_preauth_responses                          insurance_preauth_responses[]
+  intake_output                                        intake_output[]
+  integration_credentials                              integration_credentials[]
+  integration_logs                                     integration_logs[]
+  integrations                                         integrations[]
+  interop_backend_delivery_receipts                    interop_backend_delivery_receipts[]
+  interop_channel_versions                             interop_channel_versions[]
+  interop_channels                                     interop_channels[]
+  interop_message_attempts                             interop_message_attempts[]
+  interop_messages                                     interop_messages[]
+  interop_replay_batches                               interop_replay_batches[]
+  interop_systems                                      interop_systems[]
+  interop_transform_tests                              interop_transform_tests[]
+  interop_worker_leases                                interop_worker_leases[]
+  intraop_notes                                        intraop_notes[]
+  investigation_booking_history                        investigation_booking_history[]
+  investigation_bookings                               investigation_bookings[]
+  investigation_files                                  investigation_files[]
+  investigation_template_tests                         investigation_template_tests[]
+  investigation_templates                              investigation_templates[]
+  investigations                                       investigations[]
+  investment_declarations                              investment_declarations[]
+  invoices                                             invoices[]
+  isolation_order_checklist_items                      isolation_order_checklist_items[]
+  isolation_orders                                     isolation_orders[]
+  knowledge_access_policies                            knowledge_access_policies[]
+  knowledge_bases                                      knowledge_bases[]
+  knowledge_chunks                                     knowledge_chunks[]
+  knowledge_documents                                  knowledge_documents[]
+  knowledge_import_batches                             knowledge_import_batches[]
+  knowledge_retrieval_logs                             knowledge_retrieval_logs[]
+  lab_analyzer_qc_runs                                 lab_analyzer_qc_runs[]
+  lab_analyzer_status_history                          lab_analyzer_status_history[]
+  lab_analyzers                                        lab_analyzers[]
+  lab_interface_messages                               lab_interface_messages[]
+  lab_oru_ingest_messages                              lab_oru_ingest_messages[]
+  lab_result_ingest_commands                           lab_result_ingest_commands[]
+  lab_specimen_status_history                          lab_specimen_status_history[]
+  lab_specimens                                        lab_specimens[]
+  learning_assignments                                 learning_assignments[]
+  learning_completions                                 learning_completions[]
+  learning_modules                                     learning_modules[]
+  leave_applications                                   leave_applications[]
+  leave_balance_overrides                              leave_balance_overrides[]
+  leave_encashments                                    leave_encashments[]
+  leave_types                                          leave_types[]
+  legal_holds                                          legal_holds[]
+  linen_item_types                                     linen_item_types[]
+  linen_laundry_cycle_items                            linen_laundry_cycle_items[]
+  linen_laundry_cycles                                 linen_laundry_cycles[]
+  linen_ward_par_levels                                linen_ward_par_levels[]
+  maternity_apgar_scores                               maternity_apgar_scores[]
+  medical_activity_logs                                medical_activity_logs[]
+  medical_records                                      medical_records[]
+  medication_administrations                           medication_administrations[]
+  medication_reconciliation_items                      medication_reconciliation_items[]
+  medication_reconciliations                           medication_reconciliations[]
+  medication_reminders                                 medication_reminders[]
+  mfa_backup_codes                                     mfa_backup_codes[]
+  mfa_challenges                                       mfa_challenges[]
+  mfa_devices                                          mfa_devices[]
+  micro_isolates                                       micro_isolates[]
+  micro_sensitivities                                  micro_sensitivities[]
+  migration_acceptance_reports                         migration_acceptance_reports[]
+  migration_commit_batches                             migration_commit_batches[]
+  migration_commit_records                             migration_commit_records[]
+  migration_hl7_adt_batches                            migration_hl7_adt_batches[]
+  migration_hl7_adt_messages                           migration_hl7_adt_messages[]
+  migration_import_jobs                                migration_import_jobs[]
+  migration_import_records                             migration_import_records[]
+  migration_mapping_profiles                           migration_mapping_profiles[]
+  migration_merge_queue_items                          migration_merge_queue_items[]
+  migration_rehearsal_reports                          migration_rehearsal_reports[]
+  migration_source_files                               migration_source_files[]
+  migration_validation_findings                        migration_validation_findings[]
+  mlc_completeness_audit_events                        mlc_completeness_audit_events[]
+  mlc_completeness_reviews                             mlc_completeness_reviews[]
+  mlc_records                                          mlc_records[]
+  mortuary_slots                                       mortuary_slots[]
+  nabh_indicator_snapshots                             nabh_indicator_snapshots[]
+  news2_scores                                         news2_scores[]
+  nhcx_messages                                        nhcx_messages[]
+  nicu_admission_newborn_links                         nicu_admission_newborn_links[]
+  nicu_cardiorespiratory_events                        nicu_cardiorespiratory_events[]
+  nicu_feed_fluid_entries                              nicu_feed_fluid_entries[]
+  nicu_jaundice_phototherapy_events                    nicu_jaundice_phototherapy_events[]
+  nicu_picu_chart_settings                             nicu_picu_chart_settings?
+  nicu_picu_score_definitions                          nicu_picu_score_definitions[]
+  nicu_picu_scoring_outputs                            nicu_picu_scoring_outputs[]
+  nicu_respiratory_support_observations                nicu_respiratory_support_observations[]
+  nicu_thermal_environment_observations                nicu_thermal_environment_observations[]
+  note_drafts                                          note_drafts[]
+  notification_delivery_cursors                        notification_delivery_cursors[]
+  notification_delivery_log                            notification_delivery_log[]
+  notification_events                                  notification_events[]
+  notification_outbox                                  notification_outbox[]
+  notification_templates                               notification_templates[]
+  notifications                                        notifications[]
+  nuclear_medicine_orders                              nuclear_medicine_orders[]
+  numbering_series                                     numbering_series[]
+  nurse_handovers                                      nurse_handovers[]
+  oncology_completion_settings                         oncology_completion_settings?
+  oncology_diagnoses                                   oncology_diagnoses[]
+  oncology_registry_exports                            oncology_registry_exports[]
+  oncology_staging_records                             oncology_staging_records[]
+  oncology_toxicity_events                             oncology_toxicity_events[]
+  ophthalmic_biometry                                  ophthalmic_biometry[]
+  ophthalmic_exams                                     ophthalmic_exams[]
+  ophthalmic_imaging_attachments                       ophthalmic_imaging_attachments[]
+  ophthalmic_refractions                               ophthalmic_refractions[]
+  order_set_import_batches                             order_set_import_batches[]
+  order_set_review_events                              order_set_review_events[]
+  ot_schedules                                         ot_schedules[]
+  otp_logs                                             otp_logs[]
+  otp_sessions                                         otp_sessions[]
+  outbreak_episode_cases                               outbreak_episode_cases[]
+  outbreak_episodes                                    outbreak_episodes[]
+  overtime_requests                                    overtime_requests[]
+  package_items                                        package_items[]
+  packages                                             packages[]
+  pain_assessments                                     pain_assessments[]
+  password_reset_otps                                  password_reset_otps[]
+  pathway_projector_inbox                              pathway_projector_inbox[]
+  patient_access_audit_log                             patient_access_audit_log[]
+  patient_access_break_glass                           patient_access_break_glass[]
+  patient_access_break_glass_status_history            patient_access_break_glass_status_history[]
+  patient_allergies                                    patient_allergies[]
+  patient_chat_conversations                           patient_chat_conversations[]
+  patient_chat_messages                                patient_chat_messages[]
+  patient_consents                                     patient_consents[]
+  patient_data_rights_requests                         patient_data_rights_requests[]
+  patient_duplicate_candidates                         patient_duplicate_candidates[]
+  patient_feedback                                     patient_feedback[]
+  patient_flow_checkins                                patient_flow_checkins[]
+  patient_flow_kiosk_sessions                          patient_flow_kiosk_sessions[]
+  patient_flow_kiosk_settings                          patient_flow_kiosk_settings[]
+  patient_identifiers                                  patient_identifiers[]
+  patient_merge_requests                               patient_merge_requests[]
+  patient_problems                                     patient_problems[]
+  patient_records                                      patient_records[]
+  patient_vitals                                       patient_vitals[]
+  payer_tariff_links                                   payer_tariff_links[]
+  payers                                               payers[]
+  payment_transactions                                 payment_transactions[]
+  payroll_runs                                         payroll_runs[]
+  payslip_queries                                      payslip_queries[]
+  payslip_query_replies                                payslip_query_replies[]
+  payslips                                             payslips[]
+  perfusion_device_links                               perfusion_device_links[]
+  perfusion_records                                    perfusion_records[]
+  perfusion_signoffs                                   perfusion_signoffs[]
+  pharmacy_activity_logs                               pharmacy_activity_logs[]
+  pharmacy_catalog                                     pharmacy_catalog[]
+  pharmacy_expiry_alerts                               pharmacy_expiry_alerts[]
+  pharmacy_goods_receipt_items                         pharmacy_goods_receipt_items[]
+  pharmacy_goods_receipts                              pharmacy_goods_receipts[]
+  pharmacy_inventory_batches                           pharmacy_inventory_batches[]
+  pharmacy_inventory_items                             pharmacy_inventory_items[]
+  pharmacy_order_history                               pharmacy_order_history[]
+  pharmacy_orders                                      pharmacy_orders[]
+  pharmacy_purchase_order_items                        pharmacy_purchase_order_items[]
+  pharmacy_purchase_orders                             pharmacy_purchase_orders[]
+  pharmacy_stock_movements                             pharmacy_stock_movements[]
+  pharmacy_substitutes                                 pharmacy_substitutes[]
+  pharmacy_suppliers                                   pharmacy_suppliers[]
+  physio_assessments                                   physio_assessments[]
+  physio_outcome_scores                                physio_outcome_scores[]
+  physio_sessions                                      physio_sessions[]
+  portal_proxy_grants                                  portal_proxy_grants[]
+  porter_transport_settings                            porter_transport_settings?
+  porter_transport_task_recipients                     porter_transport_task_recipients[]
+  porter_transport_task_updates                        porter_transport_task_updates[]
+  porter_transport_tasks                               porter_transport_tasks[]
+  porter_transport_zone_assignments                    porter_transport_zone_assignments[]
+  porter_transport_zones                               porter_transport_zones[]
+  postop_complication_alerts                           postop_complication_alerts[]
+  postop_notes                                         postop_notes[]
+  prehospital_device_links                             prehospital_device_links[]
+  prehospital_handover_acceptances                     prehospital_handover_acceptances[]
+  prehospital_handover_events                          prehospital_handover_events[]
+  prehospital_handovers                                prehospital_handovers[]
+  preop_checklists                                     preop_checklists[]
+  prescription_safety_overrides                        prescription_safety_overrides[]
+  prescriptions                                        prescriptions[]
+  privilege_catalog                                    privilege_catalog[]
+  problem_episode_links                                problem_episode_links[]
+  problem_list_snapshots                               problem_list_snapshots[]
+  provider_availability_template_audit                 provider_availability_template_audit[]
+  provider_availability_template_exceptions            provider_availability_template_exceptions[]
+  provider_availability_templates                      provider_availability_templates[]
+  provider_leaves                                      provider_leaves[]
+  quality_incidents                                    quality_incidents[]
+  queue_display_profiles                               queue_display_profiles[]
+  queue_display_settings                               queue_display_settings?
+  radiation_coordination_settings                      radiation_coordination_settings?
+  radiation_oncology_referrals                         radiation_oncology_referrals[]
+  radiation_safety_evidence                            radiation_safety_evidence[]
+  radioisotope_administration_records                  radioisotope_administration_records[]
+  radiology_orders                                     radiology_orders[]
+  radiology_peer_review_settings                       radiology_peer_review_settings?
+  radiology_peer_reviews                               radiology_peer_reviews[]
+  radiology_report_addenda                             radiology_report_addenda[]
+  radiology_report_templates                           radiology_report_templates[]
+  radiology_tat_thresholds                             radiology_tat_thresholds[]
+  radiotherapy_fraction_schedules                      radiotherapy_fraction_schedules[]
+  radiotherapy_plan_refs                               radiotherapy_plan_refs[]
+  referrals                                            referrals[]
+  remote_prescriptions                                 remote_prescriptions[]
+  replacement_requests                                 replacement_requests[]
+  report_updates                                       report_updates[]
+  research_crf_forms                                   research_crf_forms[]
+  research_crf_responses                               research_crf_responses[]
+  research_enrollments                                 research_enrollments[]
+  research_registries                                  research_registries[]
+  resource_bookings                                    resource_bookings[]
+  resuscitation_device_links                           resuscitation_device_links[]
+  resuscitation_event_timeline                         resuscitation_event_timeline[]
+  resuscitation_events                                 resuscitation_events[]
+  resuscitation_medication_links                       resuscitation_medication_links[]
+  resuscitation_qa_reviews                             resuscitation_qa_reviews[]
+  resuscitation_settings                               resuscitation_settings?
+  resuscitation_team_roles                             resuscitation_team_roles[]
+  revenue_cycle_runs                                   revenue_cycle_runs[]
+  roster_calendar_events                               roster_calendar_events[]
+  roster_weather_signals                               roster_weather_signals[]
+  salary_advances                                      salary_advances[]
+  salary_arrears                                       salary_arrears[]
+  salary_revisions                                     salary_revisions[]
+  scheduled_notifications                              scheduled_notifications[]
+  scheduling_overbook_audit_events                     scheduling_overbook_audit_events[]
+  scheduling_overbook_policies                         scheduling_overbook_policies[]
+  scheduling_resource_compatibility                    scheduling_resource_compatibility[]
+  scim_provisioning_commands                           scim_provisioning_commands[]
+  service_catalog                                      service_catalog[]
+  set_issue_log                                        set_issue_log[]
+  siem_export_cursors                                  siem_export_cursors[]
+  siem_export_delivery_attempts                        siem_export_delivery_attempts[]
+  siem_export_events                                   siem_export_events[]
+  siem_export_targets                                  siem_export_targets[]
+  sla_definitions                                      sla_definitions[]
+  smart_access_tokens                                  smart_access_tokens[]
+  smart_apps                                           smart_apps[]
+  smart_authz_codes                                    smart_authz_codes[]
+  smart_fhir_write_resource_plan                       smart_fhir_write_resource_plan[]
+  smart_launch_contexts                                smart_launch_contexts[]
+  sos_alerts                                           sos_alerts[]
+  staff                                                staff[]
+  staff_access_audit_log                               staff_access_audit_log[]
+  staff_attendance                                     staff_attendance[]
+  staff_auth_sessions                                  staff_auth_sessions[]
+  staff_breaks                                         staff_breaks[]
+  staff_commute_profile_audit                          staff_commute_profile_audit[]
+  staff_commute_profiles                               staff_commute_profiles[]
+  staff_credentials                                    staff_credentials[]
+  staff_devices                                        staff_devices[]
+  staff_grievances                                     staff_grievances[]
+  staff_leave_forecast_audit                           staff_leave_forecast_audit[]
+  staff_leave_forecast_runs                            staff_leave_forecast_runs[]
+  staff_leave_forecast_scores                          staff_leave_forecast_scores[]
+  staff_leave_forecast_shift_risks                     staff_leave_forecast_shift_risks[]
+  staff_message_attachments                            staff_message_attachments[]
+  staff_message_thread_participants                    staff_message_thread_participants[]
+  staff_message_threads                                staff_message_threads[]
+  staff_messages                                       staff_messages[]
+  staff_onboarding_tasks                               staff_onboarding_tasks[]
+  staff_performance_reviews                            staff_performance_reviews[]
+  staff_roster_preferences                             staff_roster_preferences[]
+  staff_roster_runs                                    staff_roster_runs[]
+  staff_salary                                         staff_salary[]
+  staff_shift_assignments                              staff_shift_assignments[]
+  staff_shift_roster_assignment_audit                  staff_shift_roster_assignment_audit[]
+  staff_shift_roster_assignments                       staff_shift_roster_assignments[]
+  staff_shift_roster_boards                            staff_shift_roster_boards[]
+  staff_shift_roster_request_audit                     staff_shift_roster_request_audit[]
+  staff_shift_roster_requests                          staff_shift_roster_requests[]
+  staff_shifts                                         staff_shifts[]
+  stemi_activations                                    stemi_activations[]
+  stemi_pathway_events                                 stemi_pathway_events[]
+  stemi_pathway_settings                               stemi_pathway_settings?
+  stemi_team_notifications                             stemi_team_notifications[]
+  step_profiles                                        step_profiles[]
+  step_rewards                                         step_rewards[]
+  step_sessions                                        step_sessions[]
+  sterilization_loads                                  sterilization_loads[]
+  stroke_activations                                   stroke_activations[]
+  stroke_nihss_assessments                             stroke_nihss_assessments[]
+  stroke_pathway_events                                stroke_pathway_events[]
+  stroke_pathway_settings                              stroke_pathway_settings?
+  stroke_thrombolysis_decisions                        stroke_thrombolysis_decisions[]
+  surgical_implants                                    surgical_implants[]
+  surgical_safety_checklists                           surgical_safety_checklists[]
+  tariff_items                                         tariff_items[]
+  tariff_plans                                         tariff_plans?
+  task_comments                                        task_comments[]
+  tasks                                                tasks[]
+  teleconsult_follow_up_settings                       teleconsult_follow_up_settings?
+  teleconsult_provider_configs                         teleconsult_provider_configs?
+  teleconsultations                                    teleconsultations[]
+  tenant_ed_policies                                   tenant_ed_policies?
+  tenant_entitlements                                  tenant_entitlements[]
+  tenant_identity_providers                            tenant_identity_providers[]
+  tenant_idp_role_mappings                             tenant_idp_role_mappings[]
+  tenant_interop_secrets                               tenant_interop_secrets[]
+  tenant_terminology_settings                          tenant_terminology_settings?
+  tour_definitions                                     tour_definitions[]
+  tour_events                                          tour_events[]
+  tpa_claim_correspondence                             tpa_claim_correspondence[]
+  tpa_claim_documents                                  tpa_claim_documents[]
+  tpas                                                 tpas[]
+  training_evidence_ledger                             training_evidence_ledger[]
+  transfusion_reactions                                transfusion_reactions[]
+  transfusion_verifications                            transfusion_verifications[]
+  transplant_candidates                                transplant_candidates[]
+  transplant_committee_reviews                         transplant_committee_reviews[]
+  transplant_donor_referrals                           transplant_donor_referrals[]
+  transplant_immunosuppression_plans                   transplant_immunosuppression_plans[]
+  transplant_match_reviews                             transplant_match_reviews[]
+  transplant_notto_exports                             transplant_notto_exports[]
+  transplant_program_settings                          transplant_program_settings?
+  transplant_programs                                  transplant_programs[]
+  transplant_waitlist_status_history                   transplant_waitlist_status_history[]
+  trauma_activation_team_roles                         trauma_activation_team_roles[]
+  trauma_activations                                   trauma_activations[]
+  trauma_survey_records                                trauma_survey_records[]
+  trauma_timeline_events                               trauma_timeline_events[]
+  triage_assessments                                   triage_assessments[]
+  tti_tests                                            tti_tests[]
+  tumor_board_cases                                    tumor_board_cases[]
+  tumor_board_meetings                                 tumor_board_meetings[]
+  tumor_board_recommendations                          tumor_board_recommendations[]
+  user_action_logs                                     user_action_logs[]
+  user_active_sessions                                 user_active_sessions[]
+  user_deactivation_log                                user_deactivation_log[]
+  user_devices                                         user_devices[]
+  user_reactivation_log                                user_reactivation_log[]
+  user_role_audit                                      user_role_audit[]
+  user_sessions                                        user_sessions[]
+  user_status_history                                  user_status_history[]
+  users                                                users[]
+  vascular_access                                      vascular_access[]
+  video_sessions                                       video_sessions[]
+  virtual_ward_check_ins                               virtual_ward_check_ins[]
+  virtual_ward_enrollments                             virtual_ward_enrollments[]
+  virtual_ward_escalations                             virtual_ward_escalations[]
+  vitals_chart                                         vitals_chart[]
+  ward_indent_items                                    ward_indent_items[]
+  wards                                                wards[]
+  webhook_deliveries                                   webhook_deliveries[]
+  webhook_subscriptions                                webhook_subscriptions[]
+  workflow_definitions                                 workflow_definitions[]
+  workflow_runs                                        workflow_runs[]
+  workflow_steps                                       workflow_steps[]
 }
 
 model terminology_code_systems {
@@ -11476,6 +11482,10 @@ model users {
   cath_report_addenda                                                                                                              cath_report_addenda[]
   chair_bookings                                                                                                                   chair_bookings[]
   clinical_ai_trial_sync_runs                                                                                                      clinical_ai_trial_sync_runs[]
+  clinical_continuity_activation_evidence_gate_configs                                                                             clinical_continuity_activation_evidence_gate_configs[]
+  clinical_continuity_activation_key_roster_clinical_continuity_activation_key_roster_tenant_id_recorded_by_uidTousers             clinical_continuity_activation_key_roster[]            @relation("clinical_continuity_activation_key_roster_tenant_id_recorded_by_uidTousers")
+  clinical_continuity_activation_key_roster_clinical_continuity_activation_key_roster_tenant_id_subject_uidTousers                 clinical_continuity_activation_key_roster[]            @relation("clinical_continuity_activation_key_roster_tenant_id_subject_uidTousers")
+  clinical_continuity_activation_transition_events                                                                                 clinical_continuity_activation_transition_events[]
   clinical_continuity_device_journal_offsets_clinical_continuity_device_journal_offsets_tenant_id_assigned_to_uidTousers           clinical_continuity_device_journal_offsets[]           @relation("clinical_continuity_device_journal_offsets_tenant_id_assigned_to_uidTousers")
   clinical_continuity_device_journal_offsets_clinical_continuity_device_journal_offsets_tenant_id_updated_byTousers                clinical_continuity_device_journal_offsets[]           @relation("clinical_continuity_device_journal_offsets_tenant_id_updated_byTousers")
   clinical_continuity_device_loss_routes                                                                                           clinical_continuity_device_loss_routes[]
@@ -16336,44 +16346,45 @@ model clinical_timeline_events {
 /// Normalized clinical-action audit stream. This complements legacy audit_log,
 /// audit_logs, patient_access_audit_log, and staff_access_audit_log.
 model clinical_audit_events {
-  id                                                                                                    String                                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                                                                                             String                                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid                                                                                           String?                                      @db.Uuid
-  encounter_id                                                                                          String?                                      @db.Uuid
-  action                                                                                                String                                       @db.VarChar(100)
-  action_status                                                                                         String                                       @default("success") @db.VarChar(40)
-  actor_uid                                                                                             String?                                      @db.Uuid
-  actor_role                                                                                            String?                                      @db.VarChar(80)
-  resource_type                                                                                         String?                                      @db.VarChar(80)
-  resource_table                                                                                        String?                                      @db.VarChar(100)
-  resource_id                                                                                           String?                                      @db.VarChar(120)
-  request_id                                                                                            String?                                      @db.VarChar(120)
-  ip_address                                                                                            String?                                      @db.Inet
+  id                                                                                                    String                                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                             String                                             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                                                                                           String?                                            @db.Uuid
+  encounter_id                                                                                          String?                                            @db.Uuid
+  action                                                                                                String                                             @db.VarChar(100)
+  action_status                                                                                         String                                             @default("success") @db.VarChar(40)
+  actor_uid                                                                                             String?                                            @db.Uuid
+  actor_role                                                                                            String?                                            @db.VarChar(80)
+  resource_type                                                                                         String?                                            @db.VarChar(80)
+  resource_table                                                                                        String?                                            @db.VarChar(100)
+  resource_id                                                                                           String?                                            @db.VarChar(120)
+  request_id                                                                                            String?                                            @db.VarChar(120)
+  ip_address                                                                                            String?                                            @db.Inet
   user_agent                                                                                            String?
   before_state                                                                                          Json?
   after_state                                                                                           Json?
-  metadata                                                                                              Json                                         @default("{}")
-  idempotency_key                                                                                       String?                                      @unique(map: "idx_clinical_audit_events_idempotency", where: raw("(idempotency_key IS NOT NULL)")) @db.VarChar(220)
-  occurred_at                                                                                           DateTime                                     @default(now()) @db.Timestamptz(6)
-  created_at                                                                                            DateTime                                     @default(now()) @db.Timestamptz(6)
+  metadata                                                                                              Json                                               @default("{}")
+  idempotency_key                                                                                       String?                                            @unique(map: "idx_clinical_audit_events_idempotency", where: raw("(idempotency_key IS NOT NULL)")) @db.VarChar(220)
+  occurred_at                                                                                           DateTime                                           @default(now()) @db.Timestamptz(6)
+  created_at                                                                                            DateTime                                           @default(now()) @db.Timestamptz(6)
   chain_seq                                                                                             BigInt?
-  prev_hash                                                                                             String?                                      @db.Char(64)
-  chain_hash                                                                                            String?                                      @db.Char(64)
+  prev_hash                                                                                             String?                                            @db.Char(64)
+  chain_hash                                                                                            String?                                            @db.Char(64)
   care_pathway_resource_references                                                                      care_pathway_resource_references[]
   care_pathway_transition_events                                                                        care_pathway_transition_events[]
-  cath_case_consumable_usage_cath_case_consumable_usage_audit_event_idToclinical_audit_events           cath_case_consumable_usage[]                 @relation("cath_case_consumable_usage_audit_event_idToclinical_audit_events")
-  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events cath_case_consumable_usage[]                 @relation("cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events")
+  cath_case_consumable_usage_cath_case_consumable_usage_audit_event_idToclinical_audit_events           cath_case_consumable_usage[]                       @relation("cath_case_consumable_usage_audit_event_idToclinical_audit_events")
+  cath_case_consumable_usage_cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events cath_case_consumable_usage[]                       @relation("cath_case_consumable_usage_tenant_id_audit_event_idToclinical_audit_events")
   cath_complication_registry                                                                            cath_complication_registry[]
   cath_lab_cases                                                                                        cath_lab_cases[]
   cath_post_procedure_orders                                                                            cath_post_procedure_orders[]
   cath_procedure_logs                                                                                   cath_procedure_logs[]
-  clinical_continuity_device_loss_operations_capture                                                    clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_capture_audit")
-  clinical_continuity_device_loss_operations_edge                                                       clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_edge_audit")
-  clinical_continuity_device_loss_operations_offline_risk                                               clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_risk_audit")
-  clinical_continuity_device_loss_operations_routing                                                    clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_routing_audit")
-  clinical_continuity_device_loss_operations_wipe                                                       clinical_continuity_device_loss_operations[] @relation("cc_device_loss_operation_wipe_audit")
-  clinical_continuity_device_loss_subjects_identity                                                     clinical_continuity_device_loss_subjects[]   @relation("cc_device_loss_subject_identity_audit")
-  clinical_continuity_device_loss_subjects_token                                                        clinical_continuity_device_loss_subjects[]   @relation("cc_device_loss_subject_token_audit")
+  clinical_continuity_activation_transition_events                                                      clinical_continuity_activation_transition_events[]
+  clinical_continuity_device_loss_operations_capture                                                    clinical_continuity_device_loss_operations[]       @relation("cc_device_loss_operation_capture_audit")
+  clinical_continuity_device_loss_operations_edge                                                       clinical_continuity_device_loss_operations[]       @relation("cc_device_loss_operation_edge_audit")
+  clinical_continuity_device_loss_operations_offline_risk                                               clinical_continuity_device_loss_operations[]       @relation("cc_device_loss_operation_risk_audit")
+  clinical_continuity_device_loss_operations_routing                                                    clinical_continuity_device_loss_operations[]       @relation("cc_device_loss_operation_routing_audit")
+  clinical_continuity_device_loss_operations_wipe                                                       clinical_continuity_device_loss_operations[]       @relation("cc_device_loss_operation_wipe_audit")
+  clinical_continuity_device_loss_subjects_identity                                                     clinical_continuity_device_loss_subjects[]         @relation("cc_device_loss_subject_identity_audit")
+  clinical_continuity_device_loss_subjects_token                                                        clinical_continuity_device_loss_subjects[]         @relation("cc_device_loss_subject_token_audit")
   clinical_continuity_incident_packets                                                                  clinical_continuity_incident_packets[]
   clinical_continuity_replay_effect_evidence                                                            clinical_continuity_replay_effect_evidence[]
   diagnostic_result_actions                                                                             diagnostic_result_actions[]
@@ -16404,6 +16415,7 @@ model clinical_audit_events {
   @@unique([tenant_id, id], map: "ux_diagnostic_audit_tenant_id")
   @@unique([tenant_id, id], map: "ux_clinical_audit_events_tenant_device_loss")
   @@unique([tenant_id, id], map: "ux_clinical_audit_events_tenant_external_recovery")
+  @@unique([tenant_id, id], map: "ux_clinical_audit_events_tenant_activation_transition")
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time", where: raw("(actor_uid IS NOT NULL)"))
   @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource", where: raw("((resource_table IS NOT NULL) AND (resource_id IS NOT NULL))"))
@@ -25863,56 +25875,60 @@ model ed_recovery_contact_events {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clinical_continuity_policy_versions {
-  id                                                                                                         String                                                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id                                                                                                  String                                                 @db.Uuid
-  facility_id                                                                                                Int
-  policy_version                                                                                             BigInt
-  policy_schema_version                                                                                      Int
-  lifecycle_state                                                                                            String                                                 @default("draft") @db.VarChar(20)
-  policy_document                                                                                            Json
-  policy_checksum                                                                                            String                                                 @db.Char(64)
-  canonicalization                                                                                           String                                                 @default("rfc8785-jcs") @db.VarChar(32)
-  signature_algorithm                                                                                        String                                                 @default("ed25519") @db.VarChar(24)
-  policy_signing_key_id                                                                                      String                                                 @db.VarChar(64)
-  policy_signing_public_key_sha256                                                                           String                                                 @db.Char(64)
-  current_pack_signing_key_id                                                                                String                                                 @db.VarChar(64)
-  current_pack_signing_public_key_sha256                                                                     String                                                 @db.Char(64)
-  next_pack_signing_key_id                                                                                   String?                                                @db.VarChar(64)
-  next_pack_signing_public_key_sha256                                                                        String?                                                @db.Char(64)
-  policy_signature                                                                                           Bytes
-  revocation_epoch                                                                                           BigInt                                                 @default(0)
-  revoked_key_ids                                                                                            Json                                                   @default("[]")
-  approval_id                                                                                                Int?
-  approved_by                                                                                                String?                                                @db.Uuid
-  approved_at                                                                                                DateTime?                                              @db.Timestamptz(6)
-  effective_from                                                                                             DateTime                                               @db.Timestamptz(6)
-  effective_until                                                                                            DateTime?                                              @db.Timestamptz(6)
-  supersedes_policy_id                                                                                       String?                                                @db.Uuid
-  retired_by                                                                                                 String?                                                @db.Uuid
-  retired_at                                                                                                 DateTime?                                              @db.Timestamptz(6)
-  retirement_reason                                                                                          String?
-  created_at                                                                                                 DateTime                                               @default(now()) @db.Timestamptz(6)
-  updated_at                                                                                                 DateTime                                               @default(now()) @db.Timestamptz(6)
-  action_registry_schema_version                                                                             Int?
-  action_registry_version                                                                                    BigInt?
-  action_registry_checksum                                                                                   String?                                                @db.Char(64)
-  clinical_continuity_edge_access_grants                                                                     clinical_continuity_edge_access_grants[]
-  clinical_continuity_edge_log_receipts                                                                      clinical_continuity_edge_log_receipts[]
-  clinical_continuity_incident_contact_sheet_approvals                                                       clinical_continuity_incident_contact_sheet_approvals[]
-  clinical_continuity_incident_contact_sheets                                                                clinical_continuity_incident_contact_sheets[]
-  clinical_continuity_incident_packet_allocations                                                            clinical_continuity_incident_packet_allocations[]
-  clinical_continuity_incident_packets                                                                       clinical_continuity_incident_packets[]
-  approvals                                                                                                  approvals?                                             @relation(fields: [tenant_id, approval_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_approval_tenant_fk")
-  users_clinical_continuity_policy_versions_tenant_id_approved_byTousers                                     users?                                                 @relation("clinical_continuity_policy_versions_tenant_id_approved_byTousers", fields: [tenant_id, approved_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_policy_approved_by_tenant_fk")
-  encryption_keys_clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys encryption_keys                                        @relation("clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys", fields: [tenant_id, current_pack_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_current_key_tenant_fk")
-  facilities                                                                                                 facilities                                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_facility_tenant_fk")
-  encryption_keys_clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys    encryption_keys?                                       @relation("clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys", fields: [tenant_id, next_pack_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_next_key_tenant_fk")
-  encryption_keys_clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys       encryption_keys                                        @relation("clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys", fields: [tenant_id, policy_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_policy_key_tenant_fk")
-  users_clinical_continuity_policy_versions_tenant_id_retired_byTousers                                      users?                                                 @relation("clinical_continuity_policy_versions_tenant_id_retired_byTousers", fields: [tenant_id, retired_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_policy_retired_by_tenant_fk")
-  clinical_continuity_policy_versions                                                                        clinical_continuity_policy_versions?                   @relation("clinical_continuity_policy_versionsToclinical_continuity_policy_versions", fields: [tenant_id, facility_id, supersedes_policy_id], references: [tenant_id, facility_id, id], onUpdate: NoAction, map: "cc_policy_supersedes_tenant_facility_fk")
-  other_clinical_continuity_policy_versions                                                                  clinical_continuity_policy_versions[]                  @relation("clinical_continuity_policy_versionsToclinical_continuity_policy_versions")
-  tenants                                                                                                    tenants                                                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "cc_policy_tenant_fk")
-  downtime_snapshots                                                                                         downtime_snapshots[]
+  id                                                                                                                                                                                    String                                                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                                                                                             String                                                 @db.Uuid
+  facility_id                                                                                                                                                                           Int
+  policy_version                                                                                                                                                                        BigInt
+  policy_schema_version                                                                                                                                                                 Int
+  lifecycle_state                                                                                                                                                                       String                                                 @default("draft") @db.VarChar(20)
+  policy_document                                                                                                                                                                       Json
+  policy_checksum                                                                                                                                                                       String                                                 @db.Char(64)
+  canonicalization                                                                                                                                                                      String                                                 @default("rfc8785-jcs") @db.VarChar(32)
+  signature_algorithm                                                                                                                                                                   String                                                 @default("ed25519") @db.VarChar(24)
+  policy_signing_key_id                                                                                                                                                                 String                                                 @db.VarChar(64)
+  policy_signing_public_key_sha256                                                                                                                                                      String                                                 @db.Char(64)
+  current_pack_signing_key_id                                                                                                                                                           String                                                 @db.VarChar(64)
+  current_pack_signing_public_key_sha256                                                                                                                                                String                                                 @db.Char(64)
+  next_pack_signing_key_id                                                                                                                                                              String?                                                @db.VarChar(64)
+  next_pack_signing_public_key_sha256                                                                                                                                                   String?                                                @db.Char(64)
+  policy_signature                                                                                                                                                                      Bytes
+  revocation_epoch                                                                                                                                                                      BigInt                                                 @default(0)
+  revoked_key_ids                                                                                                                                                                       Json                                                   @default("[]")
+  approval_id                                                                                                                                                                           Int?
+  approved_by                                                                                                                                                                           String?                                                @db.Uuid
+  approved_at                                                                                                                                                                           DateTime?                                              @db.Timestamptz(6)
+  effective_from                                                                                                                                                                        DateTime                                               @db.Timestamptz(6)
+  effective_until                                                                                                                                                                       DateTime?                                              @db.Timestamptz(6)
+  supersedes_policy_id                                                                                                                                                                  String?                                                @db.Uuid
+  retired_by                                                                                                                                                                            String?                                                @db.Uuid
+  retired_at                                                                                                                                                                            DateTime?                                              @db.Timestamptz(6)
+  retirement_reason                                                                                                                                                                     String?
+  created_at                                                                                                                                                                            DateTime                                               @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                                                                                                            DateTime                                               @default(now()) @db.Timestamptz(6)
+  action_registry_schema_version                                                                                                                                                        Int?
+  action_registry_version                                                                                                                                                               BigInt?
+  action_registry_checksum                                                                                                                                                              String?                                                @db.Char(64)
+  clinical_continuity_activation_evidence_gate_configs_clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_shadow_policy_idToclinical_continuity_policy_versions clinical_continuity_activation_evidence_gate_configs[] @relation("clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_shadow_policy_idToclinical_continuity_policy_versions")
+  clinical_continuity_activation_evidence_gate_configs_clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions clinical_continuity_activation_evidence_gate_configs[] @relation("clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions")
+  clinical_continuity_activation_transition_events_clinical_continuity_activation_transition_events_tenant_id_facility_id_prior_policy_idToclinical_continuity_policy_versions          clinical_continuity_activation_transition_events[]     @relation("clinical_continuity_activation_transition_events_tenant_id_facility_id_prior_policy_idToclinical_continuity_policy_versions")
+  clinical_continuity_activation_transition_events_clinical_continuity_activation_transition_events_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions         clinical_continuity_activation_transition_events[]     @relation("clinical_continuity_activation_transition_events_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions")
+  clinical_continuity_edge_access_grants                                                                                                                                                clinical_continuity_edge_access_grants[]
+  clinical_continuity_edge_log_receipts                                                                                                                                                 clinical_continuity_edge_log_receipts[]
+  clinical_continuity_incident_contact_sheet_approvals                                                                                                                                  clinical_continuity_incident_contact_sheet_approvals[]
+  clinical_continuity_incident_contact_sheets                                                                                                                                           clinical_continuity_incident_contact_sheets[]
+  clinical_continuity_incident_packet_allocations                                                                                                                                       clinical_continuity_incident_packet_allocations[]
+  clinical_continuity_incident_packets                                                                                                                                                  clinical_continuity_incident_packets[]
+  approvals                                                                                                                                                                             approvals?                                             @relation(fields: [tenant_id, approval_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_approval_tenant_fk")
+  users_clinical_continuity_policy_versions_tenant_id_approved_byTousers                                                                                                                users?                                                 @relation("clinical_continuity_policy_versions_tenant_id_approved_byTousers", fields: [tenant_id, approved_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_policy_approved_by_tenant_fk")
+  encryption_keys_clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys                                                                            encryption_keys                                        @relation("clinical_continuity_policy_versions_tenant_id_current_pack_signing_key_idToencryption_keys", fields: [tenant_id, current_pack_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_current_key_tenant_fk")
+  facilities                                                                                                                                                                            facilities                                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_policy_facility_tenant_fk")
+  encryption_keys_clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys                                                                               encryption_keys?                                       @relation("clinical_continuity_policy_versions_tenant_id_next_pack_signing_key_idToencryption_keys", fields: [tenant_id, next_pack_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_next_key_tenant_fk")
+  encryption_keys_clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys                                                                                  encryption_keys                                        @relation("clinical_continuity_policy_versions_tenant_id_policy_signing_key_idToencryption_keys", fields: [tenant_id, policy_signing_key_id], references: [tenant_id, key_id], onUpdate: NoAction, map: "cc_policy_policy_key_tenant_fk")
+  users_clinical_continuity_policy_versions_tenant_id_retired_byTousers                                                                                                                 users?                                                 @relation("clinical_continuity_policy_versions_tenant_id_retired_byTousers", fields: [tenant_id, retired_by], references: [tenant_id, uid], onUpdate: NoAction, map: "cc_policy_retired_by_tenant_fk")
+  clinical_continuity_policy_versions                                                                                                                                                   clinical_continuity_policy_versions?                   @relation("clinical_continuity_policy_versionsToclinical_continuity_policy_versions", fields: [tenant_id, facility_id, supersedes_policy_id], references: [tenant_id, facility_id, id], onUpdate: NoAction, map: "cc_policy_supersedes_tenant_facility_fk")
+  other_clinical_continuity_policy_versions                                                                                                                                             clinical_continuity_policy_versions[]                  @relation("clinical_continuity_policy_versionsToclinical_continuity_policy_versions")
+  tenants                                                                                                                                                                               tenants                                                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "cc_policy_tenant_fk")
+  downtime_snapshots                                                                                                                                                                    downtime_snapshots[]
 
   @@unique([tenant_id, facility_id, lifecycle_state], map: "ux_cc_policy_active", where: raw("((lifecycle_state)::text = 'active'::text)"))
   @@unique([tenant_id, facility_id, id, policy_version], map: "ux_cc_policy_snapshot_pin")
@@ -27371,6 +27387,122 @@ model hl7_inbound_recovery_receipts {
   @@unique([tenant_id, pending_task_id], map: "ux_hl7_inbound_recovery_receipts_task")
   @@unique([tenant_id, id], map: "ux_hl7_inbound_recovery_receipts_tenant_id")
   @@index([tenant_id, review_role, status, recorded_at, id], map: "idx_hl7_inbound_recovery_receipts_review")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_activation_evidence_gate_configs {
+  id                                                                                                                                                                   String                                                @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                                                                                                            String                                                @db.Uuid
+  facility_id                                                                                                                                                          Int
+  shadow_policy_id                                                                                                                                                     String                                                @db.Uuid
+  target_policy_id                                                                                                                                                     String                                                @db.Uuid
+  config_version                                                                                                                                                       Int
+  minimum_shadow_days                                                                                                                                                  Int                                                   @db.SmallInt
+  minimum_clean_drill_records                                                                                                                                          Int                                                   @db.SmallInt
+  clean_drill_records                                                                                                                                                  Json
+  owner_evidence_reference                                                                                                                                             String                                                @db.VarChar(255)
+  owner_evidence_sha256                                                                                                                                                String                                                @db.Char(64)
+  supersedes_config_id                                                                                                                                                 String?                                               @db.Uuid
+  recorded_by_uid                                                                                                                                                      String                                                @db.Uuid
+  recorded_at                                                                                                                                                          DateTime                                              @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  facilities                                                                                                                                                           facilities                                            @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_gate_facility")
+  users                                                                                                                                                                users                                                 @relation(fields: [tenant_id, recorded_by_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_gate_recorder")
+  clinical_continuity_policy_versions_clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_shadow_policy_idToclinical_continuity_policy_versions clinical_continuity_policy_versions                   @relation("clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_shadow_policy_idToclinical_continuity_policy_versions", fields: [tenant_id, facility_id, shadow_policy_id], references: [tenant_id, facility_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_gate_shadow_policy")
+  clinical_continuity_activation_evidence_gate_configs                                                                                                                 clinical_continuity_activation_evidence_gate_configs? @relation("clinical_continuity_activation_evidence_gate_configsToclinical_continuity_activation_evidence_gate_configs", fields: [tenant_id, supersedes_config_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_gate_supersedes")
+  other_clinical_continuity_activation_evidence_gate_configs                                                                                                           clinical_continuity_activation_evidence_gate_configs? @relation("clinical_continuity_activation_evidence_gate_configsToclinical_continuity_activation_evidence_gate_configs")
+  clinical_continuity_policy_versions_clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions clinical_continuity_policy_versions                   @relation("clinical_continuity_activation_evidence_gate_configs_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions", fields: [tenant_id, facility_id, target_policy_id], references: [tenant_id, facility_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_gate_target_policy")
+  tenants                                                                                                                                                              tenants                                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_gate_tenant")
+  clinical_continuity_activation_transition_events                                                                                                                     clinical_continuity_activation_transition_events[]
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, supersedes_config_id], map: "uq_cc_activation_gate_superseded_once", where: raw("(supersedes_config_id IS NOT NULL)"))
+  @@unique([tenant_id, facility_id, target_policy_id, config_version], map: "uq_cc_activation_gate_version")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_activation_key_roster {
+  id                                                                               String                                             @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                                                                        String                                             @db.Uuid
+  facility_id                                                                      Int
+  subject_uid                                                                      String                                             @db.Uuid
+  subject_role                                                                     String                                             @db.VarChar(64)
+  authority_kind                                                                   String                                             @db.VarChar(48)
+  entry_kind                                                                       String                                             @db.VarChar(12)
+  signoff_role_label                                                               String?                                            @db.VarChar(120)
+  affected_unit_reference                                                          String?                                            @db.VarChar(160)
+  revokes_entry_id                                                                 String?                                            @db.Uuid
+  valid_from                                                                       DateTime                                           @db.Timestamptz(6)
+  valid_until                                                                      DateTime?                                          @db.Timestamptz(6)
+  owner_evidence_reference                                                         String                                             @db.VarChar(255)
+  owner_evidence_sha256                                                            String                                             @db.Char(64)
+  recorded_by_uid                                                                  String                                             @db.Uuid
+  recorded_at                                                                      DateTime                                           @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  facilities                                                                       facilities                                         @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_roster_facility")
+  users_clinical_continuity_activation_key_roster_tenant_id_recorded_by_uidTousers users                                              @relation("clinical_continuity_activation_key_roster_tenant_id_recorded_by_uidTousers", fields: [tenant_id, recorded_by_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_roster_recorder")
+  clinical_continuity_activation_key_roster                                        clinical_continuity_activation_key_roster?         @relation("clinical_continuity_activation_key_rosterToclinical_continuity_activation_key_roster", fields: [tenant_id, revokes_entry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_roster_revocation")
+  other_clinical_continuity_activation_key_roster                                  clinical_continuity_activation_key_roster?         @relation("clinical_continuity_activation_key_rosterToclinical_continuity_activation_key_roster")
+  users_clinical_continuity_activation_key_roster_tenant_id_subject_uidTousers     users                                              @relation("clinical_continuity_activation_key_roster_tenant_id_subject_uidTousers", fields: [tenant_id, subject_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_roster_subject")
+  tenants                                                                          tenants                                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_roster_tenant")
+  clinical_continuity_activation_transition_events                                 clinical_continuity_activation_transition_events[]
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, revokes_entry_id], map: "uq_cc_activation_roster_revocation", where: raw("((entry_kind)::text = 'revoke'::text)"))
+  @@index([tenant_id, facility_id, subject_uid, authority_kind, valid_from(sort: Desc)], map: "idx_cc_activation_roster_lookup")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clinical_continuity_activation_transition_events {
+  id                                                                                                                                                               String                                                @db.Uuid
+  tenant_id                                                                                                                                                        String                                                @db.Uuid
+  facility_id                                                                                                                                                      Int
+  action                                                                                                                                                           String                                                @db.VarChar(24)
+  transition_kind                                                                                                                                                  String                                                @db.VarChar(32)
+  outcome                                                                                                                                                          String                                                @db.VarChar(32)
+  intent_event_id                                                                                                                                                  String?                                               @db.Uuid
+  prior_policy_id                                                                                                                                                  String?                                               @db.Uuid
+  target_policy_id                                                                                                                                                 String?                                               @db.Uuid
+  roster_entry_id                                                                                                                                                  String?                                               @db.Uuid
+  evidence_gate_config_id                                                                                                                                          String?                                               @db.Uuid
+  actor_uid                                                                                                                                                        String                                                @db.Uuid
+  actor_role                                                                                                                                                       String                                                @db.VarChar(64)
+  actor_authority_kind                                                                                                                                             String?                                               @db.VarChar(48)
+  idempotency_key_sha256                                                                                                                                           String?                                               @db.Char(64)
+  effect_identity                                                                                                                                                  String?                                               @db.Char(64)
+  command_fingerprint                                                                                                                                              String?                                               @db.Char(64)
+  expected_state_fingerprint                                                                                                                                       String?                                               @db.Char(64)
+  prior_state                                                                                                                                                      Json?
+  next_state                                                                                                                                                       Json?
+  evidence_references                                                                                                                                              Json                                                  @default("[]")
+  reason_code                                                                                                                                                      String?                                               @db.VarChar(80)
+  reason_detail                                                                                                                                                    String?                                               @db.VarChar(500)
+  request_id                                                                                                                                                       String?                                               @db.VarChar(120)
+  clinical_audit_event_id                                                                                                                                          String?                                               @db.Uuid
+  claim_txid                                                                                                                                                       BigInt?
+  receipt                                                                                                                                                          Json
+  recorded_at                                                                                                                                                      DateTime                                              @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  users                                                                                                                                                            users                                                 @relation(fields: [tenant_id, actor_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_actor")
+  clinical_audit_events                                                                                                                                            clinical_audit_events?                                @relation(fields: [tenant_id, clinical_audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_audit")
+  facilities                                                                                                                                                       facilities                                            @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_facility")
+  clinical_continuity_activation_evidence_gate_configs                                                                                                             clinical_continuity_activation_evidence_gate_configs? @relation(fields: [tenant_id, evidence_gate_config_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_gate")
+  clinical_continuity_activation_transition_events                                                                                                                 clinical_continuity_activation_transition_events?     @relation("clinical_continuity_activation_transition_eventsToclinical_continuity_activation_transition_events", fields: [tenant_id, intent_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_intent")
+  other_clinical_continuity_activation_transition_events                                                                                                           clinical_continuity_activation_transition_events[]    @relation("clinical_continuity_activation_transition_eventsToclinical_continuity_activation_transition_events")
+  clinical_continuity_policy_versions_clinical_continuity_activation_transition_events_tenant_id_facility_id_prior_policy_idToclinical_continuity_policy_versions  clinical_continuity_policy_versions?                  @relation("clinical_continuity_activation_transition_events_tenant_id_facility_id_prior_policy_idToclinical_continuity_policy_versions", fields: [tenant_id, facility_id, prior_policy_id], references: [tenant_id, facility_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_prior_policy")
+  clinical_continuity_activation_key_roster                                                                                                                        clinical_continuity_activation_key_roster?            @relation(fields: [tenant_id, roster_entry_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_roster")
+  clinical_continuity_policy_versions_clinical_continuity_activation_transition_events_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions clinical_continuity_policy_versions?                  @relation("clinical_continuity_activation_transition_events_tenant_id_facility_id_target_policy_idToclinical_continuity_policy_versions", fields: [tenant_id, facility_id, target_policy_id], references: [tenant_id, facility_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_target_policy")
+  tenants                                                                                                                                                          tenants                                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cc_activation_event_tenant")
+
+  @@id([tenant_id, id])
+  @@unique([tenant_id, effect_identity], map: "uq_cc_activation_event_applied_effect", where: raw("((outcome)::text = 'applied'::text)"))
+  @@unique([tenant_id, idempotency_key_sha256], map: "uq_cc_activation_event_idempotency", where: raw("((idempotency_key_sha256 IS NOT NULL) AND ((outcome)::text = ANY ((ARRAY['awaiting_counterkey'::character varying, 'applied'::character varying])::text[])))"))
+  @@unique([tenant_id, effect_identity, actor_uid], map: "uq_cc_activation_event_intent_actor", where: raw("((outcome)::text = 'awaiting_counterkey'::text)"))
+  @@index([tenant_id, facility_id, recorded_at(sort: Desc), id], map: "idx_cc_activation_event_facility_time")
 }
 
 enum transplant_organ_type {

@@ -1,16 +1,16 @@
 # Clinical Service Continuity Activation-Readiness Tracker
 
 **Authority snapshot:** `github/main` at
-`1ee3cbdc4479a982a12aaeefffedee9ddd68d4b9` (re-fetched 2026-08-06).
+`100334903922e561ad61eec7d88079de0647ce30` (re-fetched 2026-08-06).
 
 **Engineering-program status:** complete through merged
-[#748](https://github.com/Bahuleyandr/VH-Health-Platform/pull/748).
+[#749](https://github.com/Bahuleyandr/VH-Health-Platform/pull/749), with C6.3-TG
+transition governance implemented activation-inert in the current change.
 This is a repository-status statement only. The remaining readiness work is
 the named `HARDWARE` qualification, `OPERATOR` execution, and
 `OWNER-DECISION` or `EXTERNAL` owner-evidence gates below, together with the
-unresolved C6.3 `OPEN-QUESTION` and any other stop line that still lacks a
-merged source. Engineering completion does not approve, close, waive, deploy,
-release, activate, or widen any capability.
+other stop lines that still lack a merged source. Engineering completion does
+not approve, close, waive, deploy, release, activate, or widen any capability.
 
 **Purpose:** this is the single working paper for what still separates the
 repository state from live continuity capabilities, including the C-D11
@@ -107,7 +107,7 @@ selecting a cohort mode, deploying, or activating C-D11.
 | **Open — publish and stage the exact v3 authority.** Create, approve, sign, and deliver an exact facility-scoped policy-schema v3; enable backend denial first; run `shadow` evidence; then set exact `enforce` action IDs, device postures, roles/capabilities, compatibility, and per-posture minimum Staff version. There is no global capture switch. | OPERATOR | Clinical governance, security, privacy, facility operations, and product/release owners; backend operator | [C4.2 evaluation and rollout](c4-2-action-registry-design-delta.md#5-evaluation-and-rollout); [plan C4.2 order](../superpowers/plans/2026-07-28-clinical-service-continuity.md#c42-extend-policy-with-action-registry-and-backend-enforcement) |
 | **Open — Staff 1.2.0 floor rollout and ward change.** Produce a production-signed `1.2.0+4` release, set the signed minimum to `1.2.0` for each enforcing posture, inventory and upgrade every in-cohort device, and train wards that offline vitals now use paper plus verified online back-entry. The merged PR found no Staff tag or release and its APK/AAB receipts were engineering-only. | OPERATOR | Product/release, security, clinical operations, nursing/workforce operations, and IT/device operations | [C4.3 Staff version floor](c4-3-staff-action-registry-enforcement-design-delta.md#10-staff-version-floor); [PR #669 ward notice](https://github.com/Bahuleyandr/VH-Health-Platform/pull/669) |
 | **Satisfied as decision input — C-D11.** The first cohort is one whole facility entering shadow together; enforcement remains staged by action and unit. Leaving shadow requires at least 14 days plus one clean planned downtime drill, with no elapsed-time shortcut. Two keys advance; any listed sign-off role may halt; the countersigned safety, silent-failure, and overdue-unreconciled-work tripwires require rollback. This decision does not implement the activation projection or satisfy the evidence gate. | OWNER-DECISION | Dr Bahuleyan S as Accountable Owner across clinical, operations, privacy, security, and product/release roles | [C-D11 record](c0-4-owner-decision-dossier.md#c-d11--activation-cohort-and-evidence) |
-| **Open-question — C6.3 activation projection is not implemented on `main`.** The design requires an authoritative tenant/facility/cohort `off\|shadow\|active` compare-and-swap projection with release/policy/version/approver/evidence bindings and append-only audit; absence means off. No merged C6.3 implementation record exists in the authority snapshot. | OPEN-QUESTION | Coordinator, backend/release reviewers, and the C-D11 sign-off roles | [plan C6.3](../superpowers/plans/2026-07-28-clinical-service-continuity.md#c63-facility-rollout); [design activation model](../superpowers/specs/2026-07-28-clinical-service-continuity-design.md#67-clinical_continuity_facility_activations) |
+| **Held — C6.3-TG transition governance is implemented in the current activation-inert change.** The standalone §6.7 table and sub-facility cohort key are `SUPERSEDED-BY-SUBSTRATE`: `off` is no active signed facility-policy row, `shadow` is an active row with mode `shadow` and no enforced action IDs, and `active` is mode `enforce` for the exact non-empty IDs. Migration 632 adds expected-state CAS, an append-only transition/audit ledger, two authenticated complementary advance keys, one authenticated halt key, and the pinned 14-day-plus-one-clean-drill floor. It deliberately seeds no roster identity or per-facility gate, so merge cannot advance, halt, deploy, release, or activate anything; Phase H must name exact identities and evidence separately. | PR-INERT | Coordinator, backend/release reviewers, the C-D11 sign-off roles, and later Phase H roster/evidence owners | [C6.3-TG addendum](../superpowers/specs/2026-08-06-clinical-service-continuity-c6-3-transition-governance-addendum.md); [migration 632](../../apps/backend/src/migrations/632_clinical_continuity_activation_transition_governance.sql); [transition service](../../apps/backend/src/services/downtime/clinicalContinuityActivationTransitionService.js) |
 | **Open — cohort activation evidence.** After every code, policy, client, and projection gate, shadow the single approved cohort, complete synthetic/sanitized failure, paper, training, access, stale-policy, rollback, and monitoring evidence, then activate only through named approvers. No widening is automatic. | OPERATOR | Named C-D11 approvers and release/clinical operations operators | [plan C6.3 gate](../superpowers/plans/2026-07-28-clinical-service-continuity.md#c63-facility-rollout); [design rollout](../superpowers/specs/2026-07-28-clinical-service-continuity-design.md#7-activation-and-rollout) |
 
 ## C5 replay and reconciliation activation

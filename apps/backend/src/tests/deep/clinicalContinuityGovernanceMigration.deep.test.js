@@ -246,10 +246,16 @@ async function approveAndActivatePolicy(client, {
     [approval.id, approvers[0], approval.decidedAt, tenantId, policy.id],
   );
   await client.query(
+    "SELECT set_config('app.clinical_continuity_activation_bypass', 'migration_or_test', true)",
+  );
+  await client.query(
     `UPDATE clinical_continuity_policy_versions
         SET lifecycle_state = 'active'
       WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [tenantId, policy.id],
+  );
+  await client.query(
+    "SELECT set_config('app.clinical_continuity_activation_bypass', '', true)",
   );
   return { ...policy, approvalId: approval.id };
 }
@@ -1035,6 +1041,9 @@ describeIfDb('migration 600 database continuity governance contract', () => {
         [tenantA, keysA.unlisted],
       );
       const retiredAt = new Date();
+      await client.query(
+        "SELECT set_config('app.clinical_continuity_activation_bypass', 'migration_or_test', true)",
+      );
       const retired = await client.query(
         `UPDATE clinical_continuity_policy_versions
             SET lifecycle_state = 'retired',
@@ -1045,6 +1054,9 @@ describeIfDb('migration 600 database continuity governance contract', () => {
           WHERE tenant_id = $3::uuid AND id = $4::uuid
           RETURNING lifecycle_state`,
         [approversA[0], retiredAt, tenantA, active.id],
+      );
+      await client.query(
+        "SELECT set_config('app.clinical_continuity_activation_bypass', '', true)",
       );
       expect(retired.rows).toEqual([{ lifecycle_state: 'retired' }]);
     } finally {

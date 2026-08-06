@@ -294,6 +294,7 @@ import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 import downtimeRoutes from './routes/downtime/downtimeRoutes.js';
 import clinicalContinuityPolicyDeliveryRoutes from './routes/downtime/clinicalContinuityPolicyDeliveryRoutes.js';
 import clinicalContinuityReconciliationRoutes from './routes/downtime/clinicalContinuityReconciliationRoutes.js';
+import clinicalContinuityActivationTransitionRoutes from './routes/downtime/clinicalContinuityActivationTransitionRoutes.js';
 import staticDowntimeRoutes from './routes/downtime/staticDowntimeRoutes.js';
 import terminologyRoutes from './routes/terminology/terminologyRoutes.js';
 import problemListRoutes from './routes/clinical/problemListRoutes.js';
@@ -1127,6 +1128,11 @@ app.use(
 app.use('/api/v1/downtime', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DOWNTIME_PACK'), downtimeRoutes);
 
 // Signed policy authority only; no patient or encounter data is present.
+app.use(
+  '/api/v1/clinical-continuity/activation-transitions',
+  requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES),
+  clinicalContinuityActivationTransitionRoutes
+);
 app.use(
   '/api/v1/clinical-continuity',
   requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES),

@@ -408,10 +408,16 @@ async function seedFixture(actorRole) {
       fixture.policyId
     );
     await tx.$executeRawUnsafe(
+      "SELECT set_config('app.clinical_continuity_activation_bypass', 'migration_or_test', true)"
+    );
+    await tx.$executeRawUnsafe(
       `UPDATE clinical_continuity_policy_versions SET lifecycle_state = 'active'
         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
       fixture.tenantId,
       fixture.policyId
+    );
+    await tx.$executeRawUnsafe(
+      "SELECT set_config('app.clinical_continuity_activation_bypass', '', true)"
     );
     await tx.$executeRawUnsafe(
       `INSERT INTO clinical_continuity_edge_access_grants (
