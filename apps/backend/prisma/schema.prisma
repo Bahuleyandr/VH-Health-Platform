@@ -4701,30 +4701,30 @@ model diet_orders {
 }
 
 model doctors {
-  id                       Int      @id @default(autoincrement())
+  id                       Int                      @id @default(autoincrement())
   user_id                  Int?
-  name                     String   @default("") @db.VarChar(100)
+  name                     String                   @default("") @db.VarChar(100)
   department_id            Int?
-  department               String   @db.VarChar(100)
-  specialty                String?  @db.VarChar(100)
+  department               String                   @db.VarChar(100)
+  specialty                String?                  @db.VarChar(100)
   intro                    String?
   image_url                String?
-  is_available             Boolean  @default(true)
-  is_active                Boolean  @default(true)
-  age_range                String   @default("all") @db.VarChar(20)
-  created_at               DateTime @default(now()) @db.Timestamp(6)
-  updated_at               DateTime @db.Timestamp(6)
+  is_available             Boolean                  @default(true)
+  is_active                Boolean                  @default(true)
+  age_range                String                   @default("all") @db.VarChar(20)
+  created_at               DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at               DateTime                 @db.Timestamp(6)
   available_days           String[]
   available_hours          Json?
-  consultation_fee         Decimal? @db.Decimal(10, 2)
+  consultation_fee         Decimal?                 @db.Decimal(10, 2)
   experience_years         Int?
   education                String?
   qualifications           String?
-  max_appointments_per_day Int      @default(20)
-  tenant_id                String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  max_appointments_per_day Int                      @default(20)
+  tenant_id                String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   search_vector            Unsupported("tsvector")? @default(dbgenerated("to_tsvector('english'::regconfig, ((((COALESCE((name)::text, ''::text) || ' '::text) || COALESCE((specialty)::text, ''::text)) || ' '::text) || COALESCE(qualifications, ''::text)))"))
-  users                    users?   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
-  tenants                  tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_doctors_tenant")
+  users                    users?                   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_doctors_tenant")
 
   @@index([department_id])
   @@index([is_available])
