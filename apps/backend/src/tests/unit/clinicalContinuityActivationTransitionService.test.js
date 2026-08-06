@@ -82,7 +82,7 @@ describe('clinicalContinuityActivationTransitionService', () => {
       actorRole: 'DOCTOR',
       facilityId: 7,
       requestId: 'request-advance-intent',
-      idempotencyKey: 'cc-advance-intent-7-shadow',
+      idempotencyKey: 'cc-intent-111111',
       parsed: advanceParsed(),
     });
 
