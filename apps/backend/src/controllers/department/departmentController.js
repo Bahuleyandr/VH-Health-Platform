@@ -3,6 +3,7 @@ import { DEPARTMENT_MESSAGES } from '../../config/departmentConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import departmentService from '../../services/department/departmentService.js';
+import { resolveTenantForRequest } from '../../services/tenant/tenantService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // For backward compatibility with existing routes
@@ -22,7 +23,14 @@ export const getAllDepartments = async (req, res) => {
 
 export const getDepartmentsWithDoctors = async (req, res) => {
   try {
-    const departments = await departmentService.getDepartmentsWithDoctors();
+    // Tenant resolution (audit / cross-tenant fix): the guest mount of this
+    // controller is API-key-only and sits BEFORE tenantContextMiddleware, so
+    // req.tenantId is unset there — resolve the tenant from the request Host
+    // (SEC-5/W4 trust-by-topology pattern, same as the Firebase pre-auth
+    // path). The authenticated department-router mount already carries
+    // req.tenantId (including audited SUPER_ADMIN overrides), so prefer it.
+    const tenantId = req.tenantId || await resolveTenantForRequest(req);
+    const departments = await departmentService.getDepartmentsWithDoctors(tenantId);
     
     success(res, {
       departments,

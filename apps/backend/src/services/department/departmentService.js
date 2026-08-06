@@ -1,6 +1,7 @@
 // src/services/department/departmentService.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 import { formatDate, getCurrentDay } from '../../utils/department/departmentHelpers.js';
 
 class DepartmentService {
@@ -294,10 +295,18 @@ class DepartmentService {
     }
   }
 
-  async getDepartmentsWithDoctors() {
+  async getDepartmentsWithDoctors(tenantId) {
+    // Tenant-scope the guest directory (audit / cross-tenant fix): this
+    // surface is API-key-only and mounted BEFORE the tenant/RLS middleware,
+    // so it previously joined departments/doctors/users with no tenant
+    // predicate at all and served every tenant's directory to any caller.
+    // The controller resolves the tenant from the request Host (SEC-5/W4
+    // pattern, resolveTenantForRequest); requireTenantId keeps the house
+    // fail-closed semantics with the ALLOW_DEFAULT_TENANT single-tenant floor.
+    const scopedTenantId = requireTenantId(tenantId);
     try {
-      const rows = await prisma.$queryRaw`
-        SELECT d.id, d.name, d.description,
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT d.id, d.name, d.description,
                COUNT(doc.id) as doctor_count,
                json_agg(
                  json_build_object(
@@ -319,15 +328,19 @@ class DepartmentService {
                 ) FILTER (WHERE doc.id IS NOT NULL) as doctors
         FROM departments d
         LEFT JOIN doctors doc ON doc.is_active = true
+          AND doc.tenant_id = $1::uuid
           AND (
             doc.department_id = d.id
             OR (doc.department_id IS NULL AND LOWER(doc.department) = LOWER(d.name))
           )
         LEFT JOIN users u ON doc.user_id = u.id AND u.role = 'DOCTOR'
+          AND u.tenant_id = $1::uuid
         WHERE d.is_active = true
+          AND d.tenant_id = $1::uuid
         GROUP BY d.id, d.name, d.description
-        ORDER BY d.name
-      `;
+        ORDER BY d.name`,
+        scopedTenantId,
+      );
 
       return rows.map(dept => ({
         ...dept,

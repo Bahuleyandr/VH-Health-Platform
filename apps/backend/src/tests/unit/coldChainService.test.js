@@ -450,7 +450,9 @@ describe('coldChainService invariants', () => {
     const recipientQuery = queryRawMock.mock.calls.find(([sql]) => /FROM users/i.test(sql));
     expect(recipientQuery[2]).toEqual(['PHARMACY_STAFF', 'PHARMACY_INCHARGE']);
     expect(queueNotificationMock).toHaveBeenCalledTimes(1);
-    expect(queueNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ recipientId: 501 }));
+    // tenantId is passed explicitly (tenancy hardening) — the outbox must not
+    // have to infer the tenant from the recipient row.
+    expect(queueNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ recipientId: 501, tenantId: TENANT_ID }));
     expect(queueNotificationMock).not.toHaveBeenCalledWith(expect.objectContaining({ recipientId: 502 }));
     expect(loggerErrorMock).toHaveBeenCalledWith(
       'Cold-chain alert roles degraded to safe department defaults',
@@ -524,6 +526,7 @@ describe('coldChainService invariants', () => {
     expect(queueNotificationMock).toHaveBeenCalledWith(expect.objectContaining({
       recipientId: 501,
       title: 'Cold-chain sensor silent',
+      tenantId: TENANT_ID,
     }));
     expect(emitColdChainEventMock).toHaveBeenCalledWith(
       'silent-sensor-warning',

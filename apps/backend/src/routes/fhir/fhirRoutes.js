@@ -772,8 +772,8 @@ router.get(
       id, tenantId, _count
     );
 
-    await attachResourceCodings(conditions, { resourceType: 'diagnosis' });
-    await attachResourceCodings(problems, { resourceType: 'patient_problem' });
+    await attachResourceCodings(conditions, { resourceType: 'diagnosis', tenantId });
+    await attachResourceCodings(problems, { resourceType: 'patient_problem', tenantId });
 
     const resources = [
       toFhirPatient(patientRows[0]),
@@ -1014,7 +1014,7 @@ router.get(
          FROM diagnoses ${where} ORDER BY created_at DESC ${limitOffset}`,
         ...params
       );
-      await attachResourceCodings(rows, { resourceType: 'diagnosis' });
+      await attachResourceCodings(rows, { resourceType: 'diagnosis', tenantId });
       resources.push(...rows.map(toFhirCondition));
     }
     if (wantProblems) {
@@ -1033,7 +1033,7 @@ router.get(
          ORDER BY created_at DESC ${limitOffset}`,
         ...params
       );
-      await attachResourceCodings(rows, { resourceType: 'patient_problem' });
+      await attachResourceCodings(rows, { resourceType: 'patient_problem', tenantId });
       resources.push(...rows.map(toFhirConditionFromProblem));
     }
     res.json(buildBundle('Condition', resources));
