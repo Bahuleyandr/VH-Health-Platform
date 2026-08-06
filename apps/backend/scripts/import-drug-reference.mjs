@@ -3,13 +3,16 @@
 //   --compositions <artifact-dir>              upsert unique compositions (source='imported')
 //   --match-catalog <artifact-dir> --tenant X  exact-brand-match pharmacy_catalog rows
 //   --stats [--tenant X]                       coverage report vs the acceptance gate
-//   --release <aushadhi-data-dir> [--date YYYY-MM-DD] [--compositions] [--match-catalog --tenant X]
+//   --release <aushadhi-data-dir> [--date YYYY-MM-DD] [--workdir <dir>] [--compositions] [--match-catalog --tenant X]
 //       resolve a release from an aushadhi-data checkout
 //       (releases/<YYYY-MM-DD>/{drugs.jsonl.zst, manifest.json}; latest = max
 //       date dir), verify it fail-closed against the manifest (compressed
 //       sha256+size, then decompressed sha256+size+record count), stream-
 //       decompress to a temp artifact dir, and feed the existing stages.
 //       With no stage flag it verifies only and writes nothing to the DB.
+//       --workdir <dir> creates the temp artifact dir under <dir> instead of
+//       os.tmpdir() (the decompressed JSONL is ~533 MB — relevant when /tmp is
+//       a small tmpfs, e.g. containerized runs).
 // All canonicalization goes through the platform's compositionParser — the
 // artifact never carries VH Health keys (thin-builder/smart-importer contract).
 import crypto from 'node:crypto';
@@ -122,7 +125,7 @@ export async function decompressZstd(zstFile, outFile) {
 //   5. decompressed sha256 + size + record count vs manifest.source.*
 // On any mismatch the partial decompressed file is removed and the error is
 // thrown before any import stage runs.
-export async function verifyAndExtractRelease(repoDir, { date = null, outDir = null, log = () => {} } = {}) {
+export async function verifyAndExtractRelease(repoDir, { date = null, outDir = null, workDir = null, log = () => {} } = {}) {
   const { releaseDate, releaseDir } = resolveRelease(repoDir, date);
   const manifestPath = path.join(releaseDir, 'manifest.json');
   if (!fs.existsSync(manifestPath)) throw new Error(`manifest not found: ${manifestPath}`);
@@ -147,7 +150,9 @@ export async function verifyAndExtractRelease(repoDir, { date = null, outDir = n
   }
   log(`release ${releaseDate}: compressed artifact verified (sha256 ${compressed.sha256.slice(0, 12)}…, ${compressed.bytes} bytes)`);
 
-  const artifactDir = outDir ?? fs.mkdtempSync(path.join(os.tmpdir(), `aushadhi-release-${releaseDate}-`));
+  const autoCreatedDir = outDir === null;
+  if (workDir !== null) fs.mkdirSync(workDir, { recursive: true });
+  const artifactDir = outDir ?? fs.mkdtempSync(path.join(workDir ?? os.tmpdir(), `aushadhi-release-${releaseDate}-`));
   fs.mkdirSync(artifactDir, { recursive: true });
   const outFile = path.join(artifactDir, 'drugs.jsonl');
   let decompressed;
@@ -164,7 +169,14 @@ export async function verifyAndExtractRelease(repoDir, { date = null, outDir = n
     }
   } catch (e) {
     // Never leave an unverified artifact behind for a later stage to consume.
-    fs.rmSync(outFile, { force: true });
+    // A dir this function created via mkdtemp is removed whole (the caller
+    // never learns its path when we throw); a caller-supplied outDir stays,
+    // only the partial file goes. Cleanup failure must never mask the
+    // verification error.
+    try {
+      if (autoCreatedDir) fs.rmSync(artifactDir, { recursive: true, force: true });
+      else fs.rmSync(outFile, { force: true });
+    } catch { /* keep the verification error */ }
     throw e;
   }
   log(`release ${releaseDate}: decompressed artifact verified (sha256 ${decompressed.sha256.slice(0, 12)}…, ${decompressed.bytes} bytes, ${decompressed.records} records) -> ${artifactDir}`);
@@ -408,7 +420,8 @@ if (invokedDirectly) {
       // then feed the extracted artifact dir to whichever stages were asked
       // for. No stage flag = verify only (nothing written to the DB).
       const date = typeof flag('date') === 'string' ? flag('date') : null;
-      const rel = await verifyAndExtractRelease(flag('release'), { date, log: console.log });
+      const workDir = typeof flag('workdir') === 'string' ? flag('workdir') : null;
+      const rel = await verifyAndExtractRelease(flag('release'), { date, workDir, log: console.log });
       try {
         let ranStage = false;
         if (flag('compositions')) {
@@ -437,7 +450,7 @@ if (invokedDirectly) {
       const s = await coverageStats({ tenantId: typeof flag('tenant') === 'string' ? flag('tenant') : undefined });
       console.log(`coverage: ${JSON.stringify(s)}`);
     } else {
-      console.log('usage: node scripts/import-drug-reference.mjs --compositions <dir> | --match-catalog <dir> --tenant <uuid> | --stats [--tenant <uuid>] | --release <aushadhi-data-dir> [--date YYYY-MM-DD] [--compositions] [--match-catalog --tenant <uuid>]');
+      console.log('usage: node scripts/import-drug-reference.mjs --compositions <dir> | --match-catalog <dir> --tenant <uuid> | --stats [--tenant <uuid>] | --release <aushadhi-data-dir> [--date YYYY-MM-DD] [--workdir <dir>] [--compositions] [--match-catalog --tenant <uuid>]');
     }
   };
   run().then(() => process.exit(0)).catch((e) => { console.error(e.message); process.exit(1); });

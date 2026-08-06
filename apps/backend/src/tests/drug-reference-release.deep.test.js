@@ -172,6 +172,14 @@ describe('verifyAndExtractRelease', () => {
     const outDir = tmpOut();
     await expect(verifyAndExtractRelease(repo, { outDir })).rejects.toThrow(/decompressed sha256 mismatch/);
     expect(fs.existsSync(path.join(outDir, 'drugs.jsonl'))).toBe(false);
+    // caller-supplied outDir is kept — only the partial file is removed
+    expect(fs.existsSync(outDir)).toBe(true);
+
+    // auto-created dir (no outDir; workDir stands in for os.tmpdir()): the
+    // whole mkdtemp dir is removed on failure, not just the extracted file
+    const workDir = tmpOut();
+    await expect(verifyAndExtractRelease(repo, { workDir })).rejects.toThrow(/decompressed sha256 mismatch/);
+    expect(fs.readdirSync(workDir)).toEqual([]);
   });
 
   test('record count mismatch aborts and removes the extracted file', async () => {
@@ -192,6 +200,14 @@ describe('verifyAndExtractRelease', () => {
     const repo = tmpRepo();
     writeRelease(repo, LATEST, { mutateManifest: (m) => { m.schema_version = 2; } });
     await expect(verifyAndExtractRelease(repo, { outDir: tmpOut() })).rejects.toThrow(/schema_version/);
+  });
+
+  test('workDir (CLI --workdir): auto-created artifact dir lands under the given dir', async () => {
+    const workDir = path.join(tmpOut(), 'spool'); // not pre-created — mkdirSync recursive
+    const rel = await verifyAndExtractRelease(repoDir, { workDir });
+    expect(path.dirname(rel.artifactDir)).toBe(workDir);
+    expect(path.basename(rel.artifactDir)).toMatch(new RegExp(`^aushadhi-release-${LATEST}-`));
+    expect(fs.readFileSync(path.join(rel.artifactDir, 'drugs.jsonl'), 'utf8')).toBe(JSONL);
   });
 });
 
