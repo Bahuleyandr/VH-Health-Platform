@@ -20,6 +20,20 @@ async function createClient() {
   const { default: Redis } = await import('ioredis');
 
   const client = new Redis(url, {
+    // ioredis 6 switched the default wire protocol to RESP3 (it sends HELLO 3
+    // on connect). We pin RESP2 so that the ioredis 5 -> 6 bump changes no
+    // observable behaviour: a dependency upgrade should not also flip the wire
+    // protocol the hospital cluster negotiates.
+    //
+    // This is a conservative choice, NOT a compatibility requirement. The
+    // deployed server IS pinned — infra/kubernetes/base/redis/redis-sentinel.yaml
+    // runs redis:7.4.1-alpine by sha256 digest — and 7.4 speaks RESP3 fine, so
+    // dropping this line is safe whenever someone wants to make that change
+    // deliberately and observe it on its own. Nothing here needs RESP3: the only
+    // commands issued are get/set/del/scan plus pattern pub/sub, whose reply
+    // shapes are identical under both protocols (ioredis 6 also defaults
+    // replyMapping to "legacy", so even on RESP3 the shapes would not move).
+    protocol: 2,
     maxRetriesPerRequest: 3,
     retryStrategy(times) {
       const delay = Math.min(times * 200, 5000);
