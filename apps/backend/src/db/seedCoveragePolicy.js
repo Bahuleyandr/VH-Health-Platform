@@ -1,4 +1,9 @@
 export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
+  // Activation authority ships inert. Seed coverage must not invent signing
+  // identities, weaken a cohort evidence floor, or fabricate a transition.
+  'clinical_continuity_activation_evidence_gate_configs',
+  'clinical_continuity_activation_key_roster',
+  'clinical_continuity_activation_transition_events',
   'clinical_continuity_edge_access_grants',
   'clinical_continuity_edge_access_revocations',
   'clinical_continuity_edge_log_receipts',

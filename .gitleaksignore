@@ -1,2 +1,5 @@
 # C1.1 historical deployment-guide category list; not a credential value.
 b06a55c402ecfe4609524fc473d92d9bedb1ee17:docs/DEPLOYMENT_GUIDE.md:generic-api-key:454
+
+# C6.3-TG historical unit-test idempotency token; not an authentication secret.
+b735ece43ca18678314842fd0bb127bb405ec111:apps/backend/src/tests/unit/clinicalContinuityActivationTransitionService.test.js:generic-api-key:85

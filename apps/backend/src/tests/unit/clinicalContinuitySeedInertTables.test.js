@@ -35,6 +35,9 @@ describe('clinical continuity comprehensive seed boundary', () => {
 
   test('allows only the explicit gated tables and still reports any other empty table', () => {
     expect(partitionSeedCoverageEmptyTables([
+      'clinical_continuity_activation_evidence_gate_configs',
+      'clinical_continuity_activation_key_roster',
+      'clinical_continuity_activation_transition_events',
       'clinical_continuity_edge_access_grants',
       'clinical_continuity_replay_receipts',
       'unexpected_table',
@@ -42,6 +45,9 @@ describe('clinical continuity comprehensive seed boundary', () => {
       'escalation_recipient_rank_mappings',
     ])).toEqual({
       intentionallyEmptyAppTables: [
+        'clinical_continuity_activation_evidence_gate_configs',
+        'clinical_continuity_activation_key_roster',
+        'clinical_continuity_activation_transition_events',
         'clinical_continuity_edge_access_grants',
         'clinical_continuity_replay_receipts',
         'clinical_continuity_edge_log_receipts',

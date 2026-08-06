@@ -281,9 +281,15 @@ describeIfDb('migration 630 raw-pg incident-packet forgery negatives', () => {
       [approval.rows[0].id, actorUid, decidedAt, tenantId, policyId],
     );
     await client.query(
+      "SELECT set_config('app.clinical_continuity_activation_bypass', 'migration_or_test', true)",
+    );
+    await client.query(
       `UPDATE clinical_continuity_policy_versions SET lifecycle_state = 'active'
         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
       [tenantId, policyId],
+    );
+    await client.query(
+      "SELECT set_config('app.clinical_continuity_activation_bypass', '', true)",
     );
     await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
     await client.query("SELECT set_config('app.current_facility_id', $1, true)", [String(facilityId)]);
