@@ -503,6 +503,9 @@ async function queueColdChainNotifications({ tenantId, unit, excursion, alertRol
   let queued = 0;
   for (const recipient of eligibleRecipients) {
     const row = await notificationOutbox.queue({
+      // Tenancy hardening: pass the tenant explicitly instead of relying on
+      // the outbox inferring it from the recipient row.
+      tenantId,
       type: 'push',
       recipientId: recipient.id,
       recipientPhone: recipient.phone || null,

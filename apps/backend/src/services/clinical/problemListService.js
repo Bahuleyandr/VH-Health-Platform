@@ -168,7 +168,7 @@ export async function getProblem(problemId, { tenantId = null } = {}) {
     ...params,
   );
   if (!rows[0]) return null;
-  const [withCodings] = await attachResourceCodings(rows, { resourceType: 'patient_problem' });
+  const [withCodings] = await attachResourceCodings(rows, { resourceType: 'patient_problem', tenantId });
   return withCodings || null;
 }
 
@@ -201,7 +201,7 @@ export async function listProblems(patientUid, { status = null, tenantId = null 
       ORDER BY (p.status = 'active') DESC, p.onset_date DESC NULLS LAST, p.created_at DESC`,
     ...params,
   );
-  return attachResourceCodings(rows, { resourceType: 'patient_problem' });
+  return attachResourceCodings(rows, { resourceType: 'patient_problem', tenantId });
 }
 
 /**

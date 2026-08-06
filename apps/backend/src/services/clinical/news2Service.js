@@ -237,19 +237,41 @@ async function resolvePatientTenantId(patientUid) {
 }
 
 /**
- * Escalate a recorded NEWS2 score: for a score >= threshold, create an assigned,
- * acknowledgement-tracked results-inbox task (the escalation engine chases it if
- * unacked), and surface it onto the CDS card pipeline. Must run POST-COMMIT (it
- * touches other tables / the CDS module). A HIGH-NEWS2 (>=5) escalation that
- * fails to land an assigned task is LOUD — it throws so the caller / Sentry sees
- * a deteriorating-patient alert that reached no one. CDS surfacing stays
- * best-effort. Pass { tenantId } from the caller's resolved tenant; otherwise it
- * is resolved from the patient.
+ * Escalate a recorded NEWS2 score: create an assigned, acknowledgement-tracked
+ * results-inbox task (the escalation engine chases it if unacked) and surface it
+ * onto the CDS card pipeline. Escalation fires when the aggregate is >= threshold
+ * OR when any single parameter scored 3 (the RCP single-parameter "red score"
+ * rule — e.g. new altered consciousness — mandates urgent review even at a low
+ * aggregate). Must run POST-COMMIT (it touches other tables / the CDS module). A
+ * NEWS2 escalation that fails to land an assigned task is LOUD — it throws so the
+ * caller / Sentry sees a deteriorating-patient alert that reached no one. CDS
+ * surfacing stays best-effort. Pass { tenantId } from the caller's resolved
+ * tenant; otherwise it is resolved from the patient.
  */
 export async function escalateNews2(patientUid, record, computed, { tenantId = null } = {}) {
   const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = computed;
 
-  if (totalScore >= NEWS2_ESCALATION_THRESHOLD) {
+  // RCP NEWS2: escalate on a high aggregate OR a single red (=3) parameter. Both
+  // conditions route through ONE results-inbox task (the resource-slot lock on
+  // news2_score/record.id dedups a re-escalation of the same reading), so a
+  // reading that trips both triggers still raises a single task — with a reason
+  // that names both.
+  const aggregateTrigger = totalScore >= NEWS2_ESCALATION_THRESHOLD;
+  const redParams = Object.keys(scores).filter((p) => scores[p] === 3);
+  const singleRedTrigger = anyParamThree && redParams.length > 0;
+
+  if (aggregateTrigger || singleRedTrigger) {
+    // Build a trigger label so the clinician sees WHY the task fired: a high
+    // aggregate, a single red parameter, or both (with the offending parameters).
+    const redLabel = redParams.length
+      ? `single red score: ${redParams.map((p) => p.replace(/_/g, ' ')).join(', ')} = 3`
+      : null;
+    const triggerLabel = aggregateTrigger && redLabel
+      ? `aggregate ${totalScore} + ${redLabel}`
+      : aggregateTrigger
+        ? `aggregate ${totalScore}`
+        : redLabel;
+
     // Route the deterioration alert to a REAL, assigned, acknowledgement-tracked
     // recipient via the results-inbox producer (DUTY-role fallback when there is
     // no single ordering clinician), so the escalation engine chases it if it
@@ -266,14 +288,16 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
         source: 'news2',
         resourceType: 'news2_score',
         resourceId: record?.id ?? null,
+        // A high aggregate (>=7) is critical; an urgent single-red review that is
+        // not also a high aggregate is 'high'.
         severity: totalScore >= 7 ? 'critical' : 'high',
-        title: `NEWS2 ${totalScore} (${clinicalRisk.replace(/_/g, ' ')}) — review required`,
-        summary: escalationAction,
+        title: `NEWS2 ${totalScore} (${clinicalRisk.replace(/_/g, ' ')}) — ${triggerLabel} — review required`,
+        summary: redLabel ? `${escalationAction} [${redLabel}]` : escalationAction,
         // No single ordering clinician for a ward vital → DUTY-role fallback.
         orderingClinicianUid: null,
       });
     } catch (err) {
-      logger.error(`NEWS2 escalation FAILED for patient ${patientUid} (score=${totalScore}): ${err.message}`);
+      logger.error(`NEWS2 escalation FAILED for patient ${patientUid} (score=${totalScore}, trigger=${triggerLabel}): ${err.message}`);
       throw err;
     }
     // LOUD only on a genuine FAILURE: enqueueCriticalResultTask returns

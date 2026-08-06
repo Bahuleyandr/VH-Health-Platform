@@ -172,7 +172,21 @@ function replayedMovementResult(movement, { movementKind, delta, increasing, dec
   };
 }
 
-export async function recordMovement({
+export async function recordMovement(params) {
+  return setTenantTx(params.tenantId, async (tx) => recordMovementTx(tx, params));
+}
+
+/**
+ * Transaction-scoped core of recordMovement. Runs every validation, the
+ * FOR UPDATE batch lock, the insufficient-stock guard, the movement INSERT
+ * and the batch decrement against a caller-supplied `tx` — it does NOT open
+ * its own setTenantTx. Callers that must commit the movement atomically with
+ * other writes in the same unit (e.g. dispenseControlled's statutory register
+ * INSERT) open one setTenantTx themselves and call this directly. The public
+ * recordMovement() wrapper above preserves the original single-movement
+ * behaviour for every other caller.
+ */
+async function recordMovementTx(tx, {
   tenantId, inventory_item_id, inventory_batch_id, movement_kind,
   quantity, reference_type, reference_id, notes, performed_by,
   require_usable_batch = false,
@@ -197,7 +211,7 @@ export async function recordMovement({
     && String(reference_id).trim() !== '';
   const cathReferenceId = cathUsageReplay ? String(reference_id).trim() : null;
 
-  return setTenantTx(tenantId, async (tx) => {
+  {
     // Lock the exact tenant/item batch before checking and decrementing it so
     // concurrent issues cannot both consume the same remaining quantity.
     if (inventoryBatchId) {
@@ -338,7 +352,7 @@ export async function recordMovement({
       );
     }
     return { movement: rows[0], increasing, decreasing };
-  });
+  }
 }
 
 // ── Schedule H/H1/X register ──────────────────────────────────────────
@@ -372,64 +386,75 @@ export async function dispenseControlled({
     throw AppError.badRequest('performed_by + performed_by_name are required');
   }
 
-  // Record the underlying stock movement first (decrements batch).
-  const { movement } = await recordMovement({
-    tenantId,
-    inventory_item_id,
-    inventory_batch_id,
-    movement_kind: 'issue',
-    quantity,
-    reference_type: 'controlled_dispense',
-    reference_id: prescription_number || `pres-${prescription_id || ''}`,
-    performed_by,
-    notes: `Schedule ${item.schedule_class} dispense; witness ${witness_name || 'n/a'}`,
+  // The stock decrement and the statutory Schedule H1/X/narcotic register
+  // entry MUST commit as a single unit: a controlled substance can never be
+  // decremented off the shelf without its register row (dispensing off the
+  // statutory register), and a register row must never outlive a rolled-back
+  // decrement. Open ONE tenant-scoped transaction and do both inside it — the
+  // batch FOR UPDATE lock, insufficient-stock guard and decrement (via
+  // recordMovementTx), the running-balance read, and the register INSERT — so
+  // a crash between them rolls the whole thing back with no compensating step.
+  return setTenantTx(tenantId, async (tx) => {
+    // Record the underlying stock movement (decrements batch) inside the tx.
+    const { movement } = await recordMovementTx(tx, {
+      tenantId,
+      inventory_item_id,
+      inventory_batch_id,
+      movement_kind: 'issue',
+      quantity,
+      reference_type: 'controlled_dispense',
+      reference_id: prescription_number || `pres-${prescription_id || ''}`,
+      performed_by,
+      notes: `Schedule ${item.schedule_class} dispense; witness ${witness_name || 'n/a'}`,
+    });
+
+    // Compute running balance across batches, read inside the same tx so it
+    // reflects the decrement above (no stale-balance race).
+    const balance = await tx.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
+         FROM pharmacy_inventory_batches
+        WHERE inventory_item_id = $1::int AND tenant_id = $2::uuid AND status = 'in_stock'`,
+      Number(inventory_item_id), tenantId,
+    );
+
+    const reg = await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_schedule_register
+         (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
+          movement_kind, quantity, unit_label, running_balance,
+          patient_uid, prescription_id, prescription_number,
+          prescriber_uid, prescriber_name, prescriber_registration,
+          patient_id_proof_type, patient_id_proof_last4,
+          performed_by, performed_by_name, witness_uid, witness_name,
+          reference_movement_id, notes)
+       VALUES ($1::uuid, $2::int, $3, $4, 'dispense', $5::numeric, $6, $7::numeric,
+               $8::uuid, $9, $10, $11::uuid, $12, $13, $14, $15,
+               $16::uuid, $17, $18::uuid, $19, $20::int, $21)
+       RETURNING *`,
+      tenantId,
+      Number(inventory_item_id),
+      inventory_batch_id ? Number(inventory_batch_id) : null,
+      item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
+      Number(quantity),
+      item.unit_label,
+      Number(balance[0].bal),
+      patient_uid ? String(patient_uid) : null,
+      prescription_id ? Number(prescription_id) : null,
+      prescription_number || null,
+      prescriber_uid ? String(prescriber_uid) : null,
+      prescriber_name || null,
+      prescriber_registration || null,
+      patient_id_proof_type || null,
+      patient_id_proof_last4 ? String(patient_id_proof_last4).slice(-4) : null,
+      String(performed_by),
+      performed_by_name,
+      witness_uid ? String(witness_uid) : null,
+      witness_name || null,
+      movement.id,
+      notes || null,
+    );
+
+    return { register_entry: reg[0], movement };
   });
-
-  // Compute running balance for the item across batches (post-decrement).
-  const balance = await prisma.$queryRawUnsafe(
-    `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS bal
-       FROM pharmacy_inventory_batches
-      WHERE inventory_item_id = $1::int AND tenant_id = $2::uuid AND status = 'in_stock'`,
-    Number(inventory_item_id), tenantId,
-  );
-
-  const reg = await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_schedule_register
-       (tenant_id, inventory_item_id, inventory_batch_id, schedule_class,
-        movement_kind, quantity, unit_label, running_balance,
-        patient_uid, prescription_id, prescription_number,
-        prescriber_uid, prescriber_name, prescriber_registration,
-        patient_id_proof_type, patient_id_proof_last4,
-        performed_by, performed_by_name, witness_uid, witness_name,
-        reference_movement_id, notes)
-     VALUES ($1::uuid, $2::int, $3, $4, 'dispense', $5::numeric, $6, $7::numeric,
-             $8::uuid, $9, $10, $11::uuid, $12, $13, $14, $15,
-             $16::uuid, $17, $18::uuid, $19, $20::int, $21)
-     RETURNING *`,
-    tenantId,
-    Number(inventory_item_id),
-    inventory_batch_id ? Number(inventory_batch_id) : null,
-    item.schedule_class || (item.is_narcotic ? 'X' : 'H1'),
-    Number(quantity),
-    item.unit_label,
-    Number(balance[0].bal),
-    patient_uid ? String(patient_uid) : null,
-    prescription_id ? Number(prescription_id) : null,
-    prescription_number || null,
-    prescriber_uid ? String(prescriber_uid) : null,
-    prescriber_name || null,
-    prescriber_registration || null,
-    patient_id_proof_type || null,
-    patient_id_proof_last4 ? String(patient_id_proof_last4).slice(-4) : null,
-    String(performed_by),
-    performed_by_name,
-    witness_uid ? String(witness_uid) : null,
-    witness_name || null,
-    movement.id,
-    notes || null,
-  );
-
-  return { register_entry: reg[0], movement };
 }
 
 export async function listScheduleRegister({ tenantId, schedule_class, item_id, date_from, date_to, limit = 200 }) {

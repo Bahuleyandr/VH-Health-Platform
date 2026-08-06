@@ -248,7 +248,13 @@ describe('ABDM verified consent artefact binding', () => {
       throw new Error(`Unexpected SQL after duplicate artefact claim: ${sql}`);
     });
 
-    await expect(abdmService.handleConsentRequest(buildRequest())).rejects.toMatchObject({
+    // Strict per-tenant opts: the mocked patient tenant is non-default, and the
+    // legacy non-strict path now refuses non-default tenants outright
+    // (guard-now 2026-08-06) before the replay claim under test here.
+    await expect(abdmService.handleConsentRequest(buildRequest(), {
+      callbackTenantId: TENANT_ID,
+      strict: true,
+    })).rejects.toMatchObject({
       statusCode: 409,
       code: 'ABDM_CONSENT_ARTEFACT_REUSED',
     });
@@ -260,7 +266,11 @@ describe('ABDM verified consent artefact binding', () => {
     const expectedHash = crypto.createHash('sha256')
       .update(JSON.stringify(request.consentArtefact))
       .digest('hex');
-    const result = await abdmService.handleConsentRequest(request);
+    // Strict per-tenant opts (see the reuse test above for why).
+    const result = await abdmService.handleConsentRequest(request, {
+      callbackTenantId: TENANT_ID,
+      strict: true,
+    });
 
     expect(result).toEqual({
       id: 41,

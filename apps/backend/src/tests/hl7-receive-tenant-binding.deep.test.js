@@ -8,9 +8,13 @@
 // under one shared HL7_INBOUND_SHARED_SECRET.
 //
 // The fix scopes the resolve + every write under the patient's own tenant via
-// setTenant(tenant, …). This proves ADT remains tenant-bound and that the
-// legacy HMAC-only ORU writer is rejected without creating a partial result;
-// analyzer results must use the authenticated lab-ingest contract.
+// setTenant(tenant, …). Guard-now / retire-later (2026-08-06): the shared
+// secret is further confined to DEFAULT-tenant patients — a non-default
+// patient is refused outright (per-tenant secrets are the sanctioned
+// multi-tenant route). This proves the fallback still works for the default
+// tenant, refuses foreign tenants, and that the legacy HMAC-only ORU writer is
+// rejected without creating a partial result; analyzer results must use the
+// authenticated lab-ingest contract.
 //
 // Needs the test Postgres. Self-skips when unconfigured.
 
@@ -44,6 +48,10 @@ const TENANT_B = 'b7100000-0000-4000-8000-00000000b001';
 const TENANT_SLUG = 'hl7-tenant-binding-b';
 const PATIENT_UID = 'b7100000-0000-4000-8000-0000000007b1';
 const PATIENT_PHONE = '+919000070701';
+// A second patient in the platform DEFAULT tenant — the only population the
+// legacy shared-secret fallback may still write for (guard-now / retire-later).
+const DEFAULT_PATIENT_UID = 'b7100000-0000-4000-8000-0000000007d1';
+const DEFAULT_PATIENT_PHONE = '+919000070702';
 
 function ownerDatabaseUrl(value) {
   const url = new URL(value);
@@ -182,6 +190,8 @@ function buildRecoveryRequest(controlId) {
 async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, DEFAULT_PATIENT_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid OR phone = $2`, DEFAULT_PATIENT_UID, DEFAULT_PATIENT_PHONE).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM interop_replay_guard WHERE namespace = 'hl7-inbound'`).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenant_interop_secrets
@@ -218,6 +228,13 @@ d('HL7 /receive tenant binding (C-4)', () => {
        VALUES ($1::uuid, $2::uuid, $3, 'HL7 Tenant Patient', 'PATIENT', true, NOW())`,
       PATIENT_UID, TENANT_B, PATIENT_PHONE,
     );
+    // A patient in the platform DEFAULT tenant (the legacy shared-secret
+    // fallback keeps working for this population only).
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'HL7 Default Tenant Patient', 'PATIENT', true, NOW())`,
+      DEFAULT_PATIENT_UID, DEFAULT_TENANT_ID, DEFAULT_PATIENT_PHONE,
+    );
     app = buildApp();
   }, 30000);
 
@@ -228,7 +245,7 @@ d('HL7 /receive tenant binding (C-4)', () => {
     // prisma.$disconnect() is handled by the global jest teardown.
   }, 30000);
 
-  test('legacy env-backed ADT remains live with no I03 enrollment and writes under the patient tenant', async () => {
+  test('legacy env-backed ADT remains live for a DEFAULT-tenant patient with no I03 enrollment', async () => {
     const enrollment = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::integer AS count
          FROM event_consumer_offsets AS offset_row
@@ -242,10 +259,10 @@ d('HL7 /receive tenant binding (C-4)', () => {
           AND credential.sender_identifier = 'VHFAC'`,
     );
     expect(enrollment).toEqual([{ count: 0 }]);
-    const controlId = `ADT${Date.now()}`;
+    const controlId = `ADTDEF${Date.now()}`;
     const message = [
       `MSH|^~\\&|SENDER|SFAC|VH|VHFAC|20260101120000||ADT^A01|${controlId}|P|2.5`,
-      `PID|1||${PATIENT_UID}||HL7 Tenant Patient||19900101|M|||Addr|||${PATIENT_PHONE}`,
+      `PID|1||${DEFAULT_PATIENT_UID}||HL7 Default Tenant Patient||19900101|M|||Addr|||${DEFAULT_PATIENT_PHONE}`,
       'PV1|1|I|WARD-3^^^|||||',
     ].join('\r');
 
@@ -259,10 +276,39 @@ d('HL7 /receive tenant binding (C-4)', () => {
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT tenant_id::text AS tenant_id, status FROM admissions WHERE patient_uid = $1::uuid`,
-      PATIENT_UID,
+      DEFAULT_PATIENT_UID,
     );
     expect(rows.length).toBe(1);
-    expect(rows[0].tenant_id).toBe(TENANT_B);
+    expect(rows[0].tenant_id).toBe(DEFAULT_TENANT_ID);
+  });
+
+  test('guard-now (2026-08-06): the shared secret refuses a NON-default-tenant patient before any write', async () => {
+    // Previously the single env-wide secret authenticated messages for ANY
+    // tenant's patients (the write landed in the patient's own tenant). The
+    // guard confines the legacy fallback to the DEFAULT tenant: a non-default
+    // patient is refused with the same "not registered" AE as an unknown
+    // patient (no tenant oracle) and nothing is written anywhere.
+    const controlId = `ADTB${Date.now()}`;
+    const message = [
+      `MSH|^~\\&|SENDER|SFAC|VH|VHFAC|20260101120000||ADT^A01|${controlId}|P|2.5`,
+      `PID|1||${PATIENT_UID}||HL7 Tenant Patient||19900101|M|||Addr|||${PATIENT_PHONE}`,
+      'PV1|1|I|WARD-3^^^|||||',
+    ].join('\r');
+
+    const res = await request(app)
+      .post('/api/v1/hl7/receive')
+      .set(signHeaders({ message, controlId }))
+      .send({ message });
+
+    expect(res.status).toBe(404);
+    expect(res.text).toContain('MSA|AE');
+    expect(res.text).toContain('Patient is not registered at this facility');
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count FROM admissions WHERE patient_uid = $1::uuid`,
+      PATIENT_UID,
+    );
+    expect(rows).toEqual([{ count: 0 }]);
   });
 
   test.each([

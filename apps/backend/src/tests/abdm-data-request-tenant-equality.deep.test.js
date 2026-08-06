@@ -3,7 +3,9 @@
 // When the data-request callback is authenticated by a PER-TENANT secret, the
 // consent it names must belong to that same tenant — otherwise a tenant-A HIP
 // callback could pull tenant-B PHI to its own dataPushUrl. Enforced via
-// opts.strict + opts.callbackTenantId; the legacy (no-opts) path is unchanged.
+// opts.strict + opts.callbackTenantId. Guard-now (2026-08-06): the legacy
+// (no-opts) path is confined to DEFAULT-tenant consents — see
+// abdm-inbound-tenant-binding for its coverage.
 import prisma from '../lib/prisma.js';
 import abdmService from '../services/abdm/abdmService.js';
 

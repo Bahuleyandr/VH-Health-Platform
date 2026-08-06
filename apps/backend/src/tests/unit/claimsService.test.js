@@ -519,6 +519,73 @@ describe('recordPreauthResponse boundary validation', () => {
   });
 });
 
+describe('recordPreauthResponse tenant scoping (with prisma stub)', () => {
+  // Regression for the NHCX default-tenant mis-stamp: this path runs on plain
+  // prisma with no tenant context, so the insurance_preauth_responses INSERT
+  // must carry tenant_id explicitly (the migration-336 GUC default otherwise
+  // stamps the DEFAULT tenant) and the insurance_preauth projection UPDATE
+  // must be tenant-scoped.
+  const TENANT = '22222222-2222-4222-8222-222222222222';
+  let originalQueryRaw;
+  let originalExecuteRaw;
+  let insertCall;
+  let updateCall;
+
+  beforeEach(() => {
+    insertCall = null;
+    updateCall = null;
+    originalQueryRaw = prisma.$queryRawUnsafe;
+    originalExecuteRaw = prisma.$executeRawUnsafe;
+    prisma.$queryRawUnsafe = async (sql, ...params) => {
+      if (/INSERT INTO insurance_preauth_responses/i.test(sql)) {
+        insertCall = { sql, params };
+        return [{ id: 10 }];
+      }
+      if (/WITH RECURSIVE root/i.test(sql)) return [];
+      if (/FROM insurance_preauth_responses/i.test(sql)) return [];
+      if (/FROM insurance_preauth pre/i.test(sql)) {
+        return [{
+          id: 1,
+          status: 'submitted',
+          admission_id: null,
+          payer_name: null,
+          query_text: null,
+          submit_due_at: null,
+        }];
+      }
+      return [];
+    };
+    prisma.$executeRawUnsafe = async (sql, ...params) => {
+      if (/UPDATE insurance_preauth\b/i.test(sql)) {
+        updateCall = { sql, params };
+      }
+      return 1;
+    };
+  });
+
+  afterEach(() => {
+    prisma.$queryRawUnsafe = originalQueryRaw;
+    prisma.$executeRawUnsafe = originalExecuteRaw;
+  });
+
+  it('stamps the verified tenant on the response INSERT and scopes the preauth UPDATE', async () => {
+    await recordPreauthResponse({
+      tenantId: TENANT,
+      preauth_id: 1,
+      response_type: 'approved',
+      sanctioned_amount: 50000,
+    });
+
+    expect(insertCall).not.toBeNull();
+    expect(insertCall.sql).toMatch(/INSERT INTO insurance_preauth_responses\s*\(\s*tenant_id/i);
+    expect(insertCall.params).toContain(TENANT);
+
+    expect(updateCall).not.toBeNull();
+    expect(updateCall.sql).toMatch(/AND tenant_id = \$7::uuid/i);
+    expect(updateCall.params).toContain(TENANT);
+  });
+});
+
 describe('insurerMatchesPolicyPayer (preauth response payer guard)', () => {
   it('accepts display-name variants of the same payer', () => {
     expect(insurerMatchesPolicyPayer('Star Health', 'Star Health and Allied Insurance')).toBe(true);
