@@ -3,6 +3,12 @@ name: Flutter CI
 # Runs only when the Flutter side of the repo (apps/patient, apps/staff,
 # packages/vhhealth_core) or workspace-wide plumbing changes. Admin + backend
 # edits skip this workflow via path filters.
+#
+# The two docs in the path list are here on purpose: they are the guarded
+# inputs to scripts/check-docs-plugin-versions.mjs, so a docs-only edit that
+# states a wrong plugin constraint still has to clear the drift gate. Both
+# sides of that check (pubspec and doc) must be able to trigger it, or the
+# gate has a hole.
 
 on:
   workflow_dispatch:
@@ -15,6 +21,10 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'scripts/codegen.mjs'
+      - 'scripts/check-docs-plugin-versions.mjs'
+      - 'scripts/check-docs-plugin-versions.test.mjs'
+      - 'docs/FLUTTER_PLUGIN_MAJOR_MIGRATIONS.md'
+      - 'docs/SMOKE_E2E_JOURNEYS.md'
       - '.github/workflows/ci-flutter.yml'
       - '.github/workflows/_reusable-flutter-workspace.yml'
   pull_request:
@@ -26,6 +36,10 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'scripts/codegen.mjs'
+      - 'scripts/check-docs-plugin-versions.mjs'
+      - 'scripts/check-docs-plugin-versions.test.mjs'
+      - 'docs/FLUTTER_PLUGIN_MAJOR_MIGRATIONS.md'
+      - 'docs/SMOKE_E2E_JOURNEYS.md'
       - '.github/workflows/ci-flutter.yml'
       - '.github/workflows/_reusable-flutter-workspace.yml'
 

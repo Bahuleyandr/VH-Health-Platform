@@ -18,6 +18,15 @@ const flutterPatterns = [
   /^pubspec\.ya?ml$/,
   /^pubspec\.lock$/,
   /^scripts\/dart-format-check\.mjs$/,
+  // The docs-vs-pubspec plugin-version gate and the two docs it guards. The
+  // docs are listed even though `isKnownSecurityOnly` already treats *.md as
+  // known: that only keeps a docs edit from forcing a full sweep, it does not
+  // select the flutter stage, so without these a docs-only change would skip
+  // the very check that exists to police it.
+  /^scripts\/check-docs-plugin-versions\.mjs$/,
+  /^scripts\/check-docs-plugin-versions\.test\.mjs$/,
+  /^docs\/FLUTTER_PLUGIN_MAJOR_MIGRATIONS\.md$/,
+  /^docs\/SMOKE_E2E_JOURNEYS\.md$/,
 ];
 const fhirPatterns = [
   /^apps\/backend\/src\/services\/fhir\//,

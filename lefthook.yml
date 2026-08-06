@@ -62,6 +62,14 @@ pre-push:
           echo "lefthook pre-push: no backend changes — skipping backend lint"
         fi
 
+    docs-plugin-versions:
+      run: |
+        if git diff --name-only @{u}..HEAD 2>/dev/null | grep -qE '^(apps/(patient|staff)/pubspec\.yaml|packages/vhhealth_core/pubspec\.yaml|docs/(FLUTTER_PLUGIN_MAJOR_MIGRATIONS|SMOKE_E2E_JOURNEYS)\.md|scripts/check-docs-plugin-versions)'; then
+          node scripts/check-docs-plugin-versions.mjs
+        else
+          echo "lefthook pre-push: no pubspec/guarded-doc changes — skipping plugin-version drift"
+        fi
+
     openapi-drift:
       run: |
         if git diff --name-only @{u}..HEAD 2>/dev/null | grep -qE '^apps/backend/(src/routes/|src/app\.js)'; then

@@ -3,6 +3,15 @@ import { join } from 'node:path';
 import { repoRoot, run } from './lib.mjs';
 
 export function runFlutterStage() {
+  // First, and intentionally so: a pure-Node file compare (~5ms, no toolchain)
+  // that fails if a guarded doc states a plugin version the pubspecs contradict.
+  // Cheapest possible gate in front of the most expensive stage — no reason to
+  // spend pub get + bootstrap + analyze + test + dart2js to then report a stale
+  // markdown table. Mirrors the "Docs plugin-version drift" step in
+  // .github/workflows/_reusable-flutter-workspace.yml.
+  run(process.execPath, ['--test', 'scripts/check-docs-plugin-versions.test.mjs']);
+  run(process.execPath, ['scripts/check-docs-plugin-versions.mjs']);
+
   run('dart', ['pub', 'get']);
   run('dart', ['run', 'melos', 'bootstrap']);
   run('node', ['scripts/dart-format-check.mjs']);
