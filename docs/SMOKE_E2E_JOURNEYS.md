@@ -70,7 +70,9 @@ Backlog checks triaged in P3:
 - Profile setup gate remains in splash routing for new users and missing names.
 - Dashboard already supports pull-to-refresh.
 - Medication reminder scheduling is available through the notification scheduler
-  and was migrated to `flutter_local_notifications` 21.
+  and was migrated to the `flutter_local_notifications` named-argument API. The
+  plugin's current constraint lives in `apps/patient/pubspec.yaml`; this
+  document does not track it.
 - Patient empty-state polish remains a product design pass rather than a release
   blocker.
 
