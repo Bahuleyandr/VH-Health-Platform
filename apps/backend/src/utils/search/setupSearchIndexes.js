@@ -39,20 +39,20 @@ CREATE INDEX IF NOT EXISTS idx_doctors_search ON doctors USING GIN(search_vector
 
 UPDATE doctors SET search_vector =
   to_tsvector('english',
-    coalesce(name, '') || ' ' || coalesce(specialization, '') || ' ' || coalesce(qualification, ''))
+    coalesce(name, '') || ' ' || coalesce(specialty, '') || ' ' || coalesce(qualifications, ''))
 WHERE search_vector IS NULL;
 
 CREATE OR REPLACE FUNCTION doctors_search_vector_update() RETURNS trigger AS $$
 BEGIN
   NEW.search_vector := to_tsvector('english',
-    coalesce(NEW.name, '') || ' ' || coalesce(NEW.specialization, '') || ' ' || coalesce(NEW.qualification, ''));
+    coalesce(NEW.name, '') || ' ' || coalesce(NEW.specialty, '') || ' ' || coalesce(NEW.qualifications, ''));
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_doctors_search_vector ON doctors;
 CREATE TRIGGER trg_doctors_search_vector
-  BEFORE INSERT OR UPDATE OF name, specialization, qualification ON doctors
+  BEFORE INSERT OR UPDATE OF name, specialty, qualifications ON doctors
   FOR EACH ROW EXECUTE FUNCTION doctors_search_vector_update();
 
 -- =============================================

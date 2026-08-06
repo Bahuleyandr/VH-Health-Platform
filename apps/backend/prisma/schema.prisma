@@ -4722,12 +4722,14 @@ model doctors {
   qualifications           String?
   max_appointments_per_day Int      @default(20)
   tenant_id                String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  search_vector            Unsupported("tsvector")? @default(dbgenerated("to_tsvector('english'::regconfig, ((((COALESCE((name)::text, ''::text) || ' '::text) || COALESCE((specialty)::text, ''::text)) || ' '::text) || COALESCE(qualifications, ''::text)))"))
   users                    users?   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
   tenants                  tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_doctors_tenant")
 
   @@index([department_id])
   @@index([is_available])
   @@index([age_range], map: "idx_doctors_age_range", where: raw("((age_range)::text <> 'all'::text)"))
+  @@index([search_vector], map: "idx_doctors_search", type: Gin)
   @@index([tenant_id], map: "idx_doctors_tenant_id")
 }
 
