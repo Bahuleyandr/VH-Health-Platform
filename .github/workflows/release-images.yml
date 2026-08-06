@@ -577,6 +577,8 @@ jobs:
             SENTRY_DSN=${{ secrets.SENTRY_DSN_STAFF }}
             SENTRY_ENVIRONMENT=${{ vars.SENTRY_ENVIRONMENT || 'production' }}
             SENTRY_RELEASE=${{ github.sha }}
+            VH_RECAPTCHA_SITE_KEY=${{ secrets.VH_RECAPTCHA_SITE_KEY }}
+            VH_FIREBASE_WEB_API_KEY=${{ secrets.VH_FIREBASE_WEB_API_KEY }}
 
       - name: Prune local Docker cache before release analysis
         run: |

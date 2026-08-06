@@ -38,6 +38,9 @@ jobs:
       PATIENT_ANDROID_KEY_ALIAS: ${{ secrets.PATIENT_ANDROID_KEY_ALIAS }}
       PATIENT_ANDROID_KEY_PASSWORD: ${{ secrets.PATIENT_ANDROID_KEY_PASSWORD }}
       PATIENT_ANDROID_STORE_PASSWORD: ${{ secrets.PATIENT_ANDROID_STORE_PASSWORD }}
+      VH_FIREBASE_WEB_API_KEY: ${{ secrets.VH_FIREBASE_WEB_API_KEY }}
+      VH_FIREBASE_ANDROID_API_KEY: ${{ secrets.VH_FIREBASE_ANDROID_API_KEY }}
+      VH_FIREBASE_IOS_API_KEY: ${{ secrets.VH_FIREBASE_IOS_API_KEY }}
     steps:
       - uses: actions/checkout@v6
 
@@ -143,6 +146,30 @@ jobs:
           fi
           echo "VH_TENANT_DEFINES=${defines}" >> "${GITHUB_ENV}"
 
+      # Rotated Firebase API keys are injected at build time from GitHub
+      # secrets (see docs/runbooks/FIREBASE_KEY_ROTATION.md). Only non-empty
+      # secrets are stamped: `--dart-define=VH_FIREBASE_..._API_KEY=` would
+      # override the committed fallback in firebase_options.dart with an empty
+      # string and break Firebase init, so an unset secret must leave the
+      # define absent entirely (same rule as the tenant stamp above).
+      - name: Resolve Firebase API key defines
+        run: |
+          set -euo pipefail
+          defines=''
+          for name in \
+            VH_FIREBASE_WEB_API_KEY \
+            VH_FIREBASE_ANDROID_API_KEY \
+            VH_FIREBASE_IOS_API_KEY
+          do
+            if [ -n "${!name:-}" ]; then
+              defines="${defines} --dart-define=${name}=${!name}"
+            fi
+          done
+          if [ -z "${defines}" ]; then
+            echo "::warning::No VH_FIREBASE_*_API_KEY secrets are set — this release bakes in the committed (pre-rotation) Firebase API keys from firebase_options.dart."
+          fi
+          echo "VH_FIREBASE_DEFINES=${defines}" >> "${GITHUB_ENV}"
+
       - name: Configure Android signing
         run: |
           set -euo pipefail
@@ -164,6 +191,7 @@ jobs:
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           ${VH_TENANT_DEFINES}
+          ${VH_FIREBASE_DEFINES}
 
       - name: Build release AAB
         working-directory: apps/patient
@@ -175,6 +203,7 @@ jobs:
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           ${VH_TENANT_DEFINES}
+          ${VH_FIREBASE_DEFINES}
 
       - uses: softprops/action-gh-release@v3
         with:

@@ -37,6 +37,9 @@ jobs:
       STAFF_ANDROID_KEY_ALIAS: ${{ secrets.STAFF_ANDROID_KEY_ALIAS }}
       STAFF_ANDROID_KEY_PASSWORD: ${{ secrets.STAFF_ANDROID_KEY_PASSWORD }}
       STAFF_ANDROID_STORE_PASSWORD: ${{ secrets.STAFF_ANDROID_STORE_PASSWORD }}
+      VH_FIREBASE_WEB_API_KEY: ${{ secrets.VH_FIREBASE_WEB_API_KEY }}
+      VH_FIREBASE_ANDROID_API_KEY: ${{ secrets.VH_FIREBASE_ANDROID_API_KEY }}
+      VH_FIREBASE_IOS_API_KEY: ${{ secrets.VH_FIREBASE_IOS_API_KEY }}
     steps:
       - uses: actions/checkout@v6
 
@@ -134,6 +137,30 @@ jobs:
           fi
           echo "VH_TENANT_DEFINES=${defines}" >> "${GITHUB_ENV}"
 
+      # Rotated Firebase API keys are injected at build time from GitHub
+      # secrets (see docs/runbooks/FIREBASE_KEY_ROTATION.md). Only non-empty
+      # secrets are stamped: `--dart-define=VH_FIREBASE_..._API_KEY=` would
+      # override the committed fallback in firebase_options.dart with an empty
+      # string and break Firebase init, so an unset secret must leave the
+      # define absent entirely (same rule as the tenant stamp above).
+      - name: Resolve Firebase API key defines
+        run: |
+          set -euo pipefail
+          defines=''
+          for name in \
+            VH_FIREBASE_WEB_API_KEY \
+            VH_FIREBASE_ANDROID_API_KEY \
+            VH_FIREBASE_IOS_API_KEY
+          do
+            if [ -n "${!name:-}" ]; then
+              defines="${defines} --dart-define=${name}=${!name}"
+            fi
+          done
+          if [ -z "${defines}" ]; then
+            echo "::warning::No VH_FIREBASE_*_API_KEY secrets are set — this release bakes in the committed (pre-rotation) Firebase API keys from firebase_options.dart."
+          fi
+          echo "VH_FIREBASE_DEFINES=${defines}" >> "${GITHUB_ENV}"
+
       - name: Configure Android signing
         run: |
           set -euo pipefail
@@ -155,6 +182,7 @@ jobs:
           --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           ${VH_TENANT_DEFINES}
+          ${VH_FIREBASE_DEFINES}
 
       - name: Build release AAB
         working-directory: apps/staff
@@ -166,6 +194,7 @@ jobs:
           --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
           ${VH_TENANT_DEFINES}
+          ${VH_FIREBASE_DEFINES}
 
       - uses: softprops/action-gh-release@v3
         with:
@@ -189,6 +218,9 @@ jobs:
       VH_TENANT_ID: ${{ vars.VH_TENANT_ID }}
       STAFF_CERT_PIN_HASHES: ${{ vars.STAFF_CERT_PIN_HASHES }}
       CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS: ${{ vars.CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS }}
+      # Windows Firebase options reuse the project web API key
+      # (firebase_options.dart maps windows -> VH_FIREBASE_WEB_API_KEY).
+      VH_FIREBASE_WEB_API_KEY: ${{ secrets.VH_FIREBASE_WEB_API_KEY }}
     steps:
       - uses: actions/checkout@v6
 
@@ -286,13 +318,20 @@ jobs:
             $tenantArgs += "--dart-define=VH_TENANT_SLUG=$env:VH_TENANT_SLUG"
             $tenantArgs += "--dart-define=VH_TENANT_ID=$env:VH_TENANT_ID"
           }
+          # Same rule as the Android job: never stamp an empty Firebase key
+          # define — it would override the committed fallback with ''.
+          $firebaseArgs = @()
+          if ($env:VH_FIREBASE_WEB_API_KEY) {
+            $firebaseArgs += "--dart-define=VH_FIREBASE_WEB_API_KEY=$env:VH_FIREBASE_WEB_API_KEY"
+          }
           flutter build windows --release `
             --dart-define=VH_BASE_URL="$env:VH_BASE_URL" `
             --dart-define=VH_API_KEY="$env:VH_API_KEY" `
             --dart-define=PRODUCTION=true `
             --dart-define=CERT_PIN_HASHES="$env:STAFF_CERT_PIN_HASHES" `
             --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="$env:CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS" `
-            @tenantArgs
+            @tenantArgs `
+            @firebaseArgs
 
       - name: Create unsigned MSIX
         working-directory: apps/staff

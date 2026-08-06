@@ -84,6 +84,16 @@ ARG APP_NAME="VH Health Staff"
 ARG SENTRY_DSN=
 ARG SENTRY_ENVIRONMENT=staff-web
 ARG SENTRY_RELEASE=
+# ReCaptcha v3 site key for Firebase App Check on staff web. Empty is safe:
+# main.dart skips App Check activation on web when the key is unset (the
+# dart-define default is ''), so no bogus attestation is attempted.
+# Provision via the Firebase console — see docs/runbooks/FIREBASE_KEY_ROTATION.md.
+ARG VH_RECAPTCHA_SITE_KEY=
+# Rotated Firebase web API key (see docs/runbooks/FIREBASE_KEY_ROTATION.md).
+# Injected conditionally below: an empty --dart-define would override the
+# committed fallback key in firebase_options.dart, so an unset build arg
+# must leave the define absent entirely.
+ARG VH_FIREBASE_WEB_API_KEY=
 
 WORKDIR /workspace/apps/staff
 
@@ -96,7 +106,9 @@ RUN flutter build web \
       --dart-define=APP_NAME="$APP_NAME" \
       --dart-define=SENTRY_DSN=$SENTRY_DSN \
       --dart-define=SENTRY_ENVIRONMENT=$SENTRY_ENVIRONMENT \
-      --dart-define=SENTRY_RELEASE=$SENTRY_RELEASE
+      --dart-define=SENTRY_RELEASE=$SENTRY_RELEASE \
+      --dart-define=VH_RECAPTCHA_SITE_KEY=$VH_RECAPTCHA_SITE_KEY \
+      ${VH_FIREBASE_WEB_API_KEY:+--dart-define=VH_FIREBASE_WEB_API_KEY=$VH_FIREBASE_WEB_API_KEY}
 
 # ---- Stage 2: asset isolation ----------------------------------------
 # Pure copy stage so the runner doesn't carry the Flutter SDK
