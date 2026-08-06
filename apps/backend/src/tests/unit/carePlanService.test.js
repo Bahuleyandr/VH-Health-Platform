@@ -31,10 +31,19 @@ jest.unstable_mockModule(
 // Care-plan clinical writes now emit a canonical timeline + audit event atomically
 // (recordCanonicalClinicalEvent). Stub it so the real writer does not run against
 // the raw-query mock and throw CANONICAL_TIMELINE_REQUIRED.
+//
+// The mock must also provide every named export any module in carePlanService's
+// UNMOCKED import graph pulls from this module — ESM linking fails on a missing
+// name even if the importer is never called. portalAccessService.js (reachable
+// via eventOutboxService → reliabilityMetrics → pathwayReconciliationRegistry →
+// pathwayReconciliationChecks) imports currentCanonicalTransactionRevision and
+// recordClinicalAuditEvent.
 jest.unstable_mockModule(
   '../../services/clinical/canonicalClinicalPlatformService.js',
   () => ({
     recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+    currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
+    recordClinicalAuditEvent: jest.fn(),
   }),
 );
 
