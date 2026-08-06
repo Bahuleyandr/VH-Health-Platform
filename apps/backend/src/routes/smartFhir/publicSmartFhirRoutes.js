@@ -9,6 +9,7 @@ import {
   revokeTokenByValue,
 } from '../../services/smartFhir/smartOAuthService.js';
 import { resolveTenantForRequest } from '../../services/tenant/tenantService.js';
+import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
 
 const router = express.Router();
 
@@ -44,6 +45,12 @@ function appendAuthorizationCodeRedirect(redirectUri, { code, state }) {
 }
 
 router.use(publicSmartTenant);
+// Seed the AsyncLocalStorage tenant context (audit / cross-tenant fix,
+// defense-in-depth): this router is mounted pre-auth, BEFORE the global
+// tenantRlsMiddleware, so its prisma calls previously ran outside any tenant
+// context and the prod auto-setTenant wrap never fired. publicSmartTenant has
+// just set req.tenantId, which is all tenantRlsMiddleware needs.
+router.use(tenantRlsMiddleware);
 
 router.get('/.well-known/smart-configuration', (req, res) => {
   const base = fhirBaseUrl(req);

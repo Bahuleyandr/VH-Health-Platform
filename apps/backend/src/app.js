@@ -391,6 +391,12 @@ publicSmartFhirResourceRouter.use((req, _res, next) => {
 publicSmartFhirResourceRouter.use(
   smartFhirRateLimiter,
   publicSmartFhirTenantContext,
+  // Seed the AsyncLocalStorage tenant context (audit / cross-tenant fix): this
+  // public SMART-token path is mounted BEFORE the global tenantRlsMiddleware at
+  // the authenticated block, so its prisma calls previously ran with no tenant
+  // context and the prod auto-setTenant wrap never fired. It only needs
+  // req.tenantId, which publicSmartFhirTenantContext sets just above.
+  tenantRlsMiddleware,
   fhirPatientContext,
   requireFhirSearchPatientContext,
   phiAccessLogger('FHIR_RESOURCE'),
