@@ -10,7 +10,9 @@
 // The fix resolves the patient's (or consent's) tenant from the matched record
 // and runs every read/write under setTenant(tenant, …) with explicit tenant_id.
 // A multi-tenant ABHA match is rejected deterministically rather than silently
-// defaulting.
+// defaulting. Guard-now / retire-later (2026-08-06): the legacy non-strict
+// (env default-secret) path is further confined to DEFAULT-tenant patients —
+// any other resolved tenant now requires the strict per-tenant callback route.
 //
 // These tests call the service methods directly (the route wiring + HMAC are
 // covered by abdm-callback-replay-and-ratelimit; here we isolate the tenant
@@ -19,6 +21,7 @@
 import crypto from 'crypto';
 import prisma from '../lib/prisma.js';
 import abdmService from '../services/abdm/abdmService.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -29,11 +32,18 @@ const PATIENT_B = 'ab100000-0000-4000-8000-0000000007b1';
 const PATIENT_C = 'ab100000-0000-4000-8000-0000000007c1';
 const ABHA_UNIQUE = '11-1111-1111-1111';   // only in tenant B
 const ABHA_DUP = '22-2222-2222-2222';       // in BOTH tenant B and C
+const ABHA_DEFAULT = '33-3333-3333-3333';   // only in the platform DEFAULT tenant
 const PHONE_B = '+919000010b01';
 const PHONE_C = '+919000010c01';
+const PHONE_D = '+919000010d01';
+const PATIENT_D = 'ab100000-0000-4000-8000-0000000007d1'; // DEFAULT tenant
 const CONSENT_ID = 'ab100000-consent-0000-0000-00000000c1';
+const CONSENT_ID_LEGACY = 'ab100000-consent-0000-0000-00000000c2';
+const CONSENT_ID_DEFAULT = 'ab100000-consent-0000-0000-00000000c3';
 const SIGNED_CONSENT_ID = 'ab100000-signed-consent-0000-00000000c1';
 const TXN_ID = 'ab100000-txn-0000-0000-00000000f1';
+const TXN_LEGACY = 'ab100000-txn-0000-0000-00000000f2';
+const TXN_DEFAULT = 'ab100000-txn-0000-0000-00000000f3';
 // Consent expiry must stay ahead of the run date: handleDataRequest
 // hard-expires the consent (CONSENT_EXPIRED) once expiry_date < NOW(),
 // which would shadow the tenant-binding assertions below.
@@ -73,10 +83,13 @@ function signArtefact(payload) {
 }
 
 async function cleanup() {
-  await prisma.$executeRawUnsafe(`DELETE FROM abdm_data_requests WHERE transaction_id = $1`, TXN_ID).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM abdm_consents WHERE consent_id IN ($1, $2, $3)`,
-    CONSENT_ID, `${CONSENT_ID}-dup`, SIGNED_CONSENT_ID,
+    `DELETE FROM abdm_data_requests WHERE transaction_id IN ($1, $2, $3)`,
+    TXN_ID, TXN_LEGACY, TXN_DEFAULT,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM abdm_consents WHERE consent_id IN ($1, $2, $3, $4, $5)`,
+    CONSENT_ID, `${CONSENT_ID}-dup`, SIGNED_CONSENT_ID, CONSENT_ID_LEGACY, CONSENT_ID_DEFAULT,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM interop_replay_guard WHERE namespace = $1 AND request_id = $2`,
@@ -88,8 +101,8 @@ async function cleanup() {
   // across runs (users.phone is globally unique → next run 23505). Also delete by
   // the test ABHAs + B2's phone.
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid) OR abha_number IN ($3, $4) OR phone = $5`,
-    PATIENT_B, PATIENT_C, ABHA_UNIQUE, ABHA_DUP, '+919000010b02',
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid) OR abha_number IN ($4, $5, $6) OR phone IN ($7, $8)`,
+    PATIENT_B, PATIENT_C, PATIENT_D, ABHA_UNIQUE, ABHA_DUP, ABHA_DEFAULT, '+919000010b02', PHONE_D,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id IN ($1::uuid, $2::uuid)`, TENANT_B, TENANT_C).catch(() => {});
 }
@@ -123,6 +136,13 @@ d('ABDM inbound tenant binding (C-4)', () => {
        VALUES (gen_random_uuid(), $1::uuid, $2, 'ABDM Patient B2', 'PATIENT', $3, true, NOW())`,
       TENANT_B, '+919000010b02', ABHA_DUP,
     );
+    // Patient D lives in the platform DEFAULT tenant — the only population the
+    // legacy default-secret (non-strict) callback path may still serve.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'ABDM Patient D', 'PATIENT', $4, true, NOW())`,
+      PATIENT_D, DEFAULT_TENANT_ID, PHONE_D, ABHA_DEFAULT,
+    );
     // A prescription for patient B, explicitly IN TENANT B (a plain insert would
     // land in the default tenant via the GUC-reading column default, so we set
     // tenant_id here to actually exercise the export's tenant-scoping).
@@ -142,6 +162,9 @@ d('ABDM inbound tenant binding (C-4)', () => {
     process.env.ABDM_VERIFY_CONSENT_ARTEFACT = 'false';
     let consent;
     try {
+      // Guard-now (2026-08-06): a NON-default-tenant patient must arrive on the
+      // sanctioned strict per-tenant path — the legacy non-strict path is now
+      // default-tenant-only (covered below).
       consent = await abdmService.handleConsentRequest({
         consentRequestId: CONSENT_ID,
         purpose: 'CAREMGT',
@@ -151,7 +174,7 @@ d('ABDM inbound tenant binding (C-4)', () => {
         requester: { name: 'Test HIU' },
         dateRange: { from: '2026-01-01', to: '2026-12-31' },
         expiry: CONSENT_EXPIRY,
-      });
+      }, { callbackTenantId: TENANT_B, strict: true });
     } finally {
       restoreEnv('ABDM_VERIFY_CONSENT_ARTEFACT', previousVerification);
     }
@@ -215,8 +238,8 @@ d('ABDM inbound tenant binding (C-4)', () => {
 
     try {
       const attempts = await Promise.allSettled([
-        abdmService.handleConsentRequest(request),
-        abdmService.handleConsentRequest(request),
+        abdmService.handleConsentRequest(request, { callbackTenantId: TENANT_B, strict: true }),
+        abdmService.handleConsentRequest(request, { callbackTenantId: TENANT_B, strict: true }),
       ]);
       const accepted = attempts.filter((attempt) => attempt.status === 'fulfilled');
       const rejected = attempts.filter((attempt) => attempt.status === 'rejected');
@@ -324,7 +347,7 @@ d('ABDM inbound tenant binding (C-4)', () => {
         expiry: artefact.permission.dataEraseAt,
         consentArtefact: artefact,
         signature: signArtefact(serialized),
-      })).rejects.toBeDefined();
+      }, { callbackTenantId: TENANT_B, strict: true })).rejects.toBeDefined();
 
       const claims = await prisma.$queryRawUnsafe(
         `SELECT count(*)::int AS n FROM interop_replay_guard
@@ -361,7 +384,7 @@ d('ABDM inbound tenant binding (C-4)', () => {
       dateRange: { from: '2026-01-01', to: '2026-12-31' },
       keyMaterial: null, // no key → _processDataRequest fails closed AFTER the row is written
       dataPushUrl: null,
-    });
+    }, { callbackTenantId: TENANT_B, strict: true });
     expect(result.transaction_id).toBe(TXN_ID);
 
     const rows = await prisma.$queryRawUnsafe(
@@ -372,6 +395,122 @@ d('ABDM inbound tenant binding (C-4)', () => {
     expect(rows.length).toBe(1);
     expect(rows[0].tenant_id).toBe(TENANT_B);
     expect(rows[0].patient_uid).toBe(PATIENT_B);
+  });
+
+  // Guard-now / retire-later (2026-08-06): the env-backed default callback
+  // secret (non-strict) keeps working unchanged for DEFAULT-tenant patients
+  // and refuses any other resolved tenant with
+  // ABDM_DEFAULT_SECRET_TENANT_FORBIDDEN, before any write.
+  test('guard-now: a legacy default-secret consent request refuses a non-default-tenant patient', async () => {
+    const previousVerification = process.env.ABDM_VERIFY_CONSENT_ARTEFACT;
+    process.env.ABDM_VERIFY_CONSENT_ARTEFACT = 'false';
+    try {
+      await expect(
+        abdmService.handleConsentRequest({
+          consentRequestId: CONSENT_ID_LEGACY,
+          purpose: 'CAREMGT',
+          hiTypes: ['Prescription'],
+          patient: { id: ABHA_UNIQUE }, // resolves to tenant B
+          hiu: { id: 'HIU-TEST' },
+          requester: { name: 'Test HIU' },
+          dateRange: { from: '2026-01-01', to: '2026-12-31' },
+          expiry: CONSENT_EXPIRY,
+        }), // no opts → legacy non-strict default-secret path
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: 'ABDM_DEFAULT_SECRET_TENANT_FORBIDDEN',
+      });
+    } finally {
+      restoreEnv('ABDM_VERIFY_CONSENT_ARTEFACT', previousVerification);
+    }
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM abdm_consents WHERE consent_id = $1`,
+      CONSENT_ID_LEGACY,
+    );
+    expect(rows[0].n).toBe(0); // nothing written
+  });
+
+  test('guard-now: a legacy default-secret data request refuses a non-default-tenant consent', async () => {
+    // CONSENT_ID was moved to GRANTED in tenant B by the previous test — a
+    // GRANTED consent named on the legacy non-strict path must still refuse.
+    await expect(
+      abdmService.handleDataRequest({
+        transactionId: TXN_LEGACY,
+        consentId: CONSENT_ID,
+        hiTypes: ['Prescription'],
+        dateRange: { from: '2026-01-01', to: '2026-12-31' },
+        keyMaterial: null,
+        dataPushUrl: null,
+      }), // no opts → legacy non-strict default-secret path
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'ABDM_DEFAULT_SECRET_TENANT_FORBIDDEN',
+    });
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM abdm_data_requests WHERE transaction_id = $1`,
+      TXN_LEGACY,
+    );
+    expect(rows[0].n).toBe(0); // nothing written
+  });
+
+  test('the legacy default-secret path still serves a DEFAULT-tenant patient unchanged', async () => {
+    const previousVerification = process.env.ABDM_VERIFY_CONSENT_ARTEFACT;
+    process.env.ABDM_VERIFY_CONSENT_ARTEFACT = 'false';
+    let consent;
+    try {
+      consent = await abdmService.handleConsentRequest({
+        consentRequestId: CONSENT_ID_DEFAULT,
+        purpose: 'CAREMGT',
+        hiTypes: ['Prescription'],
+        patient: { id: ABHA_DEFAULT }, // resolves to the DEFAULT tenant
+        hiu: { id: 'HIU-TEST' },
+        requester: { name: 'Test HIU' },
+        dateRange: { from: '2026-01-01', to: '2026-12-31' },
+        expiry: CONSENT_EXPIRY,
+      }); // no opts → legacy non-strict default-secret path
+    } finally {
+      restoreEnv('ABDM_VERIFY_CONSENT_ARTEFACT', previousVerification);
+    }
+    expect(consent.consent_id).toBe(CONSENT_ID_DEFAULT);
+
+    const consentRows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id::text AS tenant_id, patient_uid::text AS patient_uid
+         FROM abdm_consents WHERE consent_id = $1`,
+      CONSENT_ID_DEFAULT,
+    );
+    expect(consentRows.length).toBe(1);
+    expect(consentRows[0].tenant_id).toBe(DEFAULT_TENANT_ID);
+    expect(consentRows[0].patient_uid).toBe(PATIENT_D);
+
+    // Grant it, then prove the legacy data-request path also still works for
+    // the DEFAULT tenant.
+    await prisma.$executeRawUnsafe(
+      `UPDATE abdm_consents SET status = 'GRANTED', granted_at = NOW(),
+              date_range_from = '2026-01-01'::timestamptz, date_range_to = '2026-12-31'::timestamptz
+        WHERE consent_id = $1`,
+      CONSENT_ID_DEFAULT,
+    );
+
+    const result = await abdmService.handleDataRequest({
+      transactionId: TXN_DEFAULT,
+      consentId: CONSENT_ID_DEFAULT,
+      hiTypes: ['Prescription'],
+      dateRange: { from: '2026-01-01', to: '2026-12-31' },
+      keyMaterial: null, // no key → fails closed AFTER the row is written
+      dataPushUrl: null,
+    }); // no opts → legacy non-strict default-secret path
+    expect(result.transaction_id).toBe(TXN_DEFAULT);
+
+    const requestRows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id::text AS tenant_id, patient_uid::text AS patient_uid
+         FROM abdm_data_requests WHERE transaction_id = $1`,
+      TXN_DEFAULT,
+    );
+    expect(requestRows.length).toBe(1);
+    expect(requestRows[0].tenant_id).toBe(DEFAULT_TENANT_ID);
+    expect(requestRows[0].patient_uid).toBe(PATIENT_D);
   });
 
   test('collectHealthData scoped to the tenant returns only that tenant\'s rows', async () => {

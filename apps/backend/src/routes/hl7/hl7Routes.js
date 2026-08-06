@@ -155,8 +155,9 @@ async function assertHl7InboundAuthentic(req, {
   }
   // CAN-021: a per-tenant inbound secret authenticates a SPECIFIC tenant's feed,
   // so the named patient MUST belong to that tenant (strict). The shared-secret
-  // fallback is the legacy single-tenant/default path and writes to the
-  // patient's own resolved tenant (not strict) — see hl7-receive-tenant-binding.
+  // fallback is the legacy single-tenant/default path (not strict) and is now
+  // confined to DEFAULT-tenant patients — see loadHl7Patient and
+  // hl7-receive-tenant-binding.
   let strictTenant = !!(tenantId && secret);
   if (!recoveryAuthentication && !secret && process.env.HL7_INBOUND_SHARED_SECRET) {
     const configuredFacility = String(process.env.HL7_RECEIVING_FACILITY || '').trim();
@@ -260,6 +261,15 @@ async function loadHl7Patient(patientUid, authenticatedTenantId, strictTenant) {
   // tenant-B patient. Refuse the mismatch (handler returns the same "not
   // registered at this facility" AE as an unknown patient).
   if (strictTenant && row && String(row.tenant_id) !== String(authenticatedTenantId)) return null;
+  // Guard-now / retire-later (2026-08-06): the HL7_INBOUND_SHARED_SECRET
+  // fallback (non-strict) is ONE env-wide credential, so it may only vouch for
+  // the legacy single-tenant (DEFAULT) population. It used to authenticate
+  // messages for ANY tenant's patients (writes landed in the patient's own
+  // tenant); now a patient in any other tenant must arrive via that tenant's
+  // per-tenant inbound secret. Refuse here — before any write — with the same
+  // "not registered" AE as an unknown patient (no tenant oracle). Retiring the
+  // shared-secret fallback entirely is the follow-up.
+  if (!strictTenant && row && String(row.tenant_id) !== String(DEFAULT_TENANT_ID)) return null;
   return row;
 }
 

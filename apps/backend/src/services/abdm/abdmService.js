@@ -8,6 +8,7 @@ import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { encryptFhirBundle } from './abdmCrypto.js';
 import abdmGateway from './abdmGateway.js';
 
@@ -622,6 +623,18 @@ class ABDMService {
     if (strict && (!callbackTenantId || String(callbackTenantId) !== String(tenantId))) {
       throw consentBindingMismatch(['tenant']);
     }
+    // Guard-now / retire-later (2026-08-06): the env-backed default callback
+    // secret (strict === false) is the legacy single-tenant credential. It
+    // keeps working unchanged for DEFAULT-tenant patients, but must no longer
+    // bind a consent into any other ABHA-resolved tenant — per-tenant callback
+    // secrets (strict) are the sanctioned multi-tenant route. Retiring the
+    // default-secret path entirely is the follow-up.
+    if (!strict && String(tenantId) !== String(DEFAULT_TENANT_ID)) {
+      throw AppError.forbidden(
+        'Legacy default callback secret cannot bind a consent outside the default tenant',
+        'ABDM_DEFAULT_SECRET_TENANT_FORBIDDEN',
+      );
+    }
 
     // Everything below runs scoped to the patient's tenant so the abdm_consents
     // insert is RLS-checked into THAT tenant (the GUC-reading column default
@@ -913,6 +926,19 @@ class ABDMService {
       throw AppError.forbidden(
         'Consent tenant does not match the authenticated callback tenant',
         'ABDM_CONSENT_TENANT_MISMATCH',
+      );
+    }
+    // Guard-now / retire-later (2026-08-06): the env-backed default callback
+    // secret (opts.strict false) may no longer export PHI for a consent bound
+    // to any non-DEFAULT tenant — the legacy single-tenant behavior survives
+    // only for DEFAULT-tenant consents. Per-tenant callback secrets (strict)
+    // are the sanctioned multi-tenant route; retiring the default-secret path
+    // entirely is the follow-up. Refused before any write (including the
+    // expiry status flip below).
+    if (!opts.strict && String(tenantId) !== String(DEFAULT_TENANT_ID)) {
+      throw AppError.forbidden(
+        'Legacy default callback secret cannot export data for a consent outside the default tenant',
+        'ABDM_DEFAULT_SECRET_TENANT_FORBIDDEN',
       );
     }
 
