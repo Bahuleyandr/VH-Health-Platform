@@ -17,6 +17,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { publishOpChildResourceLinkedTx } from '../appointment/opChildResourceEventService.js';
 import { recordAppointmentCreatedEvidenceTx } from '../appointment/appointmentLifecycleService.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -272,6 +273,80 @@ function normalizeIntArray(value, label, { min = 0, max = 1_000_000 } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Canonical clinical timeline / audit emission
+// ---------------------------------------------------------------------------
+
+// Build the timeline + audit idempotency-key pair for a care-plan detail row.
+// Insert-once creation sites use `created`; the amendable transition site
+// includes the target status + row timestamp so a repeat transition to the same
+// status is not silently absorbed by the ON CONFLICT (idempotency_key) writer.
+function canonicalKeys(sourceTable, sourceId, suffix) {
+  return {
+    timelineIdempotencyKey: `${sourceTable}:${sourceId}:${suffix}`,
+    auditIdempotencyKey: `${sourceTable}:${sourceId}:audit:${suffix}`,
+  };
+}
+
+// Emit the canonical clinical timeline + audit event for a care-plan clinical
+// write, ATOMIC with the detail-row write it accompanies
+// (docs/CANONICAL_CLINICAL_TIMELINE.md). Always called with the enclosing
+// transaction handle (`tx`): recordCanonicalClinicalEvent then requires both the
+// timeline and audit rows, narrows its swallow to the canonical-table-absent
+// (SQLSTATE 42P01) case, and re-throws every other fault — so a genuine
+// canonical failure aborts the caller's tx and the detail write rolls back
+// rather than leaving a detail row with no timeline/audit row.
+function emitCarePlanCanonicalEvent(tx, {
+  tenantId,
+  patientUid,
+  eventType,
+  eventStatus = null,
+  sourceTable,
+  sourceId,
+  resourceType,
+  actorUid = null,
+  actorRole = null,
+  summary,
+  payload = {},
+  beforeState = null,
+  afterState = null,
+  tags = ['care_plan'],
+  keySuffix = 'created',
+}) {
+  if (!patientUid || sourceId === null || sourceId === undefined) return null;
+  const id = String(sourceId);
+  return recordCanonicalClinicalEvent({
+    tenantId,
+    patientUid,
+    eventType,
+    eventStatus,
+    sourceTable,
+    sourceId: id,
+    resourceType,
+    resourceId: id,
+    actorUid,
+    actorRole,
+    summary,
+    payload,
+    beforeState,
+    afterState,
+    tags,
+    ...canonicalKeys(sourceTable, id, keySuffix),
+  }, { db: tx });
+}
+
+// Resolve the care plan's owning patient inside the same tx — care_plan_goals
+// and care_plan_activities carry a nullable patient_uid, but care_plans.patient_uid
+// is always set (createCarePlan requires it), so the timeline event can always
+// be attributed to a patient.
+async function resolveCarePlanPatientUid(db, tenantId, carePlanId) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT patient_uid FROM care_plans WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    carePlanId, tenantId,
+  );
+  return rows[0]?.patient_uid || null;
+}
+
+// ---------------------------------------------------------------------------
 // care_plans
 // ---------------------------------------------------------------------------
 
@@ -306,50 +381,74 @@ export async function createCarePlan({
   const cleanName = safeText(displayName, SHORT_MAX);
   if (!cleanName) throw AppError.badRequest('display_name is required');
 
+  const actorUid = maybeUuid(createdBy, 'created_by');
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO care_plans
-         (tenant_id, patient_uid, plan_kind, primary_condition, primary_condition_icd10,
-          display_name, description, status,
-          start_date, target_end_date,
-          primary_doctor_uid, care_team_role, encounter_id, facility_id,
-          is_patient_visible, metadata, created_by)
-       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8,
-               $9::date, $10::date,
-               $11::uuid, $12, $13, $14,
-               $15, $16::jsonb, $17::uuid)
-       RETURNING ${PLAN_RETURNING}`,
-      tid, cleanUid,
-      normalizeEnum(planKind, PLAN_KINDS, 'plan_kind') || 'general',
-      safeText(primaryCondition, SHORT_MAX),
-      safeText(primaryConditionIcd10, 20),
-      cleanName, safeText(description),
-      normalizeEnum(status, PLAN_STATUSES, 'status') || 'draft',
-      normalizeDate(startDate, 'start_date'),
-      normalizeDate(targetEndDate, 'target_end_date'),
-      maybeUuid(primaryDoctorUid, 'primary_doctor_uid'),
-      safeText(careTeamRole, 80),
-      encounterId ? normalizeId(encounterId, 'encounter_id') : null,
-      facilityId ? normalizeId(facilityId, 'facility_id') : null,
-      normalizeBoolean(isPatientVisible, false),
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-      maybeUuid(createdBy, 'created_by'),
-    );
-    const plan = rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO care_plans
+           (tenant_id, patient_uid, plan_kind, primary_condition, primary_condition_icd10,
+            display_name, description, status,
+            start_date, target_end_date,
+            primary_doctor_uid, care_team_role, encounter_id, facility_id,
+            is_patient_visible, metadata, created_by)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8,
+                 $9::date, $10::date,
+                 $11::uuid, $12, $13, $14,
+                 $15, $16::jsonb, $17::uuid)
+         RETURNING ${PLAN_RETURNING}`,
+        tid, cleanUid,
+        normalizeEnum(planKind, PLAN_KINDS, 'plan_kind') || 'general',
+        safeText(primaryCondition, SHORT_MAX),
+        safeText(primaryConditionIcd10, 20),
+        cleanName, safeText(description),
+        normalizeEnum(status, PLAN_STATUSES, 'status') || 'draft',
+        normalizeDate(startDate, 'start_date'),
+        normalizeDate(targetEndDate, 'target_end_date'),
+        maybeUuid(primaryDoctorUid, 'primary_doctor_uid'),
+        safeText(careTeamRole, 80),
+        encounterId ? normalizeId(encounterId, 'encounter_id') : null,
+        facilityId ? normalizeId(facilityId, 'facility_id') : null,
+        normalizeBoolean(isPatientVisible, false),
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+        actorUid,
+      );
+      const plan = rows[0];
 
-    // Append a 'created' review-log row best-effort.
-    try {
-      await prisma.$queryRawUnsafe(
+      // Append the 'created' review-log row atomically with the plan (was a
+      // separate best-effort insert on plain prisma before the canonical fix).
+      await tx.$queryRawUnsafe(
         `INSERT INTO care_plan_review_log
            (tenant_id, care_plan_id, reviewer_uid, event_kind, notes, payload)
          VALUES ($1::uuid, $2, $3::uuid, 'created', $4, $5::jsonb)`,
-        tid, plan.id, maybeUuid(createdBy, 'created_by'),
+        tid, plan.id, actorUid,
         cleanName, JSON.stringify({ plan_kind: plan.plan_kind, status: plan.status }),
       );
-    } catch (err) {
-      if (!isMissingSchemaError(err)) throw err;
-    }
-    return plan;
+
+      // Canonical clinical timeline + audit — atomic with the plan write.
+      await emitCarePlanCanonicalEvent(tx, {
+        tenantId: tid,
+        patientUid: plan.patient_uid,
+        eventType: 'care_plan.created',
+        eventStatus: plan.status,
+        sourceTable: 'care_plans',
+        sourceId: plan.id,
+        resourceType: 'care_plan',
+        actorUid,
+        summary: `Care plan created: ${plan.display_name || cleanName}`,
+        payload: {
+          care_plan_id: plan.id,
+          plan_kind: plan.plan_kind,
+          status: plan.status,
+          primary_condition: plan.primary_condition || null,
+          primary_doctor_uid: plan.primary_doctor_uid || null,
+          is_patient_visible: plan.is_patient_visible,
+        },
+        afterState: { status: plan.status },
+        keySuffix: 'created',
+      });
+
+      return plan;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
@@ -471,38 +570,63 @@ export async function transitionCarePlan({
   params.push(planId);
   params.push(tid);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE care_plans SET ${updates.join(', ')}
-     WHERE id = $${params.length - 1} AND tenant_id = $${params.length}::uuid
-     RETURNING ${PLAN_RETURNING}`,
-    ...params,
-  );
-  if (!rows[0]) throw AppError.notFound('Care plan not found');
+  const actorUid = maybeUuid(reviewerUid, 'reviewer_uid');
+  const eventKind = (() => {
+    if (cleanNext === 'paused') return 'paused';
+    if (cleanNext === 'active' && current.status === 'paused') return 'resumed';
+    if (cleanNext === 'completed') return 'completed';
+    if (cleanNext === 'cancelled') return 'cancelled';
+    if (cleanNext === 'superseded') return 'superseded';
+    return 'updated';
+  })();
 
-  // Log the event.
-  try {
-    const eventKind = (() => {
-      if (cleanNext === 'paused') return 'paused';
-      if (cleanNext === 'active' && current.status === 'paused') return 'resumed';
-      if (cleanNext === 'completed') return 'completed';
-      if (cleanNext === 'cancelled') return 'cancelled';
-      if (cleanNext === 'superseded') return 'superseded';
-      return 'updated';
-    })();
-    await prisma.$queryRawUnsafe(
+  return setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE care_plans SET ${updates.join(', ')}
+       WHERE id = $${params.length - 1} AND tenant_id = $${params.length}::uuid
+       RETURNING ${PLAN_RETURNING}`,
+      ...params,
+    );
+    if (!rows[0]) throw AppError.notFound('Care plan not found');
+    const updated = rows[0];
+
+    // Log the transition atomically with the status change.
+    await tx.$queryRawUnsafe(
       `INSERT INTO care_plan_review_log
          (tenant_id, care_plan_id, reviewer_uid, event_kind, notes, payload)
        VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6::jsonb)`,
-      tid, planId,
-      maybeUuid(reviewerUid, 'reviewer_uid'),
-      eventKind,
+      tid, planId, actorUid, eventKind,
       safeText(notes),
       JSON.stringify({ from: current.status, to: cleanNext }),
     );
-  } catch (err) {
-    if (!isMissingSchemaError(err)) throw err;
-  }
-  return rows[0];
+
+    // Canonical clinical timeline + audit — atomic with the transition. A care
+    // plan is amendable (multiple transitions per row), so the key carries the
+    // target status + row timestamp per the idempotency-key discipline.
+    await emitCarePlanCanonicalEvent(tx, {
+      tenantId: tid,
+      patientUid: updated.patient_uid,
+      eventType: 'care_plan.transitioned',
+      eventStatus: cleanNext,
+      sourceTable: 'care_plans',
+      sourceId: updated.id,
+      resourceType: 'care_plan',
+      actorUid,
+      summary: `Care plan ${current.status} -> ${cleanNext}`,
+      payload: {
+        care_plan_id: updated.id,
+        from: current.status,
+        to: cleanNext,
+        event_kind: eventKind,
+        notes: safeText(notes),
+      },
+      beforeState: { status: current.status },
+      afterState: { status: cleanNext },
+      keySuffix: `transitioned:${cleanNext}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    });
+
+    return updated;
+  });
 }
 
 export async function setCarePlanVisibility({
@@ -564,25 +688,54 @@ export async function createGoal({
   if (!cleanDescription) throw AppError.badRequest('description is required');
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO care_plan_goals
-         (tenant_id, care_plan_id, patient_uid, goal_kind, description,
-          measurement_label, measurement_unit,
-          baseline_value, target_value, current_value,
-          target_due_date, priority, status, metadata)
-       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
-               $11::date, $12, 'planned', $13::jsonb)
-       RETURNING ${GOAL_RETURNING}`,
-      tid, planId, maybeUuid(patientUid, 'patient_uid'),
-      normalizeEnum(goalKind, GOAL_KINDS, 'goal_kind') || 'clinical_target',
-      cleanDescription,
-      safeText(measurementLabel, 120), safeText(measurementUnit, 40),
-      safeText(baselineValue, 120), safeText(targetValue, 120), safeText(currentValue, 120),
-      normalizeDate(targetDueDate, 'target_due_date'),
-      normalizeEnum(priority, PRIORITIES, 'priority') || 'normal',
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO care_plan_goals
+           (tenant_id, care_plan_id, patient_uid, goal_kind, description,
+            measurement_label, measurement_unit,
+            baseline_value, target_value, current_value,
+            target_due_date, priority, status, metadata)
+         VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
+                 $11::date, $12, 'planned', $13::jsonb)
+         RETURNING ${GOAL_RETURNING}`,
+        tid, planId, maybeUuid(patientUid, 'patient_uid'),
+        normalizeEnum(goalKind, GOAL_KINDS, 'goal_kind') || 'clinical_target',
+        cleanDescription,
+        safeText(measurementLabel, 120), safeText(measurementUnit, 40),
+        safeText(baselineValue, 120), safeText(targetValue, 120), safeText(currentValue, 120),
+        normalizeDate(targetDueDate, 'target_due_date'),
+        normalizeEnum(priority, PRIORITIES, 'priority') || 'normal',
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const goal = rows[0];
+
+      // Canonical clinical timeline + audit — atomic with the goal write. The
+      // goal's patient_uid is nullable; fall back to the owning care plan.
+      const goalPatientUid = goal.patient_uid
+        || await resolveCarePlanPatientUid(tx, tid, planId);
+      await emitCarePlanCanonicalEvent(tx, {
+        tenantId: tid,
+        patientUid: goalPatientUid,
+        eventType: 'care_plan.goal.created',
+        eventStatus: goal.status,
+        sourceTable: 'care_plan_goals',
+        sourceId: goal.id,
+        resourceType: 'care_plan_goal',
+        summary: `Care plan goal added: ${(goal.description || '').slice(0, 120)}`,
+        payload: {
+          care_plan_id: planId,
+          care_plan_goal_id: goal.id,
+          goal_kind: goal.goal_kind,
+          status: goal.status,
+          priority: goal.priority,
+        },
+        afterState: { status: goal.status },
+        tags: ['care_plan', 'goal'],
+        keySuffix: 'created',
+      });
+
+      return goal;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid care_plan_id');
     throw err;
@@ -695,37 +848,68 @@ export async function createActivity({
   if (!cleanTitle) throw AppError.badRequest('title is required');
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO care_plan_activities
-         (tenant_id, care_plan_id, related_goal_id, patient_uid,
-          activity_kind, title, description,
-          schedule_kind, schedule_payload, scheduled_start, scheduled_end, next_due_at,
-          assigned_to_uid, assigned_to_role, status, expected_count,
-          is_patient_facing, task_id, metadata)
-       VALUES ($1::uuid, $2, $3, $4::uuid,
-               $5, $6, $7,
-               $8, $9::jsonb, $10::timestamptz, $11::timestamptz, $12::timestamptz,
-               $13::uuid, $14, 'planned', $15,
-               $16, $17, $18::jsonb)
-       RETURNING ${ACTIVITY_RETURNING}`,
-      tid, planId,
-      relatedGoalId ? normalizeId(relatedGoalId, 'related_goal_id') : null,
-      maybeUuid(patientUid, 'patient_uid'),
-      normalizeEnum(activityKind, ACTIVITY_KINDS, 'activity_kind') || 'task',
-      cleanTitle, safeText(description),
-      normalizeEnum(scheduleKind, ACTIVITY_SCHEDULES, 'schedule_kind') || 'one_time',
-      JSON.stringify(normalizeJsonObject(schedulePayload, 'schedule_payload')),
-      normalizeTimestamp(scheduledStart, 'scheduled_start'),
-      normalizeTimestamp(scheduledEnd, 'scheduled_end'),
-      normalizeTimestamp(nextDueAt, 'next_due_at'),
-      maybeUuid(assignedToUid, 'assigned_to_uid'),
-      safeText(assignedToRole, 80),
-      normalizeInt(expectedCount, 'expected_count', { min: 0, max: 10000 }),
-      normalizeBoolean(isPatientFacing, true),
-      taskId ? normalizeId(taskId, 'task_id') : null,
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
-    );
-    return rows[0];
+    return await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO care_plan_activities
+           (tenant_id, care_plan_id, related_goal_id, patient_uid,
+            activity_kind, title, description,
+            schedule_kind, schedule_payload, scheduled_start, scheduled_end, next_due_at,
+            assigned_to_uid, assigned_to_role, status, expected_count,
+            is_patient_facing, task_id, metadata)
+         VALUES ($1::uuid, $2, $3, $4::uuid,
+                 $5, $6, $7,
+                 $8, $9::jsonb, $10::timestamptz, $11::timestamptz, $12::timestamptz,
+                 $13::uuid, $14, 'planned', $15,
+                 $16, $17, $18::jsonb)
+         RETURNING ${ACTIVITY_RETURNING}`,
+        tid, planId,
+        relatedGoalId ? normalizeId(relatedGoalId, 'related_goal_id') : null,
+        maybeUuid(patientUid, 'patient_uid'),
+        normalizeEnum(activityKind, ACTIVITY_KINDS, 'activity_kind') || 'task',
+        cleanTitle, safeText(description),
+        normalizeEnum(scheduleKind, ACTIVITY_SCHEDULES, 'schedule_kind') || 'one_time',
+        JSON.stringify(normalizeJsonObject(schedulePayload, 'schedule_payload')),
+        normalizeTimestamp(scheduledStart, 'scheduled_start'),
+        normalizeTimestamp(scheduledEnd, 'scheduled_end'),
+        normalizeTimestamp(nextDueAt, 'next_due_at'),
+        maybeUuid(assignedToUid, 'assigned_to_uid'),
+        safeText(assignedToRole, 80),
+        normalizeInt(expectedCount, 'expected_count', { min: 0, max: 10000 }),
+        normalizeBoolean(isPatientFacing, true),
+        taskId ? normalizeId(taskId, 'task_id') : null,
+        JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      );
+      const activity = rows[0];
+
+      // Canonical clinical timeline + audit — atomic with the activity write.
+      // The activity's patient_uid is nullable; fall back to the owning plan.
+      const activityPatientUid = activity.patient_uid
+        || await resolveCarePlanPatientUid(tx, tid, planId);
+      await emitCarePlanCanonicalEvent(tx, {
+        tenantId: tid,
+        patientUid: activityPatientUid,
+        eventType: 'care_plan.activity.created',
+        eventStatus: activity.status,
+        sourceTable: 'care_plan_activities',
+        sourceId: activity.id,
+        resourceType: 'care_plan_activity',
+        actorUid: maybeUuid(assignedToUid, 'assigned_to_uid'),
+        summary: `Care plan activity added: ${activity.title || cleanTitle}`,
+        payload: {
+          care_plan_id: planId,
+          care_plan_activity_id: activity.id,
+          activity_kind: activity.activity_kind,
+          schedule_kind: activity.schedule_kind,
+          status: activity.status,
+          is_patient_facing: activity.is_patient_facing,
+        },
+        afterState: { status: activity.status },
+        tags: ['care_plan', 'activity'],
+        keySuffix: 'created',
+      });
+
+      return activity;
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid care_plan_id or related_goal_id');
     throw err;
@@ -920,6 +1104,38 @@ export async function createFollowUp({
         );
       }
     }
+
+    // Canonical clinical timeline + audit — atomic with the follow-up write on
+    // the same db handle (the caller's tx when passed, else the setTenantTx tx).
+    // 'follow-up' is a workflow the canonical-timeline doc names explicitly.
+    await emitCarePlanCanonicalEvent(db, {
+      tenantId: tid,
+      patientUid: cleanUid,
+      eventType: 'care_plan.follow_up.created',
+      eventStatus: followUp.status,
+      sourceTable: 'follow_up_plans',
+      sourceId: followUp.id,
+      resourceType: 'follow_up_plan',
+      actorUid: maybeUuid(createdBy, 'created_by'),
+      summary: `Follow-up created (${cleanOriginKind})`,
+      payload: {
+        follow_up_plan_id: followUp.id,
+        origin_kind: cleanOriginKind,
+        origin_resource_type: cleanOriginResourceType,
+        origin_resource_id: cleanOriginResourceId,
+        due_at: cleanDueAt,
+        doctor_uid: cleanDoctorUid,
+        appointment_id: followUp.appointment_id || null,
+        appointment_status: followUp.appointment_status || null,
+        care_plan_id: followUp.care_plan_id || null,
+        reason: cleanReason,
+        status: followUp.status,
+      },
+      afterState: { status: followUp.status },
+      tags: ['care_plan', 'follow_up'],
+      keySuffix: 'created',
+    });
+
     return followUp;
   };
 

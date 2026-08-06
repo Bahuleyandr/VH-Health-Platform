@@ -12,6 +12,7 @@ const queryUnsafeMock = jest.fn();
 const transactionMock = jest.fn(async (cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 const setTenantTxMock = jest.fn(async (tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 const recordAppointmentCreatedEvidenceTxMock = jest.fn();
+const recordCanonicalClinicalEventMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryUnsafeMock, $transaction: transactionMock },
@@ -24,6 +25,16 @@ jest.unstable_mockModule(
   '../../services/appointment/appointmentLifecycleService.js',
   () => ({
     recordAppointmentCreatedEvidenceTx: recordAppointmentCreatedEvidenceTxMock,
+  }),
+);
+
+// Care-plan clinical writes now emit a canonical timeline + audit event atomically
+// (recordCanonicalClinicalEvent). Stub it so the real writer does not run against
+// the raw-query mock and throw CANONICAL_TIMELINE_REQUIRED.
+jest.unstable_mockModule(
+  '../../services/clinical/canonicalClinicalPlatformService.js',
+  () => ({
+    recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   }),
 );
 
@@ -59,6 +70,10 @@ beforeEach(() => {
   setTenantTxMock.mockImplementation(async (tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
   recordAppointmentCreatedEvidenceTxMock.mockReset();
   recordAppointmentCreatedEvidenceTxMock.mockResolvedValue({ recorded: true });
+  recordCanonicalClinicalEventMock.mockReset().mockResolvedValue({
+    timeline: { id: 1 },
+    audit: { id: 1 },
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -258,6 +273,9 @@ describe('createGoal + updateGoalProgress', () => {
 
   it('inserts a clinical_target goal', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'planned' }]);
+    // Goal carries no patient_uid, so canonical emission resolves it from the
+    // owning care plan (resolveCarePlanPatientUid) before the mocked writer runs.
+    queryUnsafeMock.mockResolvedValueOnce([{ patient_uid: PATIENT }]);
     const row = await createGoal({
       tenantId: TENANT, carePlanId: 1, description: 'HbA1c < 7',
       measurementLabel: 'HbA1c', measurementUnit: '%', targetValue: '7',
@@ -299,6 +317,9 @@ describe('createActivity + recordActivityCompletion', () => {
 
   it('inserts a daily medication activity', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'planned' }]);
+    // Activity carries no patient_uid, so canonical emission resolves it from the
+    // owning care plan (resolveCarePlanPatientUid) before the mocked writer runs.
+    queryUnsafeMock.mockResolvedValueOnce([{ patient_uid: PATIENT }]);
     const row = await createActivity({
       tenantId: TENANT, carePlanId: 1, title: 'Take metformin',
       activityKind: 'medication', scheduleKind: 'daily',
