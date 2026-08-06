@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   desktop_webview_window
   file_selector_windows
+  firebase_app_check
   firebase_core
   flutter_secure_storage_windows
   flutter_webrtc
