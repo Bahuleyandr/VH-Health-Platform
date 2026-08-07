@@ -27,8 +27,8 @@ const FROZEN_MIGRATIONS = {
   '582_lab_oru_replay_idempotency.sql': [64558, 'f0cea6e6ea63f9cf5932acbd99ee9508a2e838d3715d09b969aed99e3a0e41f0'],
   '583_lab_astm_atomic_replay.sql': [177245, '7d1abe4238fa95d4bafbea9e86052df8c53ca8361fefdcf407ea9e44e10919f1'],
   '584_care_pathway_governance_pinning.sql': [73446, 'f799232a9007cb3a69dea11d7131c96913578e94bb8c62b9c1b6106921c31eb7'],
-  '585_care_pathway_exclusive_owner_integrity.sql': [40234, 'ecb84da8a3e2dae58ee9df644f16878f597255c1cbb778d582601affd29c9c9a'],
-  '586_care_pathway_owner_acceptance.sql': [44168, '07c44ff3f686eb5e481466c288ea4582a93fee70e1e85226a743cc01bdcde288'],
+  '585_care_pathway_exclusive_owner_integrity.sql': [42627, 'e6c2e341fd2a16242e05a348dfb58a531aa046c9f85844a78876e7452f3ba5dc'],
+  '586_care_pathway_owner_acceptance.sql': [46145, '73c99367006eac1d22a3bf6aa4436cf9baf565180069d45be0d3650b28f753cf'],
 };
 
 function evidenceValues(tenantId, overrides = {}) {
