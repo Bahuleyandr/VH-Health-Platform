@@ -93,13 +93,12 @@ export function recordDeepTemplateFallback({ module = '', tier = '' } = {}) {
 }
 
 // Firebase App Check verification outcomes for app-facing traffic. Incremented
-// by src/middleware/appCheckMiddleware.js whenever APP_CHECK_MODE is `report`
-// or `enforce`. The verified/missing/invalid split per client is THE signal for
-// the flip-to-enforce decision: enforcement is safe only once the installed
-// fleet shows a sustained healthy `verified` ratio. `unverifiable` counts
-// infrastructure failures (Firebase unreachable / not configured) where the
-// middleware failed open — a rising value there is an ops alert, not a client
-// problem. Labels are bounded: outcome ∈ {verified, missing, invalid,
+// by src/middleware/appCheckMiddleware.js whenever APP_CHECK_MODE is `report`.
+// The verified/missing/invalid split per client is evidence for a separately
+// reviewed enforcement rollout after the installed fleet sustains a healthy
+// `verified` ratio. `unverifiable` counts infrastructure or configuration
+// failures; a rising value there is an ops alert, not a client problem.
+// Labels are bounded: outcome ∈ {verified, missing, invalid,
 // unverifiable}, client ∈ {patient, staff, unknown}.
 const appCheckRequestsTotal = new Counter(
   'app_check_requests_total',

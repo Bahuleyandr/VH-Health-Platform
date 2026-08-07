@@ -10,22 +10,19 @@
 //   report  — verify + log + metrics only; NEVER rejects a request. Safe to
 //             run even while console-side App Check registration is incomplete
 //             and before any client build sends the header.
-//   enforce — reject missing/invalid tokens with 401. Only after the fleet's
-//             `verified` ratio on app_check_requests_total is sustainably
-//             healthy (see docs/runbooks/FIREBASE_KEY_ROTATION.md §"Backend
-//             App Check verification").
 //
-// Fail-open invariant: an infrastructure failure (Firebase unreachable, Admin
-// SDK not configured) is NEVER a reason to reject a request, even in enforce
-// mode — a Firebase outage must not take down the hospital API. Only a token
-// that Firebase positively rejected (`app-check/*` error codes) counts as
-// invalid.
+// This middleware is deliberately report-only. Enforcement needs a separate
+// reviewed rollout after every supported client attaches the header and the
+// expected app-ID lists are proven against fleet metrics.
 import firebaseAdmin from '../utils/firebaseAdmin.js';
 import logger from '../logging/logger.js';
-import { error } from '../utils/responseHelper.js';
 import { recordAppCheckOutcome } from './prometheusMiddleware.js';
 
-const MODES = new Set(['off', 'report', 'enforce']);
+const MODES = new Set(['off', 'report']);
+const CLIENT_APP_ID_ENV = Object.freeze({
+  patient: 'FIREBASE_APP_CHECK_PATIENT_APP_IDS',
+  staff: 'FIREBASE_APP_CHECK_STAFF_APP_IDS',
+});
 
 /** Read + normalize APP_CHECK_MODE per request (testable, hot-reloadable). */
 function currentMode() {
@@ -35,15 +32,15 @@ function currentMode() {
 
 /**
  * Factory so app.js can mount this in two contexts:
- *  - pre-API-key-gate mobile entry mounts (/api/v1/auth, /api/v1/otp), where
- *    `req.apiClient` is not yet populated → `assumeAppFacing: true`;
+ *  - the pre-API-key-gate patient Firebase exchange, where `req.apiClient` is
+ *    not yet populated and `expectedClient` supplies the exact client scope;
  *  - globally after validateApiKey, where the `req.apiClient` filter scopes it
  *    to the two mobile apps and exempts every integration/admin surface.
  *
- * @param {{ assumeAppFacing?: boolean }} options
+ * @param {{ expectedClient?: 'patient'|'staff' }} options
  * @returns {import('express').RequestHandler}
  */
-export default function appCheckMiddleware({ assumeAppFacing = false } = {}) {
+export default function appCheckMiddleware({ expectedClient } = {}) {
   return async function appCheckHandler(req, res, next) {
     try {
       const mode = currentMode();
@@ -52,17 +49,17 @@ export default function appCheckMiddleware({ assumeAppFacing = false } = {}) {
       // Scope filter: only the two mobile apps carry App Check tokens. Admin
       // portal, SCIM/HL7/ABDM/NHCX/interface-engine/device-ingest and any
       // request without a recognized API client pass through untouched.
-      const client = req.apiClient === 'patient' || req.apiClient === 'staff'
+      const apiClient = req.apiClient === 'patient' || req.apiClient === 'staff'
         ? req.apiClient
         : undefined;
-      if (!assumeAppFacing && !client) return next();
+      const client = expectedClient === 'patient' || expectedClient === 'staff'
+        ? expectedClient
+        : apiClient;
+      if (!client) return next();
 
       const token = req.get('X-Firebase-AppCheck');
       if (!token) {
         recordAppCheckOutcome('missing', client);
-        if (mode === 'enforce') {
-          return error(res, 'App Check token required', 401);
-        }
         // report mode: this is ~100% of traffic until client builds attach
         // the header — debug level only, never warn-spam.
         logger.debug('App Check token missing', { requestId: req.id, client });
@@ -74,20 +71,16 @@ export default function appCheckMiddleware({ assumeAppFacing = false } = {}) {
         claims = await firebaseAdmin.appCheck().verifyToken(token);
       } catch (err) {
         // Firebase positively rejected the token (expired, wrong project,
-        // malformed) → invalid. Anything else — network failure, Admin SDK
-        // not configured (the degradation stub) — is unverifiable and fails
-        // OPEN even in enforce mode.
+        // malformed) → invalid. Anything else — network failure or Admin SDK
+        // not configured (the degradation stub) — is unverifiable.
         const isTokenInvalid = typeof err?.code === 'string' && err.code.startsWith('app-check/');
         if (isTokenInvalid) {
           recordAppCheckOutcome('invalid', client);
           logger.warn('App Check token invalid', { requestId: req.id, client, code: err.code });
-          if (mode === 'enforce') {
-            return error(res, 'App Check token invalid', 401);
-          }
           return next();
         }
         recordAppCheckOutcome('unverifiable', client);
-        logger.error('App Check verification unavailable — failing open', {
+        logger.error('App Check verification unavailable', {
           requestId: req.id,
           client,
           error: err?.message,
@@ -95,13 +88,35 @@ export default function appCheckMiddleware({ assumeAppFacing = false } = {}) {
         return next();
       }
 
+      const appIdEnv = CLIENT_APP_ID_ENV[client];
+      const allowedAppIds = new Set(
+        String(process.env[appIdEnv] || '')
+          .split(',')
+          .map(value => value.trim())
+          .filter(Boolean),
+      );
+      if (allowedAppIds.size === 0) {
+        recordAppCheckOutcome('unverifiable', client);
+        logger.error('App Check expected app IDs are not configured', {
+          requestId: req.id,
+          client,
+        });
+        return next();
+      }
+      if (typeof claims?.app_id !== 'string' || !allowedAppIds.has(claims.app_id)) {
+        recordAppCheckOutcome('invalid', client);
+        logger.warn('App Check token belongs to an unexpected Firebase app', {
+          requestId: req.id,
+          client,
+        });
+        return next();
+      }
+
       recordAppCheckOutcome('verified', client);
-      req.appCheck = { appId: claims.appId, verified: true };
+      req.appCheck = { appId: claims.app_id, verified: true };
       return next();
     } catch (err) {
-      // Belt-and-braces: this middleware must never throw out of itself or
-      // block traffic on its own bugs.
-      logger.error('App Check middleware internal error — failing open', {
+      logger.error('App Check middleware internal error', {
         requestId: req?.id,
         error: err?.message,
       });

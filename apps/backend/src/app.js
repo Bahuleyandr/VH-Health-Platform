@@ -722,11 +722,13 @@ app.head('/', async (req, res, next) => {
 });
 
 // Public API routes
-// The two mobile-app entry mounts sit BEFORE validateApiKey, so req.apiClient
-// isn't populated yet — assumeAppFacing tells App Check to treat them as
-// app-facing anyway (report-only unless APP_CHECK_MODE=enforce).
-app.use('/api/v1/auth', patientRateLimiter, appCheckMiddleware({ assumeAppFacing: true }), routes.auth); // Patient Auth
-app.use('/api/v1/otp', patientRateLimiter, appCheckMiddleware({ assumeAppFacing: true }), routes.otp);
+// Only the patient Firebase exchange is an app-facing pre-API-key entry point.
+// Keep admin/staff SSO callbacks and the non-Firebase OTP utilities outside
+// this scope: browser/provider callbacks cannot attach an App Check header.
+app.use('/api/v1/auth', patientRateLimiter);
+app.use('/api/v1/auth/firebase', appCheckMiddleware({ expectedClient: 'patient' }));
+app.use('/api/v1/auth', routes.auth); // Patient, staff, and admin authentication
+app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
 app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
 // SCIM is provisioning, not user authentication. It resolves the tenant/provider

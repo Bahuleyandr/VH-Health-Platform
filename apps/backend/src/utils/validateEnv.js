@@ -162,10 +162,20 @@ export const envSchema = Joi.object({
   FIREBASE_CLIENT_EMAIL: Joi.string().email().optional().label('FIREBASE_CLIENT_EMAIL'),
   FIREBASE_PRIVATE_KEY: Joi.string().optional().label('FIREBASE_PRIVATE_KEY'),
   GOOGLE_APPLICATION_CREDENTIALS: Joi.string().optional().label('GOOGLE_APPLICATION_CREDENTIALS'),
-  // Firebase App Check verification for mobile-app traffic: off = skip,
-  // report = verify + metrics only (never rejects), enforce = reject
-  // missing/invalid tokens. See src/middleware/appCheckMiddleware.js.
-  APP_CHECK_MODE: Joi.string().valid('off', 'report', 'enforce').default('off').label('APP_CHECK_MODE'),
+  // Firebase App Check verification for app-facing traffic: off = skip,
+  // report = verify + metrics only (never rejects). Enforcement is not an
+  // accepted runtime mode until a separate client-rollout change adds it.
+  APP_CHECK_MODE: Joi.string().valid('off', 'report').default('off').label('APP_CHECK_MODE'),
+  FIREBASE_APP_CHECK_PATIENT_APP_IDS: Joi.when('APP_CHECK_MODE', {
+    is: 'report',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('FIREBASE_APP_CHECK_PATIENT_APP_IDS'),
+  FIREBASE_APP_CHECK_STAFF_APP_IDS: Joi.when('APP_CHECK_MODE', {
+    is: 'report',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('FIREBASE_APP_CHECK_STAFF_APP_IDS'),
 
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().allow('').optional().label('SENTRY_DSN'),
