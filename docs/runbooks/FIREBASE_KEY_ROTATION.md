@@ -109,6 +109,25 @@ Firebase console → project `vhhealth` → **Project settings → Your apps**.
    ratio of verified requests across deployed app versions. Only then
    flip enforcement per-service (start with Authentication for patient
    OTP).
-5. Note: the VH backend does not yet verify `X-Firebase-AppCheck` tokens
-   on its own API; App Check currently protects Firebase-hosted surfaces
-   only. Backend verification is tracked separately.
+5. Note: the VH backend now verifies `X-Firebase-AppCheck` tokens on its
+   own API too — see the next section for the staged rollout.
+
+## 5. Backend App Check verification (`APP_CHECK_MODE`)
+
+The backend verifies `X-Firebase-AppCheck` on app-facing routes (patient
+and staff API clients only — SCIM, HL7, ABDM, NHCX, interface-engine,
+cold-chain ingest and the admin portal are exempt). Rollout is staged via
+`APP_CHECK_MODE` in the backend configmap:
+
+1. **`off`** (default) — verification skipped entirely.
+2. **`report`** — verifies tokens and records outcomes on the
+   `app_check_requests_total{outcome,client}` metric without ever
+   rejecting a request. Safe to enable at any time, even while the
+   console-side app registration (step 3 above) is incomplete and no
+   client build sends the header yet — missing tokens are counted, not
+   blocked, and a Firebase outage fails open.
+3. **`enforce`** — rejects missing/invalid tokens with 401. Flip only
+   when the `verified` ratio on `app_check_requests_total` has been
+   sustainably healthy across every installed app version — i.e. the
+   whole fleet is on builds that attach the token header — mirroring the
+   Firebase-console enforcement precondition in step 4 above.

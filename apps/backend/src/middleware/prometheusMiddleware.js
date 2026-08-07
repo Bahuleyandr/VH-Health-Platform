@@ -92,6 +92,40 @@ export function recordDeepTemplateFallback({ module = '', tier = '' } = {}) {
   clinicalAiDeepTemplateFallbackTotal.inc({ module: String(module || ''), tier: String(tier || '') });
 }
 
+// Firebase App Check verification outcomes for app-facing traffic. Incremented
+// by src/middleware/appCheckMiddleware.js whenever APP_CHECK_MODE is `report`
+// or `enforce`. The verified/missing/invalid split per client is THE signal for
+// the flip-to-enforce decision: enforcement is safe only once the installed
+// fleet shows a sustained healthy `verified` ratio. `unverifiable` counts
+// infrastructure failures (Firebase unreachable / not configured) where the
+// middleware failed open — a rising value there is an ops alert, not a client
+// problem. Labels are bounded: outcome ∈ {verified, missing, invalid,
+// unverifiable}, client ∈ {patient, staff, unknown}.
+const appCheckRequestsTotal = new Counter(
+  'app_check_requests_total',
+  'Firebase App Check token verification outcomes on app-facing routes',
+  ['outcome', 'client'],
+);
+
+/**
+ * Record a single Firebase App Check verification outcome.
+ *
+ * Exported as a bare incrementer (not the Counter instance) for the exact
+ * reason recordUndefinedTableFallback is: the caller (src/middleware/
+ * appCheckMiddleware.js) must depend only on this function symbol, never on
+ * the Counter class or this module's other imports — that keeps the App Check
+ * middleware's load graph free of any import cycle through the metrics layer.
+ *
+ * Unknown/empty label values collapse to 'unknown' so a misbehaving caller
+ * can never explode label cardinality.
+ */
+export function recordAppCheckOutcome(outcome, client) {
+  appCheckRequestsTotal.inc({
+    outcome: String(outcome || 'unknown'),
+    client: client === 'patient' || client === 'staff' ? client : 'unknown',
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Middleware — records request duration and count
 // ---------------------------------------------------------------------------
@@ -210,6 +244,7 @@ export function serializeMetrics() {
     nodeUptimeSeconds.serialize(),
     dbUndefinedTableFallbackTotal.serialize(),
     clinicalAiDeepTemplateFallbackTotal.serialize(),
+    appCheckRequestsTotal.serialize(),
   ];
   return sections.filter(Boolean).join('\n\n') + '\n';
 }

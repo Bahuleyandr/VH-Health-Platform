@@ -162,6 +162,10 @@ export const envSchema = Joi.object({
   FIREBASE_CLIENT_EMAIL: Joi.string().email().optional().label('FIREBASE_CLIENT_EMAIL'),
   FIREBASE_PRIVATE_KEY: Joi.string().optional().label('FIREBASE_PRIVATE_KEY'),
   GOOGLE_APPLICATION_CREDENTIALS: Joi.string().optional().label('GOOGLE_APPLICATION_CREDENTIALS'),
+  // Firebase App Check verification for mobile-app traffic: off = skip,
+  // report = verify + metrics only (never rejects), enforce = reject
+  // missing/invalid tokens. See src/middleware/appCheckMiddleware.js.
+  APP_CHECK_MODE: Joi.string().valid('off', 'report', 'enforce').default('off').label('APP_CHECK_MODE'),
 
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().allow('').optional().label('SENTRY_DSN'),

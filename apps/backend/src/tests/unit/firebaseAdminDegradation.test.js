@@ -33,6 +33,10 @@ const messagingInstance = { send: jest.fn(), sendEachForMulticast: jest.fn() };
 const getMessaging = jest.fn(() => messagingInstance);
 jest.unstable_mockModule('firebase-admin/messaging', () => ({ getMessaging }));
 
+const appCheckInstance = { verifyToken: jest.fn() };
+const getAppCheck = jest.fn(() => appCheckInstance);
+jest.unstable_mockModule('firebase-admin/app-check', () => ({ getAppCheck }));
+
 const loggerWarn = jest.fn();
 const loggerInfo = jest.fn();
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -99,12 +103,20 @@ describe('firebaseAdmin — credentials absent (graceful degradation)', () => {
       .rejects.toThrow('Firebase not configured');
   });
 
+  it('rejects appCheck calls at CALL time with a clear error', async () => {
+    const firebaseAdmin = await loadFirebaseAdmin();
+    await expect(firebaseAdmin.appCheck().verifyToken('token'))
+      .rejects.toThrow('Firebase not configured');
+  });
+
   it('never reaches the real SDK getters', async () => {
     const firebaseAdmin = await loadFirebaseAdmin();
     firebaseAdmin.auth();
     firebaseAdmin.messaging();
+    firebaseAdmin.appCheck();
     expect(getAuth).not.toHaveBeenCalled();
     expect(getMessaging).not.toHaveBeenCalled();
+    expect(getAppCheck).not.toHaveBeenCalled();
   });
 
   it('exposes only the stub surface — revokeRefreshTokens/listUsers stay undefined', async () => {

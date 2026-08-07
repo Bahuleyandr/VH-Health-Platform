@@ -24,6 +24,7 @@ import {
   requireProductionMonitoringAccess,
 } from './middleware/infrastructureAccessMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
+import appCheckMiddleware from './middleware/appCheckMiddleware.js';
 import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
@@ -721,8 +722,11 @@ app.head('/', async (req, res, next) => {
 });
 
 // Public API routes
-app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
-app.use('/api/v1/otp', patientRateLimiter, routes.otp);
+// The two mobile-app entry mounts sit BEFORE validateApiKey, so req.apiClient
+// isn't populated yet — assumeAppFacing tells App Check to treat them as
+// app-facing anyway (report-only unless APP_CHECK_MODE=enforce).
+app.use('/api/v1/auth', patientRateLimiter, appCheckMiddleware({ assumeAppFacing: true }), routes.auth); // Patient Auth
+app.use('/api/v1/otp', patientRateLimiter, appCheckMiddleware({ assumeAppFacing: true }), routes.otp);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
 app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
 // SCIM is provisioning, not user authentication. It resolves the tenant/provider
@@ -771,6 +775,12 @@ app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntim
 // ====================================
 
 app.use(rawHl7RecoveryResponses(validateApiKey));
+
+// Firebase App Check verification — mounted right after validateApiKey so
+// req.apiClient is populated; the patient/staff apiClient filter is what
+// exempts every integration/admin surface (SCIM, HL7, ABDM, NHCX,
+// interface-engine, cold-chain ingest, admin portal) from App Check.
+app.use(appCheckMiddleware());
 
 // Infrastructure routes (debug, swagger, version, rbac) — require API key
 // In production, API-key-only is not enough for API catalogs and diagnostics:
