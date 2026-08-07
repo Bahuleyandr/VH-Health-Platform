@@ -25,7 +25,13 @@ class OtpService {
           }
         },
         verificationFailed: (e) {
-          onError("Verification failed: ${e.message}");
+          if (kDebugMode) {
+            developer.log(
+              'Firebase phone verification failed (${e.code})',
+              name: 'Auth',
+            );
+          }
+          onError(userMessageForFirebaseAuthCode(e.code));
         },
         codeSent: (id, _) {
           onCodeSent(id);
@@ -34,9 +40,45 @@ class OtpService {
           // Handle timeout if needed
         },
       );
-    } catch (e) {
-      onError(e.toString());
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) {
+        developer.log(
+          'Firebase phone verification request failed (${e.code})',
+          name: 'Auth',
+        );
+      }
+      onError(userMessageForFirebaseAuthCode(e.code));
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        developer.log(
+          'Unexpected phone verification failure',
+          name: 'Auth',
+          error: e,
+          stackTrace: stackTrace,
+        );
+      }
+      onError('Unable to send OTP. Please try again.');
     }
+  }
+
+  @visibleForTesting
+  static String userMessageForFirebaseAuthCode(String code) {
+    return switch (code) {
+      'invalid-phone-number' =>
+        'The phone number is invalid. Check it and try again.',
+      'too-many-requests' =>
+        'Too many verification attempts. Please wait and try again.',
+      'quota-exceeded' =>
+        'OTP service is temporarily unavailable. Please try again later.',
+      'network-request-failed' =>
+        'Network error while sending OTP. Check your connection and try again.',
+      'app-not-authorized' ||
+      'captcha-check-failed' ||
+      'invalid-app-credential' ||
+      'missing-client-identifier' =>
+        'This app cannot send OTPs right now. Please update the app or contact support.',
+      _ => 'Unable to send OTP. Please try again.',
+    };
   }
 
   /// Exchange the Firebase ID token for the VH backend JWT.

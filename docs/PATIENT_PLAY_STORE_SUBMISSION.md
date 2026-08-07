@@ -1,18 +1,23 @@
 # VH Health Patient Play Store Submission Notes
 
-Prepared for the first Google Play internal testing submission of the patient app.
+Prepared for Google Play internal testing of the patient app.
 
 ## Build Artifact
 
 - App: VH Health
 - Package name: `com.vh.vhhealth`
-- Version: `1.0.0+1`
-- Current internal-test bundle: `apps/patient/build/app/outputs/bundle/release/app-release.aab`
-- Build target used for this bundle: Dalekdefender backend
+- Version: `1.1.0+2`
+- Internal-test bundle path: `apps/patient/build/app/outputs/bundle/release/app-release.aab`
+- Build target: `https://api.vhhealth.app/api/v1`
 - Upload keystore path on this workstation: `D:\Dev\Secrets\vhhealth-patient-upload-keystore.jks`
 - Local signing config: `apps/patient/android/key.properties`
 
 Keep the keystore and `key.properties` private. They are intentionally ignored by Git.
+
+Production-mode release builds also require the owner-approved current/next
+SPKI pin set and the 300-second readiness clock-skew value. The release workflow
+must remain blocked until those repository variables are populated; internal
+testing is not permission to ship an unpinned production client.
 
 ## Firebase Certificate Setup
 
@@ -28,8 +33,38 @@ Registered certificates:
 - Debug SHA-256: `B3:A4:5A:FE:D0:BB:49:C8:0D:63:AC:3B:2C:FB:A2:43:4A:EF:22:F5:2F:90:D5:3C:AB:A9:58:6F:5F:AB:0A:21`
 - Upload SHA-1: `C0:A6:C8:AA:45:10:4F:20:C1:1D:B7:BD:D7:27:52:AE:4E:A3:41:47`
 - Upload SHA-256: `0E:35:12:17:72:CF:C1:BA:53:95:64:CE:6B:21:0B:6F:F2:B6:7C:9C:5D:BE:C5:E9:C8:7E:04:89:FC:70:88:CB`
+- Play App Signing SHA-1: `48:E1:BC:3A:CA:07:9D:95:56:C0:5C:46:13:49:37:51:8E:EE:AF:84`
+- Play App Signing SHA-256: `62:37:9D:08:4A:43:34:43:2A:96:A7:12:B9:EA:0B:0B:0F:B4:0C:41:1C:B6:2D:45:CE:82:87:69:ED:8C:15:79`
 
-After enabling Play App Signing, copy the Play app signing SHA-1 and SHA-256 from Play Console and add both to this same Firebase Android app. Play-installed builds are signed by Google, not by the local upload key.
+Play App Signing is enabled and both Google signing fingerprints are registered
+with this Firebase app. Play-installed builds are signed by Google, not by the
+local upload key.
+
+The Firebase API key used by the Patient Android build must keep application
+restrictions unset so Firebase Phone Auth's reCAPTCHA fallback works. Keep only
+the required Firebase APIs on its API allowlist, then use App Check and Auth/SMS
+quotas as the abuse controls.
+
+The Play Integrity API is linked to Firebase project `vhhealth`, and the Patient
+Android app is registered with the Play Integrity App Check provider. Keep
+Firebase Authentication enforcement off until a Play-installed build reports
+valid App Check requests; then enable enforcement after reviewing those metrics.
+
+## Internal-track automation
+
+The first AAB was uploaded manually because Google Play requires the package to
+exist before the Android Publisher API can address it. The automation bootstrap
+is now complete:
+
+1. `github-play-patient@vhhealth.iam.gserviceaccount.com` has active access to
+   only the Patient app, with read-only app metadata and testing-track release
+   permission. It has no production or account-wide access.
+2. `GOOGLE_PLAY_WIF_PROVIDER`, `GOOGLE_PLAY_SERVICE_ACCOUNT`, and
+   `PATIENT_PLAY_INTERNAL_ENABLED=true` are repository variables.
+3. Future `patient-v*` tags build one signed AAB, attach it to the GitHub
+   release, authenticate to Google through Workload Identity Federation, and
+   publish that same artifact to the Play internal track. No service-account
+   private key is stored in GitHub.
 
 ## Store Listing Draft
 
@@ -134,7 +169,5 @@ Recently removed to reduce policy friction:
 - Publish a public privacy policy URL.
 - Add the privacy policy URL in Play Console and keep the in-app Privacy link aligned.
 - Upload phone, tablet, and foldable screenshots.
-- Enable Play App Signing and add Play signing SHA-1/SHA-256 to Firebase.
 - Run internal testing on at least one Play-installed build and verify Firebase OTP.
 - If the developer account requires it, complete the required closed test period before production access.
-- Replace Dalekdefender backend target with the intended public production API before a public release.

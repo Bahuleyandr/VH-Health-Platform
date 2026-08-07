@@ -22,6 +22,7 @@ concurrency:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build:
@@ -89,7 +90,8 @@ jobs:
             PATIENT_ANDROID_KEYSTORE_BASE64 \
             PATIENT_ANDROID_KEY_ALIAS \
             PATIENT_ANDROID_KEY_PASSWORD \
-            PATIENT_ANDROID_STORE_PASSWORD
+            PATIENT_ANDROID_STORE_PASSWORD \
+            VH_FIREBASE_ANDROID_API_KEY
           do
             if [ -z "${!name:-}" ]; then
               echo "::error::${name} is required for patient release builds"
@@ -170,6 +172,26 @@ jobs:
           fi
           echo "VH_FIREBASE_DEFINES=${defines}" >> "${GITHUB_ENV}"
 
+      - name: Stamp native Android Firebase configuration
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'apps/patient/android/app/google-services.json';
+          const packageName = 'com.vh.vhhealth';
+          const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const clients = config.client.filter(
+            (client) => client.client_info?.android_client_info?.package_name === packageName,
+          );
+          if (clients.length !== 1 || !clients[0].api_key?.length) {
+            throw new Error(`Expected exactly one Firebase Android client for ${packageName}`);
+          }
+          for (const entry of clients[0].api_key) {
+            entry.current_key = process.env.VH_FIREBASE_ANDROID_API_KEY;
+          }
+          fs.writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+          NODE
+
       - name: Configure Android signing
         run: |
           set -euo pipefail
@@ -213,3 +235,27 @@ jobs:
           files: |
             apps/patient/build/app/outputs/flutter-apk/app-release.apk
             apps/patient/build/app/outputs/bundle/release/app-release.aab
+
+      # The manual Play Console bootstrap and Play App Signing enrollment are
+      # complete. PATIENT_PLAY_INTERNAL_ENABLED=true makes every patient-v* tag
+      # publish the same verified AAB to the internal test track. Authentication
+      # is keyless and limited to patient release tags.
+      - name: Authenticate to Google Play
+        id: play-auth
+        if: ${{ vars.PATIENT_PLAY_INTERNAL_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/patient-v') }}
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: vhhealth
+          workload_identity_provider: ${{ vars.GOOGLE_PLAY_WIF_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+
+      - name: Publish Patient AAB to Play internal testing
+        if: ${{ vars.PATIENT_PLAY_INTERNAL_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/patient-v') }}
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
+        with:
+          serviceAccountJson: ${{ steps.play-auth.outputs.credentials_file_path }}
+          packageName: com.vh.vhhealth
+          releaseFiles: apps/patient/build/app/outputs/bundle/release/app-release.aab
+          tracks: internal
+          status: completed
+          releaseName: Patient ${{ github.ref_name }}

@@ -26,11 +26,18 @@ Android `AIzaSyDi…`, iOS/macOS `AIzaSyCw…`.
 2. For each of the three keys, click **Create credentials → API key** to
    mint a replacement (do NOT delete the old key yet — deployed builds
    still carry it).
-3. Apply **application restrictions** to each new key:
-   - **Android key**: restriction type *Android apps*. Add package
-     `com.vh.vhhealth` with the patient release-keystore SHA-1, and the
-     staff package `com.vhhealth.staff.vhhealth_staff` + its release
-     SHA-1 once the staff app is registered (step 3).
+3. Apply the platform-appropriate **application restrictions**:
+   - **Android Firebase key used by Patient Phone Auth**: leave application
+     restrictions unset. Firebase Phone Auth falls back to a browser-based
+     reCAPTCHA flow when Play Integrity is unavailable, including sideloaded
+     builds and devices without usable Play services. That browser request has
+     no Android package/certificate header, so an Android-app restriction
+     rejects it with `API_KEY_ANDROID_APP_BLOCKED`. Restrict this key by API
+     instead, protect Authentication with App Check after metrics are healthy,
+     and set conservative Identity Toolkit/SMS quotas. Do not reuse this key
+     for non-Firebase Google APIs.
+   - **Android keys not used by Phone Auth** may use *Android apps*
+     restrictions with the exact package and signing-certificate SHA-1.
    - **iOS key**: restriction type *iOS apps*. Add bundle IDs
      `com.vh.vhhealth` (patient — target state, see step 3) and
      `com.vhhealth.staff.vhhealthStaff` (staff).
@@ -38,8 +45,9 @@ Android `AIzaSyDi…`, iOS/macOS `AIzaSyCw…`.
      the staff web origin (`clinical.<hospital>.local`) and
      `vhhealth.firebaseapp.com` (Firebase auth helper domain).
 4. Under **API restrictions**, limit each key to the Firebase APIs the
-   apps actually call (at minimum: Identity Toolkit, Firebase
-   Installations, FCM Registration, Firebase App Check).
+   apps actually call. The Patient Android key currently requires Identity
+   Toolkit, Token Service, Firebase Installations, FCM Registration, and
+   Firebase App Check.
 
 ## 2. Put the new keys in GitHub Actions secrets
 
