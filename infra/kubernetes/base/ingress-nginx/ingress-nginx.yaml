@@ -44,20 +44,19 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 data:
-  # Trust X-Forwarded-For from the Cloudflare Tunnel ClusterIP only. The
-  # cloudflared pods sit in vhhealth-ingress with a stable ClusterIP;
-  # we source the IP from the Service so this is an allowlist rather
-  # than `0.0.0.0/0`.
+  # cloudflared reaches nginx from an in-cluster pod address. Trust only
+  # private in-cluster peers, then derive the canonical client address from
+  # Cloudflare's single-value header. Replacing (rather than extending) the
+  # incoming X-Forwarded-For chain prevents a caller-supplied value from
+  # becoming the address used by backend audit and rate-limit controls.
   use-forwarded-headers: "true"
-  compute-full-forwarded-for: "true"
+  compute-full-forwarded-for: "false"
   use-proxy-protocol: "false"
+  forwarded-for-header: "CF-Connecting-IP"
   proxy-real-ip-cidr: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-  # Note: Cloudflare Tunnel does not expose the original client IP over
-  # the wire. We rely on `CF-Connecting-IP` in the Cloudflare edge, and
-  # document that the proxy_real_ip CIDR is strictly for in-cluster
-  # traffic — not a Cloudflare IP list. Upstream CF IP list published at
-  # https://www.cloudflare.com/ips/ is static; if we ever switch to
-  # direct Cloudflare L4 (not tunnel), reference that list here.
+  # The CIDRs above identify the private cloudflared-to-nginx socket peer;
+  # they are not Cloudflare edge ranges. A direct public origin would require
+  # Cloudflare's published IP list and must not reuse this tunnel posture.
   enable-real-ip: "true"
   hsts: "true"
   hsts-max-age: "31536000"

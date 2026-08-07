@@ -4,7 +4,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "postinstall": "node scripts/patch-minimatch-compat.mjs",
+    "postinstall": "node scripts/patch-minimatch-compat.mjs && node scripts/patch-redocly-js-yaml-compat.mjs",
     "predev": "npm run generate:types",
     "dev": "next dev --turbopack -p 3001",
     "dev:qa": "next dev --turbopack -p 3201",
@@ -118,7 +118,7 @@
       "serialize-javascript": "^7.0.5"
     },
     "@redocly/openapi-core": {
-      "js-yaml": "4.3.0"
+      "js-yaml": "5.2.3"
     },
     "openapi-typescript": {
       "typescript": "$typescript"

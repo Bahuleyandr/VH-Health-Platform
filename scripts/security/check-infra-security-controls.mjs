@@ -34,8 +34,14 @@ const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
 const sha256Digest = '@sha256:[a-f0-9]{64}';
 const minimatchPatchCopy =
   'COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs';
+const redoclyPatchCopy =
+  'COPY scripts/patch-redocly-js-yaml-compat.mjs ./scripts/patch-redocly-js-yaml-compat.mjs';
 
-function installStagesCopyMinimatchPatch(dockerfile, expectedStageCount) {
+function installStagesCopyPostinstallPatches(
+  dockerfile,
+  expectedStageCount,
+  expectedCopies,
+) {
   const installStages = dockerfile
     .split(/^FROM /m)
     .filter((stage) => stage.includes('RUN npm ci'));
@@ -43,8 +49,11 @@ function installStagesCopyMinimatchPatch(dockerfile, expectedStageCount) {
     installStages.length === expectedStageCount &&
     installStages.every(
       (stage) =>
-        stage.indexOf(minimatchPatchCopy) >= 0 &&
-        stage.indexOf(minimatchPatchCopy) < stage.indexOf('RUN npm ci'),
+        expectedCopies.every(
+          (copy) =>
+            stage.indexOf(copy) >= 0 &&
+            stage.indexOf(copy) < stage.indexOf('RUN npm ci'),
+        ),
     )
   );
 }
@@ -81,10 +90,15 @@ check('container npm postinstall hooks remain inside each Docker build context',
   backendPackage.scripts.postinstall ===
     'node scripts/patch-minimatch-compat.mjs' &&
   adminPackage.scripts.postinstall ===
-    'node scripts/patch-minimatch-compat.mjs' &&
+    'node scripts/patch-minimatch-compat.mjs && node scripts/patch-redocly-js-yaml-compat.mjs' &&
   backendMinimatchPatch === adminMinimatchPatch &&
-  installStagesCopyMinimatchPatch(backendDockerfile, 2) &&
-  installStagesCopyMinimatchPatch(adminDockerfile, 1));
+  installStagesCopyPostinstallPatches(backendDockerfile, 2, [
+    minimatchPatchCopy,
+  ]) &&
+  installStagesCopyPostinstallPatches(adminDockerfile, 1, [
+    minimatchPatchCopy,
+    redoclyPatchCopy,
+  ]));
 
 check('release workflows keep backend base image overrides digest-pinned', () => {
   const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
