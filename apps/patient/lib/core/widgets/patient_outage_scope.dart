@@ -173,10 +173,12 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
                           ),
                           IconButton(
                             onPressed: () => setState(() => _blocked = null),
-                            tooltip: MaterialLocalizations.of(
-                              context,
-                            ).closeButtonTooltip,
-                            icon: const Icon(Icons.close),
+                            icon: Icon(
+                              Icons.close,
+                              semanticLabel: MaterialLocalizations.of(
+                                context,
+                              ).closeButtonTooltip,
+                            ),
                           ),
                         ],
                       ),

@@ -9,6 +9,7 @@ import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
 import validateApiKey from '../../middleware/validateApiKey.js';
 import logger from '../../logging/logger.js';
 import clientReadinessRoutes from './clientReadinessRoutes.js';
+import patientReadinessRoutes from './patientReadinessRoutes.js';
 import protectedRoutes from './protectedRoutes.js';
 import publicRoutes from './publicRoutes.js';
 import uptimeRoutes from './uptimeRoutes.js';
@@ -41,6 +42,10 @@ router.use('/', uptimeRoutes);
 // complete auth/tenant/RLS/RBAC/rate-limit chain because the surrounding
 // health router intentionally keeps monitoring endpoints public.
 router.use('/', clientReadinessRoutes);
+
+// Patient-only operational readiness is deliberately separate from clinical
+// continuity policy readiness, which remains a strict staff contract.
+router.use('/', patientReadinessRoutes);
 
 // Protected routes (patient health data). This module is mounted BEFORE the
 // global jwtAuth + tenant middleware in app.js (so the public health checks

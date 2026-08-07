@@ -95,6 +95,26 @@ void main() {
         find.textContaining('Hospital systems are temporarily unavailable'),
         findsOneWidget,
       );
+
+      controller.reportBlockedMutation('POST', '/appointments');
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      expect(find.text('This request was not sent.'), findsOneWidget);
+      expect(
+        tester.getSemantics(find.byType(IconButton)),
+        matchesSemantics(
+          label: 'Close',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          isFocusable: true,
+          hasFocusAction: true,
+          hasTapAction: true,
+        ),
+      );
     },
   );
 
