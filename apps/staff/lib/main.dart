@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
@@ -194,6 +195,46 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+
+    // Activate Firebase App Check so Firebase-backed surfaces (FCM,
+    // Crashlytics) can attest that requests come from a genuine, unmodified
+    // build. Mirrors the patient app's PAT-1 activation.
+    // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
+    // - Debug / profile builds: DebugProvider — register the printed token in
+    //   the Firebase console under App Check → Apps → Manage debug tokens.
+    // - Web (a real shipping target: dart2js CI lane + Dockerfile.web): a
+    //   ReCaptcha v3 site key must be supplied via
+    //   --dart-define=VH_RECAPTCHA_SITE_KEY=... (see
+    //   docs/runbooks/FIREBASE_KEY_ROTATION.md). Without one, activation is
+    //   skipped entirely rather than attesting with a bogus key.
+    // NOTE: release-mode Android/iOS attestation will not mint tokens until
+    // the staff package/bundle IDs are registered as their own Firebase apps
+    // (they currently reuse the patient registrations — see
+    // firebase_options.dart and the runbook). Debug providers work regardless.
+    const recaptchaSiteKey = String.fromEnvironment('VH_RECAPTCHA_SITE_KEY');
+    if (kIsWeb && recaptchaSiteKey.isEmpty) {
+      debugPrint(
+        'FirebaseAppCheck.activate skipped on web: '
+        'VH_RECAPTCHA_SITE_KEY dart-define is not set.',
+      );
+    } else {
+      // Wrapped in try/catch so a provider misconfiguration never blocks
+      // startup — App Check failures surface server-side once enforcement is
+      // enabled in the Firebase console.
+      try {
+        await FirebaseAppCheck.instance.activate(
+          providerAndroid: kDebugMode
+              ? const AndroidDebugProvider()
+              : const AndroidPlayIntegrityProvider(),
+          providerApple: kDebugMode
+              ? const AppleDebugProvider()
+              : const AppleDeviceCheckProvider(),
+          providerWeb: kIsWeb ? ReCaptchaV3Provider(recaptchaSiteKey) : null,
+        );
+      } catch (e) {
+        debugPrint('FirebaseAppCheck.activate skipped: $e');
+      }
+    }
   }
   // Crashlytics is disabled when explicitly opted out OR on any desktop
   // build (no platform implementation) — folding both into one flag means

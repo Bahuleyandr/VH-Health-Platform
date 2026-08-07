@@ -102,13 +102,18 @@ class DefaultFirebaseOptions {
     storageBucket: 'vhhealth.firebasestorage.app',
   );
 
+  // iosBundleId is the target-state bundle ID (matches the Android
+  // applicationId and the iOS/macOS PRODUCT_BUNDLE_IDENTIFIER). The Firebase
+  // console iOS app is still registered under the old placeholder
+  // `com.example.vhhealth` and must be re-registered under `com.vh.vhhealth`
+  // before an iOS release ships — see docs/runbooks/FIREBASE_KEY_ROTATION.md.
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: _iosApiKey,
     appId: '1:155620159512:ios:5118ce88fcd26ba19d136d',
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',
     storageBucket: 'vhhealth.firebasestorage.app',
-    iosBundleId: 'com.example.vhhealth',
+    iosBundleId: 'com.vh.vhhealth',
   );
 
   // macOS shares the iOS key and app-id (same GoogleService-Info.plist).
@@ -119,7 +124,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',
     storageBucket: 'vhhealth.firebasestorage.app',
-    iosBundleId: 'com.example.vhhealth',
+    iosBundleId: 'com.vh.vhhealth',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
