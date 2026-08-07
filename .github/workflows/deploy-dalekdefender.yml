@@ -21,6 +21,16 @@ name: Deploy dalekdefender
 #      workflow token, pins the deployments to the verified @sha256 digest,
 #      and waits for rollout — no git, no on-host build, no app secret patching.
 #
+# ── Token scoping + host-key pinning (supply-chain hardening, 2026-08-07) ───
+# GITHUB_TOKEN permissions are now per-job: only build-sign-scan holds
+# packages:write + id-token:write. The deploy job — the only job whose token
+# is piped over SSH to the host (GHCR_TOKEN, consumed by the host helper's
+# `ghcr-read` pull Secret) — runs with packages:read, so a write-capable
+# token never leaves the build job or reaches the rig.
+# SSH no longer trusts hosts on first use: both SSH steps require a
+# pre-pinned host key (StrictHostKeyChecking=yes against ~/.ssh/known_hosts
+# populated from the DALEKDEFENDER_SSH_HOST_KEYS repo Actions variable).
+#
 # Secrets management: the rig's SENTRY_DSN / NEXT_PUBLIC_SENTRY_DSN now live
 # solely in the overlay-managed Secrets (operator-applied, SealedSecret
 # preferred). This workflow only refreshes the GHCR image-pull Secret required
@@ -40,11 +50,15 @@ name: Deploy dalekdefender
 #     failure.
 #   - Restrict the Tailscale ACL so tag:gha-deploy can reach dalekdefender:22
 #     and nothing else.
+#   - Populate the DALEKDEFENDER_SSH_HOST_KEYS repo Actions *variable* (host
+#     public keys are not secret) with the output of `ssh-keyscan dalekdefender`
+#     run from a tailnet machine. Deploys skip with a warning until it is set.
 #   - Confirm no real PHI lives on this rig; keep it firewalled from
 #     anything resembling production data.
 #
 # Required secrets: TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET, DALEKDEFENDER_SSH_KEY,
 # SENTRY_DSN_ADMIN (optional, baked into the admin build).
+# Required repo Actions variable: DALEKDEFENDER_SSH_HOST_KEYS (ssh-keyscan output).
 
 on:
   push:
@@ -61,9 +75,8 @@ concurrency:
   group: deploy-dalekdefender
   cancel-in-progress: false
 
+# Default-deny at the workflow level; each job requests only what it needs.
 permissions:
-  id-token: write   # cosign keyless signing via OIDC
-  packages: write   # push dalek-<sha> images to ghcr.io
   contents: read
 
 env:
@@ -75,6 +88,10 @@ jobs:
     name: Build, scan, sign dalek images
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      id-token: write   # cosign keyless signing via OIDC
+      packages: write   # push dalek-<sha> images to ghcr.io
+      contents: read
     outputs:
       backend-image: ${{ steps.images.outputs.backend }}
       backend-digest: ${{ steps.build-backend.outputs.digest }}
@@ -186,6 +203,9 @@ jobs:
     needs: build-sign-scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read   # verify + pull only; this job's token is piped to the host
     steps:
       - name: Probe deploy prerequisites
         id: prereq
@@ -196,6 +216,11 @@ jobs:
           if [ -z "${{ secrets.DALEKDEFENDER_SSH_KEY }}" ]; then missing+=(DALEKDEFENDER_SSH_KEY); fi
           if [ ${#missing[@]} -ne 0 ]; then
             echo "::warning::Skipping deploy — missing secrets: ${missing[*]}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${{ vars.DALEKDEFENDER_SSH_HOST_KEYS }}" ]; then
+            echo "::warning::Skipping deploy — repo Actions variable DALEKDEFENDER_SSH_HOST_KEYS is empty. Populate it with the output of 'ssh-keyscan dalekdefender' (run from a tailnet machine) so SSH can pin the host key."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -240,6 +265,16 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
 
+      - name: Pin dalekdefender host key
+        if: steps.prereq.outputs.skip != 'true'
+        env:
+          SSH_HOST_KEYS: ${{ vars.DALEKDEFENDER_SSH_HOST_KEYS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_HOST_KEYS" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
       - name: Checkout deploy helper
         if: steps.prereq.outputs.skip != 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -253,7 +288,7 @@ jobs:
           set -euo pipefail
           helper_path="infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh"
           expected="$(sha256sum "$helper_path" | cut -d ' ' -f1)"
-          actual="$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+          actual="$(ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
             "$DALEK_HOST" \
             "sha256sum /usr/local/sbin/vhhealth-gha-deploy 2>/dev/null | cut -d ' ' -f1" || true)"
           actual="${actual:-missing}"
@@ -277,6 +312,8 @@ jobs:
           ADMIN_REF: ${{ needs.build-sign-scan.outputs.admin-image }}@${{ needs.build-sign-scan.outputs.admin-digest }}
           GIT_COMMIT: ${{ github.sha }}
           GHCR_USERNAME: ${{ github.actor }}
+          # This job's token is packages:read-scoped — exactly what the host's
+          # ghcr-read pull Secret needs, and nothing more.
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -286,6 +323,6 @@ jobs:
             printf '%s\n' "$GIT_COMMIT"
             printf '%s\n' "$GHCR_USERNAME"
             printf '%s\n' "$GHCR_TOKEN"
-          } | ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+          } | ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
               "$DALEK_HOST" \
               "sudo -n /usr/local/sbin/vhhealth-gha-deploy"
