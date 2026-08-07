@@ -130,20 +130,48 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Pattern B — tenant-scope the genuinely-global uniques on these tables.
 -- ---------------------------------------------------------------------------
--- Document numbers (standalone indexes; NOT NULL except data_breaches.breach_id).
-DROP INDEX IF EXISTS housekeeping_requests_request_number_key;
+-- Document numbers. QA represented these as standalone indexes, while older
+-- deployed lineages may retain UNIQUE constraints that own the same-named
+-- indexes. Consult pg_constraint before dropping so both shapes converge.
+DO $$
+DECLARE
+  rec RECORD;
+  actual_is_constraint boolean;
+BEGIN
+  FOR rec IN
+    SELECT * FROM (VALUES
+      ('housekeeping_requests', 'housekeeping_requests_request_number_key'),
+      ('housekeeping_logs', 'housekeeping_logs_log_number_key'),
+      ('leave_types', 'leave_types_leave_type_key'),
+      ('data_breaches', 'data_breaches_breach_id_key')
+    ) AS v(tbl, old_obj)
+  LOOP
+    SELECT EXISTS (
+      SELECT 1
+        FROM pg_constraint c
+       WHERE c.conrelid = to_regclass(format('public.%I', rec.tbl))
+         AND c.conname = rec.old_obj
+         AND c.contype = 'u'
+    ) INTO actual_is_constraint;
+
+    IF actual_is_constraint THEN
+      EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', rec.tbl, rec.old_obj);
+    ELSE
+      EXECUTE format('DROP INDEX IF EXISTS public.%I', rec.old_obj);
+    END IF;
+  END LOOP;
+END
+$$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_housekeeping_requests_tenant_request_number
   ON housekeeping_requests (tenant_id, request_number);
 
-DROP INDEX IF EXISTS housekeeping_logs_log_number_key;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_housekeeping_logs_tenant_log_number
   ON housekeeping_logs (tenant_id, log_number);
 
-DROP INDEX IF EXISTS leave_types_leave_type_key;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_leave_types_tenant_leave_type
   ON leave_types (tenant_id, leave_type);
 
-DROP INDEX IF EXISTS data_breaches_breach_id_key;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_data_breaches_tenant_breach_id
   ON data_breaches (tenant_id, breach_id) WHERE breach_id IS NOT NULL;
 

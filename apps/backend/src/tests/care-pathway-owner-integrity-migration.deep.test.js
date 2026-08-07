@@ -298,6 +298,9 @@ describe('migration 585 static owner-integrity contract', () => {
     expect(migrationSql).toMatch(/LOCK TABLE users,[\s\S]*workflow_steps,[\s\S]*tasks/);
     expect(migrationSql).toContain('public.patient_access_audit_log');
     expect(migrationSql).toContain('patient_access_audit_log_access_source_check');
+    expect(migrationSql).toContain('care_pathway_access_source_constraint_probe_legacy');
+    expect(migrationSql).toContain('normalized_legacy_expression');
+    expect(migrationSql).toContain("'::(character varying|text)(\\[\\])?'");
     expect(migrationSql).toContain("'care_pathway_owner'");
     expect(migrationSql).toContain('patient access audit relation ownership or kind is noncanonical');
     expect(migrationSql).toContain("'critical_result_ack'");

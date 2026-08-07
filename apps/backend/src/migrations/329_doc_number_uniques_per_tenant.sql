@@ -14,9 +14,10 @@
 --
 -- Verified against the live QA schema (mig tip 328) before writing:
 --
---  * OBJECT KIND. 19 of the 20 global uniques are standalone UNIQUE
---    INDEXES (DROP INDEX); only pmjay_cases.case_number is a real UNIQUE
---    CONSTRAINT (DROP CONSTRAINT). The is_constraint flag drives this.
+--  * OBJECT KIND. The QA lineage had 19 standalone UNIQUE INDEXES and one
+--    UNIQUE CONSTRAINT, but older deployed lineages may represent additional
+--    objects as constraints. The tuple records the expected QA kind for drift
+--    evidence; the live pg_constraint catalog is authoritative for dropping.
 --
 --  * NULLABILITY. 17 target columns are NOT NULL -> plain composite
 --    UNIQUE (tenant_id, col). 3 are nullable (appointments.visit_no,
@@ -47,8 +48,12 @@ BEGIN;
 DO $$
 DECLARE
   rec       RECORD;
-  clash     RECORD;
   new_name  text;
+  actual_is_constraint boolean;
+  clash_tenant text;
+  clash_value text;
+  clash_count bigint;
+  collision_rows bigint;
 BEGIN
   FOR rec IN
     SELECT * FROM (VALUES
@@ -88,22 +93,41 @@ BEGIN
     -- fail with an opaque "could not create unique index". It CANNOT exist
     -- while the global unique still holds, but guard for re-application
     -- against data that is already multi-tenant.
+    clash_tenant := NULL;
+    clash_value := NULL;
+    clash_count := NULL;
     EXECUTE format(
-      'SELECT tenant_id, %1$I AS val, count(*) AS n FROM %2$I '
+      'SELECT tenant_id::text, %1$I::text AS val, count(*) AS n FROM %2$I '
       'WHERE %1$I IS NOT NULL GROUP BY tenant_id, %1$I HAVING count(*) > 1 LIMIT 1',
       rec.col, rec.tbl
-    ) INTO clash;
-    IF FOUND THEN
+    ) INTO clash_tenant, clash_value, clash_count;
+    GET DIAGNOSTICS collision_rows = ROW_COUNT;
+    IF collision_rows > 0 THEN
       RAISE EXCEPTION
         'Cannot tenant-scope %.%: % rows already share (tenant_id=%, value=%); dedupe before applying migration 329',
-        rec.tbl, rec.col, clash.n, clash.tenant_id, clash.val;
+        rec.tbl, rec.col, clash_count, clash_tenant, clash_value;
     END IF;
 
-    -- Drop the global unique (constraint vs standalone index).
-    IF rec.is_constraint THEN
-      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I', rec.tbl, rec.old_obj);
+    -- Drop the global unique according to its actual catalog kind. A UNIQUE
+    -- constraint owns its backing index, so DROP INDEX is rejected with 2BP01.
+    -- QA and long-lived deployments do not necessarily share the same kind.
+    SELECT EXISTS (
+      SELECT 1
+        FROM pg_constraint c
+       WHERE c.conrelid = to_regclass(format('public.%I', rec.tbl))
+         AND c.conname = rec.old_obj
+         AND c.contype = 'u'
+    ) INTO actual_is_constraint;
+
+    IF rec.is_constraint IS DISTINCT FROM actual_is_constraint THEN
+      RAISE NOTICE 'Catalog kind drift for %.%: expected constraint=%, actual constraint=%',
+        rec.tbl, rec.col, rec.is_constraint, actual_is_constraint;
+    END IF;
+
+    IF actual_is_constraint THEN
+      EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', rec.tbl, rec.old_obj);
     ELSE
-      EXECUTE format('DROP INDEX IF EXISTS %I', rec.old_obj);
+      EXECUTE format('DROP INDEX IF EXISTS public.%I', rec.old_obj);
     END IF;
 
     -- Re-add it tenant-scoped.

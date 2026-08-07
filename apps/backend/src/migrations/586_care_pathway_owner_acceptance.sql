@@ -336,6 +336,9 @@ DECLARE
   audit_expression TEXT;
   old_expression TEXT;
   new_expression TEXT;
+  normalized_audit_expression TEXT;
+  normalized_old_expression TEXT;
+  normalized_new_expression TEXT;
 BEGIN
   SELECT pg_catalog.pg_get_expr(constraint_row.conbin, constraint_row.conrelid)
     INTO audit_expression
@@ -361,8 +364,49 @@ BEGIN
      AND constraint_row.conname =
            'care_pathway_owner_acceptance_source_probe_new';
 
+  -- pg_dump/pg_restore across PostgreSQL builds can place the same redundant
+  -- varchar-to-text casts on each ARRAY element or on the ARRAY as a whole.
+  -- Remove only those casts, whitespace, and parentheses; the column,
+  -- operator, ARRAY order, and exact literals remain part of the comparison.
+  normalized_audit_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      audit_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+  normalized_old_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      old_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+  normalized_new_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      new_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+
   IF audit_expression IS NULL
-     OR audit_expression NOT IN (old_expression, new_expression)
+     OR normalized_audit_expression NOT IN (
+       normalized_old_expression,
+       normalized_new_expression
+     )
   THEN
     RAISE EXCEPTION
       'migration 586 blocked: patient access audit source constraint expression is noncanonical'
@@ -397,6 +441,9 @@ DECLARE
   task_kind_constraint_count INTEGER;
   old_expression TEXT;
   new_expression TEXT;
+  normalized_task_expression TEXT;
+  normalized_old_expression TEXT;
+  normalized_new_expression TEXT;
 BEGIN
   SELECT constraint_row.contype,
          constraint_row.convalidated,
@@ -437,6 +484,40 @@ BEGIN
      AND constraint_row.conname =
            'care_pathway_owner_acceptance_task_kind_probe_new';
 
+  normalized_task_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      task_constraint.expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+  normalized_old_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      old_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+  normalized_new_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      new_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+
   IF task_kind_constraint_count <>
        (CASE WHEN task_constraint_found THEN 1 ELSE 0 END)
      OR (
@@ -446,7 +527,10 @@ BEGIN
          OR task_constraint.convalidated IS DISTINCT FROM TRUE
          OR task_constraint.connoinherit IS DISTINCT FROM FALSE
          OR task_constraint.expression IS NULL
-         OR task_constraint.expression NOT IN (old_expression, new_expression)
+         OR normalized_task_expression NOT IN (
+           normalized_old_expression,
+           normalized_new_expression
+         )
        )
      )
   THEN

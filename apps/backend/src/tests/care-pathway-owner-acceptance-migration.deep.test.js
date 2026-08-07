@@ -38,8 +38,8 @@ const FROZEN_MIGRATIONS = {
     sha256: 'f799232a9007cb3a69dea11d7131c96913578e94bb8c62b9c1b6106921c31eb7',
   },
   '585_care_pathway_exclusive_owner_integrity.sql': {
-    bytes: 40234,
-    sha256: 'ecb84da8a3e2dae58ee9df644f16878f597255c1cbb778d582601affd29c9c9a',
+    bytes: 42627,
+    sha256: 'e6c2e341fd2a16242e05a348dfb58a531aa046c9f85844a78876e7452f3ba5dc',
   },
 };
 
@@ -491,7 +491,7 @@ async function expectDeferredFailure(client, statement, params, code, message) {
 }
 
 describe('migration 586 static owner-acceptance contract', () => {
-  test('keeps migrations 580 through 585 byte-for-byte frozen', () => {
+  test('pins migrations 580 through 585 at their reviewed bytes', () => {
     for (const [name, expected] of Object.entries(FROZEN_MIGRATIONS)) {
       const contents = readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
         .replace(/\r\n/g, '\n');
@@ -516,6 +516,9 @@ describe('migration 586 static owner-acceptance contract', () => {
     expect(migrationSql).toContain("'care_pathway_transfer_recipient'");
     expect(migrationSql).toContain("'care_pathway_transfer_decline_recipient'");
     expect(migrationSql).toContain("'care_pathway_role_queue_claimant'");
+    expect(migrationSql).toContain('normalized_audit_expression');
+    expect(migrationSql).toContain('normalized_task_expression');
+    expect(migrationSql).toContain("'::(character varying|text)(\\[\\])?'");
     expect(migrationSql).toContain('DROP CONSTRAINT IF EXISTS tasks_task_kind_check');
     expect(migrationSql).not.toMatch(/\bUPDATE\s+care_handoff_instances\b/i);
     expect(migrationSql).not.toMatch(/\bUPDATE\s+care_pathway_instances\b/i);
