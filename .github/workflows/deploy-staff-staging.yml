@@ -35,16 +35,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # Node runs the codegen driver below (scripts/codegen.mjs). Pinned to the
       # repo-standard version rather than relying on whatever the ubuntu-latest
       # image ships.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '26.5.0'
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml + ci.yml) — bump all together.
           flutter-version: 3.44.0
@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload to Firebase App Distribution
         if: steps.fb.outputs.skip == 'false'
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        uses: wzieba/Firebase-Distribution-Github-Action@bd494989dd4bec0343f78adee87fe66e48279ad6 # v1.7.1
         with:
           appId: ${{ secrets.FIREBASE_APP_ID_STAFF }}
           token: ${{ secrets.FIREBASE_TOKEN }}

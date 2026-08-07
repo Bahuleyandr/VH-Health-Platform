@@ -75,9 +75,9 @@ jobs:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '26.5.0'
           cache: npm
@@ -91,7 +91,7 @@ jobs:
           npx audit-ci --critical
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: apps/backend
@@ -201,9 +201,9 @@ jobs:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '26.5.0'
           cache: npm

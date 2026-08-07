@@ -32,7 +32,7 @@ jobs:
       security-events: write
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Install semgrep
         run: pip install --quiet semgrep
@@ -62,7 +62,7 @@ jobs:
       - name: Upload Semgrep SARIF (soft-fail — GHAS not required)
         if: always() && hashFiles('output/security/semgrep-focused.sarif') != ''
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: output/security/semgrep-focused.sarif
           category: semgrep-full-sweep
