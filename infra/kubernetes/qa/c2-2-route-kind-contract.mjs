@@ -108,6 +108,14 @@ assert.equal(
   dataValue(internalController, 'proxy-set-headers'),
   'vhhealth-ingress-internal/ingress-nginx-internal-request-headers',
 );
+assert.equal(dataValue(publicController, 'use-forwarded-headers'), 'true');
+assert.equal(dataValue(publicController, 'compute-full-forwarded-for'), 'false');
+assert.equal(dataValue(publicController, 'use-proxy-protocol'), 'false');
+assert.equal(dataValue(publicController, 'enable-real-ip'), 'true');
+assert.equal(
+  dataValue(publicController, 'forwarded-for-header'),
+  'CF-Connecting-IP',
+);
 assert.equal(dataValue(publicHeaders, 'X-VH-Route-Kind'), 'public');
 assert.equal(dataValue(internalHeaders, 'X-VH-Route-Kind'), 'internal');
 assert.equal(routeHeaderCount(publicSource), 1);
