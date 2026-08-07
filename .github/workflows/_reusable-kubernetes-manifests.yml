@@ -58,6 +58,7 @@ jobs:
           node --test
           scripts/check-c1-1-manifest-contract.test.mjs
           scripts/c1-1-backup-scripts.test.mjs
+          scripts/vhhealth-gha-deploy.test.mjs
 
       - name: Check C1.1 production render contract
         run: node scripts/check-c1-1-manifest-contract.mjs

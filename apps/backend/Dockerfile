@@ -38,6 +38,11 @@ COPY admin ./admin
 # image is functional but you can't bootstrap or repair a fresh cluster.
 COPY scripts ./scripts
 
+# Resolve the boot-critical dependency checker in the production dependency
+# tree during image build. This catches imports that only work because a
+# development or transitive package happened to be present in the builder.
+RUN node --input-type=module -e "await import('./src/utils/dependencyChecker.js')"
+
 RUN chown -R 1000:1000 /app
 USER 1000:1000
 

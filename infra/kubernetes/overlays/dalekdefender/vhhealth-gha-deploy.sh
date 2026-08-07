@@ -143,8 +143,16 @@ apply_refs() {
 }
 
 wait_for_rollout() {
-  kubectl -n "$NAMESPACE" rollout status deploy/vhhealth-backend --timeout="$ROLLOUT_TIMEOUT"
-  kubectl -n "$NAMESPACE" rollout status deploy/vhhealth-admin --timeout="$ROLLOUT_TIMEOUT"
+  local failed=0
+
+  if ! kubectl -n "$NAMESPACE" rollout status deploy/vhhealth-backend --timeout="$ROLLOUT_TIMEOUT"; then
+    failed=1
+  fi
+  if ! kubectl -n "$NAMESPACE" rollout status deploy/vhhealth-admin --timeout="$ROLLOUT_TIMEOUT"; then
+    failed=1
+  fi
+
+  return "$failed"
 }
 
 PREV_BACKEND_REF="$(current_image vhhealth-backend)"
