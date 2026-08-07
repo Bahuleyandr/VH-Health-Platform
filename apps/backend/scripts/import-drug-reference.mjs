@@ -3,10 +3,26 @@
 //   --compositions <artifact-dir>              upsert unique compositions (source='imported')
 //   --match-catalog <artifact-dir> --tenant X  exact-brand-match pharmacy_catalog rows
 //   --stats [--tenant X]                       coverage report vs the acceptance gate
+//   --release <aushadhi-data-dir> [--date YYYY-MM-DD] [--workdir <dir>] [--compositions] [--match-catalog --tenant X]
+//       resolve a release from an aushadhi-data checkout
+//       (releases/<YYYY-MM-DD>/{drugs.jsonl.zst, manifest.json}; latest = max
+//       date dir), verify it fail-closed against the manifest (compressed
+//       sha256+size, then decompressed sha256+size+record count), stream-
+//       decompress to a temp artifact dir, and feed the existing stages.
+//       With no stage flag it verifies only and writes nothing to the DB.
+//       --workdir <dir> creates the temp artifact dir under <dir> instead of
+//       os.tmpdir() (the decompressed JSONL is ~533 MB — relevant when /tmp is
+//       a small tmpfs, e.g. containerized runs).
 // All canonicalization goes through the platform's compositionParser — the
 // artifact never carries VH Health keys (thin-builder/smart-importer contract).
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import readline from 'node:readline';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import zlib from 'node:zlib';
 import pg from 'pg';
 import { compositionKey, parseStrength, parseForm } from '../src/services/pharmacy/compositionParser.js';
 import { strengthSignature, resolveImportStrength } from '../src/services/pharmacy/verifiedStrengthFill.js';
@@ -25,6 +41,146 @@ async function* readArtifactRows(artifactDir) {
     if (!line.trim()) continue;
     try { yield JSON.parse(line); } catch { /* skip corrupt line */ }
   }
+}
+
+// ---------------------------------------------------------------------------
+// aushadhi-data release consumption.
+// A release is releases/<YYYY-MM-DD>/{drugs.jsonl.zst, manifest.json} inside a
+// checkout of the private aushadhi-data repo (its git-based release channel —
+// no tags, no GitHub Releases). Verification is fail-closed: any mismatch
+// aborts before anything is handed to an import stage, so nothing reaches the
+// DB from an unverified artifact. Decompression is streaming (the decompressed
+// JSONL is ~533 MB — never buffered whole) via Node's built-in zlib zstd
+// support (>=22.15 / >=23.8; the backend pins Node 26).
+// ---------------------------------------------------------------------------
+
+const RELEASE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Pick a release dir: explicit --date, or "latest" = lexicographically max
+// YYYY-MM-DD directory under releases/ (the repo has no latest pointer).
+export function resolveRelease(repoDir, date = null) {
+  const releasesRoot = path.join(repoDir, 'releases');
+  if (!fs.existsSync(releasesRoot)) throw new Error(`no releases/ directory under ${repoDir}`);
+  if (date !== null) {
+    if (!RELEASE_DATE_RE.test(date)) throw new Error(`release date must be YYYY-MM-DD, got: ${date}`);
+    const releaseDir = path.join(releasesRoot, date);
+    if (!fs.existsSync(releaseDir)) throw new Error(`release ${date} not found under ${releasesRoot}`);
+    return { releaseDate: date, releaseDir };
+  }
+  const dates = fs.readdirSync(releasesRoot, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && RELEASE_DATE_RE.test(d.name))
+    .map((d) => d.name)
+    .sort();
+  if (!dates.length) throw new Error(`no YYYY-MM-DD release directories under ${releasesRoot}`);
+  const releaseDate = dates[dates.length - 1];
+  return { releaseDate, releaseDir: path.join(releasesRoot, releaseDate) };
+}
+
+// Streaming SHA-256 + byte count of a file (never buffers the file whole).
+export function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    let bytes = 0;
+    fs.createReadStream(file)
+      .on('data', (chunk) => { hash.update(chunk); bytes += chunk.length; })
+      .on('error', reject)
+      .on('end', () => resolve({ sha256: hash.digest('hex'), bytes }));
+  });
+}
+
+// Streaming zstd decompress zstFile -> outFile while computing the decompressed
+// SHA-256, byte count, and record count (JSONL lines; a trailing unterminated
+// line still counts as a record).
+export async function decompressZstd(zstFile, outFile) {
+  const hash = crypto.createHash('sha256');
+  let bytes = 0;
+  let newlines = 0;
+  let lastByte = null;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      hash.update(chunk);
+      bytes += chunk.length;
+      let i = chunk.indexOf(0x0a);
+      while (i !== -1) { newlines += 1; i = chunk.indexOf(0x0a, i + 1); }
+      if (chunk.length) lastByte = chunk[chunk.length - 1];
+      cb(null, chunk);
+    },
+  });
+  await pipeline(
+    fs.createReadStream(zstFile),
+    zlib.createZstdDecompress(),
+    counter,
+    fs.createWriteStream(outFile),
+  );
+  const records = newlines + (bytes > 0 && lastByte !== 0x0a ? 1 : 0);
+  return { sha256: hash.digest('hex'), bytes, records };
+}
+
+// Resolve + verify + decompress a release into an artifact dir the existing
+// stages can consume. Verification order (all fail-closed):
+//   1. manifest schema_version === 1
+//   2. manifest release_date matches the release directory name
+//   3. compressed drugs.jsonl.zst sha256 + size vs manifest.artifact.*
+//   4. decompress (streaming)
+//   5. decompressed sha256 + size + record count vs manifest.source.*
+// On any mismatch the partial decompressed file is removed and the error is
+// thrown before any import stage runs.
+export async function verifyAndExtractRelease(repoDir, { date = null, outDir = null, workDir = null, log = () => {} } = {}) {
+  const { releaseDate, releaseDir } = resolveRelease(repoDir, date);
+  const manifestPath = path.join(releaseDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) throw new Error(`manifest not found: ${manifestPath}`);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  log(`release ${releaseDate}: manifest ${manifestPath}`);
+
+  if (manifest.schema_version !== 1) {
+    throw new Error(`unsupported manifest schema_version ${JSON.stringify(manifest.schema_version)} (expected 1) in ${manifestPath}`);
+  }
+  if (manifest.release_date !== releaseDate) {
+    throw new Error(`manifest release_date ${JSON.stringify(manifest.release_date)} does not match release directory ${releaseDate}`);
+  }
+
+  const zstFile = path.join(releaseDir, 'drugs.jsonl.zst');
+  if (!fs.existsSync(zstFile)) throw new Error(`artifact not found: ${zstFile}`);
+  const compressed = await sha256File(zstFile);
+  if (compressed.sha256 !== manifest.artifact?.sha256) {
+    throw new Error(`compressed sha256 mismatch for ${zstFile}: got ${compressed.sha256}, manifest artifact.sha256 ${manifest.artifact?.sha256}`);
+  }
+  if (compressed.bytes !== manifest.artifact?.size_bytes) {
+    throw new Error(`compressed size mismatch for ${zstFile}: got ${compressed.bytes}, manifest artifact.size_bytes ${manifest.artifact?.size_bytes}`);
+  }
+  log(`release ${releaseDate}: compressed artifact verified (sha256 ${compressed.sha256.slice(0, 12)}…, ${compressed.bytes} bytes)`);
+
+  const autoCreatedDir = outDir === null;
+  if (workDir !== null) fs.mkdirSync(workDir, { recursive: true });
+  const artifactDir = outDir ?? fs.mkdtempSync(path.join(workDir ?? os.tmpdir(), `aushadhi-release-${releaseDate}-`));
+  fs.mkdirSync(artifactDir, { recursive: true });
+  const outFile = path.join(artifactDir, 'drugs.jsonl');
+  let decompressed;
+  try {
+    decompressed = await decompressZstd(zstFile, outFile);
+    if (decompressed.sha256 !== manifest.source?.sha256) {
+      throw new Error(`decompressed sha256 mismatch for ${outFile}: got ${decompressed.sha256}, manifest source.sha256 ${manifest.source?.sha256}`);
+    }
+    if (decompressed.bytes !== manifest.source?.size_bytes) {
+      throw new Error(`decompressed size mismatch for ${outFile}: got ${decompressed.bytes}, manifest source.size_bytes ${manifest.source?.size_bytes}`);
+    }
+    if (decompressed.records !== manifest.source?.record_count) {
+      throw new Error(`record count mismatch for ${outFile}: got ${decompressed.records}, manifest source.record_count ${manifest.source?.record_count}`);
+    }
+  } catch (e) {
+    // Never leave an unverified artifact behind for a later stage to consume.
+    // A dir this function created via mkdtemp is removed whole (the caller
+    // never learns its path when we throw); a caller-supplied outDir stays,
+    // only the partial file goes. Cleanup failure must never mask the
+    // verification error.
+    try {
+      if (autoCreatedDir) fs.rmSync(artifactDir, { recursive: true, force: true });
+      else fs.rmSync(outFile, { force: true });
+    } catch { /* keep the verification error */ }
+    throw e;
+  }
+  log(`release ${releaseDate}: decompressed artifact verified (sha256 ${decompressed.sha256.slice(0, 12)}…, ${decompressed.bytes} bytes, ${decompressed.records} records) -> ${artifactDir}`);
+  return { releaseDate, releaseDir, artifactDir, manifest, compressed, decompressed };
 }
 
 // Rebuild the parser's canonical inputs from artifact ingredients:
@@ -259,7 +415,32 @@ if (invokedDirectly) {
     return i === -1 ? null : (args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : true);
   };
   const run = async () => {
-    if (flag('compositions')) {
+    if (typeof flag('release') === 'string') {
+      // Release mode: resolve + verify + decompress an aushadhi-data checkout,
+      // then feed the extracted artifact dir to whichever stages were asked
+      // for. No stage flag = verify only (nothing written to the DB).
+      const date = typeof flag('date') === 'string' ? flag('date') : null;
+      const workDir = typeof flag('workdir') === 'string' ? flag('workdir') : null;
+      const rel = await verifyAndExtractRelease(flag('release'), { date, workDir, log: console.log });
+      try {
+        let ranStage = false;
+        if (flag('compositions')) {
+          ranStage = true;
+          const s = await importCompositions(rel.artifactDir);
+          console.log(`compositions: ${JSON.stringify(s)}`);
+        }
+        if (flag('match-catalog')) {
+          ranStage = true;
+          const s = await matchCatalog(rel.artifactDir, { tenantId: flag('tenant') });
+          console.log(`match-catalog: ${JSON.stringify(s)}`);
+        }
+        if (!ranStage) {
+          console.log(`release ${rel.releaseDate}: verified only — add --compositions and/or --match-catalog --tenant <uuid> to import`);
+        }
+      } finally {
+        fs.rmSync(rel.artifactDir, { recursive: true, force: true });
+      }
+    } else if (flag('compositions')) {
       const s = await importCompositions(flag('compositions'));
       console.log(`compositions: ${JSON.stringify(s)}`);
     } else if (flag('match-catalog')) {
@@ -269,7 +450,7 @@ if (invokedDirectly) {
       const s = await coverageStats({ tenantId: typeof flag('tenant') === 'string' ? flag('tenant') : undefined });
       console.log(`coverage: ${JSON.stringify(s)}`);
     } else {
-      console.log('usage: node scripts/import-drug-reference.mjs --compositions <dir> | --match-catalog <dir> --tenant <uuid> | --stats [--tenant <uuid>]');
+      console.log('usage: node scripts/import-drug-reference.mjs --compositions <dir> | --match-catalog <dir> --tenant <uuid> | --stats [--tenant <uuid>] | --release <aushadhi-data-dir> [--date YYYY-MM-DD] [--workdir <dir>] [--compositions] [--match-catalog --tenant <uuid>]');
     }
   };
   run().then(() => process.exit(0)).catch((e) => { console.error(e.message); process.exit(1); });
