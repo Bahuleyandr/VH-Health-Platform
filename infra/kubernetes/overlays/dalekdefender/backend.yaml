@@ -67,6 +67,12 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            # The production route graph exceeds Node's cgroup-derived
+            # default old-space ceiling during startup on this test rig.
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=768
+            - name: TENANT_BASE_HOST
+              value: vhhealth.app
             - name: PORT
               value: "5000"
             # DalekDefender's bootstrap DB role is a superuser so it can run
