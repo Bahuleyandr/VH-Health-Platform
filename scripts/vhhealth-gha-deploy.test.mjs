@@ -72,4 +72,6 @@ exit 0
   assert.match(calls, /rollout status deploy\/vhhealth-admin/);
   assert.match(calls, /backend=.*sha256:aaaaaaaa/);
   assert.match(calls, /admin=.*sha256:bbbbbbbb/);
+  assert.match(calls, /NODE_OPTIONS=--max-old-space-size=768/);
+  assert.match(calls, /TENANT_BASE_HOST=vhhealth\.app/);
 });

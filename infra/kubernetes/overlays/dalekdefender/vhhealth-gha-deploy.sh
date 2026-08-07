@@ -135,7 +135,9 @@ apply_refs() {
   kubectl -n "$NAMESPACE" set env deploy/vhhealth-backend \
     GIT_COMMIT="$commit" \
     SENTRY_ENVIRONMENT=dalekdefender \
-    SENTRY_TRACES_SAMPLE_RATE=0.1
+    SENTRY_TRACES_SAMPLE_RATE=0.1 \
+    NODE_OPTIONS=--max-old-space-size=768 \
+    TENANT_BASE_HOST=vhhealth.app
   kubectl -n "$NAMESPACE" set env deploy/vhhealth-admin \
     GIT_COMMIT="$commit" \
     NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
