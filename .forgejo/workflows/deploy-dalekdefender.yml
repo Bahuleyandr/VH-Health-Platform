@@ -282,18 +282,22 @@ jobs:
           # Secret; the write-scoped registry token is only a fallback.
           if [ -n "${GHCR_PULL_USERNAME:-}" ] && [ -n "${GHCR_PULL_TOKEN:-}" ]; then
             registry_user="$GHCR_PULL_USERNAME"
-            registry_password="$GHCR_PULL_TOKEN"
+            registry_token="$GHCR_PULL_TOKEN"
           else
             echo "::warning::Falling back to the write-scoped registry token for the host pull secret; configure GHCR_PULL_TOKEN (read:packages only)"
             registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
-            registry_password="${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}"
+            if [ -n "${CONTAINER_REGISTRY_PASSWORD:-}" ]; then
+              registry_token="$CONTAINER_REGISTRY_PASSWORD"
+            else
+              registry_token="${GHCR_TOKEN:-}"
+            fi
           fi
           {
             printf '%s\n' "$BACKEND_REF"
             printf '%s\n' "$ADMIN_REF"
             printf '%s\n' "$GITHUB_SHA"
             printf '%s\n' "$registry_user"
-            printf '%s\n' "$registry_password"
+            printf '%s\n' "$registry_token"
           } | ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
               "$DALEK_HOST" \
               "sudo -n /usr/local/sbin/vhhealth-gha-deploy"
