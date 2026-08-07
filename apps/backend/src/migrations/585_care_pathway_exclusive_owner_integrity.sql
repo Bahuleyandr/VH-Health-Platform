@@ -92,6 +92,11 @@ CREATE TEMPORARY TABLE care_pathway_access_source_constraint_probe (
 ) ON COMMIT DROP;
 
 ALTER TABLE care_pathway_access_source_constraint_probe
+  ADD CONSTRAINT care_pathway_access_source_constraint_probe_legacy
+  CHECK (access_source IN (
+    'role', 'care_team', 'appointment', 'admission', 'guardian',
+    'break_glass', 'system', 'unknown'
+  )),
   ADD CONSTRAINT care_pathway_access_source_constraint_probe_old
   CHECK (access_source IN (
     'role', 'care_team', 'clinical_authorship', 'appointment', 'admission',
@@ -106,8 +111,13 @@ ALTER TABLE care_pathway_access_source_constraint_probe
 DO $care_pathway_access_audit_constraint_preflight$
 DECLARE
   audit_expression TEXT;
+  legacy_expression TEXT;
   old_expression TEXT;
   new_expression TEXT;
+  normalized_audit_expression TEXT;
+  normalized_legacy_expression TEXT;
+  normalized_old_expression TEXT;
+  normalized_new_expression TEXT;
 BEGIN
   SELECT pg_catalog.pg_get_expr(constraint_row.conbin, constraint_row.conrelid)
     INTO audit_expression
@@ -115,6 +125,17 @@ BEGIN
    WHERE constraint_row.conrelid = 'public.patient_access_audit_log'::pg_catalog.regclass
      AND constraint_row.conname =
            'patient_access_audit_log_access_source_check';
+
+  -- Pre-260 deployed lineages can have migration 260 recorded while retaining
+  -- the older source set without clinical_authorship. It is a strict subset
+  -- of the canonical target, so accepting and normalizing it is fail-safe.
+  SELECT pg_catalog.pg_get_expr(constraint_row.conbin, constraint_row.conrelid)
+    INTO legacy_expression
+    FROM pg_catalog.pg_constraint AS constraint_row
+   WHERE constraint_row.conrelid =
+           'pg_temp.care_pathway_access_source_constraint_probe'::pg_catalog.regclass
+     AND constraint_row.conname =
+           'care_pathway_access_source_constraint_probe_legacy';
 
   SELECT pg_catalog.pg_get_expr(constraint_row.conbin, constraint_row.conrelid)
     INTO old_expression
@@ -132,11 +153,65 @@ BEGIN
      AND constraint_row.conname =
            'care_pathway_access_source_constraint_probe_new';
 
+  -- pg_dump/pg_restore across PostgreSQL builds can place the same redundant
+  -- varchar-to-text casts on each ARRAY element or on the ARRAY as a whole.
+  -- Remove only those casts, whitespace, and parentheses; the column,
+  -- operator, ARRAY order, and exact literals remain part of the comparison.
+  normalized_audit_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      audit_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+  normalized_legacy_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      legacy_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+  normalized_old_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      old_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+  normalized_new_expression := pg_catalog.regexp_replace(
+    pg_catalog.regexp_replace(
+      new_expression,
+      '::(character varying|text)(\[\])?',
+      '',
+      'g'
+    ),
+    '[[:space:]()]',
+    '',
+    'g'
+  );
+
   IF audit_expression IS NULL
-     OR audit_expression NOT IN (old_expression, new_expression)
+     OR normalized_audit_expression NOT IN (
+       normalized_legacy_expression,
+       normalized_old_expression,
+       normalized_new_expression
+     )
   THEN
     RAISE EXCEPTION
-      'migration 585 blocked: patient access audit source constraint expression is noncanonical'
+      'migration 585 blocked: patient access audit source constraint expression is noncanonical (actual=%, legacy=%, old=%, new=%)',
+      audit_expression, legacy_expression, old_expression, new_expression
       USING ERRCODE = '55000';
   END IF;
 END
