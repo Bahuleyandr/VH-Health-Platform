@@ -9,6 +9,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs
+COPY scripts/patch-redocly-js-yaml-compat.mjs ./scripts/patch-redocly-js-yaml-compat.mjs
 RUN npm ci
 
 # ---- Build Stage ----
