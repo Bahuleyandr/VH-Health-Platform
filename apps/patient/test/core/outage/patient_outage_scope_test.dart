@@ -64,4 +64,55 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'renders an outage banner from the MaterialApp builder without replacing the app',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1080, 2520));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          builder: (context, child) =>
+              PatientOutageScope(child: child ?? const SizedBox.shrink()),
+          home: const Scaffold(body: Text('authenticated patient view')),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ErrorWidget), findsNothing);
+      expect(find.text('authenticated patient view'), findsOneWidget);
+      expect(
+        find.textContaining('Hospital systems are temporarily unavailable'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('keeps the patient view mounted when the banner cannot build', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) =>
+            PatientOutageScope(child: child ?? const SizedBox.shrink()),
+        home: const Scaffold(body: Text('authenticated patient view')),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNotNull);
+    expect(find.text('authenticated patient view'), findsOneWidget);
+    expect(find.byType(ErrorWidget), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
