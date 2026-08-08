@@ -2,7 +2,10 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import {
+  recordCanonicalClinicalEvent,
+  recordMedicationSafetyReviews,
+} from './canonicalClinicalPlatformService.js';
 import { BCMA_CONFIG } from '../../config/pharmacyConfig.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -633,6 +636,40 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
       overrideReason: noScanOverrideReason,
       inspection,
     });
+    if (noScanOverrideReason) {
+      // Canonical invariant item 5 (docs/CANONICAL_CLINICAL_TIMELINE.md): a
+      // documented override of a medication-safety control must persist a
+      // medication_safety_reviews row in the SAME transaction as the detail
+      // write. The no-scan override bypasses the BCMA scan gate, so record it
+      // as a blocked finding with the override reason — the helper stores it
+      // status='overridden' with override_required=true. The helper swallows
+      // per-row insert failures, so verify a row actually landed and abort
+      // (rolling the administration back) when none did: an unrecorded safety
+      // override must not commit.
+      const reviews = await recordMedicationSafetyReviews({
+        tenantId: tid,
+        patientUid: applied.record.patient_uid,
+        safety: {
+          safe: false,
+          blockers: [{
+            type: 'bcma_no_scan_override',
+            severity: 'medium',
+            medication_name: applied.record.medication_name,
+            message: `Barcode scan bypassed for administration: ${noScanOverrideReason}`,
+            medication_administration_id: applied.record.id,
+          }],
+          warnings: [],
+        },
+        override: { reason: noScanOverrideReason, approvedBy: administeredBy },
+        actorUid: administeredBy,
+      }, { db: tx });
+      if (!reviews.length) {
+        throw AppError.internal(
+          'Medication safety review write failed for no-scan override',
+          'MEDICATION_SAFETY_REVIEW_WRITE_FAILED',
+        );
+      }
+    }
     await recordCanonicalMarEvent({
       record: applied.record,
       eventType: 'mar.administered',

@@ -199,6 +199,92 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       .send({ override_reason: 'B1TEST scanner battery dead, identity verified verbally' });
     expect(withReason.status).toBe(200);
     expect(withReason.body.data.override_reason).toMatch(/scanner battery dead/);
+
+    // C-M1: the no-scan override is a medication-safety override and must land
+    // a medication_safety_reviews row in the same transaction (canonical
+    // invariant item 5) — status 'overridden' with the documented reason.
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT review_type, status, override_required, override_reason
+         FROM medication_safety_reviews
+        WHERE patient_uid = $1::uuid AND review_type = 'bcma_no_scan_override'
+          AND payload->>'medication_administration_id' = $2`,
+      patientUid, String(maId),
+    );
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0].status).toBe('overridden');
+    expect(reviews[0].override_required).toBe(true);
+    expect(reviews[0].override_reason).toMatch(/scanner battery dead/);
+  });
+
+  test('C-M1: a soft-right (time) override with scan records one overridden safety review per failed right', async () => {
+    // Dose scheduled 3 hours ago — right-time fails (±60 min window); patient
+    // and drug scans match, so only the soft right blocks.
+    const late = await prisma.$queryRawUnsafe(
+      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
+       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW() - INTERVAL '3 hours', 'scheduled')
+       RETURNING id`,
+      patientUid,
+    );
+    const lateId = Number(late[0].id);
+
+    const noOverride = await nurseClient()
+      .post(`/api/v1/clinical/mar/${lateId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+      });
+    expect(noOverride.status).toBe(409);
+
+    const overridden = await nurseClient()
+      .post(`/api/v1/clinical/mar/${lateId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        override_reason: 'B1TEST dose delayed in theatre recovery, charge nurse approved late administration',
+      });
+    expect(overridden.status).toBe(200);
+    expect(overridden.body.data.status).toBe('administered');
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT review_type, status, severity, override_required, override_reason, payload
+         FROM medication_safety_reviews
+        WHERE patient_uid = $1::uuid
+          AND payload->>'medication_administration_id' = $2`,
+      patientUid, String(lateId),
+    );
+    expect(reviews).toHaveLength(1); // exactly one failed right → exactly one finding
+    expect(reviews[0].review_type).toBe('bcma_right_time');
+    expect(reviews[0].status).toBe('overridden');
+    expect(reviews[0].override_required).toBe(true);
+    expect(reviews[0].override_reason).toMatch(/theatre recovery/);
+    const payload = typeof reviews[0].payload === 'string' ? JSON.parse(reviews[0].payload) : reviews[0].payload;
+    expect(Math.abs(Number(payload.minutes_from_scheduled))).toBeGreaterThan(60);
+  });
+
+  test('C-M1: a clean all-rights-passed scan administration records no safety review', async () => {
+    const clean = await prisma.$queryRawUnsafe(
+      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
+       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW(), 'scheduled')
+       RETURNING id`,
+      patientUid,
+    );
+    const cleanMaId = Number(clean[0].id);
+
+    const res = await nurseClient()
+      .post(`/api/v1/clinical/mar/${cleanMaId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+      });
+    expect(res.status).toBe(200);
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT id FROM medication_safety_reviews
+        WHERE patient_uid = $1::uuid
+          AND payload->>'medication_administration_id' = $2`,
+      patientUid, String(cleanMaId),
+    );
+    expect(reviews).toHaveLength(0);
   });
 
   test('B4.2: a mismatched patient scan is a NON-overridable hard-stop (audit F-H1)', async () => {
