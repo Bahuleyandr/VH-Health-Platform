@@ -23,6 +23,7 @@ import { jest } from '@jest/globals';
 // One mock client object, re-used for the setTenantTx delegate so the
 // acknowledge transaction reads/writes the same canned rows.
 const mockPrisma = {
+  $queryRawUnsafe: jest.fn(),
   users: { findUnique: jest.fn() },
   admissions: { findMany: jest.fn() },
   allergies: { findMany: jest.fn() },
@@ -72,7 +73,9 @@ const PATIENT_UID = 'patient-uid-1';
 // they exercise. resolveUserIdFromUid / persistCdsAlert both call
 // users.findUnique — default it to a resolvable owner so persist paths run.
 function resetMocks() {
+  mockPrisma.$queryRawUnsafe.mockReset().mockResolvedValue([]);
   for (const model of Object.values(mockPrisma)) {
+    if (typeof model === 'function') continue;
     for (const fn of Object.values(model)) {
       fn.mockReset();
       fn.mockResolvedValue([]);
@@ -572,17 +575,20 @@ describe('acknowledgeAlert', () => {
   });
 
   it('throws notFound when the alert does not exist', async () => {
-    mockPrisma.cds_alerts.findUnique.mockResolvedValue(null);
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
     await expect(cds.acknowledgeAlert(1, 'doc-1')).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('throws conflict when already acknowledged', async () => {
-    mockPrisma.cds_alerts.findUnique.mockResolvedValue({ id: 1, acknowledged: true, source_data: {} });
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([{ id: 1, acknowledged: true, source_data: {} }]);
     await expect(cds.acknowledgeAlert(1, 'doc-1')).rejects.toMatchObject({ statusCode: 409 });
+    expect(mockPrisma.cds_alerts.update).not.toHaveBeenCalled();
   });
 
   it('acknowledges with an override reason and merges it into source_data', async () => {
-    mockPrisma.cds_alerts.findUnique.mockResolvedValue({ id: 1, acknowledged: false, source_data: { foo: 'bar' } });
+    mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([{
+      id: 1, acknowledged: false, source_data: { foo: 'bar' },
+    }]);
     mockPrisma.cds_alerts.update.mockResolvedValue({
       id: 1, patient_uid: PATIENT_UID, encounter_id: 3, alert_type: 'allergy',
       severity: 'critical', title: 't', description: 'd',
@@ -595,10 +601,13 @@ describe('acknowledgeAlert', () => {
     expect(result.acknowledged_by).toBe('doc-1');
     expect(result.override_reason).toBe('clinically necessary');
     expect(emitCdsAlertAcknowledged).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.$queryRawUnsafe.mock.calls[0][0]).toContain('FOR UPDATE');
   });
 
   it('acknowledges without an override reason (null source_data path)', async () => {
-    mockPrisma.cds_alerts.findUnique.mockResolvedValue({ id: 2, acknowledged: false, source_data: null });
+    mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([{
+      id: 2, acknowledged: false, source_data: null,
+    }]);
     mockPrisma.cds_alerts.update.mockResolvedValue({
       id: 2, patient_uid: PATIENT_UID, encounter_id: null, alert_type: 'critical_lab',
       severity: 'critical', title: 't', description: 'd', source_data: null,

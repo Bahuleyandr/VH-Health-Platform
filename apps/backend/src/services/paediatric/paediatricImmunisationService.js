@@ -25,6 +25,7 @@ import {
   recordCanonicalClinicalEvent,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 
 const VALID_STATUSES = new Set([
   'scheduled', 'given', 'missed', 'refused', 'contraindicated',
@@ -713,13 +714,16 @@ export async function recordDose({
         adverseEvent,
         notes,
       });
+      // Merged-uid union: the canonical rows for this dose may have been
+      // recorded under a patient uid that was since merged into this one
+      // (timeline/audit are append-only and never re-pointed).
       const canonicalRows = semanticallyIdentical
         ? await tx.$queryRawUnsafe(
           `SELECT EXISTS (
                     SELECT 1
                       FROM clinical_timeline_events
                      WHERE tenant_id = $1::uuid
-                       AND patient_uid = $2::uuid
+                       AND patient_uid = ANY($2::uuid[])
                        AND source_table = 'newborn_immunisations'
                        AND source_id = $3::text
                        AND (idempotency_key = $4::text
@@ -729,14 +733,17 @@ export async function recordDose({
                     SELECT 1
                       FROM clinical_audit_events
                      WHERE tenant_id = $1::uuid
-                       AND patient_uid = $2::uuid
+                       AND patient_uid = ANY($2::uuid[])
                        AND resource_table = 'newborn_immunisations'
                        AND resource_id = $3::text
                        AND (idempotency_key = $5::text
                             OR left(idempotency_key, length($7::text)) = $7::text)
                   ) AS audit_exists`,
           tid,
-          patientDose.patient_uid,
+          await resolveMergedPatientUidSet(tx, {
+            tenantId: tid,
+            patientUid: patientDose.patient_uid,
+          }),
           String(exactRows[0].id),
           retryKeys.timeline,
           retryKeys.audit,

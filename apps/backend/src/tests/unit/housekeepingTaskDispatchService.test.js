@@ -4,6 +4,7 @@ const prismaMock = {
   $queryRawUnsafe: jest.fn(),
   $executeRawUnsafe: jest.fn(),
 };
+prismaMock.$transaction = jest.fn(async (fn) => fn(prismaMock));
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),

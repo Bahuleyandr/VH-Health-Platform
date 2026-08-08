@@ -61,6 +61,7 @@ describe('auditAccountabilityService', () => {
 
     expect(sql).toContain('v.tenant_id = $1::uuid');
     expect(sql).toContain('v.actor_uid = $2::uuid');
+    expect(sql).toContain('v.patient_uid IN (SELECT $4::uuid AS uid');
     expect(sql).toContain('patient.name AS patient_name');
     expect(sql).toContain('ROW(v.occurred_at, v.source, v.id) < ROW(');
     expect(sql).not.toMatch(/\bOFFSET\b/i);

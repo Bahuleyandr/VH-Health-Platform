@@ -25,6 +25,7 @@ const { __testing__ } = await import(
 function makeTx({ events = [] } = {}) {
   const query = jest.fn(async sql => {
     if (sql.includes('FROM event_outbox AS event')) return events;
+    if (sql.includes('WITH RECURSIVE merged_chain')) return [{ uid: PATIENT_UID }];
     if (sql.includes('FROM appointments AS appointment')) {
       return [{
         id: APPOINTMENT_ID,

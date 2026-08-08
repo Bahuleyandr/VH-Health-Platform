@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 
 const getTenantByIdMock = jest.fn();
 const loggerDebugMock = jest.fn();
+const loggerWarnMock = jest.fn();
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   getTenantById: getTenantByIdMock,
@@ -17,7 +18,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     debug: loggerDebugMock,
     info: jest.fn(),
-    warn: jest.fn(),
+    warn: loggerWarnMock,
     error: jest.fn(),
   },
 }));
@@ -37,6 +38,7 @@ const PATHWAY_KEY = CARE_PATHWAY_KEYS.DIAGNOSTICS;
 afterEach(() => {
   getTenantByIdMock.mockReset();
   loggerDebugMock.mockReset();
+  loggerWarnMock.mockReset();
   delete process.env.CARE_PATHWAYS_MODE;
   delete process.env.CARE_PATHWAY_MODE;
 });
@@ -95,13 +97,23 @@ describe('pathway mode contract', () => {
     await expect(resolvePathwayMode(TENANT, PATHWAY_KEY)).resolves.toBe('off');
   });
 
-  it('fails closed to off on lookup failure', async () => {
+  it('fails closed to off on lookup failure and logs the failure at warn level', async () => {
     getTenantByIdMock.mockRejectedValueOnce(new Error('database unavailable'));
     await expect(resolvePathwayMode(TENANT, PATHWAY_KEY)).resolves.toBe('off');
-    expect(loggerDebugMock).toHaveBeenCalledWith(
-      'care pathway mode resolve fell back to off',
-      expect.objectContaining({ tenantId: TENANT, pathwayKey: PATHWAY_KEY }),
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'care pathway mode resolution failed; failing safe to off',
+      expect.objectContaining({
+        tenantId: TENANT,
+        pathwayKey: PATHWAY_KEY,
+        error: 'database unavailable',
+      }),
     );
+  });
+
+  it('does not log a resolution failure for a merely missing setting', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: {} });
+    await expect(resolvePathwayMode(TENANT, PATHWAY_KEY)).resolves.toBe('off');
+    expect(loggerWarnMock).not.toHaveBeenCalled();
   });
 
   it('returns off without a tenant lookup for an unknown pathway key', async () => {

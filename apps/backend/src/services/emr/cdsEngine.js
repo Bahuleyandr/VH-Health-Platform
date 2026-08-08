@@ -4,6 +4,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { emitCdsAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
+import { recordMedicationSafetyReviews } from '../clinical/canonicalClinicalPlatformService.js';
 
 
 // ===================================================================
@@ -922,11 +923,18 @@ export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason =
     throw AppError.badRequest('Alert ID and acknowledgedBy are required');
   }
 
-  const updated = await setTenantTx(requireTenantId(tenantId), async (tx) => {
-    const existing = await tx.cds_alerts.findUnique({
-      where: { id: Number(alertId) },
-      select: { id: true, acknowledged: true, source_data: true },
-    });
+  const requestTenantId = requireTenantId(tenantId);
+  const result = await setTenantTx(requestTenantId, async (tx) => {
+    const existingRows = await tx.$queryRawUnsafe(
+      `SELECT id, acknowledged, source_data
+         FROM cds_alerts
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      Number(alertId),
+      requestTenantId,
+    );
+    const existing = existingRows[0];
     if (!existing) {
       throw AppError.notFound('CDS alert not found');
     }
@@ -951,39 +959,70 @@ export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason =
         source_data: nextSource,
       },
       select: {
-        id: true, patient_uid: true, encounter_id: true, alert_type: true,
+        id: true, tenant_id: true, patient_uid: true, encounter_id: true, alert_type: true,
         severity: true, title: true, description: true, source_data: true,
         acknowledged: true, ack_by: true, ack_at: true, created_at: true,
       },
     });
 
-    return row;
-  });
+    // The alert's own tenant stamps the canonical rows (the row may carry a
+    // GUC-derived tenant different from a defaulted request context).
+    const alertTenantId = row.tenant_id || requestTenantId;
 
-  // Public response shape preserved: alias ack_by → acknowledged_by,
-  // ack_at → acknowledged_at, surface override_reason from source_data.
-  const overrideFromSource = updated.source_data && typeof updated.source_data === 'object'
-    ? updated.source_data.override_reason ?? null : null;
-  const result = {
-    id: updated.id,
-    patient_uid: updated.patient_uid,
-    encounter_id: updated.encounter_id,
-    alert_type: updated.alert_type,
-    severity: updated.severity,
-    title: updated.title,
-    description: updated.description,
-    source_data: updated.source_data,
-    acknowledged: updated.acknowledged,
-    acknowledged_by: updated.ack_by,
-    acknowledged_at: updated.ack_at,
-    override_reason: overrideFromSource,
-    created_at: updated.created_at,
-  };
+    // Public response shape preserved: alias ack_by → acknowledged_by,
+    // ack_at → acknowledged_at, surface override_reason from source_data.
+    const overrideFromSource = row.source_data && typeof row.source_data === 'object'
+      ? row.source_data.override_reason ?? null : null;
+    const ack = {
+      id: row.id,
+      patient_uid: row.patient_uid,
+      encounter_id: row.encounter_id,
+      alert_type: row.alert_type,
+      severity: row.severity,
+      title: row.title,
+      description: row.description,
+      source_data: row.source_data,
+      acknowledged: row.acknowledged,
+      acknowledged_by: row.ack_by,
+      acknowledged_at: row.ack_at,
+      override_reason: overrideFromSource,
+      created_at: row.created_at,
+    };
 
-  await emitCdsAlertAcknowledged({
-    alert: result,
-    actorUid: acknowledgedBy,
-    actorRole: 'CLINICAL',
+    // Canonical invariant (docs/CANONICAL_CLINICAL_TIMELINE.md): an override
+    // is a medication-safety decision and must persist its
+    // medication_safety_reviews row in the same transaction as the ack.
+    if (overrideReason) {
+      await recordMedicationSafetyReviews({
+        tenantId: alertTenantId,
+        patientUid: row.patient_uid,
+        safety: {
+          safe: false,
+          blockers: [{
+            type: 'cds_alert_override',
+            severity: row.severity,
+            code: row.alert_type,
+            message: row.title || row.description || 'CDS alert overridden',
+          }],
+          warnings: [],
+        },
+        override: { reason: overrideReason, approvedBy: acknowledgedBy },
+        actorUid: acknowledgedBy,
+      }, { db: tx });
+    }
+
+    // In-tx canonical emit: a failed timeline/audit write now rolls the
+    // acknowledgement back instead of committing an ack with no canonical
+    // trail (previously a post-commit best-effort emit).
+    await emitCdsAlertAcknowledged({
+      db: tx,
+      tenantId: alertTenantId,
+      alert: ack,
+      actorUid: acknowledgedBy,
+      actorRole: 'CLINICAL',
+    });
+
+    return ack;
   });
 
   logger.info(`CDS alert acknowledged: id=${alertId}, by=${acknowledgedBy}, override=${!!overrideReason}`);

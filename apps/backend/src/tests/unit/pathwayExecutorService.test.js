@@ -3383,3 +3383,84 @@ it('rejects the 513th compiled child workflow step before its child insert', asy
     pathwayInstanceId: INSTANCE_ID,
   }));
 });
+
+it('derives distinct system idempotency keys for a projector command and its registered-condition completion', async () => {
+  const registry = registryFor();
+  runtime = makeRuntime({
+    workflow_key: 'synthetic_recovery_chain',
+    steps: [{
+      step_key: 'recover_unattended_visit',
+      step_kind: 'task',
+      assigned_role: 'DOCTOR',
+      work_semantics: {
+        task_kind: 'review',
+        priority: 'normal',
+        sla_completion_semantics: 'none',
+      },
+    }],
+  }, registry, { status: 'running' });
+  const actor = createRegisteredWorkflowSystemActor({
+    registry,
+    systemKey: 'synthetic.projector.v1',
+    sourceEventId: '9901',
+    causationId: 'outbox:9901',
+    signalContext: sealedSignalContext({ sourceResourceId: '9901' }),
+  });
+  const snapshot = {
+    ...runtime.instance,
+    steps: runtime.steps,
+    tasks: runtime.tasks,
+    approvals: runtime.approvals,
+    handoffs: runtime.handoffs,
+  };
+  const provenance = {
+    actor_kind: 'system',
+    system_key: 'synthetic.projector.v1',
+    source_event_id: '9901',
+  };
+  findReplayMock.mockImplementationOnce(async () => ({
+    replayed: true,
+    events: replayEventsForBranch('command', snapshot, provenance),
+    pathwayInstance: runtime.instance,
+  }));
+  await executePathwayCommand(command({
+    registry,
+    actor,
+    idempotencyKey: 'op:41:event:9901',
+  }));
+
+  const conditionInput = () => ({
+    ...command({
+      registry,
+      actor,
+      idempotencyKey: 'op:41:event:9901:recovery-completion',
+    }),
+    taskId: 701,
+    workflowRunId: 77,
+    workflowStepId: 100,
+    conditionHandler: 'synthetic.condition.v1',
+    evidenceResourceType: 'op_visit_closure_evidence',
+    evidenceResourceId: '88888888-8888-4888-8888-888888888888',
+    evidence: { verified: true },
+  });
+  findReplayMock.mockImplementation(async () => ({
+    replayed: true,
+    events: replayEventsForBranch('registered_condition', snapshot, provenance),
+    pathwayInstance: runtime.instance,
+  }));
+  await completePathwayTaskAndExecuteFromRegisteredCondition(conditionInput());
+  await completePathwayTaskAndExecuteFromRegisteredCondition({
+    ...conditionInput(),
+    idempotencyKey: 'a-completely-different-raw-key',
+  });
+
+  const keys = findReplayMock.mock.calls.map(([input]) => input.idempotencyKey);
+  expect(keys).toHaveLength(3);
+  expect(keys.every((key) => key.startsWith('s:'))).toBe(true);
+  // The two logical operations of one projector chain must never collide on
+  // a single derived key (the pre-fix collision made recovery completion 409).
+  expect(keys[1]).not.toBe(keys[0]);
+  // A true duplicate of the same logical operation still derives the same
+  // key regardless of the caller-supplied raw key, so replays stay replays.
+  expect(keys[2]).toBe(keys[1]);
+});
