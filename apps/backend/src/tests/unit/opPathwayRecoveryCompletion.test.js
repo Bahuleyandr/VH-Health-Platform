@@ -3,11 +3,21 @@ import { jest } from '@jest/globals';
 const completeRegisteredCondition = jest.fn();
 const executePathwayCommand = jest.fn();
 const startCarePathwayInstance = jest.fn();
+const loggerInfoMock = jest.fn();
 
 jest.unstable_mockModule('../../services/pathways/pathwayExecutorService.js', () => ({
   completePathwayTaskAndExecuteFromRegisteredCondition: completeRegisteredCondition,
   executePathwayCommand,
   startCarePathwayInstance,
+}));
+
+jest.unstable_mockModule('../../logging/logger.js', () => ({
+  default: {
+    debug: jest.fn(),
+    info: loggerInfoMock,
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
 }));
 
 const {
@@ -169,6 +179,69 @@ test('completes the exact current no-SLA recovery task from canonical closure ev
     activationEvidenceCapability,
     tx,
   });
+});
+
+test('shadow projection on the recovery branch is a structured no-op, never a throw', async () => {
+  // Shadow mode never materializes tasks, so the recovery step has zero
+  // tasks; before the fix this threw OP_RECOVERY_TASK_CONTEXT_INVALID and
+  // poisoned the closure-evidence event.
+  const observed = recoveryExecution({ tasks: [] });
+  await expect(completeOpRecoveryTaskFromClosureEvidence({
+    tenantId: TENANT_ID,
+    appointment: closureAppointment(),
+    event: {
+      id: '303',
+      event_type: 'appointment.closure_evidence_recorded',
+    },
+    execution: observed,
+    mode: 'shadow',
+  })).resolves.toBe(observed);
+  expect(completeRegisteredCondition).not.toHaveBeenCalled();
+  expect(loggerInfoMock).toHaveBeenCalledWith(
+    'OP shadow projection suppressed recovery completion',
+    expect.objectContaining({
+      tenantId: TENANT_ID,
+      pathwayInstanceId: PATHWAY_ID,
+      appointmentId: APPOINTMENT_ID,
+      eventId: '303',
+      reason: 'shadow_effects_suppressed',
+    }),
+  );
+});
+
+test('shadow projection never completes a materialized recovery task (effects stay suppressed)', async () => {
+  // A pathway that materialized its task under active mode and later flipped
+  // to shadow must not have its task completed by shadow projection either.
+  const observed = recoveryExecution();
+  await expect(completeOpRecoveryTaskFromClosureEvidence({
+    tenantId: TENANT_ID,
+    appointment: closureAppointment(),
+    event: {
+      id: '304',
+      event_type: 'appointment.closure_evidence_recorded',
+    },
+    execution: observed,
+    mode: 'shadow',
+  })).resolves.toBe(observed);
+  expect(completeRegisteredCondition).not.toHaveBeenCalled();
+});
+
+test('shadow projection off the recovery branch stays silent', async () => {
+  const observed = recoveryExecution({
+    run: { id: 19, current_step_key: 'await_closure_evidence' },
+  });
+  await expect(completeOpRecoveryTaskFromClosureEvidence({
+    tenantId: TENANT_ID,
+    appointment: closureAppointment(),
+    event: {
+      id: '305',
+      event_type: 'appointment.closure_evidence_recorded',
+    },
+    execution: observed,
+    mode: 'shadow',
+  })).resolves.toBe(observed);
+  expect(completeRegisteredCondition).not.toHaveBeenCalled();
+  expect(loggerInfoMock).not.toHaveBeenCalled();
 });
 
 test('does not invoke recovery authority outside the current recovery step', async () => {
