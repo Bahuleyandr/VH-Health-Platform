@@ -2263,11 +2263,22 @@ describeIfDb('migration 595 pending-result generation integrity', () => {
           WHERE tenant_id = $1::uuid AND id = $2::uuid`,
         [fixture.tenantId, fixture.pendingId, generationId],
       );
+      // Migration 634 made composite patient_uid FKs DEFERRABLE (INITIALLY
+      // IMMEDIATE), and this suite runs under SET CONSTRAINTS ALL DEFERRED,
+      // so force the FK check to fire now instead of at COMMIT.
+      await client.query(
+        `SET CONSTRAINTS fk_discharge_pending_result_handoffs_generation
+           IMMEDIATE`,
+      );
     } catch (error) {
       failure = error;
     }
     await client.query(
       'ROLLBACK TO SAVEPOINT expected_wrong_admission_generation',
+    );
+    await client.query(
+      `SET CONSTRAINTS fk_discharge_pending_result_handoffs_generation
+         DEFERRED`,
     );
     expect(failure).toMatchObject({ code: '23503' });
     expect(failure.constraint).toBe(
