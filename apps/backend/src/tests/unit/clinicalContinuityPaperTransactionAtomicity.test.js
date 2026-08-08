@@ -269,6 +269,7 @@ const recordCanonicalClinicalEvent = jest.fn(async () => {
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent,
   recordClinicalAuditEvent: jest.fn(async () => ({ id: IDS.audit })),
+  recordMedicationSafetyReviews: jest.fn(),
 }));
 
 const publishEvent = jest.fn(async () => {

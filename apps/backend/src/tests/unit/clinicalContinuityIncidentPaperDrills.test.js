@@ -190,6 +190,7 @@ const recordClinicalAuditEvent = jest.fn(async () => {
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: jest.fn(),
   recordClinicalAuditEvent,
+  recordMedicationSafetyReviews: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/events/eventOutboxService.js', () => ({
   publishEvent: jest.fn(),
