@@ -11,6 +11,7 @@ import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { authClient, API_KEY, generateTestToken } from './testClient.js';
 import { __resetDrugKbCache } from '../services/clinical/drugKnowledgeBaseService.js';
+import { renderWristbandAllergyStrip } from '../routes/clinical/bcmaRoutes.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -359,6 +360,8 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(json.body.data.barcode_payload).toBe(patientUid);
     expect(json.body.data.barcode_symbology).toBe('code39');
     expect(json.body.data.patient.name).toBe('B1TEST Patient');
+    // C-M8: a successful end-to-end lookup is a VERIFIED result.
+    expect(json.body.data.allergies_status).toBe('ok');
 
     const html = await nurseClient()
       .get(`/api/v1/bcma/wristband/${patientUid}?format=html`);
@@ -366,6 +369,52 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(html.headers['content-type']).toMatch(/text\/html/);
     expect(html.text).toContain('<svg');
     expect(html.text).toContain(patientUid.toUpperCase());
+    // Verified-none renders the (grey) no-known-allergies strip, never the
+    // verify-manually warning.
+    expect(html.text).toContain('No known allergies recorded');
+    expect(html.text).not.toContain('verify manually');
+  });
+
+  test('C-M8: wristband renders known allergens when a source has them', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, is_active)
+       VALUES ($1, $2::uuid, 'B1TEST-Penicillin', 'SEVERE', true)`,
+      patientId, patientUid,
+    );
+    try {
+      const json = await nurseClient().get(`/api/v1/bcma/wristband/${patientUid}`);
+      expect(json.status).toBe(200);
+      expect(json.body.data.allergies_status).toBe('ok');
+      expect(json.body.data.allergies.map((a) => a.allergen)).toContain('B1TEST-Penicillin');
+
+      const html = await nurseClient().get(`/api/v1/bcma/wristband/${patientUid}?format=html`);
+      expect(html.text).toContain('ALLERGIES: B1TEST-Penicillin');
+      expect(html.text).not.toContain('No known allergies recorded');
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM patient_allergies WHERE patient_uid = $1::uuid AND allergy_name = 'B1TEST-Penicillin'`,
+        patientUid,
+      ).catch(() => {});
+    }
+  });
+
+  test('C-M8: a failed allergy lookup renders the verify-manually strip, never the false verified-none', () => {
+    // The failure branch cannot be forced through the live DB, so pin the
+    // exported strip renderer directly (the route feeds it
+    // detailed.sourcesFailed.length > 0 || !patientResolved).
+    const failedEmpty = renderWristbandAllergyStrip([], true);
+    expect(failedEmpty).toContain('ALLERGY STATUS UNAVAILABLE');
+    expect(failedEmpty).toContain('verify manually');
+    expect(failedEmpty).not.toContain('No known allergies recorded');
+    expect(failedEmpty).not.toContain('class="allergies none"'); // loud style, not the grey one
+
+    // Partial failure: show what IS known AND the unavailable warning.
+    const failedPartial = renderWristbandAllergyStrip([{ allergen: 'Penicillin' }], true);
+    expect(failedPartial).toContain('ALLERGIES: Penicillin');
+    expect(failedPartial).toContain('ADDITIONAL ALLERGY SOURCES UNAVAILABLE');
+
+    // Verified-none keeps the existing wording.
+    expect(renderWristbandAllergyStrip([], false)).toContain('No known allergies recorded');
   });
 
   test('rejected orders cannot progress', async () => {
