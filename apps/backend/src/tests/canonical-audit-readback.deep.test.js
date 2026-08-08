@@ -34,6 +34,7 @@ import { randomUUID } from 'crypto';
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
   recordClinicalAuditEvent,
+  recordMedicationSafetyReviews,
   recordTimelineEvent,
 } from '../services/clinical/canonicalClinicalPlatformService.js';
 
@@ -70,6 +71,10 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE source_table = 'audit_readback_test'`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM medication_safety_reviews WHERE finding_code = $1`,
+    MARK,
   ).catch(() => {});
 }
 
@@ -137,7 +142,7 @@ d('recordClinicalAuditEvent concurrent readback + tenant stamping', () => {
   test('writers without an explicit tenant stamp the transaction tenant, not the default', async () => {
     const tenantB = randomUUID();
     const patientUid = randomUUID();
-    const { audit, timeline } = await setTenantTx(tenantB, async (tx) => {
+    const { audit, timeline, reviews } = await setTenantTx(tenantB, async (tx) => {
       const auditRow = await recordClinicalAuditEvent({
         // No tenantId on purpose: the transaction-local GUC must win over the
         // silent DEFAULT_TENANT_ID fallback.
@@ -154,11 +159,22 @@ d('recordClinicalAuditEvent concurrent readback + tenant stamping', () => {
         sourceId: MARK,
         idempotencyKey: `${MARK}.guc.timeline.${seq}`,
       }, { db: tx });
-      return { audit: auditRow, timeline: timelineRow };
+      const reviewRows = await recordMedicationSafetyReviews({
+        patientUid,
+        safety: {
+          safe: false,
+          blockers: [{ type: 'guc_probe', code: MARK, message: 'GUC tenant probe' }],
+          warnings: [],
+        },
+        actorUid: patientUid,
+      }, { db: tx });
+      return { audit: auditRow, timeline: timelineRow, reviews: reviewRows };
     });
 
     expect(audit?.tenant_id).toBe(tenantB);
     expect(timeline?.tenant_id).toBe(tenantB);
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0].tenant_id).toBe(tenantB);
   });
 
   test('an explicit tenant still wins over the transaction tenant', async () => {
