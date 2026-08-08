@@ -4,7 +4,8 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
-  fanOutHousekeepingRequest,
+  ensureHousekeepingRequestRecipients,
+  notifyHousekeepingRecipients,
   resolveHousekeepingRecipientsForTarget,
 } from '../../services/staff/housekeepingTaskDispatchService.js';
 import {
@@ -54,11 +55,11 @@ function extractLinkedBedId(requestRow = {}) {
   return Number.isInteger(bedId) && bedId > 0 ? bedId : null;
 }
 
-async function markLinkedDirtyBedCleaning(requestRow, actorUid) {
+async function markLinkedDirtyBedCleaning(requestRow, actorUid, db = prisma) {
   const bedId = extractLinkedBedId(requestRow);
   if (!bedId) return;
 
-  const updated = await prisma.$queryRawUnsafe(
+  const updated = await db.$queryRawUnsafe(
     `UPDATE beds
         SET status = 'cleaning', updated_at = NOW()
       WHERE id = $1::int AND status = 'dirty'
@@ -68,13 +69,23 @@ async function markLinkedDirtyBedCleaning(requestRow, actorUid) {
 
   if (!updated.length) return;
 
-  await prisma.$queryRawUnsafe(
+  await db.$queryRawUnsafe(
     `INSERT INTO housekeeping_request_updates (request_id, author_uid, author_role, message, is_internal)
      VALUES ($1::int, $2::uuid, 'system', $3, false)`,
     requestRow.id,
     actorUid || null,
     `Linked bed ${bedId} moved from dirty to cleaning when housekeeping work was assigned.`
   );
+}
+
+// Phase 1.5 — post-commit best-effort staff notification fan-out. Never lets a
+// notification failure surface as a request-write failure.
+async function notifyHousekeepingRecipientsBestEffort(label, args) {
+  try {
+    await notifyHousekeepingRecipients(args);
+  } catch (err) {
+    logger.error(`Housekeeping ${label} notification fan-out failed post-commit:`, err);
+  }
 }
 
 async function resolveHousekeepingZone(zoneId) {
@@ -270,8 +281,11 @@ export const raiseRequest = async (req, res) => {
       recipients[0] ||
       null;
 
-    const result = await prisma.$queryRawUnsafe(
-      `
+    // Phase 1 — request row, system update, recipient rows, and the canonical
+    // timeline/audit emit commit or roll back together.
+    const result = await prisma.$transaction(async (tx) => {
+      const inserted = await tx.$queryRawUnsafe(
+        `
       INSERT INTO housekeeping_requests
         (requester_id, requester_uid, zone_id, location_text, latitude, longitude,
          request_type, urgency, description, photo_key, photo_url, assigned_to,
@@ -282,35 +296,52 @@ export const raiseRequest = async (req, res) => {
         request_type, request_type as task_type, urgency, description, description as notes,
         status, completed_at, created_at, sla_due_at
     `,
-      requester.id,
-      requester.uid,
-      zone_id || null,
-      location_text || '',
-      latitude || null,
-      longitude || null,
-      request_type,
-      urgency,
-      description || null,
-      photo_key || null,
-      photo_url || null,
-      primaryAssignee?.id || null,
-      primaryAssignee?.uid || null,
-      primaryAssignee ? new Date().toISOString() : null,
-      primaryAssignee ? 'assigned' : 'open',
-      slaDueAt
-    );
+        requester.id,
+        requester.uid,
+        zone_id || null,
+        location_text || '',
+        latitude || null,
+        longitude || null,
+        request_type,
+        urgency,
+        description || null,
+        photo_key || null,
+        photo_url || null,
+        primaryAssignee?.id || null,
+        primaryAssignee?.uid || null,
+        primaryAssignee ? new Date().toISOString() : null,
+        primaryAssignee ? 'assigned' : 'open',
+        slaDueAt
+      );
 
-    // System update
-    await prisma.$queryRawUnsafe(
-      `
+      await tx.$queryRawUnsafe(
+        `
       INSERT INTO housekeeping_request_updates (request_id, author_role, message, is_internal)
       VALUES ($1, 'system', $2, false)
     `,
-      result[0].id,
-      `Request ${result[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes / 60}h`}.${recipients.length ? ` Routed to ${recipients.length} housekeeping recipient(s).` : ''}`
-    );
+        inserted[0].id,
+        `Request ${inserted[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes / 60}h`}.${recipients.length ? ` Routed to ${recipients.length} housekeeping recipient(s).` : ''}`
+      );
 
-    await fanOutHousekeepingRequest({
+      await ensureHousekeepingRequestRecipients({
+        requestId: inserted[0].id,
+        recipients,
+        db: tx,
+      });
+
+      await emitHousekeepingRequestRaised({
+        db: tx,
+        request: inserted[0],
+        actorUid: requester.uid,
+        actorRole: req.user?.role || null,
+        trigger: 'manual_request',
+        payload: { zone_id: zone_id || null },
+      });
+
+      return inserted;
+    });
+
+    await notifyHousekeepingRecipientsBestEffort('raise', {
       requestId: result[0].id,
       recipients,
       title: 'Housekeeping request raised',
@@ -323,14 +354,6 @@ export const raiseRequest = async (req, res) => {
         request_type,
         source: 'housekeeping_request',
       },
-    });
-
-    await emitHousekeepingRequestRaised({
-      request: result[0],
-      actorUid: requester.uid,
-      actorRole: req.user?.role || null,
-      trigger: 'manual_request',
-      payload: { zone_id: zone_id || null },
     });
 
     success(res, result[0], `Request ${result[0].request_number} raised`);
@@ -422,8 +445,11 @@ export const startRequest = async (req, res) => {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `
+    // Phase 1 — status flip, linked bed flip, system update, and the canonical
+    // emit commit or roll back together.
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `
       UPDATE housekeeping_requests
          SET status = 'in_progress',
              assigned_to = $2,
@@ -445,34 +471,40 @@ export const startRequest = async (req, res) => {
         request_type, request_type as task_type, urgency, status, description,
         description as notes, completed_at, created_at, sla_due_at
     `,
-      id,
-      staff.id,
-      staff.uid
-    );
+        id,
+        staff.id,
+        staff.uid
+      );
+
+      if (updated.length === 0) return updated;
+
+      await markLinkedDirtyBedCleaning(updated[0], staff.uid, tx);
+
+      await tx.$queryRawUnsafe(
+        `
+      INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
+      VALUES ($1::int, $2, $3::uuid, 'hk_staff', 'Task started by housekeeping staff.', false)
+    `,
+        id,
+        staff.id,
+        staff.uid
+      );
+
+      await emitHousekeepingRequestStatus({
+        db: tx,
+        request: updated[0],
+        actorUid: staff.uid,
+        actorRole: req.user?.role || null,
+        eventType: 'housekeeping.started',
+        previousStatus: 'assigned',
+      });
+
+      return updated;
+    });
 
     if (result.length === 0) {
       return error(res, 'Request not found or not ready to start', HTTP_STATUS.NOT_FOUND);
     }
-
-    await markLinkedDirtyBedCleaning(result[0], staff.uid);
-
-    await prisma.$queryRawUnsafe(
-      `
-      INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
-      VALUES ($1::int, $2, $3::uuid, 'hk_staff', 'Task started by housekeeping staff.', false)
-    `,
-      id,
-      staff.id,
-      staff.uid
-    );
-
-    await emitHousekeepingRequestStatus({
-      request: result[0],
-      actorUid: staff.uid,
-      actorRole: req.user?.role || null,
-      eventType: 'housekeeping.started',
-      previousStatus: 'assigned',
-    });
 
     success(res, result[0], 'Request started');
   } catch (err) {
@@ -520,8 +552,12 @@ export const completeRequest = async (req, res) => {
       completion_photo_key
     );
 
-    const result = await prisma.$queryRawUnsafe(
-      `
+    // Phase 1 — completion update, system update, and the canonical emit
+    // commit or roll back together. The WHERE re-checks the Phase-0 ownership
+    // guard so a concurrent reassignment cannot slip through the gap.
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `
       UPDATE housekeeping_requests SET
         status = 'completed',
         completed_at = NOW(),
@@ -531,39 +567,59 @@ export const completeRequest = async (req, res) => {
         completion_signature_hash = $4,
         updated_at = NOW()
       WHERE id = $5::int
+        AND (
+          assigned_to = $6
+          OR EXISTS (
+            SELECT 1
+              FROM housekeeping_request_recipients hrr
+             WHERE hrr.request_id = housekeeping_requests.id
+               AND hrr.staff_id = $6
+          )
+        )
       RETURNING id, request_number, requester_id, zone_id, assigned_to,
         request_type, request_type as task_type, status, description,
         description as notes, completed_at, created_at
     `,
-      completion_notes || null,
-      completion_photo_key || null,
-      completion_photo_url || null,
-      signatureHash,
-      id
-    );
+        completion_notes || null,
+        completion_photo_key || null,
+        completion_photo_url || null,
+        signatureHash,
+        id,
+        staff.id
+      );
 
-    await prisma.$queryRawUnsafe(
-      `
+      if (updated.length === 0) return updated;
+
+      await tx.$queryRawUnsafe(
+        `
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
       VALUES ($1::int, $2, $3::uuid, 'hk_staff', $4, false)
     `,
-      id,
-      staff.id,
-      staff.uid,
-      `Task completed by housekeeping staff${completion_notes ? ': ' + completion_notes : '.'}`
-    );
+        id,
+        staff.id,
+        staff.uid,
+        `Task completed by housekeeping staff${completion_notes ? ': ' + completion_notes : '.'}`
+      );
 
-    await emitHousekeepingRequestStatus({
-      request: result[0],
-      actorUid: staff.uid,
-      actorRole: req.user?.role || null,
-      eventType: 'housekeeping.completed',
-      previousStatus: reqCheck[0].status || null,
-      payload: {
-        completion_notes: completion_notes || null,
-        completion_photo_key: completion_photo_key || null,
-      },
+      await emitHousekeepingRequestStatus({
+        db: tx,
+        request: updated[0],
+        actorUid: staff.uid,
+        actorRole: req.user?.role || null,
+        eventType: 'housekeeping.completed',
+        previousStatus: reqCheck[0].status || null,
+        payload: {
+          completion_notes: completion_notes || null,
+          completion_photo_key: completion_photo_key || null,
+        },
+      });
+
+      return updated;
     });
+
+    if (result.length === 0) {
+      return error(res, 'Request not found or not assigned to you', HTTP_STATUS.NOT_FOUND);
+    }
 
     success(res, result[0], 'Request marked as completed');
   } catch (err) {
@@ -1010,8 +1066,11 @@ export const assignRequest = async (req, res) => {
     });
     if (!assignedUser) return error(res, 'Assigned staff not found', HTTP_STATUS.NOT_FOUND);
 
-    const result = await prisma.$queryRawUnsafe(
-      `
+    // Phase 1 — assignment update, linked bed flip, system update, and the
+    // canonical emit commit or roll back together.
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `
       UPDATE housekeeping_requests SET
         assigned_to = $1, assigned_to_uid = $2::uuid,
         assigned_at = NOW(), assigned_by = $3, assigned_by_uid = $4::uuid,
@@ -1021,28 +1080,43 @@ export const assignRequest = async (req, res) => {
         location_text, request_type, request_type as task_type, status, description,
         description as notes, completed_at, created_at
     `,
-      assignedToId,
-      assignedUser.uid,
-      admin.id,
-      admin.uid,
-      id
-    );
+        assignedToId,
+        assignedUser.uid,
+        admin.id,
+        admin.uid,
+        id
+      );
 
-    if (result.length === 0)
-      return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
+      if (updated.length === 0) return updated;
 
-    await markLinkedDirtyBedCleaning(result[0], admin.uid);
+      await markLinkedDirtyBedCleaning(updated[0], admin.uid, tx);
 
-    await prisma.$queryRawUnsafe(
-      `
+      await tx.$queryRawUnsafe(
+        `
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
       VALUES ($1::int, $2, $3::uuid, 'admin', $4, false)
     `,
-      id,
-      admin.id,
-      admin.uid,
-      `Assigned to ${assignedUser.name || 'staff'}${note ? '. Note: ' + note : '.'}`
-    );
+        id,
+        admin.id,
+        admin.uid,
+        `Assigned to ${assignedUser.name || 'staff'}${note ? '. Note: ' + note : '.'}`
+      );
+
+      await emitHousekeepingRequestStatus({
+        db: tx,
+        request: updated[0],
+        actorUid: admin.uid,
+        actorRole: req.user?.role || null,
+        eventType: 'housekeeping.assigned',
+        previousStatus: null,
+        payload: { assigned_to_uid: assignedUser.uid || null },
+      });
+
+      return updated;
+    });
+
+    if (result.length === 0)
+      return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
 
     success(res, result[0], 'Request assigned');
   } catch (err) {
@@ -1095,8 +1169,11 @@ export const verifyRequest = async (req, res) => {
       return error(res, 'Verifier not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `
+    // Phase 1 — verification update, system update, and the canonical emit
+    // commit or roll back together.
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `
       UPDATE housekeeping_requests
       SET status = 'verified', verified_by = $1, verified_by_uid = $2::uuid,
         verified_at = NOW(), updated_at = NOW()
@@ -1105,31 +1182,37 @@ export const verifyRequest = async (req, res) => {
         request_type as task_type, status, description, description as notes,
         completed_at, created_at
     `,
-      verifier.id,
-      verifier.uid,
-      id
-    );
+        verifier.id,
+        verifier.uid,
+        id
+      );
 
-    if (result.length === 0)
-      return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
+      if (updated.length === 0) return updated;
 
-    await prisma.$queryRawUnsafe(
-      `
+      await tx.$queryRawUnsafe(
+        `
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
       VALUES ($1::int, $2, $3::uuid, 'supervisor', 'Completion verified ✓', false)
     `,
-      id,
-      verifier.id,
-      verifier.uid
-    );
+        id,
+        verifier.id,
+        verifier.uid
+      );
 
-    await emitHousekeepingRequestStatus({
-      request: result[0],
-      actorUid: verifier.uid,
-      actorRole: req.user?.role || null,
-      eventType: 'housekeeping.verified',
-      previousStatus: 'completed',
+      await emitHousekeepingRequestStatus({
+        db: tx,
+        request: updated[0],
+        actorUid: verifier.uid,
+        actorRole: req.user?.role || null,
+        eventType: 'housekeeping.verified',
+        previousStatus: 'completed',
+      });
+
+      return updated;
     });
+
+    if (result.length === 0)
+      return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
 
     success(res, result[0], 'Request verified');
   } catch (err) {
@@ -1424,8 +1507,11 @@ export const adminCreateRequest = async (req, res) => {
       ...rosterRecipients,
     ];
 
-    const result = await prisma.$queryRawUnsafe(
-      `
+    // Phase 1 — request row, recipient rows, system update, and the canonical
+    // timeline/audit emit commit or roll back together.
+    const result = await prisma.$transaction(async (tx) => {
+      const inserted = await tx.$queryRawUnsafe(
+        `
       INSERT INTO housekeeping_requests
         (requester_id, requester_uid, zone_id, location_text, request_type, urgency, description,
          status, assigned_to, assigned_to_uid, assigned_at, assigned_by, assigned_by_uid, sla_due_at)
@@ -1435,23 +1521,48 @@ export const adminCreateRequest = async (req, res) => {
         request_type, request_type as task_type, urgency, description, description as notes,
         status, completed_at, created_at, sla_due_at
     `,
-      admin.id,
-      admin.uid,
-      zone_id || null,
-      location_text || '',
-      request_type,
-      urgency,
-      description || null,
-      assigned_to ? 'assigned' : 'open',
-      assignedUser?.id || null,
-      assignedUser?.uid || null,
-      assigned_to ? new Date().toISOString() : null,
-      assigned_to ? admin.id : null,
-      assigned_to ? admin.uid : null,
-      sla_due_at
-    );
+        admin.id,
+        admin.uid,
+        zone_id || null,
+        location_text || '',
+        request_type,
+        urgency,
+        description || null,
+        assigned_to ? 'assigned' : 'open',
+        assignedUser?.id || null,
+        assignedUser?.uid || null,
+        assigned_to ? new Date().toISOString() : null,
+        assigned_to ? admin.id : null,
+        assigned_to ? admin.uid : null,
+        sla_due_at
+      );
 
-    await fanOutHousekeepingRequest({
+      await ensureHousekeepingRequestRecipients({
+        requestId: inserted[0].id,
+        recipients,
+        db: tx,
+      });
+
+      await tx.$queryRawUnsafe(
+        `INSERT INTO housekeeping_request_updates (request_id, author_role, message, is_internal)
+         VALUES ($1::int, 'system', $2, false)`,
+        inserted[0].id,
+        `Request ${inserted[0].request_number} routed to ${recipients.length} housekeeping recipient(s).`
+      );
+
+      await emitHousekeepingRequestRaised({
+        db: tx,
+        request: inserted[0],
+        actorUid: admin.uid,
+        actorRole: req.user?.role || null,
+        trigger: 'admin_request',
+        payload: { zone_id: zone_id || null },
+      });
+
+      return inserted;
+    });
+
+    await notifyHousekeepingRecipientsBestEffort('admin-create', {
       requestId: result[0].id,
       recipients,
       title: 'Housekeeping request raised',
@@ -1464,7 +1575,6 @@ export const adminCreateRequest = async (req, res) => {
         request_type,
         source: 'housekeeping_admin_request',
       },
-      updateMessage: `Request ${result[0].request_number} routed to ${recipients.length} housekeeping recipient(s).`,
     });
 
     success(res, result[0], `Request ${result[0].request_number} created`);
