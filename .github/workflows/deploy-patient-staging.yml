@@ -1,9 +1,17 @@
 name: Deploy Patient App — Staging
 
-# Builds a signed debug APK on main and uploads to Firebase App Distribution
+# Builds a profile-mode APK on main and uploads to Firebase App Distribution
 # under the "staging-testers" group. Skips the upload gracefully when the
 # FIREBASE_APP_ID_PATIENT / FIREBASE_TOKEN secrets aren't set — the build
 # still runs so we catch release-mode breakage.
+#
+# Profile (not debug, not release): Crashlytics is gated OFF in debug builds
+# (kDebugMode), so debug APKs would leave staging testers without crash
+# reporting. Profile builds are AOT-compiled with kDebugMode=false, so
+# Crashlytics stays active — and they are debug-signed automatically, so this
+# lane keeps building without the release keystore secrets (a release build
+# hard-fails via the build.gradle.kts taskGraph guard when key.properties is
+# absent).
 #
 # Production (Play Store / TestFlight) is a separate manual-approve workflow
 # gated on a git tag.
@@ -69,9 +77,9 @@ jobs:
       - name: Codegen (regenerate Dart client from synced spec)
         run: melos run codegen
 
-      - name: Build debug APK
+      - name: Build profile APK
         working-directory: apps/patient
-        run: flutter build apk --debug --split-per-abi
+        run: flutter build apk --profile --split-per-abi
 
       - name: Check Firebase credentials
         id: fb
@@ -92,7 +100,7 @@ jobs:
           groups: staging-testers
           releaseNotes: |
             Patient ${{ github.sha }} on ${{ github.ref_name }}
-          file: apps/patient/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
+          file: apps/patient/build/app/outputs/flutter-apk/app-armeabi-v7a-profile.apk
 
       - name: Notify Discord on failure
         if: failure()
