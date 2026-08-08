@@ -10,6 +10,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'firebase_options.dart';
@@ -121,240 +122,278 @@ void _reportPreservedOfflineItems(int count) {
   }
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  C0AReconciliationConfig.registerBeforeQueueStartup();
-  ApiClient.onSessionExpired = (_) => _handleServerSessionExpired();
-  // Fail fast on misconfigured production builds (audit finding H7): throws
-  // when PRODUCTION=true but CERT_PIN_HASHES is missing/malformed, so an
-  // unpinned clinical build can never ship.
-  SecurityConfig.verifyOrWarn();
-  // Fail fast on a build stamped for a tenant it cannot match. ClientReadiness
-  // Service compares the server's tenant to TenantConfig.id with a strict ==,
-  // so a mis-stamp pins the client in a readiness outage against a healthy
-  // backend. Refusing to launch is the louder, safer failure.
-  TenantConfig.verifyOrThrow();
-  // Production builds must carry the owner-approved readiness clock-skew
-  // tolerance. Without this call the guard was dead code and a build with the
-  // wrong value silently fell back to the bundled default, so the
-  // owner-approved bound was never actually enforced on the artifact.
-  ClientReadinessConfig.verifyOrThrow();
-  VHHttpClient.deviceTypeProvider = () => currentDeviceType;
+Future<void> main() async {
+  // Assigned during setup inside the guarded zone; declared out here so the
+  // zone's error handler can read it (mirrors the patient app's main).
+  var crashReportingEnabled = false;
 
-  // One-screen patient summary (roadmap E5): the global patient search
-  // (magnifier on every app bar / Ctrl+K) offers a summary shortcut per
-  // result row. Injected here so the core widget stays feature-free.
-  PatientSearchSheet.summaryOpener =
-      (context, {required patientUid, patientName}) => PatientSummarySheet.show(
-        context,
-        patientUid: patientUid,
-        patientName: patientName,
-      );
+  await runZonedGuarded<Future<void>>(
+    () async {
+      // The binding must be initialised in the same zone that later calls
+      // runApp — splitting them across zones trips BindingBase.debugCheckZone
+      // and surfaced as "Early crashes" in Crashlytics.
+      WidgetsFlutterBinding.ensureInitialized();
+      C0AReconciliationConfig.registerBeforeQueueStartup();
+      ApiClient.onSessionExpired = (_) => _handleServerSessionExpired();
+      // Fail fast on misconfigured production builds (audit finding H7): throws
+      // when PRODUCTION=true but CERT_PIN_HASHES is missing/malformed, so an
+      // unpinned clinical build can never ship.
+      SecurityConfig.verifyOrWarn();
+      // Fail fast on a build stamped for a tenant it cannot match. ClientReadiness
+      // Service compares the server's tenant to TenantConfig.id with a strict ==,
+      // so a mis-stamp pins the client in a readiness outage against a healthy
+      // backend. Refusing to launch is the louder, safer failure.
+      TenantConfig.verifyOrThrow();
+      // Production builds must carry the owner-approved readiness clock-skew
+      // tolerance. Without this call the guard was dead code and a build with the
+      // wrong value silently fell back to the bundled default, so the
+      // owner-approved bound was never actually enforced on the artifact.
+      ClientReadinessConfig.verifyOrThrow();
+      VHHttpClient.deviceTypeProvider = () => currentDeviceType;
 
-  // Desktop platforms (Windows/Linux/macOS) need the sqflite FFI bridge
-  // wired before any DB-touching code runs (OfflineQueue, ConnectivitySync-
-  // Service, etc.). Mobile (Android/iOS) uses the default native plugin
-  // and skips this. Web isn't supported by sqflite at all — kIsWeb gate.
-  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-    sqflite_ffi.sqfliteFfiInit();
-    sqflite_ffi.databaseFactory = sqflite_ffi.databaseFactoryFfi;
-  }
-
-  final enableSentry = ObservabilityConfig.sentryEnabled;
-  if (enableSentry) {
-    await SentryFlutter.init((options) {
-      options.dsn = ObservabilityConfig.sentryDsn;
-      options.environment = ObservabilityConfig.sentryEnvironment;
-      if (ObservabilityConfig.sentryRelease.isNotEmpty) {
-        options.release = ObservabilityConfig.sentryRelease;
-      }
-      options.tracesSampleRate = ObservabilityConfig.sentryTracesSampleRate;
-      options.sendDefaultPii = false;
-      options.attachStacktrace = true;
-      options.attachScreenshot = false;
-      options.enableUserInteractionBreadcrumbs = false;
-      options.enableUserInteractionTracing = false;
-      options.beforeSend = SentryCrashReporter.scrubEvent;
-      options.beforeSendTransaction = SentryCrashReporter.scrubTransaction;
-      options.beforeBreadcrumb = SentryCrashReporter.scrubBreadcrumb;
-      options.tracePropagationTargets
-        ..clear()
-        ..addAll([
-          'api.vhhealth.app',
-          'clinical.vhhealth',
-          '127.0.0.1',
-          'localhost',
-        ]);
-    });
-  }
-
-  // Firebase (core init + messaging + crashlytics) has no Flutter desktop
-  // implementation — skip the whole stack on Windows/Linux/macOS. Desktop
-  // staff workstations get realtime delivery over the WebSocket fabric.
-  if (!isDesktopPlatform) {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-
-    // Activate Firebase App Check so Firebase-backed surfaces (FCM,
-    // Crashlytics) can attest that requests come from a genuine, unmodified
-    // build. Mirrors the patient app's PAT-1 activation.
-    // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
-    // - Debug / profile builds: DebugProvider — register the printed token in
-    //   the Firebase console under App Check → Apps → Manage debug tokens.
-    // - Web (a real shipping target: dart2js CI lane + Dockerfile.web): a
-    //   ReCaptcha v3 site key must be supplied via
-    //   --dart-define=VH_RECAPTCHA_SITE_KEY=... (see
-    //   docs/runbooks/FIREBASE_KEY_ROTATION.md). Without one, activation is
-    //   skipped entirely rather than attesting with a bogus key.
-    // NOTE: release-mode Android/iOS attestation will not mint tokens until
-    // the staff package/bundle IDs are registered as their own Firebase apps
-    // (they currently reuse the patient registrations — see
-    // firebase_options.dart and the runbook). Debug providers work regardless.
-    const recaptchaSiteKey = String.fromEnvironment('VH_RECAPTCHA_SITE_KEY');
-    if (kIsWeb && recaptchaSiteKey.isEmpty) {
-      debugPrint(
-        'FirebaseAppCheck.activate skipped on web: '
-        'VH_RECAPTCHA_SITE_KEY dart-define is not set.',
-      );
-    } else {
-      // Wrapped in try/catch so a provider misconfiguration never blocks
-      // startup — App Check failures surface server-side once enforcement is
-      // enabled in the Firebase console.
-      try {
-        await FirebaseAppCheck.instance.activate(
-          providerAndroid: kDebugMode
-              ? const AndroidDebugProvider()
-              : const AndroidPlayIntegrityProvider(),
-          providerApple: kDebugMode
-              ? const AppleDebugProvider()
-              : const AppleDeviceCheckProvider(),
-          providerWeb: kIsWeb ? ReCaptchaV3Provider(recaptchaSiteKey) : null,
-        );
-      } catch (e) {
-        debugPrint('FirebaseAppCheck.activate skipped: $e');
-      }
-    }
-  }
-  // Crashlytics is disabled when explicitly opted out OR on any desktop
-  // build (no platform implementation) — folding both into one flag means
-  // every `!disableCrashlytics` guard below covers desktop automatically.
-  final disableCrashlytics =
-      const bool.fromEnvironment('VH_DISABLE_CRASHLYTICS') || isDesktopPlatform;
-
-  // Route non-fatal errors from core + app through one reporting abstraction.
-  // Desktop/web builds can use Sentry; mobile builds can use Firebase
-  // Crashlytics; both receive the same PHI-scrubbed payloads.
-  final crashReporters = <CrashReporter>[
-    if (enableSentry) const SentryCrashReporter(),
-    if (!disableCrashlytics) const FirebaseCrashReporter(),
-  ];
-  if (crashReporters.length == 1) {
-    CrashReporter.install(crashReporters.single);
-  } else if (crashReporters.length > 1) {
-    CrashReporter.install(CompositeCrashReporter(crashReporters));
-  }
-  final crashReportingEnabled = crashReporters.isNotEmpty;
-
-  // Register the terminated/background Code Blue handler *before* any foreground
-  // plumbing so notifications fire even if the app hasn't been opened this session.
-  // firebase_messaging has no desktop implementation — desktop staff
-  // workstations receive Code Blue over the WebSocket staff:code-blue channel.
-  if (!isDesktopPlatform) {
-    FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
-  }
-  await CodeBlueNotifier.instance.initialize();
-
-  // Strip potential PHI from error messages before sending to crash reporting.
-  if (crashReportingEnabled) {
-    FlutterError.onError = (FlutterErrorDetails details) {
-      final sanitised = FlutterErrorDetails(
-        exception: PhiScrubber.sanitizeError(details.exception),
-        stack: details.stack,
-        library: details.library,
-        context: details.context,
-        silent: details.silent,
-      );
-      _recordFlutterFatalError(sanitised);
-    };
-  }
-
-  // Global error widget — shows a friendly message instead of red screen
-  ErrorWidget.builder = (FlutterErrorDetails details) {
-    return Material(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Builder(
-            builder: (context) {
-              // We use a Builder so the AppStrings lookup happens inside a
-              // localised subtree. If the error is so early that
-              // localisations aren't yet attached, AppStrings falls back to
-              // English values defined in code.
-              final s = AppStrings.of(context);
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: 12),
-                  Text(
-                    s.errorSomethingWentWrong,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    kDebugMode
-                        ? PhiScrubber.scrubText(details.exceptionAsString())
-                        : s.errorRestartOrContact,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+      // One-screen patient summary (roadmap E5): the global patient search
+      // (magnifier on every app bar / Ctrl+K) offers a summary shortcut per
+      // result row. Injected here so the core widget stays feature-free.
+      PatientSearchSheet.summaryOpener =
+          (context, {required patientUid, patientName}) =>
+              PatientSummarySheet.show(
+                context,
+                patientUid: patientUid,
+                patientName: patientName,
               );
-            },
+
+      // Desktop platforms (Windows/Linux/macOS) need the sqflite FFI bridge
+      // wired before any DB-touching code runs (OfflineQueue, ConnectivitySync-
+      // Service, etc.). Mobile (Android/iOS) uses the default native plugin
+      // and skips this. Web isn't supported by sqflite at all — kIsWeb gate.
+      if (!kIsWeb &&
+          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        sqflite_ffi.sqfliteFfiInit();
+        sqflite_ffi.databaseFactory = sqflite_ffi.databaseFactoryFfi;
+      }
+
+      final enableSentry = ObservabilityConfig.sentryEnabled;
+      if (enableSentry) {
+        await SentryFlutter.init((options) {
+          options.dsn = ObservabilityConfig.sentryDsn;
+          options.environment = ObservabilityConfig.sentryEnvironment;
+          if (ObservabilityConfig.sentryRelease.isNotEmpty) {
+            options.release = ObservabilityConfig.sentryRelease;
+          }
+          options.tracesSampleRate = ObservabilityConfig.sentryTracesSampleRate;
+          options.sendDefaultPii = false;
+          options.attachStacktrace = true;
+          options.attachScreenshot = false;
+          options.enableUserInteractionBreadcrumbs = false;
+          options.enableUserInteractionTracing = false;
+          options.beforeSend = SentryCrashReporter.scrubEvent;
+          options.beforeSendTransaction = SentryCrashReporter.scrubTransaction;
+          options.beforeBreadcrumb = SentryCrashReporter.scrubBreadcrumb;
+          options.tracePropagationTargets
+            ..clear()
+            ..addAll([
+              'api.vhhealth.app',
+              'clinical.vhhealth',
+              '127.0.0.1',
+              'localhost',
+            ]);
+        });
+      }
+
+      // Firebase (core init + messaging + crashlytics) has no Flutter desktop
+      // implementation — skip the whole stack on Windows/Linux/macOS. Desktop
+      // staff workstations get realtime delivery over the WebSocket fabric.
+      if (!isDesktopPlatform) {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+
+        // Activate Firebase App Check so Firebase-backed surfaces (FCM,
+        // Crashlytics) can attest that requests come from a genuine, unmodified
+        // build. Mirrors the patient app's PAT-1 activation.
+        // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
+        // - Debug / profile builds: DebugProvider — register the printed token in
+        //   the Firebase console under App Check → Apps → Manage debug tokens.
+        // - Web (a real shipping target: dart2js CI lane + Dockerfile.web): a
+        //   ReCaptcha v3 site key must be supplied via
+        //   --dart-define=VH_RECAPTCHA_SITE_KEY=... (see
+        //   docs/runbooks/FIREBASE_KEY_ROTATION.md). Without one, activation is
+        //   skipped entirely rather than attesting with a bogus key.
+        // NOTE: release-mode Android/iOS attestation will not mint tokens until
+        // the staff package/bundle IDs are registered as their own Firebase apps
+        // (they currently reuse the patient registrations — see
+        // firebase_options.dart and the runbook). Debug providers work regardless.
+        const recaptchaSiteKey = String.fromEnvironment(
+          'VH_RECAPTCHA_SITE_KEY',
+        );
+        if (kIsWeb && recaptchaSiteKey.isEmpty) {
+          debugPrint(
+            'FirebaseAppCheck.activate skipped on web: '
+            'VH_RECAPTCHA_SITE_KEY dart-define is not set.',
+          );
+        } else {
+          // Wrapped in try/catch so a provider misconfiguration never blocks
+          // startup — App Check failures surface server-side once enforcement is
+          // enabled in the Firebase console.
+          try {
+            await FirebaseAppCheck.instance.activate(
+              providerAndroid: kDebugMode
+                  ? const AndroidDebugProvider()
+                  : const AndroidPlayIntegrityProvider(),
+              providerApple: kDebugMode
+                  ? const AppleDebugProvider()
+                  : const AppleDeviceCheckProvider(),
+              providerWeb: kIsWeb
+                  ? ReCaptchaV3Provider(recaptchaSiteKey)
+                  : null,
+            );
+          } catch (e) {
+            debugPrint('FirebaseAppCheck.activate skipped: $e');
+          }
+        }
+      }
+      // Crashlytics is disabled when explicitly opted out, in debug sessions
+      // (debug-only framework asserts would otherwise be uploaded as fatal
+      // crashes), OR on any desktop build (no platform implementation) —
+      // folding all three into one flag means every `!disableCrashlytics`
+      // guard below covers them automatically.
+      final disableCrashlytics =
+          const bool.fromEnvironment('VH_DISABLE_CRASHLYTICS') ||
+          kDebugMode ||
+          isDesktopPlatform;
+
+      // Mirror the flag into the native Crashlytics SDK so natively-captured
+      // events respect it too — and so collection turns off on debug devices
+      // where a previous install left it enabled. firebase_crashlytics has no
+      // desktop or web implementation, hence the platform gate.
+      if (!isDesktopPlatform && !kIsWeb) {
+        try {
+          await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+            !disableCrashlytics,
+          );
+        } catch (e) {
+          debugPrint('Crashlytics collection toggle skipped: $e');
+        }
+      }
+
+      // Route non-fatal errors from core + app through one reporting abstraction.
+      // Desktop/web builds can use Sentry; mobile builds can use Firebase
+      // Crashlytics; both receive the same PHI-scrubbed payloads.
+      final crashReporters = <CrashReporter>[
+        if (enableSentry) const SentryCrashReporter(),
+        if (!disableCrashlytics) const FirebaseCrashReporter(),
+      ];
+      if (crashReporters.length == 1) {
+        CrashReporter.install(crashReporters.single);
+      } else if (crashReporters.length > 1) {
+        CrashReporter.install(CompositeCrashReporter(crashReporters));
+      }
+      crashReportingEnabled = crashReporters.isNotEmpty;
+
+      // Register the terminated/background Code Blue handler *before* any foreground
+      // plumbing so notifications fire even if the app hasn't been opened this session.
+      // firebase_messaging has no desktop implementation — desktop staff
+      // workstations receive Code Blue over the WebSocket staff:code-blue channel.
+      if (!isDesktopPlatform) {
+        FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
+      }
+      await CodeBlueNotifier.instance.initialize();
+
+      // Strip potential PHI from error messages before sending to crash reporting.
+      if (crashReportingEnabled) {
+        FlutterError.onError = (FlutterErrorDetails details) {
+          final sanitised = FlutterErrorDetails(
+            exception: PhiScrubber.sanitizeError(details.exception),
+            stack: details.stack,
+            library: details.library,
+            context: details.context,
+            silent: details.silent,
+          );
+          _recordFlutterFatalError(sanitised);
+        };
+      }
+
+      // Global error widget — shows a friendly message instead of red screen
+      ErrorWidget.builder = (FlutterErrorDetails details) {
+        return Material(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Builder(
+                builder: (context) {
+                  // We use a Builder so the AppStrings lookup happens inside a
+                  // localised subtree. If the error is so early that
+                  // localisations aren't yet attached, AppStrings falls back to
+                  // English values defined in code.
+                  final s = AppStrings.of(context);
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: Colors.red,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        s.errorSomethingWentWrong,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        kDebugMode
+                            ? PhiScrubber.scrubText(details.exceptionAsString())
+                            : s.errorRestartOrContact,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
-        ),
-      ),
-    );
-  };
+        );
+      };
 
-  StaffActionPolicyRepository.instance = StaffActionPolicyRepository(
-    source: CompositeStaffActionPolicySource([
-      BackendStaffActionPolicySource(),
-      VerifiedPackStaffActionPolicySource(
-        verifiedSetProvider: () =>
-            StaffContinuityRepository.instance.currentSet,
-        trustedClockProvider: () =>
-            StaffContinuityRepository.instance.trustedClockAssessment,
-      ),
-    ]),
-  );
+      StaffActionPolicyRepository.instance = StaffActionPolicyRepository(
+        source: CompositeStaffActionPolicySource([
+          BackendStaffActionPolicySource(),
+          VerifiedPackStaffActionPolicySource(
+            verifiedSetProvider: () =>
+                StaffContinuityRepository.instance.currentSet,
+            trustedClockProvider: () =>
+                StaffContinuityRepository.instance.trustedClockAssessment,
+          ),
+        ]),
+      );
 
-  // Install the fail-closed signed-action decision before the queue can
-  // inspect a prepared command. Delivery remains inert until AF has issued a
-  // verified facility context or a complete v2 pack set is already verified.
-  ConnectivitySyncService.instance.registerPreparedDrainGate(
-    StaffClinicalActionGateway.instance.preparedDrainDecision,
-  );
+      // Install the fail-closed signed-action decision before the queue can
+      // inspect a prepared command. Delivery remains inert until AF has issued a
+      // verified facility context or a complete v2 pack set is already verified.
+      ConnectivitySyncService.instance.registerPreparedDrainGate(
+        StaffClinicalActionGateway.instance.preparedDrainDecision,
+      );
 
-  // Start connectivity monitoring and sync any queued offline writes.
-  ConnectivitySyncService.instance.startListening();
-  ConnectivitySyncService.instance.syncPending();
+      // Start connectivity monitoring and sync any queued offline writes.
+      ConnectivitySyncService.instance.startListening();
+      ConnectivitySyncService.instance.syncPending();
 
-  // Catch async errors not handled by Flutter framework.
-  runZonedGuarded(
-    () {
       final app = enableSentry
           ? SentryWidget(child: const VHHealthStaffApp())
           : const VHHealthStaffApp();
       runApp(app);
     },
     (error, stack) {
+      // Catches async errors not handled by the Flutter framework.
       if (crashReportingEnabled) {
         _recordAsyncFatalError(error, stack);
       } else if (kDebugMode) {
@@ -431,6 +470,11 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
   Timer? _policyPeriodicTimer;
   Timer? _policyRetryTimer;
   int _policyRetryIndex = 0;
+  // Direct reference to the provider created in build's MultiProvider. The
+  // State's own context sits ABOVE that MultiProvider, so
+  // context.read<RealtimeProvider>() from lifecycle callbacks throws
+  // ProviderNotFoundException — use this reference instead.
+  RealtimeProvider? _realtimeProvider;
 
   @override
   void initState() {
@@ -568,7 +612,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
       ConnectivitySyncService.instance.startListening();
       unawaited(_refreshActionPolicy());
       _scheduleActionPolicyRefresh();
-      unawaited(context.read<RealtimeProvider>().ensureConnected());
+      unawaited(_realtimeProvider?.ensureConnected());
     }
   }
 
@@ -583,9 +627,9 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         // `context.read<RealtimeProvider>().events(channel)` instead of
         // calling `RealtimeClient.instance.connect()` directly.
         ChangeNotifierProvider(
-          create: (_) =>
-              RealtimeProvider(onSessionExpired: _handleServerSessionExpired)
-                ..ensureConnected(),
+          create: (_) => _realtimeProvider = RealtimeProvider(
+            onSessionExpired: _handleServerSessionExpired,
+          )..ensureConnected(),
         ),
         ChangeNotifierProxyProvider<RealtimeProvider, WebSocketProvider>(
           create: (_) => WebSocketProvider(),
