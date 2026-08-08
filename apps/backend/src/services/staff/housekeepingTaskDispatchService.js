@@ -262,13 +262,14 @@ export async function resolveHousekeepingRecipientsForTarget({
 export async function ensureHousekeepingRequestRecipients({
   requestId,
   recipients = [],
+  db = prisma,
 } = {}) {
   const id = Number.parseInt(String(requestId || ''), 10);
   if (!Number.isInteger(id) || id <= 0) return [];
 
   const saved = [];
   for (const recipient of uniqueRecipients(recipients)) {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `INSERT INTO housekeeping_request_recipients
          (request_id, staff_id, staff_uid, recipient_kind, source, updated_at)
        VALUES ($1::int,$2::int,$3::uuid,$4,$5,NOW())
@@ -417,7 +418,23 @@ export async function fanOutHousekeepingRequest({
   data = {},
   updateMessage = null,
 } = {}) {
-  const savedRecipients = await ensureHousekeepingRequestRecipients({ requestId, recipients });
+  // Durable rows (recipient set + system update) land atomically; the staff
+  // notification send stays outside the transaction — it calls external
+  // providers and must never hold a DB transaction open.
+  const savedRecipients = await prisma.$transaction(async (tx) => {
+    const saved = await ensureHousekeepingRequestRecipients({ requestId, recipients, db: tx });
+    if (updateMessage) {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO housekeeping_request_updates
+           (request_id, author_role, message, is_internal)
+         VALUES ($1::int, 'system', $2, false)`,
+        requestId,
+        updateMessage
+      );
+    }
+    return saved;
+  });
+
   const notifyResult = await notifyHousekeepingRecipients({
     tenantId,
     requestId,
@@ -427,16 +444,6 @@ export async function fanOutHousekeepingRequest({
     urgency,
     data,
   });
-
-  if (updateMessage) {
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO housekeeping_request_updates
-         (request_id, author_role, message, is_internal)
-       VALUES ($1::int, 'system', $2, false)`,
-      requestId,
-      updateMessage
-    );
-  }
 
   return {
     recipient_count: savedRecipients.length,
