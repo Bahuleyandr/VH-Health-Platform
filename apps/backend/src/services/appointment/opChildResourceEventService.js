@@ -1,4 +1,5 @@
 import { AppError } from '../../utils/AppError.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 export const OP_CHILD_RESOURCE_EVENT_TYPE = 'appointment.child_resource_linked';
@@ -209,17 +210,20 @@ async function canonicalIdsTx(tx, {
   sourceTable,
   resourceId,
 } = {}) {
+  // Merged-uid union: canonical rows for this resource may predate a patient
+  // merge and stay recorded under the merged-away uid (append-only tables).
+  const patientUids = await resolveMergedPatientUidSet(tx, { tenantId, patientUid });
   const timelineRows = await tx.$queryRawUnsafe(
     `SELECT id
        FROM clinical_timeline_events
       WHERE tenant_id = $1::uuid
-        AND patient_uid = $2::uuid
+        AND patient_uid = ANY($2::uuid[])
         AND source_table = $3::text
         AND source_id = $4::text
       ORDER BY occurred_at DESC, created_at DESC, id DESC
       LIMIT 1`,
     tenantId,
-    patientUid,
+    patientUids,
     sourceTable,
     String(resourceId),
   );
@@ -227,13 +231,13 @@ async function canonicalIdsTx(tx, {
     `SELECT id
        FROM clinical_audit_events
       WHERE tenant_id = $1::uuid
-        AND patient_uid = $2::uuid
+        AND patient_uid = ANY($2::uuid[])
         AND resource_table = $3::text
         AND resource_id = $4::text
       ORDER BY occurred_at DESC, created_at DESC, id DESC
       LIMIT 1`,
     tenantId,
-    patientUid,
+    patientUids,
     sourceTable,
     String(resourceId),
   );

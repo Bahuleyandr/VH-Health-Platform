@@ -10,24 +10,68 @@
  * The two-person rule (requester != approver) is enforced at the
  * service layer; the SQL CHECK only enforces "approved status implies
  * approver_uid is set". An admin who requested a merge cannot approve
- * their own merge.
+ * their own merge, and a request with no recorded requester cannot be
+ * approved at all (an unattributed row would make the rule vacuously
+ * pass for any approver).
  *
- * Execution scope (v1):
- *   - Reassign all active patient_identifiers from secondary → primary
- *     via patientIdentifierService.reassignIdentifiersForMerge.
- *   - Update FK columns on the most-referenced patient tables
- *     (configurable below). Each row count is recorded in
+ * Continuity-sourced rows (raised by requestContinuityMerge, marked by a
+ * non-NULL continuity_disposition) are refused by every generic
+ * transition (approve / reject / cancel / execute): their approval
+ * requires the treating-doctor / clinical-safety-lead gate and their
+ * execution is an alias match, both of which only the dedicated
+ * *ContinuityMerge functions enforce. Letting the generic endpoints act
+ * on them would bypass that gate or wedge the temporary identity in
+ * 'proposed' forever.
+ *
+ * Execution scope (v2, Phase-3 deep-review rework):
+ *   - Retarget all active patient_identifiers of the secondary to the
+ *     survivor via patientIdentifierService.reassignIdentifiersForMerge
+ *     (rows keep their original patient_uid for un-merge provenance and
+ *     stay resolvable through lookupByIdentifier).
+ *   - Sweep every patient_uid / patient_id column in the live schema,
+ *     discovered from the catalog at execution time (see
+ *     discoverMergeSweepTargets) — not a hand-picked table list. The
+ *     sweep runs under SET CONSTRAINTS ALL DEFERRED (migration 634 made
+ *     the composite patient_uid FKs deferrable) so parent+child rows
+ *     re-point consistently at COMMIT. Each row count is recorded in
  *     execution_summary so an admin can audit which rows moved.
+ *   - Deactivate the secondary patient record (is_active=false,
+ *     status='merged', merged_into_uid=survivor) in the same
+ *     transaction, and post-commit revoke its live JWTs.
+ *   - Emit one clinical_timeline_events row + one clinical_audit_events
+ *     row for the survivor in the same transaction (canonical clinical
+ *     timeline invariant).
  *   - Mark the originating patient_duplicate_candidates row as
  *     status='merged' if a candidate_id was supplied.
  *
- * Out of scope for v1 (deferred):
- *   - Merging the users.uid row itself (the secondary user record stays
- *     in place for audit; new clinical data flows to the primary).
- *   - Sweeping every patient_uid FK in the schema. The configurable
- *     FK_TABLES list is intentionally small at first; extending it is
- *     adding entries, not changing this service. Tables referenced
- *     here are the ones a hospital actually queries day-to-day.
+ * Deliberately not swept (see MERGE_SWEEP_EXCLUDED_* and
+ * isUpdateBlockingTriggerSource):
+ *   - Tables protected by an update-blocking / immutable trigger function
+ *     (append-only audit trails + canonical timeline, evidence ledgers,
+ *     identity-pinned interface rows, ...): history stays recorded under
+ *     the uid it happened to, with the merge timeline/audit pair as the
+ *     cross-reference. A merge succeeds only for protected tables listed in
+ *     MERGE_READ_UNION_COVERED_TABLES; their readers union merged-away uids
+ *     via services/clinical/mergedPatientReadUnion.js. Any other protected
+ *     history blocks execution before mutation.
+ *   - clinical_continuity_* tables: continuity identities merge through
+ *     the alias-based executeContinuityMerge flow above, and the tables
+ *     sit behind facility-scoped fail-closed RLS. If continuity rows
+ *     still reference the secondary through a composite FK, the merge
+ *     fails closed at COMMIT rather than splitting the chart.
+ *
+ * Guards (both raise a specific 409):
+ *   - Inactive / deleted / already-merged records are rejected in both
+ *     positions, at request time and again under lock at execution time.
+ *   - Two simultaneously-admitted patients (both holding an admission with
+ *     status IN ('admitted','transferred')) cannot be merged: migration
+ *     640's one-active-admission-per-patient index would reject the sweep,
+ *     and choosing the surviving inpatient chart is a human decision.
+ *
+ * Chained merges (A→B then B→C): executing B→C re-points every stored
+ * users.merged_into_uid / patient_identifiers.merged_into_uid pointer that
+ * pointed at B onto C, so pointers always name the FINAL survivor while
+ * provenance columns stay intact.
  *
  * Decision-support only: nothing here auto-publishes or auto-deletes;
  * every state change is audited and reversible by an admin until the
@@ -37,7 +81,9 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { reassignIdentifiersForMerge } from './patientIdentifierService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -54,33 +100,209 @@ const CONTINUITY_DOCTOR_APPROVER_ROLES = new Set([
 ]);
 
 /**
- * The patient FK tables we sweep on a merge. (table, fk_column) pairs.
- * Add to this list as more tables onboard real patient_uid references —
- * each new entry adds one more row count to execution_summary without
- * any other code change.
+ * Tables the merge FK sweep must NOT touch even though they carry a
+ * patient_uid / patient_id column.
  *
- * Skipped intentionally:
- *   - users itself (we do NOT delete the secondary user row in v1).
- *   - clinical_ai_* tables — these are advisory drafts; merging the
- *     underlying clinical FKs propagates them automatically.
- *   - tables without a tenant_id column — those need their own
- *     review for tenant-bleed risk before sweeping.
+ *   - users: the survivor row is untouched and the secondary row is
+ *     deactivated explicitly (uid itself never changes).
+ *   - patient_identifiers: dedicated provenance-preserving handler
+ *     (reassignIdentifiersForMerge).
+ *   - patient_merge_requests / patient_duplicate_candidates: merge
+ *     bookkeeping — their uid columns record which records were merged.
  */
-const FK_TABLES = [
-  ['appointments', 'patient_uid'],
-  ['prescriptions', 'patient_uid'],
-  ['investigations', 'uid'],
-  ['consultations', 'patient_uid'],
-  ['admissions', 'patient_uid'],
-  ['diagnoses', 'patient_uid'],
-  ['medical_records', 'patient_uid'],
-  ['health_records', 'patient_uid'],
-  ['patient_consents', 'patient_uid'],
-  ['family_members', 'patient_uid'],
-  ['patient_vitals', 'patient_uid'],
-  ['payment_transactions', 'patient_uid'],
-  ['invoices', 'patient_uid'],
-];
+const MERGE_SWEEP_EXCLUDED_TABLES = new Set([
+  'users',
+  'patient_identifiers',
+  'patient_merge_requests',
+  'patient_duplicate_candidates',
+]);
+
+/**
+ * clinical_continuity_*: continuity temporary identities merge through the
+ * alias-based continuity workflow (executeContinuityMerge), never by row
+ * rewrite, and the tables sit behind facility-scoped fail-closed RLS the
+ * merge transaction does not carry.
+ */
+const MERGE_SWEEP_EXCLUDED_PREFIXES = ['clinical_continuity_'];
+
+// A trigger-protected row may stay on its original uid only when every
+// patient-facing read of that table has been made merge-aware. Keep this list
+// deliberately small and evidence-backed. Any newly protected table fails the
+// merge pre-flight until its reader and deep coverage land together.
+const MERGE_READ_UNION_COVERED_TABLES = new Set([
+  'clinical_audit_events',
+  'clinical_timeline_events',
+  'patient_access_audit_log',
+]);
+
+/**
+ * Classify an UPDATE-trigger function body (pg_proc.prosrc) as
+ * update-blocking for the merge sweep's patient re-point UPDATEs.
+ *
+ * Two rules, both validated against the live schema by
+ * src/tests/patient-merge-execution.deep.test.js:
+ *
+ *   (a) Unconditional raise: the body reaches a RAISE EXCEPTION whose
+ *       enclosing IF conditions never reference row content (NEW./OLD.) or a
+ *       GUC (current_setting). This captures the append-only /
+ *       immutable-guard family (audit_append_only_guard,
+ *       *_block_mutation, *_append_only, ledger_block_mutation, ...):
+ *       bypass escapes like `IF current_setting('app.audit_bypass') = 'on'
+ *       THEN RETURN` or superuser checks guard early RETURNs, not the raise,
+ *       so the default path still raises for the prod app role. GUC-engaged
+ *       guards (assert_external_recovery_effect_allowed) keep their raise
+ *       inside a current_setting condition the merge transaction never sets,
+ *       and classify safe.
+ *
+ *   (b) Patient-identity pin: the body references OLD.patient_uid /
+ *       OLD.patient_id at all. Row-conditioned identity validators
+ *       (lab_results_assert_oru_identity, s4_pending_result_handoff_guard,
+ *       tasks_sync_workflow_sla_compat, ...) raise precisely when the column
+ *       the sweep rewrites changes, so any such reference is treated as
+ *       blocking without trying to prove the comparison reachable.
+ *
+ * Deliberately conservative: a false "safe" aborts a live merge mid-sweep,
+ * while a false "blocked" is safe only when the table has a certified
+ * reader-side merged-uid union. Otherwise execution fails closed before any
+ * mutation (src/services/clinical/mergedPatientReadUnion.js).
+ */
+function isUpdateBlockingTriggerSource(source) {
+  const text = String(source || '')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ');
+  if (!/RAISE\s+EXCEPTION/i.test(text)) return false;
+  // Rule (b): identity pin on the very column the sweep rewrites.
+  if (/\bOLD\s*\.\s*patient_(uid|id)\b/i.test(text)) return true;
+  // Rule (a): walk IF nesting; a raise whose whole condition stack is free of
+  // row-content / GUC references fires on the default path of any UPDATE.
+  // TG_OP-only conditions stay "transparent" (they may well be true for
+  // UPDATE), and CASE-expression THEN/ELSE tokens are ignored because only
+  // IF/ELSIF open a condition capture and only END IF pops the stack.
+  const tokenRe = /\bIF\b|\bELSIF\b|\bTHEN\b|\bELSE\b|\bEND\s+IF\b|\bRAISE\s+EXCEPTION\b/gi;
+  const stack = [];
+  let pendingCond = null;
+  let match;
+  while ((match = tokenRe.exec(text)) !== null) {
+    const token = match[0].toUpperCase().replace(/\s+/g, ' ');
+    if (token === 'IF') {
+      pendingCond = { start: match.index + match[0].length, push: true };
+    } else if (token === 'ELSIF') {
+      pendingCond = { start: match.index + match[0].length, push: false };
+    } else if (token === 'THEN') {
+      if (pendingCond) {
+        const cond = text.slice(pendingCond.start, match.index);
+        if (pendingCond.push) stack.push(cond);
+        else if (stack.length) stack[stack.length - 1] = cond;
+        pendingCond = null;
+      }
+    } else if (token === 'END IF') {
+      stack.pop();
+    } else if (token === 'RAISE EXCEPTION') {
+      if (pendingCond) continue;
+      const exempted = stack.some((cond) => /\bNEW\s*\.|\bOLD\s*\.|current_setting\s*\(/i.test(cond));
+      if (!exempted) return true;
+    }
+    // ELSE: the same condition subject governs the branch; keep the stack.
+  }
+  return false;
+}
+
+/**
+ * Discover every (table, column) the merge must re-point, from the live
+ * catalog rather than a hand-picked list: all public patient_uid uuid
+ * columns and patient_id int columns (both name-conventions are the
+ * patient FK contract in this codebase — readers key on them, e.g.
+ * investigations is queried by patient_id/patient_uid). Also covers raw-SQL
+ * tables that exist outside the Prisma schema.
+ *
+ * Each candidate carries its UPDATE triggers (BEFORE and AFTER, row and
+ * statement level — any of them can abort the sweep's UPDATE) so the caller
+ * can skip tables protected by an update-blocking trigger function (see
+ * isUpdateBlockingTriggerSource). Those guards mostly fire only for the
+ * non-superuser prod role, so the skip must be by catalog inspection, not by
+ * trying the UPDATE.
+ */
+async function discoverMergeSweepTargets(tx) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT c.relname AS table_name,
+            a.attname AS column_name,
+            (a.atttypid = 'uuid'::regtype) AS is_uuid,
+            EXISTS (
+              SELECT 1 FROM pg_attribute t
+              WHERE t.attrelid = c.oid AND t.attname = 'tenant_id' AND NOT t.attisdropped
+            ) AS has_tenant_id,
+            COALESCE((
+              SELECT jsonb_agg(jsonb_build_object('proname', p.proname, 'prosrc', p.prosrc))
+              FROM pg_trigger g
+              JOIN pg_proc p ON p.oid = g.tgfoid
+              WHERE g.tgrelid = c.oid AND NOT g.tgisinternal
+                AND (g.tgtype::int & 16) > 0
+            ), '[]'::jsonb) AS update_triggers
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+     JOIN pg_attribute a ON a.attrelid = c.oid AND NOT a.attisdropped
+     WHERE c.relkind IN ('r', 'p')
+       AND (
+         (a.attname = 'patient_uid' AND a.atttypid = 'uuid'::regtype)
+         OR (a.attname = 'patient_id' AND a.atttypid IN ('int4'::regtype, 'int8'::regtype))
+       )
+     ORDER BY c.relname, a.attname`,
+  );
+  return rows
+    .filter((row) => {
+      if (MERGE_SWEEP_EXCLUDED_TABLES.has(row.table_name)) return false;
+      return !MERGE_SWEEP_EXCLUDED_PREFIXES.some((prefix) => row.table_name.startsWith(prefix));
+    })
+    .map((row) => {
+      const triggers = Array.isArray(row.update_triggers) ? row.update_triggers : [];
+      const blockingTriggers = triggers
+        .filter((trigger) => isUpdateBlockingTriggerSource(trigger?.prosrc))
+        .map((trigger) => String(trigger.proname));
+      return {
+        table_name: row.table_name,
+        column_name: row.column_name,
+        is_uuid: row.is_uuid,
+        has_tenant_id: row.has_tenant_id,
+        update_blocked: blockingTriggers.length > 0,
+        blocking_triggers: [...new Set(blockingTriggers)].sort(),
+      };
+    });
+}
+
+async function findUnsupportedProtectedHistory(tx, {
+  targets,
+  tenantId,
+  secondaryPatientUids,
+  secondaryPatientIds,
+}) {
+  const unsupported = [];
+  for (const target of targets) {
+    if (!target.update_blocked || MERGE_READ_UNION_COVERED_TABLES.has(target.table_name)) {
+      continue;
+    }
+    const values = target.is_uuid ? secondaryPatientUids : secondaryPatientIds;
+    if (!values.length) continue;
+    const cast = target.is_uuid ? 'uuid[]' : 'bigint[]';
+    const tenantClause = target.has_tenant_id ? ' AND tenant_id = $2::uuid' : '';
+    const params = target.has_tenant_id ? [values, tenantId] : [values];
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM ${target.table_name}
+          WHERE ${target.column_name} = ANY($1::${cast})${tenantClause}
+       ) AS has_rows`,
+      ...params,
+    );
+    if (rows[0]?.has_rows) {
+      unsupported.push({
+        table: target.table_name,
+        column: target.column_name,
+        blocking_triggers: target.blocking_triggers,
+      });
+    }
+  }
+  return unsupported;
+}
 
 function resolveTenantId(options = {}) {
   return requireTenantId(options.tenantId);
@@ -90,8 +312,63 @@ function isMissingSchemaError(err) {
   return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
 }
 
-function isMissingColumnError(err) {
-  return /column .* does not exist/i.test(String(err?.message || ''));
+function isUniqueViolationError(err) {
+  return /duplicate key value violates unique constraint/i.test(String(err?.message || ''));
+}
+
+function isForeignKeyViolationError(err) {
+  return /violates foreign key constraint/i.test(String(err?.message || ''));
+}
+
+/**
+ * Load + validate the two patient rows a merge points at. Used at request
+ * time (fail fast on garbage input) and again inside the execute
+ * transaction (with FOR UPDATE) so the check is authoritative at commit.
+ */
+async function loadMergePatients(db, { tenantId, primaryUid, secondaryUid, forUpdate = false }) {
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id, uid::text AS uid, role, is_active, status,
+            merged_into_uid::text AS merged_into_uid,
+            COALESCE(is_deleted, false) AS is_deleted
+     FROM users
+     WHERE tenant_id = $1::uuid AND uid IN ($2::uuid, $3::uuid)
+     ${forUpdate ? 'FOR UPDATE' : ''}`,
+    tenantId, primaryUid, secondaryUid,
+  );
+  const primary = rows.find((row) => row.uid === primaryUid);
+  const secondary = rows.find((row) => row.uid === secondaryUid);
+  if (!primary || !secondary) {
+    throw AppError.notFound('Both merge patients must exist in this tenant');
+  }
+  for (const [label, user] of [['primary', primary], ['secondary', secondary]]) {
+    if (String(user.role || '').toUpperCase() !== 'PATIENT') {
+      throw AppError.badRequest(`${label}_uid must reference a PATIENT record`);
+    }
+    if (user.merged_into_uid) {
+      throw AppError.conflict(
+        `The ${label} patient was already merged into another record`,
+        'PATIENT_MERGE_ALREADY_MERGED',
+      );
+    }
+    if (user.is_deleted || String(user.status || '').toLowerCase() === 'deleted') {
+      throw AppError.conflict(
+        `The ${label} patient record is deleted`,
+        'PATIENT_MERGE_TARGET_DELETED',
+      );
+    }
+    // Inactive records are not mergeable in either position: a deactivated
+    // secondary can hide the reason it was shut off (fraud hold, prior
+    // manual dedupe), and merging INTO an inactive primary would strand the
+    // whole chart on a record no one can log into. Reactivate first, then
+    // merge.
+    if (user.is_active === false) {
+      throw AppError.conflict(
+        `The ${label} patient record is inactive and cannot be merged`,
+        'PATIENT_MERGE_TARGET_INACTIVE',
+      );
+    }
+  }
+  return { primary, secondary };
 }
 
 function safeText(value, max = 2000) {
@@ -133,6 +410,24 @@ async function setContinuityFacilityTx(tx, facilityId) {
     String(facility),
   );
   return facility;
+}
+
+/**
+ * Generic approve/reject/cancel/execute must never act on a
+ * continuity-sourced merge row: its approval carries the treating-doctor /
+ * clinical-safety-lead authorization and its execution is an alias match
+ * (no row sweep), both enforced only by the dedicated *ContinuityMerge
+ * flow. continuity_disposition is non-NULL exactly for continuity rows
+ * (chk_patient_merge_continuity_shape) and the shape is fixed at insert,
+ * so this check cannot race.
+ */
+function assertNotContinuityRow(row) {
+  if (row.continuity_disposition !== null && row.continuity_disposition !== undefined) {
+    throw AppError.conflict(
+      'This merge request was raised by the clinical continuity identity workflow; use the dedicated continuity merge endpoints',
+      'PATIENT_MERGE_CONTINUITY_WORKFLOW_REQUIRED',
+    );
+  }
 }
 
 function requireContinuityRole(role, allowed, code) {
@@ -572,6 +867,11 @@ export async function requestMerge({
   const cid = candidateId ? normalizeId(candidateId, 'candidate_id') : null;
   const cleanNote = safeText(requesterNote);
 
+  // Phase 0: both ends must be live PATIENT records in this tenant —
+  // otherwise a typo'd uid produces an approvable merge that re-points
+  // nothing (or the wrong thing) at execution time.
+  await loadMergePatients(prisma, { tenantId: tid, primaryUid: primary, secondaryUid: secondary });
+
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO patient_merge_requests
        (tenant_id, candidate_id, primary_uid, secondary_uid, status,
@@ -599,16 +899,27 @@ export async function approveMerge({
 
   return await setTenantTx(requireTenantId(tid), async (tx) => {
     const existingRows = await tx.$queryRawUnsafe(
-      `SELECT id, status, requested_by FROM patient_merge_requests
+      `SELECT id, status, requested_by, continuity_disposition
+       FROM patient_merge_requests
        WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
       mid, tid,
     );
     const existing = existingRows[0];
     if (!existing) throw AppError.notFound('Merge request not found');
+    assertNotContinuityRow(existing);
     if (existing.status !== 'requested') {
       throw AppError.badRequest(`Merge request must be in 'requested' status to approve (was '${existing.status}')`);
     }
-    if (existing.requested_by && String(existing.requested_by) === approver) {
+    // Two-person rule. A NULL requested_by would make the separation check
+    // below vacuously pass for every approver, so an unattributed request
+    // is not approvable at all — re-raise it with a recorded requester.
+    if (!existing.requested_by) {
+      throw AppError.conflict(
+        'Two-person rule: this merge request has no recorded requester, so requester/approver separation cannot be verified',
+        'PATIENT_MERGE_REQUESTER_UNATTRIBUTED',
+      );
+    }
+    if (String(existing.requested_by) === approver) {
       throw AppError.forbidden('Two-person rule: the requester cannot approve their own merge');
     }
     const rows = await tx.$queryRawUnsafe(
@@ -640,6 +951,13 @@ export async function rejectMerge({
   const approver = maybeUuid(approverUid, 'approver_uid');
   if (!approver) throw AppError.badRequest('approver_uid is required');
 
+  const existingRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, continuity_disposition FROM patient_merge_requests
+     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    mid, tid,
+  );
+  if (existingRows[0]) assertNotContinuityRow(existingRows[0]);
+
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE patient_merge_requests
      SET status = 'rejected',
@@ -664,6 +982,14 @@ export async function cancelMerge({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const mid = normalizeId(id, 'merge_request id');
+
+  const existingRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, continuity_disposition FROM patient_merge_requests
+     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    mid, tid,
+  );
+  if (existingRows[0]) assertNotContinuityRow(existingRows[0]);
+
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE patient_merge_requests
      SET status = 'cancelled',
@@ -689,10 +1015,11 @@ export async function cancelMerge({
 }
 
 /**
- * Execute an approved merge. Runs identifier reassignment + FK sweeps
- * across `FK_TABLES` in a single transaction. If any step fails, the
- * whole transaction rolls back and the merge stays in 'approved' status
- * so the admin can retry after fixing the error.
+ * Execute an approved merge. One transaction covers identifier
+ * retargeting, the catalog-discovered FK sweep, secondary-record
+ * deactivation, and the canonical timeline/audit pair. If any step fails,
+ * the whole transaction rolls back and the merge stays in 'approved'
+ * status so the admin can retry after fixing the error.
  */
 export async function executeMerge({
   tenantId = null,
@@ -704,98 +1031,327 @@ export async function executeMerge({
   const executor = maybeUuid(executorUid, 'executor_uid');
   if (!executor) throw AppError.badRequest('executor_uid is required');
 
-  return await setTenantTx(requireTenantId(tid), async (tx) => {
-    const existingRows = await tx.$queryRawUnsafe(
-      `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid
-       FROM patient_merge_requests
-       WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-      mid, tid,
-    );
-    const existing = existingRows[0];
-    if (!existing) throw AppError.notFound('Merge request not found');
-    if (existing.status !== 'approved') {
-      throw AppError.badRequest(`Merge request must be in 'approved' status to execute (was '${existing.status}')`);
-    }
-    const primary = existing.primary_uid;
-    const secondary = existing.secondary_uid;
+  let updated;
+  let secondaryUidForRevocation = null;
+  try {
+    updated = await setTenantTx(requireTenantId(tid), async (tx) => {
+      const existingRows = await tx.$queryRawUnsafe(
+        `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid,
+                continuity_disposition
+         FROM patient_merge_requests
+         WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1
+         FOR UPDATE`,
+        mid, tid,
+      );
+      const existing = existingRows[0];
+      if (!existing) throw AppError.notFound('Merge request not found');
+      // Continuity rows execute as an alias match through
+      // executeContinuityMerge — running the generic row sweep against one
+      // (secondary_uid is NULL by shape) must fail with direction, not a
+      // confusing not-found.
+      assertNotContinuityRow(existing);
+      if (existing.status !== 'approved') {
+        throw AppError.badRequest(`Merge request must be in 'approved' status to execute (was '${existing.status}')`);
+      }
+      const primary = existing.primary_uid;
+      const secondary = existing.secondary_uid;
 
-    // Identifier reassignment first — that's where the unique-active
-    // constraint is enforced; conflicts there mean a manual review is
-    // needed before the row sweep.
-    const identifierResult = await reassignIdentifiersForMerge(tx, {
-      tenantId: tid,
-      primaryUid: primary,
-      secondaryUid: secondary,
-    });
+      // Lock both patient rows and re-validate under the lock: both must
+      // still be live PATIENT records and neither already merged away.
+      const patients = await loadMergePatients(tx, {
+        tenantId: tid, primaryUid: primary, secondaryUid: secondary, forUpdate: true,
+      });
 
-    // Then sweep the FK tables. Skip tables that don't exist or that
-    // don't have the expected FK column — onboarding hospitals run on
-    // schemas that may not yet have every table.
-    const tableSummary = {};
-    let totalRowsMoved = identifierResult.count;
-    for (const [table, column] of FK_TABLES) {
-      try {
-        const rows = await tx.$queryRawUnsafe(
-          `UPDATE ${table}
-           SET ${column} = $1::uuid
-           WHERE ${column} = $2::uuid
-           RETURNING 1`,
-          primary, secondary,
+      // Pre-flight: two simultaneously-admitted patients cannot be merged by
+      // this workflow. The admissions sweep would re-point the secondary's
+      // ACTIVE admission onto the survivor and collide with migration 640's
+      // ux_admissions_one_active_per_patient partial unique index (status IN
+      // ('admitted','transferred')) — and even without the index, deciding
+      // which of two live inpatient charts survives (bed, orders, billing) is
+      // a human call. Detect it up front, before anything mutates, so the
+      // admin sees a specific 409 instead of a generic data-conflict abort.
+      const activeAdmissions = await tx.$queryRawUnsafe(
+        `SELECT
+           EXISTS (
+             SELECT 1 FROM admissions
+             WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+               AND status IN ('admitted', 'transferred')
+           ) AS primary_active,
+           EXISTS (
+             SELECT 1 FROM admissions
+             WHERE tenant_id = $1::uuid AND patient_uid = $3::uuid
+               AND status IN ('admitted', 'transferred')
+           ) AS secondary_active`,
+        tid, primary, secondary,
+      );
+      if (activeAdmissions[0]?.primary_active && activeAdmissions[0]?.secondary_active) {
+        throw AppError.conflict(
+          'Both patients have an active admission; discharge or cancel one of the admissions before merging',
+          'PATIENT_MERGE_BOTH_ACTIVE_ADMISSIONS',
         );
-        const moved = rows.length;
-        tableSummary[table] = { rows_moved: moved, fk_column: column };
-        totalRowsMoved += moved;
-      } catch (err) {
-        if (isMissingSchemaError(err) || isMissingColumnError(err)) {
-          tableSummary[table] = { rows_moved: 0, fk_column: column, skipped: 'schema_unavailable' };
+      }
+
+      // Discover protected columns and prove read completeness before the
+      // first mutation. Rows guarded by immutable/update-blocking triggers
+      // remain on their original uid, so a successful merge is safe only for
+      // tables whose patient readers union the merged uid family. Include
+      // records already merged into the secondary (A->B before B->C), not just
+      // B itself.
+      const targets = await discoverMergeSweepTargets(tx);
+      const secondaryPatientUids = await resolveMergedPatientUidSet(tx, {
+        tenantId: tid,
+        patientUid: secondary,
+      });
+      const secondaryPatientIdRows = await tx.$queryRawUnsafe(
+        `SELECT id::text AS id
+           FROM users
+          WHERE tenant_id = $1::uuid
+            AND uid = ANY($2::uuid[])`,
+        tid,
+        secondaryPatientUids,
+      );
+      const secondaryPatientIds = secondaryPatientIdRows.map((row) => row.id);
+      const unsupportedProtectedHistory = await findUnsupportedProtectedHistory(tx, {
+        targets,
+        tenantId: tid,
+        secondaryPatientUids,
+        secondaryPatientIds,
+      });
+      if (unsupportedProtectedHistory.length) {
+        throw AppError.conflict(
+          'Merge blocked: protected patient history does not yet have a merge-aware read path',
+          'PATIENT_MERGE_PROTECTED_HISTORY_UNSUPPORTED',
+          { unsupported_protected_history: unsupportedProtectedHistory },
+        );
+      }
+
+      // The composite (tenant_id, <id>, patient_uid) FKs (migration 634 made
+      // them deferrable) can only stay satisfied mid-sweep if their checks
+      // move to COMMIT — parent and child tables re-point in separate
+      // statements.
+      await tx.$executeRawUnsafe('SET CONSTRAINTS ALL DEFERRED');
+
+      // Identifier retargeting first — rows keep their original
+      // patient_uid for provenance and resolve to the survivor via
+      // merged_into_uid.
+      const identifierResult = await reassignIdentifiersForMerge(tx, {
+        tenantId: tid,
+        primaryUid: primary,
+        secondaryUid: secondary,
+        mergeRequestId: mid,
+      });
+
+      // Catalog-discovered sweep: every patient_uid / patient_id column in
+      // the live schema, excluding bookkeeping + continuity tables plus any
+      // table protected by an update-blocking / immutable trigger function
+      // (append-only audit + timeline, evidence ledgers, identity-pinned
+      // interface rows — see isUpdateBlockingTriggerSource). The pre-flight
+      // above has already proved that every skipped row belongs to a table
+      // with a merge-aware reader.
+      // Discovery only returns columns that exist, so there is no "skip
+      // missing schema" catch here — any error aborts (and rolls back) the
+      // merge.
+      const tableSummary = {};
+      const updateBlockedSkipped = [];
+      const updateBlockedTriggers = {};
+      let totalRowsMoved = identifierResult.count;
+      for (const target of targets) {
+        const { table_name: table, column_name: column } = target;
+        if (target.update_blocked) {
+          updateBlockedSkipped.push(`${table}.${column}`);
+          updateBlockedTriggers[table] = target.blocking_triggers;
           continue;
         }
-        // Anything else aborts the merge — the transaction will roll back.
-        logger.error('patient merge FK sweep failed', { table, column, error: err.message });
-        throw err;
+        const cast = target.is_uuid ? 'uuid' : 'int';
+        const fromValue = target.is_uuid ? secondary : patients.secondary.id;
+        const toValue = target.is_uuid ? primary : patients.primary.id;
+        const tenantClause = target.has_tenant_id ? ' AND tenant_id = $3::uuid' : '';
+        const params = target.has_tenant_id ? [toValue, fromValue, tid] : [toValue, fromValue];
+        const moved = await tx.$executeRawUnsafe(
+          `UPDATE ${table}
+           SET ${column} = $1::${cast}
+           WHERE ${column} = $2::${cast}${tenantClause}`,
+          ...params,
+        );
+        if (moved > 0 || tableSummary[table]) {
+          tableSummary[table] = tableSummary[table] || { rows_moved: 0, fk_columns: [] };
+          tableSummary[table].rows_moved += moved;
+          tableSummary[table].fk_columns.push(column);
+        }
+        totalRowsMoved += moved;
       }
-    }
 
-    const summary = {
-      identifiers_reassigned: identifierResult.count,
-      total_rows_moved: totalRowsMoved,
-      table_summary: tableSummary,
-    };
-
-    const rows = await tx.$queryRawUnsafe(
-      `UPDATE patient_merge_requests
-       SET status = 'executed',
-           executor_uid = $1::uuid,
-           executed_at = NOW(),
-           execution_summary = $2::jsonb,
-           updated_at = NOW()
-       WHERE id = $3 AND tenant_id = $4::uuid AND status = 'approved'
-       RETURNING id, candidate_id, primary_uid, secondary_uid, status,
-                 approver_uid, approved_at, executor_uid, executed_at,
-                 execution_summary, requested_by, requested_at,
-                 created_at, updated_at`,
-      executor, JSON.stringify(summary), mid, tid,
-    );
-    const updated = rows[0];
-    if (!updated) throw AppError.conflict('Merge request status changed mid-execution');
-
-    // Close the originating candidate (if any) so it disappears from the
-    // open queue.
-    if (existing.candidate_id) {
-      await tx.$queryRawUnsafe(
-        `UPDATE patient_duplicate_candidates
-         SET status = 'merged',
-             decided_by = $1::uuid,
-             decided_at = NOW(),
-             decision_note = COALESCE(decision_note, 'merged via merge_request id=' || $2::text),
+      // Deactivate the merged-away record in the same transaction: it must
+      // not keep accepting logins or accruing new clinical rows, and the
+      // survivor pointer is the durable provenance an un-merge needs.
+      const deactivated = await tx.$executeRawUnsafe(
+        `UPDATE users
+         SET is_active = false,
+             status = 'merged',
+             status_reason = 'merged via patient_merge_requests id=' || $1::text,
+             status_updated_at = NOW(),
+             status_updated_by = $2::uuid,
+             merged_into_uid = $3::uuid,
+             merged_at = NOW(),
              updated_at = NOW()
-         WHERE id = $3 AND tenant_id = $4::uuid AND status = 'open'`,
-        executor, String(mid), existing.candidate_id, tid,
+         WHERE tenant_id = $4::uuid AND uid = $5::uuid AND merged_into_uid IS NULL`,
+        String(mid), executor, primary, tid, secondary,
+      );
+      if (deactivated !== 1) {
+        throw AppError.conflict('Secondary patient could not be deactivated', 'PATIENT_MERGE_DEACTIVATION_FAILED');
+      }
+
+      // Chain flattening: records merged into the secondary EARLIER (A→B,
+      // now B→C) must end pointing at the final survivor, or old-identifier
+      // lookups and login redirects dead-end on a deactivated record. Stored
+      // survivor POINTERS are re-pointed; provenance columns (the identifier
+      // row's original patient_uid, users.merged_at) stay untouched. This is
+      // also what keeps the reader union's one-hop SQL fragment complete
+      // (mergedPatientUidsSubquery) — no live merged_into_uid pointer is ever
+      // more than one hop from its survivor.
+      const chainedUsersRepointed = await tx.$executeRawUnsafe(
+        `UPDATE users
+         SET merged_into_uid = $1::uuid,
+             updated_at = NOW()
+         WHERE tenant_id = $2::uuid AND merged_into_uid = $3::uuid`,
+        primary, tid, secondary,
+      );
+      const chainedIdentifiersRepointed = await tx.$executeRawUnsafe(
+        `UPDATE patient_identifiers
+         SET merged_into_uid = $1::uuid,
+             updated_at = NOW()
+         WHERE tenant_id = $2::uuid
+           AND merged_into_uid = $3::uuid
+           AND status = 'merged_into'`,
+        primary, tid, secondary,
+      );
+
+      const summary = {
+        identifiers_retargeted: identifierResult.count,
+        total_rows_moved: totalRowsMoved,
+        table_summary: tableSummary,
+        update_blocked_skipped: updateBlockedSkipped,
+        update_blocked_triggers: updateBlockedTriggers,
+        chained_users_repointed: chainedUsersRepointed,
+        chained_identifiers_repointed: chainedIdentifiersRepointed,
+        secondary_deactivated: true,
+        secondary_user_id: patients.secondary.id,
+        primary_user_id: patients.primary.id,
+      };
+
+      // Canonical clinical timeline invariant: the merge is a
+      // patient-facing clinical write, so the survivor gets exactly one
+      // timeline row + one audit row in this same transaction. The helpers
+      // swallow their own errors and return null — treat that as fatal so
+      // the detail writes can never outlive a failed canonical emit.
+      // Insert-once keys: 'executed' is one-way and guarded by the
+      // status='approved' UPDATE below, so this emit runs at most once per
+      // merge request.
+      const {
+        recordTimelineEvent,
+        recordClinicalAuditEvent,
+      } = await import('../clinical/canonicalClinicalPlatformService.js');
+      const timelineEvent = await recordTimelineEvent({
+        tenantId: tid,
+        patientUid: primary,
+        eventType: 'patient.merge.executed',
+        eventStatus: 'completed',
+        sourceTable: 'patient_merge_requests',
+        sourceId: String(mid),
+        resourceType: 'patient_merge_request',
+        resourceId: String(mid),
+        actorUid: executor,
+        summary: 'Duplicate patient record merged into this chart',
+        payload: {
+          merged_from_uid: secondary,
+          identifiers_retargeted: identifierResult.count,
+          total_rows_moved: totalRowsMoved,
+        },
+        idempotencyKey: `patient_merge_requests:${mid}:executed`,
+      }, { db: tx });
+      if (!timelineEvent) {
+        throw AppError.internal('Merge timeline event was not recorded', 'PATIENT_MERGE_TIMELINE_REQUIRED');
+      }
+      const auditEvent = await recordClinicalAuditEvent({
+        tenantId: tid,
+        patientUid: primary,
+        action: 'patient.merge.executed',
+        actorUid: executor,
+        resourceType: 'patient_merge_request',
+        resourceTable: 'patient_merge_requests',
+        resourceId: String(mid),
+        beforeState: { secondary_uid: secondary, secondary_status: patients.secondary.status },
+        afterState: summary,
+        idempotencyKey: `patient_merge_requests:${mid}:executed`,
+      }, { db: tx });
+      if (!auditEvent) {
+        throw AppError.internal('Merge audit event was not recorded', 'PATIENT_MERGE_AUDIT_REQUIRED');
+      }
+
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE patient_merge_requests
+         SET status = 'executed',
+             executor_uid = $1::uuid,
+             executed_at = NOW(),
+             execution_summary = $2::jsonb,
+             updated_at = NOW()
+         WHERE id = $3 AND tenant_id = $4::uuid AND status = 'approved'
+         RETURNING id, candidate_id, primary_uid, secondary_uid, status,
+                   approver_uid, approved_at, executor_uid, executed_at,
+                   execution_summary, requested_by, requested_at,
+                   created_at, updated_at`,
+        executor, JSON.stringify(summary), mid, tid,
+      );
+      const executedRow = rows[0];
+      if (!executedRow) throw AppError.conflict('Merge request status changed mid-execution');
+
+      // Close the originating candidate (if any) so it disappears from the
+      // open queue.
+      if (existing.candidate_id) {
+        await tx.$queryRawUnsafe(
+          `UPDATE patient_duplicate_candidates
+           SET status = 'merged',
+               decided_by = $1::uuid,
+               decided_at = NOW(),
+               decision_note = COALESCE(decision_note, 'merged via merge_request id=' || $2::text),
+               updated_at = NOW()
+           WHERE id = $3 AND tenant_id = $4::uuid AND status = 'open'`,
+          executor, String(mid), existing.candidate_id, tid,
+        );
+      }
+
+      secondaryUidForRevocation = secondary;
+      return executedRow;
+    });
+  } catch (err) {
+    // COMMIT-time constraint failures (deferred FKs, per-patient unique
+    // rows like abha_profiles on both records) mean the two records still
+    // hold conflicting data — the merge rolled back completely; surface a
+    // reviewable conflict rather than a generic 500.
+    if (isUniqueViolationError(err) || isForeignKeyViolationError(err)) {
+      logger.error('patient merge aborted on data conflict', { mergeRequestId: mid, error: err.message });
+      throw AppError.conflict(
+        'Merge aborted: the two records hold conflicting rows that need manual review before merging',
+        'PATIENT_MERGE_DATA_CONFLICT',
       );
     }
+    throw err;
+  }
 
-    return updated;
-  });
+  // Phase 1.5 (post-commit, best-effort): the merged-away record must not
+  // keep using JWTs issued before the merge. Failure is logged, never
+  // blocks the committed merge.
+  if (secondaryUidForRevocation) {
+    try {
+      await revokeAllUserTokens(secondaryUidForRevocation);
+    } catch (err) {
+      logger.warn('patient merge token revocation failed', {
+        mergeRequestId: mid, error: err.message,
+      });
+    }
+  }
+
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
@@ -856,10 +1412,15 @@ export async function getMergeRequest({ tenantId = null, id } = {}) {
 }
 
 export const __testing__ = {
-  FK_TABLES,
   MERGE_STATUSES,
+  MERGE_SWEEP_EXCLUDED_TABLES,
+  MERGE_SWEEP_EXCLUDED_PREFIXES,
+  MERGE_READ_UNION_COVERED_TABLES,
   CONTINUITY_PROPOSER_ROLES,
   CONTINUITY_DOCTOR_APPROVER_ROLES,
+  discoverMergeSweepTargets,
+  findUnsupportedProtectedHistory,
+  isUpdateBlockingTriggerSource,
 };
 
 export default {
