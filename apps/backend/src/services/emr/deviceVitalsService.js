@@ -12,7 +12,7 @@ import { AppError } from '../../utils/AppError.js';
 import { parseHL7 } from '../hl7/hl7Parser.js';
 import { obxResultsToVitals } from '../fhir/observationVitalsMapper.js';
 import { recordVitals } from './vitalsChartService.js';
-import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import {
   authenticateDeviceCredential,
   getActiveDeviceByCode,
@@ -30,6 +30,7 @@ import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecove
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
+const OBSERVED_AT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 const NEWS2_RELEVANT_FIELDS = new Set([
   'heart_rate',
   'systolic_bp',
@@ -40,7 +41,47 @@ const NEWS2_RELEVANT_FIELDS = new Set([
 ]);
 
 /**
- * Extract patient uid + OBX observations from a parsed ORU message.
+ * Parse an HL7 v2 TS value — `YYYYMMDD[HH[MM[SS[.S+]]]][±ZZZZ]` — into a JS
+ * Date. An explicit ±ZZZZ offset is honored; offset-less timestamps are
+ * interpreted as server-local time (bedside monitors are set to ward wall
+ * clocks). Returns null for empty/invalid input. Pure — exported for unit
+ * tests.
+ */
+export function parseHl7Timestamp(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+  const m = raw.match(
+    /^(\d{4})(\d{2})(\d{2})(?:(\d{2})(?:(\d{2})(?:(\d{2})(?:\.(\d+))?)?)?)?([+-]\d{4})?$/,
+  );
+  if (!m) return null;
+  const [, y, mo, d, hh, mm, ss, frac, offset] = m;
+  const year = Number(y);
+  const month = Number(mo);
+  const day = Number(d);
+  if (month < 1 || month > 12) return null;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) return null;
+  const hours = Number(hh ?? 0);
+  const minutes = Number(mm ?? 0);
+  const seconds = Number(ss ?? 0);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  const ms = frac ? Math.round(Number(`0.${frac}`) * 1000) : 0;
+  let date;
+  if (offset) {
+    const sign = offset[0] === '-' ? -1 : 1;
+    const offsetMinutes = sign * ((Number(offset.slice(1, 3)) * 60) + Number(offset.slice(3, 5)));
+    date = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms) - (offsetMinutes * 60 * 1000));
+  } else {
+    date = new Date(year, month - 1, day, hours, minutes, seconds, ms);
+  }
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Extract patient uid + OBX observations from a parsed ORU message, plus the
+ * device observation timestamp: the first valid OBX-14 across OBX segments,
+ * else OBR-7 from the first OBR segment, else null (`observedAt`), with
+ * `observedAtSource` naming which field supplied it ('obx14' | 'obr7' | null).
  * Pure given parseHL7 output — exported for unit tests.
  */
 export function extractVitalsFromOru(parsed) {
@@ -51,7 +92,8 @@ export function extractVitalsFromOru(parsed) {
   const candidate = String(rawId || '').split('^')[0].split('~')[0].trim();
   const patientUid = UUID_RE.test(candidate) ? candidate : null;
 
-  const observations = find('OBX').map((obx) => {
+  const obxSegments = find('OBX');
+  const observations = obxSegments.map((obx) => {
     const f = obx.fields || [];
     const codeField = String(f[3] ?? '');
     const code = codeField.split('^')[0].trim();
@@ -59,7 +101,26 @@ export function extractVitalsFromOru(parsed) {
     return { loinc_code: code, value_numeric: Number.parseFloat(value), value_text: value };
   }).filter((o) => o.loinc_code);
 
-  return { patientUid, observations };
+  let observedAt = null;
+  let observedAtSource = null;
+  for (const obx of obxSegments) {
+    const parsedTs = parseHl7Timestamp(obx.fields?.[14]);
+    if (parsedTs) {
+      observedAt = parsedTs;
+      observedAtSource = 'obx14';
+      break;
+    }
+  }
+  if (!observedAt) {
+    const obr = find('OBR')[0];
+    const parsedTs = parseHl7Timestamp(obr?.fields?.[7]);
+    if (parsedTs) {
+      observedAt = parsedTs;
+      observedAtSource = 'obr7';
+    }
+  }
+
+  return { patientUid, observations, observedAt, observedAtSource };
 }
 
 export function extractDeviceMessageMeta(parsed = {}) {
@@ -124,8 +185,8 @@ async function insertInterfaceMessage({
   return Number(rows[0].id);
 }
 
-async function updateInterfaceMessage(messageId, { status, errorText = null, resultCount = null, verdicts = null } = {}) {
-  await prisma.$executeRawUnsafe(
+async function updateInterfaceMessage(messageId, { status, errorText = null, resultCount = null, verdicts = null } = {}, db = prisma) {
+  await db.$executeRawUnsafe(
     `UPDATE lab_interface_messages SET
        status = $2,
        result_count = $3::int,
@@ -166,33 +227,46 @@ async function findDeviceRegistry({ tenantId, deviceCode, context }) {
   return device;
 }
 
-async function markControlId({ tenantId, deviceId, controlId }) {
-  if (!controlId || !deviceId) return { duplicate: false, controlIdRowId: null };
+// C-M3: the control-id ledger is consulted (read-only) at the top of the
+// gateway branch and CONSUMED (inserted) only once the outcome of this
+// delivery is durable or definitive — charted vitals, or a deliberate
+// suppression. A transient failure leaves no row behind, so the gateway's
+// redelivery of the same control-id is re-processed instead of being
+// swallowed as a duplicate AA while the sample was never charted.
+async function isDuplicateControlId({ tenantId, deviceId, controlId }) {
+  if (!controlId || !deviceId) return false;
   await prisma.$executeRawUnsafe(
     `DELETE FROM device_vitals_control_ids WHERE expires_at < NOW()`,
   ).catch(() => {});
   const rows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM device_vitals_control_ids
+      WHERE tenant_id = $1::uuid
+        AND device_registry_id = $2
+        AND control_id = $3
+        AND expires_at >= NOW()
+      LIMIT 1`,
+    tenantId,
+    deviceId,
+    controlId,
+  );
+  return rows.length > 0;
+}
+
+async function consumeControlId({ tenantId, deviceId, controlId, messageId = null, db = prisma }) {
+  if (!controlId || !deviceId) return { consumed: false, conflict: false };
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO device_vitals_control_ids
-       (tenant_id, device_registry_id, control_id)
-     VALUES ($1::uuid, $2, $3)
+       (tenant_id, device_registry_id, control_id, interface_message_id)
+     VALUES ($1::uuid, $2, $3, $4::int)
      ON CONFLICT (tenant_id, device_registry_id, control_id) DO NOTHING
      RETURNING id`,
     tenantId,
     deviceId,
     controlId,
-  );
-  return { duplicate: rows.length === 0, controlIdRowId: rows[0]?.id ?? null };
-}
-
-async function linkControlId(rowId, messageId) {
-  if (!rowId || !messageId) return;
-  await prisma.$executeRawUnsafe(
-    `UPDATE device_vitals_control_ids
-        SET interface_message_id = $2
-      WHERE id = $1`,
-    rowId,
     messageId,
-  ).catch(() => {});
+  );
+  return { consumed: rows.length > 0, conflict: rows.length === 0 };
 }
 
 async function countSuppressed({ tenantId, deviceId, reason }) {
@@ -406,11 +480,24 @@ export async function ingestDeviceVitals({
 
   const isGateway = gatewayContext(context);
   let messageId = null;
-  let controlIdRowId = null;
 
   try {
     const parsed = parseHL7(String(message));
-    const { patientUid: pidPatientUid, observations } = extractVitalsFromOru(parsed);
+    const {
+      patientUid: pidPatientUid,
+      observations,
+      observedAt: rawObservedAt,
+      observedAtSource: rawObservedAtSource,
+    } = extractVitalsFromOru(parsed);
+    // C-L5: stamp the vitals row with the device's observation time rather
+    // than the drain/receipt time. Guard against device clock skew — an
+    // observation timestamp more than 5 minutes in the future is ignored and
+    // the row falls back to the receipt time (NOW()).
+    const futureSkewMs = rawObservedAt ? rawObservedAt.getTime() - Date.now() : 0;
+    const observedAt = rawObservedAt && futureSkewMs <= OBSERVED_AT_MAX_FUTURE_SKEW_MS
+      ? rawObservedAt
+      : null;
+    const observedAtSource = observedAt ? rawObservedAtSource : 'receipt-fallback';
     const meta = extractDeviceMessageMeta(parsed);
     const normalizedDeviceCode = cleanText(deviceCode || meta.sourceDeviceCode, 120) || 'monitor';
     const normalizedChannel = cleanText(channel || meta.channel, 80) || '';
@@ -428,12 +515,14 @@ export async function ingestDeviceVitals({
         status: 'received',
       });
     } else {
-      const control = await markControlId({
+      // C-M3: duplicate CHECK only — the control-id is consumed later, once
+      // the outcome is durable (charted) or definitive (suppressed).
+      const duplicate = await isDuplicateControlId({
         tenantId,
         deviceId: device.id,
         controlId: meta.controlId,
       });
-      if (control.duplicate) {
+      if (duplicate) {
         await countSuppressed({ tenantId, deviceId: device.id, reason: 'duplicate_control_id' });
         return {
           duplicate: true,
@@ -443,7 +532,6 @@ export async function ingestDeviceVitals({
           unmapped: [],
         };
       }
-      controlIdRowId = control.controlIdRowId;
     }
 
     const resolved = isGateway
@@ -485,6 +573,14 @@ export async function ingestDeviceVitals({
         patientRow,
       });
       if (!chartDecision.persist) {
+        // Suppression is a definitive AA outcome — consume the control-id so
+        // a gateway redelivery of the same sample dedupes instead of being
+        // re-evaluated.
+        await consumeControlId({
+          tenantId,
+          deviceId: device.id,
+          controlId: meta.controlId,
+        });
         return {
           suppressed: true,
           reason: chartDecision.reason,
@@ -500,7 +596,6 @@ export async function ingestDeviceVitals({
         message,
         status: 'received',
       });
-      await linkControlId(controlIdRowId, messageId);
       await touchDeviceSeen({ tenantId, id: device.id });
     }
 
@@ -521,22 +616,60 @@ export async function ingestDeviceVitals({
       source_device: normalizedDeviceCode,
       notes: `Device ORU ingest (${mapping.mapped.join(', ')})`,
       recorded_by: context.actorUid,
+      // C-L5: device observation time (OBX-14 / OBR-7) when present and sane;
+      // undefined falls back to NOW() (receipt time) inside recordVitals.
+      ...(observedAt ? { recorded_at: observedAt } : {}),
       alertOptions,
     });
 
-    if (messageId) {
+    const successVerdicts = {
+      mapped: mapping.mapped,
+      unmapped: mapping.unmapped,
+      vitals_chart_id: result.vitals.id,
+      news2: result.news2 ? { total: result.news2.total_score ?? result.news2.totalScore ?? null } : null,
+      control_id: meta.controlId,
+      device_registry_id: device?.id ?? null,
+      association_id: resolved.association?.id ?? null,
+      // Receipt-vs-observation audit trail: the lab_interface_messages row's
+      // own timestamps stay the receipt time; the verdicts carry the device
+      // observation time actually stamped on the vitals row (null when the
+      // receipt fallback was used) and which source supplied it.
+      observed_at: observedAt ? observedAt.toISOString() : null,
+      observed_at_source: observedAtSource,
+    };
+
+    if (isGateway) {
+      // C-M3: consume the control-id and flip the interface message to
+      // 'ingested' atomically, only AFTER the vitals write is durable. If a
+      // concurrent identical delivery won the insert race, the vitals are
+      // already durably written — log and keep returning success.
+      await setTenantTx(tenantId, async (tx) => {
+        if (messageId) {
+          await updateInterfaceMessage(messageId, {
+            status: 'ingested',
+            resultCount: mapping.mapped.length,
+            verdicts: successVerdicts,
+          }, tx);
+        }
+        const consumed = await consumeControlId({
+          tenantId,
+          deviceId: device.id,
+          controlId: meta.controlId,
+          messageId,
+          db: tx,
+        });
+        if (consumed.conflict) {
+          logger.warn(
+            `Device vitals control-id ${meta.controlId} already consumed by a concurrent delivery `
+            + `(device_registry_id=${device.id}); vitals_chart row ${result.vitals.id} is durably written`,
+          );
+        }
+      });
+    } else if (messageId) {
       await updateInterfaceMessage(messageId, {
         status: 'ingested',
         resultCount: mapping.mapped.length,
-        verdicts: {
-          mapped: mapping.mapped,
-          unmapped: mapping.unmapped,
-          vitals_chart_id: result.vitals.id,
-          news2: result.news2 ? { total: result.news2.total_score ?? result.news2.totalScore ?? null } : null,
-          control_id: meta.controlId,
-          device_registry_id: device?.id ?? null,
-          association_id: resolved.association?.id ?? null,
-        },
+        verdicts: successVerdicts,
       });
     }
 
@@ -551,13 +684,11 @@ export async function ingestDeviceVitals({
       control_id: meta.controlId,
     };
   } catch (err) {
-    if (controlIdRowId && err instanceof AppError && err.code === 'DEVICE_NOT_ASSOCIATED') {
-      await linkControlId(controlIdRowId, err.details?.interface_message_id || messageId);
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM device_vitals_control_ids WHERE id = $1`,
-        controlIdRowId,
-      ).catch(() => {});
-    }
+    // C-M3: no control-id row exists on any failure path (consumption happens
+    // only after a durable/definitive outcome), so the gateway's retry of the
+    // same control-id is re-processed rather than dropped. DEVICE_NOT_ASSOCIATED
+    // still parks its failed, replayable interface message (written inside
+    // resolveGatewayPatient).
     if (messageId) {
       await updateInterfaceMessage(messageId, {
         status: 'failed',
@@ -713,40 +844,67 @@ export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50
   );
 }
 
-/** Clinician verification of a device vitals row (audited). */
+/**
+ * Clinician verification of a device vitals row.
+ *
+ * Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+ * the vitals_chart flip + one clinical_timeline_events row + one
+ * clinical_audit_events row persist in the SAME transaction.
+ * recordCanonicalClinicalEvent throws in-tx (CANONICAL_TIMELINE_REQUIRED /
+ * CANONICAL_AUDIT_REQUIRED) when either canonical write does not land, so a
+ * failed canonical pair rolls the verification flip back rather than leaving
+ * the timeline/audit layer out of sync. Verification is one-shot — the
+ * device_verified=false guard makes a second call NOT_FOUND — so the
+ * insert-once idempotency key is correct.
+ */
 export async function verifyDeviceVitals(vitalsId, context = {}) {
   if (!context.actorUid) throw AppError.unauthorized('Verifier identity missing');
   if (!context.tenantId) throw AppError.badRequest('tenantId is required', 'DEVICE_VITALS_NO_TENANT');
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE vitals_chart SET
-       device_verified = true, verified_by = $2::uuid, verified_at = NOW()
-     WHERE id = $1 AND source = 'device' AND device_verified = false AND tenant_id = $3::uuid
-     RETURNING id, patient_uid, source_device, device_verified, verified_at`,
-    vitalsId,
-    context.actorUid,
-    context.tenantId,
-  );
-  if (!rows.length) {
-    throw AppError.notFound('Unverified device vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
-  }
-  const row = rows[0];
-  await recordClinicalAuditEvent({
-    tenantId: context.tenantId,
-    patientUid: row.patient_uid,
-    action: 'vitals.device_verified',
-    actorUid: context.actorUid,
-    actorRole: context.actorRole || null,
-    resourceType: 'vitals',
-    resourceTable: 'vitals_chart',
-    resourceId: String(row.id),
-    afterState: { device_verified: true },
-    metadata: { source_device: row.source_device },
-    idempotencyKey: `vitals_chart:${row.id}:device_verified`,
+  return setTenantTx(context.tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE vitals_chart SET
+         device_verified = true, verified_by = $2::uuid, verified_at = NOW()
+       WHERE id = $1 AND source = 'device' AND device_verified = false AND tenant_id = $3::uuid
+       RETURNING id, patient_uid, source_device, device_verified, verified_at`,
+      vitalsId,
+      context.actorUid,
+      context.tenantId,
+    );
+    if (!rows.length) {
+      throw AppError.notFound('Unverified device vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
+    }
+    const row = rows[0];
+    const idempotencyKey = `vitals_chart:${row.id}:device_verified`;
+    await recordCanonicalClinicalEvent({
+      tenantId: context.tenantId,
+      patientUid: row.patient_uid,
+      eventType: 'vitals.device_verified',
+      eventStatus: 'verified',
+      sourceTable: 'vitals_chart',
+      sourceId: String(row.id),
+      resourceType: 'vitals',
+      resourceTable: 'vitals_chart',
+      resourceId: String(row.id),
+      actorUid: context.actorUid,
+      actorRole: context.actorRole || null,
+      summary: `Device vitals verified (${row.source_device || 'monitor'})`,
+      payload: {
+        vitals_chart_id: row.id,
+        source_kind: 'device',
+        verification_status: 'verified',
+      },
+      afterState: { device_verified: true },
+      metadata: { source_device: row.source_device },
+      tags: ['vitals', 'device-synced', 'verified'],
+      timelineIdempotencyKey: idempotencyKey,
+      auditIdempotencyKey: idempotencyKey,
+    }, { db: tx });
+    return row;
   });
-  return row;
 }
 
 export default {
+  parseHl7Timestamp,
   extractVitalsFromOru,
   extractDeviceMessageMeta,
   ingestDeviceVitals,

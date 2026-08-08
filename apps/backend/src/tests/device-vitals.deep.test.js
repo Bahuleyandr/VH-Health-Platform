@@ -112,6 +112,16 @@ d('Device vitals ingestion — deep round-trip (roadmap C5)', () => {
     expect(audit.length).toBe(1);
     expect(audit[0].chain_hash).toMatch(/^[0-9a-f]{64}$/); // C4 chain covers it
 
+    // Canonical invariant: verification writes the timeline + audit PAIR in
+    // the same transaction, keyed by the one-shot idempotency key.
+    const pair = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM clinical_timeline_events WHERE idempotency_key = $1) AS timeline,
+         (SELECT COUNT(*)::int FROM clinical_audit_events WHERE idempotency_key = $1) AS audit`,
+      `vitals_chart:${vitalsId}:device_verified`,
+    );
+    expect(pair[0]).toMatchObject({ timeline: 1, audit: 1 });
+
     const emptyQueue = await authClient('NURSING_STAFF')
       .get('/api/v1/devices/vitals/unverified')
       .query({ patient_uid: patientUid });
