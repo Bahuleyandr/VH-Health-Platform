@@ -21,6 +21,19 @@
 //      EVERYTHING — no half-merged chart, secondary stays live.
 //   6. Migration-634 pin: no composite patient_uid FK may be
 //      non-deferrable, or the multi-table sweep becomes impossible again.
+//   7. Trigger-aware sweep exclusion: the classifier validated against the
+//      LIVE schema — update-blocking / identity-pinned tables are skipped
+//      (their rows stay on the old uid) while the core chart keeps moving,
+//      and a merge across a protected table succeeds instead of aborting.
+//   8. Reader-side merged-uid union: after a merge, the survivor's canonical
+//      timeline includes events recorded under the merged-away uid.
+//   9. Both-active-admissions guard: two simultaneously-admitted patients
+//      (migration 640's one-active-admission index) are rejected with a
+//      specific 409 before anything mutates.
+//  10. Inactive inputs are rejected in both positions.
+//  11. Chained merges (A→B then B→C): stored survivor pointers end at the
+//      final survivor; old identifiers resolve to it; the survivor's
+//      timeline union spans the whole chain.
 //
 // Requires a reachable Postgres (DATABASE_URL). Skipped if none configured.
 
@@ -30,8 +43,11 @@ import {
   requestMerge,
   approveMerge,
   executeMerge,
+  __testing__ as mergeTesting,
 } from '../services/patient/patientMergeService.js';
 import { lookupByIdentifier } from '../services/patient/patientIdentifierService.js';
+import { readCanonicalPatientTimeline } from '../services/clinical/canonicalClinicalPlatformService.js';
+import { resolveMergedPatientUidSet } from '../services/clinical/mergedPatientReadUnion.js';
 
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB ? describe : describe.skip;
@@ -48,6 +64,7 @@ const seeded = {
   admissionIds: [],
   investigationIds: [],
   appointmentIds: [],
+  labResultIds: [],
 };
 
 let phoneSeq = 0;
@@ -104,6 +121,41 @@ async function seedIdentifier(patientUid, value) {
   );
 }
 
+async function seedActiveAdmission(patientUid, status = 'admitted') {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO admissions (tenant_id, patient_uid, status, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3, NOW(), NOW())
+     RETURNING id`,
+    TENANT, patientUid, status,
+  );
+  seeded.admissionIds.push(rows[0].id);
+  return rows[0].id;
+}
+
+// Direct INSERT: the append-only guard blocks UPDATE/DELETE, not INSERT, so
+// pre-merge history can be seeded under the uid it "happened to".
+async function seedTimelineEvent(patientUid, label) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_timeline_events
+       (tenant_id, patient_uid, event_type, clinical_summary, idempotency_key)
+     VALUES ($1::uuid, $2::uuid, 'vitals.recorded', $3, $4)
+     RETURNING id::text AS id`,
+    TENANT, patientUid, `${MARK}-${label}`, `${MARK}:${label}:${randomUUID()}`,
+  );
+  return rows[0].id;
+}
+
+async function seedLabResult(patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO lab_results (tenant_id, patient_uid, test_code, test_name)
+     VALUES ($1::uuid, $2::uuid, 'HB', $3)
+     RETURNING id`,
+    TENANT, patientUid, `${MARK}-haemoglobin`,
+  );
+  seeded.labResultIds.push(rows[0].id);
+  return rows[0].id;
+}
+
 async function approvedMergeRequest(primary, secondary) {
   const request = await requestMerge({
     tenantId: TENANT,
@@ -122,6 +174,15 @@ async function cleanup() {
     `DELETE FROM clinical_timeline_events WHERE source_table = 'patient_merge_requests' AND clinical_summary LIKE '%merged%' AND patient_uid = ANY($1::uuid[])`,
     seeded.userUids,
   );
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_timeline_events WHERE clinical_summary LIKE $1 AND patient_uid = ANY($2::uuid[])`,
+    `${MARK}%`, seeded.userUids,
+  );
+  if (seeded.labResultIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM lab_results WHERE id = ANY($1::int[])`, seeded.labResultIds,
+    );
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_audit_events WHERE action = 'patient.merge.executed' AND patient_uid = ANY($1::uuid[])`,
     seeded.userUids,
@@ -272,8 +333,11 @@ d('patient merge execution (deep)', () => {
     expect(summary.table_summary.admissions.rows_moved).toBe(1);
     expect(summary.table_summary.investigations.rows_moved).toBe(2);
     expect(summary.table_summary.appointments.rows_moved).toBe(1);
-    expect(summary.append_only_skipped).toEqual(
+    expect(summary.update_blocked_skipped).toEqual(
       expect.arrayContaining(['clinical_timeline_events.patient_uid']),
+    );
+    expect(summary.update_blocked_triggers.clinical_timeline_events).toEqual(
+      expect.arrayContaining(['audit_append_only_guard']),
     );
 
     // The merged-away record can no longer be merge-targeted again.
@@ -332,5 +396,216 @@ d('patient merge execution (deep)', () => {
       `patient_merge_requests:${request.id}:executed`,
     );
     expect(timeline).toHaveLength(0);
+  });
+
+  test('trigger classification against the live schema: core chart sweeps, protected classes are excluded', async () => {
+    const targets = await mergeTesting.discoverMergeSweepTargets(prisma);
+    const byTable = new Map(targets.map((t) => [`${t.table_name}.${t.column_name}`, t]));
+
+    // Core chart tables must remain sweepable — a conservative-but-wrong
+    // classifier here silently splits every merged chart.
+    for (const key of [
+      'admissions.patient_uid', 'appointments.patient_id',
+      'investigations.patient_uid', 'investigations.patient_id',
+      'vitals_chart.patient_uid', 'prescriptions.patient_id',
+      'care_pathway_instances.patient_uid',
+    ]) {
+      if (!byTable.has(key)) continue; // column set can evolve
+      expect({ key, blocked: byTable.get(key).update_blocked })
+        .toEqual({ key, blocked: false });
+    }
+
+    // One representative per protected class, validated against the live
+    // trigger catalog:
+    //   audit_append_only_guard (bypass-escape raise) — canonical timeline;
+    //   unconditional raise — diagnostic evidence;
+    //   bypass-escape raise — financial ledger;
+    //   identity pin (OLD.patient_uid comparison) — interface lab rows.
+    const expectBlocked = {
+      'clinical_timeline_events.patient_uid': 'audit_append_only_guard',
+      'clinical_audit_events.patient_uid': 'audit_append_only_guard',
+      'diagnostic_result_actions.patient_uid': 'diagnostic_result_evidence_append_only',
+      'ledger_postings.patient_uid': 'ledger_block_mutation',
+      'lab_results.patient_uid': 'lab_results_assert_oru_identity',
+    };
+    for (const [key, trigger] of Object.entries(expectBlocked)) {
+      const target = byTable.get(key);
+      expect({ key, present: !!target }).toEqual({ key, present: true });
+      expect({ key, blocked: target.update_blocked }).toEqual({ key, blocked: true });
+      expect(target.blocking_triggers).toEqual(expect.arrayContaining([trigger]));
+    }
+
+    // GUC-engaged external-recovery guards must NOT block (the merge tx
+    // never sets app.external_recovery_effect_disposition).
+    const admissions = byTable.get('admissions.patient_uid');
+    expect(admissions.blocking_triggers).toEqual([]);
+  });
+
+  test('merging across a protected table class succeeds and leaves its rows on the old uid', async () => {
+    const primary = await seedPatient('primary-lab');
+    const secondary = await seedPatient('secondary-lab');
+    const labId = await seedLabResult(secondary.uid);
+
+    const request = await approvedMergeRequest(primary, secondary);
+    const executed = await executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR });
+    expect(executed.status).toBe('executed');
+
+    // The identity-pinned lab row was NOT re-pointed — no mid-sweep abort —
+    // and the exclusion is recorded for audit.
+    const lab = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid::text FROM lab_results WHERE id = $1`, labId,
+    );
+    expect(lab[0].patient_uid).toBe(secondary.uid);
+    expect(executed.execution_summary.update_blocked_skipped).toEqual(
+      expect.arrayContaining(['lab_results.patient_uid']),
+    );
+  });
+
+  test('both-active-admissions guard: two simultaneously-admitted patients are rejected, nothing mutates', async () => {
+    const primary = await seedPatient('primary-adm');
+    const secondary = await seedPatient('secondary-adm');
+    await seedActiveAdmission(primary.uid, 'admitted');
+    const secondaryAdmissionId = await seedActiveAdmission(secondary.uid, 'transferred');
+    await seedIdentifier(secondary.uid, `${MARK}-BOTH-MRN`);
+
+    const request = await approvedMergeRequest(primary, secondary);
+    await expect(executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_BOTH_ACTIVE_ADMISSIONS' });
+
+    // Nothing mutated: admission untouched, identifier active, secondary
+    // live, request still approved (retryable after a discharge).
+    const admission = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid::text, status FROM admissions WHERE id = $1`, secondaryAdmissionId,
+    );
+    expect(admission[0].patient_uid).toBe(secondary.uid);
+    expect(admission[0].status).toBe('transferred');
+    const identifier = await prisma.$queryRawUnsafe(
+      `SELECT status FROM patient_identifiers WHERE tenant_id = $1::uuid AND identifier_value = $2`,
+      TENANT, `${MARK}-BOTH-MRN`,
+    );
+    expect(identifier[0].status).toBe('active');
+    const user = await prisma.$queryRawUnsafe(
+      `SELECT is_active, merged_into_uid::text FROM users WHERE uid = $1::uuid`, secondary.uid,
+    );
+    expect(user[0].is_active).toBe(true);
+    expect(user[0].merged_into_uid).toBeNull();
+    const requestRow = await prisma.$queryRawUnsafe(
+      `SELECT status FROM patient_merge_requests WHERE id = $1`, request.id,
+    );
+    expect(requestRow[0].status).toBe('approved');
+
+    // One active side is fine: discharge the secondary's admission and the
+    // same request executes.
+    await prisma.$executeRawUnsafe(
+      `UPDATE admissions SET status = 'discharged', discharged_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      secondaryAdmissionId,
+    );
+    const executed = await executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR });
+    expect(executed.status).toBe('executed');
+  });
+
+  test('inactive patient records are rejected as merge inputs, in both positions', async () => {
+    const active = await seedPatient('active');
+    const inactive = await seedPatient('inactive');
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET is_active = false, updated_at = NOW() WHERE uid = $1::uuid`,
+      inactive.uid,
+    );
+
+    // Request-time, secondary inactive.
+    await expect(requestMerge({
+      tenantId: TENANT, primaryUid: active.uid, secondaryUid: inactive.uid,
+      requestedBy: REQUESTER, requesterNote: MARK,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_TARGET_INACTIVE' });
+
+    // Request-time, primary inactive.
+    await expect(requestMerge({
+      tenantId: TENANT, primaryUid: inactive.uid, secondaryUid: active.uid,
+      requestedBy: REQUESTER, requesterNote: MARK,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_TARGET_INACTIVE' });
+
+    // Execute-time: a record deactivated AFTER approval is caught under the
+    // lock inside the transaction.
+    const third = await seedPatient('third');
+    const request = await approvedMergeRequest(active, third);
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET is_active = false, updated_at = NOW() WHERE uid = $1::uuid`,
+      third.uid,
+    );
+    await expect(executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_TARGET_INACTIVE' });
+    const user = await prisma.$queryRawUnsafe(
+      `SELECT merged_into_uid::text, status FROM users WHERE uid = $1::uuid`, third.uid,
+    );
+    expect(user[0].merged_into_uid).toBeNull();
+    expect(user[0].status).not.toBe('merged');
+  });
+
+  test('chained merges A→B then B→C: pointers end at the final survivor and the timeline union spans the chain', async () => {
+    const a = await seedPatient('chain-a');
+    const b = await seedPatient('chain-b');
+    const c = await seedPatient('chain-c');
+    await seedIdentifier(a.uid, `${MARK}-A-MRN`);
+    await seedIdentifier(b.uid, `${MARK}-B-MRN`);
+    await seedIdentifier(c.uid, `${MARK}-C-MRN`);
+    await seedTimelineEvent(a.uid, 'chain-a-history');
+    await seedTimelineEvent(b.uid, 'chain-b-history');
+
+    // A → B.
+    const first = await approvedMergeRequest(b, a);
+    await executeMerge({ tenantId: TENANT, id: first.id, executorUid: EXECUTOR });
+
+    // B → C.
+    const second = await approvedMergeRequest(c, b);
+    const executed = await executeMerge({ tenantId: TENANT, id: second.id, executorUid: EXECUTOR });
+    expect(executed.status).toBe('executed');
+    expect(executed.execution_summary.chained_users_repointed).toBe(1);
+    expect(executed.execution_summary.chained_identifiers_repointed).toBe(1);
+
+    // users: BOTH deactivated records point at the FINAL survivor; original
+    // merge timestamps (provenance) survive the re-point.
+    const users = await prisma.$queryRawUnsafe(
+      `SELECT uid::text, is_active, status, merged_into_uid::text, merged_at
+       FROM users WHERE uid IN ($1::uuid, $2::uuid) ORDER BY uid = $1::uuid DESC`,
+      a.uid, b.uid,
+    );
+    for (const row of users) {
+      expect(row.is_active).toBe(false);
+      expect(row.status).toBe('merged');
+      expect(row.merged_into_uid).toBe(c.uid);
+      expect(row.merged_at).not.toBeNull();
+    }
+
+    // A's old MRN resolves straight to C; provenance still names A.
+    const lookupA = await lookupByIdentifier({
+      tenantId: TENANT, identifierType: 'mrn', identifierValue: `${MARK}-A-MRN`,
+    });
+    expect(lookupA.count).toBe(1);
+    expect(lookupA.identifiers[0].patient_uid).toBe(c.uid);
+    expect(lookupA.identifiers[0].original_patient_uid).toBe(a.uid);
+    const lookupB = await lookupByIdentifier({
+      tenantId: TENANT, identifierType: 'mrn', identifierValue: `${MARK}-B-MRN`,
+    });
+    expect(lookupB.identifiers[0].patient_uid).toBe(c.uid);
+
+    // The reader helper resolves C to the whole chain (transitive walk would
+    // also work, but the stored pointers are flattened so one hop suffices).
+    const uidSet = await resolveMergedPatientUidSet(prisma, {
+      tenantId: TENANT, patientUid: c.uid,
+    });
+    expect(uidSet[0]).toBe(c.uid);
+    expect(new Set(uidSet)).toEqual(new Set([a.uid, b.uid, c.uid]));
+
+    // C's canonical timeline unions A's and B's pre-merge history.
+    const timeline = await readCanonicalPatientTimeline(c.uid, {
+      tenantId: TENANT, limit: 200,
+    });
+    const summaries = timeline.events
+      .map((event) => event.clinical_summary || event.summary || '')
+      .filter((summary) => summary.startsWith(MARK));
+    expect(summaries).toEqual(expect.arrayContaining([
+      `${MARK}-chain-a-history`,
+      `${MARK}-chain-b-history`,
+    ]));
   });
 });

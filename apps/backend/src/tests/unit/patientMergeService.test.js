@@ -78,13 +78,34 @@ function livePatientRows({ primaryMerged = null, secondaryMerged = null } = {}) 
   ];
 }
 
+// Raw catalog rows as discoverMergeSweepTargets now reads them: each carries
+// its UPDATE triggers and the service classifies blocking functions itself.
+const APPEND_ONLY_GUARD_SRC = `
+BEGIN
+  IF current_setting('app.audit_bypass', true) = 'on' THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+  RAISE EXCEPTION 'append-only';
+END;`;
+const TOUCH_TRIGGER_SRC = `
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;`;
 const SWEEP_TARGETS = [
-  { table_name: 'admissions', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, append_only: false },
-  { table_name: 'investigations', column_name: 'patient_id', is_uuid: false, has_tenant_id: true, append_only: false },
-  { table_name: 'investigations', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, append_only: false },
-  { table_name: 'clinical_timeline_events', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, append_only: true },
-  { table_name: 'medical_records', column_name: 'patient_uid', is_uuid: true, has_tenant_id: false, append_only: false },
+  { table_name: 'admissions', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, update_triggers: [] },
+  { table_name: 'investigations', column_name: 'patient_id', is_uuid: false, has_tenant_id: true, update_triggers: [] },
+  { table_name: 'investigations', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, update_triggers: [] },
+  {
+    table_name: 'clinical_timeline_events', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true,
+    update_triggers: [{ proname: 'audit_append_only_guard', prosrc: APPEND_ONLY_GUARD_SRC }],
+  },
+  {
+    table_name: 'medical_records', column_name: 'patient_uid', is_uuid: true, has_tenant_id: false,
+    update_triggers: [{ proname: 'touch_updated_at', prosrc: TOUCH_TRIGGER_SRC }],
+  },
 ];
+const NO_ACTIVE_ADMISSIONS = [{ primary_active: false, secondary_active: false }];
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
@@ -240,7 +261,9 @@ describe('executeMerge', () => {
     }]);
     // 2. loadMergePatients FOR UPDATE
     mockNext(livePatientRows());
-    // 3. reassignIdentifiers
+    // 3. both-active-admissions guard
+    mockNext(NO_ACTIVE_ADMISSIONS);
+    // 4. reassignIdentifiers
     reassignIdentifiersMock.mockResolvedValueOnce({
       reassigned: [
         { id: 21, identifier_type: 'mrn', identifier_value: 'VH-1' },
@@ -248,7 +271,7 @@ describe('executeMerge', () => {
       ],
       count: 2,
     });
-    // 4. catalog discovery
+    // 5. catalog discovery
     mockNext(SWEEP_TARGETS);
   }
 
@@ -274,6 +297,52 @@ describe('executeMerge', () => {
     mockNext(livePatientRows({ secondaryMerged: PRIMARY }));
     await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR })).rejects.toMatchObject({ statusCode: 409 });
     expect(reassignIdentifiersMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses to execute when either patient record is inactive', async () => {
+    mockNext([{
+      id: 9, status: 'approved', candidate_id: null,
+      primary_uid: PRIMARY, secondary_uid: SECONDARY, approver_uid: APPROVER,
+    }]);
+    const rows = livePatientRows();
+    rows[1].is_active = false;
+    mockNext(rows);
+    await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_TARGET_INACTIVE' });
+    expect(reassignIdentifiersMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a merge of two simultaneously-admitted patients before anything mutates', async () => {
+    mockNext([{
+      id: 9, status: 'approved', candidate_id: null,
+      primary_uid: PRIMARY, secondary_uid: SECONDARY, approver_uid: APPROVER,
+    }]);
+    mockNext(livePatientRows());
+    mockNext([{ primary_active: true, secondary_active: true }]);
+    await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_BOTH_ACTIVE_ADMISSIONS' });
+    // Nothing mutated: no identifier retarget, no sweep, no deactivation.
+    expect(reassignIdentifiersMock).not.toHaveBeenCalled();
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+    expect(revokeAllUserTokensMock).not.toHaveBeenCalled();
+  });
+
+  it('allows the merge when only one side holds an active admission', async () => {
+    mockNext([{
+      id: 9, status: 'approved', candidate_id: null,
+      primary_uid: PRIMARY, secondary_uid: SECONDARY, approver_uid: APPROVER,
+    }]);
+    mockNext(livePatientRows());
+    mockNext([{ primary_active: false, secondary_active: true }]);
+    reassignIdentifiersMock.mockResolvedValueOnce({ reassigned: [], count: 0 });
+    mockNext(SWEEP_TARGETS);
+    mockNext([{
+      id: 9, status: 'executed', candidate_id: null,
+      primary_uid: PRIMARY, secondary_uid: SECONDARY,
+      executor_uid: EXECUTOR, execution_summary: {},
+    }]);
+    const row = await executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR });
+    expect(row.status).toBe('executed');
   });
 
   it('sweeps discovered columns, deactivates the secondary, emits canonical events, marks executed', async () => {
@@ -314,13 +383,30 @@ describe('executeMerge', () => {
     // A table without tenant_id sweeps without the tenant predicate.
     const medicalRecordsCall = executeUnsafeMock.mock.calls.find((call) => /UPDATE medical_records/.test(call[0]));
     expect(medicalRecordsCall[0]).not.toMatch(/tenant_id/);
-    // Append-only tables are never UPDATEd.
+    // Trigger-blocked tables are never UPDATEd.
     expect(executeSqls.some((sql) => /UPDATE clinical_timeline_events/.test(sql))).toBe(false);
+    // A table whose only UPDATE trigger cannot raise is still swept.
+    expect(executeSqls.some((sql) => /UPDATE medical_records/.test(sql))).toBe(true);
     // Secondary deactivated in the same transaction.
-    const deactivateCall = executeUnsafeMock.mock.calls.find((call) => /UPDATE users/.test(call[0]));
+    const deactivateCall = executeUnsafeMock.mock.calls.find(
+      (call) => /UPDATE users/.test(call[0]) && /is_active = false/.test(call[0]),
+    );
     expect(deactivateCall[0]).toMatch(/is_active = false/);
     expect(deactivateCall[0]).toMatch(/status = 'merged'/);
     expect(deactivateCall[0]).toMatch(/merged_into_uid = \$3::uuid/);
+    // Chained merges: stored survivor pointers that named the secondary are
+    // re-pointed at the final survivor, tenant-scoped, provenance intact.
+    const chainUsersCall = executeUnsafeMock.mock.calls.find(
+      (call) => /UPDATE users/.test(call[0]) && /WHERE tenant_id = \$2::uuid AND merged_into_uid = \$3::uuid/.test(call[0]),
+    );
+    expect(chainUsersCall.slice(1)).toEqual([PRIMARY, TENANT, SECONDARY]);
+    expect(chainUsersCall[0]).not.toMatch(/merged_at/);
+    const chainIdentifiersCall = executeUnsafeMock.mock.calls.find(
+      (call) => /UPDATE patient_identifiers/.test(call[0]) && /merged_into_uid = \$3::uuid/.test(call[0]),
+    );
+    expect(chainIdentifiersCall.slice(1)).toEqual([PRIMARY, TENANT, SECONDARY]);
+    expect(chainIdentifiersCall[0]).toMatch(/status = 'merged_into'/);
+    expect(chainIdentifiersCall[0]).not.toMatch(/SET[\s\S]*patient_uid/);
     // Canonical pair emitted inside the tx with insert-once keys.
     expect(recordTimelineEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -398,5 +484,96 @@ describe('merge sweep exclusions', () => {
       'users', 'patient_identifiers', 'patient_merge_requests', 'patient_duplicate_candidates',
     ]));
     expect(__testing__.MERGE_SWEEP_EXCLUDED_PREFIXES).toEqual(['clinical_continuity_']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Update-blocking trigger classification (validated against the live schema
+// by patient-merge-execution.deep.test.js; these pin the predicate's shape)
+// ---------------------------------------------------------------------------
+describe('isUpdateBlockingTriggerSource', () => {
+  const classify = __testing__.isUpdateBlockingTriggerSource;
+
+  it('classifies an unconditional raise as blocking', () => {
+    expect(classify(`
+      BEGIN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'append-only';
+      END;`)).toBe(true);
+  });
+
+  it('classifies a raise behind bypass-escape returns as blocking (audit_append_only_guard shape)', () => {
+    expect(classify(`
+      BEGIN
+        IF current_setting('app.audit_bypass', true) = 'on' THEN
+          RETURN COALESCE(NEW, OLD);
+        END IF;
+        IF COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = current_user), false) THEN
+          RETURN COALESCE(NEW, OLD);
+        END IF;
+        RAISE EXCEPTION 'audit table is append-only';
+      END;`)).toBe(true);
+  });
+
+  it('classifies a GUC-engaged raise as safe (assert_external_recovery_effect_allowed shape)', () => {
+    expect(classify(`
+      BEGIN
+        IF current_setting('app.external_recovery_effect_disposition', true) = 'late_pending_only' THEN
+          RAISE EXCEPTION 'late external recovery cannot mutate';
+        END IF;
+        RETURN NEW;
+      END;`)).toBe(false);
+  });
+
+  it('classifies a row-content-conditioned validator as safe', () => {
+    expect(classify(`
+      BEGIN
+        IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status = 'sent' THEN
+          RAISE EXCEPTION 'invalid transition';
+        END IF;
+        RETURN NEW;
+      END;`)).toBe(false);
+  });
+
+  it('classifies any OLD.patient_uid / OLD.patient_id reference as blocking (identity pin)', () => {
+    expect(classify(`
+      BEGIN
+        IF OLD.patient_uid IS DISTINCT FROM NEW.patient_uid THEN
+          RAISE EXCEPTION 'identity is immutable';
+        END IF;
+        RETURN NEW;
+      END;`)).toBe(true);
+    expect(classify(`
+      BEGIN
+        IF OLD.patient_id IS DISTINCT FROM NEW.patient_id THEN
+          RAISE EXCEPTION 'identity is immutable';
+        END IF;
+        RETURN NEW;
+      END;`)).toBe(true);
+  });
+
+  it('treats TG_OP-only conditions as potentially firing for UPDATE (conservative)', () => {
+    expect(classify(`
+      BEGIN
+        IF TG_OP = 'UPDATE' THEN
+          RAISE EXCEPTION 'no updates';
+        END IF;
+        RETURN NEW;
+      END;`)).toBe(true);
+  });
+
+  it('classifies raise-free triggers (updated_at touch) as safe', () => {
+    expect(classify(`
+      BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+      END;`)).toBe(false);
+  });
+
+  it('ignores comments when hunting for raises', () => {
+    expect(classify(`
+      BEGIN
+        -- RAISE EXCEPTION 'documented but disabled';
+        RETURN NEW;
+      END;`)).toBe(false);
   });
 });
