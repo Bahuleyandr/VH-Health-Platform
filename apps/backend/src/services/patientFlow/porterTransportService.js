@@ -24,6 +24,21 @@ const DEFAULT_ESCALATION_ROLES = Object.freeze([
   'IP_INCHARGE',
   'MEDICAL_SUPERINTENDENT',
 ]);
+// B-L5(b) — cancellation ownership. The route mount admits the whole
+// transport role union (requesters + coordinators + the porters who
+// execute jobs), but cancelling a transport job — which closes its SLA
+// instance — belongs to the people who own the demand side: the staff
+// member who raised it, transport coordination, and the escalation
+// chain. Porters (DRIVER / AMBULANCE_DRIVER / DELIVERY_STAFF /
+// EMERGENCY_RESPONDER) must decline/hand back instead of killing the
+// task and its SLA evidence.
+const TRANSPORT_CANCEL_ROLES = Object.freeze([
+  'SUPER_ADMIN',
+  'ADMIN',
+  'AMBULANCE_COORDINATOR',
+  'ADMISSION_OFFICER',
+  ...DEFAULT_ESCALATION_ROLES,
+]);
 const DEFAULT_SOURCE_SLA_MINUTES = Object.freeze({
   appointment_checkin: 20,
   admission: 20,
@@ -1215,6 +1230,23 @@ async function transitionTransportTask({
         throw AppError.forbidden('Only an assigned transport recipient can update this task', 'TRANSPORT_ASSIGNEE_REQUIRED');
       }
     }
+    if (nextStatus === 'cancelled') {
+      // B-L5(b) — cancellation is not open to the whole transport role
+      // union. Allowed: the staff member who raised the job, or a
+      // coordination/escalation role (TRANSPORT_CANCEL_ROLES). Porters
+      // executing the job cannot cancel it (and with it its SLA).
+      const role = cleanText(actorRole, 80).toUpperCase();
+      const uid = maybeUuid(actorUid);
+      const isRequester = Boolean(uid)
+        && Boolean(task.requested_by)
+        && String(task.requested_by) === uid;
+      if (!isRequester && !TRANSPORT_CANCEL_ROLES.includes(role)) {
+        throw AppError.forbidden(
+          'Only the requester or a transport coordination role can cancel a transport task',
+          'TRANSPORT_CANCEL_ROLE_REQUIRED',
+        );
+      }
+    }
 
     const updateParams = [
       tid,
@@ -1240,8 +1272,23 @@ async function transitionTransportTask({
       setClauses.push('picked_up_at = COALESCE(picked_up_at, NOW())');
       setClauses.push('picked_up_by = COALESCE(picked_up_by, $5::uuid)');
     } else if (nextStatus === 'completed') {
-      updateParams.push(maybeUuid(body.verifiedBy ?? body.verified_by));
-      updateParams.push(intId(body.verifierId ?? body.verifier_id));
+      // B-L5(a) — the verification identity is the authenticated caller,
+      // never the request body. A caller-supplied verified_by/verifier_id
+      // let any recipient stamp someone else (e.g. a ward nurse who never
+      // saw the patient) as the completion verifier. verifier_id is
+      // resolved from the actor's own users row inside the same tenant tx.
+      const verifierUid = maybeUuid(actorUid);
+      let verifierId = null;
+      if (verifierUid) {
+        const verifierRows = await tx.$queryRawUnsafe(
+          `SELECT id FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid LIMIT 1`,
+          tid,
+          verifierUid,
+        );
+        verifierId = verifierRows[0] ? Number(verifierRows[0].id) : null;
+      }
+      updateParams.push(verifierUid);
+      updateParams.push(verifierId);
       setClauses.push('completed_at = COALESCE(completed_at, NOW())');
       setClauses.push('completed_by = COALESCE(completed_by, $5::uuid)');
       setClauses.push('verified_by = COALESCE($7::uuid, verified_by)');
