@@ -108,6 +108,28 @@ describe('canonical clinical platform service', () => {
     expect(queryUnsafeMock.mock.calls[1][0]).toContain('clinical_audit_events');
   });
 
+  it('reads back a timeline row after an invisible concurrent conflict', async () => {
+    const timelineRow = { id: '44444444-4444-4444-8444-444444444444' };
+    const auditRow = { id: '55555555-5555-4555-8555-555555555555' };
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([timelineRow])
+      .mockResolvedValueOnce([auditRow]);
+
+    const result = await recordCanonicalClinicalEvent({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      eventType: 'note.signed',
+      sourceTable: 'clinical_notes',
+      sourceId: 7,
+      actorUid: ACTOR,
+    }, { strict: true });
+
+    expect(result).toEqual({ timeline: timelineRow, audit: auditRow });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain('WHERE idempotency_key = $1');
+  });
+
   it('rejects strict writes when the timeline row cannot be recorded', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]);
 
@@ -121,7 +143,7 @@ describe('canonical clinical platform service', () => {
     }, { strict: true })).rejects.toMatchObject({
       code: 'CANONICAL_TIMELINE_REQUIRED',
     });
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
   });
 
   it('enforces complete canonical pairs for patient writes on a transaction client', async () => {

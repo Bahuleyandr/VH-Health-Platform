@@ -24,6 +24,7 @@ import {
   requireProductionMonitoringAccess,
 } from './middleware/infrastructureAccessMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
+import appCheckMiddleware from './middleware/appCheckMiddleware.js';
 import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
@@ -721,7 +722,12 @@ app.head('/', async (req, res, next) => {
 });
 
 // Public API routes
-app.use('/api/v1/auth', patientRateLimiter, routes.auth); // Patient Auth
+// Only the patient Firebase exchange is an app-facing pre-API-key entry point.
+// Keep admin/staff SSO callbacks and the non-Firebase OTP utilities outside
+// this scope: browser/provider callbacks cannot attach an App Check header.
+app.use('/api/v1/auth', patientRateLimiter);
+app.use('/api/v1/auth/firebase', appCheckMiddleware({ expectedClient: 'patient' }));
+app.use('/api/v1/auth', routes.auth); // Patient, staff, and admin authentication
 app.use('/api/v1/otp', patientRateLimiter, routes.otp);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
 app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
@@ -771,6 +777,12 @@ app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntim
 // ====================================
 
 app.use(rawHl7RecoveryResponses(validateApiKey));
+
+// Firebase App Check verification — mounted right after validateApiKey so
+// req.apiClient is populated; the patient/staff apiClient filter is what
+// exempts every integration/admin surface (SCIM, HL7, ABDM, NHCX,
+// interface-engine, cold-chain ingest, admin portal) from App Check.
+app.use(appCheckMiddleware());
 
 // Infrastructure routes (debug, swagger, version, rbac) — require API key
 // In production, API-key-only is not enough for API catalogs and diagnostics:

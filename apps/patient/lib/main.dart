@@ -229,6 +229,10 @@ void _recordFlutterFrameworkError(FlutterErrorDetails details) {
       exception.contains('RenderFlex overflowed') ||
       exception.contains('overflowed by');
 
+  if (kDebugMode) {
+    FlutterError.presentError(details);
+  }
+
   FirebaseCrashlytics.instance.recordFlutterError(
     details,
     fatal: !isLayoutOverflow,

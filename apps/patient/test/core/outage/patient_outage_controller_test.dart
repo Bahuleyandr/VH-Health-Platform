@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
-import 'package:vhhealth_core/config/client_readiness_config.dart';
+import 'package:vhhealth/core/outage/patient_readiness.dart';
 import 'package:vhhealth_core/models/api_response.dart';
 
 void main() {
@@ -63,6 +63,58 @@ void main() {
       expect(requests, 2);
     },
   );
+
+  test('requires matching route kinds across recovery successes', () async {
+    var requests = 0;
+    controller = PatientOutageController.forTesting(
+      request: () async {
+        requests++;
+        return _response(
+          _ready(now, routeKind: requests == 1 ? 'public' : 'internal'),
+        );
+      },
+      authentication: () async => 'patient-session',
+      tenantId: () async => 'tenant-a',
+      maxClockSkew: const Duration(seconds: 5),
+      clock: () => now,
+      delay: (_) async {},
+    );
+
+    expect(await controller.probeNow(), isFalse);
+    expect(controller.status, PatientOutageStatus.outage);
+    expect(requests, 2);
+  });
+
+  test('rejects a readiness success for another tenant', () async {
+    controller = PatientOutageController.forTesting(
+      request: () async => _response(_ready(now, tenantId: 'tenant-b')),
+      authentication: () async => 'patient-session',
+      tenantId: () async => 'tenant-a',
+      maxClockSkew: const Duration(seconds: 5),
+      clock: () => now,
+      delay: (_) async {},
+    );
+
+    expect(await controller.probeNow(), isFalse);
+    expect(controller.status, PatientOutageStatus.outage);
+    expect(controller.reason, PatientOutageReason.malformedReadiness);
+  });
+
+  test('rejects a readiness success outside the clock tolerance', () async {
+    controller = PatientOutageController.forTesting(
+      request: () async =>
+          _response(_ready(now.add(const Duration(seconds: 6)))),
+      authentication: () async => 'patient-session',
+      tenantId: () async => 'tenant-a',
+      maxClockSkew: const Duration(seconds: 5),
+      clock: () => now,
+      delay: (_) async {},
+    );
+
+    expect(await controller.probeNow(), isFalse);
+    expect(controller.status, PatientOutageStatus.outage);
+    expect(controller.reason, PatientOutageReason.clockUncertain);
+  });
 
   test('rejects a session identity change between recovery probes', () async {
     var authenticationReads = 0;
@@ -161,22 +213,24 @@ ApiResponse _response(Map<String, dynamic> data) => ApiResponse(
   raw: {'data': data},
 );
 
-Map<String, dynamic> _ready(DateTime now) => {
-  'readinessContractVersion': ClientReadinessConfig.contractVersion,
+Map<String, dynamic> _ready(
+  DateTime now, {
+  String routeKind = 'public',
+  String tenantId = 'tenant-a',
+}) => {
+  'readinessContractVersion': PatientReadinessConfig.contractVersion,
+  'readinessPurpose': PatientReadinessConfig.purpose,
   'ready': true,
-  'endpointId': ClientReadinessConfig.endpointId,
-  'routeKind': 'public',
-  'tenantId': 'tenant-a',
+  'endpointId': PatientReadinessConfig.endpointId,
+  'routeKind': routeKind,
+  'tenantId': tenantId,
   'database': 'ready',
-  'policy': {
-    'state': 'compatible',
-    'schemaVersion': ClientReadinessConfig.policySchemaVersion,
-  },
   'serverTime': now.toIso8601String(),
 };
 
 Map<String, dynamic> _notReady(DateTime now, String state) => {
-  'readinessContractVersion': ClientReadinessConfig.contractVersion,
+  'readinessContractVersion': PatientReadinessConfig.contractVersion,
+  'readinessPurpose': PatientReadinessConfig.purpose,
   'ready': false,
   'state': state,
   'serverTime': now.toIso8601String(),

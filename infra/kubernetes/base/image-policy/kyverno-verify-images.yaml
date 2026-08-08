@@ -33,6 +33,16 @@ metadata:
       Health application images before pods are admitted (audit finding M16).
 spec:
   # Start in Audit; operator flips to Enforce after verifying a clean sync.
+  # ─── ENFORCE FLIP (operator action — one line) ─────────────────────────────
+  # After a clean audit cycle passes the live gate in
+  # docs/KYVERNO_ENFORCE_READINESS.md
+  #   (node scripts/check-kyverno-enforce-readiness.mjs --live ...)
+  # AND the Forgejo cosign public key exists as Secret
+  # kyverno/vhhealth-cosign-public-key (key: cosign.pub), change the line
+  # below to:
+  #   validationFailureAction: Enforce
+  # The repo stays in Audit until that ceremony completes — see the runbook's
+  # rollback section before flipping.
   validationFailureAction: Audit
   webhookTimeoutSeconds: 30
   failurePolicy: Fail

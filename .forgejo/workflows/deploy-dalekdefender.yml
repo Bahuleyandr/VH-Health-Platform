@@ -6,6 +6,12 @@ name: Deploy dalekdefender
 # infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh so failed
 # rollouts emit bounded diagnostics and restore the previous digest-pinned
 # images.
+#
+# SSH host keys are pinned from the DALEKDEFENDER_SSH_HOST_KEYS repository
+# variable (populate with `ssh-keyscan dalekdefender` output from a tailnet
+# machine); the deploy skips with a warning until it is set. The host pull
+# secret prefers the read-scoped GHCR_PULL_USERNAME/GHCR_PULL_TOKEN secrets
+# (read:packages only) over the write-scoped registry credentials.
 
 on:
   push:
@@ -199,6 +205,8 @@ jobs:
       CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_PULL_USERNAME: ${{ secrets.GHCR_PULL_USERNAME }}
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
         with:
@@ -223,16 +231,33 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
 
+      - name: Pin dalekdefender host key
+        id: hostkey
+        if: steps.prereq.outputs.skip != 'true'
+        env:
+          SSH_HOST_KEYS: ${{ vars.DALEKDEFENDER_SSH_HOST_KEYS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_HOST_KEYS:-}" ]; then
+            echo "::warning::Skipping deploy — Forgejo repository variable DALEKDEFENDER_SSH_HOST_KEYS is empty. Populate it with the output of 'ssh-keyscan dalekdefender' (run from a tailnet machine) so SSH can pin the host key."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_HOST_KEYS" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
       - name: Verify host deploy helper is current
         id: helper
-        if: steps.prereq.outputs.skip != 'true'
+        if: steps.prereq.outputs.skip != 'true' && steps.hostkey.outputs.skip != 'true'
         env:
           DALEK_HOST: bahuleyan@dalekdefender
         run: |
           set -euo pipefail
           helper_path="infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh"
           expected="$(sha256sum "$helper_path" | cut -d ' ' -f1)"
-          actual="$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+          actual="$(ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
             "$DALEK_HOST" \
             "sha256sum /usr/local/sbin/vhhealth-gha-deploy 2>/dev/null | cut -d ' ' -f1" || true)"
           actual="${actual:-missing}"
@@ -246,21 +271,33 @@ jobs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Pin deployments to verified digests
-        if: steps.prereq.outputs.skip != 'true' && steps.helper.outputs.skip != 'true'
+        if: steps.prereq.outputs.skip != 'true' && steps.hostkey.outputs.skip != 'true' && steps.helper.outputs.skip != 'true'
         env:
           DALEK_HOST: bahuleyan@dalekdefender
           BACKEND_REF: ${{ needs.build-scan-sign.outputs.backend-ref }}
           ADMIN_REF: ${{ needs.build-scan-sign.outputs.admin-ref }}
         run: |
           set -euo pipefail
-          registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
-          registry_password="${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}"
+          # Prefer the read-scoped pull credentials for the host's ghcr-read
+          # Secret; the write-scoped registry token is only a fallback.
+          if [ -n "${GHCR_PULL_USERNAME:-}" ] && [ -n "${GHCR_PULL_TOKEN:-}" ]; then
+            registry_user="$GHCR_PULL_USERNAME"
+            registry_token="$GHCR_PULL_TOKEN"
+          else
+            echo "::warning::Falling back to the write-scoped registry token for the host pull secret; configure GHCR_PULL_TOKEN (read:packages only)"
+            registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
+            if [ -n "${CONTAINER_REGISTRY_PASSWORD:-}" ]; then
+              registry_token="$CONTAINER_REGISTRY_PASSWORD"
+            else
+              registry_token="${GHCR_TOKEN:-}"
+            fi
+          fi
           {
             printf '%s\n' "$BACKEND_REF"
             printf '%s\n' "$ADMIN_REF"
             printf '%s\n' "$GITHUB_SHA"
             printf '%s\n' "$registry_user"
-            printf '%s\n' "$registry_password"
-          } | ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+            printf '%s\n' "$registry_token"
+          } | ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
               "$DALEK_HOST" \
               "sudo -n /usr/local/sbin/vhhealth-gha-deploy"

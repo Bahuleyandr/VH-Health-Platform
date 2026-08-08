@@ -87,7 +87,7 @@ class _OtpWidgetState extends State<OtpWidget> {
         await _handleFirebaseAuthSuccess(credential);
       },
       onError: (error) {
-        _showMessage("Error sending OTP: $error");
+        _showMessage(error);
         if (mounted) setState(() => isResending = false);
       },
     );

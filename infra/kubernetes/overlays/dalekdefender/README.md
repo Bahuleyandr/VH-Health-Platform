@@ -1,7 +1,8 @@
 # Dalekdefender deployment
 
 Single-node k3s deploy for VH Health backend + Postgres on
-`dalekdefender.hippocampus-monitor.ts.net` (Tailnet-only).
+`dalekdefender.hippocampus-monitor.ts.net`. The original Tailnet-only route is
+also the private origin for the test deployment's Cloudflare public edge.
 
 This overlay is for personal/test use — running the full app with a
 real backend so the patient + staff Android apps can be exercised on a
@@ -79,8 +80,11 @@ ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl -n vhhealth exec -i v
 # 6) Apply the remaining manifests.
 ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl apply -k infra/kubernetes/overlays/dalekdefender"
 
-# 7) Surface the localhost-only backend proxy over Tailscale at port 8444. Khata owns 8443.
-ssh dalekdefender "sudo tailscale serve --bg --https=8444 http://localhost:30090"
+# 7) Install the public-controller shim, then surface it over Tailscale at
+#    port 8444. The shim overwrites the trusted route marker before forwarding
+#    to the localhost-only backend proxy on port 30090. Khata owns 8443.
+scp -r infra/onprem/vh-public-edge dalekdefender:~/.cache/
+ssh dalekdefender "cd ~/.cache/vh-public-edge && docker compose up -d && tailscale serve --bg --https=8444 http://localhost:30093"
 
 # 8) Seed test staff accounts (after backend is up).
 ssh dalekdefender "sudo kubectl -n vhhealth exec deploy/vhhealth-backend -- node --import dotenv/config scripts/seed-test-staff-accounts.mjs"

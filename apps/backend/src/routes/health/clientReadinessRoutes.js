@@ -20,8 +20,6 @@ router.get(
   jwtAuth,
   tenantContextMiddleware,
   tenantRlsMiddleware,
-  // Staff + PATIENT: the patient outage adapter (C-D12) probes this same
-  // contract with the patient JWT. The facility route below stays staff-only.
   requireRole(...rbacConfig.clientReadinessRoutes),
   getRateLimiter('clientReadiness'),
   getClientReadiness,

@@ -63,11 +63,8 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
       .set('x-vh-route-kind', 'public');
     expect(noBearer.statusCode).toBe(401);
 
-    // The C-D12 patient outage adapter probes this same contract with the
-    // patient JWT, so PATIENT must be authorized here. When it was not, the
-    // adapter read the 403 as an unusable readiness answer and pinned the
-    // patient app in permanent outage, where its default-deny gate refused
-    // every hospital mutation including SOS.
+    // The continuity-policy contract remains staff-only. Patient outage
+    // recovery uses the separate /patient-readiness operational contract.
     const patient = await request(app)
       .get(PATH)
       .set('x-api-key', API_KEY)
@@ -79,8 +76,7 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
         })}`,
       )
       .set('x-vh-route-kind', 'public');
-    expect(patient.statusCode).toBe(200);
-    expect(patient.body.data.tenantId).toBe(TENANT);
+    expect(patient.statusCode).toBe(403);
 
     const secondTenant = '11111111-1111-4111-8111-111111111111';
     const routedTenant = await request(app)
@@ -101,23 +97,21 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
     });
   });
 
-  it('serves a PATIENT the bounded projection and no staff or facility detail', async () => {
-    const patientTenant = '22222222-2222-4222-8222-222222222222';
+  it('serves staff the bounded continuity projection and no facility detail', async () => {
+    const staffTenant = '22222222-2222-4222-8222-222222222222';
     const response = await request(app)
       .get(PATH)
       .set('x-api-key', API_KEY)
       .set(
         'Authorization',
-        `Bearer ${generateTestToken('PATIENT', {
+        `Bearer ${generateTestToken('ADMIN', {
           uid: '550e8400-e29b-41d4-a716-446655440031',
-          tenant_id: patientTenant,
+          tenant_id: staffTenant,
         })}`,
       )
       .set('x-vh-route-kind', 'public');
 
     expect(response.statusCode).toBe(200);
-    // Identical bounded shape the staff client receives — widening the role
-    // must not widen the payload.
     expect(Object.keys(response.body.data).sort()).toEqual(
       [
         'database',
@@ -130,8 +124,7 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
         'tenantId',
       ].sort(),
     );
-    // A patient is scoped to their OWN tenant, never another's.
-    expect(response.body.data.tenantId).toBe(patientTenant);
+    expect(response.body.data.tenantId).toBe(staffTenant);
     expect(JSON.stringify(response.body)).not.toMatch(
       /patient|staff|facility|policyDocument|databaseHost|sql|prisma|column/i,
     );
@@ -139,11 +132,8 @@ describe('GET /api/v1/health/client-readiness deep contract', () => {
   });
 
   it('still refuses a role outside the readiness list', async () => {
-    // Widening this gate to admit PATIENT must not turn it into a no-op. This
-    // pins the refusal half of the contract (C2.2 delta: "wrong-tenant/role
-    // refusal" is a required receipt), which the PATIENT case can no longer
-    // cover now that PATIENT is authorized. DIETITIAN is one of the 16 declared
-    // roles that `clientReadinessRoutes` deliberately does not admit.
+    // The gate must not become a no-op. DIETITIAN is one of the declared roles
+    // that `clientReadinessRoutes` deliberately does not admit.
     const response = await request(app)
       .get(PATH)
       .set('x-api-key', API_KEY)
