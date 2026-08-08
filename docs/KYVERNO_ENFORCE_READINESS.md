@@ -5,6 +5,13 @@ safe operator ceremony. It does not flip the checked-in manifest to Enforce.
 The repo stays in Audit until the operator records clean live evidence and
 performs the Enforce flip in a controlled window.
 
+The policy file
+(`infra/kubernetes/base/image-policy/kyverno-verify-images.yaml`) now carries a
+clearly marked commented flip immediately above `validationFailureAction:
+Audit`: once this runbook's gate passes and the ceremony below is complete, the
+operator changes that one line to `validationFailureAction: Enforce`. The
+active checked-in line stays `Audit` until then.
+
 ## Gate Command
 
 The static part runs in CI:

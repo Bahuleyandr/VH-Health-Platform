@@ -67,7 +67,7 @@ jobs:
       contents: read
       actions: read   # codeql-action upload-sarif workflow-run lookup (private repo)
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Install semgrep
         run: pip install --quiet semgrep
@@ -101,7 +101,7 @@ jobs:
         # scan step above.
         if: always() && hashFiles('output/security/semgrep-focused.sarif') != ''
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: output/security/semgrep-focused.sarif
           category: semgrep-backend
@@ -120,17 +120,17 @@ jobs:
       actions: read   # codeql-action workflow-run lookup (private repo); matches release-images.yml
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           languages: javascript
           source-root: apps/backend
 
       - name: Perform CodeQL Analysis
         id: codeql-analyze
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           # Write SARIF results to a local file so we can upload separately.
           output: codeql-results
@@ -141,7 +141,7 @@ jobs:
         # The gate is the analysis step above, not this upload.
         if: always() && steps.codeql-analyze.outcome != 'cancelled'
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: codeql-results
           category: codeql-backend

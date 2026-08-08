@@ -21,6 +21,16 @@ name: Deploy dalekdefender
 #      workflow token, pins the deployments to the verified @sha256 digest,
 #      and waits for rollout — no git, no on-host build, no app secret patching.
 #
+# ── Token scoping + host-key pinning (supply-chain hardening, 2026-08-07) ───
+# GITHUB_TOKEN permissions are now per-job: only build-sign-scan holds
+# packages:write + id-token:write. The deploy job — the only job whose token
+# is piped over SSH to the host (GHCR_TOKEN, consumed by the host helper's
+# `ghcr-read` pull Secret) — runs with packages:read, so a write-capable
+# token never leaves the build job or reaches the rig.
+# SSH no longer trusts hosts on first use: both SSH steps require a
+# pre-pinned host key (StrictHostKeyChecking=yes against ~/.ssh/known_hosts
+# populated from the DALEKDEFENDER_SSH_HOST_KEYS repo Actions variable).
+#
 # Secrets management: the rig's SENTRY_DSN / NEXT_PUBLIC_SENTRY_DSN now live
 # solely in the overlay-managed Secrets (operator-applied, SealedSecret
 # preferred). This workflow only refreshes the GHCR image-pull Secret required
@@ -40,11 +50,15 @@ name: Deploy dalekdefender
 #     failure.
 #   - Restrict the Tailscale ACL so tag:gha-deploy can reach dalekdefender:22
 #     and nothing else.
+#   - Populate the DALEKDEFENDER_SSH_HOST_KEYS repo Actions *variable* (host
+#     public keys are not secret) with the output of `ssh-keyscan dalekdefender`
+#     run from a tailnet machine. Deploys skip with a warning until it is set.
 #   - Confirm no real PHI lives on this rig; keep it firewalled from
 #     anything resembling production data.
 #
 # Required secrets: TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET, DALEKDEFENDER_SSH_KEY,
 # SENTRY_DSN_ADMIN (optional, baked into the admin build).
+# Required repo Actions variable: DALEKDEFENDER_SSH_HOST_KEYS (ssh-keyscan output).
 
 on:
   push:
@@ -61,9 +75,8 @@ concurrency:
   group: deploy-dalekdefender
   cancel-in-progress: false
 
+# Default-deny at the workflow level; each job requests only what it needs.
 permissions:
-  id-token: write   # cosign keyless signing via OIDC
-  packages: write   # push dalek-<sha> images to ghcr.io
   contents: read
 
 env:
@@ -75,6 +88,10 @@ jobs:
     name: Build, scan, sign dalek images
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      id-token: write   # cosign keyless signing via OIDC
+      packages: write   # push dalek-<sha> images to ghcr.io
+      contents: read
     outputs:
       backend-image: ${{ steps.images.outputs.backend }}
       backend-digest: ${{ steps.build-backend.outputs.digest }}
@@ -82,13 +99,13 @@ jobs:
       admin-digest: ${{ steps.build-admin.outputs.digest }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -103,7 +120,7 @@ jobs:
 
       - name: Build and push backend image (dalek-<sha>)
         id: build-backend
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./apps/backend
           file: ./apps/backend/Dockerfile
@@ -120,7 +137,7 @@ jobs:
 
       - name: Build and push admin image (dalek-<sha>)
         id: build-admin
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./apps/admin
           file: ./apps/admin/Dockerfile
@@ -147,7 +164,7 @@ jobs:
           sbom: true
 
       - name: Install Trivy
-        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
         with:
           version: v0.70.0
           cache: true
@@ -171,7 +188,7 @@ jobs:
           done
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       - name: Sign images (keyless via OIDC)
         env:
@@ -186,6 +203,9 @@ jobs:
     needs: build-sign-scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read   # verify + pull only; this job's token is piped to the host
     steps:
       - name: Probe deploy prerequisites
         id: prereq
@@ -199,14 +219,19 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [ -z "${{ vars.DALEKDEFENDER_SSH_HOST_KEYS }}" ]; then
+            echo "::warning::Skipping deploy — repo Actions variable DALEKDEFENDER_SSH_HOST_KEYS is empty. Populate it with the output of 'ssh-keyscan dalekdefender' (run from a tailnet machine) so SSH can pin the host key."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
       - name: Install cosign
         if: steps.prereq.outputs.skip != 'true'
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       - name: Log in to GHCR
         if: steps.prereq.outputs.skip != 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -227,7 +252,7 @@ jobs:
 
       - name: Tailscale connect
         if: steps.prereq.outputs.skip != 'true'
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -236,13 +261,23 @@ jobs:
 
       - name: SSH agent
         if: steps.prereq.outputs.skip != 'true'
-        uses: webfactory/ssh-agent@v0.10.0
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
         with:
           ssh-private-key: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
 
+      - name: Pin dalekdefender host key
+        if: steps.prereq.outputs.skip != 'true'
+        env:
+          SSH_HOST_KEYS: ${{ vars.DALEKDEFENDER_SSH_HOST_KEYS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_HOST_KEYS" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
       - name: Checkout deploy helper
         if: steps.prereq.outputs.skip != 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Verify host deploy helper is current
         id: helper
@@ -253,7 +288,7 @@ jobs:
           set -euo pipefail
           helper_path="infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh"
           expected="$(sha256sum "$helper_path" | cut -d ' ' -f1)"
-          actual="$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+          actual="$(ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
             "$DALEK_HOST" \
             "sha256sum /usr/local/sbin/vhhealth-gha-deploy 2>/dev/null | cut -d ' ' -f1" || true)"
           actual="${actual:-missing}"
@@ -277,6 +312,8 @@ jobs:
           ADMIN_REF: ${{ needs.build-sign-scan.outputs.admin-image }}@${{ needs.build-sign-scan.outputs.admin-digest }}
           GIT_COMMIT: ${{ github.sha }}
           GHCR_USERNAME: ${{ github.actor }}
+          # This job's token is packages:read-scoped — exactly what the host's
+          # ghcr-read pull Secret needs, and nothing more.
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -286,6 +323,6 @@ jobs:
             printf '%s\n' "$GIT_COMMIT"
             printf '%s\n' "$GHCR_USERNAME"
             printf '%s\n' "$GHCR_TOKEN"
-          } | ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+          } | ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=30 \
               "$DALEK_HOST" \
               "sudo -n /usr/local/sbin/vhhealth-gha-deploy"
