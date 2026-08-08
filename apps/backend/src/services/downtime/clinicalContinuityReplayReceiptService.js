@@ -7,6 +7,7 @@ import {
   CLINICAL_CONTINUITY_PRIVATE_DRAFT_EFFECT,
   resolveClinicalContinuityActionBinding
 } from './clinicalContinuityActionBindingRegistry.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { hashCanonicalValue } from './continuityPackCanonical.js';
 import { loadClinicalContinuityDeviceLossRouteTx } from './clinicalContinuityDeviceLossService.js';
 
@@ -157,11 +158,26 @@ async function resolveExistingReceiptTx(
   const envelope = parsed.envelope;
   const row = await loadReceiptTx(tx, tenantId, envelope.client_event_id);
   if (!row) return null;
+  // Merged-uid union: clinical_continuity_replay_receipts is excluded from
+  // the patient-merge FK sweep (append-only, fail-closed RLS), so a receipt
+  // recorded before a merge keeps the merged-away patient uid. A replay
+  // referencing the surviving patient must still recognise that receipt as
+  // its own.
+  const envelopePatientUids = await resolveMergedPatientUidSet(tx, {
+    tenantId,
+    patientUid: envelope.patient_reference,
+  });
+  // Non-uuid / absent patient references resolve to an empty set; keep the
+  // original strict equality for those so the semantics only widen for real
+  // merged-uid chains.
+  const patientMatches = envelopePatientUids.length
+    ? envelopePatientUids.includes(row.patient_uid)
+    : row.patient_uid === envelope.patient_reference;
   const targetAuthorized =
     row.action_id === envelope.action_id &&
     Number(row.facility_id) === envelope.facility_id &&
     row.capture_actor_uid === replayActorUid &&
-    row.patient_uid === envelope.patient_reference;
+    patientMatches;
   if (!targetAuthorized) {
     await appendAttemptTx(tx, {
       tenantId,

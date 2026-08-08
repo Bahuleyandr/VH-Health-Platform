@@ -2901,6 +2901,20 @@ describe('reassignTask + listTasks + postTaskComment', () => {
     expect(sql).toMatch(/due_at < NOW\(\)/);
   });
 
+  it('listTasks includes tasks filed under merged-away patient uids', async () => {
+    const patientUid = '44444444-4444-4444-8444-444444444444';
+    const mergedUid = '55555555-5555-4555-8555-555555555555';
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ uid: patientUid }, { uid: mergedUid }])
+      .mockResolvedValueOnce([{ id: 1, patient_uid: mergedUid }]);
+
+    const result = await listTasks({ tenantId: TENANT, patientUid });
+
+    expect(result.tasks).toHaveLength(1);
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain('patient_uid = ANY($2::uuid[])');
+    expect(queryUnsafeMock.mock.calls[1][2]).toEqual([patientUid, mergedUid]);
+  });
+
   it('postTaskComment requires non-empty body', async () => {
     await expect(postTaskComment({ tenantId: TENANT, taskId: 1, body: '   ' }))
       .rejects.toThrow(/body is required/);

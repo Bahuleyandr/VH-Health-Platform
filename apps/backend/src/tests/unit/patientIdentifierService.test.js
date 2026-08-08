@@ -185,6 +185,27 @@ describe('lookupByIdentifier', () => {
     const result = await lookupByIdentifier({ tenantId: TENANT, identifierType: 'mrn', identifierValue: 'X' });
     expect(result).toEqual({ identifiers: [], count: 0 });
   });
+
+  it('includes merged identifiers and resolves them to the survivor', async () => {
+    mockNext([{
+      id: 3, patient_uid: PATIENT, original_patient_uid: SECONDARY,
+      status: 'merged_into', merged_into_uid: PATIENT,
+      identifier_type: 'mrn', identifier_value: 'VH-99002',
+    }]);
+    const result = await lookupByIdentifier({
+      tenantId: TENANT, identifierType: 'mrn', identifierValue: 'VH-99002',
+    });
+    expect(result.count).toBe(1);
+    const sql = queryUnsafeMock.mock.calls[0][0];
+    // Old identifiers stay resolvable after a merge: merged_into rows are
+    // included and their patient_uid resolves through merged_into_uid,
+    // with active rows sorted first.
+    expect(sql).toMatch(/status = 'merged_into' AND merged_into_uid IS NOT NULL/);
+    expect(sql).toMatch(/CASE WHEN status = 'merged_into' THEN merged_into_uid/);
+    expect(sql).toMatch(/ORDER BY \(status = 'active'\) DESC/);
+    expect(result.identifiers[0].patient_uid).toBe(PATIENT);
+    expect(result.identifiers[0].original_patient_uid).toBe(SECONDARY);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -256,19 +277,23 @@ describe('reassignIdentifiersForMerge', () => {
     ).rejects.toThrow(/distinct/);
   });
 
-  it('moves active rows from secondary → primary and tags merged_into_uid', async () => {
+  it('retargets active rows to the survivor while keeping their original patient_uid', async () => {
     mockNext([
       { id: 21, identifier_type: 'mrn', identifier_value: 'VH-99002' },
       { id: 22, identifier_type: 'mobile', identifier_value: '+919999999999' },
     ]);
     const tx = { $queryRawUnsafe: queryUnsafeMock };
     const result = await reassignIdentifiersForMerge(tx, {
-      tenantId: TENANT, primaryUid: PATIENT, secondaryUid: SECONDARY,
+      tenantId: TENANT, primaryUid: PATIENT, secondaryUid: SECONDARY, mergeRequestId: 9,
     });
     expect(result.count).toBe(2);
     const args = queryUnsafeMock.mock.calls[0];
-    expect(args[0]).toMatch(/SET patient_uid = \$1::uuid,\s+status = 'merged_into',\s+merged_into_uid = \$1::uuid/);
-    expect(args.slice(1)).toEqual([PATIENT, SECONDARY, TENANT]);
+    // Provenance: the row's own patient_uid must NOT be rewritten — only
+    // status + merged_into_uid change, and merge metadata is recorded.
+    expect(args[0]).not.toMatch(/SET patient_uid/);
+    expect(args[0]).toMatch(/SET status = 'merged_into',\s+merged_into_uid = \$1::uuid/);
+    expect(args[0]).toMatch(/merge_request_id/);
+    expect(args.slice(1)).toEqual([PATIENT, SECONDARY, TENANT, 9]);
   });
 });
 
