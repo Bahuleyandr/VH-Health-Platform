@@ -1,4 +1,4 @@
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { emitHousekeepingRequestRaised } from '../clinical/canonicalOperationalBridgeService.js';
@@ -332,20 +332,18 @@ export async function notifyHousekeepingRecipients({
   return { notification_count: notificationResult.notification_count };
 }
 
-async function findExistingActiveBedCleaningRequest(bedId) {
-  const rows = await prisma.$queryRawUnsafe(
+async function findExistingActiveBedCleaningRequest(db, bedId, tenantId) {
+  const rows = await db.$queryRawUnsafe(
     `SELECT id, request_number, assigned_to, assigned_to_uid, status
        FROM housekeeping_requests
-      WHERE COALESCE(status, 'open') = ANY($2::text[])
-        AND (
-          description ILIKE $1
-          OR location_text ILIKE $3
-        )
+      WHERE tenant_id = $1::uuid
+        AND COALESCE(status, 'open') = ANY($3::text[])
+        AND description ILIKE $2
       ORDER BY created_at DESC
       LIMIT 1`,
-    `%bed_id=${bedId}%`,
+    requireTenantId(tenantId),
+    `%bed_id=${bedId}.%`,
     ACTIVE_REQUEST_STATUSES,
-    `%Bed ${bedId}%`
   );
   return rows[0] || null;
 }
@@ -498,8 +496,52 @@ export async function createBedCleaningRequest({
     ? `${terminalPrefix} required for ${bedLabel}. bed_id=${context.bed_id}.${description ? ` ${description}` : ''}`
     : (description || `${terminalPrefix} cleaning required for ${bedLabel}. bed_id=${context.bed_id}.`);
 
-  const existing = await findExistingActiveBedCleaningRequest(context.bed_id);
-  if (existing) {
+  const requestState = await setTenantTx(
+    requireTenantId(context.tenant_id),
+    async (tx) => {
+      await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(
+           hashtext('housekeeping-bed-cleaning'), $1::int
+         )::text AS lock_result`,
+        context.bed_id,
+      );
+      const existing = await findExistingActiveBedCleaningRequest(
+        tx,
+        context.bed_id,
+        context.tenant_id,
+      );
+      if (existing) return { request: existing, created: false };
+
+      const requestRows = await tx.$queryRawUnsafe(
+        `INSERT INTO housekeeping_requests
+           (requester_id, requester_uid, zone_id, location_text, request_type,
+            urgency, description, assigned_to, assigned_to_uid, assigned_at,
+            status, sla_due_at, tenant_id, updated_at)
+         VALUES ($1::int,$2::uuid,$3::int,$4,'bed_cleaning',$5,$6,$7::int,$8::uuid,
+                 $9::timestamptz,$10,$11::timestamptz,$12::uuid,NOW())
+         RETURNING id, request_number, requester_id, requester_uid, zone_id,
+                   location_text, request_type, urgency, description, assigned_to,
+                   assigned_to_uid, status, sla_due_at, created_at`,
+        requester.id,
+        requester.uid,
+        requestZoneId,
+        bedLabel,
+        safeUrgency,
+        requestDescription,
+        primary?.id || null,
+        primary?.uid || null,
+        primary ? now.toISOString() : null,
+        status,
+        slaDueAt,
+        requireTenantId(context.tenant_id),
+      );
+      return { request: requestRows[0], created: true };
+    },
+  );
+  const { request, created } = requestState;
+
+  if (!created) {
+    const existing = request;
     const fanout = await fanOutHousekeepingRequest({
       requestId: existing.id,
       recipients,
@@ -536,30 +578,6 @@ export async function createBedCleaningRequest({
     });
     return { request: existing, recipients, fanout, created: false };
   }
-
-  const requestRows = await prisma.$queryRawUnsafe(
-    `INSERT INTO housekeeping_requests
-       (requester_id, requester_uid, zone_id, location_text, request_type,
-        urgency, description, assigned_to, assigned_to_uid, assigned_at,
-        status, sla_due_at, updated_at)
-     VALUES ($1::int,$2::uuid,$3::int,$4,'bed_cleaning',$5,$6,$7::int,$8::uuid,
-             $9::timestamptz,$10,$11::timestamptz,NOW())
-     RETURNING id, request_number, requester_id, requester_uid, zone_id,
-               location_text, request_type, urgency, description, assigned_to,
-               assigned_to_uid, status, sla_due_at, created_at`,
-    requester.id,
-    requester.uid,
-    requestZoneId,
-    bedLabel,
-    safeUrgency,
-    requestDescription,
-    primary?.id || null,
-    primary?.uid || null,
-    primary ? now.toISOString() : null,
-    status,
-    slaDueAt
-  );
-  const request = requestRows[0];
   await stampTerminalCleanRequest({ isolationContext, requestId: request.id });
 
   const fanout = await fanOutHousekeepingRequest({
@@ -609,6 +627,53 @@ export async function createBedCleaningRequest({
   return { request, recipients, fanout, created: true };
 }
 
+// Retry lane for the post-commit bed-cleaning dispatch. Discharge/transfer
+// flip the bed to 'cleaning' and start the bed-keyed SLA in-tx, but the
+// housekeeping_requests work item is dispatched post-commit best-effort — a
+// dispatch failure (or a crash between commit and dispatch) used to leave a
+// cleaning bed with no ticket forever. This sweep finds such beds and re-runs
+// createBedCleaningRequest, which dedupes against any active request itself.
+export async function sweepMissingBedCleaningDispatches({ tenantId = null, limit = 25 } = {}) {
+  const beds = await prisma.$queryRawUnsafe(
+    `SELECT b.id AS bed_id
+       FROM beds b
+      WHERE b.status = 'cleaning'
+        AND ($3::uuid IS NULL OR b.tenant_id = $3::uuid)
+        AND NOT EXISTS (
+          SELECT 1
+            FROM housekeeping_requests hr
+           WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+             AND hr.tenant_id = b.tenant_id
+             -- Every bed_cleaning description ends with "bed_id=N." — the
+             -- trailing dot keeps bed 12 from matching bed 123's request.
+             AND hr.description ILIKE '%bed_id=' || b.id || '.%'
+        )
+      ORDER BY b.updated_at ASC NULLS FIRST
+      LIMIT $2::int`,
+    ACTIVE_REQUEST_STATUSES,
+    limit,
+    tenantId,
+  );
+
+  let dispatched = 0;
+  let failed = 0;
+  for (const bed of beds) {
+    try {
+      await createBedCleaningRequest({
+        bedId: bed.bed_id,
+        trigger: 'bed_cleaning',
+        urgency: 'high',
+        description: `Bed turnover cleaning re-dispatched by sweep (original dispatch failed). bed_id=${bed.bed_id}.`,
+      });
+      dispatched += 1;
+    } catch (err) {
+      failed += 1;
+      logger.error(`bed-cleaning-dispatch-sweep: re-dispatch failed for bed ${bed.bed_id}: ${err.message}`);
+    }
+  }
+  return { scanned: beds.length, dispatched, failed };
+}
+
 export default {
   createBedCleaningRequest,
   ensureHousekeepingRequestRecipients,
@@ -616,4 +681,5 @@ export default {
   notifyHousekeepingRecipients,
   resolveBedCleaningContext,
   resolveHousekeepingRecipientsForTarget,
+  sweepMissingBedCleaningDispatches,
 };

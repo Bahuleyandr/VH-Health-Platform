@@ -831,6 +831,26 @@ if (process.env.NODE_ENV !== 'test') {
     await expireStaleInspections();
   }));
 
+  // 🧹 Every 10 minutes — bed-cleaning dispatch retry. Discharge/transfer
+  // start the bed-keyed cleaning SLA in-tx, but the housekeeping_requests
+  // work item is dispatched post-commit best-effort; this sweep re-dispatches
+  // for any 'cleaning' bed with no active request (idempotent — the dispatch
+  // dedupes against existing active requests).
+  registerCron('*/10 * * * *', withJobLock('bed-cleaning-dispatch-sweep', async () => {
+    const { sweepMissingBedCleaningDispatches } = await import(
+      '../services/staff/housekeepingTaskDispatchService.js'
+    );
+    await runForEachTenant(
+      'bed-cleaning-dispatch-sweep',
+      async (tenantId) => {
+        const result = await sweepMissingBedCleaningDispatches({ tenantId });
+        if (result.scanned > 0) {
+          logger.info('bed-cleaning-dispatch-sweep re-dispatched missing tickets', { tenantId, ...result });
+        }
+      },
+    );
+  }));
+
   // 🛟 Every 5 minutes — PHI-access break-glass expiry sweeper (CareTeam ABAC
   // §5). Flips active overrides whose expires_at has passed to 'expired' and
   // records the transition in status history. Audit-cleanliness only: the ABAC

@@ -69,6 +69,18 @@ async function seedIssuedInvoice({ total, admissionId, roomRent = 0 }) {
 }
 
 async function seedAdmission({ admissionId, roomCategory = 'private' }) {
+  // Migration 640 allows only one active admission per patient (the status
+  // column defaults to 'admitted') — close any prior fixture admission
+  // before seeding the next one.
+  await prisma.$executeRawUnsafe(
+    `UPDATE admissions
+        SET status = 'discharged', discharged_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND id <> $3::int
+        AND status IN ('admitted', 'transferred')`,
+    TENANT, PATIENT_UID, admissionId,
+  );
   await prisma.$executeRawUnsafe(
     `INSERT INTO admissions (id, patient_uid, room_category, tenant_id)
      VALUES ($1::int, $2::uuid, $3, $4::uuid)

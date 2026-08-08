@@ -54,6 +54,18 @@ async function seedIncident({ severity = 'HIGH', status = 'reported' } = {}) {
 
 async function seedAdmission({ patientUid = null, priorAdmissionId = null } = {}) {
   const uid = patientUid || TENANT; // reuse tenant uuid as patient_uid for convenience
+  // Migration 640 allows only one active admission per patient — close any
+  // prior fixture admission first. (The readmission evaluator only reads
+  // prior_admission_id + admitted_at, and a discharged prior stay is the
+  // realistic shape for a readmission anyway.)
+  await prisma.$executeRawUnsafe(
+    `UPDATE admissions
+        SET status = 'discharged', discharged_at = NOW() - INTERVAL '1 day'
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND status IN ('admitted', 'transferred')`,
+    TENANT, uid,
+  );
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO admissions (tenant_id, patient_uid, status, prior_admission_id, admitted_at)
      VALUES ($1::uuid, $2::uuid, 'admitted', $3, NOW() - INTERVAL '2 days')
