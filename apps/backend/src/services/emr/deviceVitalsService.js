@@ -322,6 +322,27 @@ async function consumeControlId({ tenantId, deviceId, controlId, messageId = nul
   return { consumed: rows.length > 0, conflict: rows.length === 0 };
 }
 
+async function linkControlIdMessage({ tenantId, deviceId, controlId, messageId, db }) {
+  const rows = await db.$queryRawUnsafe(
+    `UPDATE device_vitals_control_ids
+        SET interface_message_id = $4::int
+      WHERE tenant_id = $1::uuid
+        AND device_registry_id = $2
+        AND control_id = $3
+      RETURNING id`,
+    tenantId,
+    deviceId,
+    controlId,
+    messageId,
+  );
+  if (rows.length !== 1) {
+    throw AppError.internal(
+      'Device-vitals control ID could not be linked to its interface message',
+      'DEVICE_VITALS_CONTROL_ID_LINK_FAILED',
+    );
+  }
+}
+
 class ConcurrentControlIdError extends Error {
   constructor() {
     super('Device vitals control ID was consumed by a concurrent delivery');
@@ -329,9 +350,9 @@ class ConcurrentControlIdError extends Error {
   }
 }
 
-async function countSuppressed({ tenantId, deviceId, reason }) {
+async function countSuppressed({ tenantId, deviceId, reason, db = prisma, strict = false }) {
   if (!deviceId || !reason) return;
-  await prisma.$executeRawUnsafe(
+  const write = db.$executeRawUnsafe(
     `INSERT INTO device_vital_suppression_counters (tenant_id, device_registry_id, reason, count, updated_at)
      VALUES ($1::uuid, $2, $3, 1, NOW())
      ON CONFLICT (tenant_id, device_registry_id, reason)
@@ -339,7 +360,12 @@ async function countSuppressed({ tenantId, deviceId, reason }) {
     tenantId,
     deviceId,
     reason,
-  ).catch((err) => logger.warn(`Device suppression counter failed: ${err?.message || err}`));
+  );
+  if (strict) {
+    await write;
+  } else {
+    await write.catch((err) => logger.warn(`Device suppression counter failed: ${err?.message || err}`));
+  }
 }
 
 async function latestDeviceVitals({ tenantId, patientUid, sourceDevice }) {
@@ -377,13 +403,21 @@ function withinChartingInterval(latest = null, intervalMinutes = 5) {
   return ageMs >= 0 && ageMs < intervalMinutes * 60 * 1000;
 }
 
-async function artifactVerdicts({ tenantId, device, patientUid, channel, candidates }) {
+async function artifactVerdicts({
+  tenantId,
+  device,
+  patientUid,
+  channel,
+  candidates,
+  db = prisma,
+  strict = false,
+}) {
   const verdicts = {};
   if (!device || candidates.length === 0) return verdicts;
   const required = Number(device.artifact_filter_required ?? 2);
   const windowSize = Number(device.artifact_filter_window ?? 3);
   for (const candidate of candidates) {
-    await prisma.$executeRawUnsafe(
+    const write = db.$executeRawUnsafe(
       `INSERT INTO device_vital_sample_observations
          (tenant_id, device_registry_id, patient_uid, channel, vital_name, severity, breached)
        VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, true)`,
@@ -393,8 +427,13 @@ async function artifactVerdicts({ tenantId, device, patientUid, channel, candida
       channel || '',
       candidate.vital_name,
       candidate.severity,
-    ).catch((err) => logger.warn(`Device artifact observation failed: ${err?.message || err}`));
-    const rows = await prisma.$queryRawUnsafe(
+    );
+    if (strict) {
+      await write;
+    } else {
+      await write.catch((err) => logger.warn(`Device artifact observation failed: ${err?.message || err}`));
+    }
+    const rows = await db.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS breached
          FROM (
            SELECT breached
@@ -418,16 +457,22 @@ async function artifactVerdicts({ tenantId, device, patientUid, channel, candida
     const corroborated = Number(rows[0]?.breached ?? 0) >= required;
     verdicts[candidate.vital_name] = { corroborated, required, window: windowSize };
     if (!corroborated) {
-      await countSuppressed({ tenantId, deviceId: device.id, reason: 'artifact_filter' });
+      await countSuppressed({
+        tenantId,
+        deviceId: device.id,
+        reason: 'artifact_filter',
+        db,
+        strict,
+      });
     }
   }
   return verdicts;
 }
 
-async function hasOpenRepeatAlert(patientId, candidate, windows) {
+async function hasOpenRepeatAlert(patientId, candidate, windows, db = prisma) {
   const fallback = candidate.severity === 'CRITICAL' ? 10 : 30;
   const windowMinutes = Number.parseInt(windows?.[candidate.severity] ?? fallback, 10) || fallback;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT id
        FROM clinical_alerts
       WHERE patient_id = $1::int
@@ -445,7 +490,16 @@ async function hasOpenRepeatAlert(patientId, candidate, windows) {
   return rows.length > 0;
 }
 
-async function buildAlertOptions({ tenantId, device, patientRow, patientUid, channel, vitals }) {
+async function buildAlertOptions({
+  tenantId,
+  device,
+  patientRow,
+  patientUid,
+  channel,
+  vitals,
+  db = prisma,
+  strict = false,
+}) {
   if (!device) return null;
   const candidates = await classifyVitalAnomalyCandidates(patientRow.id, vitalsForAlertCheck(vitals));
   const windows = {
@@ -453,8 +507,14 @@ async function buildAlertOptions({ tenantId, device, patientRow, patientUid, cha
     WARNING: Number(device.warning_suppression_window_minutes ?? 30),
   };
   for (const candidate of candidates) {
-    if (await hasOpenRepeatAlert(patientRow.id, candidate, windows)) {
-      await countSuppressed({ tenantId, deviceId: device.id, reason: 'repeat_window' });
+    if (await hasOpenRepeatAlert(patientRow.id, candidate, windows, db)) {
+      await countSuppressed({
+        tenantId,
+        deviceId: device.id,
+        reason: 'repeat_window',
+        db,
+        strict,
+      });
     }
   }
   return {
@@ -466,6 +526,8 @@ async function buildAlertOptions({ tenantId, device, patientRow, patientUid, cha
       patientUid,
       channel,
       candidates,
+      db,
+      strict,
     }),
   };
 }
@@ -481,7 +543,6 @@ async function shouldChartDeviceVitals({ tenantId, device, patientUid, sourceDev
   if (hasNews2RelevantDelta(vitals, latest)) {
     return { persist: true, reason: 'news2_delta', candidates };
   }
-  await countSuppressed({ tenantId, deviceId: device.id, reason: 'charting_interval' });
   return { persist: false, reason: 'charting_interval', candidates };
 }
 
@@ -633,14 +694,33 @@ export async function ingestDeviceVitals({
         patientRow,
       });
       if (!chartDecision.persist) {
-        // Suppression is a definitive AA outcome — consume the control-id so
-        // a gateway redelivery of the same sample dedupes instead of being
-        // re-evaluated.
-        await consumeControlId({
-          tenantId,
-          deviceId: device.id,
-          controlId: meta.controlId,
+        const consumed = await setTenantTx(tenantId, async (tx) => {
+          const outcome = await consumeControlId({
+            tenantId,
+            deviceId: device.id,
+            controlId: meta.controlId,
+            db: tx,
+          });
+          if (outcome.conflict) return false;
+          await countSuppressed({
+            tenantId,
+            deviceId: device.id,
+            reason: chartDecision.reason,
+            db: tx,
+            strict: true,
+          });
+          return true;
         });
+        if (!consumed) {
+          await countSuppressed({ tenantId, deviceId: device.id, reason: 'duplicate_control_id' });
+          return {
+            duplicate: true,
+            ack: 'AA',
+            control_id: meta.controlId,
+            mapped: [],
+            unmapped: [],
+          };
+        }
         return {
           suppressed: true,
           reason: chartDecision.reason,
@@ -652,15 +732,6 @@ export async function ingestDeviceVitals({
       }
       await touchDeviceSeen({ tenantId, id: device.id });
     }
-
-    const alertOptions = await buildAlertOptions({
-      tenantId,
-      device,
-      patientRow,
-      patientUid: resolved.patientUid,
-      channel: normalizedChannel,
-      vitals: mapping.vitals,
-    });
 
     const buildSuccessVerdicts = (vitals, news2) => ({
       mapped: mapping.mapped,
@@ -691,8 +762,27 @@ export async function ingestDeviceVitals({
         // C-L5: device observation time (OBX-14 / OBR-7) when present and sane;
         // undefined falls back to NOW() (receipt time) inside recordVitals.
         ...(observedAt ? { recorded_at: observedAt } : {}),
-        alertOptions,
       }, isGateway ? {
+        beforeWrite: async ({ tx }) => {
+          const consumed = await consumeControlId({
+            tenantId,
+            deviceId: device.id,
+            controlId: meta.controlId,
+            db: tx,
+          });
+          if (consumed.conflict) throw new ConcurrentControlIdError();
+          const alertOptions = await buildAlertOptions({
+            tenantId,
+            device,
+            patientRow,
+            patientUid: resolved.patientUid,
+            channel: normalizedChannel,
+            vitals: mapping.vitals,
+            db: tx,
+            strict: true,
+          });
+          return { alertOptions };
+        },
         beforeCommit: async ({ tx, vitals, news2 }) => {
           const atomicMessageId = await insertInterfaceMessage({
             tenantId,
@@ -702,14 +792,13 @@ export async function ingestDeviceVitals({
             resultCount: mapping.mapped.length,
             verdicts: buildSuccessVerdicts(vitals, news2),
           }, tx);
-          const consumed = await consumeControlId({
+          await linkControlIdMessage({
             tenantId,
             deviceId: device.id,
             controlId: meta.controlId,
             messageId: atomicMessageId,
             db: tx,
           });
-          if (consumed.conflict) throw new ConcurrentControlIdError();
           messageId = atomicMessageId;
         },
       } : undefined);
@@ -748,9 +837,8 @@ export async function ingestDeviceVitals({
       control_id: meta.controlId,
     };
   } catch (err) {
-    // C-M3: no control-id row exists on any failure path (consumption happens
-    // only after a durable/definitive outcome), so the gateway's retry of the
-    // same control-id is re-processed rather than dropped. DEVICE_NOT_ASSOCIATED
+    // C-M3: the control-id claim rolls back with any pre-commit failure, so the
+    // gateway can retry when no durable outcome exists. DEVICE_NOT_ASSOCIATED
     // still parks its failed, replayable interface message (written inside
     // resolveGatewayPatient).
     if (messageId) {

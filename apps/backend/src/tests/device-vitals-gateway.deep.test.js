@@ -210,8 +210,8 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
     let results;
     try {
       results = await Promise.all([
-        ingest(oru({ uid: PATIENT_CONCURRENT, control: controlId, hr: '83' })),
-        ingest(oru({ uid: PATIENT_CONCURRENT, control: controlId, hr: '83' })),
+        ingest(oru({ uid: PATIENT_CONCURRENT, control: controlId, hr: '160' })),
+        ingest(oru({ uid: PATIENT_CONCURRENT, control: controlId, hr: '160' })),
       ]);
     } finally {
       await prisma.$executeRawUnsafe(
@@ -240,11 +240,20 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
            WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
              AND resource_table = 'vitals_chart') AS audit,
          (SELECT COUNT(*)::int FROM lab_interface_messages
-           WHERE tenant_id = $1::uuid AND raw_message LIKE '%GWCM3-CTL-CONCURRENT%') AS inbox`,
+           WHERE tenant_id = $1::uuid AND raw_message LIKE '%GWCM3-CTL-CONCURRENT%') AS inbox,
+         (SELECT COUNT(*)::int FROM device_vital_sample_observations
+           WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+             AND vital_name = 'heart_rate') AS artifact_observations`,
       TENANT,
       PATIENT_CONCURRENT,
     );
-    expect(counts[0]).toMatchObject({ news2: 1, timeline: 1, audit: 1, inbox: 1 });
+    expect(counts[0]).toMatchObject({
+      news2: 1,
+      timeline: 1,
+      audit: 1,
+      inbox: 1,
+      artifact_observations: 1,
+    });
   }, 30000);
 
   test('suppressed sample consumes the control-id; redelivery dedupes', async () => {

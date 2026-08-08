@@ -441,7 +441,7 @@ async function attachGrowthToVitalsRows(rows, patientUid) {
   return rows;
 }
 
-export async function recordVitals(data, { beforeCommit = null } = {}) {
+export async function recordVitals(data, { beforeWrite = null, beforeCommit = null } = {}) {
   const {
     tenant_id, tenantId,
     patient_uid, patient_id, visit_id, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
@@ -547,7 +547,12 @@ export async function recordVitals(data, { beforeCommit = null } = {}) {
   // or rolls back WITH the vitals row. Captured here so the post-commit
   // escalation (alert + CDS surfacing) can run after the tx closes.
   let news2Persisted = null;
+  let beforeWriteResult = null;
   const record = await setTenantTx(requireTenantId(resolvedTenantId), async (tx) => {
+    if (beforeWrite) {
+      beforeWriteResult = await beforeWrite({ tx });
+    }
+
     const row = await tx.vitals_chart.create({
       data: {
         patient_uid: resolvedPatientUid,
@@ -645,6 +650,7 @@ export async function recordVitals(data, { beforeCommit = null } = {}) {
         tx,
         vitals: row,
         news2: news2Persisted?.record ?? null,
+        beforeWriteResult,
       });
     }
 
@@ -674,6 +680,7 @@ export async function recordVitals(data, { beforeCommit = null } = {}) {
   }
 
   let alerts = [];
+  const alertOptionsForCheck = beforeWriteResult?.alertOptions ?? alertOptions;
 
   try {
     const vitalsForCheck = {};
@@ -700,7 +707,9 @@ export async function recordVitals(data, { beforeCommit = null } = {}) {
       if (patientUser?.id) {
         alerts = await checkVitalAnomalies(patientUser.id, vitalsForCheck, {
           recordedBy: recorderUser?.id ?? null,
-          ...(alertOptions && typeof alertOptions === 'object' ? alertOptions : {}),
+          ...(alertOptionsForCheck && typeof alertOptionsForCheck === 'object'
+            ? alertOptionsForCheck
+            : {}),
           source: normalizedSource,
         });
       }
