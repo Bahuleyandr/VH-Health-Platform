@@ -32,6 +32,7 @@ import * as nhcx from './openapi/schemas/nhcx.mjs';
 import * as carePathways from './openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from './openapi/schemas/outboxRecovery.mjs';
 import * as clientReadiness from './openapi/schemas/clientReadiness.mjs';
+import * as patientReadiness from './openapi/schemas/patientReadiness.mjs';
 import * as clinicalContinuityPolicyDelivery from './openapi/schemas/clinicalContinuityPolicyDelivery.mjs';
 import * as clinicalContinuityActivationTransitions from './openapi/schemas/clinicalContinuityActivationTransitions.mjs';
 import * as clinicalContinuityReconciliation from './openapi/schemas/clinicalContinuityReconciliation.mjs';
@@ -61,6 +62,7 @@ const SCHEMA_MODULES = [
   clinicalContinuityActivationTransitions,
   clinicalContinuityPolicyDelivery,
   clientReadiness,
+  patientReadiness,
   clinicalContinuityReconciliation,
   downtimeWardPacks,
   downtimeStaticMirror,

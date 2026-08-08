@@ -1,0 +1,35 @@
+name: vhhealth-public-edge
+
+services:
+  proxy:
+    image: nginx@sha256:1a8724a52d432501548a8d8681bb1554c2d09778f8b9ed0882fc3442549980b7
+    container_name: vhhealth-public-edge-proxy
+    entrypoint: ["/usr/sbin/nginx"]
+    command: ["-g", "daemon off;"]
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    user: "101:101"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101,mode=0700
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-qO-",
+          "--header=Host: api.vhhealth.app",
+          "http://127.0.0.1:30093/api/v1/health",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s

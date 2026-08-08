@@ -219,6 +219,10 @@ model before activation.
 
 ## 7. Backend readiness contract
 
+This C2.2 contract is the Staff clinical-continuity gate. Patient outage
+recovery uses the separate operational contract in section 7.4; Patient does
+not call this route and does not consume clinical-continuity policy.
+
 ### 7.1 Route and authentication
 
 `GET /api/v1/health/client-readiness` is mounted separately from the public
@@ -294,6 +298,30 @@ The client accepts readiness only when all of these are true:
 
 Unknown/missing/extra-enum values, invalid timestamps, a wrong tenant, an
 unsupported policy schema, and all malformed/error responses fail closed.
+
+The default tenant remains forbidden from owning clinical-continuity policy.
+That invariant is intentional and remains part of the Staff gate; it must not
+be bypassed by manufacturing a compatible policy response.
+
+### 7.4 Patient operational readiness split
+
+Authenticated Patient clients use PATIENT-only
+`GET /api/v1/health/patient-readiness`. That route proves trusted route kind,
+resolved tenant, and bounded primary-database readiness for the Patient outage
+state machine. Its purpose is exactly `patient_outage`; it has its own strict
+contract version and returns no `policy` or policy-schema field. Success is
+accepted only for the exact endpoint identity, configured tenant, positive
+database state, trusted `public` or `internal` route kind, valid UTC server
+time, acceptable midpoint-adjusted clock skew, and an unchanged authenticated
+session. Not-ready states are limited to `endpoint_unverified` and
+`database_unavailable`.
+
+This operational route supports both the current unstamped default-tenant build
+on `api.vhhealth.app` and stamped non-default Patient builds on their literal
+tenant API hosts. It neither grants Staff continuity readiness nor changes the
+default-tenant policy prohibition. The exact Patient response shape and outage
+recovery rules are recorded in
+[`c-d12-patient-outage-design-delta.md`](c-d12-patient-outage-design-delta.md#1b-2026-08-07-implementation-correction--patient-operational-readiness).
 
 ## 8. Client state machine
 

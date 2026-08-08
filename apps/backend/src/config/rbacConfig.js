@@ -580,21 +580,9 @@ const rbacConfig = {
   adminDocumentationRoutes: [ADMIN]
 };
 
-// GET /api/v1/health/client-readiness — the C2.2 readiness contract.
-//
-// C2.2 gated this route on `staffRoutes` because the Staff app was its only
-// consumer at the time. C-D12 then made the patient app a second consumer of
-// the SAME path: `PatientOutageController` probes it with the patient JWT and
-// treats any non-200 as an outage, so a PATIENT 403 pinned the patient app in
-// permanent outage and its default-deny gate refused every hospital mutation
-// (including SOS). The role list is widened here rather than in `staffRoutes`
-// so patients gain the readiness probe ONLY — no staff surface.
-//
-// This is safe to widen because the 200 projection is already bounded and
-// non-PHI (contract version, ready, endpointId, routeKind, the caller's OWN
-// tenantId, database state, policy state + schema version) and the 503
-// projection is narrower still. Facility context is NOT in either shape; the
-// facility-aware POST /client-readiness/v2 stays staff-only.
-rbacConfig.clientReadinessRoutes = [...rbacConfig.staffRoutes, PATIENT];
+// Clinical-continuity readiness stays staff-only. Patient outage recovery has
+// a separate operational contract that does not weaken continuity policy.
+rbacConfig.clientReadinessRoutes = [...rbacConfig.staffRoutes];
+rbacConfig.patientReadinessRoutes = [PATIENT];
 
 export default rbacConfig;

@@ -48,7 +48,7 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
           children: [
             Column(
               children: [
-                if (showStatus) _buildBanner(context),
+                if (showStatus) _buildBannerBoundary(context),
                 Expanded(child: widget.child),
               ],
             ),
@@ -56,6 +56,18 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildBannerBoundary(BuildContext context) {
+    final viewportHeight = MediaQuery.maybeSizeOf(context)?.height ?? 800;
+    final maxHeight = (viewportHeight * 0.4).clamp(160.0, 320.0);
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: ClipRect(
+        child: SingleChildScrollView(child: Builder(builder: _buildBanner)),
+      ),
     );
   }
 
@@ -161,10 +173,12 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
                           ),
                           IconButton(
                             onPressed: () => setState(() => _blocked = null),
-                            tooltip: MaterialLocalizations.of(
-                              context,
-                            ).closeButtonTooltip,
-                            icon: const Icon(Icons.close),
+                            icon: Icon(
+                              Icons.close,
+                              semanticLabel: MaterialLocalizations.of(
+                                context,
+                              ).closeButtonTooltip,
+                            ),
                           ),
                         ],
                       ),

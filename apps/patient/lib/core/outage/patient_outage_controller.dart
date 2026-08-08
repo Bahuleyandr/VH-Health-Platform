@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth/core/outage/patient_mutation_policy.dart';
+import 'package:vhhealth/core/outage/patient_readiness.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth_core/config/client_readiness_config.dart';
 import 'package:vhhealth_core/config/tenant_config.dart';
 import 'package:vhhealth_core/models/api_response.dart';
-import 'package:vhhealth_core/models/client_readiness.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 
@@ -17,8 +17,6 @@ enum PatientOutageReason {
   transportUnavailable,
   endpointUnverified,
   databaseUnavailable,
-  policyUnavailable,
-  policyIncompatible,
   clockUncertain,
   rateLimited,
   malformedReadiness,
@@ -202,7 +200,7 @@ class PatientOutageController extends ChangeNotifier {
     return true;
   }
 
-  Future<ClientReadinessOutcome> _probeOnce({
+  Future<_PatientReadinessOutcome> _probeOnce({
     required String expectedAuthentication,
     required String expectedTenantId,
   }) async {
@@ -213,9 +211,8 @@ class PatientOutageController extends ChangeNotifier {
       response = await _request();
     } catch (_) {
       _lastProbeFailureReason = PatientOutageReason.transportUnavailable;
-      return const ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.notReady,
+      return const _PatientReadinessOutcome(
+        reason: PatientOutageReason.transportUnavailable,
       );
     } finally {
       monotonic.stop();
@@ -223,16 +220,10 @@ class PatientOutageController extends ChangeNotifier {
 
     if (await _authentication() != expectedAuthentication ||
         await _tenantId() != expectedTenantId) {
-      return const ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.signedOut,
-      );
+      return const _PatientReadinessOutcome(signedOut: true);
     }
     if (response.statusCode == 401) {
-      return const ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.signedOut,
-      );
+      return const _PatientReadinessOutcome(signedOut: true);
     }
     // 403 is an authoritative refusal, not a malformed body. Without this
     // branch it fell through to the body parse, found no `details.readiness`,
@@ -242,9 +233,8 @@ class PatientOutageController extends ChangeNotifier {
     // reason exists so a recurrence is diagnosable rather than silent.
     if (response.statusCode == 403) {
       _lastProbeFailureReason = PatientOutageReason.probeForbidden;
-      return const ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.notReady,
+      return const _PatientReadinessOutcome(
+        reason: PatientOutageReason.probeForbidden,
       );
     }
     if (response.statusCode == 429) {
@@ -252,41 +242,30 @@ class PatientOutageController extends ChangeNotifier {
       if (retryAfter != null) {
         _suppressedUntil = _clock().toUtc().add(retryAfter);
       }
-      return ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.rateLimited,
-        retryAfter: retryAfter,
-      );
+      return _PatientReadinessOutcome(reason: PatientOutageReason.rateLimited);
     }
 
     final raw = _readinessBody(response);
     if (raw == null) {
       _lastProbeFailureReason = PatientOutageReason.malformedReadiness;
-      return const ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.notReady,
+      return const _PatientReadinessOutcome(
+        reason: PatientOutageReason.malformedReadiness,
       );
     }
 
-    ClientReadiness readiness;
+    PatientReadiness readiness;
     try {
-      readiness = ClientReadiness.fromJson(raw);
+      readiness = PatientReadiness.fromJson(raw);
     } on FormatException {
       _lastProbeFailureReason = PatientOutageReason.malformedReadiness;
-      return const ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.checking,
+      return const _PatientReadinessOutcome(
+        reason: PatientOutageReason.malformedReadiness,
       );
     }
 
     if (!readiness.isReadyForTenant(expectedTenantId)) {
       _lastProbeFailureReason = _reasonForReadiness(readiness);
-      return ClientReadinessOutcome(
-        ready: false,
-        lifecycle: readiness.state == ClientReadinessState.policyIncompatible
-            ? ContinuityLifecycleState.policyIncompatible
-            : ContinuityLifecycleState.notReady,
-      );
+      return _PatientReadinessOutcome(reason: _reasonForReadiness(readiness));
     }
 
     final estimatedLocalAtResponse = wallStart.add(
@@ -296,20 +275,14 @@ class PatientOutageController extends ChangeNotifier {
         .difference(estimatedLocalAtResponse)
         .abs();
     if (skew > _maxClockSkew) {
-      return ClientReadinessOutcome(
-        ready: false,
-        lifecycle: ContinuityLifecycleState.clockUncertain,
-        clockSkew: skew,
+      return _PatientReadinessOutcome(
+        reason: PatientOutageReason.clockUncertain,
       );
     }
 
-    return ClientReadinessOutcome(
+    return _PatientReadinessOutcome(
       ready: true,
-      lifecycle: readiness.routeKind == ClientReadinessRouteKind.internal
-          ? ContinuityLifecycleState.readyInternal
-          : ContinuityLifecycleState.readyPublic,
       routeKind: readiness.routeKind,
-      clockSkew: skew,
     );
   }
 
@@ -323,7 +296,7 @@ class PatientOutageController extends ChangeNotifier {
     final raw = _readinessBody(response);
     if (raw != null) {
       try {
-        final readiness = ClientReadiness.fromJson(raw);
+        final readiness = PatientReadiness.fromJson(raw);
         if (!readiness.ready) {
           _close(_reasonForReadiness(readiness));
           return;
@@ -383,21 +356,15 @@ class PatientOutageController extends ChangeNotifier {
     );
   }
 
-  void _applyFailure(ClientReadinessOutcome outcome) {
-    if (outcome.lifecycle == ContinuityLifecycleState.signedOut) {
+  void _applyFailure(_PatientReadinessOutcome outcome) {
+    if (outcome.signedOut) {
       _setState(PatientOutageStatus.signedOut, PatientOutageReason.none);
       return;
     }
-    final reason = switch (outcome.lifecycle) {
-      ContinuityLifecycleState.clockUncertain =>
-        PatientOutageReason.clockUncertain,
-      ContinuityLifecycleState.policyIncompatible =>
-        PatientOutageReason.policyIncompatible,
-      ContinuityLifecycleState.rateLimited => PatientOutageReason.rateLimited,
-      ContinuityLifecycleState.checking =>
-        PatientOutageReason.malformedReadiness,
-      _ => _lastProbeFailureReason ?? PatientOutageReason.transportUnavailable,
-    };
+    final reason =
+        outcome.reason ??
+        _lastProbeFailureReason ??
+        PatientOutageReason.transportUnavailable;
     _close(reason);
   }
 
@@ -431,16 +398,12 @@ class PatientOutageController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static PatientOutageReason _reasonForReadiness(ClientReadiness readiness) {
+  static PatientOutageReason _reasonForReadiness(PatientReadiness readiness) {
     return switch (readiness.state) {
-      ClientReadinessState.endpointUnverified =>
+      PatientReadinessState.endpointUnverified =>
         PatientOutageReason.endpointUnverified,
-      ClientReadinessState.databaseUnavailable =>
+      PatientReadinessState.databaseUnavailable =>
         PatientOutageReason.databaseUnavailable,
-      ClientReadinessState.policyUnavailable =>
-        PatientOutageReason.policyUnavailable,
-      ClientReadinessState.policyIncompatible =>
-        PatientOutageReason.policyIncompatible,
       null => PatientOutageReason.malformedReadiness,
     };
   }
@@ -470,7 +433,7 @@ class PatientOutageController extends ChangeNotifier {
   }
 
   static Future<ApiResponse> _defaultRequest() => VHHttpClient.get(
-    ClientReadinessConfig.path,
+    PatientReadinessConfig.path,
     timeout: const Duration(seconds: 10),
   );
 
@@ -493,4 +456,18 @@ class PatientOutageController extends ChangeNotifier {
     _blockedMutations.close();
     super.dispose();
   }
+}
+
+class _PatientReadinessOutcome {
+  const _PatientReadinessOutcome({
+    this.ready = false,
+    this.signedOut = false,
+    this.routeKind,
+    this.reason,
+  });
+
+  final bool ready;
+  final bool signedOut;
+  final PatientReadinessRouteKind? routeKind;
+  final PatientOutageReason? reason;
 }

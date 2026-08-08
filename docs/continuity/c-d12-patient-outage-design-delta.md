@@ -141,6 +141,57 @@ Expected overlap with AZ/C6.1-C is zero: this lane touches public config and AZ
 touches lab services. Whichever lane lands second must rebase on current main
 and rerun its focused suites, OpenAPI drift checks, and applicable full gates.
 
+## 1B. 2026-08-07 implementation correction — Patient operational readiness
+
+The original Step 2 design reused the C2.2 clinical-continuity readiness
+contract. Live verification showed that this couples ordinary Patient outage
+recovery to a Staff-only policy invariant: the default tenant is deliberately
+forbidden from owning clinical-continuity policy. The readiness references in
+sections 2–5 and the historical Step 2 ledger therefore remain evidence of the
+original design, but are superseded by this narrow operational split.
+
+Patient uses authenticated, PATIENT-only
+`GET /api/v1/health/patient-readiness`. After API-key validation, JWT
+authentication, tenant resolution/RLS, PATIENT authorization, and the dedicated
+readiness limiter, it proves the trusted route kind, the resolved tenant, and a
+bounded primary-database query. It does not load, accept, infer, or report any
+clinical-continuity policy.
+
+The exact success body inside the standard success envelope is:
+
+```json
+{
+  "readinessContractVersion": 1,
+  "readinessPurpose": "patient_outage",
+  "ready": true,
+  "endpointId": "vhhealth-api",
+  "routeKind": "public",
+  "tenantId": "00000000-0000-4000-8000-000000000001",
+  "database": "ready",
+  "serverTime": "2026-08-07T00:00:00.000Z"
+}
+```
+
+`routeKind` may be `public` or `internal`. No other success field is accepted;
+in particular, there is no `policy` or policy-schema field. A not-ready body
+contains exactly `readinessContractVersion`, `readinessPurpose`, `ready: false`,
+`state`, and `serverTime`, plus `routeKind` only when it was established from
+trusted ingress metadata. Its only states are `endpoint_unverified` and
+`database_unavailable`. Internal database, topology, SQL, tenant, patient,
+staff, and clinical details are never serialized.
+
+The Patient adapter still validates the exact endpoint, contract purpose and
+version, tenant, route kind, database state, UTC server time, clock skew, and
+session stability, and still requires two matching successes at least one
+second apart. Both an unstamped build using the default tenant on
+`api.vhhealth.app` and a stamped non-default build using its literal tenant API
+host are supported; each response must match the build's configured tenant.
+
+Staff remains on authenticated `GET /api/v1/health/client-readiness`, with the
+C3.1 clinical-continuity policy gate unchanged. The default tenant remains
+forbidden from owning that policy. Patient operational readiness is not an
+exception to, substitute for, or weakening of that Staff safety invariant.
+
 ## 2. Fixed boundaries and non-goals
 
 This is a patient-client behavior change, not a new continuity capability.
