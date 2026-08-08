@@ -200,6 +200,27 @@ async function recordCanonicalMarEvent({
   }
 }
 
+// Locate an existing non-cancelled row for the same patient + medication in
+// the same clinical slot (±1 minute — absorbs ER-to-ICU carry-over drift).
+// Used both as the friendly Phase-0 pre-check and as the winner lookup after
+// a 23505 on migration 642's uniq_mar_scheduled_dose backstop index (which is
+// exact-equality on scheduled_time, a subset of this window).
+async function findScheduledSibling(patientUid, med) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at
+       FROM medication_administrations
+      WHERE patient_uid = $1::uuid
+        AND medication_name = $2
+        AND scheduled_time >= ($3::timestamptz - INTERVAL '1 minute')
+        AND scheduled_time < ($3::timestamptz + INTERVAL '1 minute')
+        AND status <> 'cancelled'
+      ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $3::timestamptz))) ASC, id ASC
+      LIMIT 1`,
+    patientUid, med.medication_name, med.scheduled_time,
+  );
+  return rows[0] || null;
+}
+
 /**
  * Schedule medications for a patient.
  * @param {string} patientUid
@@ -268,20 +289,9 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     // Findings:
     // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard
     // 2026-05-20-emergency-walk-in-nurse-7622bcce.
-    const dup = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at
-         FROM medication_administrations
-        WHERE patient_uid = $1::uuid
-          AND medication_name = $2
-          AND scheduled_time >= ($3::timestamptz - INTERVAL '1 minute')
-          AND scheduled_time < ($3::timestamptz + INTERVAL '1 minute')
-          AND status <> 'cancelled'
-        ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $3::timestamptz))) ASC, id ASC
-        LIMIT 1`,
-      patientUid, med.medication_name, med.scheduled_time,
-    );
-    if (dup.length) {
-      results.push(dup[0]);
+    const dup = await findScheduledSibling(patientUid, med);
+    if (dup) {
+      results.push(dup);
       continue;
     }
 
@@ -289,34 +299,54 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     // timeline + audit event commit together (or roll back together). Previously
     // the canonical event ran outside the tx, swallowed — so a scheduled dose
     // could exist with no canonical safety record.
-    const row = await setTenantTx(tenantId, async (tx) => {
-      const rows = await tx.$queryRawUnsafe(
-        `INSERT INTO medication_administrations
-           (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
-         RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, tenant_id, created_at`,
-        patientUid,
-        prescriptionId || null,
-        med.medication_name,
-        med.dose,
-        normalizedRoute,
-        med.scheduled_time,
-        med.notes || null,
-      );
-      await recordCanonicalMarEvent({
-        record: rows[0],
-        eventType: 'mar.scheduled',
-        actorUid: context.actorUid,
-        actorRole: context.actorRole,
-        encounterId: context.encounterId,
-        sourceClinicalOrderId: context.sourceClinicalOrderId,
-        payload: {
-          prescription_id: prescriptionId || null,
-        },
-        db: tx,
+    let row;
+    try {
+      row = await setTenantTx(tenantId, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `INSERT INTO medication_administrations
+             (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
+           RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, tenant_id, created_at`,
+          patientUid,
+          prescriptionId || null,
+          med.medication_name,
+          med.dose,
+          normalizedRoute,
+          med.scheduled_time,
+          med.notes || null,
+        );
+        await recordCanonicalMarEvent({
+          record: rows[0],
+          eventType: 'mar.scheduled',
+          actorUid: context.actorUid,
+          actorRole: context.actorRole,
+          encounterId: context.encounterId,
+          sourceClinicalOrderId: context.sourceClinicalOrderId,
+          payload: {
+            prescription_id: prescriptionId || null,
+          },
+          db: tx,
+        });
+        return rows[0];
       });
-      return rows[0];
-    });
+    } catch (err) {
+      // C-L2 — the pre-check above is check-then-insert on plain prisma
+      // (TOCTOU): two concurrent schedule calls for the same dose slot can
+      // both pass it. Migration 642's uniq_mar_scheduled_dose partial unique
+      // index is the hard backstop; losing the race lands here as a 23505.
+      // Recover the winner row and return it — the same idempotent-return
+      // behaviour the pre-check gives, with no canonical mar.scheduled event
+      // for the dedupe (the winner's transaction already emitted the row's
+      // one event, and this call created nothing).
+      if (err?.meta?.code === '23505' || /23505|duplicate key value/i.test(err?.message || '')) {
+        const winner = await findScheduledSibling(patientUid, med);
+        if (winner) {
+          results.push(winner);
+          continue;
+        }
+      }
+      throw err;
+    }
     results.push(row);
   }
 
