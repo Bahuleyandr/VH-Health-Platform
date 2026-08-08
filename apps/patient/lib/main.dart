@@ -85,14 +85,14 @@ Future<void> main() async {
 
       // PAT-1: Activate Firebase App Check to attest that API calls originate
       // from a genuine, unmodified build of this app.
-      // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
-      // - Debug / profile builds: DebugProvider (produces a test token;
-      //   requires the debug token to be registered in the Firebase console).
+      // - Profile/release builds: Play Integrity (Android) / DeviceCheck (iOS).
+      // - Debug builds: DebugProvider (produces a test token; requires the
+      //   debug token to be registered in the Firebase console).
       // Wrapped in try/catch so a provider misconfiguration never blocks startup.
       try {
         await FirebaseAppCheck.instance.activate(
-          // Release: Play Integrity (Android) / DeviceCheck (iOS).
-          // Debug/profile: DebugProvider — register the printed token in the
+          // Profile/release: Play Integrity (Android) / DeviceCheck (iOS).
+          // Debug: DebugProvider — register the printed token in the
           // Firebase console under App Check → Apps → Manage debug tokens.
           providerAndroid: kDebugMode
               ? AndroidDebugProvider()
@@ -118,7 +118,24 @@ Future<void> main() async {
             'VH_DISABLE_CRASHLYTICS',
             defaultValue: false,
           ) &&
+          // Debug sessions otherwise upload debug-only framework asserts
+          // (widget inspector, overlay checks) as fatal crashes, polluting
+          // the Crashlytics dashboard. Profile/release stay enabled.
+          !kDebugMode &&
           (Platform.isAndroid || Platform.isIOS);
+
+      // Mirror the flag into the native Crashlytics SDK so natively-captured
+      // events respect it too — and so collection turns off on debug devices
+      // where a previous install left it enabled.
+      if (Platform.isAndroid || Platform.isIOS) {
+        try {
+          await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+            crashlyticsEnabled,
+          );
+        } catch (e) {
+          debugPrint('Crashlytics collection toggle skipped: $e');
+        }
+      }
 
       // Firebase phone-auth app verification is fragile on emulators and
       // sideloaded debug builds. Keep production untouched, but let local QA
