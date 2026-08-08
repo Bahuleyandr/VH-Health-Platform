@@ -26,6 +26,16 @@ const createdAdmissionIds = [];
 // Sol Ultra #15 binds a claim's admission to a real tenant-scoped row, so
 // fabricated admission ids now (correctly) reject at createClaim.
 async function seedAdmission() {
+  // Migration 640 allows only one active admission per patient — close any
+  // prior fixture admission before seeding the next one.
+  await prisma.$executeRawUnsafe(
+    `UPDATE admissions
+        SET status = 'discharged', discharged_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND status IN ('admitted', 'transferred')`,
+    TENANT, PATIENT_UID,
+  );
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO admissions (tenant_id, patient_uid, status, admitted_at, updated_at)
      VALUES ($1::uuid, $2::uuid, 'admitted', NOW(), NOW())
