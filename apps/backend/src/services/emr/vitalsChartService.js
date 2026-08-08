@@ -441,7 +441,7 @@ async function attachGrowthToVitalsRows(rows, patientUid) {
   return rows;
 }
 
-export async function recordVitals(data) {
+export async function recordVitals(data, { beforeCommit = null } = {}) {
   const {
     tenant_id, tenantId,
     patient_uid, patient_id, visit_id, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
@@ -639,6 +639,14 @@ export async function recordVitals(data) {
       consciousness,
       supplemental_o2: supplemental_o2 || false,
     }, recorded_by, { db: tx });
+
+    if (beforeCommit) {
+      await beforeCommit({
+        tx,
+        vitals: row,
+        news2: news2Persisted?.record ?? null,
+      });
+    }
 
     return row;
   });

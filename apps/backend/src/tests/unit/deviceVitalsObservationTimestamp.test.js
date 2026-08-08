@@ -1,8 +1,8 @@
 // C-L5 — device observation timestamp extraction (pure units).
 //
 // parseHl7Timestamp: HL7 v2 TS `YYYYMMDD[HH[MM[SS[.S+]]]][±ZZZZ]` → JS Date;
-// explicit ±ZZZZ offsets are honored, offset-less values are server-local
-// time, garbage is null. extractVitalsFromOru: observedAt comes from the
+// explicit ±ZZZZ offsets are honored, offset-less values use hospital time,
+// and garbage is null. extractVitalsFromOru: observedAt comes from the
 // first valid OBX-14, falls back to OBR-7, else null.
 
 import { parseHL7 } from '../../services/hl7/hl7Parser.js';
@@ -20,23 +20,27 @@ describe('parseHl7Timestamp', () => {
     expect(d.getTime()).toBe(Date.UTC(2026, 5, 10, 16, 0, 0));
   });
 
-  test('offset-less timestamp is interpreted as server-local time', () => {
+  test('offset-less timestamp is interpreted in hospital time, independent of server TZ', () => {
     const d = parseHl7Timestamp('20260610120000');
-    expect(d.getTime()).toBe(new Date(2026, 5, 10, 12, 0, 0).getTime());
+    expect(d.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 30, 0));
   });
 
   test('fractional seconds are carried as milliseconds', () => {
     const d = parseHl7Timestamp('20260610120000.5');
-    expect(d.getTime()).toBe(new Date(2026, 5, 10, 12, 0, 0, 500).getTime());
+    expect(d.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 30, 0, 500));
   });
 
   test('short forms: date-only, hour, and minute precision', () => {
     expect(parseHl7Timestamp('20260610').getTime())
-      .toBe(new Date(2026, 5, 10).getTime());
+      .toBe(Date.UTC(2026, 5, 9, 18, 30, 0));
     expect(parseHl7Timestamp('2026061012').getTime())
-      .toBe(new Date(2026, 5, 10, 12, 0, 0).getTime());
+      .toBe(Date.UTC(2026, 5, 10, 6, 30, 0));
     expect(parseHl7Timestamp('202606101215').getTime())
-      .toBe(new Date(2026, 5, 10, 12, 15, 0).getTime());
+      .toBe(Date.UTC(2026, 5, 10, 6, 45, 0));
+  });
+
+  test('an invalid configured hospital timezone fails closed', () => {
+    expect(parseHl7Timestamp('20260610120000', 'Not/A_Zone')).toBeNull();
   });
 
   test('date-only form with an explicit offset honors the offset', () => {
@@ -86,7 +90,7 @@ describe('extractVitalsFromOru observation timestamp', () => {
       'OBX|3|NM|9279-1^RR||16|/min|||||F|||20260610999999', // later invalid ignored
     ]);
     expect(out.observedAt).toBeInstanceOf(Date);
-    expect(out.observedAt.getTime()).toBe(new Date(2026, 5, 10, 12, 5, 0).getTime());
+    expect(out.observedAt.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 35, 0));
     expect(out.observedAtSource).toBe('obx14');
     // Observation objects keep their original shape.
     expect(out.observations).toHaveLength(3);
@@ -100,7 +104,7 @@ describe('extractVitalsFromOru observation timestamp', () => {
       'OBR|1|||VITALS|||20260610113000',
       'OBX|1|NM|8867-4^HR||80|/min|||||F',
     ]);
-    expect(out.observedAt.getTime()).toBe(new Date(2026, 5, 10, 11, 30, 0).getTime());
+    expect(out.observedAt.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 0, 0));
     expect(out.observedAtSource).toBe('obr7');
   });
 

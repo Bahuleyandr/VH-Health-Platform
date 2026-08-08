@@ -31,6 +31,8 @@ import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecove
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
 const OBSERVED_AT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const HOSPITAL_TIME_ZONE = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+const TIME_ZONE_FORMATTERS = new Map();
 const NEWS2_RELEVANT_FIELDS = new Set([
   'heart_rate',
   'systolic_bp',
@@ -40,14 +42,62 @@ const NEWS2_RELEVANT_FIELDS = new Set([
   'consciousness',
 ]);
 
+function timeZoneFormatter(timeZone) {
+  if (!TIME_ZONE_FORMATTERS.has(timeZone)) {
+    TIME_ZONE_FORMATTERS.set(timeZone, new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }));
+  }
+  return TIME_ZONE_FORMATTERS.get(timeZone);
+}
+
+function wallClockToInstant({ year, month, day, hours, minutes, seconds, ms }, timeZone) {
+  const desired = Date.UTC(year, month - 1, day, hours, minutes, seconds, ms);
+  let candidate = desired;
+  let formatter;
+  try {
+    formatter = timeZoneFormatter(timeZone);
+  } catch {
+    return null;
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const date = new Date(candidate);
+    const parts = Object.fromEntries(
+      formatter.formatToParts(date)
+        .filter(({ type }) => type !== 'literal')
+        .map(({ type, value }) => [type, Number(value)]),
+    );
+    const rendered = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+      date.getUTCMilliseconds(),
+    );
+    const correction = desired - rendered;
+    candidate += correction;
+    if (correction === 0) return new Date(candidate);
+  }
+  return null;
+}
+
 /**
  * Parse an HL7 v2 TS value — `YYYYMMDD[HH[MM[SS[.S+]]]][±ZZZZ]` — into a JS
  * Date. An explicit ±ZZZZ offset is honored; offset-less timestamps are
- * interpreted as server-local time (bedside monitors are set to ward wall
- * clocks). Returns null for empty/invalid input. Pure — exported for unit
- * tests.
+ * interpreted in the configured hospital timezone because bedside monitors
+ * are set to ward wall clocks. Returns null for empty/invalid input.
  */
-export function parseHl7Timestamp(text) {
+export function parseHl7Timestamp(text, timeZone = HOSPITAL_TIME_ZONE) {
   const raw = String(text ?? '').trim();
   if (!raw) return null;
   const m = raw.match(
@@ -72,9 +122,9 @@ export function parseHl7Timestamp(text) {
     const offsetMinutes = sign * ((Number(offset.slice(1, 3)) * 60) + Number(offset.slice(3, 5)));
     date = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms) - (offsetMinutes * 60 * 1000));
   } else {
-    date = new Date(year, month - 1, day, hours, minutes, seconds, ms);
+    date = wallClockToInstant({ year, month, day, hours, minutes, seconds, ms }, timeZone);
   }
-  return Number.isNaN(date.getTime()) ? null : date;
+  return !date || Number.isNaN(date.getTime()) ? null : date;
 }
 
 /**
@@ -167,12 +217,14 @@ async function insertInterfaceMessage({
   message,
   status = 'received',
   errorText = null,
+  resultCount = null,
   verdicts = null,
-} = {}) {
-  const rows = await prisma.$queryRawUnsafe(
+} = {}, db = prisma) {
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO lab_interface_messages
-       (tenant_id, analyzer_code, direction, protocol, message_type, raw_message, status, error, verdicts, processed_at)
-     VALUES ($1::uuid, $2, 'inbound', 'hl7v2', 'ORU^VITALS', $3, $4::text, $5, $6::jsonb,
+       (tenant_id, analyzer_code, direction, protocol, message_type, raw_message, status, error,
+        result_count, verdicts, processed_at)
+     VALUES ($1::uuid, $2, 'inbound', 'hl7v2', 'ORU^VITALS', $3, $4::text, $5, $6::int, $7::jsonb,
              CASE WHEN $4::text IN ('ingested', 'failed') THEN NOW() ELSE NULL END)
      RETURNING id`,
     tenantId,
@@ -180,6 +232,7 @@ async function insertInterfaceMessage({
     String(message),
     status,
     errorText,
+    resultCount,
     verdicts ? JSON.stringify(verdicts) : null,
   );
   return Number(rows[0].id);
@@ -267,6 +320,13 @@ async function consumeControlId({ tenantId, deviceId, controlId, messageId = nul
     messageId,
   );
   return { consumed: rows.length > 0, conflict: rows.length === 0 };
+}
+
+class ConcurrentControlIdError extends Error {
+  constructor() {
+    super('Device vitals control ID was consumed by a concurrent delivery');
+    this.name = 'ConcurrentControlIdError';
+  }
 }
 
 async function countSuppressed({ tenantId, deviceId, reason }) {
@@ -590,12 +650,6 @@ export async function ingestDeviceVitals({
           unmapped: mapping.unmapped,
         };
       }
-      messageId = await insertInterfaceMessage({
-        tenantId,
-        deviceCode: normalizedDeviceCode,
-        message,
-        status: 'received',
-      });
       await touchDeviceSeen({ tenantId, id: device.id });
     }
 
@@ -608,25 +662,11 @@ export async function ingestDeviceVitals({
       vitals: mapping.vitals,
     });
 
-    const result = await recordVitals({
-      tenant_id: tenantId,
-      patient_uid: resolved.patientUid,
-      ...mapping.vitals,
-      source: 'device',
-      source_device: normalizedDeviceCode,
-      notes: `Device ORU ingest (${mapping.mapped.join(', ')})`,
-      recorded_by: context.actorUid,
-      // C-L5: device observation time (OBX-14 / OBR-7) when present and sane;
-      // undefined falls back to NOW() (receipt time) inside recordVitals.
-      ...(observedAt ? { recorded_at: observedAt } : {}),
-      alertOptions,
-    });
-
-    const successVerdicts = {
+    const buildSuccessVerdicts = (vitals, news2) => ({
       mapped: mapping.mapped,
       unmapped: mapping.unmapped,
-      vitals_chart_id: result.vitals.id,
-      news2: result.news2 ? { total: result.news2.total_score ?? result.news2.totalScore ?? null } : null,
+      vitals_chart_id: vitals.id,
+      news2: news2 ? { total: news2.total_score ?? news2.totalScore ?? null } : null,
       control_id: meta.controlId,
       device_registry_id: device?.id ?? null,
       association_id: resolved.association?.id ?? null,
@@ -636,36 +676,60 @@ export async function ingestDeviceVitals({
       // receipt fallback was used) and which source supplied it.
       observed_at: observedAt ? observedAt.toISOString() : null,
       observed_at_source: observedAtSource,
-    };
+    });
 
-    if (isGateway) {
-      // C-M3: consume the control-id and flip the interface message to
-      // 'ingested' atomically, only AFTER the vitals write is durable. If a
-      // concurrent identical delivery won the insert race, the vitals are
-      // already durably written — log and keep returning success.
-      await setTenantTx(tenantId, async (tx) => {
-        if (messageId) {
-          await updateInterfaceMessage(messageId, {
+    let result;
+    try {
+      result = await recordVitals({
+        tenant_id: tenantId,
+        patient_uid: resolved.patientUid,
+        ...mapping.vitals,
+        source: 'device',
+        source_device: normalizedDeviceCode,
+        notes: `Device ORU ingest (${mapping.mapped.join(', ')})`,
+        recorded_by: context.actorUid,
+        // C-L5: device observation time (OBX-14 / OBR-7) when present and sane;
+        // undefined falls back to NOW() (receipt time) inside recordVitals.
+        ...(observedAt ? { recorded_at: observedAt } : {}),
+        alertOptions,
+      }, isGateway ? {
+        beforeCommit: async ({ tx, vitals, news2 }) => {
+          const atomicMessageId = await insertInterfaceMessage({
+            tenantId,
+            deviceCode: normalizedDeviceCode,
+            message,
             status: 'ingested',
             resultCount: mapping.mapped.length,
-            verdicts: successVerdicts,
+            verdicts: buildSuccessVerdicts(vitals, news2),
           }, tx);
-        }
-        const consumed = await consumeControlId({
-          tenantId,
-          deviceId: device.id,
-          controlId: meta.controlId,
-          messageId,
-          db: tx,
-        });
-        if (consumed.conflict) {
-          logger.warn(
-            `Device vitals control-id ${meta.controlId} already consumed by a concurrent delivery `
-            + `(device_registry_id=${device.id}); vitals_chart row ${result.vitals.id} is durably written`,
-          );
-        }
-      });
-    } else if (messageId) {
+          const consumed = await consumeControlId({
+            tenantId,
+            deviceId: device.id,
+            controlId: meta.controlId,
+            messageId: atomicMessageId,
+            db: tx,
+          });
+          if (consumed.conflict) throw new ConcurrentControlIdError();
+          messageId = atomicMessageId;
+        },
+      } : undefined);
+    } catch (err) {
+      if (err instanceof ConcurrentControlIdError) {
+        messageId = null;
+        await countSuppressed({ tenantId, deviceId: device.id, reason: 'duplicate_control_id' });
+        return {
+          duplicate: true,
+          ack: 'AA',
+          control_id: meta.controlId,
+          mapped: [],
+          unmapped: [],
+        };
+      }
+      throw err;
+    }
+
+    const successVerdicts = buildSuccessVerdicts(result.vitals, result.news2);
+    if (!isGateway && messageId) {
       await updateInterfaceMessage(messageId, {
         status: 'ingested',
         resultCount: mapping.mapped.length,

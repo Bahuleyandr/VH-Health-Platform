@@ -19,16 +19,31 @@ const PATIENT_SUPPRESS = 'cafe0c53-0000-4000-8000-0000000000b2';
 const PATIENT_TS_DEVICE = 'cafe0c53-0000-4000-8000-0000000000b3';
 const PATIENT_TS_NONE = 'cafe0c53-0000-4000-8000-0000000000b4';
 const PATIENT_TS_FUTURE = 'cafe0c53-0000-4000-8000-0000000000b5';
+const PATIENT_CONCURRENT = 'cafe0c53-0000-4000-8000-0000000000b6';
 const GHOST_PATIENT = 'cafe0c53-0000-4000-8000-00000000dead'; // never created
 const GATEWAY_ACTOR = 'cafe0c53-0000-4000-8000-0000000000ac';
 const DEVICE_CODE = 'GWCM3-MON-1';
 
 const GW_CONTEXT = { actorRole: 'DEVICE_GATEWAY', actorUid: GATEWAY_ACTOR };
 
-const pad = (n) => String(n).padStart(2, '0');
-const hl7Local = (dt) => dt.getFullYear()
-  + pad(dt.getMonth() + 1) + pad(dt.getDate())
-  + pad(dt.getHours()) + pad(dt.getMinutes()) + pad(dt.getSeconds());
+const HOSPITAL_CLOCK = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+const hl7Local = (dt) => {
+  const parts = Object.fromEntries(
+    HOSPITAL_CLOCK.formatToParts(dt)
+      .filter(({ type }) => type !== 'literal')
+      .map(({ type, value }) => [type, value]),
+  );
+  return `${parts.year}${parts.month}${parts.day}${parts.hour}${parts.minute}${parts.second}`;
+};
 
 function oru({ uid, control, hr = '80', obx14 = null, obr7 = null }) {
   return [
@@ -68,7 +83,14 @@ async function vitalsCount(patientUid) {
 async function cleanup() {
   const patients = [
     PATIENT_RETRY, PATIENT_SUPPRESS, PATIENT_TS_DEVICE, PATIENT_TS_NONE, PATIENT_TS_FUTURE,
+    PATIENT_CONCURRENT,
   ];
+  await prisma.$executeRawUnsafe(
+    `DROP TRIGGER IF EXISTS test_device_vitals_concurrent_hold ON vitals_chart`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DROP FUNCTION IF EXISTS test_device_vitals_concurrent_hold()`,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM lab_interface_messages WHERE raw_message LIKE '%GWCM3%'`,
   ).catch(() => {});
@@ -113,6 +135,7 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
       [PATIENT_TS_DEVICE, '+919000053103'],
       [PATIENT_TS_NONE, '+919000053104'],
       [PATIENT_TS_FUTURE, '+919000053105'],
+      [PATIENT_CONCURRENT, '+919000053106'],
     ];
     for (const [uid, phone] of patients) {
       await prisma.$executeRawUnsafe(
@@ -163,6 +186,65 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
     expect(redelivered.duplicate).toBe(true);
     expect(redelivered.ack).toBe('AA');
     expect(await vitalsCount(PATIENT_RETRY)).toBe(1);
+  }, 30000);
+
+  test('concurrent delivery of one control-id commits exactly one clinical record', async () => {
+    const controlId = 'GWCM3-CTL-CONCURRENT';
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION test_device_vitals_concurrent_hold()
+       RETURNS trigger LANGUAGE plpgsql AS $fn$
+       BEGIN
+         IF NEW.patient_uid = 'cafe0c53-0000-4000-8000-0000000000b6'::uuid THEN
+           PERFORM pg_sleep(1);
+         END IF;
+         RETURN NEW;
+       END
+       $fn$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_device_vitals_concurrent_hold
+       BEFORE INSERT ON vitals_chart
+       FOR EACH ROW EXECUTE FUNCTION test_device_vitals_concurrent_hold()`,
+    );
+
+    let results;
+    try {
+      results = await Promise.all([
+        ingest(oru({ uid: PATIENT_CONCURRENT, control: controlId, hr: '83' })),
+        ingest(oru({ uid: PATIENT_CONCURRENT, control: controlId, hr: '83' })),
+      ]);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS test_device_vitals_concurrent_hold ON vitals_chart`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_device_vitals_concurrent_hold()`,
+      );
+    }
+
+    expect(results).toHaveLength(2);
+    expect(results.every((result) => result.ack === 'AA')).toBe(true);
+    expect(results.filter((result) => result.duplicate === true)).toHaveLength(1);
+    expect(results.filter((result) => result.vitals)).toHaveLength(1);
+    expect(await vitalsCount(PATIENT_CONCURRENT)).toBe(1);
+    expect(await controlIdRows(controlId)).toHaveLength(1);
+
+    const counts = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM news2_scores
+           WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid) AS news2,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events
+           WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+             AND event_type = 'vitals.recorded') AS timeline,
+         (SELECT COUNT(*)::int FROM clinical_audit_events
+           WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+             AND resource_table = 'vitals_chart') AS audit,
+         (SELECT COUNT(*)::int FROM lab_interface_messages
+           WHERE tenant_id = $1::uuid AND raw_message LIKE '%GWCM3-CTL-CONCURRENT%') AS inbox`,
+      TENANT,
+      PATIENT_CONCURRENT,
+    );
+    expect(counts[0]).toMatchObject({ news2: 1, timeline: 1, audit: 1, inbox: 1 });
   }, 30000);
 
   test('suppressed sample consumes the control-id; redelivery dedupes', async () => {
