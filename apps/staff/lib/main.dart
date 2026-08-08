@@ -211,9 +211,9 @@ Future<void> main() async {
         // Activate Firebase App Check so Firebase-backed surfaces (FCM,
         // Crashlytics) can attest that requests come from a genuine, unmodified
         // build. Mirrors the patient app's PAT-1 activation.
-        // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
-        // - Debug / profile builds: DebugProvider — register the printed token in
-        //   the Firebase console under App Check → Apps → Manage debug tokens.
+        // - Profile/release builds: Play Integrity (Android) / DeviceCheck (iOS).
+        // - Debug builds: DebugProvider — register the printed token in the
+        //   Firebase console under App Check → Apps → Manage debug tokens.
         // - Web (a real shipping target: dart2js CI lane + Dockerfile.web): a
         //   ReCaptcha v3 site key must be supplied via
         //   --dart-define=VH_RECAPTCHA_SITE_KEY=... (see

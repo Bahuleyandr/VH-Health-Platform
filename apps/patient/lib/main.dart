@@ -85,14 +85,14 @@ Future<void> main() async {
 
       // PAT-1: Activate Firebase App Check to attest that API calls originate
       // from a genuine, unmodified build of this app.
-      // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
-      // - Debug / profile builds: DebugProvider (produces a test token;
-      //   requires the debug token to be registered in the Firebase console).
+      // - Profile/release builds: Play Integrity (Android) / DeviceCheck (iOS).
+      // - Debug builds: DebugProvider (produces a test token; requires the
+      //   debug token to be registered in the Firebase console).
       // Wrapped in try/catch so a provider misconfiguration never blocks startup.
       try {
         await FirebaseAppCheck.instance.activate(
-          // Release: Play Integrity (Android) / DeviceCheck (iOS).
-          // Debug/profile: DebugProvider — register the printed token in the
+          // Profile/release: Play Integrity (Android) / DeviceCheck (iOS).
+          // Debug: DebugProvider — register the printed token in the
           // Firebase console under App Check → Apps → Manage debug tokens.
           providerAndroid: kDebugMode
               ? AndroidDebugProvider()
