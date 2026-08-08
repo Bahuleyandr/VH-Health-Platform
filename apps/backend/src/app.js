@@ -1025,8 +1025,9 @@ app.use(
 // indents (architectural item A4 / migration 174). RBAC is broad
 // because the routes file fans out into operations owned by different
 // roles (billing for deposits, admission for passes, pharmacy/nursing
-// for ward indents); finer-grained per-route checks live in the
-// service layer.
+// for ward indents); finer-grained per-route requireRole guards live
+// in ipdSupportRoutes.js itself (deposit collect vs refund payout,
+// pass lifecycle, ward-indent request vs supply sides).
 app.use(
   '/api/v1/ipd',
   requireRole(...IPD_SUPPORT_ROUTE_ROLES),
