@@ -47,6 +47,13 @@ const MARK = `TL-APPENDONLY-${process.pid}-${Date.now()}`;
 let seq = 0;
 const insertedIds = [];
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 async function appRoleAvailable() {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1`,
@@ -241,4 +248,53 @@ d('clinical_timeline_events is append-only (migration 599)', () => {
     );
     expect(count[0].n).toBe(1);
   });
+
+  test('recordTimelineEvent reads back a concurrently committed duplicate', async () => {
+    if (!roleOk) { console.warn(`Skipping: ${APP_ROLE} unavailable`); return; }
+
+    const idempotencyKey = `${MARK}.concurrent.${++seq}`;
+    const event = {
+      tenantId: TENANT,
+      patientUid: randomUUID(),
+      eventType: 'append_only_probe',
+      sourceTable: 'appendonly_test',
+      sourceId: MARK,
+      summary: `${MARK}.concurrent-duplicate`,
+      idempotencyKey,
+    };
+    const inserted = deferred();
+    const allowCommit = deferred();
+
+    const winner = prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+      const row = await recordTimelineEvent(event, { db: tx });
+      inserted.resolve(row);
+      await allowCommit.promise;
+      return row;
+    }, { timeout: 30_000, maxWait: 10_000 });
+
+    const first = await inserted.promise;
+    const loser = prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+      return recordTimelineEvent(event, { db: tx });
+    }, { timeout: 30_000, maxWait: 10_000 });
+    loser.catch(() => {});
+
+    // Ensure the losing INSERT has reached the unique conflict and is waiting
+    // on the winner's uncommitted row before allowing the winner to commit.
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    allowCommit.resolve();
+
+    const [committed, second] = await Promise.all([winner, loser]);
+    expect(first?.id).toBeTruthy();
+    expect(committed.id).toBe(first.id);
+    expect(second?.id).toBe(first.id);
+    insertedIds.push(first.id);
+
+    const count = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM clinical_timeline_events WHERE idempotency_key = $1`,
+      idempotencyKey,
+    );
+    expect(count[0].n).toBe(1);
+  }, 60_000);
 });

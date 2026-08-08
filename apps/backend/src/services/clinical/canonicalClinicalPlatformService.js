@@ -459,11 +459,11 @@ export async function recordTimelineEvent(input = {}, options = {}) {
   // row's id (canonical_timeline_event_id) and recordCanonicalClinicalEvent
   // treats a null return as CANONICAL_TIMELINE_REQUIRED.
   try {
-    // Single statement (mock-sequenced unit tests count queries, same as the
-    // audit writer below). Conflict target is the FULL unique constraint on
-    // idempotency_key (269: NOT NULL UNIQUE) — no partial-index WHERE clause
-    // here, unlike clinical_audit_events.
-    const rows = await db.$queryRawUnsafe(
+    // The common path remains one statement (mock-sequenced unit tests count
+    // queries, same as the audit writer below). Conflict target is the FULL
+    // unique constraint on idempotency_key (269: NOT NULL UNIQUE) — no
+    // partial-index WHERE clause here, unlike clinical_audit_events.
+    let rows = await db.$queryRawUnsafe(
       `WITH ins AS (
          INSERT INTO clinical_timeline_events
            (tenant_id, patient_uid, encounter_id, event_type, event_subtype, event_status,
@@ -501,6 +501,21 @@ export async function recordTimelineEvent(input = {}, options = {}) {
       Array.isArray(input.tags) ? input.tags.map(String) : [],
       idempotencyKey,
     );
+
+    // Under Read Committed, a concurrent uncommitted insert can make
+    // ON CONFLICT DO NOTHING suppress this insert while the conflicting row
+    // remains invisible to the statement snapshot, so the CTE returns no row.
+    // A second statement gets a fresh snapshot after the conflict wait and
+    // reads back the now-committed canonical row.
+    if (!rows[0]) {
+      rows = await db.$queryRawUnsafe(
+        `SELECT *
+           FROM clinical_timeline_events
+          WHERE idempotency_key = $1
+          LIMIT 1`,
+        idempotencyKey,
+      );
+    }
     return rows[0] || null;
   } catch (err) {
     logCanonicalFailure('timeline event record', err);
