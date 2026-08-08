@@ -60,6 +60,7 @@ const TOKEN_LAB_B = 'device-token-tenantB-lab';
 const ALL_UIDS = [PATIENT_A, DOCTOR_A, LAB_A, NURSE_A, LAB_B];
 
 let patientAId;
+let expectedPhiAuditWrites = 0;
 
 function doctorOfTenantA() {
   const t = generateTestToken('DOCTOR', { uid: DOCTOR_A, tenant_id: TENANT_A });
@@ -130,6 +131,25 @@ async function waitForPush(timeoutMs = 5000) {
   return false;
 }
 
+/** phiAccessLogger also writes after the response. Wait for this suite's
+ *  tenant-scoped rows before teardown so a late insert cannot recreate an FK
+ *  child after clean() has deleted hipaa_access_log. */
+async function waitForPhiAuditWrites(expected, timeoutMs = 10000) {
+  if (expected === 0) return;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM hipaa_access_log
+        WHERE tenant_id = $1::uuid`,
+      TENANT_A,
+    );
+    if (row.count >= expected) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 d('Investigation lab-alert fan-out is tenant scoped', () => {
   // tenants(id) is referenced by hundreds of FKs, so each tenant DELETE is slow.
   // Both hooks need an explicit timeout or the suite fails on jest's 5s default.
@@ -152,6 +172,7 @@ d('Investigation lab-alert fan-out is tenant scoped', () => {
   }, 120000);
 
   afterAll(async () => {
+    await waitForPhiAuditWrites(expectedPhiAuditWrites);
     await clean();
     await prisma.$disconnect().catch(() => {});
   }, 120000);
@@ -174,6 +195,7 @@ d('Investigation lab-alert fan-out is tenant scoped', () => {
       { patient_id: patientAId, custom_test_names: 'CBC' },
     );
     expect(res.statusCode).toBe(200);
+    expectedPhiAuditWrites += 1;
 
     expect(await waitForPush()).toBe(true);
     const pushed = sendPushMock.mock.calls[0][0];
@@ -195,6 +217,7 @@ d('Investigation lab-alert fan-out is tenant scoped', () => {
       { patient_id: patientAId, custom_test_names: 'Lipid Profile' },
     );
     expect(res.statusCode).toBe(200);
+    expectedPhiAuditWrites += 1;
     expect(await waitForPush()).toBe(true);
 
     const { body } = sendPushMock.mock.calls[0][0];
