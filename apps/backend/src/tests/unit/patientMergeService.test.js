@@ -204,6 +204,25 @@ describe('approveMerge', () => {
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
+  it('refuses to approve an unattributed request (NULL requested_by would void the two-person rule)', async () => {
+    mockNext([{ id: 1, status: 'requested', requested_by: null }]);
+    await expect(
+      approveMerge({ tenantId: TENANT, id: 1, approverUid: APPROVER }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_REQUESTER_UNATTRIBUTED' });
+    // No UPDATE was issued.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a continuity-sourced row: approval belongs to the treating-doctor-gated flow', async () => {
+    mockNext([{
+      id: 1, status: 'requested', requested_by: REQUESTER, continuity_disposition: 'proposed',
+    }]);
+    await expect(
+      approveMerge({ tenantId: TENANT, id: 1, approverUid: APPROVER }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_CONTINUITY_WORKFLOW_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
   it('approves when a different user approves', async () => {
     mockNext([{ id: 1, status: 'requested', requested_by: REQUESTER }]);
     mockNext([{ id: 1, status: 'approved', approver_uid: APPROVER }]);
@@ -221,31 +240,49 @@ describe('approveMerge', () => {
 // ---------------------------------------------------------------------------
 describe('rejectMerge', () => {
   it('throws 404 when no requested row matches', async () => {
-    mockNext([]);
+    mockNext([]); // pre-select: row absent
+    mockNext([]); // UPDATE matches nothing
     await expect(rejectMerge({ tenantId: TENANT, id: 1, approverUid: APPROVER })).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('flips status to rejected with reason', async () => {
+    mockNext([{ id: 1, status: 'requested', continuity_disposition: null }]);
     mockNext([{ id: 1, status: 'rejected', rejection_reason: 'Not the same patient' }]);
     const row = await rejectMerge({ tenantId: TENANT, id: 1, approverUid: APPROVER, rejectionReason: 'Not the same patient' });
     expect(row.status).toBe('rejected');
-    const args = queryUnsafeMock.mock.calls[0];
+    const args = queryUnsafeMock.mock.calls[1];
     expect(args[0]).toMatch(/SET status = 'rejected'/);
     expect(args.slice(1, 4)).toEqual([APPROVER, 'Not the same patient', 1]);
+  });
+
+  it('refuses a continuity-sourced row without touching it', async () => {
+    mockNext([{ id: 1, status: 'requested', continuity_disposition: 'proposed' }]);
+    await expect(rejectMerge({ tenantId: TENANT, id: 1, approverUid: APPROVER }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_CONTINUITY_WORKFLOW_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('cancelMerge', () => {
   it('throws 404 when not requested or approved', async () => {
-    mockNext([]);
+    mockNext([]); // pre-select: row absent
+    mockNext([]); // UPDATE matches nothing
     await expect(cancelMerge({ tenantId: TENANT, id: 1 })).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('flips status to cancelled and updates metadata', async () => {
+    mockNext([{ id: 1, status: 'requested', continuity_disposition: null }]);
     mockNext([{ id: 1, status: 'cancelled' }]);
     const row = await cancelMerge({ tenantId: TENANT, id: 1, cancelledBy: REQUESTER, reason: 'Re-checking with billing' });
     expect(row.status).toBe('cancelled');
-    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/SET status = 'cancelled'/);
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/SET status = 'cancelled'/);
+  });
+
+  it('refuses a continuity-sourced row without touching it', async () => {
+    mockNext([{ id: 1, status: 'requested', continuity_disposition: 'proposed' }]);
+    await expect(cancelMerge({ tenantId: TENANT, id: 1, cancelledBy: REQUESTER }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_CONTINUITY_WORKFLOW_REQUIRED' });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -289,6 +326,19 @@ describe('executeMerge', () => {
   it('throws 404 when merge request missing', async () => {
     mockNext([]);
     await expect(executeMerge({ tenantId: TENANT, id: 1, executorUid: EXECUTOR })).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('refuses a continuity-sourced row before anything mutates', async () => {
+    mockNext([{
+      id: 9, status: 'approved', candidate_id: null,
+      primary_uid: PRIMARY, secondary_uid: null, approver_uid: APPROVER,
+      continuity_disposition: 'approved',
+    }]);
+    await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_CONTINUITY_WORKFLOW_REQUIRED' });
+    expect(reassignIdentifiersMock).not.toHaveBeenCalled();
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+    expect(revokeAllUserTokensMock).not.toHaveBeenCalled();
   });
 
   it('refuses to execute against an already-merged secondary', async () => {

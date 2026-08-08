@@ -10,7 +10,18 @@
  * The two-person rule (requester != approver) is enforced at the
  * service layer; the SQL CHECK only enforces "approved status implies
  * approver_uid is set". An admin who requested a merge cannot approve
- * their own merge.
+ * their own merge, and a request with no recorded requester cannot be
+ * approved at all (an unattributed row would make the rule vacuously
+ * pass for any approver).
+ *
+ * Continuity-sourced rows (raised by requestContinuityMerge, marked by a
+ * non-NULL continuity_disposition) are refused by every generic
+ * transition (approve / reject / cancel / execute): their approval
+ * requires the treating-doctor / clinical-safety-lead gate and their
+ * execution is an alias match, both of which only the dedicated
+ * *ContinuityMerge functions enforce. Letting the generic endpoints act
+ * on them would bypass that gate or wedge the temporary identity in
+ * 'proposed' forever.
  *
  * Execution scope (v2, Phase-3 deep-review rework):
  *   - Retarget all active patient_identifiers of the secondary to the
@@ -399,6 +410,24 @@ async function setContinuityFacilityTx(tx, facilityId) {
     String(facility),
   );
   return facility;
+}
+
+/**
+ * Generic approve/reject/cancel/execute must never act on a
+ * continuity-sourced merge row: its approval carries the treating-doctor /
+ * clinical-safety-lead authorization and its execution is an alias match
+ * (no row sweep), both enforced only by the dedicated *ContinuityMerge
+ * flow. continuity_disposition is non-NULL exactly for continuity rows
+ * (chk_patient_merge_continuity_shape) and the shape is fixed at insert,
+ * so this check cannot race.
+ */
+function assertNotContinuityRow(row) {
+  if (row.continuity_disposition !== null && row.continuity_disposition !== undefined) {
+    throw AppError.conflict(
+      'This merge request was raised by the clinical continuity identity workflow; use the dedicated continuity merge endpoints',
+      'PATIENT_MERGE_CONTINUITY_WORKFLOW_REQUIRED',
+    );
+  }
 }
 
 function requireContinuityRole(role, allowed, code) {
@@ -870,16 +899,27 @@ export async function approveMerge({
 
   return await setTenantTx(requireTenantId(tid), async (tx) => {
     const existingRows = await tx.$queryRawUnsafe(
-      `SELECT id, status, requested_by FROM patient_merge_requests
+      `SELECT id, status, requested_by, continuity_disposition
+       FROM patient_merge_requests
        WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
       mid, tid,
     );
     const existing = existingRows[0];
     if (!existing) throw AppError.notFound('Merge request not found');
+    assertNotContinuityRow(existing);
     if (existing.status !== 'requested') {
       throw AppError.badRequest(`Merge request must be in 'requested' status to approve (was '${existing.status}')`);
     }
-    if (existing.requested_by && String(existing.requested_by) === approver) {
+    // Two-person rule. A NULL requested_by would make the separation check
+    // below vacuously pass for every approver, so an unattributed request
+    // is not approvable at all — re-raise it with a recorded requester.
+    if (!existing.requested_by) {
+      throw AppError.conflict(
+        'Two-person rule: this merge request has no recorded requester, so requester/approver separation cannot be verified',
+        'PATIENT_MERGE_REQUESTER_UNATTRIBUTED',
+      );
+    }
+    if (String(existing.requested_by) === approver) {
       throw AppError.forbidden('Two-person rule: the requester cannot approve their own merge');
     }
     const rows = await tx.$queryRawUnsafe(
@@ -911,6 +951,13 @@ export async function rejectMerge({
   const approver = maybeUuid(approverUid, 'approver_uid');
   if (!approver) throw AppError.badRequest('approver_uid is required');
 
+  const existingRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, continuity_disposition FROM patient_merge_requests
+     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    mid, tid,
+  );
+  if (existingRows[0]) assertNotContinuityRow(existingRows[0]);
+
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE patient_merge_requests
      SET status = 'rejected',
@@ -935,6 +982,14 @@ export async function cancelMerge({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const mid = normalizeId(id, 'merge_request id');
+
+  const existingRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, continuity_disposition FROM patient_merge_requests
+     WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    mid, tid,
+  );
+  if (existingRows[0]) assertNotContinuityRow(existingRows[0]);
+
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE patient_merge_requests
      SET status = 'cancelled',
@@ -981,7 +1036,8 @@ export async function executeMerge({
   try {
     updated = await setTenantTx(requireTenantId(tid), async (tx) => {
       const existingRows = await tx.$queryRawUnsafe(
-        `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid
+        `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid,
+                continuity_disposition
          FROM patient_merge_requests
          WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1
          FOR UPDATE`,
@@ -989,6 +1045,11 @@ export async function executeMerge({
       );
       const existing = existingRows[0];
       if (!existing) throw AppError.notFound('Merge request not found');
+      // Continuity rows execute as an alias match through
+      // executeContinuityMerge — running the generic row sweep against one
+      // (secondary_uid is NULL by shape) must fail with direction, not a
+      // confusing not-found.
+      assertNotContinuityRow(existing);
       if (existing.status !== 'approved') {
         throw AppError.badRequest(`Merge request must be in 'approved' status to execute (was '${existing.status}')`);
       }

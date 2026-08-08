@@ -34,6 +34,9 @@
 //  11. Chained merges (A→B then B→C): stored survivor pointers end at the
 //      final survivor; old identifiers resolve to it; the survivor's
 //      timeline union spans the whole chain.
+//  12. Two-person rule holds even for unattributed rows: a request with
+//      NULL requested_by is rejected at approval with a specific 409
+//      instead of letting any single actor approve it.
 //
 // Requires a reachable Postgres (DATABASE_URL). Skipped if none configured.
 
@@ -702,6 +705,29 @@ d('patient merge execution (deep)', () => {
     );
     expect(user[0].merged_into_uid).toBeNull();
     expect(user[0].status).not.toBe('merged');
+  });
+
+  test('an unattributed merge request (NULL requested_by) cannot be approved — the two-person rule never passes vacuously', async () => {
+    const primary = await seedPatient('primary-unattributed');
+    const secondary = await seedPatient('secondary-unattributed');
+    const request = await requestMerge({
+      tenantId: TENANT,
+      primaryUid: primary.uid,
+      secondaryUid: secondary.uid,
+      requestedBy: null,
+      requesterNote: MARK,
+    });
+
+    await expect(approveMerge({ tenantId: TENANT, id: request.id, approverUid: APPROVER }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_REQUESTER_UNATTRIBUTED' });
+
+    // The row is untouched: still awaiting a properly attributed re-raise.
+    const row = await prisma.$queryRawUnsafe(
+      `SELECT status, approver_uid::text FROM patient_merge_requests WHERE id = $1`,
+      request.id,
+    );
+    expect(row[0].status).toBe('requested');
+    expect(row[0].approver_uid).toBeNull();
   });
 
   test('chained merges A→B then B→C: pointers end at the final survivor and the timeline union spans the chain', async () => {
