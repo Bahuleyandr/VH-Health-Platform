@@ -1010,7 +1010,7 @@ function normalizeStartInput(input, registry) {
   return normalized;
 }
 
-function normalizeCommandInput(input, registry) {
+function normalizeCommandInput(input, registry, systemOperation = 'execute_pathway_command') {
   const actor = normalizeActor(input.actor, registry);
   let signal = normalizeSignal(input.signal);
   if (actor.kind === 'system') {
@@ -1051,6 +1051,10 @@ function normalizeCommandInput(input, registry) {
   const pathwayInstanceId = requireUuid(input.pathwayInstanceId, 'pathway_instance_id');
   const rawIdempotencyKey = requireIdempotencyKey(input.idempotencyKey);
   const commandTargetIdentity = Object.freeze({ tenantId, pathwayInstanceId });
+  // System-actor keys are derived, not caller-supplied, so the logical
+  // operation must participate in the derivation: a projector chain that
+  // executes a command and then completes a registered condition for the
+  // same source event would otherwise derive one colliding key and 409.
   const idempotencyKey = actor.kind === 'user'
     ? namespaceUserIdempotencyKey(
       actor,
@@ -1059,7 +1063,7 @@ function normalizeCommandInput(input, registry) {
     )
     : namespaceSystemIdempotencyKey(
       actor,
-      'execute_pathway_command',
+      systemOperation,
       commandTargetIdentity,
     );
   return Object.freeze({
@@ -2344,10 +2348,14 @@ export async function startCarePathwayInstance(input = {}) {
       metadata: normalized.metadata,
       actor: actorFingerprintIdentity(effectiveActor),
     });
+    // Every start acquires its serialization fences NOWAIT and surfaces
+    // contention as PATHWAY_START_SERIALIZATION_BUSY (409). The blocking
+    // wait branch was unreachable in production (every path reaching this
+    // point carries a transaction) and has been removed.
     await acquirePathwayStartLocksTx({
       tx,
       ...normalized,
-      waitForLocks: input.tx === null || input.tx === undefined,
+      waitForLocks: false,
     });
     const existing = await findPathwayInstanceByIdempotencyTx({
       tx,
@@ -3054,7 +3062,7 @@ export async function completePathwayTaskAndExecuteFromRegisteredCondition(input
     ));
   }
   const registry = normalizeRegistry(input.registry ?? workflowRuntimeRegistry);
-  const normalized = normalizeCommandInput(input, registry);
+  const normalized = normalizeCommandInput(input, registry, 'complete_registered_condition');
   const commandOperation = normalizeRegisteredConditionCommandOperation(input);
   return inTenantTx(normalized.tenantId, normalized.tx, async (tx) => {
     const effectiveActor = await resolveCurrentPathwayActorTx(
