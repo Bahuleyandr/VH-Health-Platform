@@ -1,9 +1,10 @@
 import request from 'supertest';
 
 import app from '../app.js';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenant } from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 import { runTransportEscalationSweep } from '../services/patientFlow/porterTransportService.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -50,11 +51,11 @@ async function ownedTaskIds() {
 async function cleanup() {
   const ids = await ownedTaskIds();
   if (ids.length) {
-    await prisma.$executeRawUnsafe(
+    await setTenant(TENANT, tx => tx.$executeRawUnsafe(
       `DELETE FROM notification_outbox
         WHERE payload->>'task_id' = ANY($1::text[])`,
       ids,
-    ).catch(() => {});
+    )).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM notifications
         WHERE type = 'PORTER_TRANSPORT'
@@ -83,7 +84,8 @@ async function cleanup() {
       TENANT,
       ids,
     ).catch(() => {});
-    await prisma.$executeRawUnsafe(
+    await deleteWithAuditBypass(
+      prisma,
       `DELETE FROM clinical_timeline_events
         WHERE tenant_id = $1::uuid
           AND source_table = 'porter_transport_tasks'
@@ -91,7 +93,8 @@ async function cleanup() {
       TENANT,
       ids,
     ).catch(() => {});
-    await prisma.$executeRawUnsafe(
+    await deleteWithAuditBypass(
+      prisma,
       `DELETE FROM clinical_audit_events
         WHERE tenant_id = $1::uuid
           AND resource_table = 'porter_transport_tasks'
@@ -369,7 +372,7 @@ d('NL8 P3 porter transport tasks', () => {
     expect(finalSla[0].status).toBe('completed');
     expect(finalSla[0].completed_at).toBeTruthy();
 
-    const canonical = await prisma.$queryRawUnsafe(
+    const canonical = await setTenant(TENANT, tx => tx.$queryRawUnsafe(
       `SELECT
          (SELECT COUNT(*)::int FROM clinical_timeline_events
            WHERE tenant_id = $1::uuid
@@ -383,7 +386,7 @@ d('NL8 P3 porter transport tasks', () => {
            WHERE payload->>'task_id' = $2) AS outbox_count`,
       TENANT,
       String(taskId),
-    );
+    ));
     expect(canonical[0].timeline_count).toBeGreaterThanOrEqual(4);
     expect(canonical[0].audit_count).toBeGreaterThanOrEqual(4);
     expect(canonical[0].outbox_count).toBeGreaterThanOrEqual(1);

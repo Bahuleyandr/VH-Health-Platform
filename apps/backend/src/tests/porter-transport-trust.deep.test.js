@@ -1,9 +1,9 @@
 // Phase-3 deep-review fix B-L5 — porter transport trust boundaries, proven
 // against a real DB:
 //
-//   (a) Completion verification identity comes from the AUTHENTICATED caller:
-//       a body-supplied verified_by / verifier_id is ignored, and verifier_id
-//       is resolved from the actor's own users row inside the transaction.
+//   (a) Completion and receiving-handoff verification are distinct actions:
+//       the porter cannot self-verify, and the verifier comes from the
+//       authenticated receiving staff identity rather than the request body.
 //   (b) Cancellation is no longer open to the whole transport role union:
 //       only the requester who raised the job or a coordination/escalation
 //       role may cancel; the porter executing the job cannot.
@@ -17,7 +17,11 @@ const prisma = (await import('../lib/prisma.js')).default;
 const {
   completeTransportTask,
   cancelTransportTask,
+  verifyTransportTask,
 } = await import('../services/patientFlow/porterTransportService.js');
+const {
+  PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES,
+} = await import('../config/routeRolePolicy.js');
 const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -87,7 +91,8 @@ async function cleanup() {
           AND source_id = ANY($2::text[])`,
       TENANT, ids,
     ).catch(() => {});
-    await prisma.$executeRawUnsafe(
+    await deleteWithAuditBypass(
+      prisma,
       `DELETE FROM clinical_timeline_events
         WHERE tenant_id = $1::uuid AND source_table = 'porter_transport_tasks'
           AND source_id = ANY($2::text[])`,
@@ -126,9 +131,9 @@ d('B-L5 porter transport trust boundaries (deep)', () => {
     await prisma.$disconnect().catch(() => {});
   }, 60_000);
 
-  // ── (a) verified_by comes from the authenticated caller ───────────────────
+  // ── (a) completion and handoff verification are distinct ─────────────────
 
-  it('completion ignores a body-supplied verified_by/verifier_id and stamps the actor', async () => {
+  it('completion records the porter but ignores body-supplied verifier identities', async () => {
     const taskId = await seedTask({ status: 'accepted' });
 
     const task = await completeTransportTask({
@@ -145,10 +150,131 @@ d('B-L5 porter transport trust boundaries (deep)', () => {
     });
 
     expect(task.status).toBe('completed');
-    expect(task.verified_by).toBe(PORTER_UID);
-    expect(Number(task.verifier_id)).toBe(Number(porterId));
+    expect(task.completed_by).toBe(PORTER_UID);
+    expect(task.verified_by).toBeNull();
+    expect(task.verifier_id).toBeNull();
     expect(task.verified_by).not.toBe(BYSTANDER_NURSE_UID);
   }, 60_000);
+
+  it('the porter who completed the task cannot verify their own handoff', async () => {
+    const taskId = await seedTask({ status: 'accepted' });
+    await completeTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: PORTER_UID,
+      actorRole: 'DRIVER',
+    });
+
+    await expect(verifyTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: PORTER_UID,
+      actorRole: 'DRIVER',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'TRANSPORT_INDEPENDENT_VERIFIER_REQUIRED',
+    });
+  }, 60_000);
+
+  it('authenticated receiving staff verifies after completion and body spoofing is ignored', async () => {
+    const taskId = await seedTask({ status: 'accepted' });
+    await completeTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: PORTER_UID,
+      actorRole: 'DRIVER',
+    });
+
+    const task = await verifyTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: BYSTANDER_NURSE_UID,
+      actorRole: 'IP_STAFF_NURSE',
+      body: {
+        verified_by: REQUESTER_UID,
+        verifier_id: porterId,
+        location_text: 'Radiology reception',
+      },
+    });
+
+    expect(task.status).toBe('completed');
+    expect(task.completed_by).toBe(PORTER_UID);
+    expect(task.verified_by).toBe(BYSTANDER_NURSE_UID);
+    expect(Number(task.verifier_id)).toBe(Number(nurseId));
+    expect(task.verified_by).not.toBe(REQUESTER_UID);
+
+    const retried = await verifyTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: BYSTANDER_NURSE_UID,
+      actorRole: 'IP_STAFF_NURSE',
+    });
+    expect(retried.verified_by).toBe(BYSTANDER_NURSE_UID);
+
+    await expect(verifyTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: INCHARGE_UID,
+      actorRole: 'RECEPTION_INCHARGE',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'TRANSPORT_HANDOFF_ALREADY_VERIFIED',
+    });
+
+    const evidence = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM porter_transport_task_updates
+           WHERE tenant_id = $1::uuid AND task_id = $2::bigint
+             AND metadata->>'handoff_verified' = 'true') AS task_updates,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events
+           WHERE tenant_id = $1::uuid AND source_table = 'porter_transport_tasks'
+             AND source_id = $2::text AND event_subtype = 'verified') AS timeline,
+         (SELECT COUNT(*)::int FROM clinical_audit_events
+           WHERE tenant_id = $1::uuid AND resource_table = 'porter_transport_tasks'
+             AND resource_id = $2::text AND action = 'porter_transport.verified') AS audit`,
+      TENANT,
+      String(taskId),
+    );
+    expect(evidence[0]).toMatchObject({ task_updates: 1, timeline: 1, audit: 1 });
+  }, 60_000);
+
+  it('the service rejects an active non-receiving role even if its caller role is spoofed', async () => {
+    const taskId = await seedTask({ status: 'accepted' });
+    await completeTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: PORTER_UID,
+      actorRole: 'DRIVER',
+    });
+
+    await expect(verifyTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: REQUESTER_UID,
+      actorRole: 'IP_STAFF_NURSE',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'TRANSPORT_VERIFIER_ROLE_REQUIRED',
+    });
+  }, 60_000);
+
+  it('handoff verification is unavailable before the porter completes the task', async () => {
+    const taskId = await seedTask({ status: 'accepted' });
+
+    await expect(verifyTransportTask({
+      tenantId: TENANT,
+      taskId,
+      actorUid: BYSTANDER_NURSE_UID,
+      actorRole: 'IP_STAFF_NURSE',
+    })).rejects.toMatchObject({ statusCode: 400 });
+  }, 60_000);
+
+  it('the verification route admits receiving staff but excludes porter execution roles', () => {
+    expect(PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES).toContain('IP_STAFF_NURSE');
+    expect(PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES).not.toContain('DRIVER');
+    expect(PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES).not.toContain('DELIVERY_STAFF');
+    expect(PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES).not.toContain('EMERGENCY_RESPONDER');
+  });
 
   // ── (b) cancellation restricted to requester + coordination roles ─────────
 

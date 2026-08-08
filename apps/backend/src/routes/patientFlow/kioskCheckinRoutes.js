@@ -5,6 +5,7 @@ import {
   PATIENT_FLOW_SUPERVISED_ROUTE_ROLES,
   PATIENT_TRANSPORT_ROUTE_ROLES,
   PATIENT_TRANSPORT_SETTINGS_ROUTE_ROLES,
+  PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES,
 } from '../../config/routeRolePolicy.js';
 import { wrapAsync } from '../../config/routeWrapper.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
@@ -27,6 +28,7 @@ import {
   postTransportTaskCancel,
   postTransportTaskComplete,
   postTransportTaskPickup,
+  postTransportTaskVerify,
   putTransportSettings,
   putTransportZone,
 } from '../../controllers/patientFlow/porterTransportController.js';
@@ -133,6 +135,12 @@ router.post(
   '/transport/tasks/:taskId/complete',
   requireRole(...PATIENT_TRANSPORT_ROUTE_ROLES),
   wrapAsync(postTransportTaskComplete),
+);
+
+router.post(
+  '/transport/tasks/:taskId/verify',
+  requireRole(...PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES),
+  wrapAsync(postTransportTaskVerify),
 );
 
 router.post(
