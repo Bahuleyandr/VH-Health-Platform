@@ -45,8 +45,10 @@ const {
   listWorkflowSlaInstances,
   readCanonicalPatientTimeline,
   recordCanonicalClinicalEvent,
+  recordClinicalAuditEvent,
   transitionEncounter,
 } = await import('../../services/clinical/canonicalClinicalPlatformService.js');
+const { runInTenantContext } = await import('../../lib/tenantContext.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT = '11111111-1111-4111-8111-111111111111';
@@ -128,6 +130,66 @@ describe('canonical clinical platform service', () => {
     expect(result).toEqual({ timeline: timelineRow, audit: auditRow });
     expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
     expect(queryUnsafeMock.mock.calls[1][0]).toContain('WHERE idempotency_key = $1');
+  });
+
+  it('reads back an audit row after an invisible concurrent conflict', async () => {
+    const timelineRow = { id: '44444444-4444-4444-8444-444444444444' };
+    const auditRow = { id: '55555555-5555-4555-8555-555555555555' };
+    queryUnsafeMock
+      .mockResolvedValueOnce([timelineRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([auditRow]);
+
+    const result = await recordCanonicalClinicalEvent({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      eventType: 'note.signed',
+      sourceTable: 'clinical_notes',
+      sourceId: 7,
+      actorUid: ACTOR,
+    }, { strict: true });
+
+    expect(result).toEqual({ timeline: timelineRow, audit: auditRow });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain('clinical_audit_events');
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain('WHERE idempotency_key = $1');
+  });
+
+  it('uses the active transaction tenant when the caller omits tenantId', async () => {
+    const auditRow = { id: '55555555-5555-4555-8555-555555555555', tenant_id: TENANT };
+    queryUnsafeMock.mockResolvedValueOnce([auditRow]);
+
+    const result = await runInTenantContext(TENANT, () => recordClinicalAuditEvent({
+      patientUid: PATIENT,
+      action: 'note.signed',
+      resourceTable: 'clinical_notes',
+      resourceId: 7,
+      actorUid: ACTOR,
+    }, { db: __prismaDefaultMock }));
+
+    expect(result).toBe(auditRow);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][1]).toBe(TENANT);
+  });
+
+  it('uses the transaction GUC when no in-process tenant context exists', async () => {
+    const auditRow = { id: '55555555-5555-4555-8555-555555555555', tenant_id: TENANT };
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([auditRow]);
+
+    const result = await recordClinicalAuditEvent({
+      patientUid: PATIENT,
+      action: 'note.signed',
+      resourceTable: 'clinical_notes',
+      resourceId: 7,
+      actorUid: ACTOR,
+    }, { db: __prismaDefaultMock });
+
+    expect(result).toBe(auditRow);
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain("current_setting('app.current_tenant_id'");
+    expect(queryUnsafeMock.mock.calls[1][1]).toBe(TENANT);
   });
 
   it('rejects strict writes when the timeline row cannot be recorded', async () => {

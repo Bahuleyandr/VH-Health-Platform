@@ -75,6 +75,23 @@ export const MINIMIZED_INPATIENT_PAYLOAD_ROLES = new Set([
   'HOUSEKEEPING_INCHARGE',
 ]);
 
+// Full-scope roles that read the inpatient board for operational coordination
+// (admission desk, billing, finance, insurance, counselling). They keep full
+// row scope but must not receive clinical detail sections server-side
+// (diagnosis, alerts, clinical tasks, notes) — the command board trims their
+// payload to the sections their role view promises. Housekeeping stays on the
+// stricter MINIMIZED set above.
+export const OPERATIONAL_INPATIENT_PAYLOAD_ROLES = new Set([
+  'IPD_COUNSELLOR',
+  'INSURANCE_COORDINATOR',
+  'RECEPTIONIST',
+  'ADMISSION_OFFICER',
+  'RECEPTION_INCHARGE',
+  'BILLING_STAFF',
+  'BILLING_INCHARGE',
+  'FINANCE_INCHARGE',
+]);
+
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
 
 function normalizeRole(role) {
