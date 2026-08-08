@@ -2,8 +2,11 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
-import { BCMA_CONFIG } from '../../config/pharmacyConfig.js';
+import {
+  recordCanonicalClinicalEvent,
+  recordMedicationSafetyReviews,
+} from './canonicalClinicalPlatformService.js';
+import { BCMA_CONFIG, MAR_SCHEDULE_LIMITS } from '../../config/pharmacyConfig.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 // ===================================================================
@@ -105,13 +108,37 @@ function hoursForFrequency(raw) {
 // of explicit scheduled_time ISO strings. Returns null when the
 // frequency is unrecognised — the caller falls back to requiring an
 // explicit scheduled_time so the error stays loud.
+//
+// C-L3: this used to clamp duration_days to 14 SILENTLY, so an OD × 30-day
+// prescription scheduled only 14 days of doses — days 15–30 simply never
+// existed on the MAR and nobody was told. The bounds are now loud 400s
+// (house style — the unrecognised-frequency error in the same flow):
+// durations within MAR_SCHEDULE_LIMITS are honoured IN FULL, and anything
+// beyond the day window or the absolute dose ceiling throws instead of
+// truncating. `Number(durationDays) || 1` still maps absent/0/NaN/negative
+// to 1 day (defensive defaulting, unchanged).
 function expandSchedule(frequency, startTime, durationDays) {
   const interval = hoursForFrequency(frequency);
   if (interval == null) return null;
   const start = startTime ? new Date(startTime) : new Date();
   if (Number.isNaN(start.getTime())) return null;
-  const days = Math.max(1, Math.min(Number(durationDays) || 1, 14));
+  const { maxScheduleDays, maxTotalDoses } = MAR_SCHEDULE_LIMITS;
+  const days = Math.max(1, Number(durationDays) || 1);
+  if (days > maxScheduleDays) {
+    throw AppError.badRequest(
+      `duration_days ${days} exceeds the ${maxScheduleDays}-day MAR scheduling window — schedule in blocks or supply explicit scheduled_time entries`,
+      'MAR_DURATION_EXCEEDS_WINDOW',
+      { requested_days: days, max_schedule_days: maxScheduleDays },
+    );
+  }
   const totalDoses = Math.ceil((days * 24) / interval);
+  if (totalDoses > maxTotalDoses) {
+    throw AppError.badRequest(
+      `Expanding ${days} day(s) of "${frequency}" would create ${totalDoses} doses (ceiling ${maxTotalDoses}) — schedule in blocks or supply explicit scheduled_time entries`,
+      'MAR_SCHEDULE_DOSE_CEILING',
+      { requested_days: days, total_doses: totalDoses, max_total_doses: maxTotalDoses },
+    );
+  }
   const out = [];
   for (let i = 0; i < totalDoses; i += 1) {
     const t = new Date(start.getTime() + i * interval * 60 * 60 * 1000);
@@ -197,6 +224,27 @@ async function recordCanonicalMarEvent({
   }
 }
 
+// Locate an existing non-cancelled row for the same patient + medication in
+// the same clinical slot (±1 minute — absorbs ER-to-ICU carry-over drift).
+// Used both as the friendly Phase-0 pre-check and as the winner lookup after
+// a 23505 on migration 642's uniq_mar_scheduled_dose backstop index (which is
+// exact-equality on scheduled_time, a subset of this window).
+async function findScheduledSibling(patientUid, med) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at
+       FROM medication_administrations
+      WHERE patient_uid = $1::uuid
+        AND medication_name = $2
+        AND scheduled_time >= ($3::timestamptz - INTERVAL '1 minute')
+        AND scheduled_time < ($3::timestamptz + INTERVAL '1 minute')
+        AND status <> 'cancelled'
+      ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $3::timestamptz))) ASC, id ASC
+      LIMIT 1`,
+    patientUid, med.medication_name, med.scheduled_time,
+  );
+  return rows[0] || null;
+}
+
 /**
  * Schedule medications for a patient.
  * @param {string} patientUid
@@ -265,20 +313,9 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     // Findings:
     // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard
     // 2026-05-20-emergency-walk-in-nurse-7622bcce.
-    const dup = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at
-         FROM medication_administrations
-        WHERE patient_uid = $1::uuid
-          AND medication_name = $2
-          AND scheduled_time >= ($3::timestamptz - INTERVAL '1 minute')
-          AND scheduled_time < ($3::timestamptz + INTERVAL '1 minute')
-          AND status <> 'cancelled'
-        ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $3::timestamptz))) ASC, id ASC
-        LIMIT 1`,
-      patientUid, med.medication_name, med.scheduled_time,
-    );
-    if (dup.length) {
-      results.push(dup[0]);
+    const dup = await findScheduledSibling(patientUid, med);
+    if (dup) {
+      results.push(dup);
       continue;
     }
 
@@ -286,34 +323,54 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     // timeline + audit event commit together (or roll back together). Previously
     // the canonical event ran outside the tx, swallowed — so a scheduled dose
     // could exist with no canonical safety record.
-    const row = await setTenantTx(tenantId, async (tx) => {
-      const rows = await tx.$queryRawUnsafe(
-        `INSERT INTO medication_administrations
-           (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
-         RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, tenant_id, created_at`,
-        patientUid,
-        prescriptionId || null,
-        med.medication_name,
-        med.dose,
-        normalizedRoute,
-        med.scheduled_time,
-        med.notes || null,
-      );
-      await recordCanonicalMarEvent({
-        record: rows[0],
-        eventType: 'mar.scheduled',
-        actorUid: context.actorUid,
-        actorRole: context.actorRole,
-        encounterId: context.encounterId,
-        sourceClinicalOrderId: context.sourceClinicalOrderId,
-        payload: {
-          prescription_id: prescriptionId || null,
-        },
-        db: tx,
+    let row;
+    try {
+      row = await setTenantTx(tenantId, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `INSERT INTO medication_administrations
+             (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
+           RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, tenant_id, created_at`,
+          patientUid,
+          prescriptionId || null,
+          med.medication_name,
+          med.dose,
+          normalizedRoute,
+          med.scheduled_time,
+          med.notes || null,
+        );
+        await recordCanonicalMarEvent({
+          record: rows[0],
+          eventType: 'mar.scheduled',
+          actorUid: context.actorUid,
+          actorRole: context.actorRole,
+          encounterId: context.encounterId,
+          sourceClinicalOrderId: context.sourceClinicalOrderId,
+          payload: {
+            prescription_id: prescriptionId || null,
+          },
+          db: tx,
+        });
+        return rows[0];
       });
-      return rows[0];
-    });
+    } catch (err) {
+      // C-L2 — the pre-check above is check-then-insert on plain prisma
+      // (TOCTOU): two concurrent schedule calls for the same dose slot can
+      // both pass it. Migration 642's uniq_mar_scheduled_dose partial unique
+      // index is the hard backstop; losing the race lands here as a 23505.
+      // Recover the winner row and return it — the same idempotent-return
+      // behaviour the pre-check gives, with no canonical mar.scheduled event
+      // for the dedupe (the winner's transaction already emitted the row's
+      // one event, and this call created nothing).
+      if (err?.meta?.code === '23505' || /23505|duplicate key value/i.test(err?.message || '')) {
+        const winner = await findScheduledSibling(patientUid, med);
+        if (winner) {
+          results.push(winner);
+          continue;
+        }
+      }
+      throw err;
+    }
     results.push(row);
   }
 
@@ -633,6 +690,40 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
       overrideReason: noScanOverrideReason,
       inspection,
     });
+    if (noScanOverrideReason) {
+      // Canonical invariant item 5 (docs/CANONICAL_CLINICAL_TIMELINE.md): a
+      // documented override of a medication-safety control must persist a
+      // medication_safety_reviews row in the SAME transaction as the detail
+      // write. The no-scan override bypasses the BCMA scan gate, so record it
+      // as a blocked finding with the override reason — the helper stores it
+      // status='overridden' with override_required=true. The helper swallows
+      // per-row insert failures, so verify a row actually landed and abort
+      // (rolling the administration back) when none did: an unrecorded safety
+      // override must not commit.
+      const reviews = await recordMedicationSafetyReviews({
+        tenantId: tid,
+        patientUid: applied.record.patient_uid,
+        safety: {
+          safe: false,
+          blockers: [{
+            type: 'bcma_no_scan_override',
+            severity: 'medium',
+            medication_name: applied.record.medication_name,
+            message: `Barcode scan bypassed for administration: ${noScanOverrideReason}`,
+            medication_administration_id: applied.record.id,
+          }],
+          warnings: [],
+        },
+        override: { reason: noScanOverrideReason, approvedBy: administeredBy },
+        actorUid: administeredBy,
+      }, { db: tx });
+      if (!reviews.length) {
+        throw AppError.internal(
+          'Medication safety review write failed for no-scan override',
+          'MEDICATION_SAFETY_REVIEW_WRITE_FAILED',
+        );
+      }
+    }
     await recordCanonicalMarEvent({
       record: applied.record,
       eventType: 'mar.administered',

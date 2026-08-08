@@ -2111,6 +2111,7 @@ describe('inpatient primary physician and handler fail-closed behavior', () => {
         if (sql.includes('FROM discharge_summaries')) return [];
         if (sql.includes('FROM medication_reconciliations')) return [];
         if (sql.includes('FROM follow_up_plans AS plan')) return [];
+        if (sql.includes('WITH RECURSIVE merged_chain')) return [{ uid: PATIENT_UID }];
         if (sql.includes('FROM clinical_timeline_events AS timeline')) return [];
         throw new Error(`Unexpected SQL: ${sql}`);
       }),
@@ -2274,6 +2275,7 @@ describe('inpatient primary physician and handler fail-closed behavior', () => {
           if (sql.includes('FROM follow_up_plans AS plan')) {
             return [{ id: 12, appointment_id: 13, status: 'scheduled' }];
           }
+          if (sql.includes('WITH RECURSIVE merged_chain')) return [{ uid: PATIENT_UID }];
           if (sql.includes('FROM clinical_timeline_events AS timeline')) return [];
           throw new Error(`Unexpected SQL: ${sql}`);
         }),
@@ -2366,6 +2368,7 @@ describe('inpatient primary physician and handler fail-closed behavior', () => {
         if (sql.includes('FROM follow_up_plans AS plan')) {
           return [{ id: 12, appointment_id: 13, status: 'scheduled' }];
         }
+        if (sql.includes('WITH RECURSIVE merged_chain')) return [{ uid: PATIENT_UID }];
         if (sql.includes('FROM clinical_timeline_events AS timeline')) return [];
         throw new Error(`Unexpected SQL: ${sql}`);
       }),

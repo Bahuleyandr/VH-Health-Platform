@@ -230,6 +230,12 @@ export async function listPatientIdentifiers({
  * Reverse lookup — find the patient_uid for a given (type, value). Used by
  * the dedupe detector and by the route that resolves "patient by ABHA"
  * style requests.
+ *
+ * Identifiers that were merged away keep their original owner in
+ * original_patient_uid but resolve (patient_uid) to the surviving patient
+ * via merged_into_uid, so an old MRN/ABHA keeps finding the live record
+ * after a merge. Active rows sort first so a re-issued value wins over a
+ * historical merged one.
  */
 export async function lookupByIdentifier({
   tenantId = null,
@@ -241,7 +247,11 @@ export async function lookupByIdentifier({
   const type = normalizeIdentifierType(identifierType);
   const value = safeText(identifierValue, VALUE_MAX);
   if (!value) throw AppError.badRequest('identifier_value is required');
-  const filters = ['tenant_id = $1::uuid', 'identifier_type = $2', "status = 'active'"];
+  const filters = [
+    'tenant_id = $1::uuid',
+    'identifier_type = $2',
+    "(status = 'active' OR (status = 'merged_into' AND merged_into_uid IS NOT NULL))",
+  ];
   const params = [tid, type];
   if (hashValue) {
     params.push(hashIdentifierValue(value));
@@ -252,11 +262,17 @@ export async function lookupByIdentifier({
   }
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, identifier_type, identifier_value,
+      `SELECT id,
+              CASE WHEN status = 'merged_into' THEN merged_into_uid
+                   ELSE patient_uid END AS patient_uid,
+              patient_uid AS original_patient_uid,
+              status, merged_into_uid,
+              identifier_type, identifier_value,
               issuer, is_primary, assigned_at, expires_at, metadata,
               created_at, updated_at
        FROM patient_identifiers
        WHERE ${filters.join(' AND ')}
+       ORDER BY (status = 'active') DESC, is_primary DESC, created_at DESC
        LIMIT 5`,
       ...params,
     );
@@ -463,10 +479,14 @@ export async function setPrimaryIdentifier({ tenantId = null, id } = {}) {
 }
 
 /**
- * Move all ACTIVE identifiers from secondary_uid into primary_uid as part
- * of a merge execution. Marks the moved rows status='merged_into' with
- * merged_into_uid pointing at the survivor; the primary's own identifiers
- * stay unchanged.
+ * Retarget all ACTIVE identifiers of secondary_uid to the survivor as part
+ * of a merge execution. Rows keep their original patient_uid (that IS the
+ * un-merge provenance: which identifiers the merged-away record owned) and
+ * become status='merged_into' with merged_into_uid pointing at the
+ * survivor; lookupByIdentifier resolves them to the survivor from there.
+ * Merge metadata (merge_request_id, merged_at) is folded into the row's
+ * metadata so a future un-merge can select exactly the rows this execution
+ * touched. The primary's own identifiers stay unchanged.
  *
  * Internal-only: used by the merge workflow service. Wraps the writes in
  * the caller's transaction so a partial merge can roll back cleanly.
@@ -475,6 +495,7 @@ export async function reassignIdentifiersForMerge(tx, {
   tenantId,
   primaryUid,
   secondaryUid,
+  mergeRequestId = null,
 }) {
   const tid = resolveTenantId({ tenantId });
   const primary = maybeUuid(primaryUid, 'primary_uid');
@@ -484,16 +505,19 @@ export async function reassignIdentifiersForMerge(tx, {
   }
   const result = await tx.$queryRawUnsafe(
     `UPDATE patient_identifiers
-     SET patient_uid = $1::uuid,
-         status = 'merged_into',
+     SET status = 'merged_into',
          merged_into_uid = $1::uuid,
          is_primary = false,
+         metadata = metadata || jsonb_build_object(
+           'merge_request_id', $4::int,
+           'merged_at', NOW()::text
+         ),
          updated_at = NOW()
      WHERE tenant_id = $3::uuid
        AND patient_uid = $2::uuid
        AND status = 'active'
      RETURNING id, identifier_type, identifier_value`,
-    primary, secondary, tid,
+    primary, secondary, tid, mergeRequestId,
   );
   return { reassigned: result, count: result.length };
 }

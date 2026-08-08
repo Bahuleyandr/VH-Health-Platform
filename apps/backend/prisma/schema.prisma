@@ -6906,6 +6906,7 @@ model medication_administrations {
 
   @@unique([patient_uid, medication_name, scheduled_time], map: "uniq_mar_administered_dose", where: raw("(((status)::text = 'administered'::text) AND (scheduled_time IS NOT NULL))"))
   @@unique([tenant_id, id], map: "ux_cc_mar_tenant_id")
+  @@unique([patient_uid, medication_name, scheduled_time], map: "uniq_mar_scheduled_dose", where: raw("(((status)::text = 'scheduled'::text) AND (scheduled_time IS NOT NULL))"))
   @@index([patient_uid, administered_at(sort: Desc)], map: "idx_med_admin_patient_time")
   @@index([tenant_id], map: "idx_medication_administrations_tenant_id")
 }
@@ -11422,6 +11423,8 @@ model users {
   is_break_glass_account                                                                                                           Boolean                                                @default(false)
   break_glass_name                                                                                                                 String?                                                @db.VarChar(160)
   break_glass_reason                                                                                                               String?
+  merged_into_uid                                                                                                                  String?                                                @db.Uuid
+  merged_at                                                                                                                        DateTime?                                              @db.Timestamptz(6)
   abdm_consents                                                                                                                    abdm_consents[]
   abdm_data_requests                                                                                                               abdm_data_requests[]                                   @relation("abdm_data_requests_patient")
   abdm_data_requests_recovery_owner                                                                                                abdm_data_requests[]                                   @relation("abdm_data_requests_recovery_owner")
@@ -11781,6 +11784,7 @@ model users {
   @@index([is_unidentified], map: "idx_users_is_unidentified", where: raw("(is_unidentified = true)"))
   @@index([phone_search_hash], map: "idx_users_phone_search_hash", where: raw("(phone_search_hash IS NOT NULL)"))
   @@index([deleted_at], map: "idx_users_deleted_at", where: raw("(is_deleted = true)"))
+  @@index([merged_into_uid], map: "idx_users_merged_into_uid", where: raw("(merged_into_uid IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

@@ -72,10 +72,13 @@ export async function resolvePathwayMode(tenantId, pathwayKey) {
     return normalizePathwayMode(readOwnDataProperty(pathwaySettings, pathwayKey))
       || DEFAULT_PATHWAY_MODE;
   } catch (err) {
-    logger.debug('care pathway mode resolve fell back to off', {
+    // Fail-safe: an unresolved mode must never activate pathways, but a lookup
+    // failure is not the same as "configured off" — surface it to operators.
+    logger.warn('care pathway mode resolution failed; failing safe to off', {
       tenantId: id,
       pathwayKey,
       error: err?.message,
+      code: err?.code || null,
     });
     return DEFAULT_PATHWAY_MODE;
   }

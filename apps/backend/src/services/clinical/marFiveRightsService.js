@@ -26,7 +26,10 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
-import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import {
+  recordCanonicalClinicalEvent,
+  recordMedicationSafetyReviews,
+} from './canonicalClinicalPlatformService.js';
 import { duplicateAdministrationError } from './marService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -326,6 +329,52 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     }
 
     const updated = rows[0];
+    if (updated?.id && overrideReason && !evaluation.allPassed) {
+      // Canonical invariant item 5 (docs/CANONICAL_CLINICAL_TIMELINE.md): an
+      // override of a failed medication-safety check must persist
+      // medication_safety_reviews rows in the SAME transaction as the detail
+      // write — one blocked finding per failed soft right (only dose/route/time
+      // can reach here; patient/drug mismatches hard-stop above). With the
+      // override reason present the helper stores them status='overridden'
+      // with override_required=true. Skipped entirely when all rights passed
+      // (nothing was overridden — mirrors pharmacistVerificationService's
+      // "only when notable" guard). The helper swallows per-row insert
+      // failures, so verify every finding landed and abort (rolling the
+      // administration back) when one did not: an unrecorded safety override
+      // must not commit.
+      const failedRights = Object.entries(evaluation.rights)
+        .filter(([, passed]) => !passed)
+        .map(([name]) => name);
+      const reviews = await recordMedicationSafetyReviews({
+        tenantId: tid,
+        patientUid: updated.patient_uid,
+        safety: {
+          safe: false,
+          blockers: failedRights.map((name) => ({
+            type: `bcma_right_${name}`,
+            severity: 'high',
+            medication_name: updated.medication_name,
+            message: `5-rights ${name} check failed and was overridden: ${overrideReason}`,
+            medication_administration_id: updated.id,
+            ...(name === 'time'
+              ? {
+                minutes_from_scheduled: evaluation.context.minutesFromScheduled,
+                window_minutes: evaluation.context.windowMinutes,
+              }
+              : {}),
+          })),
+          warnings: [],
+        },
+        override: { reason: overrideReason, approvedBy: administeredBy },
+        actorUid: administeredBy,
+      }, { db: tx });
+      if (reviews.length !== failedRights.length) {
+        throw AppError.internal(
+          'Medication safety review write failed for 5-rights override',
+          'MEDICATION_SAFETY_REVIEW_WRITE_FAILED',
+        );
+      }
+    }
     if (updated?.id) {
       // Canonical timeline + audit on the SAME tx so the audit row is
       // tenant-scoped and atomic with the administration. The helper guards its

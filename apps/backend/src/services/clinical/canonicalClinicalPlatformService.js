@@ -7,11 +7,16 @@
 
 import { randomUUID } from 'node:crypto';
 import prisma from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getPatientTimeline as getLegacyPatientTimeline } from '../emr/clinicalTimelineService.js';
+import {
+  mergedPatientUidsSubquery,
+  resolveMergedPatientUidSet,
+} from './mergedPatientReadUnion.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GLOBAL_TENANT_SENTINEL = '00000000-0000-0000-0000-000000000000';
@@ -236,6 +241,19 @@ function normalizeTenantId(value) {
   return requireTenantId(cleanUuid(value));
 }
 
+async function resolveCanonicalTenantId(db, value) {
+  const explicitTenantId = cleanUuid(value);
+  if (explicitTenantId) return explicitTenantId;
+
+  const contextTenantId = cleanUuid(getCurrentTenantId());
+  if (contextTenantId) return contextTenantId;
+
+  const rows = await db.$queryRawUnsafe(
+    `SELECT current_setting('app.current_tenant_id', true) AS tenant_id`,
+  );
+  return normalizeTenantId(rows[0]?.tenant_id);
+}
+
 function safeJson(value, fallback = {}) {
   if (value === undefined || value === null) return fallback;
   return value;
@@ -434,7 +452,10 @@ export async function recordTimelineEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
 
-  const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const patientUid = cleanUuid(input.patientUid || input.patient_uid);
   if (!patientUid) return null;
 
@@ -527,7 +548,10 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
 
-  const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const action = cleanText(input.action);
   if (!action) return null;
 
@@ -552,7 +576,7 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
     // documentIntegrityService links sig.audit_event_id = events.audit.id) keep
     // working. One query → mock-sequenced unit tests see the same call count as
     // the prior ON CONFLICT DO UPDATE form.
-    const rows = await db.$queryRawUnsafe(
+    let rows = await db.$queryRawUnsafe(
       `WITH ins AS (
          INSERT INTO clinical_audit_events
            (tenant_id, patient_uid, encounter_id, action, action_status, actor_uid, actor_role,
@@ -589,6 +613,23 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
       idempotencyKey,
       input.occurredAt || input.occurred_at || null,
     );
+
+    // Under Read Committed, a concurrent uncommitted insert can make
+    // ON CONFLICT DO NOTHING suppress this insert while the conflicting row
+    // remains invisible to the statement snapshot, so the CTE returns no row.
+    // A second statement gets a fresh snapshot after the conflict wait and
+    // reads back the now-committed canonical row. (The key is always derived
+    // non-null here, so the equality predicate stays inside the partial
+    // unique index's WHERE idempotency_key IS NOT NULL domain.)
+    if (!rows[0]) {
+      rows = await db.$queryRawUnsafe(
+        `SELECT *
+           FROM clinical_audit_events
+          WHERE idempotency_key = $1
+          LIMIT 1`,
+        idempotencyKey,
+      );
+    }
     return rows[0] || null;
   } catch (err) {
     logCanonicalFailure('clinical audit event record', err);
@@ -822,9 +863,16 @@ export async function readCanonicalPatientTimeline(patientUid, filters = {}, opt
   const tenantId = normalizeTenantId(filters.tenantId || filters.tenant_id);
   const limit = Math.max(1, Math.min(Number.parseInt(filters.limit, 10) || 100, 500));
   const includeLegacy = truthyFlag(filters.includeLegacy) || truthyFlag(filters.include_legacy);
-  const params = [tenantId, uid];
+  // Merged-uid union: canonical events recorded before a patient merge stay
+  // under the merged-away uid (the timeline is append-only), so the
+  // survivor's chart reads the whole chain.
+  const uidSet = await resolveMergedPatientUidSet(db, {
+    tenantId,
+    patientUid: uid,
+  });
+  const params = [tenantId, uidSet];
   let idx = 3;
-  const where = ['tenant_id = $1::uuid', 'patient_uid = $2::uuid'];
+  const where = ['tenant_id = $1::uuid', 'patient_uid = ANY($2::uuid[])'];
   if (filters.date_from) {
     where.push(`occurred_at >= $${idx++}::timestamptz`);
     params.push(filters.date_from);
@@ -926,7 +974,11 @@ export async function listClinicalAuditEvents(filters = {}, options = {}) {
   const clauses = ['tenant_id = $1::uuid'];
   const params = [tenantId];
 
-  addOptionalFilter({ clauses, params, field: 'patient_uid', value: cleanUuid(filters.patientUid || filters.patient_uid), cast: 'uuid' });
+  const patientUid = cleanUuid(filters.patientUid || filters.patient_uid);
+  if (patientUid) {
+    params.push(patientUid);
+    clauses.push(`patient_uid IN (${mergedPatientUidsSubquery('$1::uuid', `$${params.length}::uuid`)})`);
+  }
   addOptionalFilter({ clauses, params, field: 'encounter_id', value: cleanUuid(filters.encounterId || filters.encounter_id), cast: 'uuid' });
   addOptionalFilter({ clauses, params, field: 'actor_uid', value: cleanUuid(filters.actorUid || filters.actor_uid), cast: 'uuid' });
   addOptionalFilter({ clauses, params, field: 'action_status', value: cleanText(filters.status || filters.action_status) });
@@ -967,7 +1019,11 @@ export async function listWorkflowSlaInstances(filters = {}, options = {}) {
   const clauses = ['tenant_id = $1::uuid'];
   const params = [tenantId];
 
-  addOptionalFilter({ clauses, params, field: 'patient_uid', value: cleanUuid(filters.patientUid || filters.patient_uid), cast: 'uuid' });
+  const patientUid = cleanUuid(filters.patientUid || filters.patient_uid);
+  if (patientUid) {
+    params.push(patientUid);
+    clauses.push(`patient_uid IN (${mergedPatientUidsSubquery('$1::uuid', `$${params.length}::uuid`)})`);
+  }
   addOptionalFilter({ clauses, params, field: 'encounter_id', value: cleanUuid(filters.encounterId || filters.encounter_id), cast: 'uuid' });
   addOptionalFilter({ clauses, params, field: 'rule_code', value: cleanText(filters.ruleCode || filters.rule_code) });
   addOptionalFilter({ clauses, params, field: 'status', value: cleanText(filters.status) });
@@ -1051,7 +1107,10 @@ export async function startWorkflowSla(input = {}, options = {}) {
     }
     return null;
   }
-  const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const ruleCode = cleanText(input.ruleCode || input.rule_code);
   if (!ruleCode) {
     if (strict) {
@@ -1128,25 +1187,55 @@ export async function startWorkflowSla(input = {}, options = {}) {
 export async function completeWorkflowSla(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
-  const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const ruleCode = cleanText(input.ruleCode || input.rule_code);
   const sourceTable = cleanText(input.sourceTable || input.source_table);
   const sourceId = cleanText(input.sourceId || input.source_id);
   if (!ruleCode || !sourceTable || !sourceId) return null;
 
   try {
+    // Terminal-state guard: 'completed' and 'cancelled' rows are never
+    // re-touched — a re-completion after due_at must not flip a completed SLA
+    // to 'breached'. The UNION readback keeps re-completion idempotent (the
+    // existing terminal row is returned unchanged). 'breached'/'escalated'
+    // are not terminal (house convention — resultsInboxService, death
+    // certification treat them as still-completable): the status is preserved
+    // while the late completion stamps completed_at once.
     const rows = await db.$queryRawUnsafe(
-      `UPDATE workflow_sla_instances
-          SET status = CASE WHEN NOW() > due_at THEN 'breached' ELSE 'completed' END,
-              completed_at = NOW(),
-              breached_at = CASE WHEN NOW() > due_at THEN COALESCE(breached_at, NOW()) ELSE breached_at END,
-              metadata = metadata || $5::jsonb,
-              updated_at = NOW()
+      `WITH upd AS (
+         UPDATE workflow_sla_instances
+            SET status = CASE
+                  WHEN status IN ('breached', 'escalated') THEN status
+                  WHEN NOW() > due_at THEN 'breached'
+                  ELSE 'completed'
+                END,
+                completed_at = COALESCE(completed_at, NOW()),
+                breached_at = CASE
+                  WHEN status NOT IN ('breached', 'escalated') AND NOW() > due_at
+                    THEN COALESCE(breached_at, NOW())
+                  ELSE breached_at
+                END,
+                metadata = metadata || $5::jsonb,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid
+            AND rule_code = $2
+            AND source_table = $3
+            AND source_id = $4
+            AND status NOT IN ('completed', 'cancelled')
+          RETURNING *
+       )
+       SELECT * FROM upd
+       UNION ALL
+       SELECT * FROM workflow_sla_instances
         WHERE tenant_id = $1::uuid
           AND rule_code = $2
           AND source_table = $3
           AND source_id = $4
-        RETURNING *`,
+          AND NOT EXISTS (SELECT 1 FROM upd)
+       LIMIT 1`,
       tenantId,
       ruleCode,
       sourceTable,
@@ -1193,7 +1282,10 @@ export async function recordMedicationSafetyReviews(input = {}, options = {}) {
     });
   }
 
-  const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const rows = [];
   for (const finding of findings) {
     const issue = finding.issue || {};

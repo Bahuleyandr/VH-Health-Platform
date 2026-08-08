@@ -104,6 +104,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: jest.fn(),
   recordClinicalAuditEvent: jest.fn(),
+  recordMedicationSafetyReviews: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/events/eventOutboxService.js', () => ({
   publishEvent: jest.fn(),

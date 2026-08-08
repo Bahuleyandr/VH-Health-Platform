@@ -24,6 +24,7 @@ import {
 import { getClinicalAiModule } from '../ai/clinicalAiModuleService.js';
 import { PATIENT_EXPLAINER_MODULE_KEYS } from '../ai/patientExplainersService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { serializePatientPendingResults } from './patientSafeProjection.js';
 
@@ -2172,18 +2173,22 @@ export async function listMyLabResults({ tenantId, patient_uid, limit = 100 }) {
   // E6 release rules: signed-off is no longer sufficient — the result must
   // also be past the auto-release delay (or explicitly released early) and
   // not on a clinician hold. See portalAccessService.releaseVisibilitySql.
+  const patientUids = await resolveMergedPatientUidSet(prisma, {
+    tenantId,
+    patientUid: patient_uid,
+  });
   return prisma.$queryRawUnsafe(
     `SELECT id, test_code, test_name,
             COALESCE(performed_at, received_at) AS observation_datetime,
             value_text, value_numeric, unit, reference_range,
             abnormal_flag, signed_off_at, released_to_patient_at
        FROM lab_results
-      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+       WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])
         AND signed_off_at IS NOT NULL
         AND ${releaseVisibilitySql('$4')}
       ORDER BY COALESCE(performed_at, received_at) DESC NULLS LAST, id DESC
       LIMIT $3::int`,
-    tenantId, String(patient_uid), Number(limit), releaseDelayHours(),
+    tenantId, patientUids, Number(limit), releaseDelayHours(),
   );
 }
 
@@ -2192,13 +2197,17 @@ export async function getMyLabResult({ tenantId, patient_uid, id }) {
   // Flutter app's detail screen and the list screen see the same field
   // — match the alias from listMyLabResults above. Release rules apply
   // here too (E6): unreleased/held results 404 rather than leak early.
+  const patientUids = await resolveMergedPatientUidSet(prisma, {
+    tenantId,
+    patientUid: patient_uid,
+  });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT *, COALESCE(performed_at, received_at) AS observation_datetime
        FROM lab_results
-      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid
+       WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = ANY($3::uuid[])
         AND signed_off_at IS NOT NULL
         AND ${releaseVisibilitySql('$4')}`,
-    Number(id), tenantId, String(patient_uid), releaseDelayHours(),
+    Number(id), tenantId, patientUids, releaseDelayHours(),
   );
   if (!rows.length) throw AppError.notFound('Lab result not found');
   return rows[0];
@@ -2239,6 +2248,10 @@ export async function listMyStructuredDiagnosticResults({
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const tid = requireTenantId(tenantId);
   const boundedLimit = Math.min(Math.max(asInt(limit, 100), 1), 200);
+  const patientUids = await resolveMergedPatientUidSet(prisma, {
+    tenantId: tid,
+    patientUid: patient_uid,
+  });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT generation.id, generation.source_kind, generation.source_version,
             generation.signed_at, release_state.released_to_patient_at,
@@ -2258,7 +2271,7 @@ export async function listMyStructuredDiagnosticResults({
          ON ap_case.tenant_id = ap_report.tenant_id
         AND ap_case.id = ap_report.ap_case_id
       WHERE generation.tenant_id = $1::uuid
-        AND generation.patient_uid = $2::uuid
+         AND generation.patient_uid = ANY($2::uuid[])
         AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
         AND NOT EXISTS (
           SELECT 1
@@ -2270,7 +2283,7 @@ export async function listMyStructuredDiagnosticResults({
       ORDER BY generation.signed_at DESC, generation.id DESC
       LIMIT $4::integer`,
     tid,
-    String(patient_uid),
+    patientUids,
     releaseDelayHours(),
     boundedLimit,
   );
@@ -2285,6 +2298,10 @@ export async function getMyStructuredDiagnosticResult({
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const tid = requireTenantId(tenantId);
   const generationId = requireDiagnosticGenerationId(id);
+  const patientUids = await resolveMergedPatientUidSet(prisma, {
+    tenantId: tid,
+    patientUid: patient_uid,
+  });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT generation.id, generation.source_kind, generation.source_version,
             generation.signed_at, generation.radiology_order_id,
@@ -2306,7 +2323,7 @@ export async function getMyStructuredDiagnosticResult({
          ON ap_case.tenant_id = ap_report.tenant_id
         AND ap_case.id = ap_report.ap_case_id
       WHERE generation.tenant_id = $1::uuid
-        AND generation.patient_uid = $2::uuid
+         AND generation.patient_uid = ANY($2::uuid[])
         AND generation.id = $3::uuid
         AND generation.source_kind IN ('radiology_report', 'anatomical_pathology_report')
         AND NOT EXISTS (
@@ -2318,7 +2335,7 @@ export async function getMyStructuredDiagnosticResult({
         AND ${structuredDiagnosticReleaseVisibilitySql('$4')}
       LIMIT 1`,
     tid,
-    String(patient_uid),
+    patientUids,
     generationId,
     releaseDelayHours(),
   );
