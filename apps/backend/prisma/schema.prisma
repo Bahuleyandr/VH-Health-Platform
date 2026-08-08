@@ -6906,6 +6906,7 @@ model medication_administrations {
 
   @@unique([patient_uid, medication_name, scheduled_time], map: "uniq_mar_administered_dose", where: raw("(((status)::text = 'administered'::text) AND (scheduled_time IS NOT NULL))"))
   @@unique([tenant_id, id], map: "ux_cc_mar_tenant_id")
+  @@unique([patient_uid, medication_name, scheduled_time], map: "uniq_mar_scheduled_dose", where: raw("(((status)::text = 'scheduled'::text) AND (scheduled_time IS NOT NULL))"))
   @@index([patient_uid, administered_at(sort: Desc)], map: "idx_med_admin_patient_time")
   @@index([tenant_id], map: "idx_medication_administrations_tenant_id")
 }

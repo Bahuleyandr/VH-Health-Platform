@@ -33,6 +33,7 @@ import {
   processMissingDrugChartAdmission,
   DRUG_CHART_MISSING_ALERT_TYPE,
   DRUG_CHART_MISSING_AUDIT_ACTION,
+  DRUG_CHART_SLA_RULE_CODE,
 } from '../services/clinical/drugChartSlaService.js';
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -165,6 +166,12 @@ async function cleanup() {
         AND resource_id IN ('970900', '970901')`,
     DRUG_CHART_MISSING_AUDIT_ACTION,
   ).catch(() => {});
+  await exec(
+    `DELETE FROM workflow_sla_instances
+      WHERE rule_code = $1 AND source_table = 'admissions'
+        AND source_id IN ('970900', '970901')`,
+    [DRUG_CHART_SLA_RULE_CODE],
+  ).catch(() => {});
   if (created.rosterBoardIds.length) {
     // assignments cascade on board delete (FK onDelete: Cascade).
     await exec(
@@ -264,6 +271,29 @@ describeIfDb('Drug-chart SLA sweep tenant isolation (audit 2026-06-18 §3)', () 
     // complete without throwing and return a real audit row id.
     const result = await processMissingDrugChartAdmission({ admission: adm, now: new Date() });
     expect(result.audit_id).not.toBeNull();
+
+    // C-M6: the sweep now also starts the canonical SLA clock, in the same
+    // tenant-scoped transaction as the notifications — keyed to the admission
+    // and stamped with the admission's TRUE tenant (the sweep runs under a
+    // super-admin cron context, so the GUC-reading tenant_id DEFAULT would
+    // otherwise resolve to the literal default tenant).
+    expect(result.sla_instance_id).not.toBeNull();
+    const slaRows = await query(
+      `SELECT tenant_id::text AS tenant_id, status, rule_code, patient_uid::text AS patient_uid,
+              started_at, due_at, completed_at
+         FROM workflow_sla_instances
+        WHERE rule_code = $1 AND source_table = 'admissions' AND source_id = $2`,
+      [DRUG_CHART_SLA_RULE_CODE, String(adm.admission_id)],
+    );
+    expect(slaRows).toHaveLength(1);
+    expect(slaRows[0].tenant_id).toBe(TENANT_A);
+    expect(slaRows[0].tenant_id).not.toBe(DEFAULT_TENANT);
+    expect(slaRows[0].status).toBe('active');
+    expect(slaRows[0].completed_at).toBeNull();
+    expect(slaRows[0].patient_uid).toBe(adm.patient_uid);
+    // due_at = started_at + the seeded rule's 60-minute target.
+    expect(new Date(slaRows[0].due_at).getTime() - new Date(slaRows[0].started_at).getTime())
+      .toBe(60 * 60 * 1000);
 
     // Read back every notification this admission produced. setTenant with the
     // admission tenant is the canonical scoped read; it also proves the rows are

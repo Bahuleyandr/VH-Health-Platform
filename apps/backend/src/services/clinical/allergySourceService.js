@@ -89,13 +89,23 @@ export function mergeAllergyRows(rows) {
 }
 
 /**
- * Fetch every active allergy for a patient across all four stores.
+ * Fetch every active allergy for a patient across all four stores, reporting
+ * which sources failed (C-M8). Same never-throws contract as
+ * getUnifiedActiveAllergies, but the caller can distinguish a VERIFIED-none
+ * (`allergies: []` with `sourcesFailed: []` and `patientResolved: true`) from
+ * an UNKNOWN status (lookup faults degraded one or more sources) — the
+ * difference between printing "No known allergies recorded" and "allergy
+ * status unavailable — verify manually" on a wristband.
  *
  * @param {object} db    prisma-compatible client ($queryRawUnsafe)
  * @param {object} ref   { patientId?: number|string, patientUid?: string }
- * @returns {Promise<Array<{allergen: string, severity: string|null, sources: string[]}>>}
+ * @returns {Promise<{
+ *   allergies: Array<{allergen: string, severity: string|null, sources: string[]}>,
+ *   sourcesFailed: string[],
+ *   patientResolved: boolean,
+ * }>}
  */
-export async function getUnifiedActiveAllergies(db, { patientId = null, patientUid = null } = {}) {
+export async function getUnifiedActiveAllergiesDetailed(db, { patientId = null, patientUid = null } = {}) {
   const idInt = patientId != null && /^\d+$/.test(String(patientId))
     ? Number.parseInt(String(patientId), 10)
     : null;
@@ -103,11 +113,15 @@ export async function getUnifiedActiveAllergies(db, { patientId = null, patientU
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(patientUid.trim())
     ? patientUid.trim()
     : null;
-  if (idInt == null && uid == null) return [];
+  if (idInt == null && uid == null) {
+    return { allergies: [], sourcesFailed: [], patientResolved: false };
+  }
+
+  const sourcesFailed = [];
 
   // Resolve the patient once (id + uid + free-text profile allergies). If even
   // this fails the patient is genuinely unresolvable and there is nothing to
-  // fetch.
+  // fetch — but a FAILED lookup is an unknown status, not a verified none.
   let patient = null;
   try {
     const prows = await db.$queryRawUnsafe(
@@ -124,9 +138,9 @@ export async function getUnifiedActiveAllergies(db, { patientId = null, patientU
     logger.warn('Unified allergy fetch: patient lookup failed', {
       patientId: idInt, patientUid: uid, error: err?.message,
     });
-    return [];
+    return { allergies: [], sourcesFailed: ['patient_lookup'], patientResolved: false };
   }
-  if (!patient) return [];
+  if (!patient) return { allergies: [], sourcesFailed: [], patientResolved: false };
 
   // Each source is queried INDEPENDENTLY and its failure is isolated: a single
   // source's schema fault (e.g. a table missing on a partial DB) must degrade
@@ -147,6 +161,7 @@ export async function getUnifiedActiveAllergies(db, { patientId = null, patientU
     );
     for (const row of r) rows.push({ allergen: row.allergen, severity: row.severity, source: 'patient_allergies' });
   } catch (err) {
+    sourcesFailed.push('patient_allergies');
     logger.warn("Unified allergy fetch: source 'patient_allergies' failed — skipping it", { error: err?.message });
   }
 
@@ -161,6 +176,7 @@ export async function getUnifiedActiveAllergies(db, { patientId = null, patientU
     );
     for (const row of r) rows.push({ allergen: row.allergen, severity: row.severity, source: 'allergies' });
   } catch (err) {
+    sourcesFailed.push('allergies');
     logger.warn("Unified allergy fetch: source 'allergies' failed — skipping it", { error: err?.message });
   }
 
@@ -188,10 +204,28 @@ export async function getUnifiedActiveAllergies(db, { patientId = null, patientU
     );
     for (const row of r) rows.push({ allergen: row.allergen, severity: null, source: 'admission_intake' });
   } catch (err) {
+    sourcesFailed.push('admission_intake');
     logger.warn("Unified allergy fetch: source 'admission_intake' failed — skipping it", { error: err?.message });
   }
 
-  return mergeAllergyRows(rows);
+  return { allergies: mergeAllergyRows(rows), sourcesFailed, patientResolved: true };
 }
 
-export default { getUnifiedActiveAllergies, mergeAllergyRows };
+/**
+ * Fetch every active allergy for a patient across all four stores.
+ *
+ * Thin wrapper over getUnifiedActiveAllergiesDetailed preserving the original
+ * contract for the existing consumers: never throws, and any failure —
+ * whole-lookup or per-source — degrades to fewer (or zero) rows. Callers that
+ * must distinguish failure from verified-none use the detailed variant.
+ *
+ * @param {object} db    prisma-compatible client ($queryRawUnsafe)
+ * @param {object} ref   { patientId?: number|string, patientUid?: string }
+ * @returns {Promise<Array<{allergen: string, severity: string|null, sources: string[]}>>}
+ */
+export async function getUnifiedActiveAllergies(db, ref = {}) {
+  const { allergies } = await getUnifiedActiveAllergiesDetailed(db, ref);
+  return allergies;
+}
+
+export default { getUnifiedActiveAllergies, getUnifiedActiveAllergiesDetailed, mergeAllergyRows };
