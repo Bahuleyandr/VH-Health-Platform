@@ -447,18 +447,40 @@ export async function recordTimelineEvent(input = {}, options = {}) {
   const idempotencyKey = cleanText(input.idempotencyKey || input.idempotency_key)
     || sourceKey({ eventType, sourceTable, sourceId, resourceType, resourceId, patientUid });
 
+  // Append-only safe (migration 599): clinical_timeline_events carries the same
+  // BEFORE UPDATE/DELETE guard as the audit tables (migration 324's
+  // audit_append_only_guard), which aborts the transaction for the non-superuser
+  // prod app role — while dev/QA/CI connect as superuser, which the guard
+  // exempts. So this idempotent recorder must NOT use ON CONFLICT DO UPDATE:
+  // even a no-op `SET idempotency_key = EXCLUDED.idempotency_key` fires the
+  // guard and turns a duplicate clinical write into a 500 that rolls back the
+  // whole enclosing transaction. Use DO NOTHING, and on an idempotency-key
+  // conflict read the existing row back — callers dereference the returned
+  // row's id (canonical_timeline_event_id) and recordCanonicalClinicalEvent
+  // treats a null return as CANONICAL_TIMELINE_REQUIRED.
   try {
+    // Single statement (mock-sequenced unit tests count queries, same as the
+    // audit writer below). Conflict target is the FULL unique constraint on
+    // idempotency_key (269: NOT NULL UNIQUE) — no partial-index WHERE clause
+    // here, unlike clinical_audit_events.
     const rows = await db.$queryRawUnsafe(
-      `INSERT INTO clinical_timeline_events
-         (tenant_id, patient_uid, encounter_id, event_type, event_subtype, event_status,
-          source_table, source_id, source_uid, resource_type, resource_id, actor_uid, actor_role,
-          occurred_at, visible_to_patient, clinical_summary, payload, tags, idempotency_key)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
-               $7, $8, $9::uuid, $10, $11, $12::uuid, $13,
-               COALESCE($14::timestamptz, NOW()), $15, $16, $17::jsonb, $18::text[], $19)
-       ON CONFLICT (idempotency_key)
-       DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
-       RETURNING *`,
+      `WITH ins AS (
+         INSERT INTO clinical_timeline_events
+           (tenant_id, patient_uid, encounter_id, event_type, event_subtype, event_status,
+            source_table, source_id, source_uid, resource_type, resource_id, actor_uid, actor_role,
+            occurred_at, visible_to_patient, clinical_summary, payload, tags, idempotency_key)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
+                 $7, $8, $9::uuid, $10, $11, $12::uuid, $13,
+                 COALESCE($14::timestamptz, NOW()), $15, $16, $17::jsonb, $18::text[], $19)
+         ON CONFLICT (idempotency_key)
+         DO NOTHING
+         RETURNING *
+       )
+       SELECT * FROM ins
+       UNION ALL
+       SELECT * FROM clinical_timeline_events
+        WHERE idempotency_key = $19 AND NOT EXISTS (SELECT 1 FROM ins)
+       LIMIT 1`,
       tenantId,
       patientUid,
       cleanUuid(input.encounterId || input.encounter_id),

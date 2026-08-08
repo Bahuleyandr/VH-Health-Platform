@@ -33,6 +33,7 @@
 
 import { randomUUID } from 'crypto';
 import prisma from '../lib/prisma.js';
+import { recordTimelineEvent } from '../services/clinical/canonicalClinicalPlatformService.js';
 
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB ? describe : describe.skip;
@@ -202,5 +203,42 @@ d('clinical_timeline_events is append-only (migration 599)', () => {
         );
       }),
     ).rejects.toThrow(/append-only/i);
+  });
+
+  test('recordTimelineEvent absorbs a duplicate idempotency key under the sealed app role', async () => {
+    if (!roleOk) { console.warn(`Skipping: ${APP_ROLE} unavailable`); return; }
+
+    // Regression for the ON CONFLICT DO UPDATE form: even a no-op DO UPDATE
+    // executes an UPDATE on the conflicting row, fires this suite's BEFORE
+    // UPDATE guard for the non-superuser role, and aborts the whole enclosing
+    // clinical transaction. Superuser test connections are exempt from the
+    // guard, which is why this must run under SET LOCAL ROLE to catch it.
+    const idempotencyKey = `${MARK}.dup.${++seq}`;
+    const event = {
+      tenantId: TENANT,
+      patientUid: randomUUID(),
+      eventType: 'append_only_probe',
+      sourceTable: 'appendonly_test',
+      sourceId: MARK,
+      summary: `${MARK}.duplicate-write`,
+      idempotencyKey,
+    };
+
+    const { first, second } = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+      const a = await recordTimelineEvent(event, { db: tx });
+      const b = await recordTimelineEvent(event, { db: tx });
+      return { first: a, second: b };
+    });
+
+    expect(first?.id).toBeTruthy();
+    expect(second?.id).toBe(first.id); // conflict reads the existing row back
+    insertedIds.push(first.id);
+
+    const count = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM clinical_timeline_events WHERE idempotency_key = $1`,
+      idempotencyKey,
+    );
+    expect(count[0].n).toBe(1);
   });
 });
