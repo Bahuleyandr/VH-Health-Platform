@@ -9,6 +9,7 @@ import {
 import {
   DEFAULT_APPOINTMENT_REAPER_GRACE_MINUTES,
 } from '../appointment/appointmentReaperPolicy.js';
+import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
 import { CARE_PATHWAY_KEYS } from './pathwayMode.js';
 
 function result(code, count) {
@@ -1928,6 +1929,9 @@ async function inpatientDischargeEvidence({ tx, tenantId, pathwayKey }) {
                      ('CANCELLED', 'CANCELED', 'NO_SHOW')
             )
             AND NOT EXISTS (
+              -- Merged-uid union: the exception may predate a patient merge
+              -- and stay recorded under a uid merged into this admission's
+              -- patient (append-only timeline/audit are never re-pointed).
               SELECT 1
                 FROM clinical_timeline_events AS timeline
                 JOIN clinical_audit_events AS audit
@@ -1938,7 +1942,9 @@ async function inpatientDischargeEvidence({ tx, tenantId, pathwayKey }) {
                  AND audit.resource_id = admission.id::text
                  AND NULLIF(audit.metadata ->> 'reason', '') IS NOT NULL
                WHERE timeline.tenant_id = admission.tenant_id
-                 AND timeline.patient_uid = admission.patient_uid
+                 AND timeline.patient_uid IN (
+                   ${mergedPatientUidsSubquery('admission.tenant_id', 'admission.patient_uid')}
+                 )
                  AND timeline.encounter_id IS NOT DISTINCT FROM admission.encounter_id
                  AND timeline.event_type =
                      'discharge.follow_up_exception_recorded'

@@ -178,6 +178,8 @@ describe('canonical clinical platform service', () => {
   });
 
   it('reads only the canonical patient timeline by default', async () => {
+    // 1. merged-uid chain resolution (no merges — just the patient).
+    queryUnsafeMock.mockResolvedValueOnce([{ uid: PATIENT }]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: '66666666-6666-4666-8666-666666666666',
       patient_uid: PATIENT,
@@ -215,6 +217,8 @@ describe('canonical clinical platform service', () => {
   });
 
   it('merges legacy events only when compatibility mode is requested', async () => {
+    // 1. merged-uid chain resolution (no merges — just the patient).
+    queryUnsafeMock.mockResolvedValueOnce([{ uid: PATIENT }]);
     queryUnsafeMock.mockResolvedValueOnce([{
       id: '66666666-6666-4666-8666-666666666666',
       patient_uid: PATIENT,
@@ -266,6 +270,8 @@ describe('canonical clinical platform service', () => {
 
   it('adds patient-generated activity summaries to the canonical timeline read', async () => {
     queryUnsafeMock
+      // 1. merged-uid chain resolution (no merges — just the patient).
+      .mockResolvedValueOnce([{ uid: PATIENT }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{
         user_uid: PATIENT,

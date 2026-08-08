@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { signDocumentTx } from '../clinical/documentIntegrityService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
@@ -144,18 +145,20 @@ function normalizeDispositionInput(input = {}) {
 
 async function assertCanonicalDownstreamEvidenceTx(tx, tenantId, patientUid, downstream) {
   if (!downstream) return;
+  // Merged-uid union: downstream evidence recorded before a patient merge
+  // stays under the merged-away uid on the append-only timeline.
   const rows = await tx.$queryRawUnsafe(
     `SELECT id
        FROM clinical_timeline_events
       WHERE tenant_id = $1::uuid
-        AND patient_uid = $2::uuid
+        AND patient_uid = ANY($2::uuid[])
         AND resource_type = $3::text
         AND resource_id = $4::text
       ORDER BY occurred_at DESC, id DESC
       LIMIT 1
       FOR SHARE`,
     tenantId,
-    patientUid,
+    await resolveMergedPatientUidSet(tx, { tenantId, patientUid }),
     downstream.resourceType,
     downstream.resourceId,
   );

@@ -3,6 +3,7 @@ import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { signDocumentTx } from '../clinical/documentIntegrityService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
@@ -1665,6 +1666,14 @@ async function collectPendingResultsTx(tx, tenantId, admission, pathway, assignm
 }
 
 async function activeDischargeEvidenceTx(tx, tenantId, admission, pendingProjection) {
+  // Merged-uid union for the append-only timeline/audit read below: a
+  // follow-up exception recorded before a patient merge stays under the
+  // merged-away uid. Detail tables (summaries, reconciliations, plans) are
+  // re-pointed by the merge sweep and keep their single-uid filters.
+  const mergedPatientUids = await resolveMergedPatientUidSet(tx, {
+    tenantId,
+    patientUid: admission.patient_uid,
+  });
   const [summaryRows, recRows, followupRows, exceptionRows] = await Promise.all([
     tx.$queryRawUnsafe(
       `SELECT summary.id, summary.status, summary.signed_by, summary.signed_at,
@@ -1773,7 +1782,7 @@ async function activeDischargeEvidenceTx(tx, tenantId, admission, pendingProject
           AND audit.resource_id = $3::text
           AND NULLIF(audit.metadata ->> 'reason', '') IS NOT NULL
         WHERE timeline.tenant_id = $1::uuid
-          AND timeline.patient_uid = $2::uuid
+          AND timeline.patient_uid = ANY($2::uuid[])
           AND timeline.event_type = 'discharge.follow_up_exception_recorded'
           AND timeline.resource_type = 'admission'
           AND timeline.resource_id = $3::text
@@ -1781,7 +1790,7 @@ async function activeDischargeEvidenceTx(tx, tenantId, admission, pendingProject
         ORDER BY timeline.occurred_at DESC, timeline.id DESC
         LIMIT 1`,
       tenantId,
-      admission.patient_uid,
+      mergedPatientUids,
       String(admission.id),
     ),
   ]);
@@ -2337,18 +2346,23 @@ export async function recordPendingResultSummaryInclusion(
         'INPATIENT_SIGNED_STRUCTURED_SUMMARY_REQUIRED',
       );
     }
+    // Merged-uid union: the signed event may predate a patient merge and
+    // stay recorded under the merged-away uid on the append-only timeline.
     const signedEventRows = await tx.$queryRawUnsafe(
       `SELECT id
          FROM clinical_timeline_events
         WHERE tenant_id = $1::uuid
-          AND patient_uid = $2::uuid
+          AND patient_uid = ANY($2::uuid[])
           AND event_type = 'discharge_summary.signed'
           AND source_table = 'discharge_summaries'
           AND source_id = $3::text
         ORDER BY occurred_at DESC, id DESC
         LIMIT 1`,
       tenantId,
-      admission.patient_uid,
+      await resolveMergedPatientUidSet(tx, {
+        tenantId,
+        patientUid: admission.patient_uid,
+      }),
       String(summaryId),
     );
     if (!signedEventRows[0]) {
@@ -2430,16 +2444,21 @@ export async function recordFollowUpException(admissionId, input = {}, actor = {
     });
     const timelineIdempotencyKey =
       `follow-up-exception:${tenantId}:${id}:${idempotencyKey}:timeline`;
+    // Merged-uid union: an earlier attempt may have recorded the event under
+    // a patient uid that was since merged into this admission's patient.
     const replayRows = await tx.$queryRawUnsafe(
       `SELECT id, actor_uid, payload ->> 'reason' AS reason
          FROM clinical_timeline_events
         WHERE tenant_id = $1::uuid
-          AND patient_uid = $2::uuid
+          AND patient_uid = ANY($2::uuid[])
           AND idempotency_key = $3::text
         LIMIT 1
         FOR SHARE`,
       tenantId,
-      admission.patient_uid,
+      await resolveMergedPatientUidSet(tx, {
+        tenantId,
+        patientUid: admission.patient_uid,
+      }),
       timelineIdempotencyKey,
     );
     if (
