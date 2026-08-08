@@ -341,7 +341,7 @@ remains `Consultation notes`.
 ## CI/CD
 GitHub Actions workflows at the monorepo root:
 - `.github/workflows/ci-flutter.yml` — path-filtered to `apps/{patient,staff}/**` and `packages/vhhealth_core/**`; runs `melos bootstrap → analyze → test → format`
-- `.github/workflows/deploy-patient-staging.yml` — on push to main touching this app; builds debug APK, Firebase App Distribution upload
+- `.github/workflows/deploy-patient-staging.yml` — on push to main touching this app; builds profile APK, Firebase App Distribution upload
 - `.github/workflows/release-patient.yml` — triggered by `patient-v*` tag; signed APK + AAB → GitHub Release
 
 ## Running

@@ -422,6 +422,7 @@ model admins {
   @@index([tenant_id], map: "idx_admins_tenant_id")
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model admissions {
   id                                      Int                                       @id @default(autoincrement())
   patient_uid                             String                                    @db.Uuid

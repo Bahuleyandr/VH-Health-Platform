@@ -1,9 +1,17 @@
 name: Deploy Staff App — Staging
 
-# Mirrors the patient app staging workflow. Builds a debug APK on main and
-# pushes it to Firebase App Distribution under a different App ID
+# Mirrors the patient app staging workflow. Builds a profile-mode APK on main
+# and pushes it to Firebase App Distribution under a different App ID
 # (FIREBASE_APP_ID_STAFF). Skips upload if credentials missing; build runs
 # unconditionally so release-mode regressions surface immediately.
+#
+# Profile (not debug, not release): Crashlytics is gated OFF in debug builds
+# (kDebugMode), so debug APKs would leave staging testers without crash
+# reporting. Profile builds are AOT-compiled with kDebugMode=false, so
+# Crashlytics stays active — and they are debug-signed automatically, so this
+# lane keeps building without the release keystore secrets (a release build
+# hard-fails via the build.gradle.kts taskGraph guard when key.properties is
+# absent).
 #
 # Monorepo changes vs. the original standalone-repo workflow:
 #   - No secondary checkout of vhhealth-core — it lives at packages/vhhealth_core.
@@ -68,9 +76,9 @@ jobs:
       - name: Codegen (regenerate Dart client from synced spec)
         run: melos run codegen
 
-      - name: Build debug APK
+      - name: Build profile APK
         working-directory: apps/staff
-        run: flutter build apk --debug --split-per-abi
+        run: flutter build apk --profile --split-per-abi
 
       - name: Check Firebase credentials
         id: fb
@@ -91,7 +99,7 @@ jobs:
           groups: staging-testers
           releaseNotes: |
             Staff ${{ github.sha }} on ${{ github.ref_name }}
-          file: apps/staff/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
+          file: apps/staff/build/app/outputs/flutter-apk/app-armeabi-v7a-profile.apk
 
       - name: Notify Discord on failure
         if: failure()
