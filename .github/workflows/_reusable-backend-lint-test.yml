@@ -171,7 +171,9 @@ jobs:
   test:
     name: Backend tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Prisma generation can consume more than 20 minutes on hosted runners
+    # before the approximately 15-minute test shard starts.
+    timeout-minutes: 60
     strategy:
       # One shard's failure must not cancel the others — every run reports
       # each shard's real result.
