@@ -588,6 +588,7 @@ export async function emitCriticalLabAlertAcknowledged({
 export async function emitCdsAlertAcknowledged({
   db = null,
   alert = {},
+  tenantId = null,
   actorUid = null,
   actorRole = null,
   payload = {},
@@ -597,6 +598,7 @@ export async function emitCdsAlertAcknowledged({
 
   return safeCanonical('CDS alert acknowledged', async () =>
     recordCanonicalClinicalEvent({
+      tenantId: tenantId || alert.tenant_id,
       patientUid: alert.patient_uid,
       encounterId: alert.encounter_id,
       eventType: 'cds.alert_acknowledged',
@@ -619,5 +621,5 @@ export async function emitCdsAlertAcknowledged({
       tags: ['cds', 'safety'],
       timelineIdempotencyKey: `cds_alerts:${alert.id}:acknowledged`,
       auditIdempotencyKey: `cds_alerts:${alert.id}:audit:acknowledged`,
-    }, { db: client }), { propagate: runsInCallerTx(db) });
+    }, { db: client, strict: runsInCallerTx(db) }), { propagate: runsInCallerTx(db) });
 }

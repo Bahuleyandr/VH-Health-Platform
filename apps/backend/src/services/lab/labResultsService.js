@@ -38,6 +38,7 @@ import {
 import { lockResultsInboxResourceTx } from '../results/resultsInboxResourceLock.js';
 import { emitLabEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import {
   acknowledgeLabCriticalAlertTaskFromTrustedWorkflow,
@@ -3215,7 +3216,11 @@ export async function getResultsForPatient({
     || include_preliminary === 'true'
     || include_preliminary === 1
     || include_preliminary === '1';
-  const filters = ['tenant_id = $1::uuid', 'patient_uid = $2::uuid'];
+  const patientUids = await resolveMergedPatientUidSet(prisma, {
+    tenantId,
+    patientUid: patient_uid,
+  });
+  const filters = ['tenant_id = $1::uuid', 'patient_uid = ANY($2::uuid[])'];
   if (!wantPreliminary) {
     filters.push(`status NOT IN ('preliminary')`);
     filters.push('signed_off_at IS NOT NULL');
@@ -3235,7 +3240,7 @@ export async function getResultsForPatient({
       WHERE ${filters.join(' AND ')}
       ORDER BY received_at DESC
       LIMIT $3::int`,
-    tenantId, String(patient_uid), Number(limit),
+    tenantId, patientUids, Number(limit),
   );
   return rows.map((r) => ({
     ...r,

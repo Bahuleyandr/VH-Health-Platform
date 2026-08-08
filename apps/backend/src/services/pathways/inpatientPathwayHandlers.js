@@ -1,3 +1,5 @@
+import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
+
 function admissionIdFromInstance(instance) {
   if (instance?.source_episode_type !== 'admission') return null;
   const parsed = Number.parseInt(instance.source_episode_id, 10);
@@ -206,6 +208,9 @@ export async function loadInpatientPathwayEvidence({ tx, tenantId, instance }) {
           LIMIT 1
        ) AS follow_up ON TRUE
        LEFT JOIN LATERAL (
+         -- Merged-uid union: the exception may predate a patient merge and
+         -- stay recorded under a uid merged into this admission's patient
+         -- (append-only timeline/audit are never re-pointed).
          SELECT timeline.id AS timeline_id, audit.id AS audit_id
            FROM clinical_timeline_events AS timeline
            JOIN clinical_audit_events AS audit
@@ -217,7 +222,9 @@ export async function loadInpatientPathwayEvidence({ tx, tenantId, instance }) {
             AND audit.resource_id = admission.id::text
             AND NULLIF(BTRIM(audit.metadata ->> 'reason'), '') IS NOT NULL
           WHERE timeline.tenant_id = admission.tenant_id
-            AND timeline.patient_uid = admission.patient_uid
+            AND timeline.patient_uid IN (
+              ${mergedPatientUidsSubquery('admission.tenant_id', 'admission.patient_uid')}
+            )
             AND timeline.event_type = 'discharge.follow_up_exception_recorded'
             AND timeline.source_table = 'admissions'
             AND timeline.source_id = admission.id::text
