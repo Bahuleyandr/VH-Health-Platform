@@ -241,6 +241,47 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     expect(generateRefreshTokenMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a merged-away patient record and does not mint a VH session', async () => {
+    const mergedUser = {
+      id: 88,
+      uid: '88888888-8888-4888-8888-888888888888',
+      tenant_id: DEFAULT_TENANT,
+      name: null,
+      phone: '+919876543210',
+      email: null,
+      role: 'PATIENT',
+      firebase_uid: 'firebase-uid-123',
+      gender: null,
+      email_verified: false,
+      is_active: false,
+      status: 'merged',
+      merged_into_uid: '99999999-9999-4999-8999-999999999999',
+      is_deleted: false,
+      deleted_at: null,
+      last_login: null
+    };
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([mergedUser]);
+
+    await expect(
+      authenticateWithFirebase(
+        'firebase-id-token',
+        null,
+        { headers: { 'user-agent': 'jest' }, connection: { remoteAddress: '127.0.0.1' } },
+        { deviceType: 'mobile' }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'ACCOUNT_MERGED'
+    });
+
+    // The lookup itself must sort merged records last so a shared phone
+    // resolves to the survivor when one exists.
+    const [lookupSql] = prismaMock.$queryRawUnsafe.mock.calls[0];
+    expect(lookupSql).toMatch(/ORDER BY CASE WHEN merged_into_uid IS NOT NULL OR status = 'merged' THEN 1 ELSE 0 END/);
+    expect(issueAccessTokenAndClaimSessionMock).not.toHaveBeenCalled();
+    expect(generateRefreshTokenMock).not.toHaveBeenCalled();
+  });
+
   it('SEC-5/W4: honours the per-tenant subdomain (SaaS path)', async () => {
     const SAAS_TENANT = '55555555-5555-4555-8555-555555555555';
     const req = {

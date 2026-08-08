@@ -71,14 +71,17 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   const tenantId = await resolveTenantForRequest(req);
 
   // Check if user exists in our database — scoped to the resolved tenant.
+  // Merged-away duplicate records sort last so a phone shared by a merged
+  // record and its survivor resolves to the survivor.
   const userResult = await query(
     `SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid,
-            gender, email_verified, is_active, status,
+            gender, email_verified, is_active, status, merged_into_uid,
             COALESCE(is_deleted, false) AS is_deleted,
             deleted_at, last_sign_in_at AS last_login
        FROM users
       WHERE tenant_id = $1::uuid
-        AND (phone = $2 OR firebase_uid = $3)`,
+        AND (phone = $2 OR firebase_uid = $3)
+      ORDER BY CASE WHEN merged_into_uid IS NOT NULL OR status = 'merged' THEN 1 ELSE 0 END, id`,
     [tenantId, phone, firebaseUid]
   );
 
@@ -117,6 +120,15 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       const error = new Error('This account has been deleted');
       error.statusCode = HTTP_STATUS.FORBIDDEN;
       error.code = 'ACCOUNT_DELETED';
+      throw error;
+    }
+
+    // A record merged into a surviving patient record must not mint new
+    // sessions — its clinical data now lives on the survivor.
+    if (user.merged_into_uid || String(user.status || '').toLowerCase() === 'merged') {
+      const error = new Error('This account has been merged into another patient record');
+      error.statusCode = HTTP_STATUS.FORBIDDEN;
+      error.code = 'ACCOUNT_MERGED';
       throw error;
     }
 

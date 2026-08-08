@@ -165,7 +165,8 @@ export async function projectReferralPathwayEvent({
     });
   } else {
     const rows = await tx.$queryRawUnsafe(
-      `SELECT * FROM care_pathway_instances
+      `SELECT id, clinical_status
+         FROM care_pathway_instances
         WHERE tenant_id = $1::uuid
           AND pathway_key = $2::text
           AND source_episode_type = 'referral'

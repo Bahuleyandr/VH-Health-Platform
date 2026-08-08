@@ -7,6 +7,8 @@
 
 import { createHash } from 'node:crypto';
 
+import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
+
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CLOSED_ED_STATUSES = [
@@ -805,10 +807,15 @@ async function loadPatientClinicalFields({
               2
          FROM active_admission AS a
          JOIN LATERAL (
+           -- Merged-uid union: the code-status event may predate a patient
+           -- merge and stay recorded under a uid merged into this patient
+           -- (append-only timeline is never re-pointed).
            SELECT timeline.payload, timeline.event_subtype, timeline.occurred_at
              FROM clinical_timeline_events AS timeline
             WHERE timeline.tenant_id = $1::uuid
-              AND timeline.patient_uid = a.patient_uid
+              AND timeline.patient_uid IN (
+                ${mergedPatientUidsSubquery('$1::uuid', 'a.patient_uid')}
+              )
               AND timeline.source_table = 'admissions'
               AND timeline.source_id = a.id::text
               AND timeline.event_type = 'admission.code_status_updated'

@@ -16,7 +16,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { code39Svg } from '../../utils/barcode/code39.js';
-import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
+import { getUnifiedActiveAllergiesDetailed } from '../../services/clinical/allergySourceService.js';
 
 const router = express.Router();
 
@@ -29,6 +29,27 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[ch]);
+}
+
+// C-M8 — the wristband allergy strip, three-way. A wristband is a bedside
+// safety artifact: "No known allergies recorded" asserts a VERIFIED negative,
+// so it may only render when the unified lookup actually succeeded end to end.
+// When any source failed, the truthful statement is "status unavailable —
+// verify manually" (loud red strip, never the grey verified-none style); known
+// allergens from the sources that DID answer are still shown above it.
+// Exported for direct unit pinning of the failure branch (the deep round-trip
+// exercises the ok branches against the real DB).
+export function renderWristbandAllergyStrip(allergies, lookupFailed) {
+  const list = allergies.length
+    ? `<div class="allergies">⚠ ALLERGIES: ${escapeHtml(allergies.map((a) => a.allergen).join(', '))}</div>`
+    : '';
+  if (lookupFailed) {
+    const warning = allergies.length
+      ? '⚠ ADDITIONAL ALLERGY SOURCES UNAVAILABLE — verify manually before administration'
+      : '⚠ ALLERGY STATUS UNAVAILABLE — verify manually before administration';
+    return `${list}<div class="allergies">${warning}</div>`;
+  }
+  return list || '<div class="allergies none">No known allergies recorded</div>';
 }
 
 router.get('/wristband/:patientUid', guardWristbandView, async (req, res) => {
@@ -66,11 +87,20 @@ router.get('/wristband/:patientUid', guardWristbandView, async (req, res) => {
     if (!rows.length) return error(res, 'Patient not found', HTTP_STATUS.NOT_FOUND);
     const patient = rows[0];
 
+    // C-M8: the unified allergy service never throws — a total or partial
+    // lookup failure used to be indistinguishable from verified-none here, and
+    // the band printed the false negative "No known allergies recorded". Use
+    // the detailed variant so failure is explicit; the route-level catch stays
+    // as a belt-and-braces fail-unknown (never fail-verified-none).
     let allergies = [];
+    let allergyLookupFailed = false;
     try {
-      allergies = await getUnifiedActiveAllergies(prisma, { patientUid });
+      const detailed = await getUnifiedActiveAllergiesDetailed(prisma, { patientUid });
+      allergies = detailed.allergies;
+      allergyLookupFailed = detailed.sourcesFailed.length > 0 || !detailed.patientResolved;
     } catch (allergyErr) {
-      logger.warn('Wristband allergy lookup failed (band prints without allergy strip)', {
+      allergyLookupFailed = true;
+      logger.warn('Wristband allergy lookup failed (band prints the verify-manually strip)', {
         error: allergyErr.message,
       });
     }
@@ -90,14 +120,16 @@ router.get('/wristband/:patientUid', guardWristbandView, async (req, res) => {
       barcode_payload: patient.uid,
       barcode_symbology: 'code39',
       allergies: allergies.map((a) => ({ allergen: a.allergen, severity: a.severity || null })),
+      // 'ok' = every allergy source answered (an empty list is a VERIFIED
+      // none); 'unavailable' = at least one source failed — consumers must
+      // treat the list as incomplete and verify manually.
+      allergies_status: allergyLookupFailed ? 'unavailable' : 'ok',
       generated_at: new Date().toISOString(),
     };
 
     if (String(req.query.format || '').toLowerCase() === 'html') {
       const svg = code39Svg(patient.uid, { module: 2, height: 52 });
-      const allergyStrip = payload.allergies.length
-        ? `<div class="allergies">⚠ ALLERGIES: ${escapeHtml(payload.allergies.map((a) => a.allergen).join(', '))}</div>`
-        : '<div class="allergies none">No known allergies recorded</div>';
+      const allergyStrip = renderWristbandAllergyStrip(payload.allergies, allergyLookupFailed);
       const html = `<!doctype html><html><head><meta charset="utf-8"><title>Wristband ${escapeHtml(patient.name || patient.uid)}</title>
 <style>
   body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; margin: 16px; }

@@ -10,6 +10,7 @@ import {
   applyInpatientAdmissionScope,
   FULL_INPATIENT_SCOPE_ROLES,
   MINIMIZED_INPATIENT_PAYLOAD_ROLES,
+  OPERATIONAL_INPATIENT_PAYLOAD_ROLES,
   resolveInpatientAdmissionScope,
 } from './inpatientScopeService.js';
 
@@ -110,12 +111,53 @@ const ROLE_VIEW = {
   },
 };
 
+const OPERATIONAL_VIEW_SECTIONS = ['summary', 'location', 'discharge'];
+const FULL_VIEW_SECTIONS = ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'];
+
 function normalizeRole(role) {
   return normalizePlatformRole(role) || '';
 }
 
 function shouldMinimizePayload(role) {
   return MINIMIZED_INPATIENT_PAYLOAD_ROLES.has(normalizeRole(role));
+}
+
+function resolveRoleView(role) {
+  if (ROLE_VIEW[role]) return ROLE_VIEW[role];
+  if (OPERATIONAL_INPATIENT_PAYLOAD_ROLES.has(role)) {
+    return { label: 'Hospital operations board', visible_sections: OPERATIONAL_VIEW_SECTIONS };
+  }
+  return {
+    label: FULL_BOARD_ROLES.has(role) ? 'Hospital command board' : 'Patient command board',
+    visible_sections: FULL_VIEW_SECTIONS,
+  };
+}
+
+// LD-RRB-04 extension: the section list a role view promises is enforced
+// server-side, not just returned as client rendering advice. Clinical roles,
+// clinical leadership, and SUPER_ADMIN keep the full row; every other role
+// with an explicit view (pharmacy, reception, housekeeping) or an operational
+// payload classification is trimmed to its promised sections in the row
+// builder, and the backing clinical batch queries are skipped for them.
+function mayViewFullClinicalRow(role) {
+  const r = normalizeRole(role);
+  return isClinical(r) || isLeadership(r) || r === 'SUPER_ADMIN';
+}
+
+function resolveSectionAccess(role, view) {
+  const trimmed = !mayViewFullClinicalRow(role)
+    && (ROLE_VIEW[role] != null || OPERATIONAL_INPATIENT_PAYLOAD_ROLES.has(role));
+  const sections = new Set(view.visible_sections);
+  return {
+    diagnosis: !trimmed || sections.has('diagnosis'),
+    alerts: !trimmed || sections.has('alerts'),
+    tasks: !trimmed || sections.has('tasks'),
+    allergies: !trimmed || sections.has('allergies'),
+    actions: !trimmed || sections.has('actions'),
+    // Clinical narrative (recent notes, isolation case detail) rides with
+    // diagnosis-level access — no role view names it as its own section.
+    narrative: !trimmed || sections.has('diagnosis'),
+  };
 }
 
 // Sol Ultra Wave-E LD-RRB-04: the full ICU/NICU chart (device/manual vitals,
@@ -419,6 +461,8 @@ function rowSort(a, b) {
 
 async function getPatientCommandBoard(filters = {}, actor = {}) {
   const role = normalizeRole(actor.role);
+  const view = resolveRoleView(role);
+  const sectionAccess = resolveSectionAccess(role, view);
   const tenantId = actor.tenantId || filters.tenantId || null;
   const limit = Math.min(Math.max(Number.parseInt(filters.limit, 10) || 100, 1), 200);
   const offset = Math.max(Number.parseInt(filters.offset, 10) || 0, 0);
@@ -497,7 +541,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
         })
       : [],
     getHospitalNumberMap({ tenantId, patientUids }),
-    patientUids.length
+    sectionAccess.allergies && patientUids.length
       ? prisma.allergies.findMany({
           where: {
             patient_uid: { in: patientUids },
@@ -507,7 +551,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           select: { patient_uid: true, allergen: true, name: true, severity: true, reaction: true, status: true },
         })
       : [],
-    patientUids.length
+    sectionAccess.allergies && patientUids.length
       ? prisma.patient_allergies.findMany({
           where: {
             ...(tenantId ? { tenant_id: tenantId } : {}),
@@ -517,7 +561,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           select: { patient_uid: true, allergy_name: true, severity: true, reaction: true },
         })
       : [],
-    patientUids.length
+    sectionAccess.diagnosis && patientUids.length
       ? prisma.diagnoses.findMany({
           where: {
             patient_uid: { in: patientUids },
@@ -530,7 +574,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           take: 300,
         })
       : [],
-    patientUids.length
+    sectionAccess.tasks && patientUids.length
       ? prisma.clinical_orders.findMany({
           where: {
             patient_uid: { in: patientUids },
@@ -542,7 +586,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           take: 500,
         })
       : [],
-    patientUids.length
+    sectionAccess.alerts && patientUids.length
       ? prisma.cds_alerts.findMany({
           where: {
             patient_uid: { in: patientUids },
@@ -572,7 +616,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           take: admissionIds.length * 3,
         })
       : [],
-    patientUids.length
+    sectionAccess.narrative && patientUids.length
       ? prisma.clinical_notes.findMany({
           where: {
             patient_uid: { in: patientUids },
@@ -628,7 +672,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
       : [],
   ]);
 
-  const pathwayTasks = !shouldMinimizePayload(role) && admissionIds.length && tenantId
+  const pathwayTasks = sectionAccess.tasks && admissionIds.length && tenantId
     ? await prisma.$queryRawUnsafe(
       `SELECT task.id, task.task_kind, task.title, task.status, task.priority,
               task.assigned_to_uid, task.assigned_to_role,
@@ -761,6 +805,12 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
 
   const now = new Date();
   const minimizePayload = shouldMinimizePayload(role);
+  const hideDiagnosis = minimizePayload || !sectionAccess.diagnosis;
+  const hideAllergies = minimizePayload || !sectionAccess.allergies;
+  const hideAlerts = minimizePayload || !sectionAccess.alerts;
+  const hideTasks = minimizePayload || !sectionAccess.tasks;
+  const hideNarrative = minimizePayload || !sectionAccess.narrative;
+  const hideActions = minimizePayload || !sectionAccess.actions;
   const rows = admissions.map((admission) => {
     const patient = patientByUid.get(admission.patient_uid) || null;
     const bed = admission.bed_id != null ? bedById.get(admission.bed_id) : null;
@@ -833,12 +883,12 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
         los_days: losDays(admission.admitted_at),
         age: ageBand(admissionMinutes),
       },
-      diagnosis: minimizePayload
+      diagnosis: hideDiagnosis
         ? { text: null, status: 'hidden', type: null, code: null, source: 'minimized', chief_complaint: null }
         : displayDiagnosis(admission, uniqueByKey(diagnosisRows, (item) => String(item.id))),
       allergies: {
-        count: minimizePayload ? 0 : allergies.length,
-        items: minimizePayload ? [] : allergies,
+        count: hideAllergies ? 0 : allergies.length,
+        items: hideAllergies ? [] : allergies,
       },
       // D5 — isolation precautions stay visible even on minimized
       // (housekeeping-class) payloads: bed turnover is exactly who needs
@@ -863,7 +913,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           types,
           active_case_count: caseRows.length,
           active_order_count: orderRows.length,
-          items: minimizePayload ? [] : [
+          items: hideNarrative ? [] : [
             ...caseRows.map((item) => ({
               source_kind: 'infection_case',
               organism: item.organism,
@@ -891,9 +941,9 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
         };
       })(),
       alerts: {
-        count: minimizePayload ? 0 : alertRows.length,
-        critical_count: minimizePayload ? 0 : alertRows.filter((item) => String(item.severity || '').toLowerCase() === 'critical').length,
-        items: minimizePayload ? [] : alertRows.slice(0, 6).map((item) => ({
+        count: hideAlerts ? 0 : alertRows.length,
+        critical_count: hideAlerts ? 0 : alertRows.filter((item) => String(item.severity || '').toLowerCase() === 'critical').length,
+        items: hideAlerts ? [] : alertRows.slice(0, 6).map((item) => ({
           id: item.id,
           type: item.alert_type,
           severity: item.severity,
@@ -902,7 +952,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           created_at: item.created_at,
         })),
       },
-      tasks: minimizePayload
+      tasks: hideTasks
         ? {
             open_count: 0,
             open_order_count: 0,
@@ -916,8 +966,8 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           pathwayTasksByAdmission.get(admission.id) || [],
         ),
       notes: {
-        recent_count: minimizePayload ? 0 : noteRows.length,
-        latest: minimizePayload ? null : noteRows[0] || null,
+        recent_count: hideNarrative ? 0 : noteRows.length,
+        latest: hideNarrative ? null : noteRows[0] || null,
       },
       discharge: minimizePayload
         ? {
@@ -932,7 +982,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
             discharge_hub_route: null,
           }
         : discharge,
-      actions: minimizePayload ? [] : actionsForRole(role, admission),
+      actions: hideActions ? [] : actionsForRole(role, admission),
       ...(icuChartByAdmissionId.has(admission.id)
         ? { icu_chart: icuChartByAdmissionId.get(admission.id) }
         : {}),
@@ -965,11 +1015,6 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
     alerted: loadedCounts.alerted,
     with_open_tasks: loadedCounts.with_open_tasks,
     emergency: loadedCounts.emergency,
-  };
-
-  const view = ROLE_VIEW[role] || {
-    label: FULL_BOARD_ROLES.has(role) ? 'Hospital command board' : 'Patient command board',
-    visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
   };
 
   return {

@@ -11,6 +11,7 @@ import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { authClient, API_KEY, generateTestToken } from './testClient.js';
 import { __resetDrugKbCache } from '../services/clinical/drugKnowledgeBaseService.js';
+import { renderWristbandAllergyStrip } from '../routes/clinical/bcmaRoutes.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -199,6 +200,92 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
       .send({ override_reason: 'B1TEST scanner battery dead, identity verified verbally' });
     expect(withReason.status).toBe(200);
     expect(withReason.body.data.override_reason).toMatch(/scanner battery dead/);
+
+    // C-M1: the no-scan override is a medication-safety override and must land
+    // a medication_safety_reviews row in the same transaction (canonical
+    // invariant item 5) — status 'overridden' with the documented reason.
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT review_type, status, override_required, override_reason
+         FROM medication_safety_reviews
+        WHERE patient_uid = $1::uuid AND review_type = 'bcma_no_scan_override'
+          AND payload->>'medication_administration_id' = $2`,
+      patientUid, String(maId),
+    );
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0].status).toBe('overridden');
+    expect(reviews[0].override_required).toBe(true);
+    expect(reviews[0].override_reason).toMatch(/scanner battery dead/);
+  });
+
+  test('C-M1: a soft-right (time) override with scan records one overridden safety review per failed right', async () => {
+    // Dose scheduled 3 hours ago — right-time fails (±60 min window); patient
+    // and drug scans match, so only the soft right blocks.
+    const late = await prisma.$queryRawUnsafe(
+      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
+       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW() - INTERVAL '3 hours', 'scheduled')
+       RETURNING id`,
+      patientUid,
+    );
+    const lateId = Number(late[0].id);
+
+    const noOverride = await nurseClient()
+      .post(`/api/v1/clinical/mar/${lateId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+      });
+    expect(noOverride.status).toBe(409);
+
+    const overridden = await nurseClient()
+      .post(`/api/v1/clinical/mar/${lateId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        override_reason: 'B1TEST dose delayed in theatre recovery, charge nurse approved late administration',
+      });
+    expect(overridden.status).toBe(200);
+    expect(overridden.body.data.status).toBe('administered');
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT review_type, status, severity, override_required, override_reason, payload
+         FROM medication_safety_reviews
+        WHERE patient_uid = $1::uuid
+          AND payload->>'medication_administration_id' = $2`,
+      patientUid, String(lateId),
+    );
+    expect(reviews).toHaveLength(1); // exactly one failed right → exactly one finding
+    expect(reviews[0].review_type).toBe('bcma_right_time');
+    expect(reviews[0].status).toBe('overridden');
+    expect(reviews[0].override_required).toBe(true);
+    expect(reviews[0].override_reason).toMatch(/theatre recovery/);
+    const payload = typeof reviews[0].payload === 'string' ? JSON.parse(reviews[0].payload) : reviews[0].payload;
+    expect(Math.abs(Number(payload.minutes_from_scheduled))).toBeGreaterThan(60);
+  });
+
+  test('C-M1: a clean all-rights-passed scan administration records no safety review', async () => {
+    const clean = await prisma.$queryRawUnsafe(
+      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
+       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW(), 'scheduled')
+       RETURNING id`,
+      patientUid,
+    );
+    const cleanMaId = Number(clean[0].id);
+
+    const res = await nurseClient()
+      .post(`/api/v1/clinical/mar/${cleanMaId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: patientUid,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+      });
+    expect(res.status).toBe(200);
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT id FROM medication_safety_reviews
+        WHERE patient_uid = $1::uuid
+          AND payload->>'medication_administration_id' = $2`,
+      patientUid, String(cleanMaId),
+    );
+    expect(reviews).toHaveLength(0);
   });
 
   test('B4.2: a mismatched patient scan is a NON-overridable hard-stop (audit F-H1)', async () => {
@@ -273,6 +360,8 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(json.body.data.barcode_payload).toBe(patientUid);
     expect(json.body.data.barcode_symbology).toBe('code39');
     expect(json.body.data.patient.name).toBe('B1TEST Patient');
+    // C-M8: a successful end-to-end lookup is a VERIFIED result.
+    expect(json.body.data.allergies_status).toBe('ok');
 
     const html = await nurseClient()
       .get(`/api/v1/bcma/wristband/${patientUid}?format=html`);
@@ -280,6 +369,52 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(html.headers['content-type']).toMatch(/text\/html/);
     expect(html.text).toContain('<svg');
     expect(html.text).toContain(patientUid.toUpperCase());
+    // Verified-none renders the (grey) no-known-allergies strip, never the
+    // verify-manually warning.
+    expect(html.text).toContain('No known allergies recorded');
+    expect(html.text).not.toContain('verify manually');
+  });
+
+  test('C-M8: wristband renders known allergens when a source has them', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, is_active)
+       VALUES ($1, $2::uuid, 'B1TEST-Penicillin', 'SEVERE', true)`,
+      patientId, patientUid,
+    );
+    try {
+      const json = await nurseClient().get(`/api/v1/bcma/wristband/${patientUid}`);
+      expect(json.status).toBe(200);
+      expect(json.body.data.allergies_status).toBe('ok');
+      expect(json.body.data.allergies.map((a) => a.allergen)).toContain('B1TEST-Penicillin');
+
+      const html = await nurseClient().get(`/api/v1/bcma/wristband/${patientUid}?format=html`);
+      expect(html.text).toContain('ALLERGIES: B1TEST-Penicillin');
+      expect(html.text).not.toContain('No known allergies recorded');
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM patient_allergies WHERE patient_uid = $1::uuid AND allergy_name = 'B1TEST-Penicillin'`,
+        patientUid,
+      ).catch(() => {});
+    }
+  });
+
+  test('C-M8: a failed allergy lookup renders the verify-manually strip, never the false verified-none', () => {
+    // The failure branch cannot be forced through the live DB, so pin the
+    // exported strip renderer directly (the route feeds it
+    // detailed.sourcesFailed.length > 0 || !patientResolved).
+    const failedEmpty = renderWristbandAllergyStrip([], true);
+    expect(failedEmpty).toContain('ALLERGY STATUS UNAVAILABLE');
+    expect(failedEmpty).toContain('verify manually');
+    expect(failedEmpty).not.toContain('No known allergies recorded');
+    expect(failedEmpty).not.toContain('class="allergies none"'); // loud style, not the grey one
+
+    // Partial failure: show what IS known AND the unavailable warning.
+    const failedPartial = renderWristbandAllergyStrip([{ allergen: 'Penicillin' }], true);
+    expect(failedPartial).toContain('ALLERGIES: Penicillin');
+    expect(failedPartial).toContain('ADDITIONAL ALLERGY SOURCES UNAVAILABLE');
+
+    // Verified-none keeps the existing wording.
+    expect(renderWristbandAllergyStrip([], false)).toContain('No known allergies recorded');
   });
 
   test('rejected orders cannot progress', async () => {

@@ -1,3 +1,4 @@
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
   loadValidatedOpChildProjectionTx,
@@ -175,9 +176,28 @@ export async function completeOpRecoveryTaskFromClosureEvidence({
   registry,
   signal,
   activationEvidenceCapability = null,
+  mode = null,
   tx,
 } = {}) {
   if (event?.event_type !== 'appointment.closure_evidence_recorded') return execution;
+  if (mode === PATHWAY_MODES.SHADOW) {
+    // Shadow projection suppresses task materialization, so a pathway on the
+    // recovery branch has no governed recovery task to complete. Completing
+    // one would also be a live effect, which shadow mode must not produce.
+    // Record the suppression instead of throwing so the event is processed,
+    // never poisoned.
+    if (execution?.instance?.run?.current_step_key === OP_RECOVERY_STEP_KEY) {
+      logger.info('OP shadow projection suppressed recovery completion', {
+        tenantId,
+        pathwayInstanceId: execution.instance?.id ? String(execution.instance.id) : null,
+        appointmentId: appointment?.id ? Number(appointment.id) : null,
+        eventId: event?.id ? String(event.id) : null,
+        eventType: event.event_type,
+        reason: 'shadow_effects_suppressed',
+      });
+    }
+    return execution;
+  }
   const recoveryTask = currentRecoveryTask(execution);
   if (!recoveryTask) return execution;
   if (
@@ -576,6 +596,7 @@ export async function projectOpPathwayEvent({
     registry: runtimeRegistry,
     signal,
     activationEvidenceCapability,
+    mode,
     tx,
   });
   if (executed.instance?.clinical_status === 'completed') {

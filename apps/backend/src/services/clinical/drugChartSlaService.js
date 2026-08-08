@@ -1,5 +1,9 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import {
+  startWorkflowSla,
+  completeWorkflowSla,
+} from './canonicalClinicalPlatformService.js';
 
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
 const DEFAULT_GRACE_MINUTES = 60;
@@ -8,6 +12,13 @@ const DEFAULT_SWEEP_LIMIT = 100;
 export const DRUG_CHART_MISSING_ALERT_TYPE = 'DRUG_CHART_MISSING';
 export const DRUG_CHART_MISSING_AUDIT_ACTION = 'DRUG_CHART_MISSING_ALERT_RAISED';
 export const DRUG_CHART_FIRST_ENTERED_AUDIT_ACTION = 'DRUG_CHART_FIRST_ENTERED';
+// Canonical SLA rule this sweep starts/completes (seeded as a global default by
+// migration 641). The workflow_sla_instances row keyed
+// (tenant, rule, 'admissions', admission_id) is BOTH the escalation-proof
+// record and the sweep's dedupe: an OPEN clock (completed_at IS NULL) means
+// "already alerted, unresolved" and suppresses re-processing; a completed
+// clock re-arms when the chart empties again.
+export const DRUG_CHART_SLA_RULE_CODE = 'drug_chart_first_entry';
 
 const ACTIVE_ADMISSION_STATUSES = ['admitted', 'transferred'];
 const ACTIVE_MEDICATION_STATUS_RE =
@@ -166,11 +177,18 @@ export async function findAdmissionsMissingDrugChart({
                  )
             )
         AND NOT EXISTS (
+              -- C-M6: dedupe on the canonical SLA clock, not the legacy
+              -- audit_logs marker (which was permanently one-shot). An OPEN
+              -- clock means the alert already fired and the chart is still
+              -- missing; a COMPLETED clock (chart was entered, then emptied
+              -- again) lets the admission re-select so the sweep can re-arm.
               SELECT 1
-                FROM audit_logs al
-               WHERE al.action = $5
-                 AND al.resource = 'admission'
-                 AND al.resource_id = aba.admission_id::text
+                FROM workflow_sla_instances wsi
+               WHERE wsi.tenant_id = aba.tenant_id
+                 AND wsi.rule_code = $5
+                 AND wsi.source_table = 'admissions'
+                 AND wsi.source_id = aba.admission_id::text
+                 AND wsi.completed_at IS NULL
             )
       ORDER BY ward_arrived_at ASC, admission_id ASC
       LIMIT $6::int`,
@@ -178,7 +196,7 @@ export async function findAdmissionsMissingDrugChart({
     safeGrace,
     ACTIVE_ADMISSION_STATUSES,
     ACTIVE_MEDICATION_STATUS_RE,
-    DRUG_CHART_MISSING_AUDIT_ACTION,
+    DRUG_CHART_SLA_RULE_CODE,
     safeLimit,
   );
 }
@@ -341,6 +359,7 @@ async function insertDrugChartNotifications({
   recipients,
   now = new Date(),
   graceMinutes = DEFAULT_GRACE_MINUTES,
+  db = null,
 } = {}) {
   const ids = uniqueRecipients(recipients).map(row => row.id);
   if (!ids.length || !admission.tenant_id) return [];
@@ -359,8 +378,10 @@ async function insertDrugChartNotifications({
   // tenant. Write the admission's true tenant_id explicitly ($8) AND scope the
   // recipient sub-select by u.tenant_id so a stray cross-tenant recipient id is
   // never inserted; setTenantTx pins the GUC so the dedup/WITH CHECK both apply
-  // to the admission's tenant.
-  return setTenantTx(admission.tenant_id, (tx) => tx.$queryRawUnsafe(
+  // to the admission's tenant. When the caller already holds a tenant-scoped
+  // transaction (`db`), ride on it so the notifications commit atomically with
+  // the canonical SLA clock.
+  const run = (tx) => tx.$queryRawUnsafe(
     `INSERT INTO notifications
        (uid, user_id, phone, title, body, type, priority, data, is_read,
         created_at, updated_at, related_id, recipient_role, tenant_id)
@@ -400,7 +421,68 @@ async function insertDrugChartNotifications({
     toIso(now),
     ids,
     admission.tenant_id,
-  ));
+  );
+  return db ? run(db) : setTenantTx(admission.tenant_id, run);
+}
+
+// Start (or re-arm) the canonical drug-chart-missing SLA clock inside the
+// caller's tenant transaction. Modeled on admissionService.startBedCleaningSlaInTx
+// (PR #768): startWorkflowSla's ON CONFLICT deliberately preserves an existing
+// clock, so a chart that was entered (clock completed) and later emptied again
+// conflicts with the closed clock — re-arm it (domain-owned reopen, per the
+// startWorkflowSla contract). A prior clock that is still open
+// (completed_at IS NULL) is left untouched, which is exactly the sweep's
+// dedupe. strict: an SLA write failure has already aborted the Postgres tx, so
+// swallowing it would only convert the rollback into a misleading 25P02.
+async function startDrugChartSlaInTx(tx, {
+  admission,
+  recipients = [],
+  now = new Date(),
+  graceMinutes = DEFAULT_GRACE_MINUTES,
+} = {}) {
+  const instance = await startWorkflowSla({
+    tenantId: admission.tenant_id,
+    ruleCode: DRUG_CHART_SLA_RULE_CODE,
+    patientUid: admission.patient_uid,
+    encounterId: admission.encounter_id || null,
+    sourceTable: 'admissions',
+    sourceId: String(admission.admission_id),
+    priority: 'high',
+    metadata: {
+      source: 'drug_chart_sla',
+      grace_minutes: graceMinutes,
+      ward_arrived_at: admission.ward_arrived_at || null,
+      minutes_since_ward_arrival: admission.minutes_since_ward_arrival ?? null,
+      detected_at: toIso(now),
+      recipient_count: recipients.length,
+    },
+  }, { db: tx, strict: true });
+
+  if (instance && instance.completed_at) {
+    const rearmed = await tx.$queryRawUnsafe(
+      `UPDATE workflow_sla_instances i
+          SET status = 'active',
+              completed_at = NULL,
+              breached_at = NULL,
+              escalated_at = NULL,
+              started_at = NOW(),
+              due_at = NOW() + (
+                SELECT r.target_minutes FROM workflow_sla_rules r WHERE r.id = i.rule_id
+              ) * INTERVAL '1 minute',
+              metadata = COALESCE(i.metadata, '{}'::jsonb) || jsonb_build_object(
+                'reopened_at', NOW(),
+                'prior_completed_at', i.completed_at
+              ),
+              updated_at = NOW()
+        WHERE i.id = $1::uuid
+          AND i.tenant_id = $2::uuid
+        RETURNING i.*`,
+      instance.id,
+      admission.tenant_id,
+    );
+    return rearmed[0] ?? instance;
+  }
+  return instance;
 }
 
 async function insertMissingDrugChartAudit({
@@ -464,12 +546,36 @@ export async function processMissingDrugChartAdmission({
     now,
     timezone,
   });
-  const notificationRows = await insertDrugChartNotifications({
-    admission,
-    recipients,
-    now,
-    graceMinutes,
-  });
+
+  // Phase 1 — atomic + tenant-scoped: the canonical SLA clock (start or
+  // re-arm) and the recipient notifications commit together under the
+  // admission's tenant. A failed SLA write rolls both back and the next
+  // 5-minute tick retries (the open-clock dedupe only engages once the clock
+  // row exists).
+  const { slaInstance, notificationRows } = await setTenantTx(
+    admission.tenant_id,
+    async (tx) => {
+      const sla = await startDrugChartSlaInTx(tx, {
+        admission,
+        recipients,
+        now,
+        graceMinutes,
+      });
+      const inserted = await insertDrugChartNotifications({
+        admission,
+        recipients,
+        now,
+        graceMinutes,
+        db: tx,
+      });
+      return { slaInstance: sla, notificationRows: inserted };
+    },
+  );
+
+  // Phase 1.5 — the legacy audit_logs marker stays for metrics continuity
+  // (metric_key drug_chart_missing_after_ward_arrival dashboards). Dedupe now
+  // lives on the SLA instance; this marker keeps its own one-shot NOT EXISTS,
+  // recording only the FIRST alert per admission.
   const audit = await insertMissingDrugChartAudit({
     admission,
     recipients,
@@ -484,6 +590,7 @@ export async function processMissingDrugChartAdmission({
     recipient_count: recipients.length,
     notification_count: notificationRows.length,
     audit_id: audit?.id || null,
+    sla_instance_id: slaInstance?.id || null,
   };
 }
 
@@ -590,18 +697,44 @@ async function countMedicationOrdersForAdmission({ admission, order }) {
   return Number(rows[0]?.order_count || 0);
 }
 
-async function missingAlertAlreadyRaised(admissionId) {
+// Any canonical SLA instance for the admission (open or closed) means the
+// missing-chart alert fired at least once — the normalized source for the
+// after_missing_alert metric, replacing the legacy audit_logs marker read.
+async function missingAlertAlreadyRaised(admission) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id
-       FROM audit_logs
-      WHERE action = $2
-        AND resource = 'admission'
-        AND resource_id = $1::text
+       FROM workflow_sla_instances
+      WHERE tenant_id = $1::uuid
+        AND rule_code = $2
+        AND source_table = 'admissions'
+        AND source_id = $3
       LIMIT 1`,
-    String(admissionId),
-    DRUG_CHART_MISSING_AUDIT_ACTION,
+    admission.tenant_id,
+    DRUG_CHART_SLA_RULE_CODE,
+    String(admission.admission_id),
   );
   return rows.length > 0;
+}
+
+// The sweep's clock for this admission, but only while it is OPEN. Guards the
+// completion write so re-entry after a terminal completion never overwrites
+// the closed instance (completeWorkflowSla itself carries no status guard —
+// known F-L4; re-opening is owned exclusively by the sweep's re-arm).
+async function findOpenDrugChartSla(admission) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM workflow_sla_instances
+      WHERE tenant_id = $1::uuid
+        AND rule_code = $2
+        AND source_table = 'admissions'
+        AND source_id = $3
+        AND completed_at IS NULL
+      LIMIT 1`,
+    admission.tenant_id,
+    DRUG_CHART_SLA_RULE_CODE,
+    String(admission.admission_id),
+  );
+  return rows[0] || null;
 }
 
 export async function recordFirstDrugChartEntry(order) {
@@ -611,12 +744,31 @@ export async function recordFirstDrugChartEntry(order) {
     const admission = await findAdmissionForMedicationOrder(order);
     if (!admission) return null;
 
+    // C-M6 resolution side: a medication order entered while the canonical
+    // drug-chart-missing clock is OPEN resolves it, whatever the order count —
+    // an open clock by definition means the chart was empty at sweep time.
+    // completeWorkflowSla computes completed-vs-breached against due_at itself.
+    const openSla = await findOpenDrugChartSla(admission);
+    if (openSla) {
+      await completeWorkflowSla({
+        tenantId: admission.tenant_id,
+        ruleCode: DRUG_CHART_SLA_RULE_CODE,
+        sourceTable: 'admissions',
+        sourceId: String(admission.admission_id),
+        metadata: {
+          order_id: order.id,
+          order_number: order.order_number || null,
+          entered_at: toIso(order.created_at || new Date()),
+        },
+      });
+    }
+
     const orderCount = await countMedicationOrdersForAdmission({ admission, order });
     if (orderCount !== 1) return null;
 
     const enteredAt = order.created_at || new Date();
     const delayMinutes = minutesBetween(admission.ward_arrived_at || admission.admitted_at, enteredAt);
-    const afterMissingAlert = await missingAlertAlreadyRaised(admission.admission_id);
+    const afterMissingAlert = await missingAlertAlreadyRaised(admission);
     const metadata = notificationData(admission, {
       order_id: order.id,
       order_number: order.order_number || null,

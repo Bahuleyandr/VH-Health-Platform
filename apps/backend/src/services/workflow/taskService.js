@@ -28,6 +28,7 @@ import { AppError } from '../../utils/AppError.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 import { isInpatientPendingResultPhysicianRole } from '../emr/inpatientPendingResultPolicy.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { roleCanBreakGlass } from '../security/breakGlassService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
@@ -1481,8 +1482,12 @@ export async function listTasks({
     filters.push(`assigned_to_role = $${params.length}`);
   }
   if (patientUid) {
-    params.push(maybeUuid(patientUid, 'patient_uid'));
-    filters.push(`patient_uid = $${params.length}::uuid`);
+    const cleanPatientUid = maybeUuid(patientUid, 'patient_uid');
+    params.push(await resolveMergedPatientUidSet(prisma, {
+      tenantId: tid,
+      patientUid: cleanPatientUid,
+    }));
+    filters.push(`patient_uid = ANY($${params.length}::uuid[])`);
   }
   if (workflowRunId) {
     params.push(normalizeId(workflowRunId, 'workflow_run_id'));

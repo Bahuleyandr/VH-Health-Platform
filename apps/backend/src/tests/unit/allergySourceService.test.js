@@ -7,6 +7,7 @@
 import { jest } from '@jest/globals';
 import {
   getUnifiedActiveAllergies,
+  getUnifiedActiveAllergiesDetailed,
   mergeAllergyRows,
 } from '../../services/clinical/allergySourceService.js';
 
@@ -77,5 +78,57 @@ describe('getUnifiedActiveAllergies', () => {
   it('never throws — db failure degrades to []', async () => {
     const db = { $queryRawUnsafe: jest.fn(async () => { throw new Error('boom'); }) };
     expect(await getUnifiedActiveAllergies(db, { patientId: 7 })).toEqual([]);
+  });
+});
+
+// C-M8 — the detailed variant distinguishes lookup FAILURE from verified-none
+// so safety artifacts (the BCMA wristband) never assert "no known allergies"
+// off a failed fetch. Same never-throws contract as the classic form.
+describe('getUnifiedActiveAllergiesDetailed', () => {
+  const UID = '5054d4be-801f-4a40-8abc-d658ef86f6c8';
+
+  it('reports a clean all-sources-ok run as a verified result', async () => {
+    const db = {
+      $queryRawUnsafe: jest.fn(async (sql) => {
+        if (/FROM users/i.test(sql)) return [{ id: 7, uid: UID, allergies: '' }];
+        return []; // every allergy source answers: no rows
+      }),
+    };
+    const out = await getUnifiedActiveAllergiesDetailed(db, { patientUid: UID });
+    expect(out).toEqual({ allergies: [], sourcesFailed: [], patientResolved: true });
+  });
+
+  it('names each failed source while returning the healthy sources', async () => {
+    const db = {
+      $queryRawUnsafe: jest.fn(async (sql) => {
+        if (/FROM users/i.test(sql)) return [{ id: 7, uid: UID, allergies: '' }];
+        if (/patient_allergies/i.test(sql)) throw new Error('relation "patient_allergies" does not exist');
+        if (/FROM allergies/i.test(sql)) return [{ allergen: 'Penicillin', severity: 'SEVERE' }];
+        if (/admissions/i.test(sql)) throw new Error('timeout');
+        return [];
+      }),
+    };
+    const out = await getUnifiedActiveAllergiesDetailed(db, { patientUid: UID });
+    expect(out.patientResolved).toBe(true);
+    expect(out.sourcesFailed.sort()).toEqual(['admission_intake', 'patient_allergies']);
+    expect(out.allergies.map((a) => a.allergen)).toEqual(['Penicillin']);
+  });
+
+  it('reports a failed patient lookup as unresolved + failed (not verified-none)', async () => {
+    const db = { $queryRawUnsafe: jest.fn(async () => { throw new Error('boom'); }) };
+    const out = await getUnifiedActiveAllergiesDetailed(db, { patientUid: UID });
+    expect(out).toEqual({ allergies: [], sourcesFailed: ['patient_lookup'], patientResolved: false });
+  });
+
+  it('classic getUnifiedActiveAllergies stays a thin wrapper (unchanged contract)', async () => {
+    const db = {
+      $queryRawUnsafe: jest.fn(async (sql) => {
+        if (/FROM users/i.test(sql)) return [{ id: 7, uid: UID, allergies: 'Latex' }];
+        if (/patient_allergies/i.test(sql)) throw new Error('down');
+        return [];
+      }),
+    };
+    const out = await getUnifiedActiveAllergies(db, { patientUid: UID });
+    expect(out.map((a) => a.allergen)).toEqual(['Latex']); // failure invisible, rows flow
   });
 });

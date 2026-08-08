@@ -1,5 +1,6 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const DEFAULT_LIMIT = 50;
@@ -516,7 +517,9 @@ export async function listPatientAccessAudit({
   const patient = uuid(patientUid, 'patient_uid');
   if (patient) {
     params.push(patient);
-    filters.push(`patient_uid = $${params.length}::uuid`);
+    filters.push(
+      `patient_uid IN (${mergedPatientUidsSubquery('$1::uuid', `$${params.length}::uuid`)})`,
+    );
   }
   const actor = uuid(actorUid, 'actor_uid');
   if (actor) {
