@@ -678,19 +678,46 @@ export async function recordMissed(id, reason, missedBy = null) {
   // emitting the canonical row on `tx` (was swallowed outside the tx) means a
   // canonical-write failure rolls the state change back rather than losing it.
   const row = await setTenantTx(tenantId, async (tx) => {
+    // Concurrency guard (mirrors recordMedicationAdministrationTx /
+    // marFiveRightsService.administerWithScan). The Phase-0 status check above
+    // read the row UNLOCKED and OUTSIDE this tx; that read is not a safe basis
+    // for the state flip. Lock the row FOR UPDATE and re-check status inside
+    // the tx so a nurse marking an overdue dose missed serializes against a
+    // concurrent administration — the loser sees status='administered' and is
+    // rejected with a 409 instead of silently flipping a given dose to missed.
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT id, status
+         FROM medication_administrations
+        WHERE tenant_id = $1::uuid AND id = $2::integer
+        FOR UPDATE`,
+      tenantId, id,
+    );
+    const locked = lockedRows[0];
+    if (!locked) throw AppError.notFound('Medication administration record not found');
+    if (String(locked.status || '').toLowerCase() !== 'scheduled') {
+      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
+    }
+
     const rows = await tx.$queryRawUnsafe(
       `UPDATE medication_administrations
        SET status = 'missed', notes = COALESCE($2, notes)
-       WHERE id = $1
+       WHERE tenant_id = $3::uuid AND id = $1
+         AND lower(status) = 'scheduled'
        RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
                  status, administered_by, notes, tenant_id, created_at, updated_at`,
-      id, reason
+      id, reason, tenantId
     );
+    // Lost race despite the lock (defense in depth): the status guard matched
+    // 0 rows. Reject rather than emit a canonical event for a write that
+    // never happened.
+    if (rows.length !== 1) {
+      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
+    }
     await recordCanonicalMarEvent({
       record: rows[0],
       eventType: 'mar.missed',
       actorUid: missedBy,
-      previousStatus: existing[0].status,
+      previousStatus: locked.status,
       payload: { reason },
       db: tx,
     });
@@ -734,20 +761,47 @@ export async function holdMedication(id, reason, heldBy) {
   // means a canonical-write failure rolls the hold back rather than losing the
   // safety record.
   const row = await setTenantTx(tenantId, async (tx) => {
+    // Concurrency guard (mirrors recordMedicationAdministrationTx /
+    // marFiveRightsService.administerWithScan). Without it, a hold racing an
+    // administration could flip an administered dose back to 'held' AND
+    // overwrite administered_by with the holding nurse, destroying the
+    // administering nurse's attribution. Lock FOR UPDATE, re-check status
+    // inside the tx, and reject the loser with a 409 — the administered
+    // record (status + administered_by) is preserved untouched.
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT id, status
+         FROM medication_administrations
+        WHERE tenant_id = $1::uuid AND id = $2::integer
+        FOR UPDATE`,
+      tenantId, id,
+    );
+    const locked = lockedRows[0];
+    if (!locked) throw AppError.notFound('Medication administration record not found');
+    if (String(locked.status || '').toLowerCase() !== 'scheduled') {
+      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
+    }
+
     const rows = await tx.$queryRawUnsafe(
       `UPDATE medication_administrations
        SET status = 'held', hold_reason = $2, administered_by = $3::uuid
-       WHERE id = $1
+       WHERE tenant_id = $4::uuid AND id = $1
+         AND lower(status) = 'scheduled'
        RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
                  status, administered_by, hold_reason, notes, tenant_id,
                  created_at, updated_at`,
-      id, reason, heldBy
+      id, reason, heldBy, tenantId
     );
+    // Lost race despite the lock (defense in depth): the status guard matched
+    // 0 rows. Reject rather than emit a canonical event for a write that
+    // never happened.
+    if (rows.length !== 1) {
+      throw AppError.conflict('Medication state changed', 'MAR_ADMINISTRATION_STATE_CONFLICT');
+    }
     await recordCanonicalMarEvent({
       record: rows[0],
       eventType: 'mar.held',
       actorUid: heldBy,
-      previousStatus: existing[0].status,
+      previousStatus: locked.status,
       payload: { reason },
       db: tx,
     });
