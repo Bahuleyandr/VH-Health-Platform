@@ -263,7 +263,11 @@ describe('executeMerge', () => {
     mockNext(livePatientRows());
     // 3. both-active-admissions guard
     mockNext(NO_ACTIVE_ADMISSIONS);
-    // 4. reassignIdentifiers
+    // 4. catalog discovery + protected-history pre-flight
+    mockNext(SWEEP_TARGETS);
+    mockNext([{ uid: SECONDARY }]);
+    mockNext([{ id: '202' }]);
+    // 5. reassignIdentifiers
     reassignIdentifiersMock.mockResolvedValueOnce({
       reassigned: [
         { id: 21, identifier_type: 'mrn', identifier_value: 'VH-1' },
@@ -271,8 +275,6 @@ describe('executeMerge', () => {
       ],
       count: 2,
     });
-    // 5. catalog discovery
-    mockNext(SWEEP_TARGETS);
   }
 
   it('rejects empty executor_uid', async () => {
@@ -336,6 +338,8 @@ describe('executeMerge', () => {
     mockNext([{ primary_active: false, secondary_active: true }]);
     reassignIdentifiersMock.mockResolvedValueOnce({ reassigned: [], count: 0 });
     mockNext(SWEEP_TARGETS);
+    mockNext([{ uid: SECONDARY }]);
+    mockNext([{ id: '202' }]);
     mockNext([{
       id: 9, status: 'executed', candidate_id: null,
       primary_uid: PRIMARY, secondary_uid: SECONDARY,

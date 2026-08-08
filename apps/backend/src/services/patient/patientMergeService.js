@@ -39,9 +39,10 @@
  *     (append-only audit trails + canonical timeline, evidence ledgers,
  *     identity-pinned interface rows, ...): history stays recorded under
  *     the uid it happened to, with the merge timeline/audit pair as the
- *     cross-reference. Readers union merged-away uids via
- *     services/clinical/mergedPatientReadUnion.js so the survivor's chart
- *     still shows that history.
+ *     cross-reference. A merge succeeds only for protected tables listed in
+ *     MERGE_READ_UNION_COVERED_TABLES; their readers union merged-away uids
+ *     via services/clinical/mergedPatientReadUnion.js. Any other protected
+ *     history blocks execution before mutation.
  *   - clinical_continuity_* tables: continuity identities merge through
  *     the alias-based executeContinuityMerge flow above, and the tables
  *     sit behind facility-scoped fail-closed RLS. If continuity rows
@@ -71,6 +72,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { reassignIdentifiersForMerge } from './patientIdentifierService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -112,6 +114,16 @@ const MERGE_SWEEP_EXCLUDED_TABLES = new Set([
  */
 const MERGE_SWEEP_EXCLUDED_PREFIXES = ['clinical_continuity_'];
 
+// A trigger-protected row may stay on its original uid only when every
+// patient-facing read of that table has been made merge-aware. Keep this list
+// deliberately small and evidence-backed. Any newly protected table fails the
+// merge pre-flight until its reader and deep coverage land together.
+const MERGE_READ_UNION_COVERED_TABLES = new Set([
+  'clinical_audit_events',
+  'clinical_timeline_events',
+  'patient_access_audit_log',
+]);
+
 /**
  * Classify an UPDATE-trigger function body (pg_proc.prosrc) as
  * update-blocking for the merge sweep's patient re-point UPDATEs.
@@ -139,9 +151,9 @@ const MERGE_SWEEP_EXCLUDED_PREFIXES = ['clinical_continuity_'];
  *       blocking without trying to prove the comparison reachable.
  *
  * Deliberately conservative: a false "safe" aborts a live merge mid-sweep,
- * while a false "blocked" only leaves that table's rows recorded under the
- * old uid — covered by the reader-side merged-uid union
- * (src/services/clinical/mergedPatientReadUnion.js).
+ * while a false "blocked" is safe only when the table has a certified
+ * reader-side merged-uid union. Otherwise execution fails closed before any
+ * mutation (src/services/clinical/mergedPatientReadUnion.js).
  */
 function isUpdateBlockingTriggerSource(source) {
   const text = String(source || '')
@@ -244,6 +256,41 @@ async function discoverMergeSweepTargets(tx) {
         blocking_triggers: [...new Set(blockingTriggers)].sort(),
       };
     });
+}
+
+async function findUnsupportedProtectedHistory(tx, {
+  targets,
+  tenantId,
+  secondaryPatientUids,
+  secondaryPatientIds,
+}) {
+  const unsupported = [];
+  for (const target of targets) {
+    if (!target.update_blocked || MERGE_READ_UNION_COVERED_TABLES.has(target.table_name)) {
+      continue;
+    }
+    const values = target.is_uuid ? secondaryPatientUids : secondaryPatientIds;
+    if (!values.length) continue;
+    const cast = target.is_uuid ? 'uuid[]' : 'bigint[]';
+    const tenantClause = target.has_tenant_id ? ' AND tenant_id = $2::uuid' : '';
+    const params = target.has_tenant_id ? [values, tenantId] : [values];
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM ${target.table_name}
+          WHERE ${target.column_name} = ANY($1::${cast})${tenantClause}
+       ) AS has_rows`,
+      ...params,
+    );
+    if (rows[0]?.has_rows) {
+      unsupported.push({
+        table: target.table_name,
+        column: target.column_name,
+        blocking_triggers: target.blocking_triggers,
+      });
+    }
+  }
+  return unsupported;
 }
 
 function resolveTenantId(options = {}) {
@@ -983,6 +1030,40 @@ export async function executeMerge({
         );
       }
 
+      // Discover protected columns and prove read completeness before the
+      // first mutation. Rows guarded by immutable/update-blocking triggers
+      // remain on their original uid, so a successful merge is safe only for
+      // tables whose patient readers union the merged uid family. Include
+      // records already merged into the secondary (A->B before B->C), not just
+      // B itself.
+      const targets = await discoverMergeSweepTargets(tx);
+      const secondaryPatientUids = await resolveMergedPatientUidSet(tx, {
+        tenantId: tid,
+        patientUid: secondary,
+      });
+      const secondaryPatientIdRows = await tx.$queryRawUnsafe(
+        `SELECT id::text AS id
+           FROM users
+          WHERE tenant_id = $1::uuid
+            AND uid = ANY($2::uuid[])`,
+        tid,
+        secondaryPatientUids,
+      );
+      const secondaryPatientIds = secondaryPatientIdRows.map((row) => row.id);
+      const unsupportedProtectedHistory = await findUnsupportedProtectedHistory(tx, {
+        targets,
+        tenantId: tid,
+        secondaryPatientUids,
+        secondaryPatientIds,
+      });
+      if (unsupportedProtectedHistory.length) {
+        throw AppError.conflict(
+          'Merge blocked: protected patient history does not yet have a merge-aware read path',
+          'PATIENT_MERGE_PROTECTED_HISTORY_UNSUPPORTED',
+          { unsupported_protected_history: unsupportedProtectedHistory },
+        );
+      }
+
       // The composite (tenant_id, <id>, patient_uid) FKs (migration 634 made
       // them deferrable) can only stay satisfied mid-sweep if their checks
       // move to COMMIT — parent and child tables re-point in separate
@@ -1003,13 +1084,12 @@ export async function executeMerge({
       // the live schema, excluding bookkeeping + continuity tables plus any
       // table protected by an update-blocking / immutable trigger function
       // (append-only audit + timeline, evidence ledgers, identity-pinned
-      // interface rows — see isUpdateBlockingTriggerSource). Skipped tables'
-      // history stays recorded under the old uid; the reader-side merged-uid
-      // union (mergedPatientReadUnion.js) keeps it on the survivor's chart.
+      // interface rows — see isUpdateBlockingTriggerSource). The pre-flight
+      // above has already proved that every skipped row belongs to a table
+      // with a merge-aware reader.
       // Discovery only returns columns that exist, so there is no "skip
       // missing schema" catch here — any error aborts (and rolls back) the
       // merge.
-      const targets = await discoverMergeSweepTargets(tx);
       const tableSummary = {};
       const updateBlockedSkipped = [];
       const updateBlockedTriggers = {};
@@ -1274,9 +1354,11 @@ export const __testing__ = {
   MERGE_STATUSES,
   MERGE_SWEEP_EXCLUDED_TABLES,
   MERGE_SWEEP_EXCLUDED_PREFIXES,
+  MERGE_READ_UNION_COVERED_TABLES,
   CONTINUITY_PROPOSER_ROLES,
   CONTINUITY_DOCTOR_APPROVER_ROLES,
   discoverMergeSweepTargets,
+  findUnsupportedProtectedHistory,
   isUpdateBlockingTriggerSource,
 };
 

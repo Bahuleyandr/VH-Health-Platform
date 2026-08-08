@@ -46,8 +46,17 @@ import {
   __testing__ as mergeTesting,
 } from '../services/patient/patientMergeService.js';
 import { lookupByIdentifier } from '../services/patient/patientIdentifierService.js';
-import { readCanonicalPatientTimeline } from '../services/clinical/canonicalClinicalPlatformService.js';
+import {
+  listWorkflowSlaInstances,
+  readCanonicalPatientTimeline,
+} from '../services/clinical/canonicalClinicalPlatformService.js';
 import { resolveMergedPatientUidSet } from '../services/clinical/mergedPatientReadUnion.js';
+import {
+  getMyLabResult,
+  listMyLabResults,
+} from '../services/portal/patientPortalService.js';
+import { listTasks } from '../services/workflow/taskService.js';
+import { listPatientAccessAudit } from '../services/governance/clinicalGovernanceService.js';
 
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB ? describe : describe.skip;
@@ -65,6 +74,10 @@ const seeded = {
   investigationIds: [],
   appointmentIds: [],
   labResultIds: [],
+  taskIds: [],
+  workflowSlaIds: [],
+  patientAccessAuditIds: [],
+  eventOutboxIds: [],
 };
 
 let phoneSeq = 0;
@@ -147,12 +160,61 @@ async function seedTimelineEvent(patientUid, label) {
 
 async function seedLabResult(patientUid) {
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO lab_results (tenant_id, patient_uid, test_code, test_name)
-     VALUES ($1::uuid, $2::uuid, 'HB', $3)
+    `INSERT INTO lab_results
+       (tenant_id, patient_uid, test_code, test_name, value_text, status,
+        signed_off_at, released_to_patient_at)
+     VALUES ($1::uuid, $2::uuid, 'HB', $3, '13.2', 'final', NOW(), NOW())
      RETURNING id`,
     TENANT, patientUid, `${MARK}-haemoglobin`,
   );
   seeded.labResultIds.push(rows[0].id);
+  return rows[0].id;
+}
+
+async function seedTask(patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO tasks (tenant_id, patient_uid, title)
+     VALUES ($1::uuid, $2::uuid, $3)
+     RETURNING id`,
+    TENANT, patientUid, `${MARK}-merge-aware-task`,
+  );
+  seeded.taskIds.push(rows[0].id);
+  return rows[0].id;
+}
+
+async function seedWorkflowSla(patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO workflow_sla_instances
+       (tenant_id, rule_code, patient_uid, due_at)
+     VALUES ($1::uuid, $2, $3::uuid, NOW() + INTERVAL '1 hour')
+     RETURNING id::text AS id`,
+    TENANT, `${MARK}-sla`, patientUid,
+  );
+  seeded.workflowSlaIds.push(rows[0].id);
+  return rows[0].id;
+}
+
+async function seedPatientAccessAudit(patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO patient_access_audit_log
+       (tenant_id, patient_uid, access_decision, access_source, action, request_id)
+     VALUES ($1::uuid, $2::uuid, 'allow', 'system', 'PATIENT_MERGE_TEST', $3)
+     RETURNING id`,
+    TENANT, patientUid, `${MARK}:patient-access`,
+  );
+  seeded.patientAccessAuditIds.push(rows[0].id);
+  return rows[0].id;
+}
+
+async function seedUnsupportedEventOutbox(patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO event_outbox
+       (event_type, aggregate_type, aggregate_id, patient_uid, payload)
+     VALUES ('patient.merge.test', 'patient', $1, $2::uuid, '{}'::jsonb)
+     RETURNING id::text AS id`,
+    `${MARK}:outbox`, patientUid,
+  );
+  seeded.eventOutboxIds.push(rows[0].id);
   return rows[0].id;
 }
 
@@ -170,6 +232,26 @@ async function approvedMergeRequest(primary, secondary) {
 
 async function cleanup() {
   if (!DB) return;
+  if (seeded.eventOutboxIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM event_outbox WHERE id = ANY($1::bigint[])`, seeded.eventOutboxIds,
+    );
+  }
+  if (seeded.patientAccessAuditIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM patient_access_audit_log WHERE id = ANY($1::int[])`, seeded.patientAccessAuditIds,
+    );
+  }
+  if (seeded.taskIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE id = ANY($1::int[])`, seeded.taskIds,
+    );
+  }
+  if (seeded.workflowSlaIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE id = ANY($1::uuid[])`, seeded.workflowSlaIds,
+    );
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE source_table = 'patient_merge_requests' AND clinical_summary LIKE '%merged%' AND patient_uid = ANY($1::uuid[])`,
     seeded.userUids,
@@ -441,24 +523,105 @@ d('patient merge execution (deep)', () => {
     expect(admissions.blocking_triggers).toEqual([]);
   });
 
-  test('merging across a protected table class succeeds and leaves its rows on the old uid', async () => {
-    const primary = await seedPatient('primary-lab');
-    const secondary = await seedPatient('secondary-lab');
-    const labId = await seedLabResult(secondary.uid);
+  test('certified protected rows remain on the old uid and their reader returns them for the survivor', async () => {
+    const primary = await seedPatient('primary-certified');
+    const secondary = await seedPatient('secondary-certified');
+    const accessAuditId = await seedPatientAccessAudit(secondary.uid);
 
     const request = await approvedMergeRequest(primary, secondary);
     const executed = await executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR });
     expect(executed.status).toBe('executed');
 
-    // The identity-pinned lab row was NOT re-pointed — no mid-sweep abort —
-    // and the exclusion is recorded for audit.
-    const lab = await prisma.$queryRawUnsafe(
-      `SELECT patient_uid::text FROM lab_results WHERE id = $1`, labId,
+    const accessAudit = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid::text FROM patient_access_audit_log WHERE id = $1::int`, accessAuditId,
     );
-    expect(lab[0].patient_uid).toBe(secondary.uid);
+    expect(accessAudit[0].patient_uid).toBe(secondary.uid);
     expect(executed.execution_summary.update_blocked_skipped).toEqual(
-      expect.arrayContaining(['lab_results.patient_uid']),
+      expect.arrayContaining(['patient_access_audit_log.patient_uid']),
     );
+
+    const access = await listPatientAccessAudit({
+      tenantId: TENANT, patientUid: primary.uid,
+    });
+    expect(access.access_events.map((row) => Number(row.id))).toContain(Number(accessAuditId));
+  });
+
+  test('existing merged charts recover protected lab, task, and SLA history through repaired readers', async () => {
+    const primary = await seedPatient('primary-existing-merge');
+    const secondary = await seedPatient('secondary-existing-merge');
+    const labId = await seedLabResult(secondary.uid);
+    const taskId = await seedTask(secondary.uid);
+    const workflowSlaId = await seedWorkflowSla(secondary.uid);
+    await prisma.$executeRawUnsafe(
+      `UPDATE users
+          SET merged_into_uid = $1::uuid,
+              status = 'merged',
+              is_active = false
+        WHERE tenant_id = $2::uuid AND uid = $3::uuid`,
+      primary.uid, TENANT, secondary.uid,
+    );
+
+    const labList = await listMyLabResults({
+      tenantId: TENANT, patient_uid: primary.uid, limit: 20,
+    });
+    expect(labList.map((row) => Number(row.id))).toContain(Number(labId));
+    await expect(getMyLabResult({
+      tenantId: TENANT, patient_uid: primary.uid, id: labId,
+    })).resolves.toMatchObject({ id: labId });
+
+    const tasks = await listTasks({ tenantId: TENANT, patientUid: primary.uid });
+    expect(tasks.tasks.map((row) => Number(row.id))).toContain(Number(taskId));
+
+    const slas = await listWorkflowSlaInstances({
+      tenantId: TENANT, patientUid: primary.uid,
+    });
+    expect(slas.slas.map((row) => String(row.id))).toContain(workflowSlaId);
+  });
+
+  test('unsupported protected history blocks before any merge mutation', async () => {
+    const primary = await seedPatient('primary-unsupported');
+    const secondary = await seedPatient('secondary-unsupported');
+    await seedIdentifier(secondary.uid, `${MARK}-UNSUPPORTED-MRN`);
+    await seedLabResult(secondary.uid);
+    await seedTask(secondary.uid);
+    await seedWorkflowSla(secondary.uid);
+    await seedUnsupportedEventOutbox(secondary.uid);
+
+    const request = await approvedMergeRequest(primary, secondary);
+    await expect(executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR }))
+      .rejects.toMatchObject({
+        statusCode: 409,
+        code: 'PATIENT_MERGE_PROTECTED_HISTORY_UNSUPPORTED',
+        details: {
+          unsupported_protected_history: expect.arrayContaining([
+            expect.objectContaining({ table: 'event_outbox', column: 'patient_uid' }),
+            expect.objectContaining({ table: 'lab_results', column: 'patient_uid' }),
+            expect.objectContaining({ table: 'tasks', column: 'patient_uid' }),
+            expect.objectContaining({ table: 'workflow_sla_instances', column: 'patient_uid' }),
+          ]),
+        },
+      });
+
+    const user = await prisma.$queryRawUnsafe(
+      `SELECT is_active, status, merged_into_uid::text
+         FROM users
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT, secondary.uid,
+    );
+    expect(user[0].is_active).toBe(true);
+    expect(user[0].status).not.toBe('merged');
+    expect(user[0].merged_into_uid).toBeNull();
+    const identifier = await prisma.$queryRawUnsafe(
+      `SELECT status, patient_uid::text, merged_into_uid::text
+         FROM patient_identifiers
+        WHERE tenant_id = $1::uuid AND identifier_value = $2`,
+      TENANT, `${MARK}-UNSUPPORTED-MRN`,
+    );
+    expect(identifier[0]).toMatchObject({
+      status: 'active',
+      patient_uid: secondary.uid,
+      merged_into_uid: null,
+    });
   });
 
   test('both-active-admissions guard: two simultaneously-admitted patients are rejected, nothing mutates', async () => {

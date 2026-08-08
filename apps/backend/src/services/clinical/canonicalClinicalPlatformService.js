@@ -12,7 +12,10 @@ import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSaf
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getPatientTimeline as getLegacyPatientTimeline } from '../emr/clinicalTimelineService.js';
-import { resolveMergedPatientUidSet } from './mergedPatientReadUnion.js';
+import {
+  mergedPatientUidsSubquery,
+  resolveMergedPatientUidSet,
+} from './mergedPatientReadUnion.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GLOBAL_TENANT_SENTINEL = '00000000-0000-0000-0000-000000000000';
@@ -934,7 +937,11 @@ export async function listClinicalAuditEvents(filters = {}, options = {}) {
   const clauses = ['tenant_id = $1::uuid'];
   const params = [tenantId];
 
-  addOptionalFilter({ clauses, params, field: 'patient_uid', value: cleanUuid(filters.patientUid || filters.patient_uid), cast: 'uuid' });
+  const patientUid = cleanUuid(filters.patientUid || filters.patient_uid);
+  if (patientUid) {
+    params.push(patientUid);
+    clauses.push(`patient_uid IN (${mergedPatientUidsSubquery('$1::uuid', `$${params.length}::uuid`)})`);
+  }
   addOptionalFilter({ clauses, params, field: 'encounter_id', value: cleanUuid(filters.encounterId || filters.encounter_id), cast: 'uuid' });
   addOptionalFilter({ clauses, params, field: 'actor_uid', value: cleanUuid(filters.actorUid || filters.actor_uid), cast: 'uuid' });
   addOptionalFilter({ clauses, params, field: 'action_status', value: cleanText(filters.status || filters.action_status) });
@@ -975,7 +982,11 @@ export async function listWorkflowSlaInstances(filters = {}, options = {}) {
   const clauses = ['tenant_id = $1::uuid'];
   const params = [tenantId];
 
-  addOptionalFilter({ clauses, params, field: 'patient_uid', value: cleanUuid(filters.patientUid || filters.patient_uid), cast: 'uuid' });
+  const patientUid = cleanUuid(filters.patientUid || filters.patient_uid);
+  if (patientUid) {
+    params.push(patientUid);
+    clauses.push(`patient_uid IN (${mergedPatientUidsSubquery('$1::uuid', `$${params.length}::uuid`)})`);
+  }
   addOptionalFilter({ clauses, params, field: 'encounter_id', value: cleanUuid(filters.encounterId || filters.encounter_id), cast: 'uuid' });
   addOptionalFilter({ clauses, params, field: 'rule_code', value: cleanText(filters.ruleCode || filters.rule_code) });
   addOptionalFilter({ clauses, params, field: 'status', value: cleanText(filters.status) });

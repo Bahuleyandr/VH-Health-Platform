@@ -24,12 +24,13 @@
  *     no live pointer is ever more than one hop from its survivor.
  *
  * Both forms preserve tenant scoping: the users lookup is always constrained
- * to the same tenant as the caller's row filter. When no tenant can be
- * resolved the helper degrades to the plain single-uid read (no union) rather
- * than risking a cross-tenant walk.
+ * to the same tenant as the caller's row filter. Missing tenant context or a
+ * failed union lookup fails the read rather than returning an incomplete
+ * chart.
  */
 
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_MAX_DEPTH = 8;
@@ -46,8 +47,9 @@ function cleanUuid(value) {
  * walk stays transitive so the reader is correct even for data written before
  * the flattening fix). Returns an array of uid strings with the requested uid
  * first; on any failure (missing column on an un-migrated schema, no tenant)
- * it degrades to [patientUid] so callers keep their original single-uid
- * semantics.
+ * it fails closed. Falling back to [patientUid] would silently hide the
+ * merged-away portion of the chart while returning an apparently successful
+ * response.
  *
  * @param {object} db - prisma client or transaction client with $queryRawUnsafe
  * @param {object} opts
@@ -65,7 +67,18 @@ export async function resolveMergedPatientUidSet(db, {
   if (!uid) return [];
   const tid = cleanUuid(tenantId);
   const depth = Number.isInteger(maxDepth) && maxDepth > 0 ? Math.min(maxDepth, 32) : DEFAULT_MAX_DEPTH;
-  if (!tid || typeof db?.$queryRawUnsafe !== 'function') return [uid];
+  if (!tid) {
+    throw AppError.badRequest(
+      'tenant_id is required to resolve merged patient history',
+      'MERGED_PATIENT_TENANT_REQUIRED',
+    );
+  }
+  if (typeof db?.$queryRawUnsafe !== 'function') {
+    throw AppError.internal(
+      'Merged patient history could not be resolved',
+      'MERGED_PATIENT_READER_UNAVAILABLE',
+    );
+  }
   try {
     const rows = await db.$queryRawUnsafe(
       `WITH RECURSIVE merged_chain(uid, depth) AS (
@@ -88,11 +101,11 @@ export async function resolveMergedPatientUidSet(db, {
     }
     return [uid, ...[...set].filter((entry) => entry !== uid)];
   } catch (err) {
-    logger.warn('merged patient uid chain resolution failed; reading single uid', {
+    logger.error('merged patient uid chain resolution failed', {
       patientUid: uid,
       error: err?.message || String(err),
     });
-    return [uid];
+    throw err;
   }
 }
 
@@ -111,11 +124,12 @@ export async function resolveMergedPatientUidSet(db, {
  * or a bind-parameter placeholder (`$1::uuid`) — never user input.
  */
 export function mergedPatientUidsSubquery(tenantSqlExpr, uidSqlExpr) {
-  return `SELECT merged_user.uid
-            FROM users AS merged_user
-           WHERE merged_user.tenant_id = ${tenantSqlExpr}
-             AND (merged_user.uid = ${uidSqlExpr}
-                  OR merged_user.merged_into_uid = ${uidSqlExpr})`;
+  return `SELECT ${uidSqlExpr} AS uid
+           UNION
+          SELECT merged_user.uid
+             FROM users AS merged_user
+            WHERE merged_user.tenant_id = ${tenantSqlExpr}
+              AND merged_user.merged_into_uid = ${uidSqlExpr}`;
 }
 
 export const __testing__ = {

@@ -343,6 +343,7 @@ describe('canonical clinical platform service', () => {
     const slas = await listWorkflowSlaInstances({
       tenantId: TENANT,
       encounterId: ENCOUNTER,
+      patientUid: PATIENT,
       status: 'active',
     });
     const safety = await listMedicationSafetyReviews({
@@ -355,7 +356,9 @@ describe('canonical clinical platform service', () => {
     expect(slas.slas).toHaveLength(1);
     expect(safety.reviews).toHaveLength(1);
     expect(queryUnsafeMock.mock.calls[0][0]).toContain('clinical_audit_events');
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain('patient_uid IN (SELECT $2::uuid AS uid');
     expect(queryUnsafeMock.mock.calls[1][0]).toContain('workflow_sla_instances');
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain('patient_uid IN (SELECT $2::uuid AS uid');
     expect(queryUnsafeMock.mock.calls[2][0]).toContain('medication_safety_reviews');
   });
 
