@@ -1071,7 +1071,16 @@ async function dispatchOrderIntegrations(order) {
       });
       logger.info(`MAR entries created for medication order ${order.order_number}`);
     } catch (err) {
-      logger.error(`Failed to create MAR entries for order ${order.order_number}: ${err.message}`);
+      // C-L3: expandSchedule now throws MAR_DURATION_EXCEEDS_WINDOW /
+      // MAR_SCHEDULE_DOSE_CEILING instead of silently truncating a long
+      // duration to 14 days. This hook is post-commit best-effort (the order
+      // itself must stand), so the refusal lands here — carry the error code
+      // and identifiers so the zero-MAR outcome is unambiguous in the logs,
+      // not a generic scheduling hiccup.
+      logger.error(
+        `Failed to create MAR entries for order ${order.order_number}: ${err.message}`,
+        { code: err?.code || null, order_id: order.id, patient_uid: order.patient_uid },
+      );
     }
   }
 

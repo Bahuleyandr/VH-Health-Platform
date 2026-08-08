@@ -6,7 +6,7 @@ import {
   recordCanonicalClinicalEvent,
   recordMedicationSafetyReviews,
 } from './canonicalClinicalPlatformService.js';
-import { BCMA_CONFIG } from '../../config/pharmacyConfig.js';
+import { BCMA_CONFIG, MAR_SCHEDULE_LIMITS } from '../../config/pharmacyConfig.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 // ===================================================================
@@ -108,13 +108,37 @@ function hoursForFrequency(raw) {
 // of explicit scheduled_time ISO strings. Returns null when the
 // frequency is unrecognised — the caller falls back to requiring an
 // explicit scheduled_time so the error stays loud.
+//
+// C-L3: this used to clamp duration_days to 14 SILENTLY, so an OD × 30-day
+// prescription scheduled only 14 days of doses — days 15–30 simply never
+// existed on the MAR and nobody was told. The bounds are now loud 400s
+// (house style — the unrecognised-frequency error in the same flow):
+// durations within MAR_SCHEDULE_LIMITS are honoured IN FULL, and anything
+// beyond the day window or the absolute dose ceiling throws instead of
+// truncating. `Number(durationDays) || 1` still maps absent/0/NaN/negative
+// to 1 day (defensive defaulting, unchanged).
 function expandSchedule(frequency, startTime, durationDays) {
   const interval = hoursForFrequency(frequency);
   if (interval == null) return null;
   const start = startTime ? new Date(startTime) : new Date();
   if (Number.isNaN(start.getTime())) return null;
-  const days = Math.max(1, Math.min(Number(durationDays) || 1, 14));
+  const { maxScheduleDays, maxTotalDoses } = MAR_SCHEDULE_LIMITS;
+  const days = Math.max(1, Number(durationDays) || 1);
+  if (days > maxScheduleDays) {
+    throw AppError.badRequest(
+      `duration_days ${days} exceeds the ${maxScheduleDays}-day MAR scheduling window — schedule in blocks or supply explicit scheduled_time entries`,
+      'MAR_DURATION_EXCEEDS_WINDOW',
+      { requested_days: days, max_schedule_days: maxScheduleDays },
+    );
+  }
   const totalDoses = Math.ceil((days * 24) / interval);
+  if (totalDoses > maxTotalDoses) {
+    throw AppError.badRequest(
+      `Expanding ${days} day(s) of "${frequency}" would create ${totalDoses} doses (ceiling ${maxTotalDoses}) — schedule in blocks or supply explicit scheduled_time entries`,
+      'MAR_SCHEDULE_DOSE_CEILING',
+      { requested_days: days, total_doses: totalDoses, max_total_doses: maxTotalDoses },
+    );
+  }
   const out = [];
   for (let i = 0; i < totalDoses; i += 1) {
     const t = new Date(start.getTime() + i * interval * 60 * 60 * 1000);

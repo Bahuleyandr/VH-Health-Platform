@@ -50,6 +50,25 @@ export const BCMA_CONFIG = {
   requirePharmacistVerification: process.env.PHARMACY_REQUIRE_CLINICAL_VERIFICATION !== 'false',
 };
 
+// ── MAR frequency-expansion bounds (C-L3) ───────────────────────────────────
+
+function positiveIntEnv(name, fallback) {
+  const parsed = Number.parseInt(String(process.env[name] ?? ''), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+// marService.expandSchedule previously clamped any duration_days to 14
+// SILENTLY — an OD × 30-day prescription scheduled only 14 days of doses and
+// nobody was told. The window now covers the common real-world duration (30
+// days) and anything beyond either bound is a loud 400
+// (MAR_DURATION_EXCEEDS_WINDOW / MAR_SCHEDULE_DOSE_CEILING), never a silent
+// truncation. maxTotalDoses is the absolute row fan-out ceiling that keeps a
+// q1h × long-duration order from inserting thousands of MAR rows.
+export const MAR_SCHEDULE_LIMITS = {
+  maxScheduleDays: positiveIntEnv('MAR_MAX_SCHEDULE_DAYS', 30),
+  maxTotalDoses: positiveIntEnv('MAR_MAX_SCHEDULE_DOSES', 360),
+};
+
 // Medication categories
 export const MEDICATION_CATEGORIES = {
   ANTIBIOTICS: 'Antibiotics',
