@@ -43,7 +43,7 @@ import {
   emitDischargeWorkItemCompleted,
   emitFinalDischargeCompleted,
 } from '../clinical/canonicalOperationalBridgeService.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { recordCanonicalClinicalEvent, startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import {
   ACTIVE_ADMISSION_STATUSES,
@@ -139,6 +139,61 @@ function recordCanonicalAdmissionEvent(input, tx) {
 // AUTH_ENFORCE_TENANT_RLS is on.
 function scopedTx(tenantId, fn) {
   return setTenantTx(requireTenantId(tenantId), fn);
+}
+
+// Start the canonical bed-cleaning-turnaround SLA, keyed to the BED, inside the
+// caller's discharge/transfer transaction — the same bed-keyed clock
+// bedManagementService anchors (markBedReady completes it). The post-commit
+// housekeeping dispatch is best-effort, so without this in-tx start a dispatch
+// failure left the bed in 'cleaning' with no turnaround clock at all.
+// strict: a real SLA write failure has already aborted the Postgres tx, so
+// swallowing it would only convert the rollback into a misleading 25P02.
+async function startBedCleaningSlaInTx(tx, { tenantId, bedId, patientUid = null, admissionId = null, trigger }) {
+  const instance = await startWorkflowSla({
+    tenantId,
+    ruleCode: 'bed_cleaning_turnaround',
+    patientUid,
+    sourceTable: 'beds',
+    sourceId: String(bedId),
+    priority: 'high',
+    metadata: { bed_id: bedId, trigger, admission_id: admissionId },
+  }, { db: tx, strict: true });
+
+  // The (tenant, rule, 'beds', bedId) key is one row per bed for the life of
+  // the table, and startWorkflowSla's ON CONFLICT deliberately preserves an
+  // existing clock. A bed's SECOND turnover therefore conflicts with the
+  // closed clock from its first — re-arm it (domain-owned reopen, per the
+  // startWorkflowSla contract) so every turnover runs a live clock. A prior
+  // clock that is still open (completed_at IS NULL) is left untouched.
+  if (instance && instance.completed_at) {
+    const rearmed = await tx.$queryRawUnsafe(
+      `UPDATE workflow_sla_instances i
+          SET status = 'active',
+              completed_at = NULL,
+              breached_at = NULL,
+              escalated_at = NULL,
+              started_at = NOW(),
+              due_at = NOW() + (
+                SELECT r.target_minutes FROM workflow_sla_rules r WHERE r.id = i.rule_id
+              ) * INTERVAL '1 minute',
+              metadata = COALESCE(i.metadata, '{}'::jsonb) || jsonb_build_object(
+                'reopened_at', NOW(),
+                'trigger', $3::text,
+                'admission_id', $4::int,
+                'prior_completed_at', i.completed_at
+              ),
+              updated_at = NOW()
+        WHERE i.id = $1::uuid
+          AND i.tenant_id = $2::uuid
+        RETURNING i.*`,
+      instance.id,
+      tenantId,
+      String(trigger),
+      admissionId,
+    );
+    return rearmed[0] ?? instance;
+  }
+  return instance;
 }
 
 function shouldMinimizeInpatientPayload(role) {
@@ -567,6 +622,18 @@ export async function ensureAdmissionPatientEncounterTx({
     );
   }
   return Object.freeze({ encounter: insertedRows[0], replayed: false });
+}
+
+// Migration 640 backstop for the one-active-admission-per-patient rule. The
+// pre-flight SELECT + in-tx re-check give the friendly 409 in the common case;
+// under a true race both inserts reach the partial unique index and the loser
+// surfaces here. The index is an expression index Prisma's schema doesn't
+// model, so match the 23505 by index name (present in both the Prisma P2002
+// meta and raw driver errors) rather than by field list.
+const ACTIVE_ADMISSION_UNIQUE_INDEX = 'ux_admissions_one_active_per_patient';
+function isActiveAdmissionUniqueViolation(err) {
+  if (!err) return false;
+  return `${err.message ?? ''} ${JSON.stringify(err.meta ?? {})}`.includes(ACTIVE_ADMISSION_UNIQUE_INDEX);
 }
 
 async function admitPatient(data) {
@@ -1109,7 +1176,9 @@ async function admitPatient(data) {
   let carriedErOrders = [];
 
   const transactionTenantId = requireTenantId(admissionTenantId);
-  const admission = await setTenantTx(transactionTenantId, async (tx) => {
+  let admission;
+  try {
+    admission = await setTenantTx(transactionTenantId, async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findFirst({
       where: {
@@ -1121,6 +1190,25 @@ async function admitPatient(data) {
     if (!patientUser) throw AppError.notFound('Patient not found');
     const patientIntId = patientUser.id;
     const patientName = patientUser.name;
+
+    // In-tx re-check of the one-active-admission rule. The Phase-0 pre-flight
+    // above ran outside this transaction, so a concurrent admit could have
+    // committed since. FOR UPDATE serialises against a concurrent discharge /
+    // transfer of an existing active row; the migration-640 partial unique
+    // index is the backstop when two admits race with no existing row.
+    const activeDupRows = await tx.$queryRawUnsafe(
+      `SELECT id FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND status IN ('admitted', 'transferred')
+        LIMIT 1
+        FOR UPDATE`,
+      transactionTenantId,
+      patient_uid,
+    );
+    if (activeDupRows.length) {
+      throw AppError.conflict('Patient already has an active admission');
+    }
 
     if (erVisit) {
       const erVisitRows = await tx.$queryRawUnsafe(
@@ -1427,31 +1515,33 @@ async function admitPatient(data) {
 
     // Auto-issue 2 attendant passes (architectural item A4 / migration
     // 174). Per project decision 2026-05-09. Pass color snapshotted
-    // from the ward at issue. Best-effort — if pass issuance fails,
-    // log a warning but don't fail the whole admission.
-    try {
-      // Look up the ward row by name (ward is a string here, not a FK
-      // on admissions). Best-effort — returns null if ward isn't found
-      // or wasn't specified, which is fine — pass issuance falls back
-      // to default color/screening.
-      const wardRow = ward
-        ? await tx.wards.findFirst({
-            where: { name: ward },
-            select: { id: true, name: true },
-          })
-        : null;
-      const passes = await issueDefaultAttendantPasses(tx, {
-        admissionId: admission.id,
-        patientUid: patient_uid,
-        patientName,
-        wardId: wardRow?.id ?? null,
-        wardName: wardRow?.name ?? ward ?? null,
-        issuedBy: created_by,
-      });
-      logger.info(`Issued ${passes.length} attendant passes for admission #${admission.id}`);
-    } catch (e) {
-      logger.warn(`admitPatient: attendant-pass issuance failed for admission ${admission.id}: ${e.message}`);
-    }
+    // from the ward at issue. Runs INSIDE the admit tx with no catch —
+    // a swallowed failure here leaves the Postgres tx aborted, so every
+    // later tx.* call (canonical timeline/audit writes) dies with
+    // 25P02 and the admit fails with a misleading 500 anyway (Phase-1
+    // rule: no best-effort calls inside the tx). Tenant is stamped from
+    // the admit tx's tenant; without it the passes defaulted to the
+    // default tenant and RLS rejected them for every other tenant.
+    //
+    // Ward lookup by name (ward is a string here, not a FK on
+    // admissions) — null when the ward isn't found or wasn't specified;
+    // pass issuance falls back to default color/screening.
+    const wardRow = ward
+      ? await tx.wards.findFirst({
+          where: { name: ward },
+          select: { id: true, name: true },
+        })
+      : null;
+    const passes = await issueDefaultAttendantPasses(tx, {
+      admissionId: admission.id,
+      patientUid: patient_uid,
+      patientName,
+      wardId: wardRow?.id ?? null,
+      wardName: wardRow?.name ?? ward ?? null,
+      issuedBy: created_by,
+      tenantId: transactionTenantId,
+    });
+    logger.info(`Issued ${passes.length} attendant passes for admission #${admission.id}`);
 
     // Canonical clinical timeline invariant: the admission detail row + its
     // canonical timeline/audit events persist in the SAME transaction. Emitted
@@ -1544,7 +1634,13 @@ async function admitPatient(data) {
     }
 
     return admission;
-  });
+    });
+  } catch (err) {
+    if (isActiveAdmissionUniqueViolation(err)) {
+      throw AppError.conflict('Patient already has an active admission');
+    }
+    throw err;
+  }
 
   try {
     const hospitalNumber = await ensureHospitalNumber({
@@ -3453,6 +3549,17 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
           },
         });
 
+        // Canonical invariant: the bed→cleaning flip and the bed-cleaning
+        // turnaround SLA start commit in the SAME tx. The post-commit
+        // createBedCleaningRequest dispatch below stays best-effort.
+        await startBedCleaningSlaInTx(tx, {
+          tenantId: requireTenantId(admission.tenant_id || tenantId),
+          bedId: admission.bed_id,
+          patientUid: admission.patient_uid,
+          admissionId: admission.id,
+          trigger: 'final_discharge',
+        });
+
         bedTurnover = {
           bed_id: admission.bed_id,
           bed_number: bedCheck[0].bed_number,
@@ -3539,7 +3646,9 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
         description: `Discharge cleaning required for ${bedLabel} after admission #${admissionId}. bed_id=${bed_id}.`,
       });
     } catch (e) {
-      logger.warn(`dischargePatient: housekeeping request failed for admission ${admissionId} (continuing): ${e.message}`);
+      // Loud: the bed is in 'cleaning' with a running SLA clock but no work
+      // item — the bed-cleaning-dispatch-sweep cron retries the dispatch.
+      logger.error(`dischargePatient: housekeeping request failed for admission ${admissionId} (bed ${phase1.bedTurnover.bed_id}; sweep will retry): ${e.message}`);
     }
   }
 
@@ -3724,6 +3833,17 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
           updated_at: new Date(),
         },
       });
+
+      // Canonical invariant: the vacated bed's →cleaning flip and its
+      // turnaround SLA start commit in the SAME tx (dispatch below stays
+      // post-commit best-effort).
+      await startBedCleaningSlaInTx(tx, {
+        tenantId: requireTenantId(admission.tenant_id || tenantId),
+        bedId: fromBedId,
+        patientUid: admission.patient_uid,
+        admissionId: Number(admissionId),
+        trigger: 'bed_transfer',
+      });
     }
 
     // Pull expected_los_days off the admission so the new bed reflects it.
@@ -3866,7 +3986,9 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
         description: `Transfer cleaning required after admission #${admissionId} moved to bed ${toBedId}. bed_id=${phase1.bedTurnover.bed_id}.`,
       });
     } catch (e) {
-      logger.warn(`transferPatient: housekeeping request failed for admission ${admissionId} (continuing): ${e.message}`);
+      // Loud: the vacated bed is in 'cleaning' with a running SLA clock but
+      // no work item — the bed-cleaning-dispatch-sweep cron retries.
+      logger.error(`transferPatient: housekeeping request failed for admission ${admissionId} (bed ${phase1.bedTurnover.bed_id}; sweep will retry): ${e.message}`);
     }
   }
 

@@ -206,12 +206,16 @@ async function seedPendingResultFixture(client) {
      RETURNING id`,
     [tenantId, patient.uid, physician.uid],
   );
+  // Same patient, different admission — a discharged prior stay, because
+  // migration 640 allows only one ACTIVE admission per patient. The tests
+  // using it only need a distinct admission id to bind against.
   const otherAdmission = await client.query(
     `INSERT INTO admissions
        (tenant_id, patient_uid, status, allergies, attending_doctor,
-        admitting_doctor, admitted_at, created_by, updated_at)
-     VALUES ($1::uuid, $2::uuid, 'admitted', ARRAY[]::text[], $3::uuid,
-             $3::uuid, NOW(), $3::uuid, NOW())
+        admitting_doctor, admitted_at, discharged_at, created_by, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'discharged', ARRAY[]::text[], $3::uuid,
+             $3::uuid, NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day',
+             $3::uuid, NOW())
      RETURNING id`,
     [tenantId, patient.uid, physician.uid],
   );

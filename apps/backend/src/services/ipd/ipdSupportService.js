@@ -659,21 +659,11 @@ export async function issueReplacementAttendantPass({
       _max: { pass_index: true },
     });
     const nextIndex = (lastIndex._max.pass_index ?? 0) + 1;
-    // Dead destructure left over from a previous refactor — the `.then(() => [])`
-    // chain means the destructured `_pass` is always undefined. Kept the
-    // side-effect call out of an abundance of caution.
-    const [_pass] = await issueDefaultAttendantPasses(tx, {
-      admissionId: admission.id,
-      patientUid: admission.patient_uid,
-      patientName,
-      wardId,
-      wardName,
-      issuedBy,
-      tenantId: tid,
-    }).then(() => []) // can't reuse — write a custom one
-      .catch(() => []);
-    // Direct create rather than the bulk helper above so we can pass
-    // explicit pass_index = nextIndex.
+    // Direct create rather than issueDefaultAttendantPasses so we can pass
+    // explicit pass_index = nextIndex. (A leftover call to the bulk helper
+    // here re-issued pass_index 1+2, hit the (admission_id, pass_index)
+    // unique, and left the tx aborted — every replacement then failed with
+    // 25P02 even though the JS error was swallowed.)
     const passNumber = await nextPassNumber(tx, admission.id, nextIndex);
     let passColor = null;
     let screeningLevel = 'standard';

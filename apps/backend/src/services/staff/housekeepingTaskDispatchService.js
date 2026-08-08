@@ -609,6 +609,52 @@ export async function createBedCleaningRequest({
   return { request, recipients, fanout, created: true };
 }
 
+// Retry lane for the post-commit bed-cleaning dispatch. Discharge/transfer
+// flip the bed to 'cleaning' and start the bed-keyed SLA in-tx, but the
+// housekeeping_requests work item is dispatched post-commit best-effort — a
+// dispatch failure (or a crash between commit and dispatch) used to leave a
+// cleaning bed with no ticket forever. This sweep finds such beds and re-runs
+// createBedCleaningRequest, which dedupes against any active request itself.
+export async function sweepMissingBedCleaningDispatches({ tenantId = null, limit = 25 } = {}) {
+  const beds = await prisma.$queryRawUnsafe(
+    `SELECT b.id AS bed_id
+       FROM beds b
+      WHERE b.status = 'cleaning'
+        AND ($3::uuid IS NULL OR b.tenant_id = $3::uuid)
+        AND NOT EXISTS (
+          SELECT 1
+            FROM housekeeping_requests hr
+           WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+             -- Every bed_cleaning description ends with "bed_id=N." — the
+             -- trailing dot keeps bed 12 from matching bed 123's request.
+             AND hr.description ILIKE '%bed_id=' || b.id || '.%'
+        )
+      ORDER BY b.updated_at ASC NULLS FIRST
+      LIMIT $2::int`,
+    ACTIVE_REQUEST_STATUSES,
+    limit,
+    tenantId,
+  );
+
+  let dispatched = 0;
+  let failed = 0;
+  for (const bed of beds) {
+    try {
+      await createBedCleaningRequest({
+        bedId: bed.bed_id,
+        trigger: 'bed_cleaning',
+        urgency: 'high',
+        description: `Bed turnover cleaning re-dispatched by sweep (original dispatch failed). bed_id=${bed.bed_id}.`,
+      });
+      dispatched += 1;
+    } catch (err) {
+      failed += 1;
+      logger.error(`bed-cleaning-dispatch-sweep: re-dispatch failed for bed ${bed.bed_id}: ${err.message}`);
+    }
+  }
+  return { scanned: beds.length, dispatched, failed };
+}
+
 export default {
   createBedCleaningRequest,
   ensureHousekeepingRequestRecipients,
@@ -616,4 +662,5 @@ export default {
   notifyHousekeepingRecipients,
   resolveBedCleaningContext,
   resolveHousekeepingRecipientsForTarget,
+  sweepMissingBedCleaningDispatches,
 };
