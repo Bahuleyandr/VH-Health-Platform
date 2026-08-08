@@ -130,6 +130,29 @@ describe('canonical clinical platform service', () => {
     expect(queryUnsafeMock.mock.calls[1][0]).toContain('WHERE idempotency_key = $1');
   });
 
+  it('reads back an audit row after an invisible concurrent conflict', async () => {
+    const timelineRow = { id: '44444444-4444-4444-8444-444444444444' };
+    const auditRow = { id: '55555555-5555-4555-8555-555555555555' };
+    queryUnsafeMock
+      .mockResolvedValueOnce([timelineRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([auditRow]);
+
+    const result = await recordCanonicalClinicalEvent({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      eventType: 'note.signed',
+      sourceTable: 'clinical_notes',
+      sourceId: 7,
+      actorUid: ACTOR,
+    }, { strict: true });
+
+    expect(result).toEqual({ timeline: timelineRow, audit: auditRow });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain('clinical_audit_events');
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain('WHERE idempotency_key = $1');
+  });
+
   it('rejects strict writes when the timeline row cannot be recorded', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]);
 

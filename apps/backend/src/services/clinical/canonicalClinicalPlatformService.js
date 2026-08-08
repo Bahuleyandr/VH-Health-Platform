@@ -434,7 +434,15 @@ export async function recordTimelineEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
 
-  const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
+  // Pre-RLS tenant hardening: prefer the caller's explicit tenant; when it is
+  // absent, the SQL below prefers the transaction-local RLS GUC (set by
+  // setTenant/setTenantTx in every environment) over silently stamping the
+  // single-tenant default — a tenant-B write inside a tenant-B transaction
+  // must never land canonical rows under DEFAULT_TENANT_ID. The fail-closed
+  // fallback is unchanged: no explicit tenant and default not allowed throws
+  // TENANT_CONTEXT_REQUIRED.
+  const explicitTenantId = cleanUuid(input.tenantId || input.tenant_id);
+  const fallbackTenantId = explicitTenantId || normalizeTenantId(null);
   const patientUid = cleanUuid(input.patientUid || input.patient_uid);
   if (!patientUid) return null;
 
@@ -469,7 +477,12 @@ export async function recordTimelineEvent(input = {}, options = {}) {
            (tenant_id, patient_uid, encounter_id, event_type, event_subtype, event_status,
             source_table, source_id, source_uid, resource_type, resource_id, actor_uid, actor_role,
             occurred_at, visible_to_patient, clinical_summary, payload, tags, idempotency_key)
-         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
+         VALUES (COALESCE($1::uuid,
+                          CASE WHEN current_setting('app.current_tenant_id', true)
+                                    ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                               THEN current_setting('app.current_tenant_id', true)::uuid END,
+                          $20::uuid),
+                 $2::uuid, $3::uuid, $4, $5, $6,
                  $7, $8, $9::uuid, $10, $11, $12::uuid, $13,
                  COALESCE($14::timestamptz, NOW()), $15, $16, $17::jsonb, $18::text[], $19)
          ON CONFLICT (idempotency_key)
@@ -481,7 +494,7 @@ export async function recordTimelineEvent(input = {}, options = {}) {
        SELECT * FROM clinical_timeline_events
         WHERE idempotency_key = $19 AND NOT EXISTS (SELECT 1 FROM ins)
        LIMIT 1`,
-      tenantId,
+      explicitTenantId,
       patientUid,
       cleanUuid(input.encounterId || input.encounter_id),
       eventType,
@@ -500,6 +513,7 @@ export async function recordTimelineEvent(input = {}, options = {}) {
       stringifyJson(input.payload),
       Array.isArray(input.tags) ? input.tags.map(String) : [],
       idempotencyKey,
+      fallbackTenantId,
     );
 
     // Under Read Committed, a concurrent uncommitted insert can make
@@ -527,7 +541,11 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
 
-  const tenantId = normalizeTenantId(input.tenantId || input.tenant_id);
+  // Same pre-RLS tenant hardening as recordTimelineEvent above: explicit
+  // tenant wins, then the transaction-local RLS GUC, then the fail-closed
+  // default-tenant fallback.
+  const explicitTenantId = cleanUuid(input.tenantId || input.tenant_id);
+  const fallbackTenantId = explicitTenantId || normalizeTenantId(null);
   const action = cleanText(input.action);
   if (!action) return null;
 
@@ -552,13 +570,18 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
     // documentIntegrityService links sig.audit_event_id = events.audit.id) keep
     // working. One query → mock-sequenced unit tests see the same call count as
     // the prior ON CONFLICT DO UPDATE form.
-    const rows = await db.$queryRawUnsafe(
+    let rows = await db.$queryRawUnsafe(
       `WITH ins AS (
          INSERT INTO clinical_audit_events
            (tenant_id, patient_uid, encounter_id, action, action_status, actor_uid, actor_role,
             resource_type, resource_table, resource_id, request_id, ip_address, user_agent,
             before_state, after_state, metadata, idempotency_key, occurred_at)
-         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
+         VALUES (COALESCE($1::uuid,
+                          CASE WHEN current_setting('app.current_tenant_id', true)
+                                    ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                               THEN current_setting('app.current_tenant_id', true)::uuid END,
+                          $19::uuid),
+                 $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
                  $8, $9, $10, $11, NULLIF($12, '')::inet, $13,
                  $14::jsonb, $15::jsonb, $16::jsonb, $17, COALESCE($18::timestamptz, NOW()))
          ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
@@ -570,7 +593,7 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
        SELECT * FROM clinical_audit_events
         WHERE idempotency_key = $17 AND NOT EXISTS (SELECT 1 FROM ins)
        LIMIT 1`,
-      tenantId,
+      explicitTenantId,
       cleanUuid(input.patientUid || input.patient_uid),
       cleanUuid(input.encounterId || input.encounter_id),
       action,
@@ -588,7 +611,25 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
       stringifyJson(input.metadata),
       idempotencyKey,
       input.occurredAt || input.occurred_at || null,
+      fallbackTenantId,
     );
+
+    // Under Read Committed, a concurrent uncommitted insert can make
+    // ON CONFLICT DO NOTHING suppress this insert while the conflicting row
+    // remains invisible to the statement snapshot, so the CTE returns no row.
+    // A second statement gets a fresh snapshot after the conflict wait and
+    // reads back the now-committed canonical row. (The key is always derived
+    // non-null here, so the equality predicate stays inside the partial
+    // unique index's WHERE idempotency_key IS NOT NULL domain.)
+    if (!rows[0]) {
+      rows = await db.$queryRawUnsafe(
+        `SELECT *
+           FROM clinical_audit_events
+          WHERE idempotency_key = $1
+          LIMIT 1`,
+        idempotencyKey,
+      );
+    }
     return rows[0] || null;
   } catch (err) {
     logCanonicalFailure('clinical audit event record', err);
