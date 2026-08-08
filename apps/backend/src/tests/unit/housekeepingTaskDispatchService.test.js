@@ -29,6 +29,7 @@ const { createBedCleaningRequest } = await import(
 const REQUESTER_UID = '11111111-2222-4333-8444-000000000001';
 const STAFF_UID = '11111111-2222-4333-8444-000000000002';
 const INCHARGE_UID = '11111111-2222-4333-8444-000000000003';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 describe('housekeepingTaskDispatchService', () => {
   beforeEach(() => {
@@ -36,9 +37,13 @@ describe('housekeepingTaskDispatchService', () => {
     let recipientInsertId = 1;
     prismaMock.$executeRawUnsafe.mockResolvedValue(1);
     prismaMock.$queryRawUnsafe.mockImplementation(async (sql, ...params) => {
+      if (sql.includes('pg_advisory_xact_lock')) {
+        return [{ lock_result: '' }];
+      }
       if (sql.includes('SELECT b.id AS bed_id')) {
         return [{
           bed_id: 42,
+          tenant_id: TENANT_ID,
           bed_number: 'ICU-001',
           ward_id: 7,
           ward_name: 'ICU',
@@ -141,6 +146,19 @@ describe('housekeepingTaskDispatchService', () => {
       STAFF_UID,
       'assigned',
     ]));
+    expect(requestInsert).toContain(TENANT_ID);
+
+    const advisoryLock = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes('pg_advisory_xact_lock')
+    );
+    expect(advisoryLock).toEqual(expect.arrayContaining([expect.any(String), 42]));
+
+    const dedupeLookup = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes('FROM housekeeping_requests') && sql.includes('COALESCE(status')
+    );
+    expect(dedupeLookup[0]).toMatch(/tenant_id = \$1::uuid/);
+    expect(dedupeLookup[1]).toBe(TENANT_ID);
+    expect(dedupeLookup[2]).toBe('%bed_id=42.%');
 
     const recipientInserts = prismaMock.$queryRawUnsafe.mock.calls.filter(([sql]) =>
       sql.includes('INSERT INTO housekeeping_request_recipients')

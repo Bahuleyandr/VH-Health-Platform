@@ -21,7 +21,10 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const prisma = (await import('../lib/prisma.js')).default;
 const admissionService = (await import('../services/emr/admissionService.js')).default;
 const ipdSupportService = (await import('../services/ipd/ipdSupportService.js')).default;
-const { sweepMissingBedCleaningDispatches } = await import('../services/staff/housekeepingTaskDispatchService.js');
+const {
+  createBedCleaningRequest,
+  sweepMissingBedCleaningDispatches,
+} = await import('../services/staff/housekeepingTaskDispatchService.js');
 const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -354,11 +357,26 @@ d('Phase-3 admission/IPD fixes (deep)', () => {
     expect(sla[0].completed_at).toBeNull();
   }, 60_000);
 
-  it('bed-cleaning-dispatch-sweep re-dispatches a cleaning bed with no active housekeeping request', async () => {
+  it('bed-cleaning-dispatch-sweep re-dispatches a cleaning bed despite an active request with a prefixed bed id', async () => {
     // Simulate a failed post-commit dispatch: cleaning bed, no request rows.
     await prisma.$executeRawUnsafe(
       `DELETE FROM housekeeping_requests WHERE description LIKE '%bed_id=' || $1 || '.%'`,
       String(bedBId),
+    );
+    const requester = (await prisma.$queryRawUnsafe(
+      `SELECT id, uid FROM users WHERE uid = $1::uuid`,
+      ADMIN_UID,
+    ))[0];
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO housekeeping_requests
+         (requester_id, requester_uid, location_text, request_type, urgency,
+          description, status, tenant_id, updated_at)
+       VALUES ($1::int, $2::uuid, 'Prefix collision fixture', 'bed_cleaning',
+               'high', $3, 'open', $4::uuid, NOW())`,
+      requester.id,
+      requester.uid,
+      `Unrelated cleaning request. bed_id=${bedBId}0.`,
+      DEFAULT_TENANT_ID,
     );
 
     const result = await sweepMissingBedCleaningDispatches({ tenantId: DEFAULT_TENANT_ID, limit: 200 });
@@ -371,5 +389,38 @@ d('Phase-3 admission/IPD fixes (deep)', () => {
       String(bedBId),
     );
     expect(requests.length).toBeGreaterThanOrEqual(1);
+  }, 60_000);
+
+  it('serializes concurrent live and recovery dispatches to one active request per bed', async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM housekeeping_requests WHERE description LIKE '%bed_id=' || $1 || '.%'`,
+      String(bedAId),
+    );
+
+    const dispatches = await Promise.all([
+      createBedCleaningRequest({
+        bedId: bedAId,
+        requesterUid: ADMIN_UID,
+        trigger: 'bed_transfer',
+        description: `Concurrent live dispatch. bed_id=${bedAId}.`,
+      }),
+      createBedCleaningRequest({
+        bedId: bedAId,
+        requesterUid: ADMIN_UID,
+        trigger: 'bed_cleaning',
+        description: `Concurrent recovery dispatch. bed_id=${bedAId}.`,
+      }),
+    ]);
+    expect(dispatches.map(({ created }) => created).sort()).toEqual([false, true]);
+
+    const requests = await prisma.$queryRawUnsafe(
+      `SELECT id FROM housekeeping_requests
+        WHERE tenant_id = $1::uuid
+          AND description LIKE '%bed_id=' || $2 || '.%'
+          AND COALESCE(status, 'open') IN ('open', 'pending', 'assigned', 'in_progress')`,
+      DEFAULT_TENANT_ID,
+      String(bedAId),
+    );
+    expect(requests).toHaveLength(1);
   }, 60_000);
 });
