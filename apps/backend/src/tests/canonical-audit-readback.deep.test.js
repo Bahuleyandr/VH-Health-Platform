@@ -142,34 +142,44 @@ d('recordClinicalAuditEvent concurrent readback + tenant stamping', () => {
   test('writers without an explicit tenant stamp the transaction tenant, not the default', async () => {
     const tenantB = randomUUID();
     const patientUid = randomUUID();
-    const { audit, timeline, reviews } = await setTenantTx(tenantB, async (tx) => {
-      const auditRow = await recordClinicalAuditEvent({
-        // No tenantId on purpose: the transaction-local GUC must win over the
-        // silent DEFAULT_TENANT_ID fallback.
-        patientUid,
-        action: 'audit_readback_probe',
-        resourceTable: 'audit_readback_test',
-        resourceId: MARK,
-        idempotencyKey: `${MARK}.guc.audit.${++seq}`,
-      }, { db: tx });
-      const timelineRow = await recordTimelineEvent({
-        patientUid,
-        eventType: 'audit_readback_probe',
-        sourceTable: 'audit_readback_test',
-        sourceId: MARK,
-        idempotencyKey: `${MARK}.guc.timeline.${seq}`,
-      }, { db: tx });
-      const reviewRows = await recordMedicationSafetyReviews({
-        patientUid,
-        safety: {
-          safe: false,
-          blockers: [{ type: 'guc_probe', code: MARK, message: 'GUC tenant probe' }],
-          warnings: [],
-        },
-        actorUid: patientUid,
-      }, { db: tx });
-      return { audit: auditRow, timeline: timelineRow, reviews: reviewRows };
-    });
+    const priorDefaultTenant = process.env.ALLOW_DEFAULT_TENANT;
+    process.env.ALLOW_DEFAULT_TENANT = 'false';
+    let audit;
+    let timeline;
+    let reviews;
+    try {
+      ({ audit, timeline, reviews } = await setTenantTx(tenantB, async (tx) => {
+        const auditRow = await recordClinicalAuditEvent({
+          // No tenantId on purpose: the transaction-local GUC must win even
+          // when default-tenant fallback is disabled.
+          patientUid,
+          action: 'audit_readback_probe',
+          resourceTable: 'audit_readback_test',
+          resourceId: MARK,
+          idempotencyKey: `${MARK}.guc.audit.${++seq}`,
+        }, { db: tx });
+        const timelineRow = await recordTimelineEvent({
+          patientUid,
+          eventType: 'audit_readback_probe',
+          sourceTable: 'audit_readback_test',
+          sourceId: MARK,
+          idempotencyKey: `${MARK}.guc.timeline.${seq}`,
+        }, { db: tx });
+        const reviewRows = await recordMedicationSafetyReviews({
+          patientUid,
+          safety: {
+            safe: false,
+            blockers: [{ type: 'guc_probe', code: MARK, message: 'GUC tenant probe' }],
+            warnings: [],
+          },
+          actorUid: patientUid,
+        }, { db: tx });
+        return { audit: auditRow, timeline: timelineRow, reviews: reviewRows };
+      }));
+    } finally {
+      if (priorDefaultTenant === undefined) delete process.env.ALLOW_DEFAULT_TENANT;
+      else process.env.ALLOW_DEFAULT_TENANT = priorDefaultTenant;
+    }
 
     expect(audit?.tenant_id).toBe(tenantB);
     expect(timeline?.tenant_id).toBe(tenantB);

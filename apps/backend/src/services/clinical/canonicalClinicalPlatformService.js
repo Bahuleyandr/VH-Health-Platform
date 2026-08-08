@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import prisma from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { AppError } from '../../utils/AppError.js';
@@ -15,14 +16,6 @@ import { getPatientTimeline as getLegacyPatientTimeline } from '../emr/clinicalT
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GLOBAL_TENANT_SENTINEL = '00000000-0000-0000-0000-000000000000';
-
-// Transaction-local RLS GUC as a tenant fallback for the canonical writers
-// (pre-RLS hardening): uuid-shaped values only, never '' or 'bypass'. Interpolated
-// as a static SQL fragment (same idiom as dayExpr below) inside
-// COALESCE(<explicit>::uuid, GUC_TENANT_SQL, <fail-closed fallback>::uuid).
-const GUC_TENANT_SQL = `CASE WHEN current_setting('app.current_tenant_id', true)
-             ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-        THEN current_setting('app.current_tenant_id', true)::uuid END`;
 
 const ENCOUNTER_TRANSITIONS = {
   open: new Set(['active', 'signed', 'cancelled']),
@@ -244,6 +237,19 @@ function normalizeTenantId(value) {
   return requireTenantId(cleanUuid(value));
 }
 
+async function resolveCanonicalTenantId(db, value) {
+  const explicitTenantId = cleanUuid(value);
+  if (explicitTenantId) return explicitTenantId;
+
+  const contextTenantId = cleanUuid(getCurrentTenantId());
+  if (contextTenantId) return contextTenantId;
+
+  const rows = await db.$queryRawUnsafe(
+    `SELECT current_setting('app.current_tenant_id', true) AS tenant_id`,
+  );
+  return normalizeTenantId(rows[0]?.tenant_id);
+}
+
 function safeJson(value, fallback = {}) {
   if (value === undefined || value === null) return fallback;
   return value;
@@ -442,15 +448,10 @@ export async function recordTimelineEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
 
-  // Pre-RLS tenant hardening: prefer the caller's explicit tenant; when it is
-  // absent, the SQL below prefers the transaction-local RLS GUC (set by
-  // setTenant/setTenantTx in every environment) over silently stamping the
-  // single-tenant default — a tenant-B write inside a tenant-B transaction
-  // must never land canonical rows under DEFAULT_TENANT_ID. The fail-closed
-  // fallback is unchanged: no explicit tenant and default not allowed throws
-  // TENANT_CONTEXT_REQUIRED.
-  const explicitTenantId = cleanUuid(input.tenantId || input.tenant_id);
-  const fallbackTenantId = explicitTenantId || normalizeTenantId(null);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const patientUid = cleanUuid(input.patientUid || input.patient_uid);
   if (!patientUid) return null;
 
@@ -485,8 +486,7 @@ export async function recordTimelineEvent(input = {}, options = {}) {
            (tenant_id, patient_uid, encounter_id, event_type, event_subtype, event_status,
             source_table, source_id, source_uid, resource_type, resource_id, actor_uid, actor_role,
             occurred_at, visible_to_patient, clinical_summary, payload, tags, idempotency_key)
-         VALUES (COALESCE($1::uuid, ${GUC_TENANT_SQL}, $20::uuid),
-                 $2::uuid, $3::uuid, $4, $5, $6,
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
                  $7, $8, $9::uuid, $10, $11, $12::uuid, $13,
                  COALESCE($14::timestamptz, NOW()), $15, $16, $17::jsonb, $18::text[], $19)
          ON CONFLICT (idempotency_key)
@@ -498,7 +498,7 @@ export async function recordTimelineEvent(input = {}, options = {}) {
        SELECT * FROM clinical_timeline_events
         WHERE idempotency_key = $19 AND NOT EXISTS (SELECT 1 FROM ins)
        LIMIT 1`,
-      explicitTenantId,
+      tenantId,
       patientUid,
       cleanUuid(input.encounterId || input.encounter_id),
       eventType,
@@ -517,7 +517,6 @@ export async function recordTimelineEvent(input = {}, options = {}) {
       stringifyJson(input.payload),
       Array.isArray(input.tags) ? input.tags.map(String) : [],
       idempotencyKey,
-      fallbackTenantId,
     );
 
     // Under Read Committed, a concurrent uncommitted insert can make
@@ -545,11 +544,10 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
 
-  // Same pre-RLS tenant hardening as recordTimelineEvent above: explicit
-  // tenant wins, then the transaction-local RLS GUC, then the fail-closed
-  // default-tenant fallback.
-  const explicitTenantId = cleanUuid(input.tenantId || input.tenant_id);
-  const fallbackTenantId = explicitTenantId || normalizeTenantId(null);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const action = cleanText(input.action);
   if (!action) return null;
 
@@ -580,8 +578,7 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
            (tenant_id, patient_uid, encounter_id, action, action_status, actor_uid, actor_role,
             resource_type, resource_table, resource_id, request_id, ip_address, user_agent,
             before_state, after_state, metadata, idempotency_key, occurred_at)
-         VALUES (COALESCE($1::uuid, ${GUC_TENANT_SQL}, $19::uuid),
-                 $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
                  $8, $9, $10, $11, NULLIF($12, '')::inet, $13,
                  $14::jsonb, $15::jsonb, $16::jsonb, $17, COALESCE($18::timestamptz, NOW()))
          ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
@@ -593,7 +590,7 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
        SELECT * FROM clinical_audit_events
         WHERE idempotency_key = $17 AND NOT EXISTS (SELECT 1 FROM ins)
        LIMIT 1`,
-      explicitTenantId,
+      tenantId,
       cleanUuid(input.patientUid || input.patient_uid),
       cleanUuid(input.encounterId || input.encounter_id),
       action,
@@ -611,7 +608,6 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
       stringifyJson(input.metadata),
       idempotencyKey,
       input.occurredAt || input.occurred_at || null,
-      fallbackTenantId,
     );
 
     // Under Read Committed, a concurrent uncommitted insert can make
@@ -1092,11 +1088,10 @@ export async function startWorkflowSla(input = {}, options = {}) {
     }
     return null;
   }
-  // Same pre-RLS tenant hardening as the timeline/audit writers above:
-  // explicit tenant wins, then the transaction-local RLS GUC, then the
-  // fail-closed default-tenant fallback.
-  const explicitTenantId = cleanUuid(input.tenantId || input.tenant_id);
-  const fallbackTenantId = explicitTenantId || normalizeTenantId(null);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const ruleCode = cleanText(input.ruleCode || input.rule_code);
   if (!ruleCode) {
     if (strict) {
@@ -1114,12 +1109,11 @@ export async function startWorkflowSla(input = {}, options = {}) {
          FROM workflow_sla_rules
         WHERE enabled = TRUE
           AND rule_code = $1
-          AND (tenant_id = COALESCE($2::uuid, ${GUC_TENANT_SQL}, $3::uuid) OR tenant_id IS NULL)
-        ORDER BY CASE WHEN tenant_id = COALESCE($2::uuid, ${GUC_TENANT_SQL}, $3::uuid) THEN 0 ELSE 1 END
+          AND (tenant_id = $2::uuid OR tenant_id IS NULL)
+        ORDER BY CASE WHEN tenant_id = $2::uuid THEN 0 ELSE 1 END
         LIMIT 1`,
       ruleCode,
-      explicitTenantId,
-      fallbackTenantId,
+      tenantId,
     );
     const rule = rules[0];
     if (!rule) return null;
@@ -1129,8 +1123,7 @@ export async function startWorkflowSla(input = {}, options = {}) {
          (tenant_id, rule_id, rule_code, patient_uid, encounter_id, source_table, source_id,
           source_uid, status, priority, started_at, due_at, assigned_role_codes,
           assigned_user_uid, metadata)
-       VALUES (COALESCE($1::uuid, ${GUC_TENANT_SQL}, $14::uuid),
-               $2::uuid, $3, $4::uuid, $5::uuid, $6, $7,
+       VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5::uuid, $6, $7,
                $8::uuid, 'active', $9, NOW(), NOW() + ($10::int * INTERVAL '1 minute'),
                $11::text[], $12::uuid, $13::jsonb)
        ON CONFLICT (tenant_id, rule_code, source_table, source_id)
@@ -1141,7 +1134,7 @@ export async function startWorkflowSla(input = {}, options = {}) {
          -- timestamps); domain-specific reopen helpers own explicit re-arming.
          updated_at = workflow_sla_instances.updated_at
        RETURNING *`,
-      explicitTenantId,
+      tenantId,
       rule.id,
       rule.rule_code,
       cleanUuid(input.patientUid || input.patient_uid),
@@ -1156,7 +1149,6 @@ export async function startWorkflowSla(input = {}, options = {}) {
         : (rule.owner_role_codes || []),
       cleanUuid(input.assignedUserUid || input.assigned_user_uid),
       stringifyJson(input.metadata),
-      fallbackTenantId,
     );
     const started = rows[0] || null;
     if (strict && !started) {
@@ -1176,9 +1168,10 @@ export async function startWorkflowSla(input = {}, options = {}) {
 export async function completeWorkflowSla(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
-  // Same pre-RLS tenant hardening as the timeline/audit writers above.
-  const explicitTenantId = cleanUuid(input.tenantId || input.tenant_id);
-  const fallbackTenantId = explicitTenantId || normalizeTenantId(null);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const ruleCode = cleanText(input.ruleCode || input.rule_code);
   const sourceTable = cleanText(input.sourceTable || input.source_table);
   const sourceId = cleanText(input.sourceId || input.source_id);
@@ -1208,7 +1201,7 @@ export async function completeWorkflowSla(input = {}, options = {}) {
                 END,
                 metadata = metadata || $5::jsonb,
                 updated_at = NOW()
-          WHERE tenant_id = COALESCE($1::uuid, ${GUC_TENANT_SQL}, $6::uuid)
+          WHERE tenant_id = $1::uuid
             AND rule_code = $2
             AND source_table = $3
             AND source_id = $4
@@ -1218,18 +1211,17 @@ export async function completeWorkflowSla(input = {}, options = {}) {
        SELECT * FROM upd
        UNION ALL
        SELECT * FROM workflow_sla_instances
-        WHERE tenant_id = COALESCE($1::uuid, ${GUC_TENANT_SQL}, $6::uuid)
+        WHERE tenant_id = $1::uuid
           AND rule_code = $2
           AND source_table = $3
           AND source_id = $4
           AND NOT EXISTS (SELECT 1 FROM upd)
        LIMIT 1`,
-      explicitTenantId,
+      tenantId,
       ruleCode,
       sourceTable,
       sourceId,
       stringifyJson(input.metadata),
-      fallbackTenantId,
     );
     return rows[0] || null;
   } catch (err) {
@@ -1271,9 +1263,10 @@ export async function recordMedicationSafetyReviews(input = {}, options = {}) {
     });
   }
 
-  // Same pre-RLS tenant hardening as the timeline/audit writers above.
-  const explicitTenantId = cleanUuid(input.tenantId || input.tenant_id);
-  const fallbackTenantId = explicitTenantId || normalizeTenantId(null);
+  const tenantId = await resolveCanonicalTenantId(
+    db,
+    input.tenantId || input.tenant_id,
+  );
   const rows = [];
   for (const finding of findings) {
     const issue = finding.issue || {};
@@ -1284,13 +1277,12 @@ export async function recordMedicationSafetyReviews(input = {}, options = {}) {
            (tenant_id, patient_uid, patient_id, encounter_id, prescription_id, clinical_order_id,
             review_type, severity, status, finding_code, medication_name, message,
             override_required, override_reason, overridden_by, overridden_at, payload, created_by)
-         VALUES (COALESCE($1::uuid, ${GUC_TENANT_SQL}, $18::uuid),
-                 $2::uuid, $3::int, $4::uuid, $5::int, $6::int,
+         VALUES ($1::uuid, $2::uuid, $3::int, $4::uuid, $5::int, $6::int,
                  $7, $8, $9, $10, $11, $12,
                  $13, $14, $15::uuid, CASE WHEN $14::text IS NOT NULL THEN NOW() ELSE NULL END,
                  $16::jsonb, $17::uuid)
          RETURNING *`,
-        explicitTenantId,
+        tenantId,
         cleanUuid(input.patientUid || input.patient_uid),
         input.patientId || input.patient_id || null,
         cleanUuid(input.encounterId || input.encounter_id),
@@ -1307,7 +1299,6 @@ export async function recordMedicationSafetyReviews(input = {}, options = {}) {
         cleanUuid(input.override?.approvedBy || input.override?.approved_by || input.actorUid || input.actor_uid),
         stringifyJson(issue),
         cleanUuid(input.actorUid || input.actor_uid),
-        fallbackTenantId,
       );
       if (inserted[0]) rows.push(inserted[0]);
     } catch (err) {

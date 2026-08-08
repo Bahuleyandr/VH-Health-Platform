@@ -59,22 +59,31 @@ d('workflow SLA tenant stamping + terminal-state guard (F-M1 residual, F-L4)', (
 
   test('SLA start/complete without an explicit tenant stamp the transaction tenant, not the default', async () => {
     const sourceId = nextSourceId();
-    const { started, completed } = await setTenantTx(TENANT_B, async (tx) => {
-      const startedRow = await startWorkflowSla({
-        // No tenantId on purpose: the transaction-local GUC must win over the
-        // silent DEFAULT_TENANT_ID fallback.
-        ruleCode: RULE,
-        patientUid: randomUUID(),
-        sourceTable: SOURCE_TABLE,
-        sourceId,
-      }, { db: tx });
-      const completedRow = await completeWorkflowSla({
-        ruleCode: RULE,
-        sourceTable: SOURCE_TABLE,
-        sourceId,
-      }, { db: tx });
-      return { started: startedRow, completed: completedRow };
-    });
+    const priorDefaultTenant = process.env.ALLOW_DEFAULT_TENANT;
+    process.env.ALLOW_DEFAULT_TENANT = 'false';
+    let started;
+    let completed;
+    try {
+      ({ started, completed } = await setTenantTx(TENANT_B, async (tx) => {
+        const startedRow = await startWorkflowSla({
+          // No tenantId on purpose: the transaction tenant must win even when
+          // default-tenant fallback is disabled.
+          ruleCode: RULE,
+          patientUid: randomUUID(),
+          sourceTable: SOURCE_TABLE,
+          sourceId,
+        }, { db: tx });
+        const completedRow = await completeWorkflowSla({
+          ruleCode: RULE,
+          sourceTable: SOURCE_TABLE,
+          sourceId,
+        }, { db: tx });
+        return { started: startedRow, completed: completedRow };
+      }));
+    } finally {
+      if (priorDefaultTenant === undefined) delete process.env.ALLOW_DEFAULT_TENANT;
+      else process.env.ALLOW_DEFAULT_TENANT = priorDefaultTenant;
+    }
 
     expect(started?.tenant_id).toBe(TENANT_B);
     expect(started?.tenant_id).not.toBe(DEFAULT_TENANT);

@@ -17,7 +17,7 @@
 // Requires a reachable Postgres (DATABASE_URL). Skipped if none configured.
 
 import { randomUUID } from 'crypto';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import { acknowledgeAlert } from '../services/emr/cdsEngine.js';
 
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -28,6 +28,29 @@ const MARK = `CDS-ACK-ATOMIC-${process.pid}-${Date.now()}`;
 
 const TENANT_B = randomUUID();
 const ACTOR = randomUUID();
+const OTHER_ACTOR = randomUUID();
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function waitForBlockedCdsSessions(minimum = 2) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n
+         FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND pid <> pg_backend_pid()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%cds_alerts%'`,
+    );
+    if (Number(rows[0]?.n || 0) >= minimum) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${minimum} blocked CDS acknowledgement sessions`);
+}
 
 async function insertAlert({ patientUid, title }) {
   const rows = await prisma.$queryRawUnsafe(
@@ -150,6 +173,70 @@ d('CDS alert ack/override canonical atomicity (S5-01)', () => {
       `SELECT COUNT(*)::int AS n FROM medication_safety_reviews WHERE patient_uid = $1::uuid`,
       patientUid,
     )).toBe(0);
+  }, 30_000);
+
+  test('concurrent overrides serialize so only one clinician can acknowledge', async () => {
+    const patientUid = randomUUID();
+    const alertId = await insertAlert({ patientUid, title: 'Concurrent override probe' });
+    const lockHeld = deferred();
+    const releaseLock = deferred();
+
+    const blocker = setTenantTx(TENANT_B, async (tx) => {
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM cds_alerts WHERE id = $1::int FOR UPDATE`,
+        Number(alertId),
+      );
+      lockHeld.resolve();
+      await releaseLock.promise;
+    });
+    await lockHeld.promise;
+
+    const first = acknowledgeAlert(alertId, ACTOR, 'first concurrent override', TENANT_B);
+    const second = acknowledgeAlert(alertId, OTHER_ACTOR, 'second concurrent override', TENANT_B);
+    first.catch(() => {});
+    second.catch(() => {});
+
+    try {
+      await waitForBlockedCdsSessions();
+    } finally {
+      releaseLock.resolve();
+    }
+    await blocker;
+
+    const settled = await Promise.allSettled([first, second]);
+    const fulfilled = settled.filter((entry) => entry.status === 'fulfilled');
+    const rejected = settled.filter((entry) => entry.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toMatchObject({ statusCode: 409 });
+
+    const winner = fulfilled[0].value;
+    const alert = await prisma.$queryRawUnsafe(
+      `SELECT ack_by, source_data FROM cds_alerts WHERE id = $1::int`,
+      Number(alertId),
+    );
+    expect(alert[0].ack_by).toBe(winner.acknowledged_by);
+    expect(alert[0].source_data.override_reason).toBe(winner.override_reason);
+
+    const reviews = await prisma.$queryRawUnsafe(
+      `SELECT overridden_by, override_reason
+         FROM medication_safety_reviews
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT_B,
+      patientUid,
+    );
+    expect(reviews).toEqual([expect.objectContaining({
+      overridden_by: winner.acknowledged_by,
+      override_reason: winner.override_reason,
+    })]);
+    expect(await countRows(
+      `SELECT COUNT(*)::int AS n FROM clinical_timeline_events WHERE idempotency_key = $1`,
+      `cds_alerts:${alertId}:acknowledged`,
+    )).toBe(1);
+    expect(await countRows(
+      `SELECT COUNT(*)::int AS n FROM clinical_audit_events WHERE idempotency_key = $1`,
+      `cds_alerts:${alertId}:audit:acknowledged`,
+    )).toBe(1);
   }, 30_000);
 
   test('a failed canonical emit rolls the acknowledgement back', async () => {

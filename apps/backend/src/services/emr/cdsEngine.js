@@ -925,10 +925,16 @@ export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason =
 
   const requestTenantId = requireTenantId(tenantId);
   const result = await setTenantTx(requestTenantId, async (tx) => {
-    const existing = await tx.cds_alerts.findUnique({
-      where: { id: Number(alertId) },
-      select: { id: true, acknowledged: true, source_data: true },
-    });
+    const existingRows = await tx.$queryRawUnsafe(
+      `SELECT id, acknowledged, source_data
+         FROM cds_alerts
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      Number(alertId),
+      requestTenantId,
+    );
+    const existing = existingRows[0];
     if (!existing) {
       throw AppError.notFound('CDS alert not found');
     }
