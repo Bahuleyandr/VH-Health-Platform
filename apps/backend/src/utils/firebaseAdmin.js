@@ -3,8 +3,10 @@
 // firebase-admin 14 removed the legacy namespace API — the default export no
 // longer carries `auth`, `messaging`, `credential` or `apps`. Everything below
 // goes through the modular entry points instead. The exported facade keeps the
-// `.auth()` / `.messaging()` shape its callers (and their test doubles) rely on.
+// `.auth()` / `.messaging()` / `.appCheck()` shape its callers (and their test
+// doubles) rely on.
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getAppCheck } from 'firebase-admin/app-check';
 import { getAuth } from 'firebase-admin/auth';
 import { getMessaging } from 'firebase-admin/messaging';
 import logger from '../logging/logger.js';
@@ -42,10 +44,11 @@ try {
   }
 
   // Resolved lazily, exactly as `admin.auth()` / `admin.messaging()` were —
-  // both getters are memoised per app by the SDK.
+  // all getters are memoised per app by the SDK.
   firebaseAdmin = {
     auth: () => getAuth(),
-    messaging: () => getMessaging()
+    messaging: () => getMessaging(),
+    appCheck: () => getAppCheck()
   };
 } catch (error) {
   logger.warn('⚠️ Firebase Admin not initialized:', error.message);
@@ -58,6 +61,9 @@ try {
     }),
     messaging: () => ({
       send: () => Promise.reject(new Error('Firebase not configured'))
+    }),
+    appCheck: () => ({
+      verifyToken: () => Promise.reject(new Error('Firebase not configured'))
     })
   };
 }

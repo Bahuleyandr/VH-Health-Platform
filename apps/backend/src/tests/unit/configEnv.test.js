@@ -53,6 +53,47 @@ describe('validateEnv PATIENT_OUTAGE_COMMUNICATION_JSON', () => {
   });
 });
 
+describe('validateEnv Firebase App Check report mode', () => {
+  it('keeps App Check off without requiring app-ID lists', () => {
+    const { error, value } = validate();
+
+    expect(error).toBeUndefined();
+    expect(value.APP_CHECK_MODE).toBe('off');
+  });
+
+  it('requires both client app-ID lists in report mode', () => {
+    const missing = validate({ APP_CHECK_MODE: 'report' });
+    const patientOnly = validate({
+      APP_CHECK_MODE: 'report',
+      FIREBASE_APP_CHECK_PATIENT_APP_IDS: 'patient-app-id',
+    });
+
+    expect(missing.error?.details.map(detail => detail.context?.label)).toEqual(
+      expect.arrayContaining([
+        'FIREBASE_APP_CHECK_PATIENT_APP_IDS',
+        'FIREBASE_APP_CHECK_STAFF_APP_IDS',
+      ]),
+    );
+    expect(patientOnly.error?.details[0].context?.label).toBe('FIREBASE_APP_CHECK_STAFF_APP_IDS');
+  });
+
+  it('accepts report mode with comma-separated exact app IDs', () => {
+    const result = validate({
+      APP_CHECK_MODE: 'report',
+      FIREBASE_APP_CHECK_PATIENT_APP_IDS: 'patient-android,patient-ios',
+      FIREBASE_APP_CHECK_STAFF_APP_IDS: 'staff-android,staff-ios,staff-web',
+    });
+
+    expect(result.error).toBeUndefined();
+  });
+
+  it('rejects the unimplemented enforce mode', () => {
+    expect(validate({ APP_CHECK_MODE: 'enforce' }).error?.details[0].message).toContain(
+      'APP_CHECK_MODE',
+    );
+  });
+});
+
 describe('validateEnv clinical continuity publication gate', () => {
   it('defaults the C3.1 writer to inert without requiring a mirror root', () => {
     const { error, value } = validate();

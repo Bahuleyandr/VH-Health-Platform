@@ -62,6 +62,7 @@ export default [
       // Add a line here if a further firebase-admin subpath is ever imported.
       'import/core-modules': [
         'firebase-admin/app',
+        'firebase-admin/app-check',
         'firebase-admin/auth',
         'firebase-admin/messaging',
       ],
