@@ -1,0 +1,40 @@
+{
+  "//": "Paths the backend genuinely SERVES but that are absent from the generated OpenAPI spec. Every entry needs a comment naming the app.js mount that serves it. This file is NOT for silencing a 404 — a path that Express does not route belongs in a fix, not here. Non-API strings (Next.js local routes, /ws, /api-docs, static assets) and router mount bases are excluded by rule in check-client-paths.mjs, never by an entry here.",
+  "entries": [
+    {
+      "path": "/api/v1/emr/mar/**",
+      "comment": "MAR discoverability alias. app.js mounts clinicalRoutes at /api/v1/emr/mar behind rewriteToMarPrefix, which rewrites req.url to /mar/* at runtime. Because the served path differs from mount+route, the mount carries __openapiSkipMount so the generator does not emit unreachable /emr/mar/mar/* artifacts — the canonical contract is /api/v1/clinical/mar/*.",
+      "evidence": "apps/backend/src/app.js:1105-1126"
+    },
+    {
+      "path": "/api/v1/nursing/mar/**",
+      "comment": "Second MAR discoverability alias, same rewriteToMarPrefix mount and same __openapiSkipMount reason as /api/v1/emr/mar.",
+      "evidence": "apps/backend/src/app.js:1127-1134"
+    },
+    {
+      "path": "/api/v1/admissions",
+      "comment": "Admissions REST alias family. admissionAliasRouter runs rewriteAdmissionSurface before admissionRoutes, so GET /api/v1/admissions is served as /admissions and POST as /admit. The generator walks mount+route and therefore emits the doubled /api/v1/admissions/admissions and /api/v1/admissions/admit forms; the REST-shaped path clients actually call is absent from the spec.",
+      "evidence": "apps/backend/src/app.js:453-482, 1540-1545"
+    },
+    {
+      "path": "/api/v1/admissions/stats",
+      "comment": "Admissions REST alias — rewriteAdmissionSurface maps /stats to /admissions/stats, which the spec publishes as /api/v1/admissions/admissions/stats.",
+      "evidence": "apps/backend/src/app.js:460-462"
+    },
+    {
+      "path": "/api/v1/admissions/advise",
+      "comment": "Admissions REST alias — OPD-to-IPD bridge. rewriteAdmissionSurface maps /advise to /admissions/advise, published as /api/v1/admissions/admissions/advise.",
+      "evidence": "apps/backend/src/app.js:462-468"
+    },
+    {
+      "path": "/api/v1/admissions/patient/{param}",
+      "comment": "Admissions REST alias — rewriteAdmissionSurface prefixes /patient/* with /admissions, published as /api/v1/admissions/admissions/patient/{uid}.",
+      "evidence": "apps/backend/src/app.js:469-470"
+    },
+    {
+      "path": "/api/v1/auth/dev/**",
+      "comment": "Development-only auth shortcuts, mounted by a conditional dynamic import that runs ONLY when ENABLE_DEV_AUTH=true. The spec generator boots the app without that flag, so the router is legitimately absent from the spec while still being served wherever it is enabled. The patient app calls /auth/dev/patient-login to obtain a real JWT where a phone-OTP round-trip is impossible (emulators, CI).",
+      "evidence": "apps/backend/src/routes/auth/index.js:77-79, apps/backend/src/routes/auth/devAuthRoutes.js:59"
+    }
+  ]
+}

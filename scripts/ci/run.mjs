@@ -2,6 +2,7 @@
 import process from 'node:process';
 import { runAdminStage } from './admin.mjs';
 import { runBackendStage } from './backend.mjs';
+import { runContractsStage } from './contracts.mjs';
 import { runFhirStage } from './fhir.mjs';
 import { runFlutterStage } from './flutter.mjs';
 import { runInfraStage } from './infra.mjs';
@@ -13,7 +14,7 @@ import {
   stagesForChangedFiles,
 } from './stage-selection.mjs';
 
-const stageOrder = ['security', 'backend', 'fhir', 'admin', 'flutter', 'infra'];
+const stageOrder = ['security', 'contracts', 'backend', 'fhir', 'admin', 'flutter', 'infra'];
 const optionalStages = ['smoke'];
 const allStages = [...stageOrder, ...optionalStages];
 const aliases = new Map([
@@ -120,6 +121,7 @@ function parseArgs() {
 
 const stageHandlers = {
   security: runSecurityStage,
+  contracts: runContractsStage,
   backend: runBackendStage,
   fhir: runFhirStage,
   admin: runAdminStage,
