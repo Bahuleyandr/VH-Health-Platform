@@ -155,9 +155,9 @@ class RealtimeClient {
   @visibleForTesting
   int get reconnectAttemptsForTesting => _reconnectAttempts;
 
-  /// 0..25% of the initial delay, so simultaneous clients don't reconnect in
-  /// lockstep after a shared server hiccup.
-  static int _jitterMs() => _random.nextInt(_reconnectInitialMs ~/ 4 + 1);
+  /// 0..25% of the current delay, so simultaneous clients don't reconnect in
+  /// lockstep after a shared server hiccup even at the capped retry interval.
+  static int _jitterMs(int delayMs) => _random.nextInt(delayMs ~/ 4 + 1);
 
   /// Derive the WebSocket URL from [ApiConfig.baseUrl]. Strips `/api/v1` and
   /// replaces `https`/`http` with `wss`/`ws`.
@@ -178,17 +178,21 @@ class RealtimeClient {
     if (_connecting || isConnected) return;
     _shouldReconnect = true;
     _sessionExpired = false;
+    _setConnectionState(RealtimeConnectionState.reconnecting);
     await _openSocket();
   }
 
   Future<void> _openSocket() async {
+    if (!_shouldReconnect || _connecting || isConnected) return;
     _connecting = true;
+    WebSocketChannel? openingChannel;
     try {
       final jwt = await AuthService.getJwt();
+      if (!_shouldReconnect) return;
       if (jwt == null || jwt.isEmpty) {
         // No token — don't attempt; caller can re-invoke after login.
-        _connecting = false;
         _shouldReconnect = false;
+        _setConnectionState(RealtimeConnectionState.disconnected);
         return;
       }
 
@@ -201,29 +205,35 @@ class RealtimeClient {
       final channel = WebSocketChannel.connect(
         Uri.parse(_wsUrlOverrideForTesting ?? buildWsUrl(ApiConfig.baseUrl)),
       );
+      openingChannel = channel;
       _channel = channel;
       await channel.ready;
+      if (!_shouldReconnect) {
+        try {
+          await channel.sink.close(ws_status.normalClosure);
+        } catch (_) {}
+        if (identical(_channel, channel)) _channel = null;
+        return;
+      }
 
-      channel.sink.add(jsonEncode({'action': 'auth', 'token': jwt}));
-
-      _reconnectAttempts = 0;
       _serverSubscribed.clear();
-      _setConnectionState(RealtimeConnectionState.connected);
 
       _wsSub = channel.stream.listen(
         _onMessage,
-        onError: (_) => _handleDisconnect(reason: 'error'),
-        onDone: () =>
-            _handleDisconnect(reason: 'done', code: channel.closeCode),
+        onError: (_) => _handleDisconnect(source: channel, reason: 'error'),
+        onDone: () => _handleDisconnect(
+          source: channel,
+          reason: 'done',
+          code: channel.closeCode,
+        ),
         cancelOnError: true,
       );
 
-      // Re-subscribe every desired channel (after the auth frame).
-      for (final c in _desiredChannels) {
-        _sendSubscribe(c);
-      }
+      // Install the receive listener before sending auth so an immediate
+      // connected/4001 response cannot race past the client.
+      channel.sink.add(jsonEncode({'action': 'auth', 'token': jwt}));
     } catch (_) {
-      _handleDisconnect(reason: 'connect-failed');
+      _handleDisconnect(source: openingChannel, reason: 'connect-failed');
     } finally {
       _connecting = false;
     }
@@ -242,6 +252,16 @@ class RealtimeClient {
 
     switch (event) {
       case 'connected':
+        // This is the server's authenticated-ready acknowledgement. The real
+        // backend installs its subscribe listener only after async token and
+        // revocation checks, so sending joins before this frame can lose them.
+        if (!_shouldReconnect) return;
+        _reconnectAttempts = 0;
+        _setConnectionState(RealtimeConnectionState.connected);
+        for (final channel in _desiredChannels) {
+          _sendSubscribe(channel);
+        }
+        return;
       case 'subscribed':
         if (msg['channel'] is String) {
           final channel = msg['channel'] as String;
@@ -292,7 +312,14 @@ class RealtimeClient {
     );
   }
 
-  void _handleDisconnect({required String reason, int? code}) {
+  void _handleDisconnect({
+    WebSocketChannel? source,
+    required String reason,
+    int? code,
+  }) {
+    // A late onDone/onError from a superseded socket must not tear down the
+    // newer live connection or schedule an overlapping reconnect.
+    if (source != null && !identical(source, _channel)) return;
     _wsSub?.cancel();
     _wsSub = null;
     _channel = null;
@@ -324,10 +351,11 @@ class RealtimeClient {
     // jitter, retrying indefinitely — realtime must never give up while the
     // caller still wants it. Reopening re-sends every desired channel.
     _reconnectAttempts += 1;
-    final delayMs = reconnectDelayMs(_reconnectAttempts) + _jitterMs();
+    final baseDelayMs = reconnectDelayMs(_reconnectAttempts);
+    final delayMs = baseDelayMs + _jitterMs(baseDelayMs);
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
-      _openSocket();
+      if (_shouldReconnect) _openSocket();
     });
   }
 

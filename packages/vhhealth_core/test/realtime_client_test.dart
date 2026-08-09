@@ -80,6 +80,7 @@ class _WsHarness {
     bool emitAfterFreshSubscribe = false,
     int denyFirstSubscribes = 0,
     bool denyAllSubscribes = false,
+    Duration authReadyDelay = Duration.zero,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final harness = _WsHarness._(server);
@@ -94,6 +95,7 @@ class _WsHarness {
       final socket = await WebSocketTransformer.upgrade(request);
       harness.sockets.add(socket);
       String? socketToken;
+      var authenticated = false;
 
       socket.listen((raw) {
         final msg = jsonDecode(raw as String) as Map<String, dynamic>;
@@ -102,7 +104,11 @@ class _WsHarness {
             socketToken = msg['token'] as String?;
             harness.authTokens.add(socketToken ?? '');
             if (socketToken == 'fresh-access' && acceptFreshToken) {
-              socket.add(jsonEncode({'event': 'connected'}));
+              Future<void>.delayed(authReadyDelay, () {
+                if (socket.readyState != WebSocket.open) return;
+                authenticated = true;
+                socket.add(jsonEncode({'event': 'connected'}));
+              });
             } else {
               unawaited(socket.close(4001, 'expired'));
             }
@@ -112,7 +118,7 @@ class _WsHarness {
             if (channel == null) return;
             harness.subscribedChannels.add(channel);
             if (socket.readyState != WebSocket.open ||
-                socketToken != 'fresh-access' ||
+                !authenticated ||
                 !acceptFreshToken) {
               return;
             }
@@ -337,6 +343,44 @@ void main() {
     expect(RealtimeClient.reconnectDelayMs(7), 30000);
     expect(RealtimeClient.reconnectDelayMs(50), 30000);
   });
+
+  test(
+    'waits for the authenticated server acknowledgement before subscribing',
+    () async {
+      final harness = await _WsHarness.start(
+        acceptFreshToken: true,
+        emitAfterFreshSubscribe: true,
+        authReadyDelay: const Duration(milliseconds: 150),
+      );
+      addTearDown(harness.close);
+      RealtimeClient.setWsUrlForTesting(harness.wsUrl);
+      await AuthService.setJwt('fresh-access');
+
+      final received = Completer<RealtimeEvent>();
+      final subscription = RealtimeClient.instance
+          .events('staff:code-blue')
+          .listen((event) {
+            if (!received.isCompleted) received.complete(event);
+          });
+      addTearDown(subscription.cancel);
+
+      await RealtimeClient.instance.connect();
+
+      expect(harness.subscribedChannels, isEmpty);
+      expect(
+        RealtimeClient.instance.connectionState,
+        RealtimeConnectionState.reconnecting,
+      );
+
+      final event = await received.future.timeout(const Duration(seconds: 3));
+      expect(event.channel, 'staff:code-blue');
+      expect(harness.subscribedChannels, ['staff:code-blue']);
+      expect(
+        RealtimeClient.instance.connectionState,
+        RealtimeConnectionState.connected,
+      );
+    },
+  );
 
   test(
     'transient drop rejoins with backoff, resubscribes, and resets state',
