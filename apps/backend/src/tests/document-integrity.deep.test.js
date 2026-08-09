@@ -27,6 +27,7 @@ let actorId;
 let noteId;
 let signatureId;
 let tamperedAuditId;
+let expectedPhiAuditWrites = 0;
 
 function testClient(role) {
   return authClient(role, {
@@ -87,6 +88,25 @@ async function cleanup() {
   });
 }
 
+/** phiAccessLogger writes hipaa_access_log rows AFTER the response. Wait for
+ *  this suite's tenant-scoped rows before teardown so a late insert cannot
+ *  recreate an FK child after cleanup() has deleted hipaa_access_log. */
+async function waitForPhiAuditWrites(expected, timeoutMs = 10000) {
+  if (expected === 0) return;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM hipaa_access_log
+        WHERE tenant_id = $1::uuid`,
+      TENANT_ID,
+    );
+    if (row.count >= expected) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 d('Document integrity — deep round-trip (roadmap C4)', () => {
   beforeAll(async () => {
     await cleanup();
@@ -126,10 +146,10 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
   });
 
   afterAll(async () => {
-    await new Promise((resolve) => setImmediate(resolve));
+    await waitForPhiAuditWrites(expectedPhiAuditWrites);
     await cleanup();
     await prisma.$disconnect();
-  });
+  }, 120000);
 
   test('audit inserts are chained by the trigger with intact linkage', async () => {
     const first = await recordClinicalAuditEvent({
@@ -191,6 +211,9 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
       .get('/api/v1/integrity/audit-chain/verify')
       .query({ limit: 50 });
     expect(admin.status).toBe(200);
+    // Only 2xx responses write hipaa_access_log rows here — the denied 403s
+    // and the 400/404 below never resolve a patient, so they log nothing.
+    expectedPhiAuditWrites += 1;
     expect(admin.body.data.intact).toBe(true);
   });
 
@@ -208,12 +231,14 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
         statement: 'C4TEST attested by author',
       });
     expect(sign.status).toBe(201);
+    expectedPhiAuditWrites += 1;
     signatureId = sign.body.data.signature.id;
     expect(sign.body.data.signature.content_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(sign.body.data.signature.audit_event_id).toBeTruthy();
 
     const intact = await testClient('DOCTOR').get(`/api/v1/integrity/signatures/${signatureId}/verify`);
     expect(intact.status).toBe(200);
+    expectedPhiAuditWrites += 1;
     expect(intact.body.data.intact).toBe(true);
 
     // Edit the signed note → verification must flag the change.
@@ -223,6 +248,7 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
     );
     const changed = await testClient('DOCTOR').get(`/api/v1/integrity/signatures/${signatureId}/verify`);
     expect(changed.status).toBe(200);
+    expectedPhiAuditWrites += 1;
     expect(changed.body.data.intact).toBe(false);
     expect(changed.body.data.current_hash).not.toBe(changed.body.data.signed_hash);
   });
@@ -231,6 +257,7 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
     const list = await testClient('DOCTOR')
       .get(`/api/v1/integrity/signatures/clinical_note/${noteId}`);
     expect(list.status).toBe(200);
+    expectedPhiAuditWrites += 1;
     expect(list.body.data.count).toBeGreaterThanOrEqual(1);
 
     const audit = await prisma.$queryRawUnsafe(
