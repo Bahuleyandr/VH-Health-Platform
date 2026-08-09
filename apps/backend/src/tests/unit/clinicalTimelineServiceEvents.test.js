@@ -13,6 +13,8 @@ const prismaMock = {
   clinical_orders: emptyFindMany(),
   nurse_handovers: emptyFindMany(),
   referrals: emptyFindMany(),
+  users: { findUnique: jest.fn() },
+  downtime_snapshots: { create: jest.fn() },
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -31,7 +33,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { getPatientTimeline } = await import(
+const { getPatientTimeline, createDowntimeSnapshot } = await import(
   '../../services/emr/clinicalTimelineService.js'
 );
 
@@ -40,7 +42,7 @@ const PATIENT_UID = '44444444-4444-4444-8444-444444444444';
 beforeEach(() => {
   jest.clearAllMocks();
   for (const model of Object.values(prismaMock)) {
-    model.findMany.mockResolvedValue([]);
+    model.findMany?.mockResolvedValue([]);
   }
 });
 
@@ -110,5 +112,42 @@ describe('clinical timeline event ledger', () => {
     });
     expect(referral.summary).toContain('Referral to Cardiology');
     expect(referral.summary).toContain('Persistent exertional chest pain');
+  });
+});
+
+describe('downtime snapshot tenant stamping', () => {
+  const TENANT = '77777777-7777-4777-8777-777777777777';
+
+  it('passes the patient tenant_id into the downtime_snapshots create', async () => {
+    prismaMock.users.findUnique
+      // getPatient projection (no tenant_id — shared with response payloads)
+      .mockResolvedValueOnce({ uid: PATIENT_UID, name: 'Test Patient' })
+      // narrow tenant lookup
+      .mockResolvedValueOnce({ tenant_id: TENANT });
+    prismaMock.downtime_snapshots.create.mockResolvedValueOnce({
+      id: 1,
+      patient_uid: PATIENT_UID,
+      scope: 'patient_chart',
+    });
+
+    await createDowntimeSnapshot(PATIENT_UID, null);
+
+    expect(prismaMock.users.findUnique).toHaveBeenNthCalledWith(2, {
+      where: { uid: PATIENT_UID },
+      select: { tenant_id: true },
+    });
+    expect(prismaMock.downtime_snapshots.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.downtime_snapshots.create.mock.calls[0][0].data.tenant_id).toBe(TENANT);
+  });
+
+  it('leaves tenant_id undefined so the DB default applies when the patient row has none', async () => {
+    prismaMock.users.findUnique
+      .mockResolvedValueOnce({ uid: PATIENT_UID, name: 'Test Patient' })
+      .mockResolvedValueOnce({ tenant_id: null });
+    prismaMock.downtime_snapshots.create.mockResolvedValueOnce({ id: 2 });
+
+    await createDowntimeSnapshot(PATIENT_UID, null);
+
+    expect(prismaMock.downtime_snapshots.create.mock.calls[0][0].data.tenant_id).toBeUndefined();
   });
 });

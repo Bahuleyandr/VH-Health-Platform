@@ -940,6 +940,20 @@ export async function createDowntimeSnapshot(patientUid, generatedBy, { scope = 
   const patient = await getPatient(patientUid);
   if (!patient) throw AppError.notFound('Patient not found');
 
+  // Stamp the snapshot with the patient's own tenant. Model-delegate calls
+  // like the create below never set the app.current_tenant_id GUC (the
+  // prisma proxy only wraps the raw-SQL methods), so the GUC-aware column
+  // default on downtime_snapshots.tenant_id would otherwise fall through to
+  // the constant default tenant for a non-default-tenant patient.
+  // getPatient's shared projection is deliberately left untouched — its
+  // result is embedded verbatim in API/snapshot payloads
+  // (collectAdmissionClinicalContext's `patient` and this snapshot's
+  // `payload.patient`) — so tenant_id is read via a separate narrow lookup.
+  const tenantRow = await prisma.users.findUnique({
+    where: { uid: patientUid },
+    select: { tenant_id: true },
+  });
+
   const timeline = await getPatientTimeline(patientUid, {
     limit: 300,
     sort: 'desc',
@@ -953,6 +967,9 @@ export async function createDowntimeSnapshot(patientUid, generatedBy, { scope = 
 
   return prisma.downtime_snapshots.create({
     data: {
+      // undefined (not null) preserves the DB column default as the fallback
+      // when the patient row carries no tenant_id.
+      tenant_id: tenantRow?.tenant_id ?? undefined,
       patient_uid: patientUid,
       scope,
       generated_by: generatedBy || null,
