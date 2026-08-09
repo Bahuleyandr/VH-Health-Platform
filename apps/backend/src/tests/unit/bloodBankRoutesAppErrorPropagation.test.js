@@ -120,6 +120,8 @@ describe('blood-bank routes relay AppError code + details', () => {
         patient_uid: '22222222-2222-4222-8222-222222222222',
         blood_group: 'O+',
         units: 2,
+        component: 'prbc',
+        clinical_indication: 'Symptomatic anaemia Hb 6.2',
       });
 
     expect(response.statusCode).toBe(409);
