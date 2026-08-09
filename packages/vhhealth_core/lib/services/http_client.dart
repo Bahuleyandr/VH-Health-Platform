@@ -58,6 +58,18 @@ class VHHttpClient {
   /// the JWT/session `deviceType` claim as authoritative for security gates.
   static String? Function()? deviceTypeProvider;
 
+  /// Optional Firebase App Check token provider, set by the apps after
+  /// `FirebaseAppCheck.activate()`. Core stays Firebase-free — this closure
+  /// is the only coupling. When it yields a token, every request (including
+  /// unauthenticated ones — the pre-API-key `/auth/firebase` mount verifies
+  /// it) carries it as `X-Firebase-AppCheck`.
+  static Future<String?> Function()? appCheckTokenProvider;
+
+  /// Cap on how long a request waits for an App Check token before sending
+  /// without one. Shrink in tests to keep the fail-open path fast.
+  @visibleForTesting
+  static Duration appCheckTokenTimeout = const Duration(seconds: 2);
+
   // ── Injectable HTTP client (for tests) ─────────────────────────────────
   // Default: the SPKI-pinned production client (audit finding H7 — the
   // pinner existed but was never wired in; all traffic went through a plain
@@ -610,7 +622,30 @@ class VHHttpClient {
       base['X-Device-Type'] = deviceType;
     }
 
+    final appCheckToken = await currentAppCheckToken();
+    if (appCheckToken != null && appCheckToken.isNotEmpty) {
+      base['X-Firebase-AppCheck'] = appCheckToken;
+    }
+
     return base;
+  }
+
+  /// Resolves the current App Check token via [appCheckTokenProvider].
+  ///
+  /// FAIL-OPEN by design: returns null when no provider is installed, on any
+  /// provider error, or when the provider exceeds [appCheckTokenTimeout] — a
+  /// clinical request must go out regardless of App Check (the backend is
+  /// report-only). Shared with `VHAuthInterceptor` so the fail-open policy
+  /// lives in exactly one place.
+  static Future<String?> currentAppCheckToken() async {
+    final provider = appCheckTokenProvider;
+    if (provider == null) return null;
+    try {
+      return await provider().timeout(appCheckTokenTimeout);
+    } catch (e) {
+      debugPrint('App Check token unavailable: $e');
+      return null;
+    }
   }
 
   static Map<String, String> _withAdditionalHeaders(
