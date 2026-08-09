@@ -21,6 +21,7 @@ class PhoneInputField extends StatelessWidget {
     return TextFormField(
       controller: controller,
       keyboardType: TextInputType.phone,
+      autofillHints: const [AutofillHints.telephoneNumber],
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       readOnly: readOnly,
       textInputAction: TextInputAction.done,

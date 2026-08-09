@@ -1811,6 +1811,50 @@ class AppLocalizationsTe extends AppLocalizations {
   String get otpSentSuccess => 'OTP మీ ఫోన్ నంబర్‌కి పంపబడింది';
 
   @override
+  String get otpFieldSemanticLabel => '6 అంకెల OTP కోడ్';
+
+  @override
+  String otpDigitsRemaining(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'మరో $count అంకెలు నమోదు చేయండి',
+      one: 'మరో 1 అంకె నమోదు చేయండి',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get otpAllDigitsEntered => 'మొత్తం 6 అంకెలు నమోదు చేయబడ్డాయి';
+
+  @override
+  String get otpVerifying => 'ధృవీకరిస్తోంది...';
+
+  @override
+  String get otpDidntReceiveResend => 'OTP రాలేదా? మళ్లీ పంపండి';
+
+  @override
+  String get otpInvalidTryAgain => 'చెల్లని OTP. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get otpVerificationSessionExpired =>
+      'ధృవీకరణ సెషన్ గడువు ముగిసింది. దయచేసి OTP మళ్లీ పంపండి.';
+
+  @override
+  String get otpAutoFilled => 'OTP ఆటోమేటిక్‌గా నింపబడింది';
+
+  @override
+  String get otpVerifiedSuccess => 'OTP ధృవీకరించబడింది';
+
+  @override
+  String get otpBackendLoginFailed =>
+      'ఫోన్ ధృవీకరించబడింది, కానీ ఆసుపత్రి లాగిన్ విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get otpAuthenticationFailed =>
+      'ప్రామాణీకరణ విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
   String get dashboardScheduleNextVisit =>
       'మీ తదుపరి సందర్శనను షెడ్యూల్ చేయండి';
 

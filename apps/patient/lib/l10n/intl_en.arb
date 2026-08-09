@@ -1716,6 +1716,55 @@
   "@otpSentSuccess": {
     "description": "Snackbar after OTP resend succeeds"
   },
+  "otpFieldSemanticLabel": "6-digit OTP code",
+  "@otpFieldSemanticLabel": {
+    "description": "Accessible name for the 6-digit OTP entry field (screen readers)"
+  },
+  "otpDigitsRemaining": "{count, plural, =1{Enter 1 more digit} other{Enter {count} more digits}}",
+  "@otpDigitsRemaining": {
+    "description": "Screen-reader hint while the OTP field is partially filled",
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "otpAllDigitsEntered": "All 6 digits entered",
+  "@otpAllDigitsEntered": {
+    "description": "Screen-reader hint once every OTP digit has been entered"
+  },
+  "otpVerifying": "Verifying...",
+  "@otpVerifying": {
+    "description": "Verifying state announced/shown while the OTP is being checked"
+  },
+  "otpDidntReceiveResend": "Didn't receive OTP? Resend",
+  "@otpDidntReceiveResend": {
+    "description": "Resend link under the OTP field"
+  },
+  "otpInvalidTryAgain": "Invalid OTP. Please try again.",
+  "@otpInvalidTryAgain": {
+    "description": "Inline error under the OTP field when the code is wrong"
+  },
+  "otpVerificationSessionExpired": "Verification session expired. Please resend the OTP.",
+  "@otpVerificationSessionExpired": {
+    "description": "Inline error when the verification session is missing/expired"
+  },
+  "otpAutoFilled": "OTP auto-filled",
+  "@otpAutoFilled": {
+    "description": "Announcement when the OTP is auto-retrieved from SMS"
+  },
+  "otpVerifiedSuccess": "OTP verified",
+  "@otpVerifiedSuccess": {
+    "description": "Announcement after the OTP is verified successfully"
+  },
+  "otpBackendLoginFailed": "Phone verified, but hospital login failed. Please try again.",
+  "@otpBackendLoginFailed": {
+    "description": "Inline error when phone verification succeeded but hospital backend login failed"
+  },
+  "otpAuthenticationFailed": "Authentication failed. Please try again.",
+  "@otpAuthenticationFailed": {
+    "description": "Inline error for a generic authentication failure at the OTP step"
+  },
   "dashboardScheduleNextVisit": "Schedule your next visit",
   "@dashboardScheduleNextVisit": {
     "description": "Dashboard widget title when no upcoming visit"

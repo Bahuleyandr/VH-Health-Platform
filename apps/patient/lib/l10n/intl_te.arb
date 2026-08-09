@@ -1713,6 +1713,17 @@
   "@otpSentSuccess": {
     "description": "Snackbar after OTP resend succeeds"
   },
+  "otpFieldSemanticLabel": "6 అంకెల OTP కోడ్",
+  "otpDigitsRemaining": "{count, plural, =1{మరో 1 అంకె నమోదు చేయండి} other{మరో {count} అంకెలు నమోదు చేయండి}}",
+  "otpAllDigitsEntered": "మొత్తం 6 అంకెలు నమోదు చేయబడ్డాయి",
+  "otpVerifying": "ధృవీకరిస్తోంది...",
+  "otpDidntReceiveResend": "OTP రాలేదా? మళ్లీ పంపండి",
+  "otpInvalidTryAgain": "చెల్లని OTP. దయచేసి మళ్లీ ప్రయత్నించండి.",
+  "otpVerificationSessionExpired": "ధృవీకరణ సెషన్ గడువు ముగిసింది. దయచేసి OTP మళ్లీ పంపండి.",
+  "otpAutoFilled": "OTP ఆటోమేటిక్‌గా నింపబడింది",
+  "otpVerifiedSuccess": "OTP ధృవీకరించబడింది",
+  "otpBackendLoginFailed": "ఫోన్ ధృవీకరించబడింది, కానీ ఆసుపత్రి లాగిన్ విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.",
+  "otpAuthenticationFailed": "ప్రామాణీకరణ విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.",
   "dashboardScheduleNextVisit": "మీ తదుపరి సందర్శనను షెడ్యూల్ చేయండి",
   "@dashboardScheduleNextVisit": {
     "description": "Dashboard widget title when no upcoming visit"

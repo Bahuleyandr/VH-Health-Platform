@@ -1826,6 +1826,50 @@ class AppLocalizationsTa extends AppLocalizations {
   String get otpSentSuccess => 'OTP உங்கள் தொலைபேசி எண்ணுக்கு அனுப்பப்பட்டது';
 
   @override
+  String get otpFieldSemanticLabel => '6 இலக்க OTP குறியீடு';
+
+  @override
+  String otpDigitsRemaining(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'மேலும் $count இலக்கங்களை உள்ளிடவும்',
+      one: 'மேலும் 1 இலக்கத்தை உள்ளிடவும்',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get otpAllDigitsEntered => 'அனைத்து 6 இலக்கங்களும் உள்ளிடப்பட்டன';
+
+  @override
+  String get otpVerifying => 'சரிபார்க்கிறது...';
+
+  @override
+  String get otpDidntReceiveResend => 'OTP வரவில்லையா? மீண்டும் அனுப்பவும்';
+
+  @override
+  String get otpInvalidTryAgain => 'தவறான OTP. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get otpVerificationSessionExpired =>
+      'சரிபார்ப்பு அமர்வு காலாவதியானது. OTP-ஐ மீண்டும் அனுப்பவும்.';
+
+  @override
+  String get otpAutoFilled => 'OTP தானாக நிரப்பப்பட்டது';
+
+  @override
+  String get otpVerifiedSuccess => 'OTP சரிபார்க்கப்பட்டது';
+
+  @override
+  String get otpBackendLoginFailed =>
+      'தொலைபேசி எண் சரிபார்க்கப்பட்டது, ஆனால் மருத்துவமனை உள்நுழைவு தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get otpAuthenticationFailed =>
+      'அங்கீகாரம் தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
   String get dashboardScheduleNextVisit =>
       'உங்கள் அடுத்த வருகையைத் திட்டமிடுங்கள்';
 

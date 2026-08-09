@@ -1713,6 +1713,17 @@
   "@otpSentSuccess": {
     "description": "Snackbar after OTP resend succeeds"
   },
+  "otpFieldSemanticLabel": "6 അക്ക OTP കോഡ്",
+  "otpDigitsRemaining": "{count, plural, =1{ഒരു അക്കം കൂടി നൽകുക} other{{count} അക്കങ്ങൾ കൂടി നൽകുക}}",
+  "otpAllDigitsEntered": "എല്ലാ 6 അക്കങ്ങളും നൽകി",
+  "otpVerifying": "പരിശോധിക്കുന്നു...",
+  "otpDidntReceiveResend": "OTP ലഭിച്ചില്ലേ? വീണ്ടും അയയ്ക്കുക",
+  "otpInvalidTryAgain": "അസാധുവായ OTP. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "otpVerificationSessionExpired": "പരിശോധനാ സെഷൻ കാലഹരണപ്പെട്ടു. ദയവായി OTP വീണ്ടും അയയ്ക്കുക.",
+  "otpAutoFilled": "OTP സ്വയമേവ പൂരിപ്പിച്ചു",
+  "otpVerifiedSuccess": "OTP പരിശോധിച്ചുറപ്പിച്ചു",
+  "otpBackendLoginFailed": "ഫോൺ പരിശോധിച്ചു, പക്ഷേ ആശുപത്രി ലോഗിൻ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "otpAuthenticationFailed": "ഓതന്റിക്കേഷൻ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
   "dashboardScheduleNextVisit": "നിങ്ങളുടെ അടുത്ത സന്ദർശനം ഷെഡ്യൂൾ ചെയ്യുക",
   "@dashboardScheduleNextVisit": {
     "description": "Dashboard widget title when no upcoming visit"
