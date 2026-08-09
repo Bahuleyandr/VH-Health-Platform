@@ -105,12 +105,12 @@ const ESCALATABLE_STATUSES = ['open', 'overdue', 'blocked'];
 // action cannot be performed must NOT consume its tier — recording the fired
 // marker while doing nothing would silently swallow the escalation. Such rules
 // are skipped loudly instead (upsertEscalationRule refuses to activate them).
-const ENGINE_SUPPORTED_ACTION_KINDS = Object.freeze(new Set([
+const ENGINE_SUPPORTED_ACTION_KINDS = Object.freeze([
   'notify',
   'reassign',
   'escalate_priority',
   'auto_resolve',
-]));
+]);
 
 // The mig-269 rule_code that is the critical-result clock; also the sla_key the
 // producer stamps and the backfill backstop re-derives from.
@@ -603,7 +603,7 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
   // such rules loudly, but any future caller that reaches this function with
   // an unsupported kind would stamp the fired marker while performing
   // nothing — so refuse here, before any write, and roll the claim back.
-  if (!ENGINE_SUPPORTED_ACTION_KINDS.has(action)) {
+  if (!ENGINE_SUPPORTED_ACTION_KINDS.includes(action)) {
     throw new Error(
       `escalation action_kind '${action}' has no executor — refusing to record a fired marker for rule ${ruleRow.id}`,
     );
@@ -994,7 +994,7 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     }
 
     for (const ruleRow of (Array.isArray(rules) ? rules : [])) {
-      if (!ENGINE_SUPPORTED_ACTION_KINDS.has(ruleRow.action_kind)) {
+      if (!ENGINE_SUPPORTED_ACTION_KINDS.includes(ruleRow.action_kind)) {
         // No executor for this action. Skipping WITHOUT a fired marker keeps
         // the tier live (it will be evaluated again once an executor exists or
         // the rule is fixed) and keeps the misconfiguration visible each sweep.

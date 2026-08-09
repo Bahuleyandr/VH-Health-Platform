@@ -309,6 +309,8 @@ describe('runEscalationSweep', () => {
     expect([...__testing__.ENGINE_SUPPORTED_ACTION_KINDS].sort()).toEqual(
       ['auto_resolve', 'escalate_priority', 'notify', 'reassign'],
     );
+    expect(Object.isFrozen(__testing__.ENGINE_SUPPORTED_ACTION_KINDS)).toBe(true);
+    expect(() => __testing__.ENGINE_SUPPORTED_ACTION_KINDS.push('webhook')).toThrow(TypeError);
   });
 
   it('sla_breach tier-1 → escalate_priority + re-notify assignee + records escalations[tier:1]', async () => {
