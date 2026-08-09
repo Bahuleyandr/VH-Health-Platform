@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
@@ -107,6 +108,21 @@ class LogoutService {
     // 8. Clear in-memory user identity. UserProvider is the single source
     //    of truth; its backing storage keys were wiped in step 3 above.
     await Future<void>.sync(_dependencies.clearUserProvider);
+
+    // 9. Sign out of Firebase — LAST. The router treats a live Firebase user
+    //    as "logged in" and re-evaluates its redirect on Firebase auth-state
+    //    changes (refreshListenable). Signing out after every other session
+    //    signal (JWT, UserProvider) is gone means that when the auth-state
+    //    event fires, the redirect sees a fully logged-out app and lands the
+    //    user on /login instead of stranding them on a dead dashboard.
+    //    Previously only the explicit Settings→Logout button did this; the
+    //    automatic paths (idle timeout, 401 expiry, session revocation) left
+    //    the Firebase session alive.
+    try {
+      await Future<void>.sync(_dependencies.signOutFirebase);
+    } catch (e) {
+      debugPrint('LogoutService: Firebase sign-out failed: $e');
+    }
   }
 }
 
@@ -125,6 +141,7 @@ class LogoutServiceDependencies {
     required this.purgeDocumentStaging,
     required this.clearCycleTracker,
     required this.clearUserProvider,
+    required this.signOutFirebase,
   });
 
   factory LogoutServiceDependencies.defaults() {
@@ -142,6 +159,10 @@ class LogoutServiceDependencies {
         final provider = UserProvider.instance;
         if (provider != null) await provider.clear();
       },
+      // Closure (not a tear-off) so FirebaseAuth.instance is only touched
+      // when logout actually runs — pure-Dart tests construct these defaults
+      // without a Firebase app.
+      signOutFirebase: () => FirebaseAuth.instance.signOut(),
     );
   }
 
@@ -155,4 +176,5 @@ class LogoutServiceDependencies {
   final LogoutStep purgeDocumentStaging;
   final LogoutStep clearCycleTracker;
   final LogoutStep clearUserProvider;
+  final LogoutStep signOutFirebase;
 }

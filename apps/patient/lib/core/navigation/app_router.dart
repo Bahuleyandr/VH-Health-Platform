@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth/core/navigation/go_router_refresh_stream.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 
@@ -114,6 +115,14 @@ class AppRouter {
   static final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
+    // Re-run the redirect whenever Firebase auth state changes. Every logout
+    // path (explicit button, idle timeout, 401 expiry, session revocation)
+    // ends with a Firebase signOut in LogoutService, so this is what actually
+    // moves an automatically-logged-out user off a dead authenticated screen
+    // and onto /login without waiting for their next navigation.
+    refreshListenable: GoRouterRefreshStream(
+      FirebaseAuth.instance.authStateChanges(),
+    ),
     // Only log navigation (which includes patient/invoice IDs in route paths)
     // in debug builds; on Android debugLogDiagnostics output reaches logcat.
     debugLogDiagnostics: kDebugMode,
