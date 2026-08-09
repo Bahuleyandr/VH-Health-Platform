@@ -14,17 +14,34 @@ import { success, error } from '../utils/responseHelper.js';
 
 const router = Router();
 
+// Acting-as rewrites req.user to the dependent, but the presented JWT still
+// belongs to the guardian recorded on req.acting. Session self-service must
+// always operate on that token bearer or its JTI can be attributed to the
+// dependent's registry.
+const bearerUid = (req) => req.acting?.actorUid ?? req.user?.uid;
+
+/**
+ * The caller's own token claims, as verified by jwtMiddleware. Threaded into
+ * the service so a session can be reported (and revoked) even on login paths
+ * that never claimed a `user_active_sessions` row — the admin paths mint
+ * tokens with generateToken() directly (audit P15).
+ */
+const callerToken = (req) => ({
+  jti: req.user?.jti ?? null,
+  expiresAt: req.user?.tokenExpiresAt ?? null,
+});
+
 /**
  * GET /sessions
- * List active sessions for the current user.
+ * List sessions currently visible to the partial registry.
  */
 router.get('/', async (req, res) => {
   try {
-    const userId = req.user?.uid;
+    const userId = bearerUid(req);
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
 
-    const sessions = await listActiveSessions(userId);
-    return success(res, sessions, 'Active sessions retrieved');
+    const result = await listActiveSessions(userId, callerToken(req));
+    return success(res, result, 'Known sessions retrieved; list is not exhaustive');
   } catch (err) {
     logger.error('List sessions error:', err);
     return error(res, 'Failed to retrieve sessions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -37,13 +54,13 @@ router.get('/', async (req, res) => {
  */
 router.delete('/:jti', async (req, res) => {
   try {
-    const userId = req.user?.uid;
+    const userId = bearerUid(req);
     const { jti } = req.params;
 
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
     if (!jti) return error(res, 'Session ID (jti) is required', HTTP_STATUS.BAD_REQUEST);
 
-    const result = await revokeSession(userId, jti);
+    const result = await revokeSession(userId, jti, callerToken(req));
     if (!result.success) {
       // A revocation store that refused the write is NOT a missing session —
       // reporting it as 404 (or worse, 200) tells the caller their token is
@@ -67,16 +84,21 @@ router.delete('/:jti', async (req, res) => {
  */
 router.post('/revoke-all', async (req, res) => {
   try {
-    const userId = req.user?.uid;
+    const userId = bearerUid(req);
     const currentJti = req.user?.jti; // From JWT claims
 
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
 
     const result = await revokeAllOtherSessions(userId, currentJti || '');
     if (!result.success) {
-      // Partial success is still a failure to honour the request: the caller
-      // asked for every other session to end, and some are demonstrably still
-      // live. Report the real counts rather than a green summary line.
+      if (result.code === SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE) {
+        return error(
+          res,
+          'Bulk session revocation is unavailable until all active tokens are registered',
+          501,
+          { code: result.code },
+        );
+      }
       return error(
         res,
         `Only ${result.revokedCount} of ${result.revokedCount + result.failedCount} session(s) could be revoked`,

@@ -1,7 +1,21 @@
 // src/services/sessionManagementService.js
 // Active session management: list, view, and revoke user sessions.
+//
+// ── Why this reads user_active_sessions and not auth_logs ────────────────────
+// It used to query `auth_logs WHERE action = 'login_success'`. Nothing in this
+// repo has ever written that action value, and no login path writes `user_id`
+// or `jti` onto an auth_logs row at all (the three writers are
+// firebaseAuthService.logFirebaseAuth, staffAuthService.logAuthAttempt, and the
+// logout row in authService — the first two insert only phone/action/success/
+// method/ip/ua). So every query here matched zero rows for every user, always:
+// GET returned [], DELETE returned 404, revoke-all returned 0 (audit P15).
+//
+// `user_active_sessions` is written by login paths that go through
+// issueAccessTokenAndClaimSession, but it retains only the latest row per user.
+// Older access tokens can remain valid when strict single-session mode is off,
+// and admin login paths do not claim a row. This service therefore exposes the
+// registry as partial evidence, never as a complete multi-session history.
 
-import { SECURITY_CONFIG } from '../config/securityConfig.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { blacklistToken, RevocationWriteUnavailableError } from '../utils/tokenBlacklist.js';
@@ -14,87 +28,146 @@ import { blacklistToken, RevocationWriteUnavailableError } from '../utils/tokenB
 export const SESSION_REVOKE_FAILURE = Object.freeze({
   NOT_FOUND: 'SESSION_NOT_FOUND',
   STORE_UNAVAILABLE: 'REVOCATION_STORE_UNAVAILABLE',
+  REGISTRY_INCOMPLETE: 'SESSION_REGISTRY_INCOMPLETE',
 });
 
 /**
- * Upper bound on how long a blacklist row must outlive the token it revokes.
- *
- * `auth_logs` records the jti and the login time but NOT the token's `exp`, so
- * a revoke-by-jti request cannot read the real expiry off the session row. The
- * blacklist row only has to be RETAINED until the revoked token would have
- * expired on its own (`isTokenBlacklisted` filters on `expires_at > NOW()`), so
- * erring long is harmless while erring short silently un-revokes a live token.
- * We therefore use the same conservative ceiling `revokeAllUserTokens` uses —
- * `SECURITY_CONFIG.blacklist.maxTokenLifetimeDays`, "longest any token can live".
+ * Where a listed session came from. Not every login path claims a registry row
+ * — the admin paths in adminAuthController mint tokens with generateToken()
+ * directly, never calling claimUserSession — so a registry-only answer would
+ * tell a signed-in admin they have no sessions. The caller's own token is
+ * always authoritative for its own existence, so it is reported explicitly.
  */
-function blacklistRetentionSeconds(loginAt) {
-  const issuedAtMs = loginAt instanceof Date ? loginAt.getTime() : Date.parse(loginAt);
-  const baseMs = Number.isFinite(issuedAtMs) ? issuedAtMs : Date.now();
-  const lifetimeMs = SECURITY_CONFIG.blacklist.maxTokenLifetimeDays * 24 * 60 * 60 * 1000;
-  return Math.floor((baseMs + lifetimeMs) / 1000);
+export const SESSION_SOURCE = Object.freeze({
+  REGISTRY: 'session_registry',
+  ACCESS_TOKEN: 'access_token',
+});
+
+/** Normalises a Date | ISO string | epoch-seconds number to epoch seconds. */
+function toEpochSeconds(value) {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.floor(value) : null;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
 }
 
 /**
- * List all active sessions for a user.
- * Queries the auth_logs table for recent successful logins
- * and cross-references with invalidated_tokens to find active ones.
+ * Latest known session for a user, straight from the partial registry.
  *
- * @param {string} userId - The user's UID.
- * @param {number} limit - Max sessions to return.
- * @returns {Array} Active sessions.
+ * A row counts as live only if all three hold:
+ *   1. its own `expires_at` is still in the future;
+ *   2. its jti is not in `invalidated_tokens` (per-token revocation);
+ *   3. no `user:<uid>` revoke-all marker post-dates its `issued_at`
+ *      (revokeAllUserTokens writes that marker rather than per-jti rows).
  */
-export async function listActiveSessions(userId, limit = 20) {
-  try {
-    const sessions = await prisma.$queryRawUnsafe(
-      `SELECT
-        al.id,
-        al.jti,
-        al.ip_address,
-        al.user_agent,
-        al.created_at AS login_at,
-        al.device_info,
-        CASE WHEN it.jti IS NOT NULL THEN false ELSE true END AS is_active
-      FROM auth_logs al
-      LEFT JOIN invalidated_tokens it ON al.jti = it.jti
-      WHERE al.user_id = $1
-        AND al.action = 'login_success'
-        AND al.created_at > NOW() - INTERVAL '30 days'
-      ORDER BY al.created_at DESC
-      LIMIT $2`,
-      userId, Math.min(Math.max(limit, 1), 50)
-    );
-    return sessions;
-  } catch (err) {
-    logger.error('Failed to list active sessions:', err);
-    return [];
+async function selectLiveRegistrySessions(userUid) {
+  return prisma.$queryRawUnsafe(
+    `SELECT
+       s.jti,
+       s.device_type,
+       s.device_label,
+       s.ip_address,
+       s.user_agent,
+       s.issued_at,
+       s.expires_at
+     FROM user_active_sessions s
+     LEFT JOIN invalidated_tokens t
+       ON t.jti = s.jti
+      AND t.expires_at > NOW()
+     LEFT JOIN invalidated_tokens r
+       ON r.jti = 'user:' || s.user_uid::text
+      AND r.expires_at > NOW()
+      AND r.created_at > s.issued_at
+     WHERE s.user_uid = $1::uuid
+       AND s.expires_at > NOW()
+       AND t.jti IS NULL
+       AND r.jti IS NULL`,
+    userUid,
+  );
+}
+
+/**
+ * List the caller's live sessions.
+ *
+ * @param {string} userUid - The caller's UID, from the verified JWT.
+ * @param {{jti?: string, expiresAt?: Date|string|number}} [currentToken] - The
+ *   caller's own presented token claims, so its session is reported even on
+ *   login paths that never claimed a registry row.
+ * @returns {Promise<{sessions: Array, complete: false, coverage: string}>}
+ *   Known sessions, newest first, with an explicit non-exhaustive marker.
+ * @throws when the registry cannot be read — an empty list would be
+ *   indistinguishable from "you have no sessions", which is a different claim.
+ */
+export async function listActiveSessions(userUid, currentToken = {}) {
+  const rows = await selectLiveRegistrySessions(userUid);
+  const currentJti = currentToken.jti ?? null;
+
+  const sessions = rows.map((row) => ({
+    jti: row.jti,
+    device_type: row.device_type,
+    device_label: row.device_label,
+    ip_address: row.ip_address,
+    user_agent: row.user_agent,
+    issued_at: row.issued_at,
+    expires_at: row.expires_at,
+    is_current: currentJti != null && row.jti === currentJti,
+    source: SESSION_SOURCE.REGISTRY,
+  }));
+
+  if (currentJti && !sessions.some((s) => s.is_current)) {
+    // The caller is demonstrably holding a live token right now — jwtMiddleware
+    // verified it to get here — so omitting it would be the same class of lie
+    // this endpoint is being fixed for.
+    sessions.push({
+      jti: currentJti,
+      device_type: null,
+      device_label: null,
+      ip_address: null,
+      user_agent: null,
+      issued_at: null,
+      expires_at: currentToken.expiresAt ?? null,
+      is_current: true,
+      source: SESSION_SOURCE.ACCESS_TOKEN,
+    });
   }
+
+  sessions.sort((a, b) => {
+    if (a.is_current !== b.is_current) return a.is_current ? -1 : 1;
+    return String(b.issued_at ?? '').localeCompare(String(a.issued_at ?? ''));
+  });
+
+  return {
+    sessions,
+    complete: false,
+    coverage: 'current_token_and_latest_registry_row',
+    limitation: 'Older concurrently valid access tokens are not retained by the current registry',
+  };
 }
 
 /**
- * Revoke a specific session by its JTI (JWT ID).
+ * Revoke one of the caller's sessions by jti.
  *
- * @param {string} userId - The user requesting revocation (for auth).
- * @param {string} jti - The JWT ID to revoke.
- * @returns {{ success: boolean, code?: string, message: string }}
+ * @param {string} userUid
+ * @param {string} jti
+ * @param {{jti?: string, expiresAt?: Date|string|number}} [currentToken]
+ * @returns {Promise<{success: boolean, code?: string, message: string}>}
  */
-export async function revokeSession(userId, jti) {
-  let session;
+export async function revokeSession(userUid, jti, currentToken = {}) {
+  let expiresAtSeconds = null;
   try {
-    // Verify the session belongs to this user.
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, user_id, created_at FROM auth_logs
-       WHERE jti = $1 AND user_id = $2 AND action = 'login_success'`,
-      jti, userId
+      `SELECT jti, expires_at FROM user_active_sessions
+        WHERE user_uid = $1::uuid AND jti = $2`,
+      userUid, jti,
     );
-
-    if (rows.length === 0) {
-      return {
-        success: false,
-        code: SESSION_REVOKE_FAILURE.NOT_FOUND,
-        message: 'Session not found or access denied',
-      };
+    if (rows.length > 0) {
+      expiresAtSeconds = toEpochSeconds(rows[0].expires_at);
+    } else if (currentToken.jti && currentToken.jti === jti) {
+      // No registry row, but the caller is presenting this exact token — the
+      // admin login paths mint tokens without claiming a row, and refusing to
+      // revoke a token we just authenticated would be absurd.
+      expiresAtSeconds = toEpochSeconds(currentToken.expiresAt);
     }
-    session = rows[0];
   } catch (err) {
     logger.error('Failed to look up session for revocation:', err);
     return {
@@ -104,21 +177,24 @@ export async function revokeSession(userId, jti) {
     };
   }
 
+  if (expiresAtSeconds == null) {
+    return {
+      success: false,
+      code: SESSION_REVOKE_FAILURE.NOT_FOUND,
+      message: 'Session not found or access denied',
+    };
+  }
+
   try {
-    // `requireEvidence` awaits the durable write and throws when NEITHER Redis
-    // nor the DB accepted it. Without it this call was fire-and-forget, so the
-    // endpoint answered 200 while nothing was persisted and the token stayed
-    // live for its full lifetime (audit follow-up P12).
-    await blacklistToken(
-      jti,
-      blacklistRetentionSeconds(session.created_at),
-      'session_revoked',
-      { requireEvidence: true },
-    );
+    // requireEvidence awaits the durable write and throws when NEITHER Redis
+    // nor the DB accepted it, so this cannot report a revocation that did not
+    // persist (audit P12).
+    await blacklistToken(jti, expiresAtSeconds, 'session_revoked', { requireEvidence: true });
   } catch (err) {
     if (err instanceof RevocationWriteUnavailableError) {
       logger.error('Session revocation not persisted — no revocation store accepted it', {
-        userId, jti, causes: { redis: err.causes?.redis?.message, database: err.causes?.database?.message },
+        userUid, jti,
+        causes: { redis: err.causes?.redis?.message, database: err.causes?.database?.message },
       });
     } else {
       logger.error('Failed to revoke session:', err);
@@ -130,70 +206,26 @@ export async function revokeSession(userId, jti) {
     };
   }
 
-  logger.info('Session revoked', { userId, jti });
+  logger.info('Session revoked', { userUid, jti });
   return { success: true, message: 'Session revoked successfully' };
 }
 
 /**
- * Revoke all sessions for a user except the current one.
+ * Refuse bulk revocation until every concurrently valid access token is
+ * durably registered. The current table retains only the latest row, so a
+ * successful count from it would be an unverifiable claim.
  *
- * @param {string} userId - The user's UID.
- * @param {string} currentJti - The JTI of the current session to keep.
- * @returns {{ success: boolean, revokedCount: number, failedCount: number }}
+ * @returns {Promise<{success: false, code: string, revokedCount: 0, failedCount: null}>}
  */
-export async function revokeAllOtherSessions(userId, currentJti) {
-  let sessions;
-  try {
-    sessions = await prisma.$queryRawUnsafe(
-      `SELECT al.jti, al.created_at FROM auth_logs al
-       LEFT JOIN invalidated_tokens it ON al.jti = it.jti
-       WHERE al.user_id = $1
-         AND al.jti != $2
-         AND al.action = 'login_success'
-         AND it.jti IS NULL
-         AND al.created_at > NOW() - INTERVAL '30 days'`,
-      userId, currentJti
-    );
-  } catch (err) {
-    logger.error('Failed to list sessions for bulk revocation:', err);
-    return {
-      success: false,
-      code: SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE,
-      revokedCount: 0,
-      failedCount: 0,
-    };
-  }
-
-  // Each session is revoked independently: one store failure must not silently
-  // abandon the sessions after it, and the caller is told exactly how many of
-  // the requested revocations actually persisted.
-  let revokedCount = 0;
-  let failedCount = 0;
-  for (const session of sessions) {
-    if (!session.jti) continue;
-    try {
-      await blacklistToken(
-        session.jti,
-        blacklistRetentionSeconds(session.created_at),
-        'session_revoked',
-        { requireEvidence: true },
-      );
-      revokedCount++;
-    } catch (err) {
-      failedCount++;
-      logger.error('Session revocation not persisted during revoke-all', {
-        userId, jti: session.jti, error: err?.message,
-      });
-    }
-  }
-
-  logger.info('All other sessions revoked', { userId, revokedCount, failedCount });
-  return failedCount === 0
-    ? { success: true, revokedCount, failedCount }
-    : {
-        success: false,
-        code: SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE,
-        revokedCount,
-        failedCount,
-      };
+export async function revokeAllOtherSessions(userUid, currentJti) {
+  logger.warn('Bulk session revocation refused because the registry is incomplete', {
+    userUid,
+    currentJti,
+  });
+  return {
+    success: false,
+    code: SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE,
+    revokedCount: 0,
+    failedCount: null,
+  };
 }
