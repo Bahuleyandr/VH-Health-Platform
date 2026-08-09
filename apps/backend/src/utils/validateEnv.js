@@ -219,7 +219,9 @@ export const envSchema = Joi.object({
   METABASE_DASH_DAILY_OPS: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_DAILY_OPS'),
   METABASE_DASH_OPD_VOLUME: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OPD_VOLUME'),
   METABASE_DASH_IP_OCCUPANCY: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_IP_OCCUPANCY'),
-  METABASE_DASH_PAYER_MIX: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_PAYER_MIX'),
+  // Name matches the metabase_env_var seeded by migration 465 (the old
+  // METABASE_DASH_PAYER_MIX name was never read by anything).
+  METABASE_DASH_REVENUE_PAYER_MIX: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_REVENUE_PAYER_MIX'),
   METABASE_DASH_LAB_TAT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_LAB_TAT'),
   METABASE_DASH_DOCTOR_PROD: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_DOCTOR_PROD'),
   METABASE_DASH_OR_THROUGHPUT: Joi.number().integer().min(0).allow('').optional().label('METABASE_DASH_OR_THROUGHPUT'),

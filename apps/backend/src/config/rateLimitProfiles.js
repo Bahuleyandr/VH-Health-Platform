@@ -1,5 +1,16 @@
 // src/config/rateLimitProfiles.js
 
+// RATE_LIMIT_WINDOW_MS / RATE_LIMIT_MAX override ONLY the generic `default`
+// profile below. The named profiles (patient/staff/auth/otp/...) are tuned
+// per-surface and deliberately ignore these knobs — loosening auth/otp via a
+// blanket env var would reopen brute-force windows. Both were documented in
+// .env.example and validated in validateEnv.js but never read until wired
+// here (audit CFG-L1).
+function positiveIntFromEnv(name) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+
 export const RATE_LIMIT_PROFILES = {
   patient: {
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -22,8 +33,8 @@ export const RATE_LIMIT_PROFILES = {
     message: 'Too many requests from this admin. Please try again later.'
   },
   default: {
-    windowMs: 15 * 60 * 1000,
-    max: 60,
+    windowMs: positiveIntFromEnv('RATE_LIMIT_WINDOW_MS') ?? 15 * 60 * 1000,
+    max: positiveIntFromEnv('RATE_LIMIT_MAX') ?? 60,
     message: 'Too many requests. Please try again later.'
   },
   clientReadiness: {
