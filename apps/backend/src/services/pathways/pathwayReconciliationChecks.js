@@ -297,6 +297,12 @@ async function handoffCompletion({ tx, tenantId, pathwayKey }) {
   ));
 }
 
+// event_consumer_offsets is FORCE-RLS (migration 603) and its restrictive
+// policy hides pathway_registry rows from every non-owner role, including the
+// tenant runtime role this sweep runs under. The SECURITY DEFINER accessor
+// pathway_projector_offset_get is the sanctioned read path — a raw join would
+// see NULLs and both fabricate registration/backfill debt and mute the
+// missing-event lateral below.
 async function projectorCoverage({ tx, tenantId, capturedAt }) {
   return result('PROJECTOR_GENERATION_DEBT', await count(
     tx,
@@ -308,9 +314,19 @@ async function projectorCoverage({ tx, tenantId, capturedAt }) {
        + COALESCE(missing.debt_count, 0)
      )::integer AS finding_count
        FROM (SELECT $1::text AS consumer_key, $2::integer AS generation) AS expected
-       LEFT JOIN event_consumer_offsets AS offsets
-         ON offsets.consumer_key = expected.consumer_key
-        AND offsets.generation = expected.generation
+       LEFT JOIN LATERAL (
+         SELECT registered.consumer_key,
+                registered.generation,
+                registered.backfill_completed_at,
+                registered.intake_retired_at,
+                registered.backfill_cursor_event_id,
+                registered.historical_cutoff_event_id
+           FROM public.pathway_projector_offset_get(
+             expected.consumer_key,
+             expected.generation,
+             FALSE
+           ) AS registered
+       ) AS offsets ON TRUE
        LEFT JOIN LATERAL (
          SELECT COUNT(*)::integer AS debt_count
            FROM pathway_projector_inbox

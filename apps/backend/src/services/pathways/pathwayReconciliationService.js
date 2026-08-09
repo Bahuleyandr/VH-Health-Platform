@@ -706,6 +706,8 @@ export async function runCarePathwayReconciliationForTenantPathway({
       tenantId: normalizedTenantId,
       pathwayKey: normalizedPathwayKey,
       code: 'RECONCILIATION_TECHNICAL_ERROR',
+      error: error?.message,
+      stack: error?.stack,
     });
     try {
       return await appendTechnicalErrorEvidence({
@@ -742,7 +744,14 @@ export async function runCarePathwayReconciliationSweep({
           registry: trustedRegistry,
           repairEnabled,
         }));
-      } catch {
+      } catch (error) {
+        logger.error('Care pathway reconciliation sweep observation failed', {
+          tenantId: tenant.id,
+          pathwayKey,
+          sweepId,
+          error: error?.message,
+          stack: error?.stack,
+        });
         observations.push(Object.freeze({
           tenant_id: tenant.id,
           pathway_key: pathwayKey,
