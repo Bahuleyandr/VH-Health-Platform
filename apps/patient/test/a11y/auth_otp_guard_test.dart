@@ -1,11 +1,8 @@
 // Accessibility regression guard — phone/OTP login step (audit PR 4).
 //
 // Audit blocker 3: the OTP pin field shipped without `oneTimeCode` autofill
-// and relied on the pin package's implicit semantics. The autofill guards
-// are grouped under `skip:` until PR #792 (which also makes the field's
-// label/role explicit and localised) merges. The label/role and tap-target
-// guards already hold on main and run un-skipped — they keep the current
-// baseline from regressing.
+// and relied on the pin package's implicit semantics. These guards pin the
+// explicit, localised label/role and autofill behavior added by PR #792.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/widgets/phone_input_field.dart';
@@ -83,7 +80,7 @@ void main() {
       final editable = tester.widget<EditableText>(find.byType(EditableText));
       expect(editable.autofillHints, contains(AutofillHints.oneTimeCode));
     });
-  }, skip: kBlockedOnPr792);
+  });
 
   group('phone field autofill (fixed by PR #792)', () {
     testWidgets('phone number field declares telephoneNumber autofill', (
@@ -99,7 +96,7 @@ void main() {
       final editable = tester.widget<EditableText>(find.byType(EditableText));
       expect(editable.autofillHints, contains(AutofillHints.telephoneNumber));
     });
-  }, skip: kBlockedOnPr792);
+  });
 
   testWidgets('phone number field is labeled (green on main)', (tester) async {
     await withSemantics(tester, () async {

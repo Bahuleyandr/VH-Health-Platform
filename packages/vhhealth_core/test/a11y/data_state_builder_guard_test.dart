@@ -4,10 +4,6 @@
 // screens and the staff app, so a silent regression here is the widest
 // possible a11y regression. Audit blocker 1: the loading spinner was
 // unlabeled and the error swap was not announced.
-//
-// Skipped groups assert the END STATE required by the audit; they fail on
-// today's main only because the fix is in unmerged PR #780. Un-skip them
-// (delete the `skip:` argument) once #780 merges.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/theme/app_theme.dart';

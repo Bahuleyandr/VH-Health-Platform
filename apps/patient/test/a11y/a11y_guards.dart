@@ -4,10 +4,7 @@
 // a new screen stays ~10 lines: pump it with [pumpGuarded] under each entry
 // of [themeCases], then call [expectMeetsA11yGuidelines].
 //
-// The suite is designed to be green on current `main`. Guards for findings
-// whose fix is sitting in a not-yet-merged PR are wrapped in
-// `group(..., skip: kBlockedOnPrNNN)` with the PR number in the reason
-// string — un-skip them (delete the `skip:` argument) as each PR merges.
+// The suite is designed to be green on current `main`.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -18,39 +15,6 @@ import 'package:http/testing.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_core/theme/app_theme.dart';
-
-// ---------------------------------------------------------------------------
-// Skip reasons for guards blocked on unmerged accessibility PRs.
-//
-// A skipped guard is a full-strength assertion that fails on today's `main`
-// only because its fix has not merged yet. When the named PR merges, delete
-// the `skip:` argument from the guard's group and it becomes active.
-// ---------------------------------------------------------------------------
-
-/// PR 2 — OTP field semantics, oneTimeCode/telephoneNumber autofill,
-/// OTP step announcements.
-const String kBlockedOnPr792 = 'Blocked on PR #792 — un-skip after merge';
-
-/// PR 3 — LiveRegionSnackBar migration + modal/announced SOS outage overlay.
-const String kBlockedOnPr806 = 'Blocked on PR #806 — un-skip after merge';
-
-/// Partial-coverage guard: the appointment time-slot chips (audit finding on
-/// the booking grid — ~34 px tall GestureDetector chips) are not fixed by any
-/// open PR yet. The guard documents the required end state.
-const String kBlockedOnSlotChipFix =
-    'Blocked pending time-slot chip fix (no PR yet) — see a11y audit';
-
-/// Partial-coverage guard: the medication-reminders add-FAB is an unlabeled
-/// 56x56 tappable node on main and no open PR labels it.
-const String kBlockedOnRemindersFabFix =
-    'Blocked pending medication-reminders FAB labeling fix (no PR yet) — '
-    'see a11y audit';
-
-/// Partial-coverage guard: the dashboard dial's centre control is an
-/// unlabeled tap/long-press node on main and no open PR labels it.
-const String kBlockedOnDialCenterFix =
-    'Blocked pending dashboard-dial centre-control labeling fix (no PR yet) '
-    '— see a11y audit';
 
 // ---------------------------------------------------------------------------
 // Themes

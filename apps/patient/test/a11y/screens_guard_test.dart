@@ -219,114 +219,97 @@ void main() {
     });
   }
 
-  group(
-    'medication reminders FAB (no fix PR yet — partial guard)',
-    () {
-      testWidgets('every tappable node on the reminders screen is labeled', (
-        tester,
-      ) async {
-        await withSemantics(tester, () async {
-          mockApi({'/reminders/medication': _remindersBody});
-          await pumpGuarded(
-            tester,
-            withProviders(const MedicationRemindersScreen()),
-            theme: themeCases.first.theme,
-            useScaffold: false,
-            surfaceSize: const Size(1080, 2400),
-          );
-          await tester.pumpAndSettle();
+  group('medication reminders FAB', () {
+    testWidgets('every tappable node on the reminders screen is labeled', (
+      tester,
+    ) async {
+      await withSemantics(tester, () async {
+        mockApi({'/reminders/medication': _remindersBody});
+        await pumpGuarded(
+          tester,
+          withProviders(const MedicationRemindersScreen()),
+          theme: themeCases.first.theme,
+          useScaffold: false,
+          surfaceSize: const Size(1080, 2400),
+        );
+        await tester.pumpAndSettle();
 
-          // Fails on main: the add-reminder FAB is an unlabeled 56x56 node.
-          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-        });
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
       });
-    },
-    skip: kBlockedOnRemindersFabFix,
-  );
+    });
+  });
 
-  group(
-    'dashboard dial centre control (no fix PR yet — partial guard)',
-    () {
-      testWidgets('every tappable node in the dial is labeled', (tester) async {
-        await withSemantics(tester, () async {
-          await pumpGuarded(
-            tester,
-            Center(
-              child: CircularFeatureDial(
-                size: 420,
-                enableHaptics: false,
-                features: [
-                  FeatureIconData(
-                    icon: Icons.calendar_month,
-                    label: 'Appointments',
-                    color: Colors.blue,
-                    onTap: (_) {},
-                  ),
-                ],
-              ),
+  group('dashboard dial centre control', () {
+    testWidgets('every tappable node in the dial is labeled', (tester) async {
+      await withSemantics(tester, () async {
+        await pumpGuarded(
+          tester,
+          Center(
+            child: CircularFeatureDial(
+              size: 420,
+              enableHaptics: false,
+              features: [
+                FeatureIconData(
+                  icon: Icons.calendar_month,
+                  label: 'Appointments',
+                  color: Colors.blue,
+                  onTap: (_) {},
+                ),
+              ],
             ),
-            theme: themeCases.first.theme,
-            surfaceSize: const Size(1080, 1400),
-          );
-          await tester.pump(const Duration(seconds: 2));
+          ),
+          theme: themeCases.first.theme,
+          surfaceSize: const Size(1080, 1400),
+        );
+        await tester.pump(const Duration(seconds: 2));
 
-          // Fails on main: the dial centre exposes an unlabeled tap/long-press
-          // node.
-          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-        });
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
       });
-    },
-    skip: kBlockedOnDialCenterFix,
-  );
+    });
+  });
 
-  group(
-    'appointment time-slot chips (no fix PR yet — partial guard)',
-    () {
-      testWidgets('slot chips meet tap-target and label guidelines', (
-        tester,
-      ) async {
-        await withSemantics(tester, () async {
-          mockApi({
-            '/departments/departments-with-doctors': _departmentsBody,
-            '/appointments/slots': _slotsBody,
-          });
-          await pumpGuarded(
-            tester,
-            withProviders(AppointmentBookTab(onBooked: () {})),
-            theme: themeCases.first.theme,
-            surfaceSize: const Size(1080, 2400),
-          );
-          await tester.pumpAndSettle();
-
-          // Drive the form far enough for the slot grid to render:
-          // department → doctor → date (via the material date picker).
-          await tester.tap(find.byType(DropdownButtonFormField<DeptInfo>));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Cardiology').last);
-          await tester.pumpAndSettle();
-
-          await tester.tap(find.byType(DropdownButtonFormField<DoctorInfo>));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Dr. Meera (Cardiologist)').last);
-          await tester.pumpAndSettle();
-
-          await tester.tap(find.text('Select Date'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('OK'));
-          await tester.pumpAndSettle();
-
-          // The slot grid is on screen …
-          expect(find.text('Select Time Slot'), findsOneWidget);
-          expect(find.text('09:00'), findsOneWidget);
-
-          // … and every chip must be a >=48dp labeled tap target. Today the
-          // chips are ~34 px tall GestureDetector+Container rows — this is
-          // the audit's booking-grid finding, unfixed by any open PR.
-          await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+  group('appointment time-slot chips', () {
+    testWidgets('slot chips meet tap-target and label guidelines', (
+      tester,
+    ) async {
+      await withSemantics(tester, () async {
+        mockApi({
+          '/departments/departments-with-doctors': _departmentsBody,
+          '/appointments/slots': _slotsBody,
         });
+        await pumpGuarded(
+          tester,
+          withProviders(AppointmentBookTab(onBooked: () {})),
+          theme: themeCases.first.theme,
+          surfaceSize: const Size(1080, 2400),
+        );
+        await tester.pumpAndSettle();
+
+        // Drive the form far enough for the slot grid to render:
+        // department → doctor → date (via the material date picker).
+        await tester.tap(find.byType(DropdownButtonFormField<DeptInfo>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cardiology').last);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byType(DropdownButtonFormField<DoctorInfo>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Dr. Meera (Cardiologist)').last);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Select Date'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+
+        // The slot grid is on screen …
+        expect(find.text('Select Time Slot'), findsOneWidget);
+        expect(find.text('09:00'), findsOneWidget);
+
+        // … and every chip must be a >=48dp labeled tap target.
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
       });
-    },
-    skip: kBlockedOnSlotChipFix,
-  );
+    });
+  });
 }

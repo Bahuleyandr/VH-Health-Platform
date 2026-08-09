@@ -2,8 +2,7 @@
 //
 // Covers the widgets every feature screen composes: FeatureScreenScaffold
 // (all pastel variants), LiveRegionSnackBar, the unadopted Accessible*
-// wrappers, and the patient outage overlay. Guards blocked on an unmerged
-// PR are grouped under `skip:` with the PR number — un-skip on merge.
+// wrappers, and the patient outage overlay.
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -292,7 +291,7 @@ void main() {
         expect(find.semantics.byLabel('cached view'), findsNothing);
       });
     });
-  }, skip: kBlockedOnPr806);
+  });
 }
 
 /// 1x1 transparent PNG for [AccessibleImage].

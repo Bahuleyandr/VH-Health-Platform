@@ -3,13 +3,7 @@
 // themes from AppTheme.getLightTheme/getDarkTheme, so a regression here
 // fans out to every screen of both apps.
 //
-// The WCAG math is self-contained (see `_contrastRatio` below) so these
-// guards run un-skipped on main; PR #780 adds a shared
-// `package:vhhealth_core/utils/color_contrast.dart` with the same formulas.
-//
-// Skipped groups assert the END STATE required by the a11y audit; they fail
-// on today's main only because the fix is sitting in the named unmerged PR.
-// Un-skip them (delete the `skip:` argument) as each PR merges.
+// The WCAG math is self-contained (see `_contrastRatio` below).
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
