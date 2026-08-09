@@ -31,6 +31,7 @@ import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecove
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
 const OBSERVED_AT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const OBSERVED_AT_MAX_PAST_SKEW_MS = 48 * 60 * 60 * 1000;
 const HOSPITAL_TIME_ZONE = process.env.APP_TIMEZONE || 'Asia/Kolkata';
 const TIME_ZONE_FORMATTERS = new Map();
 const NEWS2_RELEVANT_FIELDS = new Set([
@@ -92,10 +93,14 @@ function wallClockToInstant({ year, month, day, hours, minutes, seconds, ms }, t
 }
 
 /**
- * Parse an HL7 v2 TS value — `YYYYMMDD[HH[MM[SS[.S+]]]][±ZZZZ]` — into a JS
- * Date. An explicit ±ZZZZ offset is honored; offset-less timestamps are
- * interpreted in the configured hospital timezone because bedside monitors
- * are set to ward wall clocks. Returns null for empty/invalid input.
+ * Parse an HL7 v2 TS value — `YYYYMMDDHH[MM[SS[.S+]]][±ZZZZ]` — into a JS
+ * Date. At least hour precision is required: a clinical observation stamped
+ * with a bare date carries no usable time-of-day, so date-only values return
+ * null and the caller falls back to the receipt time. An explicit ±ZZZZ
+ * offset is honored (bounded to ±14:00 with minutes ≤ 59, the real-world
+ * UTC-offset range); offset-less timestamps are interpreted in the
+ * configured hospital timezone because bedside monitors are set to ward
+ * wall clocks. Returns null for empty/invalid input.
  */
 export function parseHl7Timestamp(text, timeZone = HOSPITAL_TIME_ZONE) {
   const raw = String(text ?? '').trim();
@@ -105,21 +110,29 @@ export function parseHl7Timestamp(text, timeZone = HOSPITAL_TIME_ZONE) {
   );
   if (!m) return null;
   const [, y, mo, d, hh, mm, ss, frac, offset] = m;
+  if (hh === undefined) return null; // date-only: no usable time-of-day
   const year = Number(y);
   const month = Number(mo);
   const day = Number(d);
   if (month < 1 || month > 12) return null;
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   if (day < 1 || day > daysInMonth) return null;
-  const hours = Number(hh ?? 0);
+  const hours = Number(hh);
   const minutes = Number(mm ?? 0);
   const seconds = Number(ss ?? 0);
   if (hours > 23 || minutes > 59 || seconds > 59) return null;
-  const ms = frac ? Math.round(Number(`0.${frac}`) * 1000) : 0;
+  // JavaScript stores millisecond precision. Truncate finer HL7 precision
+  // instead of rounding, which could roll .9999 into the next second.
+  const ms = frac ? Number(frac.slice(0, 3).padEnd(3, '0')) : 0;
   let date;
   if (offset) {
+    const offsetHours = Number(offset.slice(1, 3));
+    const offsetMins = Number(offset.slice(3, 5));
+    if (offsetHours > 14 || offsetMins > 59 || (offsetHours === 14 && offsetMins !== 0)) {
+      return null;
+    }
     const sign = offset[0] === '-' ? -1 : 1;
-    const offsetMinutes = sign * ((Number(offset.slice(1, 3)) * 60) + Number(offset.slice(3, 5)));
+    const offsetMinutes = sign * ((offsetHours * 60) + offsetMins);
     date = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms) - (offsetMinutes * 60 * 1000));
   } else {
     date = wallClockToInstant({ year, month, day, hours, minutes, seconds, ms }, timeZone);
@@ -238,7 +251,13 @@ async function insertInterfaceMessage({
   return Number(rows[0].id);
 }
 
-async function updateInterfaceMessage(messageId, { status, errorText = null, resultCount = null, verdicts = null } = {}, db = prisma) {
+async function updateInterfaceMessage(messageId, {
+  tenantId,
+  status,
+  errorText = null,
+  resultCount = null,
+  verdicts = null,
+} = {}, db = prisma) {
   await db.$executeRawUnsafe(
     `UPDATE lab_interface_messages SET
        status = $2,
@@ -246,12 +265,13 @@ async function updateInterfaceMessage(messageId, { status, errorText = null, res
        error = $4,
        verdicts = $5::jsonb,
        processed_at = NOW()
-     WHERE id = $1`,
+     WHERE id = $1 AND tenant_id = $6::uuid`,
     messageId,
     status,
     resultCount,
     errorText,
     verdicts ? JSON.stringify(verdicts) : null,
+    tenantId,
   );
 }
 
@@ -289,7 +309,8 @@ async function findDeviceRegistry({ tenantId, deviceCode, context }) {
 async function isDuplicateControlId({ tenantId, deviceId, controlId }) {
   if (!controlId || !deviceId) return false;
   await prisma.$executeRawUnsafe(
-    `DELETE FROM device_vitals_control_ids WHERE expires_at < NOW()`,
+    `DELETE FROM device_vitals_control_ids WHERE tenant_id = $1::uuid AND expires_at < NOW()`,
+    tenantId,
   ).catch(() => {});
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id
@@ -611,14 +632,34 @@ export async function ingestDeviceVitals({
       observedAtSource: rawObservedAtSource,
     } = extractVitalsFromOru(parsed);
     // C-L5: stamp the vitals row with the device's observation time rather
-    // than the drain/receipt time. Guard against device clock skew — an
-    // observation timestamp more than 5 minutes in the future is ignored and
-    // the row falls back to the receipt time (NOW()).
-    const futureSkewMs = rawObservedAt ? rawObservedAt.getTime() - Date.now() : 0;
-    const observedAt = rawObservedAt && futureSkewMs <= OBSERVED_AT_MAX_FUTURE_SKEW_MS
-      ? rawObservedAt
-      : null;
-    const observedAtSource = observedAt ? rawObservedAtSource : 'receipt-fallback';
+    // than the drain/receipt time. Guard against device clock skew in both
+    // directions — an observation timestamp more than 5 minutes in the
+    // future ('future-skew') or more than 48 hours before receipt
+    // ('past-skew') is rejected and the row falls back to the receipt time
+    // (NOW()). Rejections are visible: a warn log plus an
+    // observed_at_rejected verdict on the interface message.
+    let observedAt = null;
+    let observedAtSource = null;
+    let observedAtRejected = null;
+    if (rawObservedAt) {
+      const skewMs = rawObservedAt.getTime() - Date.now();
+      if (skewMs > OBSERVED_AT_MAX_FUTURE_SKEW_MS) {
+        observedAtRejected = 'future-skew';
+      } else if (skewMs < -OBSERVED_AT_MAX_PAST_SKEW_MS) {
+        observedAtRejected = 'past-skew';
+      } else {
+        observedAt = rawObservedAt;
+        observedAtSource = rawObservedAtSource;
+      }
+      if (observedAtRejected) {
+        logger.warn(
+          `Device vitals observation timestamp rejected (${observedAtRejected}): `
+          + `observed=${rawObservedAt.toISOString()} source=${rawObservedAtSource} `
+          + `skew_ms=${skewMs} — falling back to receipt time`,
+        );
+      }
+    }
+    if (!observedAtSource) observedAtSource = 'receipt-fallback';
     const meta = extractDeviceMessageMeta(parsed);
     const normalizedDeviceCode = cleanText(deviceCode || meta.sourceDeviceCode, 120) || 'monitor';
     const normalizedChannel = cleanText(channel || meta.channel, 80) || '';
@@ -744,9 +785,11 @@ export async function ingestDeviceVitals({
       // Receipt-vs-observation audit trail: the lab_interface_messages row's
       // own timestamps stay the receipt time; the verdicts carry the device
       // observation time actually stamped on the vitals row (null when the
-      // receipt fallback was used) and which source supplied it.
+      // receipt fallback was used), which source supplied it, and — when the
+      // skew guard fired — why the device time was rejected.
       observed_at: observedAt ? observedAt.toISOString() : null,
       observed_at_source: observedAtSource,
+      observed_at_rejected: observedAtRejected,
     });
 
     let result;
@@ -820,6 +863,7 @@ export async function ingestDeviceVitals({
     const successVerdicts = buildSuccessVerdicts(result.vitals, result.news2);
     if (!isGateway && messageId) {
       await updateInterfaceMessage(messageId, {
+        tenantId,
         status: 'ingested',
         resultCount: mapping.mapped.length,
         verdicts: successVerdicts,
@@ -841,18 +885,38 @@ export async function ingestDeviceVitals({
     // gateway can retry when no durable outcome exists. DEVICE_NOT_ASSOCIATED
     // still parks its failed, replayable interface message (written inside
     // resolveGatewayPatient).
-    if (messageId) {
+    // A gateway message ID is assigned inside the same transaction as the
+    // vitals/control-ID writes. If a later post-commit side effect fails, that
+    // durable inbox row must remain `ingested`; relabelling it `failed` would
+    // contradict the clinical record. Direct-send inbox rows are created
+    // before the vitals transaction and still need failure status updates.
+    if (messageId && !isGateway) {
       await updateInterfaceMessage(messageId, {
+        tenantId,
         status: 'failed',
         errorText: err?.code || err?.message || String(err),
         verdicts: { code: err?.code || 'DEVICE_VITALS_INGEST_FAILED' },
-      }).catch(() => {});
+      }).catch((updateErr) => {
+        logger.warn(`Device vitals interface failure status update failed: ${updateErr?.message}`);
+      });
     }
     if (err instanceof AppError) {
       err.details = { ...(err.details || {}), interface_message_id: messageId || err.details?.interface_message_id };
       throw err;
     }
     logger.error('Device vitals ingestion failed:', err);
+    if (isGateway) {
+      // Gateway drain contract: 4xx dead-letters a spooled sample, 5xx keeps
+      // it retained for retry. An unexpected (non-AppError) failure is not a
+      // deliberate client refusal; answer 503 so a DB hiccup, pool exhaustion,
+      // or server defect cannot make the gateway dead-letter clinical data.
+      throw new AppError(
+        'Device vitals ingestion hit a transient error; retry the delivery',
+        503,
+        'DEVICE_VITALS_INGEST_RETRYABLE',
+        { interface_message_id: messageId },
+      );
+    }
     throw AppError.badRequest('Device vitals payload could not be processed', 'DEVICE_VITALS_INGEST_FAILED', {
       interface_message_id: messageId,
     });
@@ -1017,7 +1081,7 @@ export async function verifyDeviceVitals(vitalsId, context = {}) {
       `UPDATE vitals_chart SET
          device_verified = true, verified_by = $2::uuid, verified_at = NOW()
        WHERE id = $1 AND source = 'device' AND device_verified = false AND tenant_id = $3::uuid
-       RETURNING id, patient_uid, source_device, device_verified, verified_at`,
+       RETURNING id, patient_uid, encounter_uid, source_device, device_verified, verified_at`,
       vitalsId,
       context.actorUid,
       context.tenantId,
@@ -1030,6 +1094,7 @@ export async function verifyDeviceVitals(vitalsId, context = {}) {
     await recordCanonicalClinicalEvent({
       tenantId: context.tenantId,
       patientUid: row.patient_uid,
+      encounterId: row.encounter_uid || null,
       eventType: 'vitals.device_verified',
       eventStatus: 'verified',
       sourceTable: 'vitals_chart',

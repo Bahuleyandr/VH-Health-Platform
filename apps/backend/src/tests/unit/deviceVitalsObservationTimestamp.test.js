@@ -28,24 +28,39 @@ describe('parseHl7Timestamp', () => {
   test('fractional seconds are carried as milliseconds', () => {
     const d = parseHl7Timestamp('20260610120000.5');
     expect(d.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 30, 0, 500));
+
+    // HL7 can supply precision finer than JavaScript milliseconds. Keep the
+    // represented instant within the same second rather than rounding over.
+    const fine = parseHl7Timestamp('20260610120000.9999');
+    expect(fine.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 30, 0, 999));
   });
 
-  test('short forms: date-only, hour, and minute precision', () => {
-    expect(parseHl7Timestamp('20260610').getTime())
-      .toBe(Date.UTC(2026, 5, 9, 18, 30, 0));
+  test('short forms: hour and minute precision parse; date-only does not', () => {
     expect(parseHl7Timestamp('2026061012').getTime())
       .toBe(Date.UTC(2026, 5, 10, 6, 30, 0));
     expect(parseHl7Timestamp('202606101215').getTime())
       .toBe(Date.UTC(2026, 5, 10, 6, 45, 0));
+    // A bare date carries no usable time-of-day for a clinical observation —
+    // reject so the caller falls back to the receipt time.
+    expect(parseHl7Timestamp('20260610')).toBeNull();
+    expect(parseHl7Timestamp('20260610+0530')).toBeNull();
   });
 
   test('an invalid configured hospital timezone fails closed', () => {
     expect(parseHl7Timestamp('20260610120000', 'Not/A_Zone')).toBeNull();
   });
 
-  test('date-only form with an explicit offset honors the offset', () => {
-    const d = parseHl7Timestamp('20260610+0530');
-    expect(d.getTime()).toBe(Date.UTC(2026, 5, 9, 18, 30, 0));
+  test('offsets are bounded to the real-world UTC-offset range', () => {
+    // ±14:00 is the extreme legal offset; minutes must be a valid 0-59.
+    expect(parseHl7Timestamp('20260610120000+1400').getTime())
+      .toBe(Date.UTC(2026, 5, 9, 22, 0, 0));
+    expect(parseHl7Timestamp('20260610120000-1400').getTime())
+      .toBe(Date.UTC(2026, 5, 11, 2, 0, 0));
+    expect(parseHl7Timestamp('20260610120000+1500')).toBeNull();
+    expect(parseHl7Timestamp('20260610120000-1500')).toBeNull();
+    expect(parseHl7Timestamp('20260610120000+1401')).toBeNull();
+    expect(parseHl7Timestamp('20260610120000-1430')).toBeNull();
+    expect(parseHl7Timestamp('20260610120000+0560')).toBeNull();
   });
 
   test.each([
@@ -58,8 +73,8 @@ describe('parseHl7Timestamp', () => {
     ['odd length', '202606101'],
     ['month 13', '20261301120000'],
     ['month 00', '20260010120000'],
-    ['Feb 30 rollover', '20260230'],
-    ['day 00', '20260600'],
+    ['Feb 30 rollover', '2026023012'],
+    ['day 00', '2026060012'],
     ['hour 25', '20260610250000'],
     ['minute 61', '20260610126100'],
     ['second 61', '20260610120061'],
@@ -70,8 +85,8 @@ describe('parseHl7Timestamp', () => {
   });
 
   test('leap-day is accepted in a leap year only', () => {
-    expect(parseHl7Timestamp('20240229')).toBeInstanceOf(Date);
-    expect(parseHl7Timestamp('20260229')).toBeNull();
+    expect(parseHl7Timestamp('2024022912')).toBeInstanceOf(Date);
+    expect(parseHl7Timestamp('2026022912')).toBeNull();
   });
 });
 
