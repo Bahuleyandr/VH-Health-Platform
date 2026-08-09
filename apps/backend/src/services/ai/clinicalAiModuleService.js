@@ -1395,6 +1395,27 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'patient_triage',
+    display_name: 'Patient Symptom Triage Chatbot',
+    description: 'Patient-facing AI symptom triage. Decision-support only, real-time responses; flagged/escalated outputs queue for retrospective clinician review.',
+    enabled: false,
+    settings: {
+      surface: 'patient',
+      risk: 'high',
+      status: 'available',
+      // Patient-facing real-time: signoff is retrospective review of flagged
+      // outputs, never pre-response blocking (same posture as
+      // patient_record_chatbot).
+      requiresClinicianSignoff: false,
+      requiresCitations: false,
+      reviewRoles: ['DOCTOR', 'ADMIN'],
+      outputSchema: { type: 'object', required: ['triage', 'differential', 'summary', 'redFlags'] },
+      retentionDays: 365,
+      decisionSupportOnly: true,
+      patientFacing: true,
+    },
+  },
+  {
     module_key: 'rca_draft_generator',
     display_name: 'Mortality / RCA Draft Generator',
     description: 'Auto-generates candidate RCA findings from the chart. Always draft; committee signs off.',

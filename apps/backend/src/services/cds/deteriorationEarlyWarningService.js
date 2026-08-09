@@ -63,7 +63,7 @@ export async function surfaceNews2Cds({ patientUid, encounterId = null, news2 } 
   // Lazy import so cdsEngine's heavy import graph isn't pulled at module load
   // (and so suites mocking prisma.js aren't broken by an eager pull-in).
   const { persistCdsAlert } = await import('../emr/cdsEngine.js');
-  await persistCdsAlert({
+  const outcome = await persistCdsAlert({
     patientUid,
     encounterId,
     alertType: 'NEWS2_DETERIORATION',
@@ -78,6 +78,16 @@ export async function surfaceNews2Cds({ patientUid, encounterId = null, news2 } 
       source: 'news2Service.recordNEWS2',
     },
   });
+  if (!outcome?.persisted) {
+    // persistCdsAlert has already audited the drop; surface the failure to
+    // the caller instead of claiming the alert was raised. (No patient
+    // identifiers in this log line.)
+    logger.error('NEWS2 CDS alert persistence failed', {
+      severity,
+      reason: outcome?.reason || 'persist_failed',
+    });
+    return { raised: false, reason: outcome?.reason || 'persist_failed', severity };
+  }
   logger.info(`NEWS2 CDS alert raised for patient ${patientUid}: score=${totalScore}, severity=${severity}`);
   return { raised: true, severity };
 }

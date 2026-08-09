@@ -43,7 +43,18 @@ export async function triage(req, res) {
   try {
     const { symptoms, history } = req.body;
     const patientContext = await _buildPatientContext(req.user?.id);
-    const result = await triageSymptoms({ symptoms, history, patientContext });
+    const result = await triageSymptoms({
+      symptoms,
+      history,
+      patientContext,
+      // Thread the tenant's data-residency region so the egress guard can
+      // actually match the allowlist (previously never passed, making the
+      // region guard all-or-nothing), plus tenant/patient identity for the
+      // governed-framework generation + review rows.
+      tenantRegion: req.tenant?.region || null,
+      tenantId: req.tenantId || null,
+      patientUid: req.user?.uid || null,
+    });
     return success(res, result, 'Triage complete');
   } catch (err) {
     const status = err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
