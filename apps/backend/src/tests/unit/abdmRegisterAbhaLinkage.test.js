@@ -114,6 +114,8 @@ describe('registerABHA — ABHA number', () => {
       '12-3456-7890-1234',
       PATIENT_UID,
     ]);
+    const [, storedNumber] = prismaQuery.mock.calls[2];
+    expect(storedNumber).toBe('12-3456-7890-1234');
   });
 
   it('refuses a number already linked to another patient', async () => {

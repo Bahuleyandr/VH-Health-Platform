@@ -22,8 +22,9 @@ export const schemas = {
         type: 'string',
         description:
           '14-digit ABHA number of an account the patient ALREADY HOLDS. Hyphens in the '
-          + 'canonical 2-4-4-4 spelling are accepted and stored as sent; anything that is not '
-          + '14 digits once hyphens are removed is rejected with INVALID_ABHA_FORMAT.',
+          + 'canonical 2-4-4-4 spelling are accepted and normalized to the canonical hyphenated '
+          + 'form before storage; anything that is not 14 digits once hyphens are removed is '
+          + 'rejected with INVALID_ABHA_FORMAT.',
         example: '12-3456-7890-1234',
       },
       abha_address: {
@@ -58,7 +59,7 @@ export const schemas = {
       abhaNumber: {
         type: 'string',
         nullable: true,
-        description: 'The ABHA number now on file, as stored.',
+        description: 'The ABHA number now on file, normalized to canonical 2-4-4-4 spelling.',
       },
       abhaAddress: {
         type: 'string',

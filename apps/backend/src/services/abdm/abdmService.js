@@ -362,7 +362,7 @@ class ABDMService {
     if (!/^\d{14}$/.test(cleanAbha)) {
       throw AppError.badRequest('Invalid ABHA number format. Must be 14 digits.', 'INVALID_ABHA_FORMAT');
     }
-    const normalizedAbha = String(abhaNumber).trim();
+    const normalizedAbha = hyphenateAbhaNumber(cleanAbha);
     const normalizedAddress = normalizeAbhaAddress(abhaAddress);
 
     // Check patient exists
@@ -379,12 +379,10 @@ class ABDMService {
       throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
     }
 
-    // Check ABHA not already linked to another patient. The column stores the
-    // number as supplied, and both the plain 14-digit and the canonical
-    // 2-4-4-4 hyphenated spellings are in circulation (inbound ABDM callbacks
-    // carry the hyphenated form), so an exact-string guard alone lets the same
-    // ABHA be linked twice under two spellings. Compare both; an IN over the
-    // two literals still uses idx_users_abha_number.
+    // Check ABHA not already linked to another patient. Legacy rows may use
+    // either plain digits or canonical 2-4-4-4 spelling, so compare both; an
+    // IN over the two literals still uses idx_users_abha_number. New writes are
+    // canonicalized below.
     const existingAbha = await prisma.$queryRawUnsafe(
       `SELECT uid FROM users
        WHERE tenant_id = $1::uuid
@@ -400,9 +398,12 @@ class ABDMService {
     // Verify ABHA with ABDM gateway (if enabled)
     if (ABDM_CONFIG.enabled) {
       try {
-        await abdmGateway.verifyABHA(abhaNumber);
+        await abdmGateway.verifyABHA(normalizedAbha);
       } catch (err) {
-        logger.warn('ABDM ABHA verification failed', { abhaNumber, error: err.message });
+        logger.warn('ABDM ABHA verification failed', {
+          abhaNumber: maskGeneric(normalizedAbha),
+          error: err.message,
+        });
         // CAN-025: FAIL CLOSED — do not bind an unverified national health
         // identifier while ABDM is enabled (was: proceed on gateway error). An
         // explicit, audited override permits local-only linkage during a
@@ -414,7 +415,9 @@ class ABDMService {
             'ABHA_VERIFICATION_FAILED',
           );
         }
-        logger.warn('ABDM_ABHA_ALLOW_UNVERIFIED override active — linking unverified ABHA', { abhaNumber });
+        logger.warn('ABDM_ABHA_ALLOW_UNVERIFIED override active — linking unverified ABHA', {
+          abhaNumber: maskGeneric(normalizedAbha),
+        });
       }
     }
 
@@ -503,19 +506,30 @@ class ABDMService {
     if (!abhaNumber) {
       throw AppError.badRequest('ABHA number is required', 'MISSING_ABHA_NUMBER');
     }
+    const cleanAbha = String(abhaNumber).trim().replace(/-/g, '');
+    if (!/^\d{14}$/.test(cleanAbha)) {
+      throw AppError.badRequest('Invalid ABHA number format. Must be 14 digits.', 'INVALID_ABHA_FORMAT');
+    }
+    const canonicalAbha = hyphenateAbhaNumber(cleanAbha);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT uid, tenant_id, name, phone, email, gender, birthday, abha_number, abha_address, registered_at
        FROM users
        WHERE tenant_id = $1::uuid
-         AND abha_number = $2
+         AND abha_number IN ($2, $3)
          AND is_active = true
-       LIMIT 1`,
-      tid, abhaNumber
+         AND role = 'PATIENT'`,
+      tid, cleanAbha, canonicalAbha
     );
 
     if (result.length === 0) {
       throw AppError.notFound('No patient found with this ABHA number', 'ABHA_NOT_FOUND');
+    }
+    if (new Set(result.map((row) => String(row.uid))).size > 1) {
+      throw AppError.conflict(
+        'ABHA number is linked to multiple patients; manual reconciliation is required',
+        'ABHA_MULTIPLE_PATIENTS',
+      );
     }
 
     return result[0];
@@ -549,10 +563,16 @@ class ABDMService {
     if (!abhaNumber) {
       throw AppError.badRequest('ABHA number is required to resolve a patient', 'ABDM_ABHA_REQUIRED');
     }
+    const cleanAbha = String(abhaNumber).trim().replace(/-/g, '');
+    if (!/^\d{14}$/.test(cleanAbha)) {
+      throw AppError.badRequest('Invalid ABHA number format. Must be 14 digits.', 'INVALID_ABHA_FORMAT');
+    }
+    const canonicalAbha = hyphenateAbhaNumber(cleanAbha);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT uid, tenant_id FROM users
-       WHERE abha_number = $1 AND is_active = true AND role = 'PATIENT'`,
-      abhaNumber,
+       WHERE abha_number IN ($1, $2) AND is_active = true AND role = 'PATIENT'`,
+      cleanAbha,
+      canonicalAbha,
     );
     if (!rows.length) {
       throw AppError.notFound('No active patient found for the supplied ABHA number', 'ABDM_PATIENT_NOT_FOUND');
@@ -565,6 +585,15 @@ class ABDMService {
       throw AppError.conflict(
         'ABHA number resolves to patients in multiple tenants; cannot bind deterministically',
         'ABDM_ABHA_MULTI_TENANT',
+      );
+    }
+    if (new Set(rows.map((row) => String(row.uid))).size > 1) {
+      logger.warn('ABDM callback rejected: ABHA resolves to multiple patients in one tenant', {
+        abhaPatientCount: rows.length,
+      });
+      throw AppError.conflict(
+        'ABHA number resolves to multiple patients; cannot bind deterministically',
+        'ABDM_ABHA_MULTI_PATIENT',
       );
     }
     return { patientUid: rows[0].uid, tenantId: rows[0].tenant_id };
