@@ -5,8 +5,9 @@
 // verifies it (audited), and failures stay replayable in the interface
 // inbox.
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenant } from '../lib/prisma.js';
 import { authClient } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import { extractVitalsFromOru } from '../services/emr/deviceVitalsService.js';
 import { parseHL7 } from '../services/hl7/hl7Parser.js';
 
@@ -28,9 +29,48 @@ const oruFor = (uid) => [
 ].join('\r');
 
 async function cleanup() {
+  const patients = await prisma.$queryRawUnsafe(
+    `SELECT uid, tenant_id FROM users WHERE name = 'C5TEST Patient'`,
+  ).catch(() => []);
+  const patientUids = patients.map((row) => row.uid);
   await prisma.$executeRawUnsafe(
     `DELETE FROM lab_interface_messages WHERE raw_message LIKE '%C5TESTMON%'`,
   ).catch(() => {});
+  if (patientUids.length) {
+    for (const tenantId of new Set(patients.map((row) => row.tenant_id))) {
+      await setTenant(tenantId, async (tx) => {
+        await tx.$executeRawUnsafe(
+          `UPDATE tasks
+              SET workflow_sla_instance_id = NULL,
+                  sla_completion_semantics = 'none'
+            WHERE patient_uid = ANY($1::uuid[])`,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM tasks WHERE patient_uid = ANY($1::uuid[])`,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM workflow_sla_instances WHERE patient_uid = ANY($1::uuid[])`,
+          patientUids,
+        );
+      }).catch(() => {});
+    }
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM clinical_timeline_events WHERE patient_uid = ANY($1::uuid[])`,
+      patientUids,
+    ).catch(() => {});
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM clinical_audit_events WHERE patient_uid = ANY($1::uuid[])`,
+      patientUids,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM news2_scores WHERE patient_uid = ANY($1::uuid[])`,
+      patientUids,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM vitals_chart WHERE source_device LIKE 'C5TEST%'`,
   ).catch(() => {});

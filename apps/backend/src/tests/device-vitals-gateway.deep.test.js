@@ -7,8 +7,9 @@
 // leave no device_vitals_control_ids row so the gateway's spool retry is
 // re-processed instead of silently dropped.
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenant } from '../lib/prisma.js';
 import { ingestDeviceVitals, verifyDeviceVitals } from '../services/emr/deviceVitalsService.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -104,10 +105,27 @@ async function cleanup() {
     TENANT,
     DEVICE_CODE,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
+  await setTenant(TENANT, async (tx) => {
+    await tx.$executeRawUnsafe(
+      `UPDATE tasks
+          SET workflow_sla_instance_id = NULL,
+              sla_completion_semantics = 'none'
+        WHERE tenant_id = $1::uuid`,
+      TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE tenant_id = $1::uuid`, TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid`, TENANT,
+    );
+  }).catch(() => {});
+  await deleteWithAuditBypass(
+    prisma,
     `DELETE FROM clinical_timeline_events WHERE tenant_id = $1::uuid`, TENANT,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
+  await deleteWithAuditBypass(
+    prisma,
     `DELETE FROM clinical_audit_events WHERE tenant_id = $1::uuid`, TENANT,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
