@@ -17,6 +17,7 @@ import 'package:vhhealth/features/steps/widgets/step_profile_section.dart';
 import 'package:vhhealth/features/steps/widgets/step_rewards_section.dart';
 import 'package:vhhealth/features/steps/widgets/step_today_card.dart';
 import 'package:vhhealth/features/steps/widgets/step_walk_control.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class StepChallengeScreen extends StatefulWidget {
   const StepChallengeScreen({super.key});
@@ -389,8 +390,8 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: Theme.of(context).colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),
@@ -401,8 +402,8 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
     if (!mounted) return;
     final colors = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: colors.tertiary,
         behavior: SnackBarBehavior.floating,
       ),

@@ -30,6 +30,7 @@ import 'package:vhhealth/features/your_health/widgets/health_timeline_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/hospital_documents_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/my_uploads_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/whats_next_section.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class YourHealthScreen extends StatefulWidget {
   final int initialTab;
@@ -182,8 +183,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         _isLoadingRecords = false;
       });
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.recordsShowingOffline),
+        LiveRegionSnackBar.build(
+          message: l10n.recordsShowingOffline,
           backgroundColor: theme.colorScheme.tertiary,
           behavior: SnackBarBehavior.floating,
         ),
@@ -191,8 +192,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     } else {
       setState(() => _isLoadingRecords = false);
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(errorMsg),
+        LiveRegionSnackBar.build(
+          message: errorMsg,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -226,8 +227,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     );
     if (!granted) {
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.downloadPermissionDenied),
+        LiveRegionSnackBar.build(
+          message: l10n.downloadPermissionDenied,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -243,8 +244,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         final data = response.dataAsMap();
         if (data['quarantined'] == true) {
           messenger.showSnackBar(
-            SnackBar(
-              content: Text(l10n.fileQuarantined),
+            LiveRegionSnackBar.build(
+              message: l10n.fileQuarantined,
               backgroundColor: theme.colorScheme.error,
               behavior: SnackBarBehavior.floating,
             ),
@@ -273,8 +274,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       debugPrint('File open/download failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.fileCouldNotOpen),
+        LiveRegionSnackBar.build(
+          message: l10n.fileCouldNotOpen,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),

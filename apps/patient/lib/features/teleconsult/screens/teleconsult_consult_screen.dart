@@ -9,6 +9,7 @@ import 'package:vhhealth/features/teleconsult/services/teleconsult_device_servic
 import 'package:vhhealth/features/teleconsult/services/teleconsult_repository.dart';
 import 'package:vhhealth/features/teleconsult/services/teleconsult_room_client.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class TeleconsultConsultScreen extends StatefulWidget {
   const TeleconsultConsultScreen({
@@ -151,7 +152,7 @@ class _TeleconsultConsultScreenState extends State<TeleconsultConsultScreen> {
       if (!mounted) return;
       setState(() => _openingMessages = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.teleconsultSecureMessagesFailed)),
+        LiveRegionSnackBar.build(message: l.teleconsultSecureMessagesFailed),
       );
     }
   }

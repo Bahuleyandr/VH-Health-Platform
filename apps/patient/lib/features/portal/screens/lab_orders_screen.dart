@@ -14,6 +14,7 @@ import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class _LabOrder {
   _LabOrder.fromJson(Map<String, dynamic> j)
@@ -165,8 +166,8 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
       debugPrint('Lab report download failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l.labOrdersDownloadFailed),
+        LiveRegionSnackBar.build(
+          message: l.labOrdersDownloadFailed,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),

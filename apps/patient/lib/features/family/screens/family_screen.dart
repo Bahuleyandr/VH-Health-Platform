@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class FamilyScreen extends StatefulWidget {
   const FamilyScreen({super.key});
@@ -84,9 +85,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
     final id = (member['_id'] as String?) ?? (member['id']?.toString());
     if (id == null || id.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.familyMemberIdNotFound)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.familyMemberIdNotFound),
+        );
       }
       return;
     }
@@ -120,23 +121,23 @@ class _FamilyScreenState extends State<FamilyScreen> {
       final response = await ApiClient.delete('/users/family-members/$id');
       if (!mounted) return;
       if (response.isSuccess) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.familyRemoved(name))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.familyRemoved(name)),
+        );
         _fetchMembers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.failureMessage(l.familyRemoveFailed)),
+          LiveRegionSnackBar.build(
+            message: response.failureMessage(l.familyRemoveFailed),
           ),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('FamilyScreen: remove error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.familyRemoveFailedRetry)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.familyRemoveFailedRetry),
+        );
       }
     }
   }
@@ -394,21 +395,23 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
       if (response.isSuccess) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(l.familyAddedSuccess)));
+        ).showSnackBar(LiveRegionSnackBar.build(message: l.familyAddedSuccess));
         Navigator.pop(context, true);
       } else {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.failureMessage(l.familyAddFailed))),
+          LiveRegionSnackBar.build(
+            message: response.failureMessage(l.familyAddFailed),
+          ),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('AddFamilyMemberSheet: submit error: $e');
       if (mounted) {
         setState(() => _submitting = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.familyAddFailedRetry)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.familyAddFailedRetry),
+        );
       }
     }
   }

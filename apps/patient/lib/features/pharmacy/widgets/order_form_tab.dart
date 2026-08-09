@@ -9,6 +9,7 @@ import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_status_widgets.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class OrderFormTab extends StatefulWidget {
   final String phone;
@@ -280,8 +281,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
     if (!mounted) return;
     final colors = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: isError ? colors.error : colors.tertiary,
       ),
     );

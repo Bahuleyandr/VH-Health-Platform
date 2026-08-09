@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class FeedbackPrompt extends StatefulWidget {
   final String phone;
@@ -95,8 +96,8 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
+      LiveRegionSnackBar.build(
+        message: message,
         backgroundColor: isSuccess ? Colors.green : null,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),

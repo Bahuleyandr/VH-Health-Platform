@@ -6,6 +6,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/your_health/widgets/prescription_countdown_widget.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class PrescriptionsTab extends StatefulWidget {
   final String phone;
@@ -629,10 +630,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                                       response.data?['order_number'] ?? '';
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          '\u2705 Order placed! $orderNum',
-                                        ),
+                                      LiveRegionSnackBar.build(
+                                        message:
+                                            '\u2705 Order placed! $orderNum',
                                         backgroundColor: Colors.green,
                                       ),
                                     );
@@ -641,11 +641,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                                 } else {
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          response.failureMessage(
-                                            'Failed to place order',
-                                          ),
+                                      LiveRegionSnackBar.build(
+                                        message: response.failureMessage(
+                                          'Failed to place order',
                                         ),
                                         backgroundColor: Colors.red,
                                       ),
@@ -656,8 +654,8 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                                 if (ctx.mounted) Navigator.pop(ctx);
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Error: $e'),
+                                    LiveRegionSnackBar.build(
+                                      message: 'Error: $e',
                                       backgroundColor: Colors.red,
                                     ),
                                   );

@@ -36,6 +36,7 @@ import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
 import 'package:vhhealth/features/dashboard/widgets/stat_detail_panels.dart';
 import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 enum _DashboardStatPanel { wellness, steps, points, period }
 
@@ -519,8 +520,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!granted) {
         final l = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l.dashboardHealthConnectPrompt),
+          LiveRegionSnackBar.build(
+            message: l.dashboardHealthConnectPrompt,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -531,8 +532,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!granted) {
         final l = AppLocalizations.of(context)!;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l.dashboardHealthConnectPermissionDenied),
+          LiveRegionSnackBar.build(
+            message: l.dashboardHealthConnectPermissionDenied,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -551,12 +552,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       await _dashboardProvider.refreshSmartWidgets();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            synced > 0
-                ? AppLocalizations.of(context)!.dashboardHealthConnectSynced
-                : AppLocalizations.of(context)!.dashboardHealthConnectNoSamples,
-          ),
+        LiveRegionSnackBar.build(
+          message: synced > 0
+              ? AppLocalizations.of(context)!.dashboardHealthConnectSynced
+              : AppLocalizations.of(context)!.dashboardHealthConnectNoSamples,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -564,10 +563,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (kDebugMode) debugPrint('Steps Health Connect prompt failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocalizations.of(context)!.dashboardHealthConnectOpenFailed,
-          ),
+        LiveRegionSnackBar.build(
+          message: AppLocalizations.of(
+            context,
+          )!.dashboardHealthConnectOpenFailed,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -628,20 +627,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       setState(() => _cycleTrackerSnapshot = updated);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocalizations.of(context)!.periodTrackerCycleStartRecorded,
-          ),
+        LiveRegionSnackBar.build(
+          message: AppLocalizations.of(
+            context,
+          )!.periodTrackerCycleStartRecorded,
         ),
       );
     } catch (e) {
       if (kDebugMode) debugPrint('Cycle tracker save failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocalizations.of(context)!.periodTrackerCycleStartSaveFailed,
-          ),
+        LiveRegionSnackBar.build(
+          message: AppLocalizations.of(
+            context,
+          )!.periodTrackerCycleStartSaveFailed,
         ),
       );
     }

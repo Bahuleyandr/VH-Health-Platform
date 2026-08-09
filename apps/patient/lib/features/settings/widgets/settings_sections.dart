@@ -11,6 +11,7 @@ import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/features/settings/controllers/settings_controller.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 List<Widget> buildSettingsSections(SettingsController c) {
   final cs = Theme.of(c.context).colorScheme;
@@ -100,14 +101,14 @@ List<Widget> buildSettingsSections(SettingsController c) {
                   .requestPermissions();
               if (!granted) {
                 messenger.showSnackBar(
-                  SnackBar(
-                    content: Text(c.loc.settingsHealthPermissionsDenied),
+                  LiveRegionSnackBar.build(
+                    message: c.loc.settingsHealthPermissionsDenied,
                   ),
                 );
                 return;
               }
               messenger.showSnackBar(
-                SnackBar(content: Text(c.loc.settingsSyncingHealth)),
+                LiveRegionSnackBar.build(message: c.loc.settingsSyncingHealth),
               );
               final synced = await HealthSyncService.instance.syncNow();
               await HealthSyncService.instance.startForegroundSync();
@@ -120,12 +121,10 @@ List<Widget> buildSettingsSections(SettingsController c) {
                 await HealthSyncService.enableBackgroundSync();
               }
               messenger.showSnackBar(
-                SnackBar(
-                  content: Text(
-                    synced > 0
-                        ? c.loc.settingsHealthDataSynced
-                        : c.loc.settingsNoNewSamplesToSync,
-                  ),
+                LiveRegionSnackBar.build(
+                  message: synced > 0
+                      ? c.loc.settingsHealthDataSynced
+                      : c.loc.settingsNoNewSamplesToSync,
                 ),
               );
             },
@@ -273,8 +272,8 @@ List<Widget> buildSettingsSections(SettingsController c) {
                 await c.tp.resetToDefaults();
                 if (c.context.mounted) {
                   ScaffoldMessenger.of(c.context).showSnackBar(
-                    SnackBar(
-                      content: Text(c.loc.settingsThemeResetSuccess),
+                    LiveRegionSnackBar.build(
+                      message: c.loc.settingsThemeResetSuccess,
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
@@ -462,7 +461,7 @@ Widget _legalLinkTile({
       );
       if (!launched) {
         messenger.showSnackBar(
-          SnackBar(content: Text(c.loc.commonCouldNotOpenLink)),
+          LiveRegionSnackBar.build(message: c.loc.commonCouldNotOpenLink),
         );
       }
     },

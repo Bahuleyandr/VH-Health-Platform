@@ -22,6 +22,7 @@ import 'package:vhhealth/features/teleconsult/models/teleconsult_models.dart';
 import 'package:vhhealth/features/teleconsult/models/teleconsult_route_args.dart';
 import 'package:vhhealth/features/teleconsult/services/teleconsult_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class AppointmentsListTab extends StatefulWidget {
   /// Invoked when the empty-state "Book one now" button is tapped — the
@@ -476,8 +477,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: Theme.of(context).colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),
@@ -487,8 +488,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   void _showSuccess(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: Theme.of(context).colorScheme.primary,
         behavior: SnackBarBehavior.floating,
       ),

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class RefillScreen extends StatefulWidget {
   const RefillScreen({super.key});
@@ -66,9 +67,9 @@ class _RefillScreenState extends State<RefillScreen> {
         (prescription['_id'] as String?) ?? (prescription['id']?.toString());
     if (id == null || id.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.refillPrescriptionIdMissing)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.refillPrescriptionIdMissing),
+        );
       }
       return;
     }
@@ -107,14 +108,14 @@ class _RefillScreenState extends State<RefillScreen> {
         await PatientCacheInvalidation.afterRefillMutation();
         if (!mounted) return;
         setState(() => _refillStatus[id] = 'submitted');
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.refillRequested(medName))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.refillRequested(medName)),
+        );
       } else {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.failureMessage(l.refillRequestFailed)),
+          LiveRegionSnackBar.build(
+            message: response.failureMessage(l.refillRequestFailed),
           ),
         );
       }
@@ -124,7 +125,7 @@ class _RefillScreenState extends State<RefillScreen> {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(l.refillRequestRetry)));
+        ).showSnackBar(LiveRegionSnackBar.build(message: l.refillRequestRetry));
       }
     }
   }

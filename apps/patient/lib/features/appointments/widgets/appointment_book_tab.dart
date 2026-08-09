@@ -14,6 +14,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
 import 'package:vhhealth/features/appointments/models/appointment_models.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class AppointmentBookTab extends StatefulWidget {
   /// Invoked after a booking is created — the parent switches to and
@@ -225,8 +226,8 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: Theme.of(context).colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),
@@ -236,8 +237,8 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
   void _showSuccess(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: Theme.of(context).colorScheme.primary,
         behavior: SnackBarBehavior.floating,
       ),

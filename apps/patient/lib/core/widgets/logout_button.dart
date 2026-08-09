@@ -8,6 +8,7 @@ import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 enum LogoutButtonStyle {
   iconOnly, // for AppBar
@@ -100,8 +101,8 @@ class LogoutButton extends StatelessWidget {
       // If navigation fails, show error
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Logout failed: ${e.toString()}'),
+          LiveRegionSnackBar.build(
+            message: 'Logout failed: ${e.toString()}',
             backgroundColor: Colors.red,
           ),
         );

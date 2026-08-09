@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 /// Set true the first time we show (or attempt to show) the check-in
 /// sheet in this app session. Prevents the modal from re-popping every
@@ -165,8 +166,8 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
       if (mounted) {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context)!.checkinSaveFailed),
+          LiveRegionSnackBar.build(
+            message: AppLocalizations.of(context)!.checkinSaveFailed,
           ),
         );
       }

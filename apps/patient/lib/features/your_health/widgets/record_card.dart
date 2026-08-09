@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 IconData iconForDocType(String type) {
   switch (type) {
@@ -49,9 +50,9 @@ Future<void> openDocument(
   final l = AppLocalizations.of(context)!;
   final url = record['file_url']?.toString();
   if (url == null || url.isEmpty) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l.recordsDocumentUrlMissing)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      LiveRegionSnackBar.build(message: l.recordsDocumentUrlMissing),
+    );
     return;
   }
   final launched = await SafeUrlLauncher.launch(
@@ -61,7 +62,7 @@ Future<void> openDocument(
   if (!launched && context.mounted) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(l.documentCouldNotOpen)));
+    ).showSnackBar(LiveRegionSnackBar.build(message: l.documentCouldNotOpen));
   }
 }
 

@@ -8,6 +8,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class AskADoubtScreen extends StatefulWidget {
   const AskADoubtScreen({super.key});
@@ -61,8 +62,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
 
       if (response.isSuccess) {
         messenger.showSnackBar(
-          SnackBar(
-            content: Text(loc.feedbackSuccess),
+          LiveRegionSnackBar.build(
+            message: loc.feedbackSuccess,
             backgroundColor: Theme.of(context).colorScheme.primary,
             behavior: SnackBarBehavior.floating,
           ),
@@ -71,8 +72,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
       } else {
         final msg = response.failureMessage(loc.feedbackFailed);
         messenger.showSnackBar(
-          SnackBar(
-            content: Text(msg),
+          LiveRegionSnackBar.build(
+            message: msg,
             backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -83,8 +84,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(loc.networkError),
+        LiveRegionSnackBar.build(
+          message: loc.networkError,
           backgroundColor: Theme.of(context).colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -95,8 +96,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
   void _triggerSOS() {
     final loc = AppLocalizations.of(context)!;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(loc.authSosTriggered),
+      LiveRegionSnackBar.build(
+        message: loc.authSosTriggered,
         backgroundColor: Theme.of(context).colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),

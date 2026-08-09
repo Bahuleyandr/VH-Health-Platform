@@ -21,6 +21,9 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
   late final PatientOutageConfigStore _config;
   StreamSubscription<PatientBlockedMutation>? _blockedSubscription;
   PatientBlockedMutation? _blocked;
+  final FocusNode _blockedCloseFocusNode = FocusNode(
+    debugLabel: 'PatientOutageScope.blockedClose',
+  );
 
   @override
   void initState() {
@@ -28,13 +31,23 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
     _controller = PatientOutageController.instance;
     _config = PatientOutageConfigStore.instance;
     _blockedSubscription = _controller.blockedMutations.listen((event) {
-      if (mounted) setState(() => _blocked = event);
+      if (!mounted) return;
+      setState(() => _blocked = event);
+      // Move keyboard/switch-access focus into the overlay once it has
+      // built. (autofocus is not reliable here: this scope can sit above
+      // the Navigator, whose focus scope already holds primary focus.)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _blocked != null) {
+          _blockedCloseFocusNode.requestFocus();
+        }
+      });
     });
   }
 
   @override
   void dispose() {
     _blockedSubscription?.cancel();
+    _blockedCloseFocusNode.dispose();
     super.dispose();
   }
 
@@ -148,62 +161,107 @@ class _PatientOutageScopeState extends State<PatientOutageScope> {
         ? l.patientOutageEmergencyNotSent
         : l.patientOutageMutationNotSent;
 
+    // This notice can carry a safety-critical failure ("your emergency SOS
+    // was NOT sent"), so it must behave like a modal dialog for assistive
+    // technology rather than a silent visual layer:
+    //  * `Semantics(scopesRoute: true)` presents it as the current route, so
+    //    screen-reader focus moves into the overlay when it appears — the
+    //    same mechanism Flutter's own dialogs use.
+    //  * `BlockSemantics` removes the app behind the scrim from the
+    //    accessibility tree and `ModalBarrier` swallows taps, so
+    //    TalkBack/VoiceOver users cannot wander into obscured content.
+    //  * The failure text is a live region, so it is announced as soon as
+    //    the overlay appears. (Android has deprecated forced "assertive"
+    //    announcements; live regions are the platform-sanctioned path.)
+    //  * The close button receives focus when the overlay appears, keeping
+    //    keyboard/switch-access focus inside the overlay and making
+    //    dismissal one activation away.
     return Positioned.fill(
-      child: Material(
-        color: Colors.black54,
-        child: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Card(
-                margin: const EdgeInsets.all(24),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              l.patientOutageDialogTitle,
-                              style: Theme.of(context).textTheme.titleLarge,
+      // BlockSemantics must wrap the whole overlay (it removes previously
+      // painted siblings — the app content — from the semantics tree; nested
+      // inside the route container it would only block within the overlay).
+      child: BlockSemantics(
+        child: Semantics(
+          scopesRoute: true,
+          explicitChildNodes: true,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              const ModalBarrier(dismissible: false, color: Colors.black54),
+              SafeArea(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Card(
+                      margin: const EdgeInsets.all(24),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    l.patientOutageDialogTitle,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleLarge,
+                                  ),
+                                ),
+                                IconButton(
+                                  focusNode: _blockedCloseFocusNode,
+                                  onPressed: () =>
+                                      setState(() => _blocked = null),
+                                  icon: Icon(
+                                    Icons.close,
+                                    semanticLabel: MaterialLocalizations.of(
+                                      context,
+                                    ).closeButtonTooltip,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          IconButton(
-                            onPressed: () => setState(() => _blocked = null),
-                            icon: Icon(
-                              Icons.close,
-                              semanticLabel: MaterialLocalizations.of(
-                                context,
-                              ).closeButtonTooltip,
+                            MergeSemantics(
+                              child: Semantics(
+                                liveRegion: true,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      prefix,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(_message(context, l)),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        prefix,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
+                            const SizedBox(height: 16),
+                            if (contact != null)
+                              FilledButton.icon(
+                                onPressed: () => unawaited(_call(contact)),
+                                icon: const Icon(Icons.call),
+                                label: Text(l.patientOutageCallHospital),
+                              )
+                            else
+                              Text(l.patientOutageContactUnavailable),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(_message(context, l)),
-                      const SizedBox(height: 16),
-                      if (contact != null)
-                        FilledButton.icon(
-                          onPressed: () => unawaited(_call(contact)),
-                          icon: const Icon(Icons.call),
-                          label: Text(l.patientOutageCallHospital),
-                        )
-                      else
-                        Text(l.patientOutageContactUnavailable),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),

@@ -13,6 +13,7 @@ import 'package:vhhealth/features/gamification/widgets/milestones_tab.dart';
 import 'package:vhhealth/features/gamification/widgets/overview_tab.dart';
 import 'package:vhhealth/features/gamification/widgets/rewards_tab.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class HealthPointsScreen extends StatefulWidget {
   const HealthPointsScreen({super.key});
@@ -278,8 +279,8 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: Theme.of(context).colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),
@@ -337,8 +338,8 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: voucherCode));
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(
-                            content: Text(l.gamificationVoucherCopied),
+                          LiveRegionSnackBar.build(
+                            message: l.gamificationVoucherCopied,
                             behavior: SnackBarBehavior.floating,
                             duration: const Duration(seconds: 2),
                           ),
