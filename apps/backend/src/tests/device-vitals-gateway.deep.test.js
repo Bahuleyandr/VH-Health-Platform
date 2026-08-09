@@ -412,35 +412,24 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
   test('unexpected (non-AppError) gateway failure is 503-retryable and releases the claim', async () => {
     const controlId = 'GWCM3-CTL-RETRYABLE';
 
-    // The sample itself is PLAUSIBLE (hr 88 passes the C-M4 plausibility gate
-    // in utils/clinical/vitalPlausibility.js, which 400s impossible values
-    // BEFORE persistence — the previous hr 99999 numeric-overflow injection
-    // now dies there as a deliberate AppError, not an unexpected failure).
-    // Instead the unexpected server-side failure is injected INSIDE the vitals
-    // transaction: a temporary trigger on the insert target raises a raw
-    // Postgres exception AFTER the control-id claim insert (recordVitals runs
-    // beforeWrite → claim → INSERT INTO vitals_chart in one tx), i.e. a
-    // non-AppError failure mid-transaction. The gateway must get a 5xx so its
-    // spool retains the sample instead of dead-lettering it.
     await prisma.$executeRawUnsafe(
-      `CREATE OR REPLACE FUNCTION test_device_vitals_retryable_failure()
-       RETURNS trigger LANGUAGE plpgsql AS $fn$
+      `CREATE FUNCTION test_device_vitals_retryable_failure()
+       RETURNS trigger LANGUAGE plpgsql AS $$
        BEGIN
-         IF NEW.patient_uid = 'cafe0c53-0000-4000-8000-0000000000b8'::uuid THEN
-           RAISE EXCEPTION 'forced in-transaction vitals persistence failure';
-         END IF;
-         RETURN NEW;
-       END
-       $fn$`,
+         RAISE EXCEPTION 'forced retryable device vitals failure';
+       END;
+       $$`,
     );
     await prisma.$executeRawUnsafe(
       `CREATE TRIGGER test_device_vitals_retryable_failure
        BEFORE INSERT ON vitals_chart
-       FOR EACH ROW EXECUTE FUNCTION test_device_vitals_retryable_failure()`,
+       FOR EACH ROW
+       WHEN (NEW.patient_uid = 'cafe0c53-0000-4000-8000-0000000000b8'::uuid)
+       EXECUTE FUNCTION test_device_vitals_retryable_failure()`,
     );
 
     try {
-      await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '88' })))
+      await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '82' })))
         .rejects.toMatchObject({ code: 'DEVICE_VITALS_INGEST_RETRYABLE', statusCode: 503 });
     } finally {
       await prisma.$executeRawUnsafe(
