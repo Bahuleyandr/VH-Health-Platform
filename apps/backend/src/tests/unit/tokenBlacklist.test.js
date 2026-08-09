@@ -34,7 +34,7 @@ beforeEach(() => {
 });
 
 describe('tokenBlacklist revoke-all fallback', () => {
-  it('checks the DB revoke marker against the token iat watermark', async () => {
+  it('checks the DB revoke marker inclusively against the token iat watermark', async () => {
     cacheGetMock.mockResolvedValueOnce(null);
     queryRawUnsafeMock.mockResolvedValueOnce([]);
 
@@ -42,7 +42,7 @@ describe('tokenBlacklist revoke-all fallback', () => {
 
     expect(revoked).toBe(false);
     expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
-    expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/created_at\s*>\s*to_timestamp\(\$2\)/);
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/created_at\s*>=\s*to_timestamp\(\$2\)/);
     expect(queryRawUnsafeMock.mock.calls[0][1]).toBe('user:42');
     expect(queryRawUnsafeMock.mock.calls[0][2]).toBe(1234);
   });
@@ -52,6 +52,13 @@ describe('tokenBlacklist revoke-all fallback', () => {
     queryRawUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
 
     await expect(isUserTokensRevoked('42', 1234)).resolves.toBe(true);
+  });
+
+  it('treats a Redis marker from the same second as token iat as revoked', async () => {
+    cacheGetMock.mockResolvedValueOnce({ revokedAt: 1234 });
+
+    await expect(isUserTokensRevoked('42', 1234)).resolves.toBe(true);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('refreshes the persistent revoke-all watermark on repeated revokes', async () => {
