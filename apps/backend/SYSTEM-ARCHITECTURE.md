@@ -99,7 +99,6 @@ JWT_EXPIRES_IN, JWT_SECRET
 NODE_ENV, NODE_VERSION, PORT
 PATIENT_APP_ORIGINS, PATIENT_RATE_LIMIT_MAX_REQUESTS, PATIENT_RATE_LIMIT_WINDOW_MINUTES
 SENTRY_AUTH_TOKEN, SENTRY_DSN, SENTRY_ORG, SENTRY_PROJECT
-USE_MODULAR_PATHS
 ```
 
 ---
@@ -1180,22 +1179,16 @@ Base URL: `http://localhost:5000/api/v1`
 | GET | `/version/system` | System info |
 | GET | `/version/api-catalog` | API catalog |
 
-### Internal (`/api/v1/internal`)
-*API key required*
-
-Internal routes for inter-service communication.
-
-### Lookup (`/api/v1/lookup`)
+### Lookup (`/api/v1/users/lookup`)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Lookup |
 | GET | `/advanced` | Advanced lookup |
-| GET | `/stats` | Stats |
+| GET | `/stats` | Stats (admin only) |
 | GET | `/verify` | Verify |
-| GET | `/activity` | Activity |
-| POST | `/bulk-search` | Bulk search |
-| POST | `/legacy` | Legacy lookup |
+| GET | `/activity` | Activity (admin only) |
+| POST | `/bulk-search` | Bulk search (admin only) |
 
 ---
 

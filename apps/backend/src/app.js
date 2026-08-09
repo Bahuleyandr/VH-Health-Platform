@@ -138,6 +138,8 @@ import entitlementCapabilityRoutes from './routes/entitlements/capabilityRoutes.
 import clinicalInboxRoutes from './routes/clinicalInboxRoutes.js';
 import carePathwayRoutes from './routes/carePathwayRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
+import authRoutes from './routes/auth/index.js';
+import otpRoutes from './routes/auth/otpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import bedInspectionRoutes from './routes/bed/bedInspectionRoutes.js';
@@ -155,14 +157,13 @@ import { markRouterDomain } from './config/openapiDomain.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import { coldChainRoutes, coldChainIngestRoutes } from './routes/coldChainRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
+import feedbackRoutes from './routes/feedbackRoutes.js';
 import healthRoutes from './routes/health/index.js';
 import uptimeRoutes from './routes/health/uptimeRoutes.js';
 import realtimeRoutes from './routes/realtime/realtimeRoutes.js';
 import realtimeTicketRoutes from './routes/realtime/realtimeTicketRoutes.js';
 import chatbotRoutes from './routes/chatbot/chatbotRoutes.js';
-import routes from './routes/index.js';
 import infrastructureRoutes from './routes/infrastructure/index.js';
-import internalRoutes from './routes/internalRoutes.js';
 import investigationRoutes from './routes/investigation/index.js';
 import logRoutes from './routes/logs/index.js';
 import notificationRoutes from './routes/notification/index.js';
@@ -178,6 +179,7 @@ import housekeepingRoutes from './routes/housekeepingRoutes.js';
 import linenLaundryRoutes from './routes/linen/linenLaundryRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import scimRoutes from './routes/scimRoutes.js';
+import sosRoutes from './routes/sosRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import staffPhoneRoutes from './routes/staff/phoneRoutes.js';
 import storageRoutes from './routes/storage/storageRoutes.js';
@@ -677,7 +679,6 @@ if (!isProduction) {
 }
 // Rate-limit public endpoints to prevent abuse/recon
 app.use('/metrics', genericLimiter, requireProductionMonitoringAccess, metricsRoutes);
-app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
 // Local-disk storage stream — mounted BEFORE both validateApiKey and jwtAuth
 // so the patient client can download files via a plain HTTP GET. The HMAC
@@ -728,8 +729,8 @@ app.head('/', async (req, res, next) => {
 // this scope: browser/provider callbacks cannot attach an App Check header.
 app.use('/api/v1/auth', patientRateLimiter);
 app.use('/api/v1/auth/firebase', appCheckMiddleware({ expectedClient: 'patient' }));
-app.use('/api/v1/auth', routes.auth); // Patient, staff, and admin authentication
-app.use('/api/v1/otp', patientRateLimiter, routes.otp);
+app.use('/api/v1/auth', authRoutes); // Patient, staff, and admin authentication
+app.use('/api/v1/otp', patientRateLimiter, otpRoutes);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
 app.use('/api/v1/realtime', genericLimiter, realtimeRoutes);
 // SCIM is provisioning, not user authentication. It resolves the tenant/provider
@@ -948,8 +949,8 @@ app.use('/api/v1/gamification', patientRateLimiter, gamificationRoutes);
 // Healthcare services - Legacy (to be modularized)
 app.use('/api/v1/devices', deviceRoutes);
 
-app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
-app.use('/api/v1/sos', patientRateLimiter, routes.sos);
+app.use('/api/v1/feedback', patientRateLimiter, feedbackRoutes);
+app.use('/api/v1/sos', patientRateLimiter, sosRoutes);
 app.use('/api/v1/search', searchRoutes);
 
 // GDPR Data Export + Erasure

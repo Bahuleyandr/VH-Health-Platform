@@ -231,8 +231,8 @@ describe('App Check mounts', () => {
     expect(appSource).toContain(
       "app.use('/api/v1/auth/firebase', appCheckMiddleware({ expectedClient: 'patient' }));",
     );
-    expect(appSource).toContain("app.use('/api/v1/auth', routes.auth);");
-    expect(appSource).toContain("app.use('/api/v1/otp', patientRateLimiter, routes.otp);");
+    expect(appSource).toContain("app.use('/api/v1/auth', authRoutes);");
+    expect(appSource).toContain("app.use('/api/v1/otp', patientRateLimiter, otpRoutes);");
     expect(appSource).not.toMatch(/app\.use\('\/api\/v1\/auth',[^;]*appCheckMiddleware/);
     expect(appSource).not.toMatch(/app\.use\('\/api\/v1\/otp',[^;]*appCheckMiddleware/);
   });

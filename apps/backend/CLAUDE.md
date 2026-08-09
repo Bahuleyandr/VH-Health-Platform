@@ -563,10 +563,6 @@ node --experimental-vm-modules node_modules/jest/bin/jest.js critical-paths --fo
 - JWT validation (expired → `TOKEN_EXPIRED`, tampered → `TOKEN_INVALID`, missing → 401)
 - Rate limiting (OTP: 3/phone/10min, SOS: 3/user/hour)
 
-### Route Health Monitoring
-- `routeLoader.js` tracks failed routes via `getFailedRoutes()`
-- Health checks can report which routes failed to load
-
 ## Database Access
 
 Two native Postgres 17 clusters cohabit this dev box (the Windows
