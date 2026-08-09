@@ -86,7 +86,7 @@ const CASES = [
   ['paymentValidator', paymentValidator, true,
     [{ amount: 100, payment_method: 'CASH', transaction_ref: 'TXN-1' },
       { amount: 100, payment_method: 'upi' }],
-    [{ amount: 100, payment_method: 'BITCOIN' }, { payment_method: 'CASH' }]],
+    [{ amount: 100, payment_method: 'BITCOIN' }, { payment_method: 'CASH' }, { amount: 100 }]],
   ['insuranceClaimValidator', insuranceClaimValidator, false,
     [{ patient_uid: UUID, policy_number: 'POL-9', insurance_provider: 'Acme Health', claim_amount: 1200, invoice_id: '7' }],
     [{ patient_uid: UUID, policy_number: 'POL-9', claim_amount: 1200 },

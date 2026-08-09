@@ -245,9 +245,10 @@ export const paymentValidator = [
   body('payment_method')
     .exists({ checkFalsy: true }).withMessage('payment_method is required')
     .isString().withMessage('payment_method must be a string')
-    .custom((value) => ['cash', 'card', 'upi', 'insurance', 'cheque'].includes(value.toLowerCase()))
+    .custom((value) => typeof value === 'string'
+      && ['cash', 'card', 'upi', 'insurance', 'cheque'].includes(value.toLowerCase()))
     .withMessage('payment_method must be one of: cash, card, upi, insurance, cheque')
-    .customSanitizer((value) => value.toLowerCase()),
+    .customSanitizer((value) => typeof value === 'string' ? value.toLowerCase() : value),
   optionalString('transaction_ref', 100),
 ];
 
