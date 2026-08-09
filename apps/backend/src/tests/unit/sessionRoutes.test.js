@@ -14,6 +14,7 @@ import request from 'supertest';
 const SESSION_REVOKE_FAILURE = Object.freeze({
   NOT_FOUND: 'SESSION_NOT_FOUND',
   STORE_UNAVAILABLE: 'REVOCATION_STORE_UNAVAILABLE',
+  REGISTRY_INCOMPLETE: 'SESSION_REGISTRY_INCOMPLETE',
 });
 
 const listActiveSessionsMock = jest.fn();
@@ -62,13 +63,18 @@ beforeEach(() => {
 describe('GET /api/v1/sessions', () => {
   it('returns the caller\'s sessions scoped to their own uid', async () => {
     const sessions = [{ id: 1, jti: JTI, is_active: true }];
-    listActiveSessionsMock.mockResolvedValue(sessions);
+    listActiveSessionsMock.mockResolvedValue({
+      sessions,
+      complete: false,
+      coverage: 'current_token_and_latest_registry_row',
+    });
 
     const response = await request(app).get('/api/v1/sessions');
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(response.body.data).toEqual(sessions);
+    expect(response.body.data.sessions).toEqual(sessions);
+    expect(response.body.data.complete).toBe(false);
     // The uid comes from the verified token, never from user input, and the
     // caller's own token claims ride along so its session is always reportable.
     expect(listActiveSessionsMock).toHaveBeenCalledWith(UID, {
@@ -175,13 +181,19 @@ describe('DELETE /api/v1/sessions/:jti', () => {
 });
 
 describe('POST /api/v1/sessions/revoke-all', () => {
-  it('revokes every other session and reports the count', async () => {
-    revokeAllOtherSessionsMock.mockResolvedValue({ success: true, revokedCount: 3, failedCount: 0 });
+  it('returns 501 instead of claiming every session was discoverable', async () => {
+    revokeAllOtherSessionsMock.mockResolvedValue({
+      success: false,
+      code: SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE,
+      revokedCount: 0,
+      failedCount: null,
+    });
 
     const response = await request(app).post('/api/v1/sessions/revoke-all');
 
-    expect(response.status).toBe(200);
-    expect(response.body.data.revokedCount).toBe(3);
+    expect(response.status).toBe(501);
+    expect(response.body.success).toBe(false);
+    expect(response.body.details?.code).toBe(SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE);
     expect(revokeAllOtherSessionsMock).toHaveBeenCalledWith(UID, JTI);
   });
 
@@ -199,15 +211,6 @@ describe('POST /api/v1/sessions/revoke-all', () => {
     expect(response.body.success).toBe(false);
     expect(response.body.details?.revokedCount).toBe(1);
     expect(response.body.details?.failedCount).toBe(2);
-  });
-
-  it('falls back to an empty current-jti when the token carries none', async () => {
-    currentUser = { uid: UID, role: 'PATIENT' };
-    revokeAllOtherSessionsMock.mockResolvedValue({ success: true, revokedCount: 0, failedCount: 0 });
-
-    await request(app).post('/api/v1/sessions/revoke-all');
-
-    expect(revokeAllOtherSessionsMock).toHaveBeenCalledWith(UID, '');
   });
 
   it('rejects an unauthenticated caller', async () => {

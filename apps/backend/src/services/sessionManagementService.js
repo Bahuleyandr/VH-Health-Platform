@@ -10,12 +10,11 @@
 // method/ip/ua). So every query here matched zero rows for every user, always:
 // GET returned [], DELETE returned 404, revoke-all returned 0 (audit P15).
 //
-// The real session registry is `user_active_sessions`, written by
-// claimUserSession() on every login that goes through issueAccessTokenAndClaimSession.
-// Its primary key is `user_uid` with ON CONFLICT DO UPDATE, so the platform
-// holds AT MOST ONE session per user — a login elsewhere evicts the previous
-// device and pushes it a `session:revoked` event. This surface now reports that
-// truthfully instead of inventing a multi-session history.
+// `user_active_sessions` is written by login paths that go through
+// issueAccessTokenAndClaimSession, but it retains only the latest row per user.
+// Older access tokens can remain valid when strict single-session mode is off,
+// and admin login paths do not claim a row. This service therefore exposes the
+// registry as partial evidence, never as a complete multi-session history.
 
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
@@ -29,6 +28,7 @@ import { blacklistToken, RevocationWriteUnavailableError } from '../utils/tokenB
 export const SESSION_REVOKE_FAILURE = Object.freeze({
   NOT_FOUND: 'SESSION_NOT_FOUND',
   STORE_UNAVAILABLE: 'REVOCATION_STORE_UNAVAILABLE',
+  REGISTRY_INCOMPLETE: 'SESSION_REGISTRY_INCOMPLETE',
 });
 
 /**
@@ -52,11 +52,9 @@ function toEpochSeconds(value) {
 }
 
 /**
- * Live sessions for a user, straight from the registry.
+ * Latest known session for a user, straight from the partial registry.
  *
- * A row counts as live only if all three hold — mirroring exactly what
- * jwtMiddleware enforces on every request, so the list cannot claim a session
- * the API would actually reject:
+ * A row counts as live only if all three hold:
  *   1. its own `expires_at` is still in the future;
  *   2. its jti is not in `invalidated_tokens` (per-token revocation);
  *   3. no `user:<uid>` revoke-all marker post-dates its `issued_at`
@@ -95,7 +93,8 @@ async function selectLiveRegistrySessions(userUid) {
  * @param {{jti?: string, expiresAt?: Date|string|number}} [currentToken] - The
  *   caller's own presented token claims, so its session is reported even on
  *   login paths that never claimed a registry row.
- * @returns {Promise<Array>} Live sessions, newest first.
+ * @returns {Promise<{sessions: Array, complete: false, coverage: string}>}
+ *   Known sessions, newest first, with an explicit non-exhaustive marker.
  * @throws when the registry cannot be read — an empty list would be
  *   indistinguishable from "you have no sessions", which is a different claim.
  */
@@ -132,10 +131,17 @@ export async function listActiveSessions(userUid, currentToken = {}) {
     });
   }
 
-  return sessions.sort((a, b) => {
+  sessions.sort((a, b) => {
     if (a.is_current !== b.is_current) return a.is_current ? -1 : 1;
     return String(b.issued_at ?? '').localeCompare(String(a.issued_at ?? ''));
   });
+
+  return {
+    sessions,
+    complete: false,
+    coverage: 'current_token_and_latest_registry_row',
+    limitation: 'Older concurrently valid access tokens are not retained by the current registry',
+  };
 }
 
 /**
@@ -205,56 +211,21 @@ export async function revokeSession(userUid, jti, currentToken = {}) {
 }
 
 /**
- * Revoke every live session except the caller's current one.
+ * Refuse bulk revocation until every concurrently valid access token is
+ * durably registered. The current table retains only the latest row, so a
+ * successful count from it would be an unverifiable claim.
  *
- * The registry holds at most one row per user, so in practice this revokes
- * nothing and truthfully says so. It is kept because that is a property of the
- * current login model, not a guarantee of the API — if the platform ever allows
- * concurrent sessions this keeps working without a client change.
- *
- * @returns {Promise<{success: boolean, code?: string, revokedCount: number, failedCount: number}>}
+ * @returns {Promise<{success: false, code: string, revokedCount: 0, failedCount: null}>}
  */
 export async function revokeAllOtherSessions(userUid, currentJti) {
-  let sessions;
-  try {
-    sessions = await selectLiveRegistrySessions(userUid);
-  } catch (err) {
-    logger.error('Failed to list sessions for bulk revocation:', err);
-    return {
-      success: false,
-      code: SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE,
-      revokedCount: 0,
-      failedCount: 0,
-    };
-  }
-
-  const others = sessions.filter((s) => s.jti && s.jti !== currentJti);
-
-  // Each is revoked independently: one store failure must not silently abandon
-  // the rest, and the caller is told how many actually persisted.
-  let revokedCount = 0;
-  let failedCount = 0;
-  for (const session of others) {
-    const expiresAtSeconds = toEpochSeconds(session.expires_at);
-    if (expiresAtSeconds == null) continue;
-    try {
-      await blacklistToken(session.jti, expiresAtSeconds, 'session_revoked', { requireEvidence: true });
-      revokedCount++;
-    } catch (err) {
-      failedCount++;
-      logger.error('Session revocation not persisted during revoke-all', {
-        userUid, jti: session.jti, error: err?.message,
-      });
-    }
-  }
-
-  logger.info('All other sessions revoked', { userUid, revokedCount, failedCount });
-  return failedCount === 0
-    ? { success: true, revokedCount, failedCount }
-    : {
-        success: false,
-        code: SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE,
-        revokedCount,
-        failedCount,
-      };
+  logger.warn('Bulk session revocation refused because the registry is incomplete', {
+    userUid,
+    currentJti,
+  });
+  return {
+    success: false,
+    code: SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE,
+    revokedCount: 0,
+    failedCount: null,
+  };
 }

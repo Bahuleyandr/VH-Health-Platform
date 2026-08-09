@@ -98,7 +98,11 @@ describe('listActiveSessions', () => {
     expect(sql).toMatch(/s\.expires_at > NOW\(\)/);
     expect(sql).toMatch(/invalidated_tokens/);
     expect(sql).toMatch(/'user:' \|\| s\.user_uid/);
-    expect(sessions).toEqual([]);
+    expect(sessions).toMatchObject({
+      sessions: [],
+      complete: false,
+      coverage: 'current_token_and_latest_registry_row',
+    });
   });
 
   it('marks the caller\'s own registry row as current', async () => {
@@ -106,8 +110,9 @@ describe('listActiveSessions', () => {
 
     const sessions = await listActiveSessions(UID, { jti: JTI, expiresAt: EXPIRES_AT });
 
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]).toMatchObject({
+    expect(sessions.complete).toBe(false);
+    expect(sessions.sessions).toHaveLength(1);
+    expect(sessions.sessions[0]).toMatchObject({
       jti: JTI,
       is_current: true,
       source: SESSION_SOURCE.REGISTRY,
@@ -122,8 +127,9 @@ describe('listActiveSessions', () => {
 
     const sessions = await listActiveSessions(UID, { jti: JTI, expiresAt: EXPIRES_AT });
 
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]).toMatchObject({
+    expect(sessions.complete).toBe(false);
+    expect(sessions.sessions).toHaveLength(1);
+    expect(sessions.sessions[0]).toMatchObject({
       jti: JTI,
       is_current: true,
       source: SESSION_SOURCE.ACCESS_TOKEN,
@@ -135,7 +141,7 @@ describe('listActiveSessions', () => {
 
     const sessions = await listActiveSessions(UID, { jti: JTI, expiresAt: EXPIRES_AT });
 
-    expect(sessions.filter((s) => s.jti === JTI)).toHaveLength(1);
+    expect(sessions.sessions.filter((s) => s.jti === JTI)).toHaveLength(1);
   });
 
   it('throws on a registry read failure rather than returning an empty list', async () => {
@@ -228,57 +234,14 @@ describe('revokeSession', () => {
 });
 
 describe('revokeAllOtherSessions', () => {
-  it('revokes nothing and says so when the caller holds the only session', async () => {
-    // user_active_sessions is keyed on user_uid, so there is structurally at
-    // most one row — "0 revoked" here is the truth, not a silent failure.
-    queryRawUnsafeMock.mockResolvedValue([registryRow()]);
-
+  it('refuses to claim success from a latest-row-only registry', async () => {
     const result = await revokeAllOtherSessions(UID, JTI);
 
-    expect(result).toMatchObject({ success: true, revokedCount: 0, failedCount: 0 });
+    expect(result.success).toBe(false);
+    expect(result.code).toBe(SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE);
+    expect(result.revokedCount).toBe(0);
+    expect(result.failedCount).toBeNull();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
     expect(blacklistInserts()).toHaveLength(0);
-  });
-
-  it('revokes a session that is not the caller\'s, with its real expiry', async () => {
-    queryRawUnsafeMock.mockImplementation(async (sql) => {
-      if (isRegistrySelect(sql)) return [registryRow({ jti: 'other-jti' })];
-      return [];
-    });
-
-    const result = await revokeAllOtherSessions(UID, JTI);
-
-    expect(result).toMatchObject({ success: true, revokedCount: 1, failedCount: 0 });
-    const [[jti, expiresAt]] = blacklistInserts();
-    expect(jti).toBe('other-jti');
-    expect(expiresAt).toBe(Math.floor(EXPIRES_AT.getTime() / 1000));
-  });
-
-  it('keeps going after a failed revocation and reports the real counts', async () => {
-    let insertAttempts = 0;
-    queryRawUnsafeMock.mockImplementation(async (sql) => {
-      if (isRegistrySelect(sql)) {
-        return [registryRow({ jti: 'jti-a' }), registryRow({ jti: 'jti-b' })];
-      }
-      insertAttempts += 1;
-      if (insertAttempts === 1) throw new Error('db down');
-      return [];
-    });
-
-    const result = await revokeAllOtherSessions(UID, JTI);
-
-    expect(result.success).toBe(false);
-    expect(result.code).toBe(SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE);
-    expect(result.revokedCount).toBe(1);
-    expect(result.failedCount).toBe(1);
-    expect(insertAttempts).toBe(2);
-  });
-
-  it('reports a listing failure instead of an empty success', async () => {
-    queryRawUnsafeMock.mockRejectedValue(new Error('db down'));
-
-    const result = await revokeAllOtherSessions(UID, JTI);
-
-    expect(result.success).toBe(false);
-    expect(result.code).toBe(SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE);
   });
 });

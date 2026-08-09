@@ -27,15 +27,15 @@ const callerToken = (req) => ({
 
 /**
  * GET /sessions
- * List active sessions for the current user.
+ * List sessions currently visible to the partial registry.
  */
 router.get('/', async (req, res) => {
   try {
     const userId = req.user?.uid;
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
 
-    const sessions = await listActiveSessions(userId, callerToken(req));
-    return success(res, sessions, 'Active sessions retrieved');
+    const result = await listActiveSessions(userId, callerToken(req));
+    return success(res, result, 'Known sessions retrieved; list is not exhaustive');
   } catch (err) {
     logger.error('List sessions error:', err);
     return error(res, 'Failed to retrieve sessions', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -85,9 +85,14 @@ router.post('/revoke-all', async (req, res) => {
 
     const result = await revokeAllOtherSessions(userId, currentJti || '');
     if (!result.success) {
-      // Partial success is still a failure to honour the request: the caller
-      // asked for every other session to end, and some are demonstrably still
-      // live. Report the real counts rather than a green summary line.
+      if (result.code === SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE) {
+        return error(
+          res,
+          'Bulk session revocation is unavailable until all active tokens are registered',
+          501,
+          { code: result.code },
+        );
+      }
       return error(
         res,
         `Only ${result.revokedCount} of ${result.revokedCount + result.failedCount} session(s) could be revoked`,
