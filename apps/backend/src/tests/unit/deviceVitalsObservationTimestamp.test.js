@@ -28,6 +28,11 @@ describe('parseHl7Timestamp', () => {
   test('fractional seconds are carried as milliseconds', () => {
     const d = parseHl7Timestamp('20260610120000.5');
     expect(d.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 30, 0, 500));
+
+    // HL7 can supply precision finer than JavaScript milliseconds. Keep the
+    // represented instant within the same second rather than rounding over.
+    const fine = parseHl7Timestamp('20260610120000.9999');
+    expect(fine.getTime()).toBe(Date.UTC(2026, 5, 10, 6, 30, 0, 999));
   });
 
   test('short forms: hour and minute precision parse; date-only does not', () => {
@@ -53,6 +58,8 @@ describe('parseHl7Timestamp', () => {
       .toBe(Date.UTC(2026, 5, 11, 2, 0, 0));
     expect(parseHl7Timestamp('20260610120000+1500')).toBeNull();
     expect(parseHl7Timestamp('20260610120000-1500')).toBeNull();
+    expect(parseHl7Timestamp('20260610120000+1401')).toBeNull();
+    expect(parseHl7Timestamp('20260610120000-1430')).toBeNull();
     expect(parseHl7Timestamp('20260610120000+0560')).toBeNull();
   });
 

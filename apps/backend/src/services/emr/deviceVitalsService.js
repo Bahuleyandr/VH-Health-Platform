@@ -121,12 +121,16 @@ export function parseHl7Timestamp(text, timeZone = HOSPITAL_TIME_ZONE) {
   const minutes = Number(mm ?? 0);
   const seconds = Number(ss ?? 0);
   if (hours > 23 || minutes > 59 || seconds > 59) return null;
-  const ms = frac ? Math.round(Number(`0.${frac}`) * 1000) : 0;
+  // JavaScript stores millisecond precision. Truncate finer HL7 precision
+  // instead of rounding, which could roll .9999 into the next second.
+  const ms = frac ? Number(frac.slice(0, 3).padEnd(3, '0')) : 0;
   let date;
   if (offset) {
     const offsetHours = Number(offset.slice(1, 3));
     const offsetMins = Number(offset.slice(3, 5));
-    if (offsetHours > 14 || offsetMins > 59) return null;
+    if (offsetHours > 14 || offsetMins > 59 || (offsetHours === 14 && offsetMins !== 0)) {
+      return null;
+    }
     const sign = offset[0] === '-' ? -1 : 1;
     const offsetMinutes = sign * ((offsetHours * 60) + offsetMins);
     date = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms) - (offsetMinutes * 60 * 1000));
@@ -881,13 +885,20 @@ export async function ingestDeviceVitals({
     // gateway can retry when no durable outcome exists. DEVICE_NOT_ASSOCIATED
     // still parks its failed, replayable interface message (written inside
     // resolveGatewayPatient).
-    if (messageId) {
+    // A gateway message ID is assigned inside the same transaction as the
+    // vitals/control-ID writes. If a later post-commit side effect fails, that
+    // durable inbox row must remain `ingested`; relabelling it `failed` would
+    // contradict the clinical record. Direct-send inbox rows are created
+    // before the vitals transaction and still need failure status updates.
+    if (messageId && !isGateway) {
       await updateInterfaceMessage(messageId, {
         tenantId,
         status: 'failed',
         errorText: err?.code || err?.message || String(err),
         verdicts: { code: err?.code || 'DEVICE_VITALS_INGEST_FAILED' },
-      }).catch(() => {});
+      }).catch((updateErr) => {
+        logger.warn(`Device vitals interface failure status update failed: ${updateErr?.message}`);
+      });
     }
     if (err instanceof AppError) {
       err.details = { ...(err.details || {}), interface_message_id: messageId || err.details?.interface_message_id };
@@ -896,10 +907,9 @@ export async function ingestDeviceVitals({
     logger.error('Device vitals ingestion failed:', err);
     if (isGateway) {
       // Gateway drain contract: 4xx dead-letters a spooled sample, 5xx keeps
-      // it retained for retry. An unexpected (non-AppError) failure here is
-      // transient by definition — DB hiccup, overflow, pool exhaustion — and
-      // the control-id claim rolled back with it, so answer 503 and let the
-      // gateway redeliver instead of dead-lettering clinical data.
+      // it retained for retry. An unexpected (non-AppError) failure is not a
+      // deliberate client refusal; answer 503 so a DB hiccup, pool exhaustion,
+      // or server defect cannot make the gateway dead-letter clinical data.
       throw new AppError(
         'Device vitals ingestion hit a transient error; retry the delivery',
         503,

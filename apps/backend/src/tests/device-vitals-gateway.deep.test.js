@@ -23,6 +23,7 @@ const PATIENT_TS_FUTURE = 'cafe0c53-0000-4000-8000-0000000000b5';
 const PATIENT_CONCURRENT = 'cafe0c53-0000-4000-8000-0000000000b6';
 const PATIENT_TS_PAST = 'cafe0c53-0000-4000-8000-0000000000b7';
 const PATIENT_RETRYABLE = 'cafe0c53-0000-4000-8000-0000000000b8';
+const PATIENT_POSTCOMMIT = 'cafe0c53-0000-4000-8000-0000000000b9';
 const GHOST_PATIENT = 'cafe0c53-0000-4000-8000-00000000dead'; // never created
 const GATEWAY_ACTOR = 'cafe0c53-0000-4000-8000-0000000000ac';
 const DEVICE_CODE = 'GWCM3-MON-1';
@@ -86,13 +87,19 @@ async function vitalsCount(patientUid) {
 async function cleanup() {
   const patients = [
     PATIENT_RETRY, PATIENT_SUPPRESS, PATIENT_TS_DEVICE, PATIENT_TS_NONE, PATIENT_TS_FUTURE,
-    PATIENT_CONCURRENT, PATIENT_TS_PAST, PATIENT_RETRYABLE,
+    PATIENT_CONCURRENT, PATIENT_TS_PAST, PATIENT_RETRYABLE, PATIENT_POSTCOMMIT,
   ];
   await prisma.$executeRawUnsafe(
     `DROP TRIGGER IF EXISTS test_device_vitals_concurrent_hold ON vitals_chart`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DROP FUNCTION IF EXISTS test_device_vitals_concurrent_hold()`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DROP TRIGGER IF EXISTS test_device_vitals_postcommit_failure ON clinical_alerts`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DROP FUNCTION IF EXISTS test_device_vitals_postcommit_failure()`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM lab_interface_messages WHERE raw_message LIKE '%GWCM3%'`,
@@ -158,6 +165,7 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
       [PATIENT_CONCURRENT, '+919000053106'],
       [PATIENT_TS_PAST, '+919000053107'],
       [PATIENT_RETRYABLE, '+919000053108'],
+      [PATIENT_POSTCOMMIT, '+919000053109'],
     ];
     for (const [uid, phone] of patients) {
       await prisma.$executeRawUnsafe(
@@ -399,7 +407,7 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
     const controlId = 'GWCM3-CTL-RETRYABLE';
 
     // heart_rate is numeric(6,2) — an out-of-range value blows up INSIDE the
-    // vitals transaction (after the claim insert), i.e. a transient-class,
+    // vitals transaction (after the claim insert), i.e. a server-side,
     // non-AppError failure. The gateway must get a 5xx so its spool retains
     // the sample instead of dead-lettering it.
     await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '99999' })))
@@ -415,6 +423,72 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
     expect(Number(res.vitals.id)).toBeGreaterThan(0);
     expect(await vitalsCount(PATIENT_RETRYABLE)).toBe(1);
     expect(await controlIdRows(controlId)).toHaveLength(1);
+  }, 30000);
+
+  test('post-commit failure does not relabel durable gateway evidence as failed', async () => {
+    const controlId = 'GWCM3-CTL-POSTCOMMIT';
+
+    // Device alerts require two corroborating breached samples by default.
+    // Prime the artifact filter without the failure trigger so the next
+    // reading reaches clinical_alerts persistence after its vitals commit.
+    const primed = await ingest(oru({
+      uid: PATIENT_POSTCOMMIT,
+      control: 'GWCM3-CTL-POSTCOMMIT-PRIME',
+      hr: '190',
+    }));
+    expect(primed).toMatchObject({ ack: 'AA', alerts: [] });
+
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION test_device_vitals_postcommit_failure()
+       RETURNS trigger LANGUAGE plpgsql AS $fn$
+       BEGIN
+         IF NEW.patient_id = (
+           SELECT id FROM users
+            WHERE uid = 'cafe0c53-0000-4000-8000-0000000000b9'::uuid
+         ) THEN
+           RAISE EXCEPTION 'forced post-commit alert persistence failure';
+         END IF;
+         RETURN NEW;
+       END
+       $fn$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_device_vitals_postcommit_failure
+       BEFORE INSERT ON clinical_alerts
+       FOR EACH ROW EXECUTE FUNCTION test_device_vitals_postcommit_failure()`,
+    );
+
+    try {
+      await expect(ingest(oru({
+        uid: PATIENT_POSTCOMMIT,
+        control: controlId,
+        hr: '190',
+      }))).rejects.toMatchObject({ code: 'CLINICAL_ALERT_PERSIST_FAILED' });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS test_device_vitals_postcommit_failure ON clinical_alerts`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_device_vitals_postcommit_failure()`,
+      );
+    }
+
+    expect(await vitalsCount(PATIENT_POSTCOMMIT)).toBe(2);
+    const consumed = await controlIdRows(controlId);
+    expect(consumed).toHaveLength(1);
+    const inbox = await prisma.$queryRawUnsafe(
+      `SELECT status, error
+         FROM lab_interface_messages
+        WHERE id = $1 AND tenant_id = $2::uuid`,
+      Number(consumed[0].interface_message_id), TENANT,
+    );
+    expect(inbox).toEqual([{ status: 'ingested', error: null }]);
+
+    // Redelivery observes the durable control ID and does not duplicate the
+    // already-committed vitals row.
+    const retry = await ingest(oru({ uid: PATIENT_POSTCOMMIT, control: controlId, hr: '190' }));
+    expect(retry).toMatchObject({ duplicate: true, ack: 'AA' });
+    expect(await vitalsCount(PATIENT_POSTCOMMIT)).toBe(2);
   }, 30000);
 
   test('verifyDeviceVitals writes exactly one timeline + audit pair in one tx (C-L1)', async () => {
