@@ -22,6 +22,9 @@ const CRITICAL_EVENTS = new Set([
   'BRUTE_FORCE_DETECTED',
   'TOKEN_REVOKED_ALL',
   'PERMISSION_DENIED',
+  // A patient SOS that reached zero responders (audit BE-M3) — patient
+  // safety, so it routes to the critical-only channel when configured.
+  'SOS_ESCALATION_FAILED',
 ]);
 
 /**

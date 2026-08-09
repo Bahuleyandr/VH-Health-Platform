@@ -105,7 +105,7 @@ const ESCALATABLE_STATUSES = ['open', 'overdue', 'blocked'];
 // action cannot be performed must NOT consume its tier — recording the fired
 // marker while doing nothing would silently swallow the escalation. Such rules
 // are skipped loudly instead (upsertEscalationRule refuses to activate them).
-const ENGINE_SUPPORTED_ACTION_KINDS = new Set([
+const ENGINE_SUPPORTED_ACTION_KINDS = Object.freeze([
   'notify',
   'reassign',
   'escalate_priority',
@@ -598,6 +598,17 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
   const action = ruleRow.action_kind;
   const nowIso = now.toISOString();
 
+  // In-transaction backstop for the sweep-loop guard above: an action kind
+  // with no executor must never consume its tier. The rule loop already skips
+  // such rules loudly, but any future caller that reaches this function with
+  // an unsupported kind would stamp the fired marker while performing
+  // nothing — so refuse here, before any write, and roll the claim back.
+  if (!ENGINE_SUPPORTED_ACTION_KINDS.includes(action)) {
+    throw new Error(
+      `escalation action_kind '${action}' has no executor — refusing to record a fired marker for rule ${ruleRow.id}`,
+    );
+  }
+
   if (action === 'escalate_priority' && isS4ProtectedTask(taskRow)) {
     throw new Error('Protected S4 tasks cannot be reprioritized by the generic escalation engine');
   }
@@ -983,7 +994,7 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     }
 
     for (const ruleRow of (Array.isArray(rules) ? rules : [])) {
-      if (!ENGINE_SUPPORTED_ACTION_KINDS.has(ruleRow.action_kind)) {
+      if (!ENGINE_SUPPORTED_ACTION_KINDS.includes(ruleRow.action_kind)) {
         // No executor for this action. Skipping WITHOUT a fired marker keeps
         // the tier live (it will be evaluated again once an executor exists or
         // the rule is fixed) and keeps the misconfiguration visible each sweep.

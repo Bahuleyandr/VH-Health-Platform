@@ -1,5 +1,6 @@
 import { BackendClient } from './backendClient.js';
 import {
+  coldChainPortFromEnv,
   defaultSpoolDir,
   enrollmentConfigFromEnv,
   GatewayRuntime,
@@ -24,7 +25,7 @@ await startGateway({
   listeners: listenerConfigFromEnv(),
   runtime,
   metricsPort: Number(process.env.DEVICE_GATEWAY_METRICS_PORT || 9108),
-  coldChainIngestPort: Number(process.env.DEVICE_GATEWAY_COLD_CHAIN_PORT || 8088),
+  coldChainIngestPort: coldChainPortFromEnv(),
 });
 
 console.log('VH Health device gateway listening');

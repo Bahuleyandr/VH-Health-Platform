@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 
 import { setTenant } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField } from '../../utils/fieldEncryption.js';
 import { ALL_STAFF_ROLES } from '../../utils/roleHelpers.js';
@@ -327,7 +328,19 @@ export async function resolveScimContext({ tenantSlug, providerKey, req }) {
       outcome: 'denied',
       req,
       details: { reason: 'token_mismatch' },
-    }).catch(() => {});
+    }).catch((auditErr) => {
+      // The 401 below still fires — but a silent audit-write failure would
+      // blind us to token-guessing against this provider, so log enough to
+      // trace it (request id + IP, never the supplied token).
+      logger.error('SCIM_AUTH_FAILED audit write failed', {
+        tenantId: tenant.id,
+        tenantSlug: slug,
+        providerKey: key,
+        requestId: req?.id || null,
+        ip: req?.ip || null,
+        error: auditErr.message,
+      });
+    });
     throw AppError.unauthorized('Invalid SCIM bearer token', 'SCIM_TOKEN_INVALID');
   }
   const authenticatedAt = new Date();

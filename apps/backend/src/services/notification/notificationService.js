@@ -15,6 +15,8 @@ import {
 } from '../../utils/notification/notificationHelpers.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
+import { sendSecurityWebhook } from '../../utils/securityWebhook.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 
@@ -196,6 +198,50 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         "SELECT id, name, phone FROM users WHERE role = 'EMERGENCY_RESPONDER' AND is_active = true"
       );
       const responders = respondersResult;
+
+      // Zero active responders means NOBODY receives this SOS. That is an
+      // ops/config failure, not a success with notified_count 0 (audit
+      // BE-M3): persist the fact durably (security audit log with file
+      // fallback), page ops on the live security-webhook channel, and fan
+      // out to admins so a human sees it — those EMERGENCY notifications
+      // are also picked up by the unread-critical-notification-escalation
+      // cron if they stay unread.
+      if (responders.length === 0) {
+        logger.error(`SOS alert ${alertData.id}: no active EMERGENCY_RESPONDER users — emergency team was NOT notified`);
+        logSecurityEvent('SOS_ESCALATION_FAILED', {
+          userId: alertData.uid || null,
+          path: '/sos',
+          statusCode: 200,
+          reason: `SOS alert ${alertData.id}: no active EMERGENCY_RESPONDER users configured`,
+        });
+        sendSecurityWebhook('SOS_ESCALATION_FAILED', {
+          reason: `SOS alert ${alertData.id} (severity ${alertData.severity}) has no active emergency responders`,
+          path: '/sos',
+        });
+
+        let fallbackNotified = 0;
+        try {
+          const fallback = await sendStaffNotifications({
+            recipientRoles: ['ADMIN', 'SUPER_ADMIN'],
+            title: `SOS UNROUTED: ${alertData.severity} alert #${alertData.id}`,
+            body: `SOS alert #${alertData.id} could not be routed — no active emergency responders are configured. Manual dispatch required.`,
+            type: NOTIFICATION_TYPES.EMERGENCY,
+            priority: NOTIFICATION_PRIORITIES.HIGH,
+            data: { sos_alert_id: alertData.id, reason: 'no_active_responders' },
+            relatedId: alertData.id,
+          });
+          fallbackNotified = fallback.notification_count || 0;
+        } catch (fallbackErr) {
+          logger.error(`SOS alert ${alertData.id}: admin fallback fan-out also failed:`, fallbackErr.message);
+        }
+
+        return {
+          success: false,
+          notified_count: 0,
+          fallback_notified_count: fallbackNotified,
+          reason: 'NO_ACTIVE_RESPONDERS',
+        };
+      }
 
       // In a real app, you might also find staff at nearby hospitals
       // For now, we'll just notify the central emergency team.

@@ -133,7 +133,13 @@ export const updateAppointmentStatus = async (req, res) => {
 
     // Queue-position fan-out to remaining waiting patients on status transitions that shift the queue
     if (QUEUE_SHIFTING_STATUSES.has(statusValidation.status)) {
-      fanOutQueuePositions(updatedAppointment).catch(() => {});
+      fanOutQueuePositions(updatedAppointment).catch(err =>
+        logger.warn('Queue-position fan-out failed after status change', {
+          appointmentId: id,
+          status: statusValidation.status,
+          error: err.message,
+        })
+      );
     }
 
     // Gamification: fire-and-forget point awards

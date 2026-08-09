@@ -3,6 +3,7 @@ import http from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ack, extractMeta, messageText } from './hl7.js';
+import { errorFields, logEvent } from './logger.js';
 import { MllpFrameReader, frameMessage } from './mllpFrameReader.js';
 import {
   I09_GATEWAY_SEQUENCE_CONTRACT,
@@ -50,6 +51,21 @@ const SAFE_REASONS = new Set([
 
 function safeReason(value, fallback = 'spool_corrupt') {
   return SAFE_REASONS.has(value) ? value : fallback;
+}
+
+const TIMEOUT_ERROR_CODES = new Set([
+  'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'AbortError', 'TimeoutError',
+]);
+
+// Bounded failure label for legacy drain delivery errors. Only genuine
+// timeouts count as backend_timeout; other statusless errors (DNS failures,
+// connection resets, programming errors) are labeled backend_unreachable
+// instead of being miscounted as timeouts.
+function legacyDeliveryFailureReason(err) {
+  if (Number.isInteger(err?.status)) return err.status >= 500 ? 'backend_5xx' : 'backend_4xx';
+  const code = err?.code || err?.cause?.code || err?.name;
+  return TIMEOUT_ERROR_CODES.has(code) ? 'backend_timeout' : 'backend_unreachable';
 }
 
 function positiveInteger(value, label) {
@@ -165,13 +181,13 @@ export class GatewayRuntime {
     this.controlIdTtlMs = controlIdTtlMs;
     this.maxControlIds = maxControlIds;
     this.legacySpools = new Map();
-    this.spools = this.legacySpools;
     this.controlIds = new Map();
     this.enrollments = enrollments.map(validateEnrollment);
     this.clockEvidenceProvider = clockEvidenceProvider;
     this.stageHook = stageHook;
     this.partitionByEnrollment = new Map();
     this.inFlight = new Set();
+    this.lastRecoveryState = new Map();
     this.drainTimer = null;
     this.startupFault = null;
     this.store = this.createStore();
@@ -205,10 +221,6 @@ export class GatewayRuntime {
       }));
     }
     return this.legacySpools.get(source);
-  }
-
-  spool(source) {
-    return this.legacySpool(source);
   }
 
   async initialize() {
@@ -307,6 +319,14 @@ export class GatewayRuntime {
     mllpMessagesReceived.inc({ source_ref: sourceRef || 'unresolved', status: isCapacity ? 'rejected' : 'error' });
     gatewayRefusals.inc({ reason: bounded });
     if (isCapacity) gatewayReconciliation.inc({ reason: bounded });
+    // The metric label is bounded (unknown failures collapse to
+    // 'spool_corrupt'), so preserve the real underlying error identity here.
+    logEvent(isCapacity ? 'warn' : 'error', 'mllp_refusal', {
+      source_ref: sourceRef || 'unresolved',
+      reason: bounded,
+      ack_code: ackCode,
+      ...errorFields(err),
+    });
     return { ackCode, ack: ack(message || '', ackCode, err?.code || 'REJECTED'), errorCode: err?.code || 'REJECTED' };
   }
 
@@ -421,14 +441,43 @@ export class GatewayRuntime {
           patient_uid: entry.patient_uid,
           channel: entry.channel,
         });
-        await spool.remove(entry.id);
       } catch (err) {
         if (err.status >= 400 && err.status < 500) {
           await spool.deadLetter(entry, 'legacy_4xx');
           gatewayForwardFailures.inc({ reason: 'backend_4xx' });
+          logEvent('warn', 'legacy_drain_dead_letter', {
+            source_ref: spool.source,
+            entry_id: entry.id,
+            reason: 'backend_4xx',
+            ...errorFields(err),
+          });
           continue;
         }
-        gatewayForwardFailures.inc({ reason: err.status >= 500 ? 'backend_5xx' : 'backend_timeout' });
+        const reason = legacyDeliveryFailureReason(err);
+        gatewayForwardFailures.inc({ reason });
+        logEvent('warn', 'legacy_drain_delivery_failed', {
+          source_ref: spool.source,
+          entry_id: entry.id,
+          reason,
+          ...errorFields(err),
+        });
+        break;
+      }
+      try {
+        await spool.remove(entry.id);
+      } catch (err) {
+        // The backend already ingested this entry; a remove failure is a
+        // local spool fault, not a backend failure, so label it as such and
+        // stop the pass. The entry WILL be re-delivered on the next drain —
+        // fully preventing that needs a durable delivered-outcome journal for
+        // the legacy spool (deeper redesign; enrolled I09 partitions already
+        // have one via recordBackendOutcome).
+        gatewayForwardFailures.inc({ reason: 'spool_remove_failed' });
+        logEvent('error', 'legacy_spool_remove_failed', {
+          source_ref: spool.source,
+          entry_id: entry.id,
+          ...errorFields(err),
+        });
         break;
       }
     }
@@ -592,6 +641,13 @@ export class GatewayRuntime {
       { partition_ref: partition.ref },
       Number(BigInt(stats.headPosition) - BigInt(stats.backendHighWaterPosition)),
     );
+    // Zero the previous state's series on transition so at most one state
+    // reports 1 per partition (e.g. replaying -> ready).
+    const previousState = this.lastRecoveryState.get(partition.ref);
+    if (previousState !== undefined && previousState !== stats.recoveryState) {
+      gatewayRecoveryState.set({ partition_ref: partition.ref, state: previousState }, 0);
+    }
+    this.lastRecoveryState.set(partition.ref, stats.recoveryState);
     gatewayRecoveryState.set({ partition_ref: partition.ref, state: stats.recoveryState }, 1);
   }
 
@@ -600,7 +656,11 @@ export class GatewayRuntime {
     const drain = async () => {
       for (const enrollment of this.enrollments) await this.drainPartition(enrollment);
     };
-    this.drainTimer = setInterval(() => { drain().catch(() => {}); }, intervalMs);
+    this.drainTimer = setInterval(() => {
+      drain().catch((err) => {
+        logEvent('error', 'supervised_drain_failed', errorFields(err));
+      });
+    }, intervalMs);
     this.drainTimer.unref?.();
   }
 
@@ -717,7 +777,7 @@ export async function startGateway({
   listeners,
   runtime,
   metricsPort = 9108,
-  coldChainIngestPort = 8088,
+  coldChainIngestPort = null,
   socketIdleTimeoutMs = socketIdleTimeoutMsFromEnv(),
 }) {
   await runtime.initialize();
@@ -795,7 +855,7 @@ export async function startGateway({
     });
     guardServer(metricsServer, 'metrics');
     await listenServer(metricsServer, metricsPort);
-    coldChainServer = coldChainIngestPort !== null && coldChainIngestPort !== false
+    coldChainServer = Number.isFinite(coldChainIngestPort)
       ? guardServer(createColdChainServer(runtime), 'cold-chain')
       : null;
     if (coldChainServer) await listenServer(coldChainServer, coldChainIngestPort);
@@ -823,6 +883,21 @@ export function enrollmentConfigFromEnv() {
   const parsed = JSON.parse(process.env.DEVICE_GATEWAY_I09_ENROLLMENTS || '[]');
   if (!Array.isArray(parsed)) throw new Error('DEVICE_GATEWAY_I09_ENROLLMENTS must be an array');
   return parsed.map(validateEnrollment);
+}
+
+// The cold-chain HTTP listener is opt-in: it starts only when
+// DEVICE_GATEWAY_COLD_CHAIN_PORT is explicitly set. The production k8s
+// Service/NetworkPolicy expose only MLLP (2575) and metrics (9108), so a
+// default-on listener would be dead weight there and an unexpected open
+// port everywhere else.
+export function coldChainPortFromEnv(env = process.env) {
+  const raw = env.DEVICE_GATEWAY_COLD_CHAIN_PORT;
+  if (raw === undefined || String(raw).trim() === '') return null;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error('DEVICE_GATEWAY_COLD_CHAIN_PORT must be a TCP port number');
+  }
+  return port;
 }
 
 export function defaultSpoolDir() {

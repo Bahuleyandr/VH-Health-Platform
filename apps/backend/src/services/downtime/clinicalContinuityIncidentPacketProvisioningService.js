@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
@@ -373,7 +374,18 @@ async function voidAllocation(scope, allocationId, reason) {
     scope.actorUid,
     scope.actorRole,
     reason,
-  )).catch(() => {});
+  )).catch((err) => {
+    // Best-effort compensation after a failed provision — the caller is
+    // already unwinding on the original error, but a stuck ACTIVE allocation
+    // must be visible to operators, not silently leaked.
+    logger.error('Incident packet allocation void failed', {
+      tenantId: scope.tenantId,
+      facilityId: scope.facilityId,
+      allocationId,
+      reason,
+      error: err.message,
+    });
+  });
 }
 
 export async function provisionIncidentPacket(input) {

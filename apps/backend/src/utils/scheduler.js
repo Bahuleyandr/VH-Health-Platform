@@ -843,6 +843,19 @@ if (process.env.NODE_ENV !== 'test') {
     );
   }));
 
+  // 🩺 Every 15 minutes — ABDM stuck-data-request sweep (BE-M7 backstop).
+  // A consent-bound HIE request whose in-process pipeline died (restart, or
+  // the FAILED-marker write itself failed) otherwise stays 'PROCESSING'
+  // forever with no signal. The sweep marks stale rows FAILED and logs
+  // loudly; rows claimed by the I16 recovery workbench are excluded.
+  registerCron('*/15 * * * *', withJobLock('abdm-stuck-data-request-sweep', async () => {
+    const { default: abdmService } = await import('../services/abdm/abdmService.js');
+    const result = await abdmService.sweepStuckDataRequests();
+    if (result.scanned > 0) {
+      logger.warn('abdm-stuck-data-request-sweep complete', result);
+    }
+  }));
+
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
   // inspections that have outlived their expires_at as 'expired' so
   // the receptionist UI doesn't keep showing stale shortlists.

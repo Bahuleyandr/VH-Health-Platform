@@ -928,6 +928,16 @@ export class NdjsonSpool {
     this.maxBytes = maxBytes;
     this.file = join(dir, `${source}.ndjson`);
     this.deadFile = join(dir, `${source}.dead.ndjson`);
+    this.queue = Promise.resolve();
+  }
+
+  // Serializes every mutation. remove()/replace() are read-all/rewrite, so an
+  // append landing between the snapshot and the atomicWrite would otherwise
+  // be silently discarded. Same primitive as SequencedPartition.exclusive().
+  exclusive(operation) {
+    const next = this.queue.then(operation, operation);
+    this.queue = next.catch(() => {});
+    return next;
   }
 
   async ensure() {
@@ -944,17 +954,19 @@ export class NdjsonSpool {
   }
 
   async append(entry) {
-    await this.ensure();
-    const row = {
-      id: entry.id || randomUUID(),
-      queued_at: entry.queued_at || new Date().toISOString(),
-      source: this.source,
-      ...entry,
-    };
-    const line = `${JSON.stringify(row)}\n`;
-    if ((await this.size()) + Buffer.byteLength(line) > this.maxBytes) throw new SpoolFullError();
-    await appendDurable(this.file, line);
-    return row;
+    return this.exclusive(async () => {
+      await this.ensure();
+      const row = {
+        id: entry.id || randomUUID(),
+        queued_at: entry.queued_at || new Date().toISOString(),
+        source: this.source,
+        ...entry,
+      };
+      const line = `${JSON.stringify(row)}\n`;
+      if ((await this.size()) + Buffer.byteLength(line) > this.maxBytes) throw new SpoolFullError();
+      await appendDurable(this.file, line);
+      return row;
+    });
   }
 
   async entries() {
@@ -967,23 +979,33 @@ export class NdjsonSpool {
     }
   }
 
-  async replace(entries) {
+  async replaceUnlocked(entries) {
     await atomicWrite(
       this.file,
       entries.map((entry) => JSON.stringify(entry)).join('\n') + (entries.length ? '\n' : ''),
     );
   }
 
+  async replace(entries) {
+    return this.exclusive(() => this.replaceUnlocked(entries));
+  }
+
+  async removeUnlocked(id) {
+    await this.replaceUnlocked((await this.entries()).filter((entry) => entry.id !== id));
+  }
+
   async remove(id) {
-    await this.replace((await this.entries()).filter((entry) => entry.id !== id));
+    return this.exclusive(() => this.removeUnlocked(id));
   }
 
   async deadLetter(entry, reason) {
-    await appendDurable(
-      this.deadFile,
-      `${JSON.stringify({ ...entry, dead_lettered_at: new Date().toISOString(), reason })}\n`,
-    );
-    await this.remove(entry.id);
+    return this.exclusive(async () => {
+      await appendDurable(
+        this.deadFile,
+        `${JSON.stringify({ ...entry, dead_lettered_at: new Date().toISOString(), reason })}\n`,
+      );
+      await this.removeUnlocked(entry.id);
+    });
   }
 
   async stats() {

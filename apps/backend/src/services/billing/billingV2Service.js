@@ -77,6 +77,28 @@ function toFixed2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+/**
+ * Validate a caller-supplied money amount at a payment/advance/refund entry
+ * point. A bare `Number(amount) <= 0` guard is NaN-bypassable — every NaN
+ * comparison is false, so `Number('abc')` sails past it AND past the
+ * over-payment / refund-headroom bound checks further down, and Postgres
+ * `numeric` accepts NaN, which wedges recomputeInvoicePaymentStateTx and the
+ * discharge billing gate. Reject non-finite input BEFORE any comparison.
+ * Sub-paisa precision is rejected too (all billing math is 2dp with 0.005
+ * epsilons, so a 3+dp amount silently gains/loses money in the ledger).
+ */
+function requireValidAmount(amount, label = 'amount') {
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed)) {
+    throw AppError.badRequest(`${label} must be a finite number`);
+  }
+  if (parsed <= 0) throw AppError.badRequest(`${label} must be > 0`);
+  if (Math.abs(parsed - toFixed2(parsed)) > 1e-9) {
+    throw AppError.badRequest(`${label} must have at most 2 decimal places`);
+  }
+  return parsed;
+}
+
 function normalizeTenantId(tenantId) {
   return tenantId ? String(tenantId) : null;
 }
@@ -1512,7 +1534,7 @@ export async function collectPayment({
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
-  if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  requireValidAmount(amount);
   const normalizedMode = String(mode).toUpperCase();
 
   // CASH payments must be tied to a cashier shift so the daily zero-
@@ -1627,7 +1649,7 @@ export async function collectAdvance({ patient_uid, admission_id, amount, mode, 
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
-  if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  requireValidAmount(amount);
   const tenant = requireTenantId(normalizeTenantId(tenantId));
   if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const wiring = await resolveLedgerWiring(tenant);
@@ -1682,7 +1704,7 @@ export async function listAdvances({ tenantId, patient_uid, admission_id, status
 }
 
 export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
-  if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  requireValidAmount(amount);
   const wiring = await resolveLedgerWiring(requireTenantId(tenantId));
   let settledPatientUid = null;
   const settlement = await setTenantTx(requireTenantId(tenantId), async (tx) => {
@@ -1815,7 +1837,7 @@ export async function raiseRefund({
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
-  if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  requireValidAmount(amount);
   if ((!invoice_id && !advance_id) || (invoice_id && advance_id)) {
     throw AppError.badRequest('Refund must reference exactly one of invoice_id or advance_id');
   }
