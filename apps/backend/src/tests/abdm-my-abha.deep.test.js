@@ -129,7 +129,7 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
     expect(statusRes.statusCode).toBe(200);
     expect(statusRes.body.data).toEqual({
       linked: true,
-      abhaNumber: '55556666777788',
+      abhaNumber: '55-5566-6677-7788',
       abhaAddress: 'newlink@abdm',
     });
   });
