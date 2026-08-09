@@ -19,6 +19,15 @@ class PatientMutationPolicy {
       return PatientMutationCategory.emergency;
     }
 
+    // Ending the session is session bookkeeping, not a hospital write, so it is
+    // remoteState rather than highRisk. Note the outage gate blocks EVERY
+    // mutation regardless of category, so during an outage this call never
+    // leaves the device — LogoutService still clears local state and reports
+    // the server-side revocation as not done.
+    if (path == '/auth/logout') {
+      return PatientMutationCategory.remoteState;
+    }
+
     if (path.startsWith('/notifications/') ||
         path.endsWith('/read') ||
         path == '/feedback/quick-rating' ||

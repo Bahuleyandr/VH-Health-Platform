@@ -50,8 +50,14 @@ jest.unstable_mockModule('bcrypt', () => ({
 }));
 
 const mockIsTokenBlacklisted = jest.fn();
+const mockBlacklistToken = jest.fn();
+const mockRevokeAllUserTokens = jest.fn();
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: mockIsTokenBlacklisted,
+  // staffAuthService.logoutStaff revokes the presented access token's jti, and
+  // the all-device branch additionally revokes every token for the identity.
+  blacklistToken: mockBlacklistToken,
+  revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 
 const mockIssueAccess = jest.fn();
@@ -817,7 +823,16 @@ describe('logoutStaff', () => {
     read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
     read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
     const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ);
-    expect(out).toEqual({ success: true, message: 'Logged out successfully' });
+    expect(out).toEqual({
+      success: true,
+      message: 'Logged out successfully',
+      allDevices: false,
+      // Device-scoped logout with no token claims supplied, so nothing was
+      // revoked — and the result says so rather than implying otherwise.
+      accessTokenRevoked: false,
+    });
+    expect(mockBlacklistToken).not.toHaveBeenCalled();
+    expect(mockRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('still succeeds when the deviceToken matches no device', async () => {
@@ -831,6 +846,76 @@ describe('logoutStaff', () => {
     read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
     const out = await StaffAuthService.logoutStaff('uid', null, REQ);
     expect(out.success).toBe(true);
+  });
+
+  // Audit follow-up P12. Deleting staff_auth_sessions kills the refresh
+  // credential, but the access token already issued to the device stays valid
+  // for the rest of its own exp unless its jti is blacklisted — which logout
+  // never did, while reporting success.
+  it('revokes the presented access token jti with a real expiry', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+    const out = await StaffAuthService.logoutStaff('uid', null, REQ, {
+      accessTokenJti: 'jti-123',
+      accessTokenExpiresAt: expiresAt,
+    });
+
+    expect(out).toMatchObject({ success: true, accessTokenRevoked: true });
+    expect(mockBlacklistToken).toHaveBeenCalledWith(
+      'jti-123',
+      expiresAt,
+      'logout',
+      { requireEvidence: true },
+    );
+  });
+
+  // No deviceToken means every staff_auth_sessions row is deleted, so the
+  // sibling devices' access tokens must die too — otherwise an "all devices"
+  // logout leaves them usable until they expire on their own.
+  it('revokes every token for the identity on an all-device logout', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+
+    const out = await StaffAuthService.logoutStaff('uid', null, REQ);
+
+    expect(out).toMatchObject({ allDevices: true, accessTokenRevoked: true });
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      requireEvidence: true,
+    });
+  });
+
+  it('leaves other devices alone on a device-scoped logout', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
+
+    const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ, {
+      accessTokenJti: 'jti-123',
+      accessTokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    expect(out).toMatchObject({ allDevices: false });
+    expect(mockRevokeAllUserTokens).not.toHaveBeenCalled();
+  });
+
+  it('fails loudly when the all-device revocation is not persisted', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('no store accepted it'));
+
+    await expect(
+      StaffAuthService.logoutStaff('uid', null, REQ),
+    ).rejects.toMatchObject({ statusCode: 503, code: 'REVOCATION_STORE_UNAVAILABLE' });
+  });
+
+  it('fails loudly with 503 when the revocation store refuses the write', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    mockBlacklistToken.mockRejectedValueOnce(new Error('no store accepted the entry'));
+
+    await expect(
+      StaffAuthService.logoutStaff('uid', null, REQ, {
+        accessTokenJti: 'jti-123',
+        accessTokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
+      }),
+    ).rejects.toMatchObject({ statusCode: 503, code: 'REVOCATION_STORE_UNAVAILABLE' });
   });
 });
 
