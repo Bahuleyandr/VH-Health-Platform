@@ -7,6 +7,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
@@ -47,19 +48,29 @@ class LogoutService {
   static Future<LogoutOutcome> logout() async {
     BiometricGate.clearUnlockState();
 
-    // 0. Revoke the VH JWT server-side. This MUST run before step 3 wipes
-    //    secure storage, because the request is authenticated with the very
-    //    token being revoked. Without this the patient app's logout was purely
-    //    local: the JWT stayed valid until its own expiry, and its sibling
-    //    refresh token — which is stateless, with no session row to delete —
-    //    could still be traded for fresh access tokens (audit follow-up P12).
-    var serverSessionRevoked = false;
+    // 0. Revoke both server sessions before step 3 wipes secure storage. The
+    //    Firebase revoke must run first because both calls authenticate with
+    //    the current VH token and the VH logout invalidates it. Without these
+    //    calls logout was local-only: the VH JWT and both independently
+    //    refreshable server credentials could remain usable.
+    var firebaseSessionRevoked = false;
     try {
-      serverSessionRevoked = await Future<bool>.sync(
-        _dependencies.revokeServerSession,
+      firebaseSessionRevoked = await Future<bool>.sync(
+        _dependencies.revokeFirebaseSession,
       );
     } catch (e) {
-      debugPrint('LogoutService: server session revoke failed: $e');
+      debugPrint('LogoutService: Firebase server session revoke failed: $e');
+    }
+
+    // Revoke Firebase first: both requests authenticate with the current VH
+    // token, and /auth/logout invalidates that token. Reversing this order can
+    // make the Firebase revocation fail with 401 even when the network is fine.
+    // Always attempt the VH revoke even when the Firebase call fails.
+    var vhSessionRevoked = false;
+    try {
+      vhSessionRevoked = await Future<bool>.sync(_dependencies.revokeVhSession);
+    } catch (e) {
+      debugPrint('LogoutService: VH server session revoke failed: $e');
     }
 
     // 1. Disconnect real-time services. Both the legacy WebSocketService AND
@@ -159,13 +170,16 @@ class LogoutService {
       debugPrint('LogoutService: Firebase sign-out failed: $e');
     }
 
-    return LogoutOutcome(serverSessionRevoked: serverSessionRevoked);
+    return LogoutOutcome(
+      firebaseSessionRevoked: firebaseSessionRevoked,
+      vhSessionRevoked: vhSessionRevoked,
+    );
   }
 
   /// Ends the VH session server-side. Returns false — never throws — when the
   /// call could not be delivered or the backend refused it, including when the
   /// patient outage gate blocks the mutation before it is sent.
-  static Future<bool> _revokeServerSession() async {
+  static Future<bool> _revokeVhSession() async {
     try {
       final response = await ApiClient.post('/auth/logout', body: const {});
       return response.isSuccess;
@@ -179,10 +193,17 @@ class LogoutService {
 /// What a logout actually achieved. Local state is always cleared; the server
 /// side is best-effort and reported truthfully.
 class LogoutOutcome {
-  const LogoutOutcome({required this.serverSessionRevoked});
+  const LogoutOutcome({
+    required this.firebaseSessionRevoked,
+    required this.vhSessionRevoked,
+  });
 
-  /// True only when the backend confirmed it revoked this identity's tokens.
-  final bool serverSessionRevoked;
+  final bool firebaseSessionRevoked;
+  final bool vhSessionRevoked;
+
+  /// True only when the backend confirmed both independently refreshable
+  /// server credentials were revoked.
+  bool get serverSessionRevoked => firebaseSessionRevoked && vhSessionRevoked;
 }
 
 typedef LogoutStep = FutureOr<void> Function();
@@ -191,7 +212,8 @@ typedef LogoutRevokeStep = FutureOr<bool> Function();
 @visibleForTesting
 class LogoutServiceDependencies {
   const LogoutServiceDependencies({
-    required this.revokeServerSession,
+    required this.revokeFirebaseSession,
+    required this.revokeVhSession,
     required this.disconnectWebSocket,
     required this.disconnectRealtime,
     required this.clearPushSignedInUser,
@@ -207,7 +229,8 @@ class LogoutServiceDependencies {
 
   factory LogoutServiceDependencies.defaults() {
     return LogoutServiceDependencies(
-      revokeServerSession: LogoutService._revokeServerSession,
+      revokeFirebaseSession: FirebaseSessionService.revokeSession,
+      revokeVhSession: LogoutService._revokeVhSession,
       disconnectWebSocket: WebSocketService.instance.disconnect,
       disconnectRealtime: RealtimeClient.instance.disconnect,
       clearPushSignedInUser: PushNotificationService.clearSignedInUser,
@@ -228,7 +251,8 @@ class LogoutServiceDependencies {
     );
   }
 
-  final LogoutRevokeStep revokeServerSession;
+  final LogoutRevokeStep revokeFirebaseSession;
+  final LogoutRevokeStep revokeVhSession;
   final LogoutStep disconnectWebSocket;
   final LogoutStep disconnectRealtime;
   final LogoutStep clearPushSignedInUser;

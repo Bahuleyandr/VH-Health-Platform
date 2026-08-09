@@ -11,7 +11,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/services/device_service.dart';
-import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
@@ -185,12 +184,10 @@ class SettingsController {
     );
 
     if (confirmed == true) {
-      // Unregister device and revoke session before clearing storage
+      // Unregister the device before clearing storage. LogoutService owns both
+      // server-session revocations and their combined success result.
       try {
-        await Future.wait([
-          DeviceService.unregisterDevice(phone),
-          FirebaseSessionService.revokeSession(),
-        ]);
+        await DeviceService.unregisterDevice(phone);
       } catch (e) {
         debugPrint('Settings logout cleanup failed: $e');
       }
