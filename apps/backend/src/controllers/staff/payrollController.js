@@ -3,7 +3,14 @@ import crypto from 'crypto';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { calculatePayslip, savePayslip, generateAnnualTaxSummary, calculateArrears } from '../../services/staff/payrollService.js';
+import {
+  calculatePayslip,
+  savePayslip,
+  generateAnnualTaxSummary,
+  calculateArrears,
+  recordPayrollFailure,
+  summarizePayrollRunOutcome,
+} from '../../services/staff/payrollService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { escapeCsvField } from '../../utils/csv.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
@@ -289,6 +296,10 @@ export const runPayroll = async (req, res) => {
             status: 'processing',
             generated_by: adminUid,
             generated_at: new Date(),
+            // Clear the previous attempt's failure tally, so a run that dies
+            // before finalizing cannot leave a stale count on display.
+            failed_staff_count: 0,
+            failed_staff: [],
           },
           select: { id: true },
         })
@@ -317,7 +328,8 @@ export const runPayroll = async (req, res) => {
         AND ss.tenant_id = $1::uuid
     `, resolveTenantOrThrow(req));
 
-    let processed = 0, failed = 0;
+    let processed = 0;
+    const failures = [];
     let totalGross = 0, totalNet = 0, totalDeductions = 0;
 
     for (const staff of staffList) {
@@ -412,29 +424,43 @@ export const runPayroll = async (req, res) => {
         totalDeductions += parseFloat(calc.total_deductions) || 0;
         processed++;
       } catch (e) {
-        logger.warn(`Payroll calc failed for staff ${staff.staff_uid}: ${e.message}`);
-        failed++;
+        // One staff member's failure must not abort the others, but it must
+        // survive into the run record — an unpaid person is not a zero-paid one.
+        logger.error(`Payroll calc failed for staff ${staff.staff_uid}: ${e.message}`);
+        recordPayrollFailure(failures, staff.staff_uid, e);
       }
     }
 
-    // Update run summary
+    // Update run summary. The failed count used to live only in the HTTP
+    // response below, so the persisted row said 'completed' no matter how many
+    // staff were missed; summarizePayrollRunOutcome is shared with the monthly
+    // cron so both paths record the same truth.
+    const outcome = summarizePayrollRunOutcome({
+      processed, failures, totalGross, totalNet, totalDeductions,
+    });
     await prisma.payroll_runs.update({
       where: { id: runId },
       data: {
-        status: 'completed',
-        total_staff: processed,
-        total_gross: totalGross.toFixed(2),
-        total_net: totalNet.toFixed(2),
-        total_deductions: totalDeductions.toFixed(2),
+        status: outcome.status,
+        total_staff: outcome.total_staff,
+        total_gross: outcome.total_gross,
+        total_net: outcome.total_net,
+        total_deductions: outcome.total_deductions,
+        failed_staff_count: outcome.failed_staff_count,
+        failed_staff: outcome.failed_staff,
       },
       select: { id: true },
     });
 
+    const failed = outcome.failed_staff_count;
     success(res, {
       run_id: runId, processed, failed,
-      total_gross: totalGross.toFixed(2),
-      total_net: totalNet.toFixed(2),
-    }, `Payroll run complete: ${processed} staff processed`);
+      status: outcome.status,
+      total_gross: outcome.total_gross,
+      total_net: outcome.total_net,
+    }, failed > 0
+      ? `Payroll run completed with errors: ${processed} staff processed, ${failed} failed`
+      : `Payroll run complete: ${processed} staff processed`);
   } catch (err) {
     logger.error('Run Payroll Error:', err);
     error(res, 'Failed to run payroll', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -555,8 +581,20 @@ export const issuePayslips = async (req, res) => {
 // ─── Admin: Get payroll runs list ─────────────────────────────────────────────
 export const getPayrollRuns = async (req, res) => {
   try {
+    // Explicit columns (house rule: no SELECT *). `failed_staff_count` is
+    // operator-facing and rendered in the admin runs list; `failed_staff` is
+    // deliberately NOT selected — it holds internal error text, which belongs in
+    // the DB and the logs, not in an API response.
     const runs = await prisma.$queryRawUnsafe(`
-      SELECT pr.*, u.name as generated_by_name
+      SELECT pr.id, pr.month, pr.year, pr.status, pr.total_staff,
+             pr.failed_staff_count,
+             pr.total_gross, pr.total_net, pr.total_deductions,
+             pr.generated_by, pr.generated_at, pr.locked_by, pr.locked_at,
+             pr.notes, pr.created_at, pr.updated_at, pr.employee_count,
+             pr.hr_approved_by, pr.hr_approved_at, pr.hr_comment,
+             pr.admin_approved_by, pr.admin_approved_at, pr.admin_comment,
+             pr.approval_hash, pr.tenant_id,
+             u.name as generated_by_name
       FROM payroll_runs pr
       LEFT JOIN users u ON pr.generated_by = u.uid
       ORDER BY pr.year DESC, pr.month DESC

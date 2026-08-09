@@ -56,11 +56,16 @@ jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
   },
 }));
 
+// The factory must mirror every named export payrollController imports, or the
+// controller's import fails to link. Run-accounting behaviour is covered in
+// src/tests/unit/payrollFailLoud.test.js; nothing here exercises runPayroll.
 jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   calculateArrears: jest.fn(),
   calculatePayslip: jest.fn(),
   generateAnnualTaxSummary,
   savePayslip: jest.fn(),
+  recordPayrollFailure: jest.fn(),
+  summarizePayrollRunOutcome: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../utils/notifications/notificationDispatcher.js', () => ({

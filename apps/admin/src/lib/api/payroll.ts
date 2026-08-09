@@ -7,8 +7,16 @@ export interface PayrollRun {
   id: number;
   month: number;
   year: number;
-  status: "draft" | "processing" | "completed" | "approved" | "locked";
+  status:
+    | "draft"
+    | "processing"
+    | "completed"
+    | "completed_with_errors"
+    | "approved"
+    | "locked";
   total_staff: number;
+  /** Staff whose payslip calculation failed in this run; > 0 implies completed_with_errors. */
+  failed_staff_count: number;
   total_gross: string;
   total_net: string;
   total_deductions: string;

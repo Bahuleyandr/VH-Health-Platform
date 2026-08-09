@@ -7941,7 +7941,7 @@ model payroll_runs {
   id                                     Int        @id @default(autoincrement())
   month                                  Int
   year                                   Int
-  status                                 String?    @default("draft") @db.VarChar(20)
+  status                                 String?    @default("draft") @db.VarChar(32)
   total_staff                            Int?       @default(0)
   total_gross                            Decimal?   @default(0) @db.Decimal(14, 2)
   total_net                              Decimal?   @default(0) @db.Decimal(14, 2)
@@ -7962,6 +7962,8 @@ model payroll_runs {
   admin_comment                          String?
   approval_hash                          String?
   tenant_id                              String     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  failed_staff_count                     Int        @default(0)
+  failed_staff                           Json?
   tenants                                tenants    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_runs_tenant")
   users_payroll_runs_generated_byTousers users?     @relation("payroll_runs_generated_byTousers", fields: [generated_by], references: [uid], onDelete: NoAction, onUpdate: NoAction)
   users_payroll_runs_locked_byTousers    users?     @relation("payroll_runs_locked_byTousers", fields: [locked_by], references: [uid], onDelete: NoAction, onUpdate: NoAction)

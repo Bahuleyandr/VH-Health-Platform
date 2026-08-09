@@ -118,4 +118,12 @@ describe("statusBadge", () => {
     const { container } = render(<>{statusBadge("rejected")}</>);
     expect(container.querySelector("span")!.className).toMatch(/bg-red-100/);
   });
+
+  it("red for completed_with_errors — never green like a clean completed", () => {
+    const { container } = render(<>{statusBadge("completed_with_errors")}</>);
+    const el = container.querySelector("span")!;
+    expect(el.className).toMatch(/bg-red-100/);
+    expect(el.className).not.toMatch(/bg-green-100/);
+    expect(screen.getByText("completed with errors")).toBeInTheDocument();
+  });
 });

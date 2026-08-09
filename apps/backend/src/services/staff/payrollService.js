@@ -42,6 +42,12 @@ export async function calculatePayslip(staffUid, month, year) {
   // The table has no `status`/`date` columns — the marked-attendance flag is
   // `attendance_status` and the event time is check_in_time (falling back to the
   // generic `timestamp` column), mirroring attendanceController's date derivation.
+  //
+  // No `.catch()` here (nor on any query below). A swallowed failure used to
+  // yield days_present = 0, which silently prorated the whole payslip to ~zero
+  // and applied a full month of LOP — a fabricated, payable, wrong number. Any
+  // query failure (including the 30s circuit-breaker-open window in
+  // lib/prisma.js) must abort this payslip so the caller records it as failed.
   const attRes = await prisma.$queryRawUnsafe(`
     SELECT
       COUNT(*) FILTER (WHERE attendance_status IS NOT NULL) as days_present,
@@ -50,7 +56,7 @@ export async function calculatePayslip(staffUid, month, year) {
     WHERE staff_uid = $1::uuid
       AND EXTRACT(MONTH FROM COALESCE(check_in_time, "timestamp")) = $2
       AND EXTRACT(YEAR FROM COALESCE(check_in_time, "timestamp")) = $3
-  `, staffUid, month, year).catch(() => [{ days_present: 0, total_overtime_hours: 0 }]);
+  `, staffUid, month, year);
 
   const daysPresent = parseInt(attRes[0]?.days_present || 0);
   const overtimeHours = parseFloat(attRes[0]?.total_overtime_hours || 0);
@@ -59,9 +65,7 @@ export async function calculatePayslip(staffUid, month, year) {
   // is staff_id INTEGER → users.id, and the date columns are start_date/end_date
   // (NOT from_date/to_date). calculatePayslip is called with staffUid = users.uid
   // (a UUID), so bridge uid→id in the WHERE. status values are lowercase
-  // ('approved' on review) — LOWER() for safety. The catch returns an ARRAY (not
-  // { rows: [...] }) so leaveRes[0]?.leave_days works on both the happy and the
-  // fallback path ($queryRawUnsafe yields a plain row array).
+  // ('approved' on review) — LOWER() for safety.
   const leaveRes = await prisma.$queryRawUnsafe(`
     SELECT COALESCE(SUM(
       LEAST(end_date::date, (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date)::date
@@ -73,7 +77,7 @@ export async function calculatePayslip(staffUid, month, year) {
       AND LOWER(status) = 'approved'
       AND start_date::date <= (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date
       AND end_date::date >= make_date($3::int, $2::int, 1)
-  `, staffUid, month, year).catch(() => [{ leave_days: 0 }]);
+  `, staffUid, month, year);
 
   const leaveDays = parseInt(leaveRes[0]?.leave_days || 0);
 
@@ -91,7 +95,7 @@ export async function calculatePayslip(staffUid, month, year) {
         AND status = 'approved'
         AND EXTRACT(MONTH FROM date::date) = $2
         AND EXTRACT(YEAR FROM date::date) = $3
-    `, userId, month, year).catch(() => ({ rows: [{ approved_overtime: 0 }] }));
+    `, userId, month, year);
     approvedOT = parseFloat(otRes[0]?.approved_overtime || overtimeHours);
   }
 
@@ -113,7 +117,7 @@ export async function calculatePayslip(staffUid, month, year) {
   const arrearsRes = await prisma.$queryRawUnsafe(`
     SELECT COALESCE(SUM(arrears_amount), 0) as total FROM salary_arrears
     WHERE staff_uid = $1::uuid AND status = 'pending'
-  `, staffUid).catch(() => ({ rows: [{ total: 0 }] }));
+  `, staffUid);
   const arrearsAmount = parseFloat(arrearsRes[0]?.total || 0);
 
   const grossSalary = basicEarned + hraEarned + daEarned + specialEarned +
@@ -136,10 +140,7 @@ export async function calculatePayslip(staffUid, month, year) {
   // ─── FEATURE 3: Check for active salary advances to deduct ──────────────
   // SELECT the columns the deduction loop actually reads (monthly_deduction,
   // total_deducted) — the table has no deduction_month/deduction_year columns;
-  // the schedule columns are deduction_start_month/deduction_start_year. The
-  // catch must return an ARRAY ([]), not { rows: [] }: $queryRawUnsafe yields a
-  // plain row array, and the loop below does `for (const adv of advanceRes)`, so
-  // an object fallback throws "advanceRes is not iterable" and zeroes the run.
+  // the schedule columns are deduction_start_month/deduction_start_year.
   const advanceRes = await prisma.$queryRawUnsafe(`
     SELECT id, staff_uid, amount, monthly_deduction, total_deducted, status, created_at FROM salary_advances
     WHERE staff_uid = $1::uuid
@@ -148,7 +149,7 @@ export async function calculatePayslip(staffUid, month, year) {
       AND (deduction_start_year < $3 OR deduction_start_month <= $2)
       AND total_deducted < amount
     ORDER BY created_at ASC
-  `, staffUid, month, year).catch(() => []);
+  `, staffUid, month, year);
 
   let totalAdvanceDeduction = 0;
   const advancesToProcess = [];
@@ -172,7 +173,7 @@ export async function calculatePayslip(staffUid, month, year) {
       AND EXTRACT(MONTH FROM sr.effective_from::date) = $2
       AND EXTRACT(YEAR FROM sr.effective_from::date) = $3
     LIMIT 1
-  `, staffUid, month, year).catch(() => ({ rows: [] }));
+  `, staffUid, month, year);
 
   let revisionNote = null;
   if (revisionCheck.length > 0) {
@@ -215,6 +216,56 @@ export async function calculatePayslip(staffUid, month, year) {
     salary_config: sal,
     attendance_factor: Math.round(attendanceFactor * 100) / 100,
     _advances_to_process: advancesToProcess, // internal, used after saving payslip
+  };
+}
+
+// Cap on a persisted failure reason. The reason is an internal error string, so
+// it is bounded before it ever reaches a column; the runs-list endpoint does not
+// select it (see payrollController.getPayrollRuns).
+const FAILURE_REASON_MAX = 500;
+
+/**
+ * Record one staff member's payroll failure onto a run's failure list.
+ * Reason is the internal error text — kept server-side for operators, never
+ * returned by the runs-list endpoint.
+ */
+export function recordPayrollFailure(failures, staffUid, err) {
+  const reason = String(err?.message || err || 'Unknown error').slice(0, FAILURE_REASON_MAX);
+  failures.push({ staff_uid: staffUid, reason });
+  return failures;
+}
+
+/**
+ * Collapse a payroll run's per-staff outcomes into the columns persisted on
+ * payroll_runs.
+ *
+ * Both entry points call this — the admin-triggered run
+ * (payrollController.runPayroll) and the monthly cron (utils/scheduler.js) — so
+ * neither can record a partially-failed run as a clean 'completed'. A run with
+ * any failed staff member ends 'completed_with_errors' and carries the failed
+ * count, which is what tells an operator that payslips are missing rather than
+ * that nobody was owed anything. `status` is VARCHAR(32) as of migration 644;
+ * 'completed_with_errors' is 21 chars and does not fit the original VARCHAR(20).
+ */
+export function summarizePayrollRunOutcome({
+  processed,
+  failures = [],
+  totalGross = 0,
+  totalNet = 0,
+  totalDeductions = 0,
+}) {
+  return {
+    status: failures.length === 0 ? 'completed' : 'completed_with_errors',
+    total_staff: processed,
+    failed_staff_count: failures.length,
+    // Always an array, never null: a re-run that now succeeds must overwrite a
+    // previous attempt's failure list rather than leave it standing, and an
+    // empty array writes cleanly through both Prisma and raw jsonb (a bare
+    // `null` on a Json column needs Prisma.DbNull and would silently no-op).
+    failed_staff: failures,
+    total_gross: totalGross.toFixed(2),
+    total_net: totalNet.toFixed(2),
+    total_deductions: totalDeductions.toFixed(2),
   };
 }
 
