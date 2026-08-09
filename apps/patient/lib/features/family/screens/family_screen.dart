@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -76,7 +78,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
       ),
     );
     if (result == true && mounted) {
-      _fetchMembers();
+      unawaited(_fetchMembers());
     }
   }
 
@@ -124,7 +126,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           LiveRegionSnackBar.build(message: l.familyRemoved(name)),
         );
-        _fetchMembers();
+        unawaited(_fetchMembers());
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           LiveRegionSnackBar.build(

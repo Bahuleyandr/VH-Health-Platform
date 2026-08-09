@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -720,7 +722,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         setState(() {
           _latestNews2 = (news2 != null && news2.shouldEscalate) ? news2 : null;
         });
-        _loadVitalsHistory();
+        unawaited(_loadVitalsHistory());
       }
     } catch (e) {
       if (mounted) {
@@ -1019,8 +1021,8 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _loadIOBalance();
-        _loadIOHistory();
+        unawaited(_loadIOBalance());
+        unawaited(_loadIOHistory());
       }
     } catch (e) {
       if (mounted) {

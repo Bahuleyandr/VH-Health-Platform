@@ -24,6 +24,17 @@ class MessagingApiService {
     throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
   }
 
+  /// ApiClient never throws on HTTP failure — a 4xx/5xx comes back as a
+  /// normal [ApiResponse]. Void mutations (mark-read, archive, mute, ...)
+  /// must check it explicitly, otherwise failures are silently ignored and
+  /// local state drifts from the server (e.g. unread badges that never
+  /// clear, "marked read" that wasn't).
+  static void _ensureSuccess(ApiResponse resp) {
+    if (!resp.isSuccess) {
+      throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
+    }
+  }
+
   static Future<List<dynamic>> inbox({int page = 1, int limit = 100}) async {
     final resp = await ApiClient.get(
       '/messaging/inbox',
@@ -169,37 +180,49 @@ class MessagingApiService {
   }
 
   static Future<void> markRead(int id) async {
-    await ApiClient.patch('/messaging/$id/read');
+    _ensureSuccess(await ApiClient.patch('/messaging/$id/read'));
   }
 
   static Future<void> archiveThread(String threadId) async {
-    await ApiClient.patch('/messaging/threads/$threadId/archive');
+    _ensureSuccess(
+      await ApiClient.patch('/messaging/threads/$threadId/archive'),
+    );
   }
 
   static Future<void> unarchiveThread(String threadId) async {
-    await ApiClient.patch('/messaging/threads/$threadId/unarchive');
+    _ensureSuccess(
+      await ApiClient.patch('/messaging/threads/$threadId/unarchive'),
+    );
   }
 
   static Future<void> markThreadUnread(String threadId) async {
-    await ApiClient.patch('/messaging/threads/$threadId/mark-unread');
+    _ensureSuccess(
+      await ApiClient.patch('/messaging/threads/$threadId/mark-unread'),
+    );
   }
 
   static Future<void> muteThread(String threadId, {int hours = 8}) async {
-    await ApiClient.patch(
-      '/messaging/threads/$threadId/mute',
-      body: {'hours': hours},
+    _ensureSuccess(
+      await ApiClient.patch(
+        '/messaging/threads/$threadId/mute',
+        body: {'hours': hours},
+      ),
     );
   }
 
   static Future<void> urgentOnlyThread(String threadId) async {
-    await ApiClient.patch(
-      '/messaging/threads/$threadId/mute',
-      body: {'urgent_only': true},
+    _ensureSuccess(
+      await ApiClient.patch(
+        '/messaging/threads/$threadId/mute',
+        body: {'urgent_only': true},
+      ),
     );
   }
 
   static Future<void> unmuteThread(String threadId) async {
-    await ApiClient.patch('/messaging/threads/$threadId/unmute');
+    _ensureSuccess(
+      await ApiClient.patch('/messaging/threads/$threadId/unmute'),
+    );
   }
 
   static Future<Map<String, dynamic>> sendDirect({

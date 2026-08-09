@@ -484,7 +484,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
     if (created == true && mounted) {
       _showSnack(s.lookup('s4.lib.lab_bookings.lab_booking_created'));
-      _fetchBookings();
+      unawaited(_fetchBookings());
     }
   }
 
@@ -1099,7 +1099,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
           'final_cost': double.tryParse(costCtrl.text),
       });
       _showSnack(s.labBookingsConfirmedToast);
-      _fetchBookings();
+      unawaited(_fetchBookings());
     } catch (e) {
       _showSnack(
         s.format('s4.dynamic.lab_bookings.error_message', {
@@ -1164,7 +1164,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       });
       _showSnack(s.labBookingsDispatchedToast);
       _startLocationSharing(id);
-      _fetchBookings();
+      unawaited(_fetchBookings());
     } catch (e) {
       _showSnack(
         s.format('s4.dynamic.lab_bookings.error_message', {
@@ -1181,7 +1181,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       await MedicalApiService.markSamplesCollected(id);
       _stopLocationSharing();
       _showSnack(s.labBookingsSamplesCollectedToast);
-      _fetchBookings();
+      unawaited(_fetchBookings());
     } catch (e) {
       _showSnack(
         s.format('s4.dynamic.lab_bookings.error_message', {
@@ -1224,12 +1224,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
           }),
           isError: true,
         );
-        _fetchBookings();
+        unawaited(_fetchBookings());
         return;
       }
     }
     _showSnack(s.labBookingsSamplesCollectedToast);
-    _fetchBookings();
+    unawaited(_fetchBookings());
   }
 
   Future<void> _startProcessing(int id) async {
@@ -1237,7 +1237,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     try {
       await MedicalApiService.startBookingProcessing(id);
       _showSnack(s.labBookingsProcessingStartedToast);
-      _fetchBookings();
+      unawaited(_fetchBookings());
     } catch (e) {
       _showSnack(
         s.format('s4.dynamic.lab_bookings.error_message', {
@@ -1323,7 +1323,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         fileName: pickedFile!.name,
       );
       _showSnack(s.labBookingsResultUploadedToast);
-      _fetchBookings();
+      unawaited(_fetchBookings());
     } catch (e) {
       _showSnack(
         s.format('s4.dynamic.lab_bookings.error_message', {

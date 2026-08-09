@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -111,21 +113,23 @@ class _DischargeSummariesListState extends State<DischargeSummariesList> {
         _isLoading = false;
       });
 
-      page.onFresh
-          ?.then((fresh) async {
-            final cached = await ApiCacheManager.load(
-              '/portal/discharge-summaries',
-            );
-            if (!mounted) return;
-            setState(() {
-              _summaries = fresh;
-              _staleLabel = null;
-              _cachedAt = cached?.cachedAt;
-            });
-          })
-          .catchError((Object e) {
-            debugPrint('Discharge summaries background refresh failed: $e');
-          });
+      unawaited(
+        page.onFresh
+            ?.then((fresh) async {
+              final cached = await ApiCacheManager.load(
+                '/portal/discharge-summaries',
+              );
+              if (!mounted) return;
+              setState(() {
+                _summaries = fresh;
+                _staleLabel = null;
+                _cachedAt = cached?.cachedAt;
+              });
+            })
+            .catchError((Object e) {
+              debugPrint('Discharge summaries background refresh failed: $e');
+            }),
+      );
     } catch (e) {
       debugPrint('Discharge summaries fetch failed: $e');
       if (!mounted) return;

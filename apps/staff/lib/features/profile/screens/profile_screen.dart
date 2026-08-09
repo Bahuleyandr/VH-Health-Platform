@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/hr_api_service.dart';
@@ -86,7 +88,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         );
         setState(() => _editing = false);
-        _loadProfile();
+        unawaited(_loadProfile());
       }
     } catch (e) {
       if (!mounted) return;

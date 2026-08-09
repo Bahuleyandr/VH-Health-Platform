@@ -167,10 +167,17 @@ class ConnectivitySyncService extends ChangeNotifier {
       _handleTransportAvailability(newOnline);
     });
 
-    Connectivity().checkConnectivity().then((results) {
-      final newOnline = results.any((r) => r != ConnectivityResult.none);
-      _handleTransportAvailability(newOnline);
-    });
+    Connectivity()
+        .checkConnectivity()
+        .then((results) {
+          final newOnline = results.any((r) => r != ConnectivityResult.none);
+          _handleTransportAvailability(newOnline);
+        })
+        .catchError((Object e) {
+          // Probe failure is not a transport verdict — keep the current state
+          // and let the onConnectivityChanged stream drive the next update.
+          if (kDebugMode) debugPrint('ConnectivitySync: probe failed: $e');
+        });
     refreshCounts();
   }
 

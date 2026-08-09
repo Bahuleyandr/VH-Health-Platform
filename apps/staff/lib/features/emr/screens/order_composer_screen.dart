@@ -130,6 +130,13 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
       } catch (_) {
         if (!mounted) return;
         setState(() => _searching = false);
+        // A failed catalog search must not read as "no results".
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppStrings.of(context).composerSearchFailed),
+            backgroundColor: AppTheme.warningAmber,
+          ),
+        );
       }
     });
   }
@@ -174,8 +181,14 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
       draft.cdsAlerts = alerts is List
           ? alerts.whereType<Map>().map(Map<String, dynamic>.from).toList()
           : <Map<String, dynamic>>[];
+      draft.cdsUnavailable = false;
     } catch (_) {
-      draft.cdsAlerts = null; // pre-check unavailable — stay silent.
+      // Pre-check unavailable — flag it so the basket renders a visible
+      // "safety pre-check unavailable" chip instead of looking identical
+      // to "no alerts". The server re-runs the full safety engine at
+      // submit, so this stays advisory.
+      draft.cdsAlerts = null;
+      draft.cdsUnavailable = true;
     } finally {
       if (mounted) setState(() => draft.checkingCds = false);
     }
@@ -354,7 +367,7 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
         _basket[editIndex] = result;
         _blockedIndex = null;
       });
-      _precheckDraft(result);
+      unawaited(_precheckDraft(result));
     } else {
       _addDraft(result);
     }
@@ -711,6 +724,12 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
                     width: 12,
                     height: 12,
                     child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                if (!draft.checkingCds && draft.cdsUnavailable)
+                  _miniChip(
+                    s.composerCdsUnavailableChip,
+                    AppTheme.warningAmber,
+                    icon: Icons.shield_outlined,
                   ),
                 for (final a in precheck.criticals)
                   _miniChip(

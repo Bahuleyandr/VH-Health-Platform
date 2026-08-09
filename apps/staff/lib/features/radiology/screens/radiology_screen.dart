@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/radiology_api_service.dart';
@@ -856,7 +858,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                           SnackBar(content: Text(s.radiologyReportSubmitted)),
                         );
                       }
-                      _fetchWorklist();
+                      unawaited(_fetchWorklist());
                     } catch (e) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -966,7 +968,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                                   content: Text(s.radiologyReportSignedOff),
                                 ),
                               );
-                              _fetchWorklist();
+                              unawaited(_fetchWorklist());
                             } catch (e) {
                               if (!mounted || !sheetContext.mounted) return;
                               setSheetState(() => submitting = false);
@@ -1128,7 +1130,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                                   content: Text(s.radiologyAddendumSubmitted),
                                 ),
                               );
-                              _fetchWorklist();
+                              unawaited(_fetchWorklist());
                             } catch (e) {
                               if (!mounted || !sheetContext.mounted) return;
                               setSheetState(() => submitting = false);
@@ -1169,7 +1171,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
           context,
         ).showSnackBar(SnackBar(content: Text(s.radiologyOrderCancelled)));
       }
-      _fetchWorklist();
+      unawaited(_fetchWorklist());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

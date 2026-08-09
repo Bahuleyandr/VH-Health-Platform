@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
@@ -381,7 +383,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
         ),
       );
       if (runId is int) {
-        context.push('/clinical-ai/compose/$runId', extra: result);
+        unawaited(context.push('/clinical-ai/compose/$runId', extra: result));
       }
     } catch (e) {
       if (!mounted) return;

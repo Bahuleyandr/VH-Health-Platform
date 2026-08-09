@@ -148,15 +148,17 @@ class _TeleconsultLobbyScreenState extends State<TeleconsultLobbyScreen> {
         _state = updated;
         _submitting = false;
       });
-      context.push(
-        '/teleconsult/appointments/${widget.appointment.id}/consult',
-        extra: TeleconsultConsultArgs(
-          appointment: widget.appointment,
-          lobbyState: updated,
-          readiness: readiness!,
-          repository: widget.repository,
-          deviceService: widget.deviceService,
-          roomClient: widget.roomClient,
+      unawaited(
+        context.push(
+          '/teleconsult/appointments/${widget.appointment.id}/consult',
+          extra: TeleconsultConsultArgs(
+            appointment: widget.appointment,
+            lobbyState: updated,
+            readiness: readiness!,
+            repository: widget.repository,
+            deviceService: widget.deviceService,
+            roomClient: widget.roomClient,
+          ),
         ),
       );
     } catch (e) {

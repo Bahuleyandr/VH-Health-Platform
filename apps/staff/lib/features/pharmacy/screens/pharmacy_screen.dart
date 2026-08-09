@@ -444,7 +444,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
 
       if (created == true) {
         _snack(orderCreatedMessage);
-        _loadOrders();
+        unawaited(_loadOrders());
       }
     } finally {
       phoneCtrl.dispose();
@@ -603,7 +603,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         'confirmation_notes': notesController.text.trim(),
       });
       _snack(s.pharmacyOrderConfirmedToast);
-      _loadOrders();
+      unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
     }
@@ -614,7 +614,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
     try {
       await PharmacyApiService.markPharmacyPreparing(order['id']);
       _snack(s.pharmacyMarkPreparingToast);
-      _loadOrders();
+      unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
     }
@@ -672,7 +672,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       });
       _snack(s.pharmacyOrderDispatchedToast);
       _startLocationSharing(order['id']);
-      _loadOrders();
+      unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
     }
@@ -707,7 +707,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
       await PharmacyApiService.markPharmacyDelivered(order['id']);
       _stopLocationSharing();
       _snack(s.pharmacyOrderDeliveredToast);
-      _loadOrders();
+      unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
     }
@@ -762,7 +762,7 @@ class _PharmacyScreenState extends State<PharmacyScreen> {
         reasonCtrl.text.trim(),
       );
       _snack(s.pharmacyOrderCancelledToast);
-      _loadOrders();
+      unawaited(_loadOrders());
     } catch (e) {
       _snack(e.toString(), isError: true);
     }

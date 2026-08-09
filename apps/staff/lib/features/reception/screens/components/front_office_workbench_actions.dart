@@ -398,7 +398,7 @@ extension _FrontOfficeWorkbenchActions on _FrontOfficeWorkbenchScreenState {
     if (!mounted) return;
     await _selectPatient(selected);
     if (!mounted) return;
-    context.push(_patientRoute('/billing-desk'));
+    unawaited(context.push(_patientRoute('/billing-desk')));
   }
 
   Future<void> _showAdmissionAdviceDialog(Map<String, dynamic> row) async {

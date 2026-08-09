@@ -3,6 +3,8 @@
 // Patient-facing lab results. The backend only returns released, signed-off
 // results on this portal surface; trend reads use the same release rules.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -82,19 +84,21 @@ class _LabResultsListState extends State<LabResultsList> {
         _loading = false;
       });
 
-      page.onFresh
-          ?.then((fresh) async {
-            final cached = await ApiCacheManager.load('/portal/lab-results');
-            if (!mounted) return;
-            setState(() {
-              _results = fresh;
-              _staleLabel = null;
-              _cachedAt = cached?.cachedAt;
-            });
-          })
-          .catchError((Object e) {
-            debugPrint('Lab results background refresh failed: $e');
-          });
+      unawaited(
+        page.onFresh
+            ?.then((fresh) async {
+              final cached = await ApiCacheManager.load('/portal/lab-results');
+              if (!mounted) return;
+              setState(() {
+                _results = fresh;
+                _staleLabel = null;
+                _cachedAt = cached?.cachedAt;
+              });
+            })
+            .catchError((Object e) {
+              debugPrint('Lab results background refresh failed: $e');
+            }),
+      );
     } catch (e) {
       debugPrint('Lab results fetch failed: $e');
       if (!mounted) return;

@@ -2,7 +2,11 @@ export 'config/api_config.dart';
 export 'config/client_readiness_config.dart';
 export 'config/security_config.dart';
 export 'config/tenant_config.dart';
-export 'entitlements/product_entitlements.dart';
+// NOTE (hygiene sweep FL-L6, 2026-08-09): entitlements/product_entitlements.dart
+// has zero app consumers — it is exercised only by its own unit test, which
+// imports it directly. Kept on disk for that test, but dropped from the
+// public barrel per the "keep shared APIs small" rule. Re-export it here if
+// an app actually adopts entitlement gating.
 export 'exceptions/app_exception.dart';
 export 'models/api_models.dart';
 export 'models/api_response.dart';
@@ -51,20 +55,19 @@ export 'services/realtime_provider.dart';
 export 'services/version_gate.dart';
 // OpenAPI-generated API (models + chopper client). Re-exported from
 // lib/api/vhhealth_api.dart once `dart run build_runner build` has
-// generated the artefacts. The auth interceptor is always available.
-export 'api/vh_auth_interceptor.dart';
+// generated the artefacts. The auth interceptor (api/vh_auth_interceptor.dart)
+// stays out of the public barrel — no app consumes it; its tests import it
+// directly (hygiene sweep FL-L6, 2026-08-09).
 export 'theme/app_theme.dart';
 export 'theme/design_tokens.dart';
 export 'theme/theme_colors.dart';
 export 'utils/color_contrast.dart';
-export 'utils/date_formatter.dart';
 export 'utils/input_sanitizer.dart';
 export 'utils/log_sanitizer.dart';
 export 'utils/request_reference.dart';
 export 'utils/safe_url_launcher.dart';
 export 'utils/validators.dart';
 export 'widgets/data_state_builder.dart';
-export 'widgets/error_boundary.dart';
 export 'widgets/offline_sync_badge.dart';
 export 'widgets/signature_pad_field.dart';
 export 'widgets/sos_button.dart';

@@ -49,6 +49,13 @@ class OrderDraft {
   List<Map<String, dynamic>>? cdsAlerts;
   bool checkingCds = false;
 
+  /// True when the advisory CDS pre-check FAILED to run (network/API error).
+  /// Distinct from `cdsAlerts == []` ("ran, no alerts") — the basket shows a
+  /// "safety pre-check unavailable" chip so a silent CDS outage can't read
+  /// as a clean bill of health. The server still re-runs the full safety
+  /// engine at submit either way.
+  bool cdsUnavailable = false;
+
   String get title {
     switch (orderType) {
       case 'medication':

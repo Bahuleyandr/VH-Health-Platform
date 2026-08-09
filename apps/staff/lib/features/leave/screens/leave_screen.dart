@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -155,7 +157,7 @@ class _LeaveScreenState extends State<LeaveScreen>
           _selectedReplacementName = null;
         });
         _tabController.animateTo(1);
-        _loadAll();
+        unawaited(_loadAll());
       }
     } catch (e) {
       if (mounted) {
@@ -916,7 +918,7 @@ class _LeaveScreenState extends State<LeaveScreen>
             backgroundColor: status == 'accepted' ? Colors.green : Colors.red,
           ),
         );
-        _loadAll();
+        unawaited(_loadAll());
       }
     } catch (e) {
       if (mounted) {

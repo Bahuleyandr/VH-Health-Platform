@@ -755,7 +755,6 @@ void main() {
       ),
       File('lib/features/audit/screens/audit_logs_screen.dart'),
       File('lib/features/diagnostics/screens/staff_diagnostics_screen.dart'),
-      File('lib/features/appointments/screens/appointment_queue_screen.dart'),
       File('lib/features/reception/screens/billing_desk_screen.dart'),
     ];
     final patterns = [
@@ -791,7 +790,6 @@ void main() {
       'profile.',
       'role.feature.',
       's4.dynamic.audit_logs.',
-      's4.lib.appointment_queue.',
       's4.lib.audit_logs.',
       's4.lib.billing_desk.',
       's4.dynamic.cath_lab.',

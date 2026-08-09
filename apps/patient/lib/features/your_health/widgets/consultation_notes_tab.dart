@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/your_health/models/consultation_note.dart';
@@ -57,19 +60,23 @@ class _ConsultationNotesTabState extends State<ConsultationNotesTab> {
         _isLoading = false;
       });
 
-      page.onFresh
-          ?.then((freshNotes) async {
-            final cached = await ApiCacheManager.load('/portal/clinical-notes');
-            if (!mounted) return;
-            setState(() {
-              _notes = freshNotes;
-              _staleLabel = null;
-              _cachedAt = cached?.cachedAt;
-            });
-          })
-          .catchError((Object e) {
-            debugPrint('Consultation notes background refresh failed: $e');
-          });
+      unawaited(
+        page.onFresh
+            ?.then((freshNotes) async {
+              final cached = await ApiCacheManager.load(
+                '/portal/clinical-notes',
+              );
+              if (!mounted) return;
+              setState(() {
+                _notes = freshNotes;
+                _staleLabel = null;
+                _cachedAt = cached?.cachedAt;
+              });
+            })
+            .catchError((Object e) {
+              debugPrint('Consultation notes background refresh failed: $e');
+            }),
+      );
     } catch (e) {
       debugPrint('Consultation notes fetch failed: $e');
       if (!mounted) return;
@@ -216,16 +223,7 @@ class _ConsultationNoteDetailScreenState
   bool _isLoading = true;
   String? _error;
   DateTime? _cachedAt;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _fetchNote();
-      }
-    });
-  }
+  bool _didUnlock = false;
 
   Future<void> _fetchNote() async {
     if (!mounted) return;
@@ -260,6 +258,18 @@ class _ConsultationNoteDetailScreenState
 
   @override
   Widget build(BuildContext context) {
+    // FL-H1: deep-linkable records detail — gated like the /health hub.
+    // The static grace window keeps hub -> detail from double-prompting.
+    return BiometricGate(onGranted: _onUnlocked, builder: _buildUnlocked);
+  }
+
+  void _onUnlocked() {
+    if (_didUnlock) return;
+    _didUnlock = true;
+    unawaited(_fetchNote());
+  }
+
+  Widget _buildUnlocked(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final initialTitle = widget.initialNote?.title ?? '';
     final fallbackTitle = initialTitle.isEmpty

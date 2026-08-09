@@ -175,7 +175,7 @@ class _TheatreScreenState extends State<TheatreScreen>
     );
     if (picked != null && picked != _selectedDate) {
       _selectedDate = picked;
-      _loadCurrentTab();
+      unawaited(_loadCurrentTab());
     }
   }
 
@@ -673,7 +673,7 @@ class _TheatreScreenState extends State<TheatreScreen>
           ),
         );
       }
-      _fetchSchedule();
+      unawaited(_fetchSchedule());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -781,7 +781,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                                       content: Text(str.theatreWhoRecorded),
                                     ),
                                   );
-                                  _fetchSchedule(showLoading: false);
+                                  unawaited(_fetchSchedule(showLoading: false));
                                 } catch (e) {
                                   if (!mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
@@ -892,7 +892,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                               ),
                             );
                           }
-                          _fetchSchedule();
+                          unawaited(_fetchSchedule());
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
