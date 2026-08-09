@@ -984,8 +984,8 @@ class BedService {
         );
       }
 
-      // Guard the patient against a double admission (mirrors
-      // bedManagementService.admitPatient).
+      // Guard the patient against a double admission (in-tx re-check; the
+      // migration-640 partial unique index is the concurrency backstop).
       const existing = await tx.$queryRawUnsafe(
         `SELECT id FROM admissions
           WHERE patient_uid = $1::uuid

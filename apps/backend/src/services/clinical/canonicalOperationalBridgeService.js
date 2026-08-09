@@ -211,9 +211,18 @@ export async function emitHousekeepingRequestRaised({
 } = {}) {
   const client = dbClient(db);
   if (!request?.id) return null;
+  // Bed-cleaning dispatch requests carry the patient whose stay triggered the
+  // turnover (housekeeping_requests.patient_uid, migration 643). Passing it
+  // here is what makes the canonical emit write the patient-facing
+  // clinical_timeline_events row — the timeline writer no-ops without a
+  // patient_uid, so patient-tied housekeeping used to leave audit rows only.
+  const patientUid = cleanUuid(request.patient_uid || request.patientUid);
+  const tenantId = cleanUuid(request.tenant_id || request.tenantId);
 
   return safeCanonical('housekeeping request raised', async () => {
     await recordCanonicalClinicalEvent({
+      tenantId,
+      patientUid,
       eventType: 'housekeeping.requested',
       eventStatus: request.status || 'open',
       sourceTable: 'housekeeping_requests',
@@ -229,6 +238,7 @@ export async function emitHousekeepingRequestRaised({
         location_text: request.location_text || null,
         request_type: request.request_type || request.task_type || null,
         urgency: request.urgency || null,
+        bed_id: request.bed_id || null,
         trigger,
         ...payload,
       },
@@ -238,14 +248,16 @@ export async function emitHousekeepingRequestRaised({
     }, { db: client });
 
     return startWorkflowSla({
+      tenantId,
       ruleCode: 'bed_cleaning_turnaround',
+      patientUid,
       sourceTable: 'housekeeping_requests',
       sourceId: String(request.id),
       priority: request.urgency || 'high',
       assignedUserUid: request.assigned_to_uid || null,
       metadata: {
         request_number: request.request_number || null,
-        bed_id: payload.bed_id || null,
+        bed_id: request.bed_id || payload.bed_id || null,
         trigger,
       },
     }, { db: client });
@@ -265,9 +277,15 @@ export async function emitHousekeepingRequestStatus({
   if (!request?.id) return null;
   const status = normalizeStatus(request.status);
   const stamp = eventTimestampKey(request.completed_at || request.updated_at || request.created_at) || Date.now();
+  // Same patient threading as emitHousekeepingRequestRaised: a status change on
+  // a patient-tied bed-cleaning ticket belongs on that patient's timeline.
+  const patientUid = cleanUuid(request.patient_uid || request.patientUid);
+  const tenantId = cleanUuid(request.tenant_id || request.tenantId);
 
   return safeCanonical(`housekeeping request ${eventType}`, async () => {
     const event = await recordCanonicalClinicalEvent({
+      tenantId,
+      patientUid,
       eventType,
       eventStatus: status,
       sourceTable: 'housekeeping_requests',
@@ -283,6 +301,7 @@ export async function emitHousekeepingRequestStatus({
         previous_status: previousStatus || null,
         status,
         request_type: request.request_type || request.task_type || null,
+        bed_id: request.bed_id || null,
         ...payload,
       },
       beforeState: previousStatus ? { status: previousStatus } : null,
@@ -294,6 +313,7 @@ export async function emitHousekeepingRequestStatus({
 
     if (['completed', 'verified', 'closed'].includes(status)) {
       await completeWorkflowSla({
+        tenantId,
         ruleCode: 'bed_cleaning_turnaround',
         sourceTable: 'housekeeping_requests',
         sourceId: String(request.id),
@@ -317,13 +337,21 @@ export async function emitBedMarkedReady({
   cleaningTicketId = null,
   cleanerId = null,
   notes = null,
+  patientUid = null,
+  tenantId = null,
 } = {}) {
   const client = dbClient(db);
   const id = bed?.id || bedId;
   if (!id) return null;
+  // The patient whose stay triggered the turnover (resolved by markBedReady
+  // from the proof ticket) — with it, bed.ready lands on the patient timeline.
+  const cleanPatientUid = cleanUuid(patientUid);
+  const cleanTenantId = cleanUuid(tenantId || bed?.tenant_id);
 
   return safeCanonical('bed marked ready', async () => {
     await recordCanonicalClinicalEvent({
+      tenantId: cleanTenantId,
+      patientUid: cleanPatientUid,
       eventType: 'bed.ready',
       eventStatus: 'available',
       sourceTable: 'beds',
@@ -348,6 +376,7 @@ export async function emitBedMarkedReady({
 
     if (cleaningTicketId) {
       return completeWorkflowSla({
+        tenantId: cleanTenantId,
         ruleCode: 'bed_cleaning_turnaround',
         sourceTable: 'housekeeping_requests',
         sourceId: String(cleaningTicketId),
