@@ -20,6 +20,9 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
     timeline: { id: 'timeline-event' },
     audit: { id: 'audit-event' },
   })),
+  // Imported by dischargeService for amendable-record idempotency keys
+  // (translation edits); must exist on the mock for ESM linking.
+  currentCanonicalTransactionRevision: jest.fn(async () => '1'),
 }));
 jest.unstable_mockModule('../../services/emr/inpatientPathwayDomainService.js', () => ({
   publishInpatientSourceEventTx: jest.fn(async () => null),
@@ -135,6 +138,9 @@ describe('discharge createDraft — patient snapshot fields', () => {
       resolveInpatientPathwayModeTxMock.mockResolvedValueOnce(mode);
       mockPrisma.$queryRawUnsafe
         .mockResolvedValueOnce([{ id: 1, sections: [] }])
+        // In-tx admission linkage validation (A-M4): admission exists, same
+        // tenant, and belongs to the summary's patient.
+        .mockResolvedValueOnce([{ id: 42, patient_uid: patientUid }])
         .mockResolvedValueOnce([{ id: 99 }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ id: 99, patient_uid: patientUid }])
