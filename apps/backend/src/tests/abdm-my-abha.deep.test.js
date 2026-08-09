@@ -30,8 +30,12 @@ const OTHER_TENANT_ID = '00000000-0000-4000-8000-0000000000f2';
 
 const LINKED_UID = 'f12a0000-0000-4000-8000-00000000000a';
 const UNLINKED_UID = 'f12a0000-0000-4000-8000-00000000000b';
+// Its own fixture so the link test's mutation cannot make any other test
+// order-dependent.
+const LINK_TARGET_UID = 'f12a0000-0000-4000-8000-00000000000c';
 const LINKED_PHONE = '+919000120001';
 const UNLINKED_PHONE = '+919000120002';
+const LINK_TARGET_PHONE = '+919000120003';
 const ABHA_NUMBER = '12345678901234';
 const ABHA_ADDRESS = 'f12patient@abdm';
 
@@ -45,8 +49,8 @@ function patientClient(uid, { tenantId = TENANT_ID } = {}) {
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
-    LINKED_UID, UNLINKED_UID,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+    LINKED_UID, UNLINKED_UID, LINK_TARGET_UID,
   ).catch(() => {});
 }
 
@@ -62,6 +66,11 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
       `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2::uuid, $3, 'F12 Unlinked Patient', 'PATIENT', true, NOW())`,
       UNLINKED_UID, TENANT_ID, UNLINKED_PHONE,
+    );
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'F12 Link Target Patient', 'PATIENT', true, NOW())`,
+      LINK_TARGET_UID, TENANT_ID, LINK_TARGET_PHONE,
     );
   });
 
@@ -98,6 +107,43 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
     expect(res.statusCode).toBe(404);
     // and it must not leak the linkage in the error payload
     expect(JSON.stringify(res.body)).not.toContain(ABHA_NUMBER);
+  });
+
+  test('a patient links their own existing ABHA with the client payload', async () => {
+    // Exactly the body apps/patient AbdmApiService.linkAbha() sends: snake_case
+    // abha_number/abha_address and NO patient_uid (the backend defaults the
+    // target to the caller's own uid). The patient app previously sent
+    // {mobile,name,yearOfBirth,gender,email} here and always got a 400.
+    const token = generateTestToken('PATIENT', { uid: LINK_TARGET_UID, tenant_id: TENANT_ID });
+    const linkRes = await request(app)
+      .post('/api/v1/abdm/register-abha')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ abha_number: '55556666777788', abha_address: 'newlink@abdm' });
+
+    expect(linkRes.statusCode).toBe(200);
+
+    // ABDM_ENABLED is unset here, so no gateway call happens — this is the
+    // credential-less path the deployment actually runs today.
+    const statusRes = await patientClient(LINK_TARGET_UID);
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.body.data).toEqual({
+      linked: true,
+      abhaNumber: '55556666777788',
+      abhaAddress: 'newlink@abdm',
+    });
+  });
+
+  test('a malformed ABHA number is refused rather than stored', async () => {
+    const token = generateTestToken('PATIENT', { uid: LINK_TARGET_UID, tenant_id: TENANT_ID });
+    const res = await request(app)
+      .post('/api/v1/abdm/register-abha')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ abha_number: '1234' });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.code).toBe('INVALID_ABHA_FORMAT');
   });
 
   test('an anonymous caller is rejected', async () => {

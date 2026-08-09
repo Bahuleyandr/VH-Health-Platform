@@ -92,6 +92,150 @@ void main() {
     expect(find.byKey(const ValueKey('abha_card')), findsNothing);
   });
 
+  group('linking an existing ABHA', () {
+    testWidgets('posts the normalised 14-digit number and re-reads linkage', (
+      tester,
+    ) async {
+      String? sentNumber;
+      String? sentAddress;
+      var loads = 0;
+
+      await tester.pumpWidget(
+        _LocalizedHarness(
+          child: MyAbhaTab(
+            loadLinkage: () async {
+              loads++;
+              return loads == 1
+                  ? const AbhaLinkage(linked: false)
+                  : const AbhaLinkage(
+                      linked: true,
+                      abhaNumber: '12345678901234',
+                      abhaAddress: 'ravi@abdm',
+                    );
+            },
+            linkAbha: ({required abhaNumber, abhaAddress}) async {
+              sentNumber = abhaNumber;
+              sentAddress = abhaAddress;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Register ABHA'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('abha_link_form')), findsOneWidget);
+
+      // Typed the way the number is printed on an ABHA card.
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'ABHA Number *'),
+        '12-3456-7890-1234',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'ABHA Address (optional)'),
+        'ravi@abdm',
+      );
+      await tester.tap(find.byKey(const ValueKey('abha_link_submit')));
+      await tester.pumpAndSettle();
+
+      // Hyphens stripped — the backend stores and validates 14 bare digits.
+      expect(sentNumber, '12345678901234');
+      expect(sentAddress, 'ravi@abdm');
+      // Canonical state re-read rather than trusting what we posted.
+      expect(loads, 2);
+      expect(find.byKey(const ValueKey('abha_card')), findsOneWidget);
+      expect(find.text('12345678901234'), findsOneWidget);
+    });
+
+    testWidgets('rejects a malformed ABHA number without calling the API', (
+      tester,
+    ) async {
+      var linkCalls = 0;
+
+      await tester.pumpWidget(
+        _LocalizedHarness(
+          child: MyAbhaTab(
+            loadLinkage: () async => const AbhaLinkage(linked: false),
+            linkAbha: ({required abhaNumber, abhaAddress}) async {
+              linkCalls++;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Register ABHA'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'ABHA Number *'),
+        '1234',
+      );
+      await tester.tap(find.byKey(const ValueKey('abha_link_submit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ABHA number must be 14 digits'), findsOneWidget);
+      expect(linkCalls, 0);
+      expect(find.byKey(const ValueKey('abha_link_form')), findsOneWidget);
+    });
+
+    testWidgets('a rejected link surfaces the backend message and stays put', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _LocalizedHarness(
+          child: MyAbhaTab(
+            loadLinkage: () async => const AbhaLinkage(linked: false),
+            linkAbha: ({required abhaNumber, abhaAddress}) async =>
+                throw const AbdmException(
+                  'This ABHA number is already linked to another patient',
+                ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Register ABHA'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'ABHA Number *'),
+        '99998888777766',
+      );
+      await tester.tap(find.byKey(const ValueKey('abha_link_submit')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('This ABHA number is already linked to another patient'),
+        findsOneWidget,
+      );
+      // Still on the form with the input intact, not silently "linked".
+      expect(find.byKey(const ValueKey('abha_link_form')), findsOneWidget);
+      expect(find.byKey(const ValueKey('abha_card')), findsNothing);
+    });
+
+    testWidgets('offers the official portal for patients with no ABHA', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _LocalizedHarness(
+          child: MyAbhaTab(
+            loadLinkage: () async => const AbhaLinkage(linked: false),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Register ABHA'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('abha_create_portal')), findsOneWidget);
+      expect(find.text('Create one at abha.abdm.gov.in'), findsOneWidget);
+      // The app must not pretend it can enrol an ABHA itself.
+      expect(find.textContaining('Year of Birth'), findsNothing);
+      expect(find.textContaining('OTP'), findsNothing);
+    });
+  });
+
   testWidgets('a failure shows the error state and hides registration', (
     tester,
   ) async {

@@ -5,52 +5,30 @@ import 'package:vhhealth/core/services/api_client.dart';
 class AbdmApiService {
   AbdmApiService._();
 
-  /// Register a new ABHA (Ayushman Bharat Health Account).
-  /// Returns the response map which may contain abhaNumber or otpRequired flag.
-  static Future<Map<String, dynamic>> registerAbha({
-    required String mobile,
-    required String name,
-    required String yearOfBirth,
-    required String gender,
-    String? email,
+  /// Link the patient's EXISTING ABHA to their VH Health account.
+  ///
+  /// This does not create an ABHA. The backend has no enrolment path — the
+  /// ABDM gateway client exposes only `verifyABHA`, and `POST /abdm/register-abha`
+  /// is an UPDATE of the caller's `abha_number`/`abha_address` columns. Patients
+  /// without an ABHA create one on the official ABDM portal first.
+  ///
+  /// `patient_uid` is deliberately omitted: the backend defaults the target to
+  /// the caller's own JWT uid, and sending someone else's is refused anyway.
+  static Future<void> linkAbha({
+    required String abhaNumber,
+    String? abhaAddress,
   }) async {
     final response = await ApiClient.post(
       '/abdm/register-abha',
       body: {
-        'mobile': mobile,
-        'name': name,
-        'yearOfBirth': yearOfBirth,
-        'gender': gender,
-        if (email != null && email.isNotEmpty) 'email': email,
+        'abha_number': abhaNumber,
+        if (abhaAddress != null && abhaAddress.isNotEmpty)
+          'abha_address': abhaAddress,
       },
     );
-    if (response.isSuccess) {
-      return response.dataAsMap();
+    if (!response.isSuccess) {
+      throw AbdmException(response.failureMessage('Could not link your ABHA'));
     }
-    throw AbdmException(
-      response.failureMessage(
-        'Failed to register ABHA (${response.statusCode})',
-      ),
-    );
-  }
-
-  /// Verify ABHA with OTP.
-  /// Returns the response map with verified ABHA details.
-  static Future<Map<String, dynamic>> verifyAbha({
-    required String abhaNumber,
-    required String otp,
-    required String mobile,
-  }) async {
-    final response = await ApiClient.post(
-      '/abdm/verify-abha',
-      body: {'abhaNumber': abhaNumber, 'otp': otp, 'mobile': mobile},
-    );
-    if (response.isSuccess) {
-      return response.dataAsMap();
-    }
-    throw AbdmException(
-      response.failureMessage('Failed to verify ABHA (${response.statusCode})'),
-    );
   }
 
   /// Fetch the signed-in patient's own ABHA linkage state.
