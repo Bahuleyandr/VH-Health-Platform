@@ -61,7 +61,6 @@ Color ensureTextContrast(
     }
     return source.withLightness(passing).toColor();
   }
-
   final darker = nearestPassingColor(0);
   final lighter = nearestPassingColor(1);
   if (darker == null && lighter == null) {
