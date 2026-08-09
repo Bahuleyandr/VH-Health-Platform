@@ -1155,7 +1155,12 @@ if (process.env.NODE_ENV !== 'test') {
     let year = now.getFullYear();
     if (month === 0) { month = 12; year--; }
 
-    const { calculatePayslip, savePayslip } = await import('../services/staff/payrollService.js');
+    const {
+      calculatePayslip,
+      savePayslip,
+      recordPayrollFailure,
+      summarizePayrollRunOutcome,
+    } = await import('../services/staff/payrollService.js');
 
     // Check if already done
     const existing = await prisma.$queryRawUnsafe(
@@ -1179,15 +1184,19 @@ if (process.env.NODE_ENV !== 'test') {
 
     // Create / reset run
     const run = await prisma.$queryRawUnsafe(
+      // Clear the previous attempt's failure tally when re-running, so a run
+      // that dies before finalizing cannot leave a stale count on display.
       `INSERT INTO payroll_runs (month, year, status)
        VALUES ($1, $2, 'processing')
-       ON CONFLICT (tenant_id, month, year) DO UPDATE SET status='processing'
+       ON CONFLICT (tenant_id, month, year) DO UPDATE
+         SET status='processing', failed_staff_count=0, failed_staff=NULL
        RETURNING id, month, year, status, total_staff, total_gross, total_net, total_deductions, created_at`,
       month, year
     );
     const runId = run[0].id;
 
     let processed = 0;
+    const failures = [];
     let totalGross = 0, totalNet = 0, totalDeductions = 0;
     for (const staff of staffList) {
       try {
@@ -1198,15 +1207,34 @@ if (process.env.NODE_ENV !== 'test') {
         totalDeductions += parseFloat(calc.total_deductions) || 0;
         processed++;
       } catch (e) {
-        logger.warn(`Payroll calc failed for ${staff.staff_uid}: ${e.message}`);
+        // One staff member's failure must not abort the others, but it must
+        // survive into the run record — an unpaid person is not a zero-paid one.
+        logger.error(`Payroll calc failed for ${staff.staff_uid}: ${e.message}`);
+        recordPayrollFailure(failures, staff.staff_uid, e);
       }
     }
 
+    const outcome = summarizePayrollRunOutcome({
+      processed, failures, totalGross, totalNet, totalDeductions,
+    });
     await prisma.$queryRawUnsafe(
-      `UPDATE payroll_runs SET status='completed', total_staff=$1, total_gross=$2, total_net=$3, total_deductions=$4 WHERE id=$5`,
-      processed, totalGross.toFixed(2), totalNet.toFixed(2), totalDeductions.toFixed(2), runId
+      `UPDATE payroll_runs
+          SET status=$1, total_staff=$2, total_gross=$3, total_net=$4,
+              total_deductions=$5, failed_staff_count=$6, failed_staff=$7::jsonb
+        WHERE id=$8`,
+      outcome.status, outcome.total_staff, outcome.total_gross, outcome.total_net,
+      outcome.total_deductions, outcome.failed_staff_count,
+      JSON.stringify(outcome.failed_staff),
+      runId
     );
-    logger.info(`Monthly payroll generated: ${processed} payslips for ${month}/${year}`);
+    if (outcome.failed_staff_count > 0) {
+      logger.error(
+        `Monthly payroll ${month}/${year} completed WITH ERRORS: ${processed} payslips written, ` +
+        `${outcome.failed_staff_count} staff failed — those staff have no payslip for this period`
+      );
+    } else {
+      logger.info(`Monthly payroll generated: ${processed} payslips for ${month}/${year}`);
+    }
   }));
 
   // 🗓️ Weekly Monday 02:30 — ClinicalTrials.gov catalog sync for every active tenant

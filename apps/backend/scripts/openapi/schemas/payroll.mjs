@@ -18,7 +18,10 @@ const MT = 'string';
 // enum array null-free and pair it with `nullable: true`. ----
 //
 // payroll_runs.status lifecycle: draft -> processing -> completed -> approved -> locked
-const PAYROLL_RUN_STATUS = ['draft', 'processing', 'completed', 'approved', 'locked'];
+// 'completed_with_errors' (migration 644) is the terminal state for a run that
+// lost staff to calculation failures — 'completed' now means every staff member
+// actually got a payslip.
+const PAYROLL_RUN_STATUS = ['draft', 'processing', 'completed', 'completed_with_errors', 'approved', 'locked'];
 // payslips.status lifecycle: draft -> issued -> viewed -> downloaded
 const PAYSLIP_STATUS = ['draft', 'issued', 'viewed', 'downloaded'];
 // salary_revisions.status lifecycle: pending_hr -> pending_admin -> approved -> applied; rejected from either pending state
@@ -55,9 +58,10 @@ export const schemas = {
   // SUB-DOMAIN: payroll-runs
   // =====================================================================
 
-  // ---- getPayrollRuns GET /payroll/runs item: SELECT pr.* + generated_by_name.
-  // SELECT * → leaks tenant_id + all payroll_runs columns → LOOSE
-  // (additionalProperties:true) with a typed required core. ----
+  // ---- getPayrollRuns GET /payroll/runs item: explicit payroll_runs columns +
+  // generated_by_name. Still includes tenant_id (unchanged payload), and
+  // deliberately excludes failed_staff — that column holds internal error text.
+  // Kept LOOSE (additionalProperties:true) with a typed required core. ----
   PayrollRunListItem: {
     type: 'object', additionalProperties: true,
     required: ['id', 'month', 'year', 'status'],
@@ -67,6 +71,7 @@ export const schemas = {
       year: { type: 'integer' },
       status: { type: 'string', nullable: true, enum: PAYROLL_RUN_STATUS },
       total_staff: { type: 'integer', nullable: true },
+      failed_staff_count: { type: 'integer' },
       total_gross: { type: MT, nullable: true },
       total_net: { type: MT, nullable: true },
       total_deductions: { type: MT, nullable: true },
@@ -259,14 +264,17 @@ export const schemas = {
   PayslipDetailResponse: envelope('PayslipDetail'),
 
   // ---- runPayroll JS summary. total_gross/total_net are .toFixed(2) → JS
-  // STRINGS (formatting, not Decimal column). run_id/processed/failed integers. ----
+  // STRINGS (formatting, not Decimal column). run_id/processed/failed integers.
+  // `status` echoes the persisted run status so a caller can tell a clean run
+  // from one that finished 'completed_with_errors' without a second fetch. ----
   PayrollRunResult: {
     type: 'object', additionalProperties: false,
-    required: ['run_id', 'processed', 'failed', 'total_gross', 'total_net'],
+    required: ['run_id', 'processed', 'failed', 'status', 'total_gross', 'total_net'],
     properties: {
       run_id: { type: 'integer' },
       processed: { type: 'integer' },
       failed: { type: 'integer' },
+      status: { type: 'string', enum: PAYROLL_RUN_STATUS },
       total_gross: { type: 'string', example: '125000.00' },
       total_net: { type: 'string', example: '110000.00' },
     },

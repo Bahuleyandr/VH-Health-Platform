@@ -30862,6 +30862,7 @@
               "draft",
               "processing",
               "completed",
+              "completed_with_errors",
               "approved",
               "locked"
             ]
@@ -30988,6 +30989,7 @@
               "draft",
               "processing",
               "completed",
+              "completed_with_errors",
               "approved",
               "locked"
             ]
@@ -31098,6 +31100,7 @@
               "draft",
               "processing",
               "completed",
+              "completed_with_errors",
               "approved",
               "locked"
             ]
@@ -31105,6 +31108,9 @@
           "total_staff": {
             "type": "integer",
             "nullable": true
+          },
+          "failed_staff_count": {
+            "type": "integer"
           },
           "total_gross": {
             "type": "string",
@@ -31223,6 +31229,7 @@
           "run_id",
           "processed",
           "failed",
+          "status",
           "total_gross",
           "total_net"
         ],
@@ -31235,6 +31242,17 @@
           },
           "failed": {
             "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "processing",
+              "completed",
+              "completed_with_errors",
+              "approved",
+              "locked"
+            ]
           },
           "total_gross": {
             "type": "string",

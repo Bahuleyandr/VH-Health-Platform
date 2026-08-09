@@ -118,7 +118,14 @@ export function PayrollRunsTab() {
                   <td className="px-4 py-3 font-semibold text-teal-700">
                     {fmtCurrency(run.total_net)}
                   </td>
-                  <td className="px-4 py-3">{statusBadge(run.status)}</td>
+                  <td className="px-4 py-3">
+                    {statusBadge(run.status)}
+                    {run.failed_staff_count > 0 && (
+                      <div className="mt-1 text-xs font-semibold text-red-600">
+                        {run.failed_staff_count} staff failed — no payslip
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-500">
                     {run.generated_by_name ?? "—"}
                   </td>
