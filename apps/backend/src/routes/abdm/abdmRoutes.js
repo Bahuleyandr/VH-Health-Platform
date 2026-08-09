@@ -9,6 +9,7 @@ import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import logger from '../../logging/logger.js';
 import abdmService from '../../services/abdm/abdmService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
+import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
@@ -382,6 +383,49 @@ patientRouter.post('/verify-abha', async (req, res, next) => {
       return relayAppError(res, err, 'Failed to verify ABHA');
     }
     logger.error('Failed to verify ABHA', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /abdm/my-abha
+ * The calling patient's OWN ABHA linkage state.
+ *
+ * The patient app previously had no self-scoped way to ask this and fell back to
+ * the staff/admin `/patient-by-abha/:abhaNumber` lookup below, which 403s for the
+ * PATIENT role — so an already-linked patient was shown the registration form
+ * (audit F12). Identity comes from the JWT only; there is no lookup parameter, so
+ * this endpoint can never disclose another patient's linkage.
+ *
+ * Reads local linkage columns only — no ABDM gateway call — so it keeps working
+ * while ABDM credentials are unset and the gateway routes 503.
+ */
+patientRouter.get('/my-abha', async (req, res, next) => {
+  try {
+    const patientUid = req.user?.uid;
+    if (!patientUid) {
+      return error(res, 'Authentication required', 401);
+    }
+
+    const linkage = await abdmService.getMyAbhaLinkage(patientUid, { tenantId: req.tenantId });
+
+    logPhiAccess({
+      userId: patientUid,
+      userRole: req.user?.role,
+      patientId: patientUid,
+      recordType: 'abha_linkage',
+      action: 'VIEW',
+      ip: req.ip,
+      requestId: req.id,
+      tenantId: req.tenantId,
+    });
+
+    return success(res, linkage, 'ABHA linkage retrieved', 200);
+  } catch (err) {
+    if (err.isOperational) {
+      return relayAppError(res, err, 'Failed to get ABHA linkage');
+    }
+    logger.error('Failed to get ABHA linkage', { error: err.message });
     next(err);
   }
 });

@@ -17,12 +17,17 @@ import { AppError } from '../../utils/AppError.js';
 //   * the validateABDMRequest fail-closed auth catch (R5): AppError-shaped
 //     errors relay code+details, while a bare Error keeps the historical
 //     raw-message-at-401 wire behaviour exactly.
+//
+// GET /my-abha (audit F12) uses the first shape, and is covered here for both
+// tails plus the rule that a failed read must emit NO PHI-access record.
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 
 const handleConsentRequestMock = jest.fn();
 const getPatientConsentsMock = jest.fn();
 const grantConsentMock = jest.fn();
+const getMyAbhaLinkageMock = jest.fn();
+const logPhiAccessMock = jest.fn();
 const verifySignedRequestMock = jest.fn();
 const assertSharedReplayOnceMock = jest.fn();
 const resolveTenantBySenderMock = jest.fn();
@@ -48,8 +53,20 @@ jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js',
   getInteropSecret: getInteropSecretMock,
 }));
 
+// A module stub must mirror EVERY export the router's import graph reaches, or
+// ESM fails the whole graph at load with "does not provide an export named X"
+// and the suite reports 0 tests rather than a readable assertion failure.
+// `requireTenantId` is reachable via utils/hipaaAudit.js (mocked just below);
+// it is kept here so this stub stays faithful to the real module's surface.
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: TENANT,
+  requireTenantId: (tenantId) => tenantId || TENANT,
+}));
+
+// Route-layer unit: keep the real HIPAA audit sink (Prisma + a setImmediate DB
+// write) out of the graph, and make PHI logging observable.
+jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
+  logPhiAccess: logPhiAccessMock,
 }));
 
 jest.unstable_mockModule('../../services/integrations/externalAbdmRecoveryService.js', () => ({
@@ -65,6 +82,7 @@ jest.unstable_mockModule('../../services/abdm/abdmService.js', () => ({
     getPatientByABHA: jest.fn(),
     getAdminStatus: jest.fn(),
     listConsentRequests: jest.fn(),
+    getMyAbhaLinkage: getMyAbhaLinkageMock,
     getPatientConsents: getPatientConsentsMock,
     grantConsent: grantConsentMock,
     denyConsent: jest.fn(),
@@ -96,6 +114,8 @@ beforeEach(() => {
   handleConsentRequestMock.mockReset();
   getPatientConsentsMock.mockReset();
   grantConsentMock.mockReset();
+  getMyAbhaLinkageMock.mockReset();
+  logPhiAccessMock.mockReset();
   verifySignedRequestMock.mockReset();
   assertSharedReplayOnceMock.mockReset();
   resolveTenantBySenderMock.mockReset();
@@ -132,6 +152,66 @@ describe('abdmRoutes relays AppError code + details through relayAppError', () =
     expect(response.body.code).toBe('ABDM_CONSENT_NOT_GRANTABLE');
     expect(response.body.details).toEqual({ reason: 'x' });
     expect(response.body.requestId).toBe('test-request-id');
+    expect(globalHandlerSpy).not.toHaveBeenCalled();
+  });
+
+  test('my-abha isOperational guard relays code + details, and logs no PHI access', async () => {
+    getMyAbhaLinkageMock.mockRejectedValueOnce(AppError.notFound(
+      'Patient not found',
+      'PATIENT_NOT_FOUND',
+    ));
+
+    const response = await request(app).get('/abdm/my-abha');
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body.success).toBe(false);
+    expect(response.body.code).toBe('PATIENT_NOT_FOUND');
+    expect(globalHandlerSpy).not.toHaveBeenCalled();
+    // A read that never returned linkage must not leave a PHI-access record.
+    expect(logPhiAccessMock).not.toHaveBeenCalled();
+  });
+
+  test('my-abha non-AppError takes the logger + next(err) tail and leaks nothing', async () => {
+    getMyAbhaLinkageMock.mockRejectedValueOnce(
+      new Error("column users.abha_numberr does not exist"),
+    );
+
+    const response = await request(app).get('/abdm/my-abha');
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body.message).toBe('handled-by-global-error-middleware');
+    expect(JSON.stringify(response.body)).not.toMatch(/abha_numberr/);
+    expect(globalHandlerSpy).toHaveBeenCalledTimes(1);
+    expect(logPhiAccessMock).not.toHaveBeenCalled();
+  });
+
+  test('my-abha success records one PHI access for the caller only', async () => {
+    getMyAbhaLinkageMock.mockResolvedValueOnce({
+      linked: true,
+      abhaNumber: '12345678901234',
+      abhaAddress: 'patient@abdm',
+    });
+
+    const response = await request(app).get('/abdm/my-abha');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({
+      linked: true,
+      abhaNumber: '12345678901234',
+      abhaAddress: 'patient@abdm',
+    });
+    // Identity comes from the JWT subject — never a request parameter.
+    expect(getMyAbhaLinkageMock).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      expect.anything(),
+    );
+    expect(logPhiAccessMock).toHaveBeenCalledTimes(1);
+    expect(logPhiAccessMock.mock.calls[0][0]).toMatchObject({
+      userId: '11111111-1111-4111-8111-111111111111',
+      patientId: '11111111-1111-4111-8111-111111111111',
+      recordType: 'abha_linkage',
+      action: 'VIEW',
+    });
     expect(globalHandlerSpy).not.toHaveBeenCalled();
   });
 

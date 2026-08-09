@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
+import * as abdm from '../../../scripts/openapi/schemas/abdm.mjs';
 import * as money from '../../../scripts/openapi/schemas/money.mjs';
 import * as appointments from '../../../scripts/openapi/schemas/appointments.mjs';
 import * as discharge from '../../../scripts/openapi/schemas/discharge.mjs';
@@ -35,6 +36,7 @@ import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
 const MODULES = [
+  abdm,
   money,
   appointments,
   discharge,

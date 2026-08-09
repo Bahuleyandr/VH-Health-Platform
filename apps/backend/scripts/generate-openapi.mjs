@@ -13,6 +13,7 @@ import {
   findEquivalentPathCollisions
 } from './openapi/buildSpec.mjs';
 import { OPENAPI_BASE } from './openapi/base.mjs';
+import * as abdm from './openapi/schemas/abdm.mjs';
 import * as money from './openapi/schemas/money.mjs';
 import * as appointments from './openapi/schemas/appointments.mjs';
 import * as discharge from './openapi/schemas/discharge.mjs';
@@ -44,6 +45,7 @@ import * as publicPaymentPage from './openapi/schemas/publicPaymentPage.mjs';
 import * as firebaseAuth from './openapi/schemas/firebaseAuth.mjs';
 
 const SCHEMA_MODULES = [
+  abdm,
   money,
   appointments,
   discharge,
