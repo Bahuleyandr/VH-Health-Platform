@@ -718,12 +718,21 @@ async function admitPatient(data) {
     appointment_id: appointmentIdArg,
     source_pathway_instance_id: sourcePathwayInstanceIdArg,
     source_handoff_id: sourceHandoffIdArg,
+    counter_treatment_consent_id: counterTreatmentConsentIdArg,
   } = data;
   const admissionTenantId = tenant_id || null;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!admitting_doctor) throw AppError.badRequest('admitting_doctor is required');
   if (!created_by) throw AppError.badRequest('created_by is required');
+
+  let counterTreatmentConsentId = null;
+  if (counterTreatmentConsentIdArg !== undefined && counterTreatmentConsentIdArg !== null) {
+    counterTreatmentConsentId = Number(counterTreatmentConsentIdArg);
+    if (!Number.isInteger(counterTreatmentConsentId) || counterTreatmentConsentId <= 0) {
+      throw AppError.badRequest('counter_treatment_consent_id must be a positive integer');
+    }
+  }
 
   // Reject non-existent or non-clinical doctor UIDs before we lock the
   // bed / mint the encounter / fire downstream best-effort writes. Both
@@ -1379,24 +1388,34 @@ async function admitPatient(data) {
     // asserted counter capture without that pre-flight hold. Either way the
     // consent only becomes active if this transaction commits.
     if (counterConsentToActivate) {
-      const activatedRows = await tx.$queryRawUnsafe(
-        `UPDATE patient_consents
-            SET status = 'active',
-                granted = true,
-                granted_at = NOW(),
-                granted_by = COALESCE(granted_by, $1),
-                updated_at = NOW()
-          WHERE tenant_id = $2::uuid
-            AND patient_uid = $3::uuid
-            AND consent_type = 'treatment'
-            AND status = 'provisional'
-          RETURNING id`,
-        created_by,
-        transactionTenantId,
-        patient_uid,
-      );
-      let counterConsentRow = activatedRows[0] ?? null;
-      if (!counterConsentRow) {
+      let counterConsentRow = null;
+      if (counterTreatmentConsentId !== null) {
+        const activatedRows = await tx.$queryRawUnsafe(
+          `UPDATE patient_consents
+              SET status = 'active',
+                  granted = true,
+                  granted_at = NOW(),
+                  granted_by = COALESCE(granted_by, $1),
+                  updated_at = NOW()
+            WHERE id = $2::int
+              AND tenant_id = $3::uuid
+              AND patient_uid = $4::uuid
+              AND consent_type = 'treatment'
+              AND status = 'provisional'
+            RETURNING id`,
+          created_by,
+          counterTreatmentConsentId,
+          transactionTenantId,
+          patient_uid,
+        );
+        counterConsentRow = activatedRows[0] ?? null;
+        if (!counterConsentRow) {
+          throw AppError.conflict(
+            'Counter treatment consent is no longer available for this admission',
+            'COUNTER_CONSENT_STATE_CONFLICT',
+          );
+        }
+      } else {
         counterConsentRow = await tx.patient_consents.create({
           data: {
             patient_uid,
@@ -5513,37 +5532,51 @@ async function createCounterAdmissionPatient({
 // the consent goes active if and only if the admission commits.
 async function ensureCounterTreatmentConsent({ patientUid, grantedBy = null, tenantId = null }) {
   if (!patientUid) return null;
-  const active = await prisma.patient_consents.findFirst({
-    where: {
-      patient_uid: patientUid,
-      ...(tenantId ? { tenant_id: tenantId } : {}),
-      consent_type: 'treatment',
-      status: 'active',
-    },
-    select: { id: true },
-  });
-  if (active) return active;
-  const provisional = await prisma.patient_consents.findFirst({
-    where: {
-      patient_uid: patientUid,
-      ...(tenantId ? { tenant_id: tenantId } : {}),
-      consent_type: 'treatment',
-      status: 'provisional',
-    },
-    select: { id: true },
-  });
-  if (provisional) return provisional;
-  return prisma.patient_consents.create({
-    data: {
-      patient_uid: patientUid,
-      ...(tenantId ? { tenant_id: tenantId } : {}),
-      consent_type: 'treatment',
-      granted: false,
-      status: 'provisional',
-      granted_by: grantedBy,
-      notes: 'Captured at reception admission counter (provisional until the admission commits)',
-    },
-    select: { id: true },
+  const transactionTenantId = requireTenantId(tenantId);
+  return setTenantTx(transactionTenantId, async (tx) => {
+    const patientRows = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+        FOR UPDATE`,
+      transactionTenantId,
+      patientUid,
+    );
+    if (!patientRows.length) throw AppError.notFound('Patient not found');
+
+    const active = await tx.patient_consents.findFirst({
+      where: {
+        patient_uid: patientUid,
+        tenant_id: transactionTenantId,
+        consent_type: 'treatment',
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    if (active) return active;
+    const provisional = await tx.patient_consents.findFirst({
+      where: {
+        patient_uid: patientUid,
+        tenant_id: transactionTenantId,
+        consent_type: 'treatment',
+        status: 'provisional',
+      },
+      select: { id: true },
+    });
+    if (provisional) return provisional;
+    return tx.patient_consents.create({
+      data: {
+        patient_uid: patientUid,
+        tenant_id: transactionTenantId,
+        consent_type: 'treatment',
+        granted: false,
+        status: 'provisional',
+        granted_by: grantedBy,
+        notes: 'Captured at reception admission counter (provisional until the admission commits)',
+      },
+      select: { id: true },
+    });
   });
 }
 

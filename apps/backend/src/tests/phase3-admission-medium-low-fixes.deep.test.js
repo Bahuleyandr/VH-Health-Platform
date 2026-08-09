@@ -463,12 +463,20 @@ d('Phase-3 admission Medium/Low fixes (A-M1, A-L1, A-L2, A-L3)', () => {
   // ── A-L3: counter consent is provisional until the admission commits ──────
 
   it('A-L3: ensureCounterTreatmentConsent mints a provisional (not active) consent', async () => {
-    const held = await admissionService.ensureCounterTreatmentConsent({
-      patientUid: CONSENT_PATIENT_UID,
-      grantedBy: ADMIN_UID,
-      tenantId: DEFAULT_TENANT_ID,
-    });
+    const [held, raced] = await Promise.all([
+      admissionService.ensureCounterTreatmentConsent({
+        patientUid: CONSENT_PATIENT_UID,
+        grantedBy: ADMIN_UID,
+        tenantId: DEFAULT_TENANT_ID,
+      }),
+      admissionService.ensureCounterTreatmentConsent({
+        patientUid: CONSENT_PATIENT_UID,
+        grantedBy: ADMIN_UID,
+        tenantId: DEFAULT_TENANT_ID,
+      }),
+    ]);
     expect(held?.id).toBeTruthy();
+    expect(raced.id).toBe(held.id);
 
     const rows = await treatmentConsents(CONSENT_PATIENT_UID);
     expect(rows).toHaveLength(1);
@@ -489,6 +497,7 @@ d('Phase-3 admission Medium/Low fixes (A-M1, A-L1, A-L2, A-L3)', () => {
   it('A-L3: a failed admission leaves no active consent behind', async () => {
     // BED_BLOCKED is occupied — the in-tx bed availability check throws after
     // the consent activation point, so the whole transaction rolls back.
+    const [held] = await treatmentConsents(CONSENT_PATIENT_UID);
     await expect(
       admissionService.admitPatient({
         patient_uid: CONSENT_PATIENT_UID,
@@ -500,6 +509,7 @@ d('Phase-3 admission Medium/Low fixes (A-M1, A-L1, A-L2, A-L3)', () => {
         created_by: ADMIN_UID,
         tenant_id: DEFAULT_TENANT_ID,
         counter_consent_captured: true,
+        counter_treatment_consent_id: held.id,
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
 
@@ -514,6 +524,18 @@ d('Phase-3 admission Medium/Low fixes (A-M1, A-L1, A-L2, A-L3)', () => {
   it('A-L3: a successful admission activates the provisional consent atomically with the canonical pair', async () => {
     const before = await treatmentConsents(CONSENT_PATIENT_UID);
     const provisionalId = before[0].id;
+    const staleDuplicate = await prisma.patient_consents.create({
+      data: {
+        patient_uid: CONSENT_PATIENT_UID,
+        tenant_id: DEFAULT_TENANT_ID,
+        consent_type: 'treatment',
+        granted: false,
+        status: 'provisional',
+        granted_by: ADMIN_UID,
+        notes: 'Legacy duplicate provisional fixture',
+      },
+      select: { id: true },
+    });
 
     const admission = await admissionService.admitPatient({
       patient_uid: CONSENT_PATIENT_UID,
@@ -525,15 +547,20 @@ d('Phase-3 admission Medium/Low fixes (A-M1, A-L1, A-L2, A-L3)', () => {
       created_by: ADMIN_UID,
       tenant_id: DEFAULT_TENANT_ID,
       counter_consent_captured: true,
+      counter_treatment_consent_id: provisionalId,
     });
     expect(admission.status).toBe('admitted');
 
     const rows = await treatmentConsents(CONSENT_PATIENT_UID);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].id).toBe(provisionalId); // the hold was activated, not duplicated
-    expect(rows[0].status).toBe('active');
-    expect(rows[0].granted).toBe(true);
-    expect(rows[0].granted_at).not.toBeNull();
+    expect(rows).toHaveLength(2);
+    const activated = rows.find((row) => row.id === provisionalId);
+    const untouched = rows.find((row) => row.id === staleDuplicate.id);
+    expect(activated?.status).toBe('active');
+    expect(activated?.granted).toBe(true);
+    expect(activated?.granted_at).not.toBeNull();
+    expect(untouched?.status).toBe('provisional');
+    expect(untouched?.granted).toBe(false);
+    expect(untouched?.granted_at).toBeNull();
 
     expect(await timelineRows(CONSENT_PATIENT_UID, 'consent.granted')).toHaveLength(1);
     expect(await auditRows(CONSENT_PATIENT_UID, 'consent.granted')).toHaveLength(1);
