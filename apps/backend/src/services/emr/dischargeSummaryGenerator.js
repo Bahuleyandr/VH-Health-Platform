@@ -3,6 +3,10 @@ import crypto from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateClinicalText, getClinicalAiConfig } from '../ai/localLlmClient.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -1087,6 +1091,51 @@ export async function generateDischargeSummary(admissionId, requestedBy, req) {
   return summary;
 }
 
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// the legacy clinical_notes discharge-summary path (the D2-cascade path) is a
+// medico-legal, patient-facing clinical artifact, so each successful save and
+// sign must emit one clinical_timeline_events row + one clinical_audit_events
+// row in the SAME transaction as the detail write — previously this path wrote
+// only the outbox + legacy audit_logs rows, leaving the canonical patient
+// timeline blind to the document. Runs on the transaction client (`db`) and is
+// NOT swallowed: with a tx + patientUid, recordCanonicalClinicalEvent requires
+// both rows, so a failed emit aborts the enclosing save/sign transaction.
+function emitDischargeNoteCanonicalEvent({
+  db, tenantId, noteId, admissionId, encounterId = null, patientUid,
+  eventType, eventStatus, actorUid = null, actorRole = null, occurredAt = null,
+  summary, payload = {}, previousStatus = null,
+  timelineIdempotencyKey, auditIdempotencyKey,
+}) {
+  if (!patientUid) return null;
+  return recordCanonicalClinicalEvent({
+    tenantId: requireTenantId(tenantId),
+    patientUid,
+    encounterId,
+    eventType,
+    eventStatus,
+    sourceTable: 'clinical_notes',
+    sourceId: String(noteId),
+    resourceType: 'discharge_summary',
+    resourceId: String(noteId),
+    actorUid,
+    actorRole,
+    occurredAt,
+    summary,
+    payload: {
+      clinical_note_id: Number(noteId),
+      admission_id: admissionId,
+      status: eventStatus,
+      previous_status: previousStatus,
+      ...payload,
+    },
+    beforeState: previousStatus ? { status: previousStatus } : null,
+    afterState: { status: eventStatus },
+    tags: ['discharge_summary'],
+    timelineIdempotencyKey,
+    auditIdempotencyKey,
+  }, { db });
+}
+
 export async function saveDischargeSummary(admissionId, summary, savedBy, savedByRole, tenantId = null) {
   if (!savedBy) throw AppError.badRequest('savedBy is required');
   if (!savedByRole) throw AppError.badRequest('savedByRole is required');
@@ -1128,6 +1177,7 @@ export async function saveDischargeSummary(admissionId, summary, savedBy, savedB
     });
 
     let saved;
+    let noteVersion;
     if (existing) {
       if (existing.is_signed) {
         throw AppError.badRequest('Signed discharge summary cannot be modified. Add an addendum instead.');
@@ -1141,9 +1191,10 @@ export async function saveDischargeSummary(admissionId, summary, savedBy, savedB
           ai_generation_id: content.draft_generation_id || null,
           updated_at: new Date(),
         },
-        select: { id: true },
+        select: { id: true, version: true },
       });
       saved = { noteId: updated.id, action: 'updated' };
+      noteVersion = updated.version;
     } else {
       const created = await tx.clinical_notes.create({
         data: {
@@ -1159,9 +1210,10 @@ export async function saveDischargeSummary(admissionId, summary, savedBy, savedB
           is_signed: false,
           ai_generation_id: content.draft_generation_id || null,
         },
-        select: { id: true },
+        select: { id: true, version: true },
       });
       saved = { noteId: created.id, action: 'created' };
+      noteVersion = created.version;
     }
 
     if (content.draft_generation_id) {
@@ -1201,6 +1253,33 @@ export async function saveDischargeSummary(admissionId, summary, savedBy, savedB
       },
       tx,
       tenantId: requireTenantId(tenantId),
+    });
+
+    // Canonical pair for the save, in this SAME tx. Saves are amendable —
+    // every save re-emits for the same note — so the idempotency keys carry
+    // the post-write version as state fingerprint plus the :tx: revision
+    // suffix (PR #589 pattern); a fixed key would silently absorb every
+    // save after the first.
+    const revision = await currentCanonicalTransactionRevision(tx);
+    await emitDischargeNoteCanonicalEvent({
+      db: tx,
+      tenantId,
+      noteId: saved.noteId,
+      admissionId,
+      encounterId: admission.encounter_id,
+      patientUid: admission.patient_uid,
+      eventType: 'discharge_summary.saved',
+      eventStatus: 'draft',
+      actorUid: savedBy,
+      actorRole: savedByRole,
+      summary: `Discharge summary draft ${saved.action}`,
+      payload: {
+        version: noteVersion,
+        action: saved.action,
+        generation_id: content.draft_generation_id || null,
+      },
+      timelineIdempotencyKey: `clinical_notes:${saved.noteId}:discharge_summary_saved:v${noteVersion}:tx:${revision}`,
+      auditIdempotencyKey: `clinical_notes:${saved.noteId}:audit:discharge_summary_saved:v${noteVersion}:tx:${revision}`,
     });
 
     return saved;
@@ -1307,6 +1386,33 @@ export async function signDischargeSummary(admissionId, doctorUid, tenantId = nu
           ai_generation_id: note.ai_generation_id || null,
         },
       },
+    });
+
+    // Canonical pair for the signature, in this SAME tx. Insert-once fixed
+    // keys are valid here: the guarded is_signed flip above (count === 0 →
+    // 400) means this emit runs at most once per note, and a signed note has
+    // no in-place amendment path (corrections are addenda).
+    await emitDischargeNoteCanonicalEvent({
+      db: tx,
+      tenantId,
+      noteId: note.id,
+      admissionId,
+      encounterId: admission.encounter_id,
+      patientUid: admission.patient_uid,
+      eventType: 'discharge_summary.signed',
+      eventStatus: 'signed',
+      actorUid: doctorUid,
+      actorRole: signer?.signed_by_role || 'DOCTOR',
+      occurredAt: signedAt,
+      previousStatus: 'draft',
+      summary: `Discharge summary signed${signer?.signed_by_name ? ` by ${signer.signed_by_name}` : ''}`,
+      payload: {
+        signed_by_name: signer?.signed_by_name || null,
+        signed_by_role: signer?.signed_by_role || null,
+        ai_generation_id: note.ai_generation_id || null,
+      },
+      timelineIdempotencyKey: `clinical_notes:${note.id}:discharge_summary_signed`,
+      auditIdempotencyKey: `clinical_notes:${note.id}:audit:discharge_summary_signed`,
     });
 
     // A2 (audit): a SIGNED discharge summary is a legally/clinically significant
