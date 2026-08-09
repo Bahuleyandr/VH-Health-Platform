@@ -6,6 +6,7 @@ import { validationResult, body, query } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminOtpController from '../../controllers/auth/adminOtpController.js';
+import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { error } from '../../utils/responseHelper.js';
 import {
   analyticsValidator,
@@ -29,7 +30,16 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// ADMIN ROUTES - Full RBAC protection (ADMIN only)
+// ADMIN ROUTES - Full RBAC protection (ADMIN only).
+//
+// Mounted at /api/v1/auth/admin/otp (app.js, before the global
+// app.use(jwtAuth)), so wrapAutoRBAC's injected rbac(['ALL']) check needs its
+// own jwtAuth here — nothing upstream sets req.user for this mount. Same gap
+// and same fix as firebaseAuthRoutes.js's admin block; see adminAuthRoutes.js
+// / staffAuthRoutes.js for the established per-router pattern.
+router.use(jwtAuth);
+router.use(enforceFullScope);
+
 wrapAutoRBAC(router, 'ALL', {
   get: [
     // OTP Usage Analytics

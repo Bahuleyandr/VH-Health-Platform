@@ -7,11 +7,12 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as firebaseAuthController from '../../controllers/auth/firebaseAuthController.js';
+import logger from '../../logging/logger.js';
 import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { error } from '../../utils/responseHelper.js';
+import { success, error } from '../../utils/responseHelper.js';
 import {
   firebaseLoginValidator,
   userProfileValidator,
@@ -169,7 +170,18 @@ wrapRoutesWithValidation(
   }
 );
 
-// Admin Routes for Firebase Management
+// Admin Routes for Firebase Management.
+//
+// This router is mounted at /api/v1/auth/firebase (app.js, before the global
+// app.use(jwtAuth)), so wrapAutoRBAC's injected rbac(roles) check below would
+// otherwise run against a req.user that was never set, 401-locking every
+// caller including a valid admin. Every other RBAC-gated router under
+// /api/v1/auth applies jwtAuth locally for the same reason (see
+// adminAuthRoutes.js, staffAuthRoutes.js, adminOtpRoutes.js) — do the same
+// here rather than depending on mount order elsewhere in app.js.
+router.use(jwtAuth);
+router.use(enforceFullScope);
+
 wrapAutoRBAC(
   router,
   'firebaseAdminRoutes',
@@ -180,8 +192,6 @@ wrapAutoRBAC(
         '/admin/users',
         async (req, res) => {
           // Implementation moved to controller/service
-          const { success, error } = require('../../utils/responseHelper.js');
-          const logger = require('../../logging/logger.js').default;
           try {
             // Call admin service
             success(res, {
@@ -200,39 +210,30 @@ wrapAutoRBAC(
           }
         }
       ],
-      
+
       // Device Management
       [
         '/admin/devices',
         async (req, res) => {
-          // Implementation moved to controller/service
-          const { success } = require('../../utils/responseHelper.js');
-          success(res, {
-            devices: [],
-            statistics: [],
-            requestedBy: req.user?.name
-          }, 'Device information retrieved successfully');
+          // No device-registry implementation exists yet.
+          error(res, 'Not implemented', 501);
         }
       ]
     ],
-    
+
     post: [
       // Revoke All User Tokens
       [
         '/admin/revoke-user-tokens',
         async (req, res) => {
-          // Implementation moved to controller/service
-          const { error } = require('../../utils/responseHelper.js');
           error(res, 'Not implemented', 501);
         }
       ],
-      
+
       // Cleanup Inactive Devices
       [
         '/admin/cleanup-devices',
         async (req, res) => {
-          // Implementation moved to controller/service
-          const { error } = require('../../utils/responseHelper.js');
           error(res, 'Not implemented', 501);
         }
       ]
