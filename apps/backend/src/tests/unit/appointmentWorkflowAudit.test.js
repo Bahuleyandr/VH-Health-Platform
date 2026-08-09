@@ -84,8 +84,8 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../../services/smsService.js', () => ({
-  sendAppointmentConfirmationSMS: jest.fn(),
+jest.unstable_mockModule('../../utils/notifications/smsOutbox.js', () => ({
+  queueAppointmentConfirmationSms: jest.fn(async () => ({ queued: true, outboxId: 1 })),
 }));
 
 jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', () => ({

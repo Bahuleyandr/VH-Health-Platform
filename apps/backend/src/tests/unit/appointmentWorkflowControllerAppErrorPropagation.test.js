@@ -93,8 +93,8 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordClinicalAuditEvent: jest.fn(async () => null),
   recordTimelineEvent: jest.fn(async () => null),
 }));
-jest.unstable_mockModule('../../services/smsService.js', () => ({
-  sendAppointmentConfirmationSMS: jest.fn(async () => null),
+jest.unstable_mockModule('../../utils/notifications/smsOutbox.js', () => ({
+  queueAppointmentConfirmationSms: jest.fn(async () => ({ queued: true, outboxId: 1 })),
 }));
 jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', () => ({
   sendPushNotification: jest.fn(async () => null),

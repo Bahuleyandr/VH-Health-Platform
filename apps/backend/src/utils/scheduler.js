@@ -391,7 +391,10 @@ export async function runAuditChainVerification() {
  * Send-path routing per row:
  * The row delivery helper preserves the legacy path when tenant preferences
  * are unset:
- *   - SMS rows  (type='sms' or only a recipient_phone)        → sendSMS
+ *   - SMS rows  (type='sms' or only a recipient_phone)        → no gateway is
+ *     configured, so the attempt records a provider receipt of
+ *     `rejected('sms_gateway_not_configured')` and the row goes FAILED. It is
+ *     never reported as sent. fix-deferred: SMS gateway integration.
  *   - push rows (everything else, resolve device tokens)      → sendPushNotification
  * For appointment reminder / result-ready rows with an explicit
  * tenants.settings.notificationChannels override, it fans out through the

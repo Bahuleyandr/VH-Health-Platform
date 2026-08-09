@@ -2,7 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../logMasking.js';
-import { sendAppointmentReminderSMS } from '../../services/smsService.js';
+import { queueAppointmentReminderSms } from './smsOutbox.js';
 import { sendStaffNotifications } from '../../services/notification/staffNotificationService.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
@@ -31,50 +31,70 @@ async function sendTimedRemindersInner() {
 
     const [res24h, res1h] = await Promise.all([
       prisma.$queryRawUnsafe(`
-        SELECT a.id, a.appointment_time, a.token_number,
+        SELECT a.id, a.tenant_id, a.appointment_time, a.token_number,
+               u.id AS patient_user_id,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
                d.name AS doctor_name, doc.department
         FROM appointments a
-        JOIN users u ON a.patient_id = u.id
-        LEFT JOIN users d ON a.doctor_id = d.id
-        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+        JOIN users u ON a.patient_id = u.id AND a.tenant_id = u.tenant_id
+        LEFT JOIN users d ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id
+        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id AND a.tenant_id = doc.tenant_id
         WHERE a.status = 'CONFIRMED'
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_24h_sent IS NOT TRUE
       `, in23h, in24h),
       prisma.$queryRawUnsafe(`
         SELECT a.id, a.tenant_id, a.appointment_time, a.token_number,
+               u.id AS patient_user_id,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
                d.id AS doctor_user_id, d.uid AS doctor_uid, d.name AS doctor_name,
                doc.department
         FROM appointments a
-        JOIN users u ON a.patient_id = u.id
-        LEFT JOIN users d ON a.doctor_id = d.id
-        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+        JOIN users u ON a.patient_id = u.id AND a.tenant_id = u.tenant_id
+        LEFT JOIN users d ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id
+        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id AND a.tenant_id = doc.tenant_id
         WHERE a.status = 'CONFIRMED'
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_1h_sent IS NOT TRUE
       `, in30m, in90m),
     ]);
 
-    // Send 24h reminders
+    // Queue 24h reminders. The SMS leg records a notification-outbox intent —
+    // there is no SMS gateway, so nothing here may report a delivery.
     const sentIds24h = [];
     for (const appt of res24h) {
       try {
-        await sendAppointmentReminderSMS(
-          appt.patient_phone, appt.patient_name, appt.doctor_name,
-          appt.appointment_time, 24, appt.token_number
-        );
+        const smsIntent = await queueAppointmentReminderSms({
+          tenantId: appt.tenant_id || null,
+          recipientId: appt.patient_user_id || null,
+          phone: appt.patient_phone,
+          patientName: appt.patient_name,
+          doctorName: appt.doctor_name,
+          time: appt.appointment_time,
+          hoursAhead: 24,
+          tokenNumber: appt.token_number,
+          appointmentId: appt.id,
+        });
+        let patientReminderAccepted = smsIntent.queued;
         if (appt.device_token) {
-          await sendPushNotification({
-            tokens: appt.device_token,
-            title: 'Appointment Tomorrow 📅',
-            body: `Reminder: Your appointment is tomorrow at ${appt.appointment_time} with Dr. ${appt.doctor_name}. Token #${appt.token_number}`,
-            data: { type: 'appointment_reminder_24h', appointment_id: String(appt.id) },
-            userId: null,
-          }).catch(e => logger.warn(`[Reminders] 24h push notification failed for appointment ${appt.id}:`, e.message));
+          try {
+            const pushResult = await sendPushNotification({
+              tokens: appt.device_token,
+              title: 'Appointment Tomorrow 📅',
+              body: `Reminder: Your appointment is tomorrow at ${appt.appointment_time} with Dr. ${appt.doctor_name}. Token #${appt.token_number}`,
+              data: { type: 'appointment_reminder_24h', appointment_id: String(appt.id) },
+              userId: null,
+            });
+            patientReminderAccepted ||= Number(pushResult?.successCount) > 0;
+          } catch (e) {
+            logger.warn(`[Reminders] 24h push notification failed for appointment ${appt.id}:`, e.message);
+          }
         }
-        sentIds24h.push(appt.id);
+        if (patientReminderAccepted) {
+          sentIds24h.push(appt.id);
+        } else {
+          logger.warn(`[Reminders] 24h reminder for appointment ${appt.id} reached no patient channel; leaving it eligible for retry`);
+        }
       } catch (e) {
         logger.warn(`[Reminders] 24h reminder failed for ${appt.id}: ${e.message}`);
       }
@@ -82,25 +102,38 @@ async function sendTimedRemindersInner() {
     // Batch update all successfully sent 24h reminders
     if (sentIds24h.length > 0) {
       await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', sentIds24h);
-      logger.info(`[Reminders] Batch updated ${sentIds24h.length} appointments with 24h reminder sent`);
+      logger.info(`[Reminders] Marked ${sentIds24h.length} appointments as 24h-reminder attempted`);
     }
 
-    // Send 1h reminders
+    // Queue 1h reminders (same honesty rule as the 24h leg above).
     const sentIds1h = [];
     for (const appt of res1h) {
       try {
-        await sendAppointmentReminderSMS(
-          appt.patient_phone, appt.patient_name, appt.doctor_name,
-          appt.appointment_time, 1, appt.token_number
-        );
+        const smsIntent = await queueAppointmentReminderSms({
+          tenantId: appt.tenant_id || null,
+          recipientId: appt.patient_user_id || null,
+          phone: appt.patient_phone,
+          patientName: appt.patient_name,
+          doctorName: appt.doctor_name,
+          time: appt.appointment_time,
+          hoursAhead: 1,
+          tokenNumber: appt.token_number,
+          appointmentId: appt.id,
+        });
+        let patientReminderAccepted = smsIntent.queued;
         if (appt.device_token) {
-          await sendPushNotification({
-            tokens: appt.device_token,
-            title: 'Appointment in 1 Hour ⏰',
-            body: `Your appointment at ${appt.appointment_time} with Dr. ${appt.doctor_name} is in ~1 hour. Token #${appt.token_number}`,
-            data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
-            userId: null,
-          }).catch(e => logger.warn(`[Reminders] 1h push notification failed for appointment ${appt.id}:`, e.message));
+          try {
+            const pushResult = await sendPushNotification({
+              tokens: appt.device_token,
+              title: 'Appointment in 1 Hour ⏰',
+              body: `Your appointment at ${appt.appointment_time} with Dr. ${appt.doctor_name} is in ~1 hour. Token #${appt.token_number}`,
+              data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
+              userId: null,
+            });
+            patientReminderAccepted ||= Number(pushResult?.successCount) > 0;
+          } catch (e) {
+            logger.warn(`[Reminders] 1h push notification failed for appointment ${appt.id}:`, e.message);
+          }
         }
         if (appt.doctor_user_id) {
           try {
@@ -126,7 +159,11 @@ async function sendTimedRemindersInner() {
             logger.warn(`[Reminders] doctor appointment notification failed for ${appt.id}: ${notifyErr.message}`);
           }
         }
-        sentIds1h.push(appt.id);
+        if (patientReminderAccepted) {
+          sentIds1h.push(appt.id);
+        } else {
+          logger.warn(`[Reminders] 1h reminder for appointment ${appt.id} reached no patient channel; leaving it eligible for retry`);
+        }
       } catch (e) {
         logger.warn(`[Reminders] 1h reminder failed for ${appt.id}: ${e.message}`);
       }
@@ -134,10 +171,12 @@ async function sendTimedRemindersInner() {
     // Batch update all successfully sent 1h reminders
     if (sentIds1h.length > 0) {
       await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', sentIds1h);
-      logger.info(`[Reminders] Batch updated ${sentIds1h.length} appointments with 1h reminder sent`);
+      logger.info(`[Reminders] Marked ${sentIds1h.length} appointments as 1h-reminder attempted`);
     }
 
-    logger.info(`[Reminders] Done: ${res24h.length} 24h + ${res1h.length} 1h reminders sent`);
+    // "processed", not "sent": the SMS leg only reaches the outbox, and the
+    // push leg is best-effort per appointment.
+    logger.info(`[Reminders] Done: ${res24h.length} 24h + ${res1h.length} 1h reminders processed`);
   } catch (err) {
     logger.error('[Reminders] sendTimedReminders error:', err.message);
   }

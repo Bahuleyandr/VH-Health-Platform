@@ -2,7 +2,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { sendSMS } from '../../services/smsService.js';
+import { queuePatientSms } from '../../utils/notifications/smsOutbox.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2, getSignedFileUrl, deleteObject } from '../../utils/r2Storage.js';
@@ -497,7 +497,11 @@ export const confirmBooking = async (req, res) => {
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await prisma.$queryRawUnsafe('SELECT device_token, phone FROM users WHERE id=$1', booking[0].patient_id);
+        const patient = await prisma.$queryRawUnsafe(
+          'SELECT device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+          booking[0].patient_id,
+          tenantId,
+        );
         const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
@@ -508,7 +512,21 @@ export const confirmBooking = async (req, res) => {
           }).catch(e => logger.warn('Failed to send booking confirmation push notification:', e.message));
         }
         if (patient[0]?.phone) {
-          await sendSMS(patient[0].phone, `Dear ${booking[0].patient_name}, your investigation ${booking[0].booking_number} is confirmed. ${booking[0].collection_type === 'home' ? 'Collector will be dispatched soon.' : 'Please visit Venkataeswara Hospitals lab.'} Estimated cost: ₹${result[0].final_cost || result[0].estimated_cost || 'TBD'}`).catch(e => logger.warn('Failed to send booking confirmation SMS:', e.message));
+          await queuePatientSms({
+            tenantId,
+            recipientId: booking[0].patient_id,
+            recipientPhone: patient[0].phone,
+            title: 'Investigation booking confirmed',
+            body: `Dear ${booking[0].patient_name}, your investigation ${booking[0].booking_number} is confirmed. ${booking[0].collection_type === 'home' ? 'Collector will be dispatched soon.' : 'Please visit Venkataeswara Hospitals lab.'} Estimated cost: ₹${result[0].final_cost || result[0].estimated_cost || 'TBD'}`,
+            data: {
+              type: 'investigation_confirmed',
+              booking_id: String(id),
+              booking_number: booking[0].booking_number || null,
+            },
+            sourceEventKey: `investigation-booking-confirmed:${id}`,
+            templateVersion: 'sms.investigation_booking_confirmed.v1',
+            context: 'investigation-booking-confirmed',
+          });
         }
       } catch (e) { logger.warn('Confirm notification failed:', e.message); }
     });
@@ -794,7 +812,11 @@ export const uploadResult = async (req, res) => {
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await prisma.$queryRawUnsafe('SELECT device_token, phone FROM users WHERE id=$1', booking[0].patient_id);
+        const patient = await prisma.$queryRawUnsafe(
+          'SELECT device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+          booking[0].patient_id,
+          tenantId,
+        );
         const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
@@ -805,12 +827,28 @@ export const uploadResult = async (req, res) => {
           }).catch(e => logger.warn('Failed to send result ready push notification:', e.message));
         }
         if (patient[0]?.phone) {
-          await sendSMS(patient[0].phone, `Dear ${booking[0].patient_name}, your investigation results (${booking[0].booking_number}) are ready. Please check your VHHealth app to view/download.`).catch(e => logger.warn('Failed to send result ready SMS:', e.message));
+          await queuePatientSms({
+            tenantId,
+            recipientId: booking[0].patient_id,
+            recipientPhone: patient[0].phone,
+            title: 'Investigation results ready',
+            body: `Dear ${booking[0].patient_name}, your investigation results (${booking[0].booking_number}) are ready. Please check your VHHealth app to view/download.`,
+            data: {
+              type: 'investigation_result_ready',
+              booking_id: String(id),
+              booking_number: booking[0].booking_number || null,
+            },
+            sourceEventKey: `investigation-result-ready:${id}`,
+            templateVersion: 'sms.investigation_result_ready.v1',
+            context: 'investigation-result-ready',
+          });
         }
       } catch (e) { logger.warn('Result notification failed:', e.message); }
     });
 
-    success(res, result[0], 'Result uploaded and patient notified');
+    // Notification is queued after the response, and the SMS channel has no
+    // gateway — so this must not claim the patient has been notified.
+    success(res, result[0], 'Result uploaded; patient notification queued');
   } catch (e) {
     logger.error('uploadResult error:', e);
     error(res, 'Failed to upload result', HTTP_STATUS.INTERNAL_SERVER_ERROR);

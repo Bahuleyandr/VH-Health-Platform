@@ -4,7 +4,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../../services/maternity/maternityService.js';
 import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
-import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
+import { queueAppointmentConfirmationSms } from '../../utils/notifications/smsOutbox.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -355,15 +355,18 @@ export const confirmAppointment = async (req, res) => {
           });
         }
         const smsPhone = patientRow?.phone || a.phone;
-        await sendAppointmentConfirmationSMS(
-          smsPhone,
-          patientRow?.name || 'Patient',
+        await queueAppointmentConfirmationSms({
+          tenantId,
+          recipientId: a.patient_id,
+          phone: smsPhone,
+          patientName: patientRow?.name || 'Patient',
           doctorName,
-          newDate,
-          newTime,
+          date: newDate,
+          time: newTime,
           tokenNumber,
           department,
-        );
+          appointmentId: id,
+        });
       } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
     });
 

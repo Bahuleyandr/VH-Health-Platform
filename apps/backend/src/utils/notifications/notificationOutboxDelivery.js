@@ -7,13 +7,9 @@ import {
   recordProviderReceipt,
 } from '../../services/notification/notificationDeliveryLedgerService.js';
 import { getTenantSettings } from '../../services/tenant/tenantSettingsService.js';
-import { sendSMS } from '../../services/smsService.js';
 import { dispatch } from './notificationDispatcher.js';
 import { sendPushNotification } from './sendPushNotification.js';
-import {
-  legacyChannelsForOutboxRow,
-  resolveChannelsForOutboxRow,
-} from './tenantNotificationChannels.js';
+import { resolveChannelsForOutboxRow } from './tenantNotificationChannels.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -196,34 +192,11 @@ async function resolveChannelDecision(row) {
   return { ...resolved, tenantId };
 }
 
-export async function deliverLegacyOutboxRow(row) {
-  const channels = legacyChannelsForOutboxRow(row);
-  if (channels.includes('sms')) {
-    if (!row.recipient_phone) throw new Error('SMS outbox row has no recipient_phone');
-    await sendSMS(row.recipient_phone, row.body || row.title || '');
-    return { channels };
-  }
-
-  const tenantId = await resolveTenantIdForOutboxRow(row);
-  const tokens = await resolveRecipientTokens(row.recipient_id, tenantId);
-  const data = payloadObject(row);
-  if (!tokens.length && !row.recipient_id) {
-    throw new Error('push outbox row has no resolvable device token or recipient_id');
-  }
-
-  // sendPushNotification handles an empty token list gracefully (WS-only
-  // delivery via userId) and never throws on zero tokens, so a row with a
-  // recipient_id but no live token still resolves as "sent" (WS attempt)
-  // rather than looping forever.
-  await sendPushNotification({
-    tokens,
-    title: row.title || '',
-    body: row.body || '',
-    data,
-    userId: row.recipient_id || null,
-  });
-  return { channels };
-}
+// NOTE: `deliverLegacyOutboxRow` used to live here — an unreferenced export
+// that called sendSMS and returned as if the text had gone out. Removed with
+// audit 2026-08-09 finding F7: every drain path now goes through
+// `deliverNotificationOutboxRow` below, which records a provider receipt and
+// cannot report a dry run as a delivery.
 
 function rejected(providerCode, evidence = {}) {
   return { outcome: 'rejected', providerReference: null, providerCode, evidence };
