@@ -6,7 +6,7 @@ import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import theatreService from '../../services/theatre/theatreService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
-import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
+import { paramId, theatreScheduleValidator } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { emitOrBoardEvent } from '../../utils/websocket/realtimeEmitter.js';
 
@@ -26,7 +26,7 @@ function tenantOf(req) {
  * POST /theatre/schedule
  * Schedule a new surgery
  */
-router.post('/schedule', requiredUUID('patient_uid'), requiredString('procedure_name', 300), requiredUUID('surgeon'), validate, async (req, res, next) => {
+router.post('/schedule', ...theatreScheduleValidator, validate, async (req, res, next) => {
   try {
     const scheduleData = {
       patient_uid: req.body.patient_uid,

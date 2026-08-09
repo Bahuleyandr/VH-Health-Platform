@@ -14,7 +14,7 @@ import { logPhiAccess } from '../utils/hipaaAudit.js';
 import { logAudit } from '../utils/logAudit.js';
 import { getFileFromR2, uploadFileToR2 } from '../utils/r2Storage.js';
 import { success, error } from '../utils/responseHelper.js';
-import { requiredUUID, requiredString } from '../validators/sharedValidators.js';
+import { requiredUUID, requiredString, consentValidator } from '../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -422,7 +422,7 @@ router.patch('/data-rights/:id', async (req, res, next) => {
  * Grant a consent for a patient.
  * Body: { patient_uid, consent_type, notes? }
  */
-router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type', 100), validate, async (req, res, next) => {
+router.post('/grant', ...consentValidator, validate, async (req, res, next) => {
   try {
     const { patient_uid, consent_type, notes, witness_name, witness_uid, form_language } = req.body;
 

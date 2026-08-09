@@ -9,7 +9,7 @@ import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import messagingService from '../../services/messaging/messagingService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { requiredString, paramId } from '../../validators/sharedValidators.js';
+import { requiredString, paramId, messageValidator } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const validate = (req, res, next) => {
@@ -78,8 +78,7 @@ const normalizeSendPayload = (req, _res, next) => {
 router.post(
   '/send',
   normalizeSendPayload,
-  requiredString('recipient_uid'),
-  requiredString('body', 2000),
+  ...messageValidator,
   validate,
   sanitizeMessageFields,
   guardPatientMessaging,
