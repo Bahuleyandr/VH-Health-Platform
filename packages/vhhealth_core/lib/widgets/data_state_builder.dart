@@ -46,6 +46,13 @@ class DataStateBuilder<T> extends StatelessWidget {
   /// Button label shown in the empty state when an action is available.
   final String emptyActionLabel;
 
+  /// Semantic label announced by screen readers for the loading spinner.
+  ///
+  /// The spinner is otherwise silent — TalkBack/VoiceOver users would have
+  /// no way to tell the screen is loading. Pass a localised string where
+  /// available.
+  final String loadingSemanticLabel;
+
   const DataStateBuilder({
     super.key,
     required this.isLoading,
@@ -61,12 +68,15 @@ class DataStateBuilder<T> extends StatelessWidget {
     this.errorTitle = 'Something went wrong',
     this.errorActionLabel = 'Retry',
     this.emptyActionLabel = 'Refresh',
+    this.loadingSemanticLabel = 'Loading',
   });
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: CircularProgressIndicator(semanticsLabel: loadingSemanticLabel),
+      );
     }
 
     if (error != null) {
@@ -77,6 +87,9 @@ class DataStateBuilder<T> extends StatelessWidget {
         subtitle: error!,
         actionLabel: errorActionLabel,
         onAction: onRetry,
+        // Announce the failure to screen readers when the state flips —
+        // without this the error swap is completely silent.
+        liveRegion: true,
       );
     }
 
@@ -105,6 +118,10 @@ class _CenteredMessage extends StatelessWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
 
+  /// When true, the title/subtitle block is marked as an assistive-tech
+  /// live region so screen readers announce it as soon as it appears.
+  final bool liveRegion;
+
   const _CenteredMessage({
     required this.icon,
     required this.iconColor,
@@ -112,6 +129,7 @@ class _CenteredMessage extends StatelessWidget {
     required this.subtitle,
     this.actionLabel,
     this.onAction,
+    this.liveRegion = false,
   });
 
   @override
@@ -123,25 +141,35 @@ class _CenteredMessage extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 64, color: iconColor),
+            // Decorative — the title/subtitle carry the meaning.
+            ExcludeSemantics(child: Icon(icon, size: 64, color: iconColor)),
             const SizedBox(height: 16),
-            Text(
-              title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            if (subtitle.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+            MergeSemantics(
+              child: Semantics(
+                liveRegion: liveRegion,
+                child: Column(
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
                 ),
-                textAlign: TextAlign.center,
               ),
-            ],
+            ),
             if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: 20),
               OutlinedButton.icon(

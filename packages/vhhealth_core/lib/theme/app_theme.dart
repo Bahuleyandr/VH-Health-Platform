@@ -44,7 +44,10 @@ class AppTheme {
         ).copyWith(
           surface: surfaceColor,
           onSurface: onSurfaceColor,
-          error: errorColor,
+          // WCAG AA: the legacy danger red (#FF5252) is only 3.19:1 on white
+          // surfaces; the compliant token (#C62828) reads 5.62:1 on white and
+          // 4.97:1 on the mint scaffold background.
+          error: VhDesignTokens.errorOnSurfaceLight,
           onError: Colors.white,
         );
 
@@ -143,8 +146,12 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
-        iconTheme: const IconThemeData(color: onPrimaryColor),
-        titleTextStyle: textTheme.titleLarge?.copyWith(color: onPrimaryColor),
+        // Follow the scheme's tonal onPrimary (not the hardcoded brand white)
+        // so title/icon contrast holds for any tenant seed colour.
+        iconTheme: IconThemeData(color: colorScheme.onPrimary),
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          color: colorScheme.onPrimary,
+        ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -319,8 +326,13 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
-        iconTheme: const IconThemeData(color: onPrimaryColor),
-        titleTextStyle: textTheme.titleLarge?.copyWith(color: onPrimaryColor),
+        // WCAG AA fix: the hardcoded brand white was 1.70:1 over the light
+        // mint dark-mode primary. The scheme's tonal onPrimary is dark and
+        // guaranteed readable over primary for any tenant seed colour.
+        iconTheme: IconThemeData(color: colorScheme.onPrimary),
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          color: colorScheme.onPrimary,
+        ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(

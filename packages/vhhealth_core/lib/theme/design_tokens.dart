@@ -280,7 +280,9 @@ class VhDesignTokens {
     successOnSurface: successOnSurfaceLight,
     warning: warning,
     warningOnSurface: warningOnSurfaceLight,
-    error: danger,
+    // WCAG AA: `danger` (#FF5252) is only 3.19:1 on light surfaces; use the
+    // compliant error red (matches staffLight and the light ColorScheme).
+    error: error,
     errorOnSurface: errorOnSurfaceLight,
     info: brandPrimary,
   );
