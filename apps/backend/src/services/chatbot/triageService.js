@@ -50,6 +50,12 @@
 
 import logger from '../../logging/logger.js';
 import { runOutputDefenses } from '../ai/hallucinationDefenses.js';
+// Shared modernized Anthropic Messages request shaping (extracted from
+// localLlmClient's provider path): refusal stop_reason handling, structured
+// outputs with a plain retry on schema 400, cacheable system prompt, and
+// cache-aware usage accounting. A LEAF module (logger only), so the triage
+// load-time import graph stays light.
+import { postAnthropicMessages } from '../ai/anthropicMessagesClient.js';
 
 // clinical_ai_modules registry key for this surface.
 const MODULE_KEY = 'patient_triage';
@@ -72,6 +78,14 @@ const MODEL = process.env.CHATBOT_MODEL
 const BASE_URL = process.env.CHATBOT_BASE_URL
   || (PROVIDER === 'openai' ? 'http://localhost:11434/v1' : 'https://api.anthropic.com');
 const API_KEY = process.env.CHATBOT_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+
+// Upper bound on a single provider call (the legacy raw fetch had no bound at
+// all — an unresponsive endpoint held the patient request open indefinitely).
+// Same clamp window as localLlmClient's CLINICAL_AI_TIMEOUT_MS.
+const TIMEOUT_MS = Math.min(
+  Math.max(Number.parseInt(process.env.CHATBOT_TIMEOUT_MS, 10) || 45_000, 5_000),
+  120_000
+);
 
 // ---------------------------------------------------------------------------
 // Region / egress guard
@@ -266,6 +280,25 @@ You MUST respond with *only* a JSON object matching this schema (no prose before
 Be conservative: when uncertain, escalate. Anything chest-pain / loss-of-consciousness /
 stroke-symptoms / severe-bleeding / anaphylaxis must be "urgent_care".`;
 
+// JSON contract enforced server-side via Anthropic structured outputs
+// (output_config.format). Mirrors the fail-closed schema validation in
+// triageSymptoms below — the validator (not this schema) remains the
+// authoritative gate, so a provider that ignores output_config changes
+// nothing. `differential` is an array of strings to match what the
+// validator accepts (stringArray); the OpenAI-compatible path keeps
+// relying on the prompt + response_format json_object as before.
+const TRIAGE_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    triage: { type: 'string', enum: ['self_care', 'see_doctor_now', 'urgent_care'] },
+    differential: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string' },
+    redFlags: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['triage', 'differential', 'summary', 'redFlags'],
+  additionalProperties: false,
+};
+
 /**
  * Run the triage flow for a single patient message.
  *
@@ -387,9 +420,40 @@ export async function triageSymptoms({
     }],
   });
 
-  const { text: rawText, usage } = PROVIDER === 'openai'
-    ? await _callOpenAICompatible({ userMessage, history })
-    : await _callAnthropic({ userMessage, history });
+  let rawText;
+  let usage;
+  try {
+    ({ text: rawText, usage } = PROVIDER === 'openai'
+      ? await _callOpenAICompatible({ userMessage, history })
+      : await _callAnthropic({ userMessage, history }));
+  } catch (err) {
+    if (err?.refusal === true) {
+      // FAIL-CLOSED: the provider's safety classifiers declined the request
+      // (HTTP 200, stop_reason 'refusal'). Nothing usable came back — return
+      // the safe canned escalation and record the (billed) refusal through
+      // the governed tables like any other blocked outcome. The refusal
+      // category in err.message is PHI-free.
+      logger.warn('Triage: provider refusal — returning safe fallback', {
+        provider: PROVIDER,
+        model: MODEL,
+        reason: String(err.message || 'anthropic_refusal').slice(0, 120),
+      });
+      const blockedResult = buildBlockedTriage({
+        code: 'TRIAGE_PROVIDER_REFUSAL',
+        reason: 'The assistant declined to answer this request.',
+      });
+      await _recordTriageOutcome({
+        tenantId,
+        patientUid,
+        module: gate.module,
+        result: blockedResult,
+        usage: err.usage || null,
+        reviewReasons: _reviewReasonsFor(blockedResult),
+      });
+      return blockedResult;
+    }
+    throw err;
+  }
 
   const recordOutcome = (result) => _recordTriageOutcome({
     tenantId,
@@ -496,6 +560,14 @@ export async function triageSymptoms({
 }
 
 // -- Anthropic Messages API ---------------------------------------------------
+// Routed through the shared modernized provider path (anthropicMessagesClient,
+// extracted from localLlmClient) instead of a bespoke raw fetch. Gains over
+// the legacy fetch: refusal stop_reason handling (surfaced to the caller as a
+// fail-closed blocked response, never parsed as empty content), structured
+// outputs enforcing the triage JSON contract (with a plain retry if the
+// endpoint rejects the schema), cache-aware token accounting
+// (cache_creation/cache_read tokens feed the budget guardrails), and a
+// bounded request timeout.
 
 async function _callAnthropic({ userMessage, history }) {
   const messages = [
@@ -506,49 +578,28 @@ async function _callAnthropic({ userMessage, history }) {
     { role: 'user', content: userMessage },
   ];
 
-  const resp = await fetch(`${BASE_URL.replace(/\/$/, '')}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
+  try {
+    return await postAnthropicMessages({
+      url: `${BASE_URL.replace(/\/$/, '')}/v1/messages`,
+      apiKey: API_KEY,
       model: MODEL,
-      max_tokens: 800,
-      system: [
-        {
-          type: 'text',
-          text: SYSTEM_PROMPT,
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
+      maxTokens: 800,
+      systemPrompt: SYSTEM_PROMPT,
       messages,
-    }),
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    logger.error(`Triage (anthropic) error ${resp.status}: ${text}`);
-    const err = new Error('Triage service upstream error');
-    err.statusCode = 502;
-    throw err;
+      jsonSchema: TRIAGE_OUTPUT_SCHEMA,
+      timeoutMs: TIMEOUT_MS,
+      logContext: { surface: MODULE_KEY },
+    });
+  } catch (err) {
+    // Safety-classifier refusal: propagate as-is (marked err.refusal, carries
+    // the billed usage) — triageSymptoms converts it into the fail-closed
+    // blocked response and records the generation row.
+    if (err?.refusal === true) throw err;
+    logger.error(`Triage (anthropic) error: ${String(err?.httpStatus || err?.message || err)}`);
+    const upstreamErr = new Error('Triage service upstream error');
+    upstreamErr.statusCode = 502;
+    throw upstreamErr;
   }
-
-  const data = await resp.json();
-  const text = Array.isArray(data.content)
-    ? data.content.filter((c) => c.type === 'text').map((c) => c.text).join('')
-    : '';
-  const promptTokens = data?.usage?.input_tokens || 0;
-  const completionTokens = data?.usage?.output_tokens || 0;
-  return {
-    text,
-    usage: {
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      total_tokens: promptTokens + completionTokens,
-    },
-  };
 }
 
 // -- OpenAI-compatible chat-completions ---------------------------------------
