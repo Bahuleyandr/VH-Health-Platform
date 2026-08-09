@@ -3,6 +3,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
+import { assertVitalPlausibility, assertRecordedAtPlausibility } from '../../utils/clinical/vitalPlausibility.js';
 import { normaliseTemperatureRoute } from '../../utils/clinical/temperatureRoute.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { computeGrowthSnapshot } from '../clinical/growthPercentileService.js';
@@ -532,6 +533,26 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
     throw AppError.badRequest(`consciousness must be one of: ${VALID_CONSCIOUSNESS.join(', ')}`);
   }
 
+  // C-M4 — hard plausibility bounds on the core vitals (the fields above only
+  // covered fhr/fundal/pain/gcs). Values outside human-possible ranges are
+  // data-entry or sensor errors: reject with a 400 rather than persist them
+  // into NEWS2 + the alert engine. Temperature is validated AFTER Celsius
+  // normalization so a Fahrenheit reading isn't rejected against °C bounds.
+  assertVitalPlausibility({
+    heart_rate,
+    systolic_bp,
+    diastolic_bp,
+    temperature: normalizedTemperature,
+    spo2,
+    respiratory_rate,
+    blood_glucose,
+    o2_flow_rate,
+  });
+  // recorded_at sanity window: never in the future beyond clock skew; human
+  // entry paths bounded to 72h of backdating (device/fhir ingest is exempt —
+  // spool replays carry legitimately old observation timestamps).
+  assertRecordedAtPlausibility(normalizedRecordedAt, { source: normalizedSource });
+
   // Atomic clinical write (canonical timeline invariant): the vitals detail
   // row, its in-row triage_acuity stamp, and the canonical timeline/audit
   // events all persist together or not at all. The downstream enrichment
@@ -635,6 +656,14 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
     // normal temp/consciousness) so absent params are omitted, not scored as 0.
     // Escalation (alert + CDS) runs POST-COMMIT below — it touches other
     // tables / the CDS module and must not be inside the clinical write tx.
+    // C-M7 — the SpO2 scoring scale is a patient-level clinical property
+    // (Scale 2 for hypercapnic respiratory failure, target 88-92%), not a
+    // per-call default: resolve it from the patient's flag
+    // (users.news2_spo2_scale) instead of the previous implicit
+    // always-Scale-1. Resolution is fail-safe to Scale 1 and runs on the tx
+    // client; the resolved scale is passed as options.spo2Scale, the channel
+    // that wins over any caller-supplied per-reading value.
+    const spo2Scale = await news2Service.resolveSpo2ScaleForPatient(resolvedPatientUid, { db: tx });
     news2Persisted = await news2Service.persistNews2(resolvedPatientUid, {
       respiration_rate: respiratory_rate,
       spo2,
@@ -643,7 +672,7 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
       heart_rate,
       consciousness,
       supplemental_o2: supplemental_o2 || false,
-    }, recorded_by, { db: tx });
+    }, recorded_by, { db: tx, spo2Scale });
 
     if (beforeCommit) {
       await beforeCommit({
@@ -711,6 +740,11 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
             ? alertOptionsForCheck
             : {}),
           source: normalizedSource,
+          // C-M2 — the tenant is already resolved here; pass it through so
+          // EVERY alert severity persists under the patient's tenant (the
+          // monitor's own users lookup previously ran only for CRITICALs,
+          // default-stamping warning-only batches).
+          tenantId: resolvedTenantId,
         });
       }
     }
@@ -907,6 +941,12 @@ export async function correctVitals(vitalsId, data) {
   if (Object.keys(updateData).length === 0) {
     throw AppError.badRequest('At least one vitals field is required for correction');
   }
+
+  // C-M4 — corrections re-validate the core vitals against the same hard
+  // plausibility bounds as recordVitals (updateData.temperature is already
+  // Celsius-normalized above). Previously only pain/gcs/fhr/fundal were
+  // re-checked, so a correction could smuggle in an impossible value.
+  assertVitalPlausibility(updateData);
 
   return setTenantTx(requireTenantId(tenantId), async (tx) => {
     const existing = await tx.vitals_chart.findUnique({
