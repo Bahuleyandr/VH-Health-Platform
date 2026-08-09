@@ -2,7 +2,10 @@ import { jest } from '@jest/globals';
 
 // news2Service imports prisma/logger/notificationOutbox at load; mock them so the
 // pure calculateNEWS2/getClinicalRisk can be exercised DB-free.
-jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: { $queryRawUnsafe: jest.fn() } }));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: { $queryRawUnsafe: jest.fn() },
+  setTenantTx: jest.fn(),
+}));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() } }));
 jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({ default: { queue: jest.fn() } }));
 

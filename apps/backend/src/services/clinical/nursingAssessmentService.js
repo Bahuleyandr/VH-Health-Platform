@@ -5,8 +5,15 @@
 // versions are locked into the row at write time so future guideline
 // changes don't silently re-grade old data.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import {
+  calculateNEWS2,
+  normalizeSpo2Scale,
+  resolveSpo2ScaleForPatient,
+} from './news2Service.js';
 
 const SCORING_VERSION = 'v1';
 
@@ -18,98 +25,30 @@ const SCORING_VERSION = 'v1';
 // heart_rate) are accepted because the staff-app vitals payload uses them;
 // without aliasing, every long-form field falls through as undefined and the
 // score collapses to 0 even for clinically deteriorating patients.
-export function scoreNews2(input) {
+//
+// Thin adapter over the single NEWS2 scorer (news2Service.calculateNEWS2 —
+// C-M7 unification; this file previously carried a divergent copy). It keeps
+// this surface's aliases, the 'awake' consciousness vocabulary, and the
+// band names + thresholds the listOverdueOrHighRisk dashboard SQL filters on
+// (low | low_medium | medium | high — do not rename them without updating
+// that query).
+export function scoreNews2(input, options = {}) {
   const raw = input ?? {};
-  const i = {
-    rr: raw.rr ?? raw.respiratory_rate,
+  const consciousness = raw.consciousness === 'awake' ? 'A' : raw.consciousness;
+  const computed = calculateNEWS2({
+    respiration_rate: raw.rr ?? raw.respiratory_rate,
     spo2: raw.spo2,
-    spo2_scale: raw.spo2_scale,
-    supplemental_o2: raw.supplemental_o2,
-    temp_c: raw.temp_c ?? raw.temperature,
-    sbp: raw.sbp ?? raw.systolic_bp,
-    hr: raw.hr ?? raw.pulse ?? raw.heart_rate,
-    consciousness: raw.consciousness,
-  };
-  let total = 0;
-  let band = 'low'; // low | low_medium | medium | high
+    supplemental_o2: !!raw.supplemental_o2,
+    temperature: raw.temp_c ?? raw.temperature,
+    systolic_bp: raw.sbp ?? raw.systolic_bp,
+    heart_rate: raw.hr ?? raw.pulse ?? raw.heart_rate,
+    consciousness,
+  }, { spo2Scale: options.spo2Scale ?? raw.spo2_scale });
 
-  function add(n) {
-    total += n;
-    if (n >= 3) band = bumpBand(band, 'high');
-  }
-  function bumpBand(current, candidate) {
-    const order = ['low', 'low_medium', 'medium', 'high'];
-    return order.indexOf(candidate) > order.indexOf(current) ? candidate : current;
-  }
-
-  // Respiratory rate
-  if (i.rr != null) {
-    if (i.rr <= 8) add(3);
-    else if (i.rr <= 11) add(1);
-    else if (i.rr <= 20) add(0);
-    else if (i.rr <= 24) add(2);
-    else add(3);
-  }
-
-  // SpO2 — scale 1 (normal) vs scale 2 (chronic hypercapnic respiratory failure / COPD).
-  const scale2 = String(i.spo2_scale ?? 1) === '2';
-  if (i.spo2 != null) {
-    if (!scale2) {
-      if (i.spo2 <= 91) add(3);
-      else if (i.spo2 <= 93) add(2);
-      else if (i.spo2 <= 95) add(1);
-      else add(0);
-    } else {
-      // Scale 2 (target 88-92%): scoring tiers different.
-      if (i.spo2 <= 83) add(3);
-      else if (i.spo2 <= 85) add(2);
-      else if (i.spo2 <= 87) add(1);
-      else if (i.spo2 <= 92) add(0);
-      else if (i.spo2 <= 94 && i.supplemental_o2) add(1);
-      else if (i.spo2 <= 96 && i.supplemental_o2) add(2);
-      else if (i.spo2 >= 97 && i.supplemental_o2) add(3);
-      else add(0);
-    }
-  }
-
-  // Air vs supplemental O2 (separate +2 if on O2)
-  if (i.supplemental_o2) add(2);
-
-  // Temperature
-  if (i.temp_c != null) {
-    if (i.temp_c <= 35.0) add(3);
-    else if (i.temp_c <= 36.0) add(1);
-    else if (i.temp_c <= 38.0) add(0);
-    else if (i.temp_c <= 39.0) add(1);
-    else add(2);
-  }
-
-  // Systolic BP
-  if (i.sbp != null) {
-    if (i.sbp <= 90) add(3);
-    else if (i.sbp <= 100) add(2);
-    else if (i.sbp <= 110) add(1);
-    else if (i.sbp <= 219) add(0);
-    else add(3);
-  }
-
-  // Heart rate
-  if (i.hr != null) {
-    if (i.hr <= 40) add(3);
-    else if (i.hr <= 50) add(1);
-    else if (i.hr <= 90) add(0);
-    else if (i.hr <= 110) add(1);
-    else if (i.hr <= 130) add(2);
-    else add(3);
-  }
-
-  // Consciousness — A (alert) = 0; V/P/U = 3
-  if (i.consciousness && i.consciousness !== 'awake' && i.consciousness !== 'A') {
-    add(3);
-  }
-
-  // Final band per NEWS2 protocol.
-  if (band === 'high' || total >= 7) band = 'high';
+  const total = computed.totalScore;
+  // Final band per NEWS2 protocol — a single red (=3) parameter forces high.
+  let band;
+  if (computed.anyParamThree || total >= 7) band = 'high';
   else if (total >= 5) band = 'medium';
   else if (total >= 3) band = 'low_medium';
   else band = 'low';
@@ -239,15 +178,18 @@ export function scoreSepsisScreen(input) {
 }
 
 // Public scoring entry — picks the right function based on kind.
-export function score(kind, inputs) {
+export function score(kind, inputs, options = {}) {
   switch (kind) {
-    case 'news2': return scoreNews2(inputs);
+    case 'news2': return scoreNews2(inputs, options);
     case 'braden': return scoreBraden(inputs);
     case 'morse': return scoreMorse(inputs);
     case 'sepsis_screen': return scoreSepsisScreen(inputs);
     default: throw AppError.badRequest(`Unknown assessment kind: ${kind}`);
   }
 }
+
+// Sepsis-screen bands that constitute a POSITIVE screen (scoreSepsisScreen).
+const SEPSIS_POSITIVE_BANDS = new Set(['sepsis_likely', 'septic_shock_risk']);
 
 // ── Persistence ─────────────────────────────────────────────────────
 
@@ -262,7 +204,26 @@ export async function recordAssessment({
     throw AppError.badRequest(`assessment_kind must be one of: ${allowed.join(', ')}`);
   }
 
-  const result = score(assessment_kind, inputs);
+  // NEWS2 with no caller-supplied scale: the patient-level flag decides
+  // (migration 646). The applied scale is locked into the stored inputs so
+  // the persisted row stays reproducible even if the flag later changes
+  // (scoring_version discipline — rows must not silently re-grade).
+  let effectiveInputs = inputs ?? {};
+  if (assessment_kind === 'news2') {
+    const suppliedScale = effectiveInputs.spo2_scale;
+    if (suppliedScale === undefined || suppliedScale === null || suppliedScale === '') {
+      const resolvedScale = await resolveSpo2ScaleForPatient(String(patient_uid));
+      effectiveInputs = { ...effectiveInputs, spo2_scale: resolvedScale };
+    } else {
+      const normalizedScale = normalizeSpo2Scale(suppliedScale);
+      if (normalizedScale === null) {
+        throw AppError.badRequest('spo2_scale must be 1 or 2');
+      }
+      effectiveInputs = { ...effectiveInputs, spo2_scale: normalizedScale };
+    }
+  }
+
+  const result = score(assessment_kind, effectiveInputs);
   const reassessMins = result.reassessmentMins ?? null;
   const nextDueAt = reassessMins
     ? new Date(Date.now() + reassessMins * 60_000).toISOString()
@@ -288,29 +249,65 @@ export async function recordAssessment({
     }
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO nursing_assessments
-       (patient_uid, admission_id, assessment_kind, inputs, total_score,
-        band, scoring_version, recommended_actions, notes,
-        assessed_by, assessed_by_name, next_assessment_due_at, tenant_id)
-     VALUES ($1::uuid, $2::int, $3, $4::jsonb, $5::int, $6, $7,
-             $8::text[], $9, $10::uuid, $11, $12::timestamptz, $13::uuid)
-     RETURNING *`,
-    String(patient_uid),
-    admission_id ? Number(admission_id) : null,
-    assessment_kind,
-    JSON.stringify(inputs ?? {}),
-    Number(result.total_score),
-    result.band,
-    SCORING_VERSION,
-    result.recommended_actions ?? null,
-    notes || null,
-    assessed_by ? String(assessed_by) : null,
-    resolvedAssessedByName,
-    nextDueAt,
-    tenantId,
-  );
-  return rows[0];
+  // Detail row + canonical timeline/audit pair in ONE tenant-scoped tx
+  // (docs/CANONICAL_CLINICAL_TIMELINE.md): a failed canonical emit rolls back
+  // the assessment row. Previously this was a single INSERT on plain prisma —
+  // even a positive sepsis screen left zero timeline/audit footprint.
+  const resolvedTenantId = requireTenantId(tenantId);
+  const sepsisPositive = assessment_kind === 'sepsis_screen' && SEPSIS_POSITIVE_BANDS.has(result.band);
+  return setTenantTx(resolvedTenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO nursing_assessments
+         (patient_uid, admission_id, assessment_kind, inputs, total_score,
+          band, scoring_version, recommended_actions, notes,
+          assessed_by, assessed_by_name, next_assessment_due_at, tenant_id)
+       VALUES ($1::uuid, $2::int, $3, $4::jsonb, $5::int, $6, $7,
+               $8::text[], $9, $10::uuid, $11, $12::timestamptz, $13::uuid)
+       RETURNING *`,
+      String(patient_uid),
+      admission_id ? Number(admission_id) : null,
+      assessment_kind,
+      JSON.stringify(effectiveInputs),
+      Number(result.total_score),
+      result.band,
+      SCORING_VERSION,
+      result.recommended_actions ?? null,
+      notes || null,
+      assessed_by ? String(assessed_by) : null,
+      resolvedAssessedByName,
+      nextDueAt,
+      resolvedTenantId,
+    );
+    const saved = rows[0];
+    await recordCanonicalClinicalEvent({
+      tenantId: resolvedTenantId,
+      patientUid: String(patient_uid),
+      eventType: 'nursing_assessment.recorded',
+      eventSubtype: assessment_kind,
+      eventStatus: 'recorded',
+      sourceTable: 'nursing_assessments',
+      sourceId: saved.id,
+      resourceType: 'nursing_assessment',
+      resourceId: saved.id,
+      actorUid: assessed_by ? String(assessed_by) : null,
+      summary: sepsisPositive
+        ? `Sepsis screen POSITIVE (${result.band}, score ${result.total_score})`
+        : `${assessment_kind} assessment: ${result.band} (score ${result.total_score})`,
+      payload: {
+        assessment_kind,
+        total_score: result.total_score,
+        band: result.band,
+        recommended_actions: result.recommended_actions ?? null,
+        scoring_version: SCORING_VERSION,
+        ...(assessment_kind === 'sepsis_screen' ? { sepsis_screen_positive: sepsisPositive } : {}),
+      },
+      afterState: saved,
+      tags: sepsisPositive
+        ? ['nursing-assessment', assessment_kind, 'sepsis-screen-positive']
+        : ['nursing-assessment', assessment_kind],
+    }, { db: tx });
+    return saved;
+  });
 }
 
 export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }) {
