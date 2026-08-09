@@ -202,6 +202,8 @@ export const downloadFile = async (req, res) => {
     fileData.stream.on('error', (streamErr) => {
       logger.error('Download File stream error:', streamErr);
       if (!res.headersSent) {
+        res.removeHeader('Content-Disposition');
+        res.removeHeader('Content-Type');
         return error(res, 'Failed to download file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
       }
       // Response already started — nothing valid can be sent; abort it so the

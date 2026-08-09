@@ -128,6 +128,7 @@ describe('investigation download stream error handling', () => {
     res.emit = jest.fn();
     res.once = jest.fn(() => res);
     res.removeListener = jest.fn(() => res);
+    res.removeHeader = jest.fn(() => res);
     return res;
   }
 
@@ -153,6 +154,8 @@ describe('investigation download stream error handling', () => {
 
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+    expect(res.removeHeader).toHaveBeenCalledWith('Content-Disposition');
+    expect(res.removeHeader).toHaveBeenCalledWith('Content-Type');
     expect(res.destroy).not.toHaveBeenCalled();
   });
 
