@@ -119,7 +119,7 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
                   activeSort={sortBy}
                   direction={sortOrder}
                   onSort={setSort}
-                  className="!px-3 !py-2"
+                  className="px-3! py-2!"
                 />
                 <SortableTableHeader
                   label="Phone"
@@ -127,7 +127,7 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
                   activeSort={sortBy}
                   direction={sortOrder}
                   onSort={setSort}
-                  className="!px-3 !py-2"
+                  className="px-3! py-2!"
                 />
                 <SortableTableHeader
                   label="Doctor"
@@ -135,7 +135,7 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
                   activeSort={sortBy}
                   direction={sortOrder}
                   onSort={setSort}
-                  className="!px-3 !py-2"
+                  className="px-3! py-2!"
                 />
                 <SortableTableHeader
                   label="Dept"
@@ -143,7 +143,7 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
                   activeSort={sortBy}
                   direction={sortOrder}
                   onSort={setSort}
-                  className="!px-3 !py-2"
+                  className="px-3! py-2!"
                 />
                 <SortableTableHeader
                   label="Date/Time"
@@ -151,7 +151,7 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
                   activeSort={sortBy}
                   direction={sortOrder}
                   onSort={setSort}
-                  className="!px-3 !py-2"
+                  className="px-3! py-2!"
                 />
                 <SortableTableHeader
                   label="Token"
@@ -159,7 +159,7 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
                   activeSort={sortBy}
                   direction={sortOrder}
                   onSort={setSort}
-                  className="!px-3 !py-2"
+                  className="px-3! py-2!"
                 />
                 <SortableTableHeader
                   label="Status"
@@ -167,7 +167,7 @@ export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) 
                   activeSort={sortBy}
                   direction={sortOrder}
                   onSort={setSort}
-                  className="!px-3 !py-2"
+                  className="px-3! py-2!"
                 />
                 <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Reminders

@@ -76,7 +76,7 @@ export function TrailPanel({ data }: Props) {
           {trail.map((entry, i) => (
             <div key={i} className="relative">
               <div
-                className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white ${
+                className={`absolute left-[-21px] top-1 w-3 h-3 rounded-full border-2 border-white ${
                   entry.author_role === "system"
                     ? "bg-gray-300"
                     : entry.author_role === "reporter"
