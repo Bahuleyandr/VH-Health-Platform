@@ -412,6 +412,17 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
   test('unexpected (non-AppError) gateway failure is 503-retryable and releases the claim', async () => {
     const controlId = 'GWCM3-CTL-RETRYABLE';
 
+    // The sample itself is PLAUSIBLE (hr 82 passes the C-M4 plausibility gate
+    // in utils/clinical/vitalPlausibility.js, which 400s impossible values
+    // BEFORE persistence — the previous hr 99999 numeric-overflow injection
+    // now dies there as a deliberate AppError, not an unexpected failure; see
+    // the next test for that contract). Instead the unexpected server-side
+    // failure is injected INSIDE the vitals transaction: a temporary trigger
+    // on the insert target raises a raw Postgres exception AFTER the
+    // control-id claim insert (recordVitals runs beforeWrite → claim →
+    // INSERT INTO vitals_chart in one tx), i.e. a non-AppError failure
+    // mid-transaction. The gateway must get a 5xx so its spool retains the
+    // sample instead of dead-lettering it.
     await prisma.$executeRawUnsafe(
       `CREATE FUNCTION test_device_vitals_retryable_failure()
        RETURNS trigger LANGUAGE plpgsql AS $$
@@ -450,6 +461,27 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
     expect(Number(res.vitals.id)).toBeGreaterThan(0);
     expect(await vitalsCount(PATIENT_RETRYABLE)).toBe(1);
     expect(await controlIdRows(controlId)).toHaveLength(1);
+  }, 30000);
+
+  test('physiologically impossible device value is a deliberate 400 refusal, not a retryable 503', async () => {
+    const controlId = 'GWCM3-CTL-IMPOSSIBLE';
+
+    // Reconciled contract (C-M4 plausibility gate × gateway drain design):
+    // a value outside VITAL_PLAUSIBILITY_BOUNDS (utils/clinical/
+    // vitalPlausibility.js — e.g. hr > 300 bpm) is a sensor/data error whose
+    // rejection is DETERMINISTIC. Retrying it can never succeed, so the
+    // gateway MUST receive a 4xx and dead-letter the sample WITH evidence
+    // (spool.deadLetter records the full entry + reason) rather than wedge
+    // the spool retrying it forever. Only unexpected, non-deterministic
+    // failures (previous test) are answered 503-retryable.
+    await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '99999' })))
+      .rejects.toMatchObject({ statusCode: 400 });
+
+    // The refusal happens before the vitals transaction: nothing charted and
+    // the control-id is NOT consumed, so a corrected reading could still be
+    // delivered under the same control-id.
+    expect(await controlIdRows(controlId)).toHaveLength(0);
+    expect(await vitalsCount(PATIENT_RETRYABLE)).toBe(1);
   }, 30000);
 
   test('post-commit failure does not relabel durable gateway evidence as failed', async () => {
