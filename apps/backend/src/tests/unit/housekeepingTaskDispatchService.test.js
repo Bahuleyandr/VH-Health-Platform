@@ -158,7 +158,7 @@ describe('housekeepingTaskDispatchService', () => {
     );
     expect(requestInsert).toBeTruthy();
     expect(requestInsert[3]).toBeNull(); // zone_id (no matching zone)
-    expect(requestInsert[4]).toBe(42); // structured bed linkage (migration 643)
+    expect(requestInsert[4]).toBe(42); // structured bed linkage (migration 645)
     expect(requestInsert[5]).toBeNull(); // patient_uid (none passed)
     expect(requestInsert.slice(1, 13)).toEqual(expect.arrayContaining([
       10,

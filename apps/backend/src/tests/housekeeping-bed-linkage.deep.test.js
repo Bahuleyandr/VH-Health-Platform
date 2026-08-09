@@ -1,5 +1,5 @@
 // Phase-3 B-L4 — bed↔ticket linkage must be the structured
-// housekeeping_requests.bed_id column (migration 643), not a spoofable
+// housekeeping_requests.bed_id column (migration 645), not a spoofable
 // free-text "bed_id=N." marker parsed out of user-suppliable description text.
 //
 // Pre-fix, a manual request whose description merely CONTAINED "bed_id=N."

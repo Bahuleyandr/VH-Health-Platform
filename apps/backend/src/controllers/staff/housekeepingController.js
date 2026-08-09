@@ -55,7 +55,7 @@ function requireZoneAdmin(req, res) {
 }
 
 // Bed↔request linkage is the structured housekeeping_requests.bed_id column
-// (migration 643) written by the bed-cleaning dispatcher — NOT a free-text
+// (migration 645) written by the bed-cleaning dispatcher — NOT a free-text
 // "bed_id=N" marker parsed out of description/notes, which was user-suppliable
 // on the manual request endpoints and could point at any bed in any tenant.
 function extractLinkedBedId(requestRow = {}) {

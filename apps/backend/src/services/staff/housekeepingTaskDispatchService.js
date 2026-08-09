@@ -373,7 +373,7 @@ export async function notifyHousekeepingRecipients({
 }
 
 async function findExistingActiveBedCleaningRequest(db, bedId, tenantId) {
-  // Dedupe on the structured bed_id column (migration 643), NOT the free-text
+  // Dedupe on the structured bed_id column (migration 645), NOT the free-text
   // "bed_id=N." description marker — the description is user-suppliable on the
   // manual request endpoints, so a typed marker could suppress a real dispatch.
   const rows = await db.$queryRawUnsafe(
@@ -698,7 +698,7 @@ export async function sweepMissingBedCleaningDispatches({ tenantId = null, limit
             FROM housekeeping_requests hr
            WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
              AND hr.tenant_id = b.tenant_id
-             -- Structured linkage (migration 643): only a ticket the dispatcher
+             -- Structured linkage (migration 645): only a ticket the dispatcher
              -- actually keyed to this bed suppresses re-dispatch. The legacy
              -- free-text "bed_id=N." description match was user-suppliable and
              -- could silence the sweep with a typed marker.

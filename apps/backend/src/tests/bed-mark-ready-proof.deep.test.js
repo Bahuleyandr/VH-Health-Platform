@@ -19,7 +19,7 @@
 //
 // Phase-3 B-M2 hardening, proven here too:
 //   5. A resolved ticket linked to a DIFFERENT bed is REJECTED (the ticket must
-//      cover the bed being readied — housekeeping_requests.bed_id, mig 643).
+//      cover the bed being readied — housekeeping_requests.bed_id, mig 645).
 //   6. A resolved ticket with NO bed linkage (e.g. a spoofed manual request) is
 //      REJECTED.
 //   7. A cleanerId that does not resolve to an active housekeeping staff member

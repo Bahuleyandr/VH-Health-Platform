@@ -212,7 +212,7 @@ export async function emitHousekeepingRequestRaised({
   const client = dbClient(db);
   if (!request?.id) return null;
   // Bed-cleaning dispatch requests carry the patient whose stay triggered the
-  // turnover (housekeeping_requests.patient_uid, migration 643). Passing it
+  // turnover (housekeeping_requests.patient_uid, migration 645). Passing it
   // here is what makes the canonical emit write the patient-facing
   // clinical_timeline_events row — the timeline writer no-ops without a
   // patient_uid, so patient-tied housekeeping used to leave audit rows only.
