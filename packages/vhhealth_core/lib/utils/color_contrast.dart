@@ -46,7 +46,5 @@ Color ensureTextContrast(
     final candidate = hsl.toColor();
     if (contrastRatio(candidate, background) >= minRatio) return candidate;
   }
-  return backgroundIsDark
-      ? const Color(0xFFFFFFFF)
-      : const Color(0xFF000000);
+  return backgroundIsDark ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
 }
