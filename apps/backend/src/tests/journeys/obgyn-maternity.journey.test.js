@@ -841,9 +841,14 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     laborId = Number(labor.body.data.id);
     canonicalSourceIds.set('maternity.labor_admission_recorded', laborId);
 
+    // Keep this synthetic observation at the admission's documented active-
+    // phase start. Anchoring it to hospital-date midnight makes elapsed labour
+    // depend on the wall clock and can turn this normal 6 cm entry into a real
+    // action-line escalation when the suite runs near a timezone boundary.
+    const partographRecordedAt = new Date(labor.body.data.admitted_at).toISOString();
     const partograph = await doctor.post('/api/v1/maternity/partograph').send({
       labor_admission_id: laborId,
-      recorded_at: `${birthDate}T03:00:00.000Z`,
+      recorded_at: partographRecordedAt,
       bp_systolic: 122,
       bp_diastolic: 78,
       cervix_dilation_cm: 6,
@@ -852,6 +857,7 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
       notes: PRIVATE_PARTOGRAPH
     });
     expect(partograph.statusCode).toBe(200);
+    expect(partograph.body.data.escalation_raised).toBe(false);
     partographId = Number(partograph.body.data.id);
     canonicalSourceIds.set('maternity.partograph_entry_recorded', partographId);
 
