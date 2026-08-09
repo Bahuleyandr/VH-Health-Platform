@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/utils/color_contrast.dart';
 
 class FeatureScreenScaffold extends StatefulWidget {
   final String title;
@@ -77,6 +78,15 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width > 600;
     final theme = Theme.of(context);
+    // The pastel feature colours are ~1.2:1 against the light scaffold
+    // background — fine as decorative fills, unreadable as text. Derive a
+    // same-hue variant that meets WCAG AA (4.5:1) for the title and the
+    // back-button icon. In dark mode the pastels already pass and are
+    // returned unchanged.
+    final accessibleAccent = ensureTextContrast(
+      widget.color,
+      theme.scaffoldBackgroundColor,
+    );
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -112,7 +122,12 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                       IconButton(
                         icon: const Icon(Icons.arrow_back),
                         onPressed: _goBack,
-                        color: widget.color,
+                        color: accessibleAccent,
+                        // Screen-reader label ("Back", localised by Flutter
+                        // for all supported app locales).
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).backButtonTooltip,
                       ),
                       const SizedBox(width: 8),
                       // Hero icon
@@ -133,7 +148,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                         child: Text(
                           widget.title,
                           style: theme.textTheme.titleLarge?.copyWith(
-                            color: widget.color,
+                            color: accessibleAccent,
                             fontWeight: FontWeight.bold,
                           ),
                         ),

@@ -56,6 +56,7 @@ export 'api/vh_auth_interceptor.dart';
 export 'theme/app_theme.dart';
 export 'theme/design_tokens.dart';
 export 'theme/theme_colors.dart';
+export 'utils/color_contrast.dart';
 export 'utils/date_formatter.dart';
 export 'utils/input_sanitizer.dart';
 export 'utils/log_sanitizer.dart';
