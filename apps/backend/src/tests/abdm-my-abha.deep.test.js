@@ -33,9 +33,11 @@ const UNLINKED_UID = 'f12a0000-0000-4000-8000-00000000000b';
 // Its own fixture so the link test's mutation cannot make any other test
 // order-dependent.
 const LINK_TARGET_UID = 'f12a0000-0000-4000-8000-00000000000c';
+const DUPLICATE_TARGET_UID = 'f12a0000-0000-4000-8000-00000000000d';
 const LINKED_PHONE = '+919000120001';
 const UNLINKED_PHONE = '+919000120002';
 const LINK_TARGET_PHONE = '+919000120003';
+const DUPLICATE_TARGET_PHONE = '+919000120004';
 const ABHA_NUMBER = '12345678901234';
 const ABHA_ADDRESS = 'f12patient@abdm';
 
@@ -49,8 +51,8 @@ function patientClient(uid, { tenantId = TENANT_ID } = {}) {
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-    LINKED_UID, UNLINKED_UID, LINK_TARGET_UID,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+    LINKED_UID, UNLINKED_UID, LINK_TARGET_UID, DUPLICATE_TARGET_UID,
   ).catch(() => {});
 }
 
@@ -71,6 +73,11 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
       `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2::uuid, $3, 'F12 Link Target Patient', 'PATIENT', true, NOW())`,
       LINK_TARGET_UID, TENANT_ID, LINK_TARGET_PHONE,
+    );
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'F12 Duplicate Target Patient', 'PATIENT', true, NOW())`,
+      DUPLICATE_TARGET_UID, TENANT_ID, DUPLICATE_TARGET_PHONE,
     );
   });
 
@@ -144,6 +151,24 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body.code).toBe('INVALID_ABHA_FORMAT');
+  });
+
+  test('the database rejects a concurrent-equivalent ABHA spelling in the same tenant', async () => {
+    await expect(
+      prisma.$executeRawUnsafe(
+        `UPDATE users SET abha_number = $1 WHERE uid = $2::uuid AND tenant_id = $3::uuid`,
+        '12-3456-7890-1234',
+        DUPLICATE_TARGET_UID,
+        TENANT_ID,
+      ),
+    ).rejects.toThrow(/uniq_users_tenant_abha_number_canonical|duplicate key/i);
+
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT abha_number FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid',
+      DUPLICATE_TARGET_UID,
+      TENANT_ID,
+    );
+    expect(rows[0].abha_number).toBeNull();
   });
 
   test('an anonymous caller is rejected', async () => {

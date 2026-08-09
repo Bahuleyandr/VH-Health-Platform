@@ -126,6 +126,24 @@ describe('registerABHA — ABHA number', () => {
     ).rejects.toMatchObject({ code: 'ABHA_ALREADY_LINKED', statusCode: 409 });
   });
 
+  it('maps the database uniqueness backstop race to the same 409 contract', async () => {
+    stubQueries();
+    prismaQuery.mockReset();
+    prismaQuery
+      .mockResolvedValueOnce([{ uid: PATIENT_UID }])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce({
+        meta: {
+          code: '23505',
+          message: 'duplicate key value violates unique constraint "uniq_users_tenant_abha_number_canonical"',
+        },
+      });
+
+    await expect(
+      abdmService.registerABHA(PATIENT_UID, '12-3456-7890-1234', null, { tenantId: TENANT_ID }),
+    ).rejects.toMatchObject({ code: 'ABHA_ALREADY_LINKED', statusCode: 409 });
+  });
+
   it('refuses when the patient row is absent in this tenant', async () => {
     stubQueries({ patient: [] });
 

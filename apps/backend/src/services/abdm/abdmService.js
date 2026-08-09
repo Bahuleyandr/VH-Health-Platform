@@ -201,6 +201,22 @@ function normalizeAbhaAddress(abhaAddress) {
   return trimmed;
 }
 
+function isCanonicalAbhaUniqueViolation(err) {
+  const sqlState = err?.meta?.code
+    ?? err?.meta?.driverAdapterError?.cause?.originalCode
+    ?? err?.code;
+  const detail = [
+    err?.message,
+    err?.meta?.message,
+    err?.meta?.target,
+    err?.meta?.driverAdapterError?.cause?.originalMessage,
+  ].filter(Boolean).join(' ');
+  const isUniqueViolation = String(sqlState) === '23505'
+    || String(sqlState) === 'P2002'
+    || /duplicate key value/i.test(detail);
+  return isUniqueViolation && detail.includes('uniq_users_tenant_abha_number_canonical');
+}
+
 class ABDMService {
   async getAdminStatus({ tenantId = null } = {}) {
     const tid = requireTenantId(tenantId);
@@ -422,13 +438,24 @@ class ABDMService {
     }
 
     // Update patient with ABHA details
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE users
-       SET abha_number = $1, abha_address = $2, updated_at = NOW()
-       WHERE uid = $3::uuid AND tenant_id = $4::uuid
-       RETURNING uid, tenant_id, name, phone, abha_number, abha_address, updated_at`,
-      normalizedAbha, normalizedAddress, patientUid, tid
-    );
+    let result;
+    try {
+      result = await prisma.$queryRawUnsafe(
+        `UPDATE users
+         SET abha_number = $1, abha_address = $2, updated_at = NOW()
+         WHERE uid = $3::uuid AND tenant_id = $4::uuid
+         RETURNING uid, tenant_id, name, phone, abha_number, abha_address, updated_at`,
+        normalizedAbha, normalizedAddress, patientUid, tid
+      );
+    } catch (err) {
+      if (isCanonicalAbhaUniqueViolation(err)) {
+        throw AppError.conflict(
+          'This ABHA number is already linked to another patient',
+          'ABHA_ALREADY_LINKED',
+        );
+      }
+      throw err;
+    }
 
     // An ABHA number is a national health identifier — mask it in logs, per the
     // house rule for user data (this line previously logged it in the clear).
