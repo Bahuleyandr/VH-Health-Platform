@@ -130,7 +130,7 @@ describe('POST /consent/grant — Stage-5 consent method + witness + form langua
       consent_method: 'fingerprint_scan',
     });
     expect(res.statusCode).toBe(400);
-    expect(String(res.body.message || '')).toMatch(/consent_method/i);
+    expect(JSON.stringify(res.body)).toMatch(/consent_method/i);
   });
 
   it('rejects a malformed witness_uid', async () => {
@@ -142,7 +142,11 @@ describe('POST /consent/grant — Stage-5 consent method + witness + form langua
       witness_uid: 'not-a-uuid',
     });
     expect(res.statusCode).toBe(400);
-    expect(String(res.body.message || '')).toMatch(/witness_uid/i);
+    // The malformed UUID is now refused by the shared consentValidator chain
+    // (validator envelope: { success:false, errors:[...] }) before the
+    // handler's own witness_uid check runs.
+    const validationText = JSON.stringify(res.body);
+    expect(validationText).toMatch(/witness_uid/i);
   });
 
   it('captures consent signature uploads as immutable version rows and audits capture', async () => {

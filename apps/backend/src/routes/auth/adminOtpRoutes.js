@@ -6,6 +6,7 @@ import { validationResult, body, query } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminOtpController from '../../controllers/auth/adminOtpController.js';
+import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { error } from '../../utils/responseHelper.js';
 import {
   analyticsValidator,
@@ -29,7 +30,10 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// ADMIN ROUTES - Full RBAC protection (ADMIN only)
+// This router is mounted before the global JWT middleware.
+router.use(jwtAuth);
+router.use(enforceFullScope);
+
 wrapAutoRBAC(router, 'ALL', {
   get: [
     // OTP Usage Analytics

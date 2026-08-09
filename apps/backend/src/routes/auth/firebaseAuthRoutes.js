@@ -169,7 +169,9 @@ wrapRoutesWithValidation(
   }
 );
 
-// Admin Routes for Firebase Management
+// This router is mounted before the global JWT middleware.
+router.use('/admin', jwtAuth, enforceFullScope);
+
 wrapAutoRBAC(
   router,
   'firebaseAdminRoutes',
@@ -178,61 +180,35 @@ wrapAutoRBAC(
       // Firebase Users List
       [
         '/admin/users',
-        async (req, res) => {
-          // Implementation moved to controller/service
-          const { success, error } = require('../../utils/responseHelper.js');
-          const logger = require('../../logging/logger.js').default;
-          try {
-            // Call admin service
-            success(res, {
-              users: [],
-              pagination: {
-                page: parseInt(req.query.page || 1),
-                limit: parseInt(req.query.limit || 50),
-                total: 0,
-                totalPages: 0
-              },
-              requestedBy: req.user?.name
-            }, 'Firebase users retrieved successfully');
-          } catch (err) {
-            logger.error('Admin Users List Error:', err);
-            error(res, 'Failed to retrieve users', 500);
-          }
+        async (_req, res) => {
+          // No Firebase user-directory implementation exists yet.
+          error(res, 'Not implemented', 501);
         }
       ],
-      
+
       // Device Management
       [
         '/admin/devices',
         async (req, res) => {
-          // Implementation moved to controller/service
-          const { success } = require('../../utils/responseHelper.js');
-          success(res, {
-            devices: [],
-            statistics: [],
-            requestedBy: req.user?.name
-          }, 'Device information retrieved successfully');
+          // No device-registry implementation exists yet.
+          error(res, 'Not implemented', 501);
         }
       ]
     ],
-    
+
     post: [
       // Revoke All User Tokens
       [
         '/admin/revoke-user-tokens',
         async (req, res) => {
-          // Implementation moved to controller/service
-          const { error } = require('../../utils/responseHelper.js');
           error(res, 'Not implemented', 501);
         }
       ],
-      
+
       // Cleanup Inactive Devices
       [
         '/admin/cleanup-devices',
         async (req, res) => {
-          // Implementation moved to controller/service
-          const { error } = require('../../utils/responseHelper.js');
           error(res, 'Not implemented', 501);
         }
       ]

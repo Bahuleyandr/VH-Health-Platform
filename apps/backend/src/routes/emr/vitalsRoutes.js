@@ -1,11 +1,19 @@
 // src/routes/emr/vitalsRoutes.js
 import express from 'express';
+import { validationResult } from 'express-validator';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { vitalsValidator } from '../../validators/sharedValidators.js';
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+  next();
+};
 
 const router = express.Router();
 
@@ -25,7 +33,7 @@ const guardVitalsResourceWrite = patientAccessGuardForResource('VITAL_SIGN', {
 // POST /emr/vitals — Record vitals
 // ===================================================================
 
-router.post('/vitals', rejectMobileClinicalWrite, guardClinicalWrite, async (req, res, next) => {
+router.post('/vitals', rejectMobileClinicalWrite, ...vitalsValidator, validate, guardClinicalWrite, async (req, res, next) => {
   try {
     const {
       patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
