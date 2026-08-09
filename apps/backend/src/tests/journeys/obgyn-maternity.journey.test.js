@@ -8,7 +8,6 @@ import {
   DEFAULT_TENANT,
   describeJourney,
   hospitalDateOffset,
-  hospitalToday,
   prisma,
   runSuffix,
   seedUser
@@ -536,7 +535,22 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     const baselineOutbound = await outboundCounts();
     baselineOutboxCount = baselineOutbound.outbox;
     baselineRecipientCount = baselineOutbound.recipients;
-    birthDate = await hospitalToday();
+    // The labour/birth day is anchored ONE hospital day in the past, NOT
+    // "today". This journey stamps fixed-UTC instants on this date (labour
+    // 00:00Z -> partograph 03:00Z -> delivery 05:00Z -> postnatal/immunisation
+    // 11:00-12:00Z), while the labour admission's admitted_at defaults to the
+    // DB wall clock. Between 18:30 and 24:00 UTC the Asia/Kolkata "today" is
+    // already the NEXT UTC date, so with hospitalToday() the 03:00Z partograph
+    // instant lands 6-8.5h in the FUTURE of admitted_at; the WHO action-line
+    // math (computePartographAlerts, 1cm/hr from the 4cm admission) then reads
+    // 6cm as 6+ hours overdue and raises a REAL escalation — one extra
+    // notification_outbox row that broke the notification-free assertion
+    // below, but only when CI ran 18:30-21:00 UTC. Yesterday's date keeps
+    // every stamped instant strictly in the past at any wall-clock time; all
+    // date assertions in this journey are relative to birthDate, none require
+    // "today". (Genuinely-overdue escalation coverage lives in
+    // maternity-escalation-hardening.deep.test.js.)
+    birthDate = await hospitalDateOffset(-1);
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name)
