@@ -6,10 +6,14 @@
 // when set, then the doctor edits + signs. Status walk:
 //   draft → ready_for_signoff → signed → delivered
 
+import { createHash } from 'crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   publishInpatientSourceEventTx,
@@ -619,6 +623,11 @@ async function emitDischargeCanonicalEvent({
   db, tenantId, id, patientUid, admissionId = null,
   eventType, eventStatus, actorUid = null, summary, payload = {},
   previousStatus = null,
+  // Fixed lifecycle keys are the default; amendable emits (translation edits)
+  // pass their own fingerprint + :tx: revision keys per the idempotency-key
+  // discipline in docs/CANONICAL_CLINICAL_TIMELINE.md.
+  timelineIdempotencyKey = null,
+  auditIdempotencyKey = null,
 }) {
   if (!patientUid) return null;
   return recordCanonicalClinicalEvent({
@@ -643,8 +652,10 @@ async function emitDischargeCanonicalEvent({
     beforeState: previousStatus ? { status: previousStatus } : null,
     afterState: { status: eventStatus },
     tags: ['discharge_summary'],
-    timelineIdempotencyKey: `discharge_summaries:${id}:${eventType}:${eventStatus}`,
-    auditIdempotencyKey: `discharge_summaries:${id}:audit:${eventType}:${eventStatus}`,
+    timelineIdempotencyKey: timelineIdempotencyKey
+      || `discharge_summaries:${id}:${eventType}:${eventStatus}`,
+    auditIdempotencyKey: auditIdempotencyKey
+      || `discharge_summaries:${id}:audit:${eventType}:${eventStatus}`,
   }, { db });
 }
 
@@ -915,105 +926,138 @@ export async function createDraft({
   template_code, specialty, created_by,
 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const scopedTenantId = requireTenantId(tenantId);
   const template = await pickTemplate({ tenantId, template_code, specialty });
-  const materializeInpatientClosure = admission_id
-    ? await setTenantTx(requireTenantId(tenantId), async (tx) => (
-        await resolveInpatientPathwayModeTx(tx, tenantId)
-      ) !== PATHWAY_MODES.OFF)
-    : false;
 
-  // Accept both naming styles: callers may send the bare field
-  // (`patient_name`) or the explicit snapshot column name
-  // (`patient_name_snapshot`). Whichever is present wins; if neither
-  // is supplied, the INSERT's COALESCE backfills from the users row.
-  // A discharge summary is a medico-legal document — patient name,
-  // age, and sex are mandatory header fields and must never be NULL.
-  // Finding:
-  //   2026-05-09-inpatient-admission-discharge-summary-patient-fields-dropped
-  const headerRows = await prisma.$queryRawUnsafe(
-    `INSERT INTO discharge_summaries
-       (admission_id, patient_uid, patient_name_snapshot, age_years_snapshot,
-        sex_snapshot, hospital_number, admitted_at, discharged_at,
-        ward_at_discharge, primary_diagnosis, secondary_diagnoses,
-        icd10_codes, procedures_performed, status, created_by, tenant_id)
-     VALUES ($1::int, $2::uuid,
-             COALESCE($3, (SELECT u.name FROM users u WHERE u.uid = $2::uuid LIMIT 1)),
-             COALESCE($4::int,
-               (SELECT (EXTRACT(YEAR FROM AGE(u.birthday)))::int
-                  FROM users u WHERE u.uid = $2::uuid AND u.birthday IS NOT NULL LIMIT 1)),
-             COALESCE($5, (SELECT u.gender FROM users u WHERE u.uid = $2::uuid LIMIT 1)),
-             $6, $7::timestamptz,
-             $8::timestamptz, $9, $10, $11::text[], $12::text[], $13::text[],
-             'draft', $14::uuid, $15::uuid)
-     RETURNING *`,
-    admission_id ? Number(admission_id) : null,
-    String(patient_uid),
-    patient_name_snapshot ?? patient_name ?? null,
-    (age_years_snapshot ?? age_years) != null
-      ? Number(age_years_snapshot ?? age_years)
-      : null,
-    sex_snapshot ?? sex ?? null,
-    hospital_number || null,
-    admitted_at || null,
-    discharged_at || null,
-    ward_at_discharge || null,
-    primary_diagnosis || null,
-    secondary_diagnoses || null,
-    icd10_codes || null,
-    procedures_performed || null,
-    created_by ? String(created_by) : null,
-    tenantId,
-  );
-  const summary = headerRows[0];
+  // Atomic draft creation: admission validation, the header INSERT, and every
+  // section INSERT commit together, so a mid-create failure cannot leave a
+  // signable partial summary behind (previously each statement ran on plain
+  // `prisma`). The compose-snapshot materialisation stays post-commit — it
+  // runs its own transaction and is safe to retry.
+  const summary = await setTenantTx(scopedTenantId, async (tx) => {
+    // A discharge summary's admission linkage drives the admission's discharge
+    // gate when sign() stamps summary_signed_at. Validate the linkage in the
+    // same transaction that mints the header: the admission must exist, belong
+    // to this tenant, and belong to this summary's patient.
+    if (admission_id) {
+      const admissionRows = await tx.$queryRawUnsafe(
+        `SELECT id, patient_uid
+           FROM admissions
+          WHERE id = $1::int
+            AND tenant_id = $2::uuid`,
+        Number(admission_id), scopedTenantId,
+      );
+      if (!admissionRows.length) {
+        throw AppError.notFound('Admission not found', 'ADMISSION_NOT_FOUND');
+      }
+      if (String(admissionRows[0].patient_uid) !== String(patient_uid)) {
+        throw AppError.badRequest(
+          'admission_id belongs to a different patient — a discharge summary can only be linked to its own patient\'s admission',
+          'DISCHARGE_SUMMARY_ADMISSION_PATIENT_MISMATCH',
+        );
+      }
+    }
+    const materializeInpatientClosure = admission_id
+      ? (await resolveInpatientPathwayModeTx(tx, tenantId)) !== PATHWAY_MODES.OFF
+      : false;
 
-  // Materialise sections from the template, auto-filling the clinical
-  // sections that have structured visit data behind them. Sections that
-  // need clinician-authored prose keep the template default — we never
-  // fabricate clinical narrative. Auto-population only runs when the
-  // template actually declares an auto-populatable section, so a
-  // section-less template stays a zero-extra-query path.
-  // Finding: 2026-05-09-tpa-insurance-claim-discharge-summary-sections-not-auto-populated
-  const templateSections = Array.isArray(template.sections) ? template.sections : [];
-  const templateSectionKeys = new Set(
-    templateSections.map((section) => String(section?.section_key || '').toLowerCase()),
-  );
-  const sections = materializeInpatientClosure
-    ? [
-        ...templateSections,
-        ...INPATIENT_CLOSURE_SECTION_DEFINITIONS.filter(
-          (section) => !templateSectionKeys.has(section.section_key),
-        ),
-      ]
-    : templateSections;
-  const neededKeys = new Set(
-    sections
-      .map((s) => String(s?.section_key || '').toLowerCase())
-      .filter((k) => isAutoPopulatableKey(k)),
-  );
-  let autoBodies = {};
-  if (neededKeys.size > 0) {
-    autoBodies = await buildAutoSectionBodies({
-      admission_id, patient_uid, admitted_at, discharged_at, neededKeys,
-      primary_diagnosis, secondary_diagnoses,
-    });
-  }
-  for (const s of sections) {
-    if (!s?.section_key || !s?.section_title) continue;
-    const autoBody = autoBodies[String(s.section_key).toLowerCase()];
-    const body = autoBody != null
-      ? autoBody
-      : (s.default_body ? String(s.default_body) : null);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO discharge_summary_sections
-         (discharge_summary_id, section_key, section_title, display_order, body)
-       VALUES ($1::int, $2, $3, $4::int, $5)`,
-      summary.id,
-      String(s.section_key),
-      String(s.section_title),
-      Number(s.display_order ?? 0),
-      body,
+    // Accept both naming styles: callers may send the bare field
+    // (`patient_name`) or the explicit snapshot column name
+    // (`patient_name_snapshot`). Whichever is present wins; if neither
+    // is supplied, the INSERT's COALESCE backfills from the users row.
+    // A discharge summary is a medico-legal document — patient name,
+    // age, and sex are mandatory header fields and must never be NULL.
+    // Finding:
+    //   2026-05-09-inpatient-admission-discharge-summary-patient-fields-dropped
+    const headerRows = await tx.$queryRawUnsafe(
+      `INSERT INTO discharge_summaries
+         (admission_id, patient_uid, patient_name_snapshot, age_years_snapshot,
+          sex_snapshot, hospital_number, admitted_at, discharged_at,
+          ward_at_discharge, primary_diagnosis, secondary_diagnoses,
+          icd10_codes, procedures_performed, status, created_by, tenant_id)
+       VALUES ($1::int, $2::uuid,
+               COALESCE($3, (SELECT u.name FROM users u WHERE u.uid = $2::uuid LIMIT 1)),
+               COALESCE($4::int,
+                 (SELECT (EXTRACT(YEAR FROM AGE(u.birthday)))::int
+                    FROM users u WHERE u.uid = $2::uuid AND u.birthday IS NOT NULL LIMIT 1)),
+               COALESCE($5, (SELECT u.gender FROM users u WHERE u.uid = $2::uuid LIMIT 1)),
+               $6, $7::timestamptz,
+               $8::timestamptz, $9, $10, $11::text[], $12::text[], $13::text[],
+               'draft', $14::uuid, $15::uuid)
+       RETURNING *`,
+      admission_id ? Number(admission_id) : null,
+      String(patient_uid),
+      patient_name_snapshot ?? patient_name ?? null,
+      (age_years_snapshot ?? age_years) != null
+        ? Number(age_years_snapshot ?? age_years)
+        : null,
+      sex_snapshot ?? sex ?? null,
+      hospital_number || null,
+      admitted_at || null,
+      discharged_at || null,
+      ward_at_discharge || null,
+      primary_diagnosis || null,
+      secondary_diagnoses || null,
+      icd10_codes || null,
+      procedures_performed || null,
+      created_by ? String(created_by) : null,
+      tenantId,
     );
-  }
+    const header = headerRows[0];
+
+    // Materialise sections from the template, auto-filling the clinical
+    // sections that have structured visit data behind them. Sections that
+    // need clinician-authored prose keep the template default — we never
+    // fabricate clinical narrative. Auto-population only runs when the
+    // template actually declares an auto-populatable section, so a
+    // section-less template stays a zero-extra-query path.
+    // Finding: 2026-05-09-tpa-insurance-claim-discharge-summary-sections-not-auto-populated
+    const templateSections = Array.isArray(template.sections) ? template.sections : [];
+    const templateSectionKeys = new Set(
+      templateSections.map((section) => String(section?.section_key || '').toLowerCase()),
+    );
+    const sections = materializeInpatientClosure
+      ? [
+          ...templateSections,
+          ...INPATIENT_CLOSURE_SECTION_DEFINITIONS.filter(
+            (section) => !templateSectionKeys.has(section.section_key),
+          ),
+        ]
+      : templateSections;
+    const neededKeys = new Set(
+      sections
+        .map((s) => String(s?.section_key || '').toLowerCase())
+        .filter((k) => isAutoPopulatableKey(k)),
+    );
+    let autoBodies = {};
+    if (neededKeys.size > 0) {
+      // Read-only, best-effort, and runs on plain `prisma` on its own
+      // connection — a failure inside it is swallowed there and cannot
+      // poison this transaction.
+      autoBodies = await buildAutoSectionBodies({
+        admission_id, patient_uid, admitted_at, discharged_at, neededKeys,
+        primary_diagnosis, secondary_diagnoses,
+      });
+    }
+    for (const s of sections) {
+      if (!s?.section_key || !s?.section_title) continue;
+      const autoBody = autoBodies[String(s.section_key).toLowerCase()];
+      const body = autoBody != null
+        ? autoBody
+        : (s.default_body ? String(s.default_body) : null);
+      await tx.$executeRawUnsafe(
+        `INSERT INTO discharge_summary_sections
+           (discharge_summary_id, section_key, section_title, display_order, body)
+         VALUES ($1::int, $2, $3, $4::int, $5)`,
+        header.id,
+        String(s.section_key),
+        String(s.section_title),
+        Number(s.display_order ?? 0),
+        body,
+      );
+    }
+    return header;
+  });
 
   // A compose run can finish before the migration-159 builder draft is
   // created. Consume only the latest completed workflow result here so a
@@ -1262,36 +1306,108 @@ export async function setSectionTranslation({
   if (lang === 'en') {
     throw AppError.badRequest('English is the authored language — edit the section body directly, not as a translation');
   }
-  // Verify ownership before edit (prevents cross-tenant tampering).
-  const owner = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM discharge_summaries
-      WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
-  );
-  if (!owner.length) throw AppError.notFound('Discharge summary not found');
-
   // No human translation supplied → store the review placeholder so the
   // section is discoverable as "needs translation" rather than missing.
   const translatedBody = body && String(body).trim()
     ? String(body)
     : TRANSLATION_PLACEHOLDER;
 
-  const result = await prisma.$executeRawUnsafe(
-    `UPDATE discharge_summary_sections
-        SET body_translations = body_translations || jsonb_build_object($1::text, $2::text),
-            edited_by = $3::uuid, edited_at = NOW()
-      WHERE discharge_summary_id = $4::int AND section_key = $5`,
-    lang, translatedBody,
-    edited_by ? String(edited_by) : null,
-    Number(id), String(section_key),
-  );
-  if (Number(result) === 0) {
-    throw AppError.notFound(`Section ${section_key} not found on this summary`);
-  }
-  await prisma.$executeRawUnsafe(
-    `UPDATE discharge_summaries SET updated_at = NOW() WHERE id = $1::int`,
-    Number(id),
-  );
+  // Atomic: translation write + legacy audit + canonical timeline/audit events
+  // commit together (canonical timeline invariant — the translated body IS the
+  // patient-facing discharge instruction for a non-English reader).
+  await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    // Lock the parent before the section (same ordering as updateSection/sign)
+    // and guard the status: once signed/delivered the summary is a finalised
+    // medico-legal document and its translations are frozen with it.
+    const owner = await tx.$queryRawUnsafe(
+      `SELECT id, status, patient_uid, admission_id
+         FROM discharge_summaries
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      Number(id), tenantId,
+    );
+    if (!owner.length) throw AppError.notFound('Discharge summary not found');
+    const summary = owner[0];
+    if (summary.status === 'signed' || summary.status === 'delivered') {
+      throw AppError.conflict(
+        `Discharge summary is ${summary.status} — translations cannot be edited on a finalised document.`,
+        'DISCHARGE_SUMMARY_IMMUTABLE',
+        { status: summary.status },
+      );
+    }
+    const sectionRows = await tx.$queryRawUnsafe(
+      `SELECT id, section_title, body_translations
+         FROM discharge_summary_sections
+        WHERE discharge_summary_id = $1::int
+          AND section_key = $2
+        LIMIT 1
+        FOR UPDATE`,
+      Number(id), String(section_key),
+    );
+    if (!sectionRows.length) {
+      throw AppError.notFound(`Section ${section_key} not found on this summary`);
+    }
+    const before = sectionRows[0];
+    const previousTranslation = plainObject(before.body_translations)[lang] ?? null;
+    // Effective-state no-op guard: an exact retry returns before any write, so
+    // the amendable-record idempotency keys below never mint a phantom revision.
+    if (previousTranslation === translatedBody) return;
+
+    await tx.$executeRawUnsafe(
+      `UPDATE discharge_summary_sections
+          SET body_translations = body_translations || jsonb_build_object($1::text, $2::text),
+              edited_by = $3::uuid, edited_at = NOW()
+        WHERE discharge_summary_id = $4::int AND section_key = $5`,
+      lang, translatedBody,
+      edited_by ? String(edited_by) : null,
+      Number(id), String(section_key),
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE discharge_summaries
+          SET updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(id), tenantId,
+    );
+    await appendDischargeAudit({
+      tenantId, id, db: tx,
+      action: 'DISCHARGE_SUMMARY_TRANSLATION_SET',
+      actorUid: edited_by,
+      metadata: {
+        section_key: String(section_key),
+        section_title: before.section_title || null,
+        language: lang,
+        previous_translation: previousTranslation,
+        new_translation: translatedBody,
+        is_placeholder: translatedBody === TRANSLATION_PLACEHOLDER,
+      },
+    });
+    // Translation edits are amendable (the same section+language can be
+    // re-translated), so the canonical pair uses the fingerprint + :tx:
+    // revision key family, not a fixed lifecycle key that would silently
+    // absorb later revisions.
+    const revision = await currentCanonicalTransactionRevision(tx);
+    const fingerprint = createHash('sha256')
+      .update(`${lang}\n${translatedBody}`)
+      .digest('hex')
+      .slice(0, 16);
+    const keySuffix = `translation:${lang}:${fingerprint}:tx:${revision}`;
+    await emitDischargeCanonicalEvent({
+      db: tx, tenantId, id, patientUid: summary.patient_uid,
+      admissionId: summary.admission_id,
+      eventType: 'discharge_summary.translation_set',
+      eventStatus: String(summary.status),
+      actorUid: edited_by,
+      summary: `Discharge summary section "${section_key}" translation set (${lang})`,
+      payload: {
+        section_key: String(section_key),
+        language: lang,
+        is_placeholder: translatedBody === TRANSLATION_PLACEHOLDER,
+      },
+      timelineIdempotencyKey: `discharge_summary_sections:${before.id}:${keySuffix}`,
+      auditIdempotencyKey: `discharge_summary_sections:${before.id}:audit:${keySuffix}`,
+    });
+  });
   return getOne({ tenantId, id });
 }
 
@@ -1396,12 +1512,25 @@ export async function sign({
     // discharge_summaries. Now in-tx with the sign (was best-effort + outside).
     // Finding: 2026-05-09-tpa-insurance-claim-patient-discharge-pdf-blocked.
     if (row.admission_id) {
-      await tx.$executeRawUnsafe(
+      // The stamp is the discharge-readiness gate, so the UPDATE is predicated
+      // on tenant + patient as well as id: a summary carrying a mismatched
+      // admission_id (legacy rows predating createDraft's validation) must
+      // abort the sign rather than satisfy another patient's discharge gate.
+      const stamped = await tx.$executeRawUnsafe(
         `UPDATE admissions
             SET summary_signed_at = $1, updated_at = NOW()
-          WHERE id = $2::int`,
-        row.signed_at, Number(row.admission_id),
+          WHERE id = $2::int
+            AND tenant_id = $3::uuid
+            AND patient_uid = $4::uuid`,
+        row.signed_at, Number(row.admission_id), tenantId, String(row.patient_uid),
       );
+      if (Number(stamped) !== 1) {
+        throw AppError.conflict(
+          'Discharge summary admission does not belong to this patient and tenant — sign aborted',
+          'DISCHARGE_SUMMARY_ADMISSION_MISMATCH',
+          { admission_id: Number(row.admission_id) },
+        );
+      }
       await publishInpatientSourceEventTx({
         tx,
         tenantId,

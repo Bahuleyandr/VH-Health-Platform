@@ -6,6 +6,7 @@
 // typed surface still can't express; everything else (audit_logs,
 // admissions/beds/bed_transfers/patient_consents CRUD, stats) is now
 // going through the typed client.
+import { createHash } from 'crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
@@ -43,7 +44,11 @@ import {
   emitDischargeWorkItemCompleted,
   emitFinalDischargeCompleted,
 } from '../clinical/canonicalOperationalBridgeService.js';
-import { recordCanonicalClinicalEvent, startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+  startWorkflowSla,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import {
   ACTIVE_ADMISSION_STATUSES,
@@ -713,12 +718,21 @@ async function admitPatient(data) {
     appointment_id: appointmentIdArg,
     source_pathway_instance_id: sourcePathwayInstanceIdArg,
     source_handoff_id: sourceHandoffIdArg,
+    counter_treatment_consent_id: counterTreatmentConsentIdArg,
   } = data;
   const admissionTenantId = tenant_id || null;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!admitting_doctor) throw AppError.badRequest('admitting_doctor is required');
   if (!created_by) throw AppError.badRequest('created_by is required');
+
+  let counterTreatmentConsentId = null;
+  if (counterTreatmentConsentIdArg !== undefined && counterTreatmentConsentIdArg !== null) {
+    counterTreatmentConsentId = Number(counterTreatmentConsentIdArg);
+    if (!Number.isInteger(counterTreatmentConsentId) || counterTreatmentConsentId <= 0) {
+      throw AppError.badRequest('counter_treatment_consent_id must be a positive integer');
+    }
+  }
 
   // Reject non-existent or non-clinical doctor UIDs before we lock the
   // bed / mint the encounter / fire downstream best-effort writes. Both
@@ -995,7 +1009,16 @@ async function admitPatient(data) {
     },
     select: { id: true },
   });
-  if (!consent) {
+  // A-L3 — counter-captured treatment consent is minted as PROVISIONAL by
+  // ensureCounterTreatmentConsent (never active pre-tx); the flag routes it
+  // here so activation commits atomically with the admission row below. A
+  // failed admission therefore rolls the activation back instead of leaving
+  // an active consent stranded with no admission behind it.
+  const counterConsentCaptured = data.counter_consent_captured === true;
+  let counterConsentToActivate = false;
+  if (!consent && counterConsentCaptured) {
+    counterConsentToActivate = true;
+  } else if (!consent) {
     if (!isEmergencyConsentBypassEligible) {
       throw AppError.forbidden('Active treatment consent required before admission', 'CONSENT_REQUIRED');
     }
@@ -1357,6 +1380,97 @@ async function admitPatient(data) {
           ip_address: null,
         },
       });
+    }
+
+    // A-L3 — activate the counter-captured treatment consent atomically with
+    // the admission. Prefer the provisional hold ensureCounterTreatmentConsent
+    // minted at the counter; mint the active consent here when the caller
+    // asserted counter capture without that pre-flight hold. Either way the
+    // consent only becomes active if this transaction commits.
+    if (counterConsentToActivate) {
+      let counterConsentRow = null;
+      if (counterTreatmentConsentId !== null) {
+        const activatedRows = await tx.$queryRawUnsafe(
+          `UPDATE patient_consents
+              SET status = 'active',
+                  granted = true,
+                  granted_at = NOW(),
+                  granted_by = COALESCE(granted_by, $1),
+                  updated_at = NOW()
+            WHERE id = $2::int
+              AND tenant_id = $3::uuid
+              AND patient_uid = $4::uuid
+              AND consent_type = 'treatment'
+              AND status = 'provisional'
+            RETURNING id`,
+          created_by,
+          counterTreatmentConsentId,
+          transactionTenantId,
+          patient_uid,
+        );
+        counterConsentRow = activatedRows[0] ?? null;
+        if (!counterConsentRow) {
+          throw AppError.conflict(
+            'Counter treatment consent is no longer available for this admission',
+            'COUNTER_CONSENT_STATE_CONFLICT',
+          );
+        }
+      } else {
+        counterConsentRow = await tx.patient_consents.create({
+          data: {
+            patient_uid,
+            tenant_id: transactionTenantId,
+            consent_type: 'treatment',
+            granted: true,
+            status: 'active',
+            granted_at: new Date(),
+            granted_by: created_by,
+            notes: 'Captured at reception admission counter',
+          },
+          select: { id: true },
+        });
+      }
+      await tx.audit_logs.create({
+        data: {
+          uid: created_by,
+          role: actor_role ?? null,
+          action: 'COUNTER_TREATMENT_CONSENT_ACTIVATED',
+          resource: 'patient_consents',
+          resource_id: String(counterConsentRow.id),
+          subject_uid: patient_uid,
+          metadata: {
+            admission_id: admission.id,
+            patient_uid,
+            consent_type: 'treatment',
+            captured_at_admission_counter: true,
+          },
+          ip_address: ip_address ?? null,
+        },
+      });
+      await recordCanonicalAdmissionEvent({
+        tenantId: transactionTenantId,
+        patientUid: patient_uid,
+        encounterId: admission.encounter_id,
+        eventType: 'consent.granted',
+        eventSubtype: 'treatment',
+        eventStatus: 'active',
+        sourceTable: 'patient_consents',
+        sourceId: String(counterConsentRow.id),
+        resourceType: 'patient_consent',
+        resourceId: String(counterConsentRow.id),
+        actorUid: created_by,
+        actorRole: actor_role ?? null,
+        summary: 'Treatment consent captured at the admission counter',
+        payload: {
+          admission_id: admission.id,
+          consent_id: counterConsentRow.id,
+          consent_type: 'treatment',
+        },
+        afterState: { status: 'active', granted: true },
+        tags: ['consent', 'admission'],
+        timelineIdempotencyKey: `patient_consents:${counterConsentRow.id}:granted`,
+        auditIdempotencyKey: `patient_consents:${counterConsentRow.id}:audit:granted`,
+      }, tx);
     }
 
     // Close the ER chart on successful admission. Single open clinical
@@ -2757,21 +2871,61 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
     return existing;
   }
 
-  const updated = await setTenantTx(requireTenantId(admission.tenant_id), async (tx) => {
-    const row = await tx.discharge_consults.update({
-      where: {
-        admission_id_consult_type: {
-          admission_id: Number(admissionId),
-          consult_type: normalizedConsultType,
-        },
-      },
-      data: {
-        completed_at: new Date(),
-        completed_by: completedBy,
-        notes: notes ?? null,
-        updated_at: new Date(),
-      },
-    });
+  const consultTenantId = requireTenantId(admission.tenant_id);
+  const updated = await setTenantTx(consultTenantId, async (tx) => {
+    // Concurrency guard (PR #765 pattern): the Phase-0 completed_at
+    // short-circuit above read the row UNLOCKED and OUTSIDE this tx, so it is
+    // not a safe basis for the write — a racing completer could have finished
+    // in between and an unguarded UPDATE would overwrite their attribution
+    // and notes. Lock the row FOR UPDATE, re-check inside the tx, and keep
+    // the completed_at IS NULL predicate on the UPDATE as defence in depth.
+    const lockedRows = await tx.$queryRawUnsafe(
+      `SELECT id, completed_at FROM discharge_consults
+        WHERE tenant_id = $1::uuid
+          AND admission_id = $2::int
+          AND consult_type = $3
+        FOR UPDATE`,
+      consultTenantId,
+      Number(admissionId),
+      normalizedConsultType,
+    );
+    const locked = lockedRows[0];
+    if (!locked) {
+      throw AppError.notFound(`Discharge work item not found: ${normalizedConsultType}`);
+    }
+    if (locked.completed_at) {
+      throw AppError.conflict(
+        'Discharge work item was already completed',
+        'DISCHARGE_CONSULT_STATE_CONFLICT',
+      );
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE discharge_consults
+          SET completed_at = NOW(),
+              completed_by = $1::uuid,
+              notes = $2,
+              updated_at = NOW()
+        WHERE tenant_id = $3::uuid
+          AND id = $4::int
+          AND completed_at IS NULL
+        RETURNING id, tenant_id, admission_id, patient_uid, consult_type,
+                  requested_at, requested_by, completed_at, completed_by,
+                  notes, created_at, updated_at`,
+      completedBy,
+      notes ?? null,
+      consultTenantId,
+      Number(locked.id),
+    );
+    // Lost the race despite the lock (defence in depth): the guarded UPDATE
+    // matched 0 rows, so the winner's completion stays untouched.
+    if (rows.length !== 1) {
+      throw AppError.conflict(
+        'Discharge work item was already completed',
+        'DISCHARGE_CONSULT_STATE_CONFLICT',
+      );
+    }
+    const row = rows[0];
 
     await tx.audit_logs.create({
       data: {
@@ -3686,7 +3840,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
   const phase1 = await scopedTx(tenantId, async (tx) => {
     // FOR UPDATE lock on the admission row.
     const admRows = await tx.$queryRaw`
-      SELECT id, tenant_id, patient_uid, bed_id, ward, status
+      SELECT id, tenant_id, patient_uid, bed_id, ward, status, admission_type
       FROM admissions
       WHERE id = ${admissionId}
         AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
@@ -3723,6 +3877,16 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     }
     if (targetBedLocked[0].status !== 'available') {
       throw AppError.badRequest(`Target bed ${targetBedLocked[0].bed_number} is not available (current status: ${targetBedLocked[0].status})`);
+    }
+    // Bed-pool match (migration 171) — same gate admitPatient and
+    // assignBedToAdmission enforce. Day-care admissions must stay in the
+    // day_care pool and a day_care bay can only host a day_care admission;
+    // other bed_types stay loose for now.
+    if (admission.admission_type === 'day_care' && targetBedLocked[0].bed_type !== 'day_care') {
+      throw AppError.badRequest(`Day-care admission requires a day_care bed; bed ${targetBedLocked[0].bed_number} is ${targetBedLocked[0].bed_type ?? 'general'}.`);
+    }
+    if (targetBedLocked[0].bed_type === 'day_care' && admission.admission_type !== 'day_care') {
+      throw AppError.badRequest(`Bed ${targetBedLocked[0].bed_number} is in the day_care pool; ${admission.admission_type} admissions cannot allocate it.`);
     }
 
     const targetBed = await tx.beds.findFirst({
@@ -3880,6 +4044,16 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
         reason: reason || 'Transfer',
         transferred_by: transferredBy,
       },
+    });
+
+    // Keep active attendant passes on the patient's actual ward — same
+    // in-tx relocation assignBedToAdmission performs, so a ward change
+    // re-stamps ward_at_issue / pass colour / screening level instead of
+    // leaving passes pointing at the vacated ward.
+    await relocateActiveAttendantPasses(tx, {
+      admissionId,
+      wardId: targetBed?.ward_id ?? null,
+      wardName: targetWardName ?? admission.ward ?? null,
     });
 
     const newWard = targetWardName || admission.ward;
@@ -4305,6 +4479,15 @@ function caseSheetText(value) {
   return String(value ?? '').trim();
 }
 
+// State fingerprint for the amendable-record canonical idempotency keys
+// (docs/CANONICAL_CLINICAL_TIMELINE.md, PR #589 revision pattern). Excludes
+// the `updated_at` stamp normalizeCaseSheet mints on every call so an exact
+// retry of the same clinical content fingerprints equal.
+function caseSheetStateFingerprint(content) {
+  const { updated_at: _updatedAt, ...effectiveState } = content || {};
+  return createHash('sha256').update(JSON.stringify(effectiveState)).digest('hex').slice(0, 32);
+}
+
 function caseSheetContentFromNote(note) {
   return note?.content && typeof note.content === 'object' && !Array.isArray(note.content)
     ? note.content
@@ -4435,20 +4618,41 @@ async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRo
     });
     if (!admission) throw AppError.notFound('Admission not found');
 
-    const existing = admission.encounter_id
-      ? await tx.clinical_notes.findFirst({
-          where: {
-            encounter_id: admission.encounter_id,
-            ...(tenantId ? { tenant_id: tenantId } : {}),
-            note_type: 'case_sheet',
-            is_addendum: false,
-          },
-          select: { id: true, content: true },
-          orderBy: [{ version: 'desc' }, { id: 'desc' }],
-        })
-      : null;
+    // FOR UPDATE lock on the current case-sheet note: the effective-state
+    // no-op guard below and the amendable-record canonical emit both need a
+    // stable read of the previous revision (PR #589 pattern).
+    const existingRows = admission.encounter_id
+      ? await tx.$queryRawUnsafe(
+          `SELECT id, content, version FROM clinical_notes
+            WHERE encounter_id = $1::uuid
+              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+              AND note_type = 'case_sheet'
+              AND is_addendum = false
+            ORDER BY version DESC, id DESC
+            LIMIT 1
+            FOR UPDATE`,
+          admission.encounter_id,
+          tenantId,
+        )
+      : [];
+    const existing = existingRows[0] || null;
 
     const previousContent = caseSheetContentFromNote(existing);
+    const changedFields = collectCaseSheetChangedFields(previousContent, content);
+
+    // Effective-state no-op guard: an exact retry (same clinical content as
+    // the current revision) returns before any write, so it neither bumps the
+    // note version nor mints a new canonical revision.
+    if (existing && changedFields.length === 0) {
+      return {
+        note_id: existing.id,
+        version: existing.version,
+        action: 'unchanged',
+        admission_routed_fields: {},
+        case_sheet: caseSheetContentFromNote(existing),
+      };
+    }
+
     const noteData = {
       content,
       author_uid: savedBy,
@@ -4531,7 +4735,6 @@ async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRo
       });
     }
 
-    const changedFields = collectCaseSheetChangedFields(previousContent, content);
     await tx.audit_logs.create({
       data: {
         uid: savedBy,
@@ -4563,6 +4766,43 @@ async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRo
         ip_address: null,
       },
     });
+
+    // Canonical clinical timeline invariant: the case-sheet detail write
+    // (clinical_notes + routed admissions fields, incl. allergies) and the
+    // canonical timeline/audit pair commit in the SAME transaction. The
+    // case sheet is an amendable record, so the idempotency keys carry the
+    // effective-state fingerprint + the tx revision (PR #589 pattern) —
+    // a fixed key would silently absorb later revisions (A→B→A).
+    const stateFingerprint = caseSheetStateFingerprint(content);
+    const txRevision = await currentCanonicalTransactionRevision(tx);
+    await recordCanonicalAdmissionEvent({
+      tenantId: admission.tenant_id,
+      patientUid: admission.patient_uid,
+      encounterId: admission.encounter_id,
+      eventType: 'admission.case_sheet_saved',
+      eventSubtype: result.action,
+      eventStatus: 'saved',
+      sourceTable: 'clinical_notes',
+      sourceId: String(result.note_id),
+      resourceType: 'clinical_note',
+      resourceId: String(result.note_id),
+      actorUid: savedBy,
+      actorRole: savedByRole,
+      summary: `Admission case sheet ${result.action} (v${result.version})`,
+      payload: {
+        admission_id: Number(admissionId),
+        note_id: result.note_id,
+        version: result.version,
+        action: result.action,
+        changed_fields: changedFields.map((change) => change.field),
+        admission_routed_fields: Object.keys(admissionRoutedFields),
+      },
+      beforeState: existing ? { version: existing.version } : null,
+      afterState: { version: result.version, state_fingerprint: stateFingerprint },
+      tags: ['admission', 'case_sheet'],
+      timelineIdempotencyKey: `clinical_notes:${result.note_id}:case_sheet_saved:${stateFingerprint}:tx:${txRevision}`,
+      auditIdempotencyKey: `clinical_notes:${result.note_id}:audit:case_sheet_saved:${stateFingerprint}:tx:${txRevision}`,
+    }, tx);
 
     return {
       ...result,
@@ -5284,30 +5524,59 @@ async function createCounterAdmissionPatient({
   return { ...patient, hospital_number: hospitalNumber };
 }
 
+// A-L3 — the admission counter's consent capture must NOT mint an ACTIVE
+// treatment consent before the admission transaction runs: a failed admit
+// used to strand an active, unaudited consent with no admission behind it.
+// This helper now records only a PROVISIONAL hold; admitPatient activates it
+// inside the admission transaction (counter_consent_captured === true), so
+// the consent goes active if and only if the admission commits.
 async function ensureCounterTreatmentConsent({ patientUid, grantedBy = null, tenantId = null }) {
   if (!patientUid) return null;
-  const existing = await prisma.patient_consents.findFirst({
-    where: {
-      patient_uid: patientUid,
-      ...(tenantId ? { tenant_id: tenantId } : {}),
-      consent_type: 'treatment',
-      status: 'active',
-    },
-    select: { id: true },
-  });
-  if (existing) return existing;
-  return prisma.patient_consents.create({
-    data: {
-      patient_uid: patientUid,
-      ...(tenantId ? { tenant_id: tenantId } : {}),
-      consent_type: 'treatment',
-      granted: true,
-      status: 'active',
-      granted_at: new Date(),
-      granted_by: grantedBy,
-      notes: 'Captured at reception admission counter',
-    },
-    select: { id: true },
+  const transactionTenantId = requireTenantId(tenantId);
+  return setTenantTx(transactionTenantId, async (tx) => {
+    const patientRows = await tx.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+        FOR UPDATE`,
+      transactionTenantId,
+      patientUid,
+    );
+    if (!patientRows.length) throw AppError.notFound('Patient not found');
+
+    const active = await tx.patient_consents.findFirst({
+      where: {
+        patient_uid: patientUid,
+        tenant_id: transactionTenantId,
+        consent_type: 'treatment',
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    if (active) return active;
+    const provisional = await tx.patient_consents.findFirst({
+      where: {
+        patient_uid: patientUid,
+        tenant_id: transactionTenantId,
+        consent_type: 'treatment',
+        status: 'provisional',
+      },
+      select: { id: true },
+    });
+    if (provisional) return provisional;
+    return tx.patient_consents.create({
+      data: {
+        patient_uid: patientUid,
+        tenant_id: transactionTenantId,
+        consent_type: 'treatment',
+        granted: false,
+        status: 'provisional',
+        granted_by: grantedBy,
+        notes: 'Captured at reception admission counter (provisional until the admission commits)',
+      },
+      select: { id: true },
+    });
   });
 }
 

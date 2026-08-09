@@ -285,6 +285,10 @@ router.post(
 
     const data = {
       ...resolved,
+      // Bind the provisional consent captured by this request to the
+      // admission transaction.  Without the exact id, a broad UPDATE could
+      // activate a stale or duplicate hold created by another request.
+      counter_treatment_consent_id: counterTreatmentConsent?.id ?? null,
       created_by: req.user?.uid,
       // E-4 — actor_role threaded so admitPatient can enforce the ICU
       // tier check. Without this, NURSING_STAFF (ward nurse) could

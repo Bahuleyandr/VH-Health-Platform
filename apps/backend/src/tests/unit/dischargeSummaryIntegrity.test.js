@@ -27,6 +27,9 @@ jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
 }));
 jest.unstable_mockModule('../../services/emr/clinicalTimelineService.js', () => ({
   collectAdmissionClinicalContext: jest.fn(),
+  // Pulled in via the generator's canonicalClinicalPlatformService import
+  // (canonical timeline emit for save/sign); must exist for ESM linking.
+  getPatientTimeline: jest.fn(),
 }));
 
 const { __testing__ } = await import('../../services/emr/dischargeSummaryGenerator.js');

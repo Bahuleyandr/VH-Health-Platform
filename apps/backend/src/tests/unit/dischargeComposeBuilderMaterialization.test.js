@@ -190,6 +190,9 @@ describe('migration-159 discharge builder compose materialization', () => {
     };
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([{ id: 1, sections: [] }])
+      // In-tx admission linkage validation (A-M4): admission exists, same
+      // tenant, and belongs to the summary's patient.
+      .mockResolvedValueOnce([{ id: 55, patient_uid: PATIENT_UID }])
       .mockResolvedValueOnce([{ id: 70, admission_id: 55, patient_uid: PATIENT_UID }])
       .mockResolvedValueOnce([{ result: compose }])
       .mockResolvedValueOnce([{ id: 70, status: 'draft' }])
@@ -231,6 +234,9 @@ describe('migration-159 discharge builder compose materialization', () => {
     };
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([{ id: 1, sections: [] }])
+      // In-tx admission linkage validation (A-M4): admission exists, same
+      // tenant, and belongs to the summary's patient.
+      .mockResolvedValueOnce([{ id: 56, patient_uid: PATIENT_UID }])
       .mockResolvedValueOnce([{ id: 71, admission_id: 56, patient_uid: PATIENT_UID }])
       .mockResolvedValueOnce([{ result: compose }])
       .mockResolvedValueOnce([{ id: 71, status: 'draft' }])
