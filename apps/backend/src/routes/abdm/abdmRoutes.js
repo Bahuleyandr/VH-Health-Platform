@@ -398,6 +398,10 @@ patientRouter.get('/patient-by-abha/:abhaNumber', async (req, res, next) => {
 
     const { abhaNumber } = req.params;
     const patient = await abdmService.getPatientByABHA(abhaNumber, { tenantId: req.tenantId });
+    // Resolved by external ABHA number, not a params/body patient_uid — stash
+    // it so the phiAccessLogger (which reads req.phiContext) attributes this
+    // lookup to the found patient instead of logging patient_id: null.
+    req.phiContext = { ...(req.phiContext || {}), patientUid: patient.uid };
 
     return success(res, patient, 'Patient found', 200);
   } catch (err) {

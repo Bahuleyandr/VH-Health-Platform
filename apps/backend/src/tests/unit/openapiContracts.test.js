@@ -22,7 +22,10 @@ import * as nhcx from '../../../scripts/openapi/schemas/nhcx.mjs';
 import * as carePathways from '../../../scripts/openapi/schemas/carePathways.mjs';
 import * as outboxRecovery from '../../../scripts/openapi/schemas/outboxRecovery.mjs';
 import * as clientReadiness from '../../../scripts/openapi/schemas/clientReadiness.mjs';
+import * as patientReadiness from '../../../scripts/openapi/schemas/patientReadiness.mjs';
+import * as patientFlowTransport from '../../../scripts/openapi/schemas/patientFlowTransport.mjs';
 import * as clinicalContinuityPolicyDelivery from '../../../scripts/openapi/schemas/clinicalContinuityPolicyDelivery.mjs';
+import * as clinicalContinuityActivationTransitions from '../../../scripts/openapi/schemas/clinicalContinuityActivationTransitions.mjs';
 import * as clinicalContinuityReconciliation from '../../../scripts/openapi/schemas/clinicalContinuityReconciliation.mjs';
 import * as downtimeWardPacks from '../../../scripts/openapi/schemas/downtimeWardPacks.mjs';
 import * as downtimeStaticMirror from '../../../scripts/openapi/schemas/downtimeStaticMirror.mjs';
@@ -50,8 +53,11 @@ const MODULES = [
   nhcx,
   carePathways,
   outboxRecovery,
-  clientReadiness,
+  clinicalContinuityActivationTransitions,
   clinicalContinuityPolicyDelivery,
+  clientReadiness,
+  patientReadiness,
+  patientFlowTransport,
   clinicalContinuityReconciliation,
   downtimeWardPacks,
   downtimeStaticMirror,

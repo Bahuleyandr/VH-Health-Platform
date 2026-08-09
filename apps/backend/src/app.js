@@ -971,8 +971,19 @@ app.use('/api/v1/consent', requireRole(...CONSENT_ROUTE_ROLES), consentRoutes);
 // break-glass-eligible roles inside the router via wrapAutoRBAC).
 app.use('/api/v1/patient-access/break-glass', breakGlassRoutes);
 
-// ABDM patient-facing routes (JWT required — ABHA registration, consent management)
-app.use('/api/v1/abdm', abdmPatientRoutes);
+// ABDM patient-facing routes (JWT required — ABHA registration, consent management).
+// /status is excluded — admin/staff connectivity + aggregate-count dashboard,
+// no patient-identifying data returned (audit follow-up P14). /register-abha
+// is also excluded here — PR #809 (audit follow-up P13) already logs that
+// write explicitly via a controller-level logPhiAccess() call, so a
+// route-level mount here would double-log every successful link.
+const ABDM_PHI_PATHS = [
+  '/api/v1/abdm/verify-abha',
+  '/api/v1/abdm/patient-by-abha',
+  '/api/v1/abdm/consent-requests',
+  '/api/v1/abdm/consents',
+];
+app.use('/api/v1/abdm', phiAccessLoggerForPaths('ABDM', ABDM_PHI_PATHS), abdmPatientRoutes);
 
 // ====================================
 // ROLE-PROTECTED ROUTES (JWT enforced globally above)
