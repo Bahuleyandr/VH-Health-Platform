@@ -709,7 +709,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       switch (action) {
         case 'archive':
           await MessagingApiService.archiveThread(threadId);
-          if (mounted) Navigator.of(context).maybePop();
+          if (mounted) unawaited(Navigator.of(context).maybePop());
           return;
         case 'mark-unread':
           await MessagingApiService.markThreadUnread(threadId);

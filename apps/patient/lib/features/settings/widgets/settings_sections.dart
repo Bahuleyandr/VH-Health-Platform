@@ -1,4 +1,6 @@
 // settings_sections.dart
+import 'dart:async';
+
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
@@ -487,7 +489,9 @@ Widget _permissionTile(
         TextButton(
           onPressed: () async {
             await openAppSettings();
-            c.loadAll(); // reload permission states after navigating to settings
+            unawaited(
+              c.loadAll(),
+            ); // reload permission states after navigating to settings
           },
           child: Text(c.loc.settingsPermissionManage),
         ),

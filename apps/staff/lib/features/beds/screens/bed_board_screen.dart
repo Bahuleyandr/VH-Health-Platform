@@ -600,7 +600,11 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   }
 
   Future<void> _printCurrentWard() async {
-    Telemetry.event('bed_board.print', {'bed_count': _beds.length.toString()});
+    unawaited(
+      Telemetry.event('bed_board.print', {
+        'bed_count': _beds.length.toString(),
+      }),
+    );
     try {
       await BedBoardPrintService.print(
         wardName: _selectedWardName ?? '',
@@ -2162,7 +2166,7 @@ class _BedQuickActions extends StatelessWidget {
                     final route = await a.route();
                     if (!context.mounted) return;
                     if (!embedded) Navigator.of(context).pop(false);
-                    context.push(route);
+                    unawaited(context.push(route));
                   },
                   child: Padding(
                     padding: const EdgeInsets.all(10),
@@ -2501,7 +2505,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
 
   Future<void> _admit() async {
     if (!widget.embedded) Navigator.of(context).pop(false);
-    if (mounted) context.push('/emr/admissions');
+    if (mounted) unawaited(context.push('/emr/admissions'));
   }
 
   @override

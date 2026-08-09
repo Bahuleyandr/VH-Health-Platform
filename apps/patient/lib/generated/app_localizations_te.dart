@@ -63,6 +63,9 @@ class AppLocalizationsTe extends AppLocalizations {
   String get authSosTooltip => 'SOS పంపండి';
 
   @override
+  String get authSosSending => 'SOS హెచ్చరిక పంపబడుతోంది…';
+
+  @override
   String get authSosTriggered => 'SOS హెచ్చరిక ప్రేరేపించబడింది!';
 
   @override
@@ -633,6 +636,20 @@ class AppLocalizationsTe extends AppLocalizations {
 
   @override
   String get settingsSecurity => 'భద్రత';
+
+  @override
+  String get biometricGateReason =>
+      'మీ వైద్య రికార్డులను చూడటానికి అన్‌లాక్ చేయండి';
+
+  @override
+  String get biometricGateLockedTitle => 'అన్‌లాక్ అవసరం';
+
+  @override
+  String get biometricGateLockedMessage =>
+      'మీ ఆరోగ్య రికార్డులు మీ బయోమెట్రిక్ లాక్‌తో రక్షించబడ్డాయి. కొనసాగడానికి మీ గుర్తింపును నిర్ధారించండి.';
+
+  @override
+  String get biometricGateUnlockButton => 'అన్‌లాక్ చేయండి';
 
   @override
   String get settingsBiometricLogin => 'బయోమెట్రిక్ లాగిన్‌ను ఉపయోగించండి';

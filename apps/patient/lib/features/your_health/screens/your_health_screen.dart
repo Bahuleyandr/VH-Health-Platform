@@ -2,6 +2,8 @@
 // Tab coordinator — delegates to self-contained tab widgets for Prescriptions,
 // Consultations, Health Summary, Hospital Documents, and My Uploads.
 // The Health Records tab (with offline caching) remains inline.
+import 'dart:async';
+
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
@@ -14,6 +16,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/offline/record_cache_manager.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
+import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
@@ -156,11 +159,11 @@ class _YourHealthScreenState extends State<YourHealthScreen>
           _recordsCachedAt = cachedAt;
         });
       } else {
-        _tryLoadFromCache(messenger, theme, l10n.recordsLoadFailed);
+        unawaited(_tryLoadFromCache(messenger, theme, l10n.recordsLoadFailed));
       }
     } catch (e) {
       debugPrint('Health records fetch failed: $e');
-      _tryLoadFromCache(messenger, theme, l10n.networkError);
+      unawaited(_tryLoadFromCache(messenger, theme, l10n.networkError));
     }
   }
 
@@ -329,6 +332,14 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
   @override
   Widget build(BuildContext context) {
+    // FL-H1: medical records are gated behind the patient's optional
+    // biometric lock (no-op when the Settings toggle is off). Guests have
+    // no records to protect, so the guest view is not gated.
+    if (_isGuest) return _buildUnlocked(context);
+    return BiometricGate(builder: _buildUnlocked);
+  }
+
+  Widget _buildUnlocked(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;

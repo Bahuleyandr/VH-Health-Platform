@@ -1,4 +1,6 @@
 // Health Summary tab — self-contained widget with its own state and data fetching
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
@@ -34,7 +36,7 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
     if (mounted) {
       setState(() => _patientId = pid ?? uid);
       if (_patientId != null) {
-        _fetchSummaryData();
+        unawaited(_fetchSummaryData());
       } else {
         setState(() {
           _isLoading = false;

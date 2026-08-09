@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/api_client.dart';
@@ -65,7 +67,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
               backgroundColor: AppTheme.successGreen,
             ),
           );
-          _fetchOrders();
+          unawaited(_fetchOrders());
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -284,7 +286,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
           backgroundColor: AppTheme.successGreen,
         ),
       );
-      _fetchOrders();
+      unawaited(_fetchOrders());
     }
 
     patientUidCtrl.dispose();

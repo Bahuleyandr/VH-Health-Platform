@@ -3,6 +3,8 @@
 // appointments_screen.dart as its own StatefulWidget. On a successful
 // booking it calls [onBooked] so the parent screen switches to — and
 // refreshes — the My-Appointments tab.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
@@ -300,7 +302,7 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
     );
     if (picked != null && mounted) {
       setState(() => _selectedDate = picked);
-      _fetchSlots();
+      unawaited(_fetchSlots());
     }
   }
 

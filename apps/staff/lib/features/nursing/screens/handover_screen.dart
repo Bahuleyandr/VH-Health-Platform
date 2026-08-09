@@ -176,7 +176,7 @@ class _HandoverScreenState extends State<HandoverScreen>
         _notesController.clear();
         _patientRefController.clear();
         _tabController.animateTo(1);
-        _loadRecentNotes();
+        unawaited(_loadRecentNotes());
       }
     } catch (e) {
       if (mounted) {

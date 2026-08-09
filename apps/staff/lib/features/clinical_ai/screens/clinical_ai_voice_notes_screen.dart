@@ -9,6 +9,8 @@
 // text-entry screens. This queue consumes the saved voice-note rows and
 // pushes completed transcripts into the human-reviewed AI draft workflow.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
@@ -73,11 +75,11 @@ class _ClinicalAiVoiceNotesScreenState
       ).showSnackBar(SnackBar(content: Text(s.clinicalAiVoiceSoapGenerated)));
       final reviewId = result['review_id'] ?? result['draft']?['review_id'];
       if (reviewId is int) {
-        context.push('/clinical-ai/review/$reviewId', extra: result);
+        unawaited(context.push('/clinical-ai/review/$reviewId', extra: result));
       } else if (reviewId is String) {
-        context.push('/clinical-ai/review/$reviewId', extra: result);
+        unawaited(context.push('/clinical-ai/review/$reviewId', extra: result));
       } else {
-        context.push('/clinical-ai/queue');
+        unawaited(context.push('/clinical-ai/queue'));
       }
     } catch (err) {
       if (!mounted) return;

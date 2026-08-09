@@ -3,3 +3,12 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - lib/api/generated/**
+
+linter:
+  rules:
+    # Fire-and-forget futures must be explicit (`unawaited(...)`) — silent
+    # dropped awaits have caused real clinical-data bugs (2026-08 hygiene
+    # audit). discarded_futures was evaluated too but produces ~570 hits
+    # (mostly sync closures calling Future-returning APIs by design) — too
+    # much churn to adopt in one sweep; revisit per-package.
+    unawaited_futures: true

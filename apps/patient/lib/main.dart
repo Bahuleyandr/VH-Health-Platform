@@ -233,7 +233,7 @@ Future<void> main() async {
       });
 
       // Connect the WebSocket service for real-time updates.
-      WebSocketService.instance.connect();
+      unawaited(WebSocketService.instance.connect());
 
       runApp(const VHRoot());
     },

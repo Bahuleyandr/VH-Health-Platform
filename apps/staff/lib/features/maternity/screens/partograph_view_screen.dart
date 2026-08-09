@@ -4,6 +4,8 @@
 // Companion to partograph_entry_screen.dart — that's the form for
 // recording, this is the chart.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
@@ -156,7 +158,7 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
             context,
           ).pushNamed('/maternity/partograph/${widget.laborAdmissionId}');
           if (added == true) {
-            _fetch();
+            unawaited(_fetch());
           }
         },
         icon: const Icon(Icons.add),

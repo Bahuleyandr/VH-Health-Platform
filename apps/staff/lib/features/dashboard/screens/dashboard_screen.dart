@@ -38,13 +38,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _loading = true;
 
   // Stats
-  int _appointmentCount = 0;
   // Workload counts surfaced as tappable stat cards above the feature
-  // grid for clinical roles. Best-effort fetched in _loadData; default
-  // to zero if the endpoint isn't available or 403s.
-  int _dueMedsCount = 0;
-  int _pendingAiReviewsCount = 0;
-  int _activeAdmissionsCount = 0;
+  // grid for clinical roles. Best-effort fetched in _loadData; null means
+  // the fetch failed (endpoint down or 403) and the tile renders a
+  // degraded "—" instead of a misleading 0 — a nurse must never read
+  // "0 due meds" off a dashboard that simply couldn't reach the API.
+  int? _appointmentCount;
+  int? _dueMedsCount;
+  int? _pendingAiReviewsCount;
+  int? _activeAdmissionsCount;
   // Recent-patients chips on dashboard. Locally cached via
   // SharedPreferences (RecentPatientsService); populated whenever
   // PatientTimelineScreen mounts. Cleared on logout for privacy on
@@ -106,6 +108,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadData() async {
     setState(() => _loading = true);
+    // Reset workload counts so a failed refresh degrades to "—" instead of
+    // silently showing the previous load's (now stale) numbers.
+    _appointmentCount = null;
+    _dueMedsCount = null;
+    _pendingAiReviewsCount = null;
+    _activeAdmissionsCount = null;
     try {
       _staffId = await ApiConfig.getStaffId();
       final roleStr = await AuthService.getRole();
@@ -1546,6 +1554,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   //
   // Every card is tappable and routes to the screen where the metric
   // can be acted on.
+  // Degraded rendering for workload tiles: an em dash when the count fetch
+  // failed, so an API outage is visibly "unknown" rather than a false 0.
+  static String _statValue(int? count) => count?.toString() ?? '\u2014';
+
   Widget _buildQuickStats() {
     final s = AppStrings.of(context);
     final stats = <_StatItem>[];
@@ -1556,7 +1568,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _StatItem(
           icon: Icons.medication_outlined,
           label: s.dashboardStatDueMeds,
-          value: '$_dueMedsCount',
+          value: _statValue(_dueMedsCount),
           color: const Color(0xFFC62828),
           route: '/mar/due',
         ),
@@ -1568,7 +1580,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _StatItem(
           icon: Icons.calendar_today,
           label: s.dashboardStatAppointments,
-          value: '$_appointmentCount',
+          value: _statValue(_appointmentCount),
           color: const Color(0xFF6A1B9A),
           route: '/appointments',
         ),
@@ -1581,7 +1593,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _StatItem(
           icon: Icons.fact_check_outlined,
           label: s.dashboardStatReviewQueue,
-          value: '$_pendingAiReviewsCount',
+          value: _statValue(_pendingAiReviewsCount),
           color: const Color(0xFF00838F),
           route: '/clinical-ai/queue',
         ),
@@ -1596,7 +1608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _StatItem(
           icon: Icons.local_hotel_outlined,
           label: s.dashboardStatInpatients,
-          value: '$_activeAdmissionsCount',
+          value: _statValue(_activeAdmissionsCount),
           color: const Color(0xFF1565C0),
           route: _inpatientStatsRoute,
         ),

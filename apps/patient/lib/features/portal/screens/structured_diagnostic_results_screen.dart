@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -54,21 +56,25 @@ class _StructuredDiagnosticResultsScreenState
         _cachedAt = page.cachedAt;
         _loading = false;
       });
-      page.onFresh
-          ?.then((fresh) async {
-            final cached = await ApiCacheManager.load(
-              '/portal/diagnostic-results',
-            );
-            if (!mounted) return;
-            setState(() {
-              _results = fresh;
-              _staleLabel = null;
-              _cachedAt = cached?.cachedAt;
-            });
-          })
-          .catchError((Object error) {
-            debugPrint('Diagnostic results background refresh failed: $error');
-          });
+      unawaited(
+        page.onFresh
+            ?.then((fresh) async {
+              final cached = await ApiCacheManager.load(
+                '/portal/diagnostic-results',
+              );
+              if (!mounted) return;
+              setState(() {
+                _results = fresh;
+                _staleLabel = null;
+                _cachedAt = cached?.cachedAt;
+              });
+            })
+            .catchError((Object error) {
+              debugPrint(
+                'Diagnostic results background refresh failed: $error',
+              );
+            }),
+      );
     } catch (error) {
       debugPrint('Diagnostic results fetch failed: $error');
       if (!mounted) return;

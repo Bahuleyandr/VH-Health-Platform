@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -58,7 +60,7 @@ void main() {
       await prefs.setString('theme_mode', 'light');
 
       debugPrint('SMOKE: starting app');
-      app.main();
+      unawaited(app.main());
 
       debugPrint('SMOKE: waiting for login');
       await waitFor(tester, find.text('Login to your account'));

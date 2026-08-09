@@ -45,14 +45,11 @@ lib/
       app_theme.dart           # ThemeData construction
       theme_colors.dart        # Brand color palette
     widgets/
-      appointment_widget.dart       # Appointment card display
       circular_feature_dial.dart    # Dashboard circular menu
       contact_banner.dart           # Contact info banners (phone numbers)
       data_state_builder.dart       # Reusable loading/error/empty/data state widget
       delivery_tracking_card.dart   # Real-time delivery tracking with ETA
-      error_boundary.dart           # Error boundary wrapper (restores handler on dispose)
       feature_screen_scaffold.dart  # Standard scaffold for feature screens (requires icon, color, child)
-      feedback_prompt.dart          # In-app feedback/rating prompt
       heartbeat_logo.dart           # Animated hospital logo
       language_dropdown.dart        # Language selector
       logo_background.dart          # Background with hospital branding
@@ -60,7 +57,6 @@ lib/
       main_scaffold_go_router.dart  # Bottom nav shell (Home, Health, Notifications, Settings)
       phone_input_field.dart        # Phone number input with country code
       terms_agreement_notice.dart   # Terms notice widget
-      theme_card.dart               # Theme option card
     utils/
       cache_file_utils.dart    # File caching utilities
       calendar_utils.dart      # Date/calendar helpers
@@ -95,7 +91,6 @@ lib/
                                # lab orders, lab results, TPA claims + detail, secure messages + thread
     prescriptions/             # Refill requests
     profile/                   # ProfileSetupScreen, ProfileEditScreen, AddDependentScreen
-    records/                   # Redirects to your_health (Hospital Docs tab)
     settings/                  # Theme, language, font size, biometrics (controller + section widgets)
     splash/                    # Splash screen — hydrates UserProvider, routes on auth state
     steps/                     # Step Challenge: GPS/pedometer walk, history, leaderboard, rewards

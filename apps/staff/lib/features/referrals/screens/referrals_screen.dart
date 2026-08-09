@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
 
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -179,9 +180,28 @@ class _ReferralsScreenState extends State<ReferralsScreen>
   Future<void> _markSeenAndOpen(Map<String, dynamic> referral) async {
     final id = _int(referral['id']);
     if (id > 0 && _text(referral['first_seen_at']).isEmpty) {
+      // A dropped first-seen write is not cosmetic: first_seen_at drives
+      // referral aging/escalation, so a swallowed failure keeps paging a
+      // referral somebody has already opened and corrupts the audit trail.
       try {
         await MedicalApiService.markReferralSeen(id);
-      } catch (_) {}
+      } catch (e, stack) {
+        try {
+          // One immediate retry for transient network blips.
+          await MedicalApiService.markReferralSeen(id);
+        } catch (_) {
+          // Still failing: report it. first_seen_at stays empty on the
+          // server, so the next open of this referral retries the write.
+          unawaited(
+            CrashReporter.instance.recordError(
+              e,
+              stack,
+              context: 'referral first-seen write (referral id=$id)',
+              fatal: false,
+            ),
+          );
+        }
+      }
       await _load();
     }
     if (!mounted) return;
@@ -245,7 +265,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
         );
       }
       await _load();
-      if (mounted) Navigator.of(context).maybePop();
+      if (mounted) unawaited(Navigator.of(context).maybePop());
     } catch (e) {
       _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
     }

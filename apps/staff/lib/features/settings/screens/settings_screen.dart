@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -211,13 +213,15 @@ class SettingsScreen extends StatelessWidget {
 
   Future<void> _showManageDevicesSheet(BuildContext context) async {
     if (!OnlineOnlyActionGuard.require(context)) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    unawaited(
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (_) => const _ManageDevicesSheet(),
       ),
-      builder: (_) => const _ManageDevicesSheet(),
     );
   }
 
@@ -721,7 +725,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _load();
+        unawaited(_load());
       }
     } catch (e) {
       if (mounted) {

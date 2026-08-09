@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/attendance_api_service.dart';
@@ -103,7 +105,7 @@ class _OvertimeScreenState extends State<OvertimeScreen>
           _hours = 1.0;
         });
         _tabController.animateTo(1);
-        _load();
+        unawaited(_load());
       }
     } catch (e) {
       if (mounted) {

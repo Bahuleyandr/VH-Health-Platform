@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/features/your_health/models/patient_explainer.dart';
 import 'package:vhhealth/features/your_health/services/patient_explainers_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -180,6 +181,12 @@ class _PatientExplainerDetailScreenState
 
   @override
   Widget build(BuildContext context) {
+    // FL-H1: deep-linkable records detail — gated like the /health hub.
+    // The static grace window keeps hub -> detail from double-prompting.
+    return BiometricGate(builder: _buildUnlocked);
+  }
+
+  Widget _buildUnlocked(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.yourHealthExplanationsDetailTitle)),

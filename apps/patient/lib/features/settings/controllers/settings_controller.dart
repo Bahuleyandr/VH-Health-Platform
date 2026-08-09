@@ -1,4 +1,6 @@
 // settings_controller.dart
+import 'dart:async';
+
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
@@ -215,20 +217,22 @@ class SettingsController {
     if (confirmed != true) return;
 
     if (!context.mounted) return;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: Text(loc.settingsDeletingAccount)),
-          ],
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text(loc.settingsDeletingAccount)),
+            ],
+          ),
         ),
       ),
     );

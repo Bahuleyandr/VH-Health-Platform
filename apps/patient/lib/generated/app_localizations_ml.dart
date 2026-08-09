@@ -63,6 +63,9 @@ class AppLocalizationsMl extends AppLocalizations {
   String get authSosTooltip => 'SOS അയയ്ക്കുക';
 
   @override
+  String get authSosSending => 'SOS അലേർട്ട് അയയ്ക്കുന്നു…';
+
+  @override
   String get authSosTriggered => 'SOS അലേർട്ട് പ്രവർത്തനക്ഷമമാക്കി!';
 
   @override
@@ -637,6 +640,20 @@ class AppLocalizationsMl extends AppLocalizations {
 
   @override
   String get settingsSecurity => 'സുരക്ഷ';
+
+  @override
+  String get biometricGateReason =>
+      'നിങ്ങളുടെ മെഡിക്കൽ രേഖകൾ കാണാൻ അൺലോക്ക് ചെയ്യുക';
+
+  @override
+  String get biometricGateLockedTitle => 'അൺലോക്ക് ആവശ്യമാണ്';
+
+  @override
+  String get biometricGateLockedMessage =>
+      'നിങ്ങളുടെ ആരോഗ്യ രേഖകൾ നിങ്ങളുടെ ബയോമെട്രിക് ലോക്ക് ഉപയോഗിച്ച് സംരക്ഷിച്ചിരിക്കുന്നു. തുടരാൻ നിങ്ങളുടെ ഐഡന്റിറ്റി സ്ഥിരീകരിക്കുക.';
+
+  @override
+  String get biometricGateUnlockButton => 'അൺലോക്ക്';
 
   @override
   String get settingsBiometricLogin => 'ബയോമെട്രിക് ലോഗിൻ ഉപയോഗിക്കുക';

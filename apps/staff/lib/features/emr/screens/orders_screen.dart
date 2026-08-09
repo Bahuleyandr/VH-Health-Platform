@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -84,7 +86,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final placed = await context.push<bool>(
       '/emr/orders/${widget.patientUid}/compose$query',
     );
-    if (placed == true && mounted) _loadOrders();
+    if (placed == true && mounted) unawaited(_loadOrders());
   }
 
   // ── Status badge ──
@@ -222,7 +224,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _loadOrders();
+        unawaited(_loadOrders());
       }
     } catch (e) {
       if (mounted) {
@@ -247,7 +249,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _loadOrders();
+        unawaited(_loadOrders());
       }
     } catch (e) {
       if (mounted) {
@@ -291,7 +293,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _loadOrders();
+        unawaited(_loadOrders());
       }
     } catch (e) {
       if (mounted) {

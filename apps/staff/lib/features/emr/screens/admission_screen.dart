@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/navigation/ip_command_board_routes.dart';
@@ -693,7 +695,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _loadAdmissions();
+        unawaited(_loadAdmissions());
       }
     } catch (e) {
       if (mounted) {

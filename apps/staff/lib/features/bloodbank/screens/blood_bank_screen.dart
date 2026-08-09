@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -162,7 +164,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           _reasonController.clear();
           _patientNameController.clear();
           setState(() => _requestBloodType = null);
-          _fetchInventory();
+          unawaited(_fetchInventory());
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -706,7 +708,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         backgroundColor: AppTheme.successGreen,
       ),
     );
-    _fetchIssuedUnits();
+    unawaited(_fetchIssuedUnits());
   }
 
   Widget _legendDot(Color color, String label) {

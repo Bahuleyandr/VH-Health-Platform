@@ -31,10 +31,14 @@ class SOSService {
 
   static Future<void> triggerWithFeedback(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
-    _showSnackBar(context, l10n.authSosTriggered);
+    // Progress feedback only — do NOT claim success before the SOS call has
+    // actually completed. Confirmation is shown after the await below.
+    _showSnackBar(context, l10n.authSosSending);
 
     try {
       await triggerSOS(context);
+      if (!context.mounted) return;
+      _showSnackBar(context, l10n.authSosTriggered);
     } on SosException catch (e) {
       if (!context.mounted) return;
       _showSnackBar(context, e.message);

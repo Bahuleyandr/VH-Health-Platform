@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -79,20 +81,22 @@ class _RecordAccessBodyState extends State<RecordAccessBody> {
         _cachedAt = page.cachedAt;
         _isLoading = false;
       });
-      page.onFresh
-          ?.then((fresh) async {
-            final cached = await ApiCacheManager.load('/portal/proxy/grants');
-            if (!mounted) return;
-            setState(() {
-              _grantedByMe = fresh.grantedByMe;
-              _heldByMe = fresh.heldByMe;
-              _staleLabel = null;
-              _cachedAt = cached?.cachedAt;
-            });
-          })
-          .catchError((Object e) {
-            debugPrint('Record access background refresh failed: $e');
-          });
+      unawaited(
+        page.onFresh
+            ?.then((fresh) async {
+              final cached = await ApiCacheManager.load('/portal/proxy/grants');
+              if (!mounted) return;
+              setState(() {
+                _grantedByMe = fresh.grantedByMe;
+                _heldByMe = fresh.heldByMe;
+                _staleLabel = null;
+                _cachedAt = cached?.cachedAt;
+              });
+            })
+            .catchError((Object e) {
+              debugPrint('Record access background refresh failed: $e');
+            }),
+      );
     } catch (e) {
       debugPrint('Record access fetch failed: $e');
       if (!mounted) return;

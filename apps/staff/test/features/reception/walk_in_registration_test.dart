@@ -3,9 +3,10 @@
 // Tests for the walk-in registration workflow's validation helpers and
 // payload-building logic, covering:
 //
-//   1. Mirror-class tests for private helpers from `reception_counter_screen.dart`
-//      (_isEmergencyWard, _wardLabel, _doctorLabel, _digitsOnly, _bedLabel) —
-//      these are library-private and cannot be imported directly.
+//   1. Mirror-class tests for private helpers from the front-office workbench
+//      (`front_office_workbench_helpers.dart`: _wardLabel, _doctorLabel,
+//      _digitsOnly, _bedLabel) — these are library-private and cannot be
+//      imported directly.
 //   2. Direct import tests for `frontOfficeWalkInRegistrationPayload` from
 //      `front_office_workbench_screen.dart` (public top-level function).
 //
@@ -25,11 +26,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/reception/screens/front_office_workbench_screen.dart';
 
-// ── Mirror helpers from reception_counter_screen.dart ────────────────────────
-// These are library-private (`_`-prefixed) top-level functions in that file.
-// The mirrors below must stay in sync with the production implementation.
+// ── Mirror helpers ────────────────────────────────────────────────────────────
+// Originally mirrored library-private (`_`-prefixed) helpers from the retired
+// reception_counter_screen.dart (deleted 2026-08 — /reception-counter now
+// builds FrontOfficeWorkbenchScreen). The surviving private twins live in
+// components/front_office_workbench_helpers.dart (`_wardLabel`, `_bedLabel`,
+// `_doctorLabel`, `_digitsOnly`); the mirrors below must stay in sync with
+// those.
 
-/// Mirrors `_isEmergencyWard` from reception_counter_screen.dart.
 /// Determines whether the selected ward label should auto-escalate the
 /// admission priority to "Emergency".
 bool isEmergencyWardLabel(String label) {
@@ -40,7 +44,7 @@ bool isEmergencyWardLabel(String label) {
       lower.startsWith('emergency');
 }
 
-/// Mirrors `_wardLabel` from reception_counter_screen.dart.
+/// Mirrors `_wardLabel` from front_office_workbench_helpers.dart.
 /// Resolves a ward display name from API data: prefers `label`, falls back
 /// to `name`, then "Ward".
 String wardLabel(Map<String, dynamic> ward) {
@@ -51,7 +55,7 @@ String wardLabel(Map<String, dynamic> ward) {
   return 'Ward';
 }
 
-/// Mirrors `_doctorLabel` from reception_counter_screen.dart.
+/// Mirrors `_doctorLabel` from front_office_workbench_helpers.dart.
 /// Formats "Name - Department - Specialization" (omitting absent fields).
 String doctorLabel(Map<String, dynamic> doctor) {
   int? resolvedId = int.tryParse(
@@ -69,11 +73,11 @@ String doctorLabel(Map<String, dynamic> doctor) {
   ].join(' - ');
 }
 
-/// Mirrors `_digitsOnly` from reception_counter_screen.dart.
+/// Mirrors `_digitsOnly` from front_office_workbench_helpers.dart.
 /// Strips all non-digit characters from a phone number.
 String digitsOnlyFromPhone(String value) => value.replaceAll(RegExp(r'\D'), '');
 
-/// Mirrors `_bedLabel` from reception_counter_screen.dart.
+/// Mirrors `_bedLabel` from front_office_workbench_helpers.dart.
 /// Formats a bed's display name from API data.
 String bedLabel(Map<String, dynamic> bed) {
   String text(dynamic v) => v?.toString().trim() ?? '';

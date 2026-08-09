@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/features/your_health/models/consultation_note.dart';
 import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
@@ -8,6 +9,17 @@ import 'package:vhhealth/features/your_health/widgets/consultation_notes_tab.dar
 import 'package:vhhealth/generated/app_localizations.dart';
 
 void main() {
+  // The detail screens are wrapped in BiometricGate (FL-H1). These tests
+  // exercise the screens' content, not the gate (covered by
+  // biometric_gate_test.dart), so grant access without the plugin channel.
+  setUp(() {
+    BiometricGate.debugDefaultAuthCheckOverride = (_) async => true;
+  });
+  tearDown(() {
+    BiometricGate.debugDefaultAuthCheckOverride = null;
+    BiometricGate.debugResetUnlockState();
+  });
+
   testWidgets('Your Health tabs label the section Consultation notes', (
     tester,
   ) async {
