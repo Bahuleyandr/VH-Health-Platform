@@ -35,8 +35,9 @@ function getTransporter() {
  * @param {string} options.subject - Email subject
  * @param {string} [options.html] - HTML body
  * @param {string} [options.text] - Plain text body
+ * @param {Array<Object>} [options.attachments] - nodemailer-style attachments
  */
-export async function sendEmail({ to, subject, html, text, receiptMode = false }) {
+export async function sendEmail({ to, subject, html, text, attachments, receiptMode = false }) {
   const transport = getTransporter();
 
   if (!transport) {
@@ -49,7 +50,7 @@ export async function sendEmail({ to, subject, html, text, receiptMode = false }
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
 
   try {
-    const info = await transport.sendMail({ from, to, subject, html, text });
+    const info = await transport.sendMail({ from, to, subject, html, text, attachments });
     logger.info(`📧 Email sent to ${to}: ${info.messageId}`);
     return info;
   } catch (err) {

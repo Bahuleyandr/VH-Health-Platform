@@ -66,6 +66,24 @@ const { default: firebaseAuthRoutes } = await import('../../routes/auth/firebase
 function buildApp() {
   const app = express();
   app.use(express.json());
+  // Pre-existing gap, out of scope here: app.js's global jwtAuth (line ~822)
+  // is registered AFTER the /api/v1/auth router mount (line ~730), so in
+  // production this router's own RBAC check never sees req.user and the
+  // whole /admin/{users,devices,revoke-user-tokens,cleanup-devices} family
+  // 401s unconditionally, even for a valid admin JWT. This shim stands in
+  // for that missing upstream auth so the /admin/devices handler itself
+  // (the fix under test here) is reachable.
+  app.use('/firebase/admin', (req, res, next) => {
+    if ((req.headers.authorization || '') === 'Bearer admin-token') {
+      req.user = {
+        uid: '550e8400-e29b-41d4-a716-446655440002',
+        role: 'ADMIN',
+        rawRole: 'ADMIN',
+        scope: 'full',
+      };
+    }
+    next();
+  });
   app.use('/firebase', firebaseAuthRoutes);
   return app;
 }
