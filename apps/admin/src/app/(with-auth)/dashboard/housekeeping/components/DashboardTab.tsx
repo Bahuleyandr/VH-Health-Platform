@@ -13,6 +13,8 @@ export function DashboardTab() {
   const {
     data: raw,
     isLoading,
+    isError,
+    error,
     refetch,
   } = useQuery({
     queryKey: ["hk-stats"],
@@ -29,7 +31,22 @@ export function DashboardTab() {
         <Skeleton className="h-48 w-full" />
       </div>
     );
-  if (!stats) return null;
+  if (isError || !stats)
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 flex items-center justify-between gap-3">
+        <span>
+          {error instanceof Error
+            ? error.message
+            : "Failed to load housekeeping stats"}
+        </span>
+        <button
+          onClick={() => refetch()}
+          className="flex items-center gap-1 shrink-0 font-medium text-red-700 hover:text-red-900"
+        >
+          <RefreshCw size={14} /> Retry
+        </button>
+      </div>
+    );
 
   const { logs, requests, sla, top_staff, recent_flags } = stats;
 

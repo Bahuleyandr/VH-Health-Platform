@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Search, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
+import { toast } from "react-hot-toast";
 import { getJSON } from "@/lib/api/core";
 import type { AuditLogRow, LogsResponse, ModulesResponse } from "../auditTypes";
 import {
@@ -37,7 +38,12 @@ export function LogSearchTab() {
   useEffect(() => {
     getJSON<ModulesResponse>("/api/v1/admin/audit/modules")
       .then((r) => setModules(r ?? { modules: [], actions: [] }))
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // Surface instead of swallowing: otherwise the module/action filter
+        // dropdowns are silently empty and searches look broken.
+        console.error("Failed to load audit filter options", err);
+        toast.error("Failed to load module/action filter options");
+      });
   }, []);
 
   const fetchLogs = useCallback(async () => {

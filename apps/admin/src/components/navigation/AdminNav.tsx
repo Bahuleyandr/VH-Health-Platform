@@ -110,6 +110,10 @@ const navSections: NavSection[] = [
     title: "Clinical Services",
     minRole: "STAFF", // all clinical staff
     items: [
+      // Code Blue / Code STEMI live board (realtime staff:code-blue /
+      // staff:code-stemi). Route policy allows all clinical staff (STAFF
+      // rank), matching this section's gating.
+      { name: "Clinical Alerts", href: "/dashboard/clinical-alerts" },
       { name: "Radiology", href: "/dashboard/radiology" },
       { name: "Stroke Pathway", href: "/dashboard/stroke-pathway" },
       { name: "Laboratory", href: "/dashboard/lab" },
@@ -186,7 +190,6 @@ const navSections: NavSection[] = [
       { name: "BMW Register", href: "/dashboard/bmw" },
       { name: "Drug Returns", href: "/dashboard/drug-returns" },
       { name: "Death Certification", href: "/dashboard/death-certification" },
-      { name: "Medical Records", href: "/dashboard/records" },
       { name: "Pharmacy", href: "/dashboard/pharmacy" },
       { name: "Notifications", href: "/dashboard/notifications" },
       { name: "Attendance", href: "/dashboard/attendance" },

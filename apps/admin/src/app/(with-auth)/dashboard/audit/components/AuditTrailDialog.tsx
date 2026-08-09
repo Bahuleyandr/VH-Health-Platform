@@ -9,10 +9,18 @@ interface Props {
   target: TrailTarget;
   data: Record<string, unknown> | null | undefined;
   isLoading: boolean;
+  /** When set, the dialog shows this error instead of the trail panel. */
+  errorMessage?: string | null;
   onClose: () => void;
 }
 
-export function AuditTrailDialog({ target, data, isLoading, onClose }: Props) {
+export function AuditTrailDialog({
+  target,
+  data,
+  isLoading,
+  errorMessage,
+  onClose,
+}: Props) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="bg-card rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
@@ -35,6 +43,10 @@ export function AuditTrailDialog({ target, data, isLoading, onClose }: Props) {
         <div className="flex-1 overflow-y-auto p-5">
           {isLoading ? (
             <Skeleton className="h-48" />
+          ) : errorMessage ? (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+              {errorMessage}
+            </div>
           ) : (
             <TrailPanel data={data as Record<string, unknown> | null} />
           )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import type { SLAData } from "./types";
 import { StatCard } from "./shared";
@@ -8,18 +8,41 @@ import { StatCard } from "./shared";
 export function OverviewTab() {
   const [sla, setSla] = useState<SLAData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
     fetchAdminAPI<{ data: SLAData }>("/pharmacy-orders/orders/sla")
       .then((r) => {
         const data = (r as Record<string, unknown>).data ?? r;
         setSla(data as SLAData);
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        setLoadError(
+          err instanceof Error ? err.message : "Failed to load SLA data",
+        );
+      })
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   if (loading) return <div className="p-8 text-center">Loading SLA data...</div>;
+  if (loadError)
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 flex items-center justify-between gap-3">
+        <span>{loadError}</span>
+        <button
+          onClick={load}
+          className="shrink-0 font-medium text-red-700 hover:text-red-900 underline"
+        >
+          Retry
+        </button>
+      </div>
+    );
   if (!sla) return <div className="p-8 text-center text-muted-foreground">No data</div>;
 
   const s = sla.summary;
