@@ -1206,7 +1206,17 @@ describe('clinical AI provider client', () => {
     it('retries ONCE without output_config when the endpoint rejects the schema with HTTP 400', async () => {
       allowAnthropic();
       global.fetch
-        .mockResolvedValueOnce({ ok: false, status: 400, json: () => Promise.resolve({}) })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          text: () => Promise.resolve(JSON.stringify({
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              message: 'output_config.format schema is not supported by this endpoint',
+            },
+          })),
+        })
         .mockResolvedValueOnce(okJson({
           id: 'msg-plain',
           content: [{ type: 'text', text: '```json\n{"summary":"ok"}\n```' }],

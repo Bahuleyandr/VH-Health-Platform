@@ -2761,7 +2761,10 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
   let summary = null;
   let attendingDoctors = [];
   try {
-    summary = await generateDischargeSummary(admissionId, requestedBy, null);
+    // Pass a minimal request-context carrying the tenant id so the generator
+    // can resolve the tenant's region for the AI egress guard (and scope its
+    // reads/writes to the right tenant) — the cascade has no HTTP request.
+    summary = await generateDischargeSummary(admissionId, requestedBy, { tenantId });
     await saveDischargeSummary(
       admissionId,
       summary,

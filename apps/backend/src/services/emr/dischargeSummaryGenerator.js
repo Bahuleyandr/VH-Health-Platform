@@ -1040,15 +1040,49 @@ export async function getLatestDischargeSummary(admissionId) {
   return null;
 }
 
+/**
+ * Resolve the tenant's data-residency region for the egress guard inside
+ * generateClinicalText (CLINICAL_AI_EXTERNAL_REGIONS). Request-context region
+ * (tenantContextMiddleware populates req.tenant.region) wins; otherwise fall
+ * back to the tenants table — the cascade path (markForDischarge) has no
+ * request. Mirrors codingBatchSuggestionService.resolveTenantRegion: a failed
+ * lookup returns null ("region unknown"), and localLlmClient's fail-closed
+ * allowlist semantics then deny external egress whenever an allowlist is set —
+ * a genuinely region-less tenant is never granted a region it doesn't have.
+ */
+async function resolveTenantRegionForDischarge(req, tenantId) {
+  if (req?.tenant?.region) return req.tenant.region;
+  if (!tenantId) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT region FROM tenants WHERE id = $1::uuid',
+      tenantId
+    );
+    return rows?.[0]?.region || null;
+  } catch (err) {
+    logger.warn('Discharge summary: tenant region lookup failed; treating region as unknown', {
+      error: String(err?.message || err).slice(0, 200),
+    });
+    return null;
+  }
+}
+
 export async function generateDischargeSummary(admissionId, requestedBy, req) {
   if (!requestedBy) throw AppError.badRequest('requestedBy is required');
 
   const context = await collectAdmissionClinicalContext(admissionId, req?.tenantId || null);
   const prompt = buildPrompt(context);
+  // Post-#775/#804 follow-up: thread the tenant's region into the governed
+  // model call so the deep-tier egress guard can allow-list this tenant.
+  // Without it, generateClinicalText saw tenantRegion=null and (fail-closed)
+  // denied external egress even for tenants whose region is on
+  // CLINICAL_AI_EXTERNAL_REGIONS. Absent-region behaviour is unchanged.
+  const tenantRegion = await resolveTenantRegionForDischarge(req, req?.tenantId || null);
   const aiResult = await generateClinicalText({
     ...prompt,
     taskType: 'discharge_summary',
     tenantId: req?.tenantId,
+    tenantRegion,
   });
   const hospitalCourse = aiResult.usedAi ? aiResult.text : buildTemplateHospitalCourse(context);
   const summary = buildStructuredSummary(context, hospitalCourse, aiResult);

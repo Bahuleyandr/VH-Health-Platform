@@ -129,14 +129,14 @@ async function loadService(envOverrides = {}) {
 }
 
 /** Minimal Anthropic-shaped successful fetch response. */
-function anthropicOk(triage = 'self_care', summary = 'You seem fine.') {
+function anthropicOk(triage = 'self_care', summary = 'You seem fine.', differential = []) {
   return {
     ok: true,
     json: async () => ({
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ triage, differential: [], summary, redFlags: [] }),
+          text: JSON.stringify({ triage, differential, summary, redFlags: [] }),
         },
       ],
     }),
@@ -817,6 +817,197 @@ describe('triageService — governed framework (patient_triage)', () => {
       expect(result.safetyFlags).toEqual(expect.arrayContaining([
         expect.objectContaining({ code: 'TRIAGE_GOVERNANCE_RECORD_FAILED' }),
       ]));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('enforces the triage JSON contract via structured outputs (output_config.format) on the Anthropic body', async () => {
+    let capturedBody;
+    global.fetch = jest.fn(async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return anthropicOk('self_care', 'Rest.');
+    });
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      await svc.triageSymptoms({ symptoms: 'mild headache today' });
+
+      expect(capturedBody.output_config).toEqual({
+        format: {
+          type: 'json_schema',
+          schema: expect.objectContaining({
+            type: 'object',
+            additionalProperties: false,
+            required: ['triage', 'differential', 'summary', 'redFlags'],
+            properties: expect.objectContaining({
+              triage: expect.objectContaining({
+                enum: ['self_care', 'see_doctor_now', 'urgent_care'],
+              }),
+              differential: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    diagnosis: { type: 'string' },
+                    likelihood: { type: 'string', enum: ['high', 'medium', 'low'] },
+                  },
+                  required: ['diagnosis', 'likelihood'],
+                  additionalProperties: false,
+                },
+              },
+            }),
+          }),
+        },
+      });
+      // Modernized request shape: cacheable system prompt, no sampling params.
+      expect(capturedBody.system).toEqual([
+        expect.objectContaining({ type: 'text', cache_control: { type: 'ephemeral' } }),
+      ]);
+      expect(capturedBody.temperature).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('returns non-empty differential entries in the object shape consumed by the Patient app', async () => {
+    const differential = [{ diagnosis: 'Tension headache', likelihood: 'High' }];
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'Rest.', differential));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+
+      expect(result.blocked).not.toBe(true);
+      expect(result.differential).toEqual([
+        { diagnosis: 'Tension headache', likelihood: 'high' },
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('retries ONCE without output_config when the endpoint rejects the schema with HTTP 400', async () => {
+    const bodies = [];
+    global.fetch = jest.fn(async (_url, opts) => {
+      bodies.push(JSON.parse(opts.body));
+      if (bodies.length === 1) {
+        return { ok: false, status: 400, text: async () => 'schema rejected' };
+      }
+      return anthropicOk('self_care', 'Rest.');
+    });
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(bodies[0].output_config).toBeDefined();
+      expect(bodies[1].output_config).toBeUndefined();
+      expect(result.triage).toBe('self_care');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('does not retry an unrelated HTTP 400 after a structured-output request', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'The conversation must end with a user message.',
+        },
+      }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      await expect(svc.triageSymptoms({ symptoms: 'mild headache today' }))
+        .rejects.toMatchObject({ statusCode: 502 });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('fails CLOSED on a safety-classifier refusal (stop_reason=refusal): blocked response, no retry, outcome recorded', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        id: 'msg-refusal',
+        stop_reason: 'refusal',
+        stop_details: { category: 'medical_harm' },
+        content: [],
+        usage: { input_tokens: 40, output_tokens: 0 },
+      }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'strange refusal-triggering symptom',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+
+      // A refusal is terminal for this prompt — exactly one provider call.
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(result.blocked).toBe(true);
+      expect(result.triage).toBe('see_doctor_now');
+      expect(result.disclaimer).toMatch(/decision-support only/i);
+      expect(result.safetyFlags).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'TRIAGE_PROVIDER_REFUSAL' }),
+      ]));
+
+      // The blocked outcome (and its billed usage) is recorded as a failed
+      // generation with a retrospective review row.
+      const calls = mockQueryRawUnsafe.mock.calls;
+      const genCall = calls.find((c) => c[0].includes('INSERT INTO clinical_ai_generations'));
+      expect(genCall).toBeDefined();
+      expect(genCall.slice(1)).toContain('failed');
+      expect(genCall.slice(1)).toContain(40); // refusal prompt tokens stay accountable
+      const reviewCall = calls.find((c) => c[0].includes('INSERT INTO clinical_ai_reviews'));
+      expect(reviewCall).toBeDefined();
+      expect(JSON.parse(reviewCall[5]).reasons).toEqual(
+        expect.arrayContaining(['output_blocked']),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('counts cache_creation/cache_read input tokens into the recorded usage (cache-aware accounting)', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ triage: 'self_care', differential: [], summary: 'Rest.', redFlags: [] }),
+        }],
+        usage: {
+          input_tokens: 100,
+          cache_creation_input_tokens: 20,
+          cache_read_input_tokens: 5,
+          output_tokens: 30,
+        },
+      }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      await svc.triageSymptoms({
+        symptoms: 'mild cold today',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+
+      const genCall = mockQueryRawUnsafe.mock.calls
+        .find((c) => c[0].includes('INSERT INTO clinical_ai_generations'));
+      expect(genCall).toBeDefined();
+      // prompt=125 (100+20+5), completion=30, total=155.
+      expect(genCall.slice(1)).toEqual(expect.arrayContaining([125, 30, 155]));
     } finally {
       cleanup();
     }

@@ -16,6 +16,19 @@ import { describeDiarizationConfig } from './ambientDiarizationService.js';
 import { describePacsConfig } from './imagingPacsAdapterService.js';
 import { describePriorAuthPayerConfig } from './priorAuthorizationPayerAdapterService.js';
 import { describeSttConfig } from './sttService.js';
+// The modernized Anthropic Messages request shaping (refusal stop_reason
+// handling, structured outputs + plain retry, cacheable system prompt,
+// cache-aware usage accounting) lives in the shared leaf module so the triage
+// chatbot reuses the exact same path. Re-exported below so existing importers
+// (tests, downstream services) keep working unchanged.
+import {
+  anthropicVersionHeader,
+  normalizeStructuredOutputSchema,
+  postAnthropicMessages,
+  stripReasoningTags,
+} from './anthropicMessagesClient.js';
+
+export { normalizeStructuredOutputSchema, stripReasoningTags };
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_MODEL = 'llama3.1:8b';
@@ -362,29 +375,6 @@ function responseHeader(response, name) {
   return response.headers?.get?.(name) || null;
 }
 
-/**
- * Strip chain-of-thought / reasoning tags emitted by reasoning models.
- *
- * Pattern observed in production:
- *   - MiniMax-M2.7-highspeed wraps every reply in `<think>...</think>` before
- *     the final answer (verified 2026-05-02 via direct API call).
- *   - DeepSeek-R1, GLM-4-Plus, and several open-weight reasoning models use
- *     the same tag convention.
- *   - Anthropic + OpenAI emit reasoning tokens in a separate field, not
- *     inline in `content`, so this is a no-op for them.
- *
- * Stripping is safe on non-reasoning models — the regex simply doesn't
- * match. We strip ALL `<think>...</think>` blocks (some models emit
- * multiple) and trim residual whitespace.
- *
- * Done at extraction time so downstream JSON parsing in the explainer
- * pipelines and `safeJsonParse` see clean text.
- */
-export function stripReasoningTags(text) {
-  if (typeof text !== 'string') return text;
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-}
-
 function readOpenAIText(payload) {
   const content = payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.text ?? '';
   if (Array.isArray(content)) {
@@ -396,16 +386,6 @@ function readOpenAIText(payload) {
     );
   }
   return stripReasoningTags(String(content || '').trim());
-}
-
-function readAnthropicText(payload) {
-  return stripReasoningTags(
-    (payload.content || [])
-      .filter((part) => part?.type === 'text' && part.text)
-      .map((part) => part.text)
-      .join('')
-      .trim(),
-  );
 }
 
 function getReadiness(config, budgetStatus = null) {
@@ -617,140 +597,21 @@ async function callOpenAICompatible(config, userPrompt, systemPrompt) {
   return { text: readOpenAIText(payload), usage };
 }
 
-/**
- * Conservatively normalize a JSON schema for Anthropic structured outputs
- * (`output_config.format` on /v1/messages). Structured outputs require
- * `additionalProperties: false` on every object node; we additionally require
- * every object node to declare non-empty `properties` and every `required` key
- * to exist in them, so the loose registry stubs (e.g. `{type:'object',
- * required:[...]}` with no properties) NEVER activate structured output —
- * they'd be rejected by the API and would only burn a request. Returns the
- * normalized deep copy, or null when the schema is absent/too loose to send.
- * Exported for unit tests.
- */
-export function normalizeStructuredOutputSchema(schema) {
-  const SCALAR_TYPES = new Set(['string', 'integer', 'number', 'boolean', 'null']);
-  const normalizeNode = (node) => {
-    if (!node || typeof node !== 'object' || Array.isArray(node)) return null;
-    if (node.type === 'object') {
-      const properties = node.properties;
-      if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return null;
-      const keys = Object.keys(properties);
-      if (!keys.length) return null;
-      const outProps = {};
-      for (const key of keys) {
-        const child = normalizeNode(properties[key]);
-        if (!child) return null;
-        outProps[key] = child;
-      }
-      const required = Array.isArray(node.required) ? node.required : [];
-      if (!required.every((key) => Object.prototype.hasOwnProperty.call(outProps, key))) return null;
-      return { ...node, type: 'object', properties: outProps, required, additionalProperties: false };
-    }
-    if (node.type === 'array') {
-      const items = normalizeNode(node.items);
-      if (!items) return null;
-      return { ...node, items };
-    }
-    if (SCALAR_TYPES.has(node.type)) return { ...node };
-    // anyOf/enum-only/unknown nodes: reject the whole schema rather than risk
-    // sending something the endpoint refuses.
-    return null;
-  };
-  const normalized = normalizeNode(schema);
-  return normalized && normalized.type === 'object' ? normalized : null;
-}
-
 async function callAnthropic(config, userPrompt, systemPrompt, { jsonSchema = null } = {}) {
-  const url = joinEndpoint(config.baseUrl, '/v1/messages');
-  const structuredSchema = normalizeStructuredOutputSchema(jsonSchema);
-
-  const attempt = async (withSchema) => {
-    const startedAt = Date.now();
-    const body = {
-      model: config.model,
-      max_tokens: config.maxTokens,
-      // NOTE: no `temperature`. Current Anthropic models (4.6-family onward)
-      // reject non-default sampling parameters with a 400; the framework's
-      // risk-tier temperature still applies to the ollama/openai paths.
-      // Determinism for high-risk modules is carried by the prompt and, where
-      // a schema is available, by structured outputs below.
-      //
-      // Prompt caching: module system prompts are stable per prompt version,
-      // so mark the system block cacheable — repeated drafts against the same
-      // module reuse the cached prefix (usage parsing below already sums
-      // cache_creation/cache_read token fields). Short prompts silently skip
-      // caching; that is harmless.
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: userPrompt }],
-    };
-    if (withSchema) {
-      body.output_config = { format: { type: 'json_schema', schema: structuredSchema } };
-    }
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
-        'anthropic-version': process.env.ANTHROPIC_VERSION || process.env.ANTHROPIC_API_VERSION || '2023-06-01',
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(config.timeoutMs),
-    });
-
-    if (!response.ok) {
-      const err = new Error(`Anthropic endpoint returned HTTP ${response.status}`);
-      err.httpStatus = response.status;
-      throw err;
-    }
-
-    const payload = await response.json();
-    const inputTokens = safeInt(payload.usage?.input_tokens, 0)
-      + safeInt(payload.usage?.cache_creation_input_tokens, 0)
-      + safeInt(payload.usage?.cache_read_input_tokens, 0);
-    const outputTokens = safeInt(payload.usage?.output_tokens, 0);
-    const usage = emptyUsage({
-      prompt_tokens: inputTokens,
-      completion_tokens: outputTokens,
-      total_tokens: inputTokens + outputTokens,
-      provider_request_id: responseHeader(response, 'request-id') || payload.id || null,
-      finish_reason: payload.stop_reason || null,
-      latency_ms: Date.now() - startedAt,
-      raw: payload.usage || null,
-    });
-    // Safety-classifier refusal: HTTP 200 with stop_reason 'refusal' and empty
-    // (or partial) content. NON-RETRYABLE — re-sending the same prompt cannot
-    // succeed, so it must not burn the transient-retry budget as "empty
-    // content". The thrown reason (with the PHI-free stop_details category)
-    // flows into the labeled template-fallback path and the generation row.
-    if (payload.stop_reason === 'refusal') {
-      const category = payload.stop_details?.category
-        ? String(payload.stop_details.category).slice(0, 60)
-        : null;
-      const err = new Error(category ? `anthropic_refusal:${category}` : 'anthropic_refusal');
-      err.retryable = false;
-      err.usage = usage; // refusal tokens are billed; keep them accountable
-      throw err;
-    }
-    return { text: readAnthropicText(payload), usage };
-  };
-
-  try {
-    return await attempt(Boolean(structuredSchema));
-  } catch (err) {
-    // Endpoint rejected the structured-output schema (e.g. an unsupported
-    // constraint survived normalization). One plain retry without
-    // output_config — the caller's fence-stripping JSON parser remains the
-    // fallback, exactly as on providers without structured-output support.
-    if (structuredSchema && Number(err.httpStatus) === 400) {
-      logger.warn('Anthropic rejected structured-output schema; retrying without output_config', {
-        model: config.model,
-        module: config.moduleKey,
-      });
-      return attempt(false);
-    }
-    throw err;
-  }
+  // Full modernized request shape (refusal handling, structured outputs +
+  // plain retry on schema 400, cacheable system prompt, cache-aware usage)
+  // lives in anthropicMessagesClient.js — shared with the triage chatbot.
+  return postAnthropicMessages({
+    url: joinEndpoint(config.baseUrl, '/v1/messages'),
+    apiKey: config.apiKey,
+    model: config.model,
+    maxTokens: config.maxTokens,
+    systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+    jsonSchema,
+    timeoutMs: config.timeoutMs,
+    logContext: { module: config.moduleKey },
+  });
 }
 
 function serializeClinicalAiConfig(config, readiness) {
@@ -1036,7 +897,7 @@ async function probeProvider(config) {
   } else if (config.provider === 'anthropic') {
     url = joinEndpoint(config.baseUrl, `/v1/models/${encodeURIComponent(config.model)}`);
     headers['x-api-key'] = config.apiKey;
-    headers['anthropic-version'] = process.env.ANTHROPIC_VERSION || process.env.ANTHROPIC_API_VERSION || '2023-06-01';
+    headers['anthropic-version'] = anthropicVersionHeader();
   } else {
     url = joinEndpoint(config.baseUrl, '/v1/models');
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
