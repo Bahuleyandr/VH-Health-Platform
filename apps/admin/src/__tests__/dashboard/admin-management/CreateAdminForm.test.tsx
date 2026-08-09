@@ -19,6 +19,9 @@ describe("<CreateAdminForm />", () => {
   it("creates a new admin via POST /auth/admin/create-admin", async () => {
     render(<CreateAdminForm />);
 
+    fireEvent.change(screen.getByLabelText(/Username/), {
+      target: { value: "new-admin" },
+    });
     fireEvent.change(screen.getByLabelText(/Full Name/), {
       target: { value: "New Admin" },
     });
@@ -28,19 +31,16 @@ describe("<CreateAdminForm />", () => {
     fireEvent.change(screen.getByLabelText(/Password/), {
       target: { value: "SuperSecret1!" },
     });
-    fireEvent.change(screen.getByLabelText(/Role/), {
-      target: { value: "ADMIN" },
-    });
-
     fireEvent.click(screen.getByRole("button", { name: "Create Admin" }));
 
     await screen.findByText("Admin user created successfully!");
 
     expect(mockedPostJSON).toHaveBeenCalledWith(API_ENDPOINTS.auth.admin.createAdmin, {
+      username: "new-admin",
       name: "New Admin",
       email: "new.admin@vhhealth.app",
       password: "SuperSecret1!",
-      role: "ADMIN",
     });
+    expect(screen.queryByRole("option", { name: "Super Admin" })).not.toBeInTheDocument();
   });
 });
