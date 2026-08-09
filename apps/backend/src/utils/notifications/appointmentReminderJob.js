@@ -36,9 +36,9 @@ async function sendTimedRemindersInner() {
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
                d.name AS doctor_name, doc.department
         FROM appointments a
-        JOIN users u ON a.patient_id = u.id
-        LEFT JOIN users d ON a.doctor_id = d.id
-        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+        JOIN users u ON a.patient_id = u.id AND a.tenant_id = u.tenant_id
+        LEFT JOIN users d ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id
+        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id AND a.tenant_id = doc.tenant_id
         WHERE a.status = 'CONFIRMED'
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_24h_sent IS NOT TRUE
@@ -50,9 +50,9 @@ async function sendTimedRemindersInner() {
                d.id AS doctor_user_id, d.uid AS doctor_uid, d.name AS doctor_name,
                doc.department
         FROM appointments a
-        JOIN users u ON a.patient_id = u.id
-        LEFT JOIN users d ON a.doctor_id = d.id
-        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+        JOIN users u ON a.patient_id = u.id AND a.tenant_id = u.tenant_id
+        LEFT JOIN users d ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id
+        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id AND a.tenant_id = doc.tenant_id
         WHERE a.status = 'CONFIRMED'
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_1h_sent IS NOT TRUE
@@ -64,7 +64,7 @@ async function sendTimedRemindersInner() {
     const sentIds24h = [];
     for (const appt of res24h) {
       try {
-        await queueAppointmentReminderSms({
+        const smsIntent = await queueAppointmentReminderSms({
           tenantId: appt.tenant_id || null,
           recipientId: appt.patient_user_id || null,
           phone: appt.patient_phone,
@@ -75,16 +75,26 @@ async function sendTimedRemindersInner() {
           tokenNumber: appt.token_number,
           appointmentId: appt.id,
         });
+        let patientReminderAccepted = smsIntent.queued;
         if (appt.device_token) {
-          await sendPushNotification({
-            tokens: appt.device_token,
-            title: 'Appointment Tomorrow 📅',
-            body: `Reminder: Your appointment is tomorrow at ${appt.appointment_time} with Dr. ${appt.doctor_name}. Token #${appt.token_number}`,
-            data: { type: 'appointment_reminder_24h', appointment_id: String(appt.id) },
-            userId: null,
-          }).catch(e => logger.warn(`[Reminders] 24h push notification failed for appointment ${appt.id}:`, e.message));
+          try {
+            const pushResult = await sendPushNotification({
+              tokens: appt.device_token,
+              title: 'Appointment Tomorrow 📅',
+              body: `Reminder: Your appointment is tomorrow at ${appt.appointment_time} with Dr. ${appt.doctor_name}. Token #${appt.token_number}`,
+              data: { type: 'appointment_reminder_24h', appointment_id: String(appt.id) },
+              userId: null,
+            });
+            patientReminderAccepted ||= Number(pushResult?.successCount) > 0;
+          } catch (e) {
+            logger.warn(`[Reminders] 24h push notification failed for appointment ${appt.id}:`, e.message);
+          }
         }
-        sentIds24h.push(appt.id);
+        if (patientReminderAccepted) {
+          sentIds24h.push(appt.id);
+        } else {
+          logger.warn(`[Reminders] 24h reminder for appointment ${appt.id} reached no patient channel; leaving it eligible for retry`);
+        }
       } catch (e) {
         logger.warn(`[Reminders] 24h reminder failed for ${appt.id}: ${e.message}`);
       }
@@ -99,7 +109,7 @@ async function sendTimedRemindersInner() {
     const sentIds1h = [];
     for (const appt of res1h) {
       try {
-        await queueAppointmentReminderSms({
+        const smsIntent = await queueAppointmentReminderSms({
           tenantId: appt.tenant_id || null,
           recipientId: appt.patient_user_id || null,
           phone: appt.patient_phone,
@@ -110,14 +120,20 @@ async function sendTimedRemindersInner() {
           tokenNumber: appt.token_number,
           appointmentId: appt.id,
         });
+        let patientReminderAccepted = smsIntent.queued;
         if (appt.device_token) {
-          await sendPushNotification({
-            tokens: appt.device_token,
-            title: 'Appointment in 1 Hour ⏰',
-            body: `Your appointment at ${appt.appointment_time} with Dr. ${appt.doctor_name} is in ~1 hour. Token #${appt.token_number}`,
-            data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
-            userId: null,
-          }).catch(e => logger.warn(`[Reminders] 1h push notification failed for appointment ${appt.id}:`, e.message));
+          try {
+            const pushResult = await sendPushNotification({
+              tokens: appt.device_token,
+              title: 'Appointment in 1 Hour ⏰',
+              body: `Your appointment at ${appt.appointment_time} with Dr. ${appt.doctor_name} is in ~1 hour. Token #${appt.token_number}`,
+              data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
+              userId: null,
+            });
+            patientReminderAccepted ||= Number(pushResult?.successCount) > 0;
+          } catch (e) {
+            logger.warn(`[Reminders] 1h push notification failed for appointment ${appt.id}:`, e.message);
+          }
         }
         if (appt.doctor_user_id) {
           try {
@@ -143,7 +159,11 @@ async function sendTimedRemindersInner() {
             logger.warn(`[Reminders] doctor appointment notification failed for ${appt.id}: ${notifyErr.message}`);
           }
         }
-        sentIds1h.push(appt.id);
+        if (patientReminderAccepted) {
+          sentIds1h.push(appt.id);
+        } else {
+          logger.warn(`[Reminders] 1h reminder for appointment ${appt.id} reached no patient channel; leaving it eligible for retry`);
+        }
       } catch (e) {
         logger.warn(`[Reminders] 1h reminder failed for ${appt.id}: ${e.message}`);
       }

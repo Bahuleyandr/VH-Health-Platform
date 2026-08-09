@@ -111,6 +111,8 @@ describe('investigation report notification job', () => {
         id: 501, test_name: 'CBC', patient_id: 77, name: 'Asha',
         phone: '9000000001', device_token: null, user_id: 77, tenant_id: TENANT_ID,
       }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 501 }])
       .mockResolvedValue([]);
 
     await sendInvestigationNotifications();
@@ -122,6 +124,16 @@ describe('investigation report notification job', () => {
       recipientPhone: '9000000001',
       sourceEventKey: 'investigation-report-ready:501',
     }));
+    const insertCall = queryRawUnsafeMock.mock.calls.find(
+      ([sql]) => String(sql).includes('INSERT INTO notifications'),
+    );
+    expect(String(insertCall?.[0])).toContain('tenant_id');
+    expect(insertCall?.[1]).toBe(TENANT_ID);
+    const stateCall = queryRawUnsafeMock.mock.calls.find(
+      ([sql]) => String(sql).includes('UPDATE investigations'),
+    );
+    expect(String(stateCall?.[0])).toContain('tenant_id = $2::uuid');
+    expect(stateCall?.[2]).toBe(TENANT_ID);
   });
 
   it('logs the intent as queued, never as sent', async () => {
@@ -130,6 +142,8 @@ describe('investigation report notification job', () => {
         id: 501, test_name: 'CBC', patient_id: 77, name: 'Asha',
         phone: '9000000001', device_token: null, user_id: 77, tenant_id: TENANT_ID,
       }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 501 }])
       .mockResolvedValue([]);
 
     await sendInvestigationNotifications();
@@ -176,6 +190,51 @@ describe('appointment reminder job', () => {
     const lines = loggerMock.info.mock.calls.map(args => String(args[0]));
     expect(lines.some(line => /reminders sent/.test(line))).toBe(false);
     expect(lines.some(line => /reminders processed/.test(line))).toBe(true);
+  });
+
+  it('leaves the reminder eligible when neither patient channel accepts it', async () => {
+    queueAppointmentReminderSmsMock.mockResolvedValue({
+      queued: false, outboxId: null, duplicate: false, reason: 'queue_failed',
+    });
+    sendPushNotificationMock.mockRejectedValue(new Error('FCM unavailable'));
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 33, tenant_id: TENANT_ID, appointment_time: '10:30', token_number: 6,
+        patient_user_id: 79, patient_name: 'Chandra', patient_phone: '9000000003',
+        device_token: 'patient-device', doctor_name: 'Rao', department: 'Cardiology',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+
+    await sendTimedReminders();
+
+    expect(queryRawUnsafeMock.mock.calls.some(
+      ([sql]) => String(sql).includes('SET reminder_24h_sent = TRUE'),
+    )).toBe(false);
+    expect(loggerMock.warn.mock.calls.some(
+      ([line]) => String(line).includes('leaving it eligible for retry'),
+    )).toBe(true);
+  });
+
+  it('marks the reminder after a push succeeds even when SMS queueing fails', async () => {
+    queueAppointmentReminderSmsMock.mockResolvedValue({
+      queued: false, outboxId: null, duplicate: false, reason: 'queue_failed',
+    });
+    sendPushNotificationMock.mockResolvedValue({ successCount: 1, failureCount: 0, responses: [] });
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 34, tenant_id: TENANT_ID, appointment_time: '10:30', token_number: 7,
+        patient_user_id: 80, patient_name: 'Devi', patient_phone: '9000000004',
+        device_token: 'patient-device', doctor_name: 'Rao', department: 'Cardiology',
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([]);
+
+    await sendTimedReminders();
+
+    expect(queryRawUnsafeMock.mock.calls.some(
+      ([sql]) => String(sql).includes('SET reminder_24h_sent = TRUE'),
+    )).toBe(true);
   });
 });
 

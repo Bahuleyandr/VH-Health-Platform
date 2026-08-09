@@ -1,6 +1,6 @@
 // src/utils/notifications/InvestigationNotificationJob.js
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { queuePatientSms } from './smsOutbox.js';
@@ -15,9 +15,9 @@ export async function sendInvestigationNotifications() {
     const result = await prisma.$queryRawUnsafe(
       `SELECT i.id, i.test_name, i.patient_id,
               u.name, u.phone, u.device_token, u.id as user_id,
-              u.tenant_id::text AS tenant_id
+              i.tenant_id::text AS tenant_id
        FROM investigations i
-       JOIN users u ON i.patient_id = u.id
+       JOIN users u ON i.patient_id = u.id AND i.tenant_id = u.tenant_id
        WHERE i.status IN ('completed', 'COMPLETED', 'result_ready')
          AND i.notified IS DISTINCT FROM true
        ORDER BY i.id DESC
@@ -76,17 +76,31 @@ export async function sendInvestigationNotifications() {
         }
 
         // 3. In-app notification
-        await prisma.$queryRawUnsafe(
-          `INSERT INTO notifications (phone, title, body, type, user_id, created_at, updated_at, is_read)
-           VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), false)`,
-          row.phone || 'unknown', 'Investigation Report Ready', message, 'investigation', row.user_id || null
-        );
+        await setTenantTx(row.tenant_id, async (tx) => {
+          await tx.$queryRawUnsafe(
+            `INSERT INTO notifications
+               (tenant_id, phone, title, body, type, user_id, created_at, updated_at, is_read)
+             VALUES ($1::uuid, $2, $3, $4, $5, $6, NOW(), NOW(), false)`,
+            row.tenant_id,
+            row.phone || 'unknown',
+            'Investigation Report Ready',
+            message,
+            'investigation',
+            row.user_id || null,
+          );
 
-        // 4. Mark as notified
-        await prisma.$queryRawUnsafe(
-          `UPDATE investigations SET notified = true, notified_at = NOW(), patient_notified_at = NOW() WHERE id = $1`,
-          row.id
-        );
+          const updated = await tx.$queryRawUnsafe(
+            `UPDATE investigations
+                SET notified = true, notified_at = NOW(), patient_notified_at = NOW()
+              WHERE id = $1 AND tenant_id = $2::uuid
+              RETURNING id`,
+            row.id,
+            row.tenant_id,
+          );
+          if (updated.length !== 1) {
+            throw new Error('investigation notification state changed before completion');
+          }
+        });
 
         logger.info(`✅ Notification logged for investigation ID ${row.id}`);
       } catch (err) {

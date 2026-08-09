@@ -497,7 +497,11 @@ export const confirmBooking = async (req, res) => {
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await prisma.$queryRawUnsafe('SELECT device_token, phone FROM users WHERE id=$1', booking[0].patient_id);
+        const patient = await prisma.$queryRawUnsafe(
+          'SELECT device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+          booking[0].patient_id,
+          tenantId,
+        );
         const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
@@ -808,7 +812,11 @@ export const uploadResult = async (req, res) => {
     // Notify patient (fire-and-forget)
     setImmediate(async () => {
       try {
-        const patient = await prisma.$queryRawUnsafe('SELECT device_token, phone FROM users WHERE id=$1', booking[0].patient_id);
+        const patient = await prisma.$queryRawUnsafe(
+          'SELECT device_token, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+          booking[0].patient_id,
+          tenantId,
+        );
         const tokens = [patient[0]?.device_token].filter(Boolean);
         if (tokens.length) {
           await sendPushNotification({
