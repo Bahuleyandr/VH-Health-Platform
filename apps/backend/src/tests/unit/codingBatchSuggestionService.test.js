@@ -15,12 +15,15 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 const mockQueryRawUnsafe = jest.fn();
 const mockUsersFindUnique = jest.fn();
+const mockTx = { kind: 'tenant-transaction' };
+const mockSetTenantTx = jest.fn(async (_tenantId, callback) => callback(mockTx));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: mockQueryRawUnsafe,
     users: { findUnique: mockUsersFindUnique },
   },
   setTenant: jest.fn(),
+  setTenantTx: mockSetTenantTx,
 }));
 
 const mockGetModule = jest.fn();
@@ -39,9 +42,11 @@ jest.unstable_mockModule('../../services/ai/localLlmClient.js', () => ({
 }));
 
 const mockSaveGeneration = jest.fn();
+const mockRunSafetyReview = jest.fn();
 const mockCreateReview = jest.fn();
 jest.unstable_mockModule('../../services/ai/clinicalAiWorkflowService.js', () => ({
   saveGeneration: mockSaveGeneration,
+  runSafetyReview: mockRunSafetyReview,
   createReviewPlaceholder: mockCreateReview,
 }));
 
@@ -102,6 +107,8 @@ function signedNoteContext({ withSignedNote = true } = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQueryRawUnsafe.mockReset();
+  mockSetTenantTx.mockImplementation(async (_tenantId, callback) => callback(mockTx));
   mockGetModule.mockResolvedValue(ENABLED_MODULE);
   mockUsersFindUnique.mockResolvedValue({
     name: 'Asha Patient',
@@ -134,6 +141,7 @@ beforeEach(() => {
     safety_flags: [],
   }));
   mockSaveGeneration.mockResolvedValue({ id: 501, status: 'draft' });
+  mockRunSafetyReview.mockResolvedValue({ status: 'passed', findings: [] });
   mockCreateReview.mockResolvedValue({ id: 601, decision: 'pending' });
   mockPublishEvent.mockResolvedValue({});
 });
@@ -180,9 +188,18 @@ describe('runCodingSuggestionBatch', () => {
     expect(mockCreateReview).toHaveBeenCalledWith(expect.objectContaining({
       generationId: 501,
       module: ENABLED_MODULE,
+      tx: mockTx,
+      required: true,
     }));
     expect(mockPublishEvent).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'clinical_ai.draft_generated',
+      tenantId: TENANT_ID,
+      tx: mockTx,
+    }));
+    expect(mockRunSafetyReview).toHaveBeenCalledWith(expect.objectContaining({
+      generationId: 501,
+      tx: mockTx,
+      required: true,
     }));
 
     expect(summary).toMatchObject({
@@ -225,6 +242,61 @@ describe('runCodingSuggestionBatch', () => {
     expect(summary.suggested).toBe(0);
     expect(mockSaveGeneration).not.toHaveBeenCalled();
     expect(mockCreateReview).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before egress when no human review gate is configured', async () => {
+    mockGetModule.mockResolvedValue({
+      ...ENABLED_MODULE,
+      settings: { ...ENABLED_MODULE.settings, reviewRoles: [], requiresClinicianSignoff: false },
+    });
+
+    const summary = await runCodingSuggestionBatch({ tenantId: TENANT_ID });
+
+    expect(summary.stopped_reason).toBe('review_gate_not_configured');
+    expect(mockQueryRawUnsafe).not.toHaveBeenCalled();
+    expect(mockGenerate).not.toHaveBeenCalled();
+    expect(mockSaveGeneration).not.toHaveBeenCalled();
+  });
+
+  it('records schema-invalid provider output as failed and never creates a review item', async () => {
+    mockGenerate.mockResolvedValue({
+      usedAi: true,
+      provider: 'anthropic',
+      generation_mode: 'ai',
+      text: JSON.stringify({ suggested_codes: 'not-an-array' }),
+      usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+    });
+
+    const summary = await runCodingSuggestionBatch({ tenantId: TENANT_ID });
+
+    expect(summary).toMatchObject({
+      suggested: 0,
+      review_items: 0,
+      stopped_reason: 'invalid_provider_output',
+      skipped: [{ admission_id: 42, reason: 'invalid_provider_output' }],
+    });
+    expect(mockSaveGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      failureReason: 'INVALID_CODING_SUGGESTION_SCHEMA',
+      tx: mockTx,
+    }));
+    expect(mockRunSafetyReview).toHaveBeenCalledWith(expect.objectContaining({
+      tx: mockTx,
+      required: true,
+    }));
+    expect(mockCreateReview).not.toHaveBeenCalled();
+    expect(mockPublishEvent).not.toHaveBeenCalled();
+  });
+
+  it('does not commit a generation when the required review placeholder fails', async () => {
+    mockCreateReview.mockRejectedValueOnce(new Error('review insert failed'));
+
+    await expect(runCodingSuggestionBatch({ tenantId: TENANT_ID }))
+      .rejects.toThrow('review insert failed');
+
+    expect(mockSetTenantTx).toHaveBeenCalledWith(TENANT_ID, expect.any(Function));
+    expect(mockSaveGeneration).toHaveBeenCalledWith(expect.objectContaining({ tx: mockTx }));
+    expect(mockPublishEvent).not.toHaveBeenCalled();
   });
 
   it('marks critically flagged drafts failed and keeps them OUT of the review queue', async () => {

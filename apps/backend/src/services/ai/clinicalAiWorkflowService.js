@@ -540,9 +540,11 @@ async function saveGeneration({
   status = 'draft',
   failureReason = null,
   metadata = {},
+  tx = null,
 }) {
   const usage = aiResult?.usage || {};
-  const rows = await prisma.$queryRawUnsafe(
+  const client = tx ?? prisma;
+  const rows = await client.$queryRawUnsafe(
     `INSERT INTO clinical_ai_generations
        (tenant_id, patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
         source_hash, status, used_ai, safety_flags, citations, draft, generated_by,
@@ -588,7 +590,15 @@ async function saveGeneration({
   return rows[0];
 }
 
-async function runSafetyReview({ tenantId = null, generationId, moduleKey, citations, safetyFlags }) {
+async function runSafetyReview({
+  tenantId = null,
+  generationId,
+  moduleKey,
+  citations,
+  safetyFlags,
+  tx = null,
+  required = false,
+}) {
   const findings = [
     ...(citationCoverage(citations) < 100
       ? [{
@@ -606,7 +616,8 @@ async function runSafetyReview({ tenantId = null, generationId, moduleKey, citat
       : 'passed';
 
   try {
-    await prisma.$queryRawUnsafe(
+    const client = tx ?? prisma;
+    await client.$queryRawUnsafe(
       `INSERT INTO clinical_ai_safety_reviews
          (tenant_id, generation_id, module_key, status, findings, citation_coverage_pct, created_at)
        VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, NOW())`,
@@ -618,6 +629,7 @@ async function runSafetyReview({ tenantId = null, generationId, moduleKey, citat
       citationCoverage(citations)
     );
   } catch (err) {
+    if (tx || required) throw err;
     if (!isMissingSchemaError(err)) {
       logger.warn('Clinical AI safety review insert failed', { generationId, error: err.message });
     }
@@ -626,13 +638,23 @@ async function runSafetyReview({ tenantId = null, generationId, moduleKey, citat
   return { status, findings, citation_coverage_pct: citationCoverage(citations) };
 }
 
-async function createReviewPlaceholder({ tenantId = null, generationId, module, patientUid = null, admissionId = null }) {
+async function createReviewPlaceholder({
+  tenantId = null,
+  generationId,
+  module,
+  patientUid = null,
+  admissionId = null,
+  tx = null,
+  required = false,
+}) {
   if (!module?.settings?.requiresClinicianSignoff && !module?.settings?.reviewRoles?.length) {
+    if (required) throw new Error('clinical_ai_review_gate_not_configured');
     return null;
   }
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const client = tx ?? prisma;
+    const rows = await client.$queryRawUnsafe(
       `INSERT INTO clinical_ai_reviews
          (tenant_id, generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
        VALUES ($1::uuid, $2, $3, $4::uuid, $5, 'pending', $6::jsonb, NOW(), NOW())
@@ -647,8 +669,11 @@ async function createReviewPlaceholder({ tenantId = null, generationId, module, 
         requires_signoff: Boolean(module.settings?.requiresClinicianSignoff),
       })
     );
-    return rows[0] || null;
+    const review = rows[0] || null;
+    if (required && !review) throw new Error('clinical_ai_review_placeholder_not_created');
+    return review;
   } catch (err) {
+    if (tx || required) throw err;
     if (!isMissingSchemaError(err)) {
       logger.warn('Clinical AI review placeholder failed', { generationId, error: err.message });
     }
@@ -1026,7 +1051,7 @@ export { requireEnabledModule, resolveTenantId };
 // nightly coding-suggestion batch) land their drafts through the SAME
 // clinical_ai_generations / clinical_ai_reviews write path — one canonical
 // insert, one review-queue shape, no parallel mechanism.
-export { saveGeneration, createReviewPlaceholder };
+export { saveGeneration, runSafetyReview, createReviewPlaceholder };
 
 // Exported as a pure function so the AI-5 invariant (zero citations on a
 // citations-required module is a CRITICAL/blocking flag) is unit-testable

@@ -35,7 +35,7 @@
  */
 
 import crypto from 'crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
@@ -44,7 +44,11 @@ import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { deidentifyText, collectKnownIdentifiers } from './deidentificationService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
-import { saveGeneration, createReviewPlaceholder } from './clinicalAiWorkflowService.js';
+import {
+  saveGeneration,
+  runSafetyReview,
+  createReviewPlaceholder,
+} from './clinicalAiWorkflowService.js';
 
 export const CODING_BATCH_MODULE_KEY = 'clinical_coding_assist';
 
@@ -96,14 +100,26 @@ function clampInt(value, { min, max, fallback }) {
   return Math.min(Math.max(parsed, min), max);
 }
 
-function safeJsonParse(text, fallback) {
-  if (!text) return fallback;
+function parseCodingSuggestionDraft(text) {
+  if (!text) return null;
   const cleaned = String(text).trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   try {
     const parsed = JSON.parse(cleaned);
-    return parsed && typeof parsed === 'object' ? parsed : fallback;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const keys = Object.keys(parsed).sort();
+    if (keys.join(',') !== 'coder_notes,evidence,suggested_codes') return null;
+    if (!Array.isArray(parsed.suggested_codes) || !Array.isArray(parsed.evidence)) return null;
+    if (typeof parsed.coder_notes !== 'string') return null;
+    if (!parsed.evidence.every((item) => typeof item === 'string')) return null;
+    const codeKeys = ['code', 'confidence', 'description', 'system'];
+    if (!parsed.suggested_codes.every((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+      if (Object.keys(item).sort().join(',') !== codeKeys.join(',')) return false;
+      return codeKeys.every((key) => typeof item[key] === 'string' && item[key].trim());
+    })) return null;
+    return parsed;
   } catch {
-    return fallback;
+    return null;
   }
 }
 
@@ -135,7 +151,8 @@ async function listCandidateAdmissions({ tenantId, lookbackDays, limit }) {
        AND a.discharged_at >= NOW() - make_interval(days => $2::int)
        AND NOT EXISTS (
          SELECT 1 FROM clinical_ai_generations g
-         WHERE g.admission_id = a.id
+         WHERE g.tenant_id = a.tenant_id
+           AND g.admission_id = a.id
            AND g.module_key = $4
            AND g.status <> 'failed'
        )
@@ -248,6 +265,10 @@ export async function runCodingSuggestionBatch({
     summary.stopped_reason = 'module_disabled';
     return summary;
   }
+  if (!module.settings?.requiresClinicianSignoff && !asArray(module.settings?.reviewRoles).length) {
+    summary.stopped_reason = 'review_gate_not_configured';
+    return summary;
+  }
 
   const effectiveLimit = clampInt(
     limit ?? process.env.CLINICAL_AI_CODING_BATCH_LIMIT,
@@ -302,7 +323,51 @@ export async function runCodingSuggestionBatch({
       break;
     }
 
-    const draft = safeJsonParse(aiResult.text, { suggested_codes: [], evidence: [], coder_notes: '' });
+    const draft = parseCodingSuggestionDraft(aiResult.text);
+    if (!draft) {
+      const citations = noteCitations(signedNotes);
+      const safetyFlags = [{
+        severity: 'critical',
+        code: 'INVALID_CODING_SUGGESTION_SCHEMA',
+        message: 'Provider output did not match the coding suggestion contract.',
+      }];
+      await setTenantTx(resolvedTenantId, async (tx) => {
+        const generation = await saveGeneration({
+          tenantId: resolvedTenantId,
+          patientUid: candidate.patient_uid,
+          admissionId: candidate.id,
+          moduleKey: CODING_BATCH_MODULE_KEY,
+          promptVersion: 'batch-v1',
+          sourceHash: crypto.createHash('sha256').update(JSON.stringify(deid.deidentified)).digest('hex'),
+          draft: {},
+          citations,
+          safetyFlags,
+          generatedBy: triggeredBy,
+          aiResult,
+          status: 'failed',
+          failureReason: 'INVALID_CODING_SUGGESTION_SCHEMA',
+          metadata: {
+            batch: true,
+            batch_source: source,
+            deidentified_egress: true,
+            tenant_region: tenantRegion,
+          },
+          tx,
+        });
+        await runSafetyReview({
+          tenantId: resolvedTenantId,
+          generationId: generation.id,
+          moduleKey: CODING_BATCH_MODULE_KEY,
+          citations,
+          safetyFlags,
+          tx,
+          required: true,
+        });
+      });
+      summary.skipped.push({ admission_id: candidate.id, reason: 'invalid_provider_output' });
+      summary.stopped_reason = 'invalid_provider_output';
+      break;
+    }
     draft.signed_documentation_only = true;
 
     // Terminology validation (fail-closed annotation) + safety flags.
@@ -323,55 +388,74 @@ export async function runCodingSuggestionBatch({
     ];
     const hasCriticalFlag = safetyFlags.some((flag) => flag.severity === 'critical');
 
-    const generation = await saveGeneration({
-      tenantId: resolvedTenantId,
-      patientUid: candidate.patient_uid,
-      admissionId: candidate.id,
-      moduleKey: CODING_BATCH_MODULE_KEY,
-      promptVersion: 'batch-v1',
-      sourceHash: crypto.createHash('sha256').update(JSON.stringify(deid.deidentified)).digest('hex'),
-      draft,
-      citations,
-      safetyFlags,
-      generatedBy: triggeredBy,
-      aiResult,
-      status: hasCriticalFlag ? 'failed' : 'draft',
-      failureReason: hasCriticalFlag
-        ? safetyFlags.find((flag) => flag.severity === 'critical')?.code || 'critical_defense_failure'
-        : null,
-      metadata: {
-        batch: true,
-        batch_source: source,
-        deidentified_egress: true,
-        deid_redaction_counts: deid.redactionCounts,
-        tenant_region: tenantRegion,
-      },
-    });
-    summary.suggested += 1;
+    await setTenantTx(resolvedTenantId, async (tx) => {
+      const generation = await saveGeneration({
+        tenantId: resolvedTenantId,
+        patientUid: candidate.patient_uid,
+        admissionId: candidate.id,
+        moduleKey: CODING_BATCH_MODULE_KEY,
+        promptVersion: 'batch-v1',
+        sourceHash: crypto.createHash('sha256').update(JSON.stringify(deid.deidentified)).digest('hex'),
+        draft,
+        citations,
+        safetyFlags,
+        generatedBy: triggeredBy,
+        aiResult,
+        status: hasCriticalFlag ? 'failed' : 'draft',
+        failureReason: hasCriticalFlag
+          ? safetyFlags.find((flag) => flag.severity === 'critical')?.code || 'critical_defense_failure'
+          : null,
+        metadata: {
+          batch: true,
+          batch_source: source,
+          deidentified_egress: true,
+          deid_redaction_counts: deid.redactionCounts,
+          tenant_region: tenantRegion,
+        },
+        tx,
+      });
+      await runSafetyReview({
+        tenantId: resolvedTenantId,
+        generationId: generation.id,
+        moduleKey: CODING_BATCH_MODULE_KEY,
+        citations,
+        safetyFlags,
+        tx,
+        required: true,
+      });
 
-    if (!hasCriticalFlag) {
+      if (hasCriticalFlag) return;
+
       const review = await createReviewPlaceholder({
         tenantId: resolvedTenantId,
         generationId: generation.id,
         module,
         patientUid: candidate.patient_uid,
         admissionId: candidate.id,
+        tx,
+        required: true,
       });
-      if (review) summary.review_items += 1;
 
       await publishEvent({
         eventType: 'clinical_ai.draft_generated',
         aggregateType: 'clinical_ai_generation',
         aggregateId: generation.id,
         patientUid: candidate.patient_uid,
+        tenantId: resolvedTenantId,
+        tx,
         payload: {
           tenant_id: resolvedTenantId,
           module_key: CODING_BATCH_MODULE_KEY,
           admission_id: candidate.id,
-          review_id: review?.id || null,
+          review_id: review.id,
           batch: true,
         },
       });
+    });
+    summary.suggested += 1;
+
+    if (!hasCriticalFlag) {
+      summary.review_items += 1;
     }
   }
 
@@ -387,6 +471,11 @@ export async function runCodingSuggestionBatch({
   return summary;
 }
 
-export const __testing__ = { buildCodingPacket, deidentifyPacket, listCandidateAdmissions };
+export const __testing__ = {
+  buildCodingPacket,
+  deidentifyPacket,
+  listCandidateAdmissions,
+  parseCodingSuggestionDraft,
+};
 
 export default { runCodingSuggestionBatch };
