@@ -694,6 +694,16 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(task.sla_completion_semantics).toBe('acknowledgement');
     expect(task.metadata.source).toBe('investigation');
 
+    // Acknowledge (the durable receipt), then resolve — a direct completion
+    // without the receipt is refused (see FIX 2b).
+    await taskService.acknowledgeTask({
+      tenantId: TENANT,
+      id: task.id,
+      actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    });
     await taskService.transitionTask({
       tenantId: TENANT,
       id: task.id,
@@ -718,8 +728,10 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
       task_status: 'completed',
       sla_status: 'completed',
     });
-    expect(directCompletion[0].task_completed_epoch_ms)
-      .toBe(directCompletion[0].sla_completed_epoch_ms);
+    // The clock stopped at the acknowledgement, which precedes (or equals) the
+    // terminal completion instant and beat the due time.
+    expect(directCompletion[0].sla_completed_epoch_ms)
+      .toBeLessThanOrEqual(directCompletion[0].task_completed_epoch_ms);
     expect(directCompletion[0].sla_completed_epoch_ms)
       .toBeLessThanOrEqual(directCompletion[0].sla_due_epoch_ms);
 
@@ -765,6 +777,14 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     const rerunSla = await readSlaByKey('investigations', String(investigationId));
     expect(rerunSla).toMatchObject({ id: sla.id, status: 'active', completed_at: null });
 
+    await taskService.acknowledgeTask({
+      tenantId: TENANT,
+      id: rerunTasks[1].id,
+      actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    });
     await taskService.transitionTask({
       tenantId: TENANT,
       id: rerunTasks[1].id,
