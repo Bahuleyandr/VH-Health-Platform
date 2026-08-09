@@ -35,8 +35,14 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
 }));
 
 const mockIsTokenBlacklisted = jest.fn();
+const mockBlacklistToken = jest.fn();
+const mockRevokeAllUserTokens = jest.fn();
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: mockIsTokenBlacklisted,
+  // staffAuthService.logoutStaff revokes the presented access token's jti, and
+  // the all-device branch additionally revokes every token for the identity.
+  blacklistToken: mockBlacklistToken,
+  revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 
 const mockIssueAccess = jest.fn();

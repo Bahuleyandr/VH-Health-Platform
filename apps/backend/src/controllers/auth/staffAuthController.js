@@ -131,11 +131,19 @@ export const logout = async (req, res) => {
   try {
     const staffId = req.user.uid;
     const { deviceToken } = req.body;
-    const result = await StaffAuthService.logoutStaff(staffId, deviceToken, req);
+    // jwtMiddleware puts the presented token's `jti` and `exp` on req.user.
+    // Without them the service can only delete the session row, which leaves
+    // the bearer token in the client's hands live until it expires.
+    const expiresAtMs = Date.parse(req.user.tokenExpiresAt ?? '');
+    const result = await StaffAuthService.logoutStaff(staffId, deviceToken, req, {
+      accessTokenJti: req.user.jti ?? null,
+      accessTokenExpiresAt: Number.isFinite(expiresAtMs) ? Math.floor(expiresAtMs / 1000) : null,
+    });
     success(res, result, 'Logged out successfully');
   } catch (err) {
-    logger.error('Logout Error:', err);
-    error(res, 'Logout failed', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // A revocation-store failure carries a 503 AppError — relay it rather than
+    // flattening every logout failure into an opaque 500.
+    return relayAppError(res, err, 'Logout failed');
   }
 };
 

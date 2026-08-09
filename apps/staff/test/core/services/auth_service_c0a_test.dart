@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -264,6 +265,64 @@ void main() {
         'patient_uid': 'patient-a',
         'vital_signs': {'pulse': 88},
       });
+    },
+  );
+
+  // Audit follow-up P12: logout used to swallow the backend result entirely, so
+  // a failed revocation was indistinguishable from a real one.
+  test('logout reports a confirmed server-side revocation', () async {
+    await _seedIdentity('staff-current');
+    VHHttpClient.setClientForTesting(
+      MockClient(
+        (request) async => http.Response(jsonEncode({'success': true}), 200),
+      ),
+    );
+
+    final result = await AuthService.logout();
+
+    expect(result.isSignedOut, isTrue);
+    expect(result.serverRevocationFailed, isFalse);
+  });
+
+  test(
+    'logout still clears local state when the backend refuses, and says so',
+    () async {
+      // The explicit trade: never trap a staff member in a session because the
+      // network is down — but never claim the token is dead when it is not.
+      await _seedIdentity('staff-current');
+      VHHttpClient.setClientForTesting(
+        MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'success': false,
+              'code': 'REVOCATION_STORE_UNAVAILABLE',
+            }),
+            503,
+          ),
+        ),
+      );
+
+      final result = await AuthService.logout();
+
+      expect(result.isSignedOut, isTrue);
+      expect(result.serverRevocationFailed, isTrue);
+      expect(await ApiConfig.getStaffId(), isNull);
+    },
+  );
+
+  test(
+    'logout still clears local state when the backend is unreachable',
+    () async {
+      await _seedIdentity('staff-current');
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async => throw const SocketException('offline')),
+      );
+
+      final result = await AuthService.logout();
+
+      expect(result.isSignedOut, isTrue);
+      expect(result.serverRevocationFailed, isTrue);
+      expect(await ApiConfig.getStaffId(), isNull);
     },
   );
 }
