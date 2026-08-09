@@ -54,4 +54,16 @@ void main() {
       );
     },
   );
+
+  test('classifies logout as session bookkeeping, not a hospital write', () {
+    // Falling through to highRisk would mislabel the outage banner for a call
+    // that writes no clinical data. The gate still blocks it during an outage —
+    // LogoutService reports that as "server session not revoked".
+    // Distinct credential from the Firebase revoke above: that ends the
+    // Firebase session, this ends the VH JWT. Both paths need an entry.
+    expect(
+      PatientMutationPolicy.classify('POST', '/auth/logout'),
+      PatientMutationCategory.remoteState,
+    );
+  });
 }

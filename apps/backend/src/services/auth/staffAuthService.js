@@ -7,10 +7,11 @@ import { AUTH_CONFIG } from '../../config/authConfig.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { isTokenBlacklisted } from '../../utils/tokenBlacklist.js';
+import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 import { getUserSessionDeviceType } from './userActiveSession.js';
 
@@ -878,7 +879,31 @@ export class StaffAuthService {
     }
   }
 
-  static async logoutStaff(staffUid, deviceToken, req) {
+  // Ends a staff session. Both of the device's credentials have to die here:
+  //
+  //   refresh token — killed by deleting the staff_auth_sessions row, because
+  //     refreshStaffSession() requires a live row keyed by the token hash +
+  //     device_id before it will mint anything (see that method).
+  //   access token  — survives the row deletion for the rest of its own `exp`
+  //     (SECURITY_CONFIG.jwt.staffAccessExpiry) unless its jti is blacklisted.
+  //     Logout never did that, so it reported success while the presented
+  //     bearer token stayed usable (audit follow-up P12).
+  //
+  // Scope follows the branch that was already here. With a deviceToken only
+  // that device's row is deleted, and blacklisting the presented jti ends that
+  // session completely. WITHOUT one — which is what the staff app sends — every
+  // session row for the user is deleted, so the intent is already all-device;
+  // revokeAllUserTokens then closes the matching access-token window on the
+  // sibling devices, which would otherwise stay usable for up to
+  // SECURITY_CONFIG.jwt.staffAccessExpiry after an "all devices" logout.
+  static async logoutStaff(
+    staffUid,
+    deviceToken,
+    req,
+    { accessTokenJti = null, accessTokenExpiresAt = null } = {},
+  ) {
+    let revocationError = null;
+    let allDevices = false;
     try {
       const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
       if (userResult.rows.length === 0) throw new Error('Staff not found');
@@ -890,15 +915,49 @@ export class StaffAuthService {
           await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1 AND device_id = $2', [userId, deviceResult.rows[0].device_id]);
         }
       } else {
+        allDevices = true;
         await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [userId]);
       }
 
+      // Deleting the session rows above is unconditionally useful, so it stays
+      // done even if a blacklist write fails — the failure is reported, not
+      // rolled back, leaving the strongest partial result we can achieve.
+      try {
+        if (accessTokenJti && accessTokenExpiresAt) {
+          await blacklistToken(accessTokenJti, accessTokenExpiresAt, 'logout', { requireEvidence: true });
+        }
+        if (allDevices) {
+          await revokeAllUserTokens(String(staffUid), { requireEvidence: true });
+        }
+      } catch (err) {
+        revocationError = err;
+        logger.error('Staff logout could not revoke the session token(s)', {
+          staffUid, jti: accessTokenJti, allDevices, error: err?.message,
+        });
+      }
+
       await this.logActivity(staffUid, 'STAFF_LOGOUT', 'Logged out', req);
-      return { success: true, message: 'Logged out successfully' };
     } catch (error) {
       logger.error('Logout error:', error);
       throw error;
     }
+
+    if (revocationError) {
+      throw new AppError(
+        'Signed out on this device, but the session token could not be revoked. Please try again.',
+        503,
+        'REVOCATION_STORE_UNAVAILABLE',
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Logged out successfully',
+      allDevices,
+      // A device-scoped logout with no jti on the token revoked nothing, and
+      // says so rather than implying a revocation that did not happen.
+      accessTokenRevoked: allDevices || Boolean(accessTokenJti && accessTokenExpiresAt),
+    };
   }
 
   static async listStaffDevices(staffUid) {
