@@ -1996,6 +1996,12 @@ class AppLocalizationsMl extends AppLocalizations {
   String get circularDialNoFeatures => 'ഫീച്ചറുകളൊന്നും ലഭ്യമല്ല';
 
   @override
+  String get circularDialCenterLabel => 'ഹെൽത്ത് ഹബ്';
+
+  @override
+  String get circularDialCenterHint => 'ആരോഗ്യ പോയിൻ്റുകൾ തുറക്കുന്നു';
+
+  @override
   String get deliveryYourLocation => 'നിങ്ങളുടെ സ്ഥാനം';
 
   @override

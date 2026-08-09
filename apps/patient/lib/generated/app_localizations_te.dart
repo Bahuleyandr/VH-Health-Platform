@@ -1986,6 +1986,12 @@ class AppLocalizationsTe extends AppLocalizations {
   String get circularDialNoFeatures => 'ఫీచర్లు ఏవీ అందుబాటులో లేవు';
 
   @override
+  String get circularDialCenterLabel => 'ఆరోగ్య హబ్';
+
+  @override
+  String get circularDialCenterHint => 'ఆరోగ్య పాయింట్లను తెరుస్తుంది';
+
+  @override
   String get deliveryYourLocation => 'మీ స్థానం';
 
   @override

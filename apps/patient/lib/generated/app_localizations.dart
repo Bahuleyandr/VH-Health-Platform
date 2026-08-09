@@ -3788,6 +3788,18 @@ abstract class AppLocalizations {
   /// **'No features available'**
   String get circularDialNoFeatures;
 
+  /// Accessible label and tooltip for the dashboard dial's centre button
+  ///
+  /// In en, this message translates to:
+  /// **'Health Hub'**
+  String get circularDialCenterLabel;
+
+  /// Accessibility hint describing what tapping the dial centre button does
+  ///
+  /// In en, this message translates to:
+  /// **'Opens Health Points'**
+  String get circularDialCenterHint;
+
   /// Label for user location on delivery map
   ///
   /// In en, this message translates to:

@@ -222,6 +222,9 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
       appBar: AppBar(title: Text(l.medicationRemindersTitle)),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddReminderSheet,
+        // Accessible name for the icon-only FAB (screen readers announce it;
+        // long-press shows it visually).
+        tooltip: l.medicationReminderAdd,
         child: const Icon(Icons.add),
       ),
       body: DataStateBuilder<_Reminder>(

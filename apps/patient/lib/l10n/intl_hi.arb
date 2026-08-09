@@ -1405,6 +1405,8 @@
   "departmentsConsultationFee": "परामर्श शुल्क",
   "departmentsNoDoctors": "इस विभाग में कोई डॉक्टर उपलब्ध नहीं",
   "circularDialNoFeatures": "कोई सुविधा उपलब्ध नहीं",
+  "circularDialCenterLabel": "हेल्थ हब",
+  "circularDialCenterHint": "हेल्थ पॉइंट खोलता है",
   "deliveryYourLocation": "आपका स्थान",
   "authDevLoginSkipOtp": "डेव लॉगिन (OTP छोड़ें)",
   "permissionGateSettingUp": "सेट किया जा रहा है...",

@@ -1955,6 +1955,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get circularDialNoFeatures => 'No features available';
 
   @override
+  String get circularDialCenterLabel => 'Health Hub';
+
+  @override
+  String get circularDialCenterHint => 'Opens Health Points';
+
+  @override
   String get deliveryYourLocation => 'Your Location';
 
   @override

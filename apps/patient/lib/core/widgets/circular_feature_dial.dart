@@ -318,29 +318,35 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
           child: MouseRegion(
             onEnter: (_) => setState(() => hoveredIndex = index),
             onExit: (_) => setState(() => hoveredIndex = null),
-            child: GestureDetector(
-              onTap: () => _onFeatureTap(index, feature),
-              onLongPress: widget.enableAccessibility
-                  ? () {
-                      _showFeatureDescription(feature);
-                    }
-                  : null,
-              child: AnimatedBuilder(
-                animation: _tapController,
-                builder: (context, child) {
-                  final tapScale = isSelected
-                      ? 1 + (_tapController.value * 0.12)
-                      : 1.0;
-                  final hoverScale = isHovered ? 1.06 : 1.0;
-                  return Transform.scale(
-                    scale: tapScale * hoverScale * (isTopItem ? 1.05 : 1.0),
-                    child: child,
-                  );
-                },
-                child: _FeatureDialButton(
-                  feature: feature,
-                  isHighlighted: isSelected || isHovered || isTopItem,
-                  iconScale: widget.iconScale,
+            // MergeSemantics folds the GestureDetector's tap/long-press
+            // actions into the labeled button node built by
+            // _FeatureDialButton — without it the actions surface as a
+            // separate, unlabeled semantics node.
+            child: MergeSemantics(
+              child: GestureDetector(
+                onTap: () => _onFeatureTap(index, feature),
+                onLongPress: widget.enableAccessibility
+                    ? () {
+                        _showFeatureDescription(feature);
+                      }
+                    : null,
+                child: AnimatedBuilder(
+                  animation: _tapController,
+                  builder: (context, child) {
+                    final tapScale = isSelected
+                        ? 1 + (_tapController.value * 0.12)
+                        : 1.0;
+                    final hoverScale = isHovered ? 1.06 : 1.0;
+                    return Transform.scale(
+                      scale: tapScale * hoverScale * (isTopItem ? 1.05 : 1.0),
+                      child: child,
+                    );
+                  },
+                  child: _FeatureDialButton(
+                    feature: feature,
+                    isHighlighted: isSelected || isHovered || isTopItem,
+                    iconScale: widget.iconScale,
+                  ),
                 ),
               ),
             ),
@@ -551,6 +557,7 @@ class _CenterLogoButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final isLight = theme.brightness == Brightness.light;
     final scale = iconScale.clamp(1.0, 1.2).toDouble();
     final buttonSize = 110.0 * scale;
@@ -558,10 +565,11 @@ class _CenterLogoButton extends StatelessWidget {
     final logoSize = 82.0 * scale;
 
     return Tooltip(
-      message: 'Health Hub',
+      message: l10n.circularDialCenterLabel,
       child: Semantics(
         button: true,
-        label: 'Health Hub',
+        label: l10n.circularDialCenterLabel,
+        hint: l10n.circularDialCenterHint,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onDoubleTap,

@@ -1960,6 +1960,12 @@ class AppLocalizationsHi extends AppLocalizations {
   String get circularDialNoFeatures => 'कोई सुविधा उपलब्ध नहीं';
 
   @override
+  String get circularDialCenterLabel => 'हेल्थ हब';
+
+  @override
+  String get circularDialCenterHint => 'हेल्थ पॉइंट खोलता है';
+
+  @override
   String get deliveryYourLocation => 'आपका स्थान';
 
   @override

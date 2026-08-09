@@ -2001,6 +2001,12 @@ class AppLocalizationsTa extends AppLocalizations {
   String get circularDialNoFeatures => 'அம்சங்கள் இல்லை';
 
   @override
+  String get circularDialCenterLabel => 'சுகாதார மையம்';
+
+  @override
+  String get circularDialCenterHint => 'சுகாதார புள்ளிகளைத் திறக்கும்';
+
+  @override
   String get deliveryYourLocation => 'உங்கள் இருப்பிடம்';
 
   @override
