@@ -286,8 +286,8 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         _scrollToBottom();
       }
 
-      // Mark unread messages as read after the thread is visible. The provider
-      // update is local-first so the Messages badge disappears immediately.
+      // Mark unread messages after the thread is visible. Local state changes
+      // only for writes the server accepted.
       if (unreadIds.isNotEmpty) {
         unawaited(_markMessagesRead(unreadIds));
       }

@@ -51,7 +51,6 @@ regressions that static analysis misses.
 | `features/steps/screens/step_challenge_screen.dart` | 25 | Gamified UI — many intentional brand greens. Audit carefully. |
 | `features/auth/widgets/otp_ui_components.dart` | 18 | Login path — high visibility. |
 | `features/steps/widgets/step_share_card.dart` | 15 | Social share card — likely mostly intentional brand colours. |
-| `features/records/screens/records_screen.dart` | 15 | Main feature screen. |
 | `features/pharmacy/widgets/order_status_widgets.dart` | 13 | Status badges — most are semantic. |
 | `features/your_health/widgets/record_card.dart` | 12 | Listing card. |
 | `features/vitals/screens/vitals_screen.dart` | 12 | Clinical screen. |

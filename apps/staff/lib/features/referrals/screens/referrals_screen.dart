@@ -185,17 +185,17 @@ class _ReferralsScreenState extends State<ReferralsScreen>
       // referral somebody has already opened and corrupts the audit trail.
       try {
         await MedicalApiService.markReferralSeen(id);
-      } catch (e, stack) {
+      } catch (_) {
         try {
           // One immediate retry for transient network blips.
           await MedicalApiService.markReferralSeen(id);
-        } catch (_) {
+        } catch (retryError, retryStack) {
           // Still failing: report it. first_seen_at stays empty on the
           // server, so the next open of this referral retries the write.
           unawaited(
             CrashReporter.instance.recordError(
-              e,
-              stack,
+              retryError,
+              retryStack,
               context: 'referral first-seen write (referral id=$id)',
               fatal: false,
             ),
