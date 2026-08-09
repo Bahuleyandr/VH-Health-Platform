@@ -284,14 +284,25 @@ stroke-symptoms / severe-bleeding / anaphylaxis must be "urgent_care".`;
 // (output_config.format). Mirrors the fail-closed schema validation in
 // triageSymptoms below — the validator (not this schema) remains the
 // authoritative gate, so a provider that ignores output_config changes
-// nothing. `differential` is an array of strings to match what the
-// validator accepts (stringArray); the OpenAI-compatible path keeps
-// relying on the prompt + response_format json_object as before.
+// nothing. `differential` matches the object shape consumed by the Patient
+// app; the OpenAI-compatible path keeps relying on the prompt +
+// response_format json_object as before.
 const TRIAGE_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
     triage: { type: 'string', enum: ['self_care', 'see_doctor_now', 'urgent_care'] },
-    differential: { type: 'array', items: { type: 'string' } },
+    differential: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          diagnosis: { type: 'string' },
+          likelihood: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+        required: ['diagnosis', 'likelihood'],
+        additionalProperties: false,
+      },
+    },
     summary: { type: 'string' },
     redFlags: { type: 'array', items: { type: 'string' } },
   },
@@ -492,13 +503,31 @@ export async function triageSymptoms({
   }
 
   const validTriageCategories = new Set(['self_care', 'see_doctor_now', 'urgent_care']);
+  const validLikelihoods = new Set(['high', 'medium', 'low']);
   const stringArray = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string');
+  const normalizedDifferential = Array.isArray(parsed?.differential)
+    ? parsed.differential.map((item) => ({
+      diagnosis: typeof item?.diagnosis === 'string' ? item.diagnosis.trim() : item?.diagnosis,
+      likelihood: typeof item?.likelihood === 'string'
+        ? item.likelihood.trim().toLowerCase()
+        : item?.likelihood,
+    }))
+    : null;
+  const differentialArrayIsValid = Array.isArray(normalizedDifferential)
+    && normalizedDifferential.every((item) => (
+    item
+    && typeof item === 'object'
+    && !Array.isArray(item)
+    && typeof item.diagnosis === 'string'
+    && item.diagnosis.trim()
+    && validLikelihoods.has(item.likelihood)
+  ));
   if (
     !parsed
     || typeof parsed !== 'object'
     || Array.isArray(parsed)
     || !validTriageCategories.has(parsed.triage)
-    || !stringArray(parsed.differential)
+    || !differentialArrayIsValid
     || typeof parsed.summary !== 'string'
     || !parsed.summary.trim()
     || !stringArray(parsed.redFlags)
@@ -510,6 +539,10 @@ export async function triageSymptoms({
     await recordOutcome(blockedResult);
     return blockedResult;
   }
+  // Anthropic documents that structured-output enum values may differ only
+  // in capitalization. Canonicalize the accepted values before returning the
+  // contract consumed by the Patient app.
+  parsed.differential = normalizedDifferential;
 
   // --- Output defenses ---
   // Apply the clinical substrate's heuristic defense matrix (PHI leak

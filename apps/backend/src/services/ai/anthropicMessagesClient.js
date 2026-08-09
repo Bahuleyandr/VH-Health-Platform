@@ -200,8 +200,21 @@ export async function postAnthropicMessages({
     });
 
     if (!response.ok) {
+      const responseBody = await response.text().catch(() => '');
+      let providerMessage = responseBody;
+      try {
+        providerMessage = JSON.parse(responseBody)?.error?.message || responseBody;
+      } catch {
+        // Anthropic-compatible proxies may return a plain-text error body.
+      }
       const err = new Error(`Anthropic endpoint returned HTTP ${response.status}`);
       err.httpStatus = response.status;
+      err.structuredOutputRejected = Boolean(
+        withSchema
+        && response.status === 400
+        && /output_config|output_format|json[ _-]?schema|structured[ _-]?output|schema/i
+          .test(String(providerMessage || ''))
+      );
       throw err;
     }
 
@@ -244,7 +257,7 @@ export async function postAnthropicMessages({
     // constraint survived normalization). One plain retry without
     // output_config — the caller's fence-stripping JSON parser remains the
     // fallback, exactly as on providers without structured-output support.
-    if (structuredSchema && Number(err.httpStatus) === 400) {
+    if (structuredSchema && err.structuredOutputRejected === true) {
       logger.warn('Anthropic rejected structured-output schema; retrying without output_config', {
         model,
         ...logContext,

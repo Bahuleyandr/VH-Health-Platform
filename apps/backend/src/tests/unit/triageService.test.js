@@ -129,14 +129,14 @@ async function loadService(envOverrides = {}) {
 }
 
 /** Minimal Anthropic-shaped successful fetch response. */
-function anthropicOk(triage = 'self_care', summary = 'You seem fine.') {
+function anthropicOk(triage = 'self_care', summary = 'You seem fine.', differential = []) {
   return {
     ok: true,
     json: async () => ({
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ triage, differential: [], summary, redFlags: [] }),
+          text: JSON.stringify({ triage, differential, summary, redFlags: [] }),
         },
       ],
     }),
@@ -844,6 +844,18 @@ describe('triageService — governed framework (patient_triage)', () => {
               triage: expect.objectContaining({
                 enum: ['self_care', 'see_doctor_now', 'urgent_care'],
               }),
+              differential: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    diagnosis: { type: 'string' },
+                    likelihood: { type: 'string', enum: ['high', 'medium', 'low'] },
+                  },
+                  required: ['diagnosis', 'likelihood'],
+                  additionalProperties: false,
+                },
+              },
             }),
           }),
         },
@@ -853,6 +865,23 @@ describe('triageService — governed framework (patient_triage)', () => {
         expect.objectContaining({ type: 'text', cache_control: { type: 'ephemeral' } }),
       ]);
       expect(capturedBody.temperature).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('returns non-empty differential entries in the object shape consumed by the Patient app', async () => {
+    const differential = [{ diagnosis: 'Tension headache', likelihood: 'High' }];
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'Rest.', differential));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+
+      expect(result.blocked).not.toBe(true);
+      expect(result.differential).toEqual([
+        { diagnosis: 'Tension headache', likelihood: 'high' },
+      ]);
     } finally {
       cleanup();
     }
@@ -875,6 +904,29 @@ describe('triageService — governed framework (patient_triage)', () => {
       expect(bodies[0].output_config).toBeDefined();
       expect(bodies[1].output_config).toBeUndefined();
       expect(result.triage).toBe('self_care');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('does not retry an unrelated HTTP 400 after a structured-output request', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'The conversation must end with a user message.',
+        },
+      }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      await expect(svc.triageSymptoms({ symptoms: 'mild headache today' }))
+        .rejects.toMatchObject({ statusCode: 502 });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
     }
