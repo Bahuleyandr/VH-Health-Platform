@@ -6,6 +6,7 @@
 // substitutes from the encounter context.
 
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
 export async function listForUser({ tenantId, owner_uid, specialty, q, limit = 200 }) {
@@ -49,11 +50,17 @@ export async function lookup({ tenantId, owner_uid, code }) {
     owner_uid ? String(owner_uid) : null,
   );
   if (!rows.length) throw AppError.notFound(`Smart phrase ${code} not found`);
-  // Bump use_count, fire-and-forget.
+  // Bump use_count, fire-and-forget (lookup still succeeds if the bump fails).
   prisma.$executeRawUnsafe(
     `UPDATE smart_phrases SET use_count = use_count + 1, updated_at = NOW() WHERE id = $1::int`,
     rows[0].id,
-  ).catch(() => {});
+  ).catch((err) => {
+    logger.warn('Smart phrase use_count bump failed', {
+      phraseId: rows[0].id,
+      code: rows[0].code,
+      error: err.message,
+    });
+  });
   return rows[0];
 }
 
