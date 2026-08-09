@@ -42,8 +42,11 @@ export function normalizeSpo2Scale(value) {
  * Resolve which NEWS2 SpO2 scale applies to a patient from the patient-level
  * flag (users.news2_spo2_scale, migration 646 — set only for patients with a
  * documented hypercapnic-respiratory-failure risk, RCP NEWS2 Scale 2).
- * Fail-safe: any lookup problem scores on Scale 1 rather than blocking the
- * clinical write — Scale 1 never under-alarms.
+ * A missing or invalid stored value falls back to Scale 1 for compatibility,
+ * but a database failure must propagate. Scale 1 can under-score a Scale-2
+ * patient's high saturation while they are on supplemental oxygen, and a
+ * failed query inside a PostgreSQL transaction has already aborted that
+ * transaction, so swallowing the error would be both unsafe and ineffective.
  * @param {string} patientUid
  * @param {{ db?: object }} [options] transaction client when called in-tx
  * @returns {Promise<1|2>}
@@ -51,16 +54,11 @@ export function normalizeSpo2Scale(value) {
 export async function resolveSpo2ScaleForPatient(patientUid, { db } = {}) {
   if (!patientUid) return 1;
   const client = db || prisma;
-  try {
-    const rows = await client.$queryRawUnsafe(
-      `SELECT news2_spo2_scale FROM users WHERE uid = $1::uuid LIMIT 1`,
-      String(patientUid),
-    );
-    return normalizeSpo2Scale(rows?.[0]?.news2_spo2_scale) ?? 1;
-  } catch (err) {
-    logger.warn(`NEWS2 spo2-scale lookup failed for patient ${patientUid}: ${err.message} — defaulting to Scale 1`);
-    return 1;
-  }
+  const rows = await client.$queryRawUnsafe(
+    `SELECT news2_spo2_scale FROM users WHERE uid = $1::uuid LIMIT 1`,
+    String(patientUid),
+  );
+  return normalizeSpo2Scale(rows?.[0]?.news2_spo2_scale) ?? 1;
 }
 
 /**

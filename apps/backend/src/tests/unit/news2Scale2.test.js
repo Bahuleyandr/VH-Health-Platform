@@ -9,7 +9,8 @@
 //     now delegates here (adapter pinned below).
 //   * Scale selection was caller-supplied per reading with no patient-level
 //     source of truth; resolveSpo2ScaleForPatient reads the new
-//     users.news2_spo2_scale flag (migration 646), defaulting to Scale 1.
+//     users.news2_spo2_scale flag (migration 646), without hiding lookup
+//     failures behind a potentially under-scored Scale-1 result.
 //
 // Correct Scale-2 SpO2 behavior (RCP): on room air 93-100% scores 0; the
 // elevated bands 93-94→1 / 95-96→2 / >=97→3 apply ONLY on supplemental O2.
@@ -149,9 +150,10 @@ describe('resolveSpo2ScaleForPatient (users.news2_spo2_scale, migration 646)', (
     await expect(resolveSpo2ScaleForPatient('11111111-1111-4111-8111-111111111111')).resolves.toBe(1);
   });
 
-  test('lookup failure → Scale 1 (fail-safe, never blocks the clinical write)', async () => {
+  test('lookup failure propagates instead of potentially under-scoring a Scale-2 patient', async () => {
     queryMock.mockRejectedValueOnce(new Error('db down'));
-    await expect(resolveSpo2ScaleForPatient('11111111-1111-4111-8111-111111111111')).resolves.toBe(1);
+    await expect(resolveSpo2ScaleForPatient('11111111-1111-4111-8111-111111111111'))
+      .rejects.toThrow('db down');
   });
 
   test('no patientUid → Scale 1 without a query', async () => {

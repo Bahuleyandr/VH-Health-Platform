@@ -660,8 +660,9 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
     // (Scale 2 for hypercapnic respiratory failure, target 88-92%), not a
     // per-call default: resolve it from the patient's flag
     // (users.news2_spo2_scale) instead of the previous implicit
-    // always-Scale-1. Resolution is fail-safe to Scale 1 and runs on the tx
-    // client; the resolved scale is passed as options.spo2Scale, the channel
+    // always-Scale-1. Resolution runs on the tx client and database failures
+    // abort the atomic write rather than potentially under-score a Scale-2
+    // patient; the resolved scale is passed as options.spo2Scale, the channel
     // that wins over any caller-supplied per-reading value.
     const spo2Scale = await news2Service.resolveSpo2ScaleForPatient(resolvedPatientUid, { db: tx });
     news2Persisted = await news2Service.persistNews2(resolvedPatientUid, {

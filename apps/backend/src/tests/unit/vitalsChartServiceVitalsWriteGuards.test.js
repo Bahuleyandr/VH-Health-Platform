@@ -129,6 +129,18 @@ describe('recordVitals — NEWS2 SpO2 scale wiring (C-M7)', () => {
     // channel that wins over any per-reading vitals.spo2_scale.
     expect(options).toEqual({ db: __txClient, spo2Scale: 2 });
   });
+
+  it('rolls back instead of persisting vitals with an unresolved scoring scale', async () => {
+    resetAll();
+    resolveSpo2ScaleMock.mockRejectedValueOnce(new Error('scale lookup unavailable'));
+
+    await expect(recordVitals({ ...baseWrite, spo2: 97, supplemental_o2: true }))
+      .rejects.toThrow('scale lookup unavailable');
+
+    expect(vitalsCreateMock).toHaveBeenCalledTimes(1);
+    expect(persistNews2Mock).not.toHaveBeenCalled();
+    expect(checkVitalAnomaliesMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('recordVitals — tenant passed to the anomaly monitor (C-M2)', () => {
