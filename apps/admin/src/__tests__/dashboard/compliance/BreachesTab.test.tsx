@@ -30,7 +30,7 @@ describe("<BreachesTab />", () => {
     });
   });
 
-  it("reports a new breach via POST /compliance/breach/report with the backend's expected body", async () => {
+  it("reports a new breach via POST /compliance/breach/report, including title and phi_involved", async () => {
     renderTab();
 
     await screen.findByText("No breach notifications");
@@ -44,6 +44,7 @@ describe("<BreachesTab />", () => {
     });
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "high" } });
     fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "12" } });
+    fireEvent.click(screen.getByLabelText(/PHI \(Protected Health Information\) involved/));
 
     fireEvent.click(screen.getByRole("button", { name: "Submit Report" }));
 
@@ -51,11 +52,36 @@ describe("<BreachesTab />", () => {
       expect(mockedFetch).toHaveBeenCalledWith("/compliance/breach/report", {
         method: "POST",
         body: {
+          title: "Lost laptop",
           description: "Unencrypted laptop went missing from the front desk.",
           severity: "high",
           affected_records: 12,
+          phi_involved: true,
         },
       }),
+    );
+  });
+
+  it("defaults phi_involved to false when the checkbox is left unchecked", async () => {
+    renderTab();
+
+    await screen.findByText("No breach notifications");
+
+    fireEvent.click(screen.getByRole("button", { name: /Report Breach/ }));
+    fireEvent.change(screen.getByPlaceholderText("Brief description of the breach"), {
+      target: { value: "Misfiled paper chart" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Detailed description of what happened..."), {
+      target: { value: "A paper chart was left in a public waiting area." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit Report" }));
+
+    await waitFor(() =>
+      expect(mockedFetch).toHaveBeenCalledWith(
+        "/compliance/breach/report",
+        expect.objectContaining({ body: expect.objectContaining({ phi_involved: false }) }),
+      ),
     );
   });
 });

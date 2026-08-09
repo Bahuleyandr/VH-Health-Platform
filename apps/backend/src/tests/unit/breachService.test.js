@@ -46,6 +46,8 @@ describe('breach listing queries', () => {
     expect(selectSql).not.toMatch(/notification_sent_at/);
     expect(selectSql).toMatch(/data_subjects_notified_at/);
     expect(selectSql).toMatch(/regulator_notified_at/);
+    expect(selectSql).toMatch(/\btitle\b/);
+    expect(selectSql).toMatch(/\bphi_involved\b/);
   });
 
   it('selects schema-backed notification fields for breach timelines', async () => {
@@ -59,12 +61,15 @@ describe('breach listing queries', () => {
     expect(selectSql).not.toMatch(/notification_sent_at/);
     expect(selectSql).toMatch(/data_subjects_notified_at/);
     expect(selectSql).toMatch(/regulator_notified_at/);
+    expect(selectSql).toMatch(/\btitle\b/);
+    expect(selectSql).toMatch(/\bphi_involved\b/);
   });
 
   it('does not write the removed notification_sent_at column for admin alerts', async () => {
     queryUnsafeMock
       .mockResolvedValueOnce([{
         breach_id: 'B-001',
+        title: 'Test breach',
         severity: 'critical',
         affected_records: 12,
       }])
@@ -72,6 +77,7 @@ describe('breach listing queries', () => {
       .mockResolvedValueOnce([]);
 
     await reportBreach({
+      title: 'Test breach',
       severity: 'critical',
       description: 'Test breach',
       affectedRecords: 12,
@@ -82,6 +88,86 @@ describe('breach listing queries', () => {
     const sql = queryUnsafeMock.mock.calls.map((call) => call[0]).join('\n');
     expect(sql).toMatch(/notification_outbox/);
     expect(sql).not.toMatch(/notification_sent_at/);
+  });
+});
+
+describe('breach title + PHI-involved persistence (audit F3 follow-up)', () => {
+  it('rejects a report with no title', async () => {
+    await expect(reportBreach({ severity: 'low', description: 'x' }))
+      .rejects.toThrow(/title.*required/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects whitespace-only and overlong titles before querying', async () => {
+    await expect(reportBreach({
+      title: '   ',
+      severity: 'low',
+      description: 'x',
+    })).rejects.toThrow(/title.*required/);
+    await expect(reportBreach({
+      title: 'x'.repeat(256),
+      severity: 'low',
+      description: 'x',
+    })).rejects.toThrow(/at most 255/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-boolean PHI flag instead of coercing a false string to true', async () => {
+    await expect(reportBreach({
+      title: 'Lost laptop',
+      severity: 'low',
+      description: 'x',
+      phiInvolved: 'false',
+    })).rejects.toThrow(/phiInvolved must be a boolean/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('inserts and returns title + phi_involved, defaulting phi_involved to false', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      breach_id: 'B-200',
+      title: 'Lost laptop',
+      severity: 'low',
+      phi_involved: false,
+    }]);
+
+    const row = await reportBreach({
+      title: 'Lost laptop',
+      severity: 'low',
+      description: 'Unencrypted laptop went missing',
+    });
+
+    const insertSql = queryUnsafeMock.mock.calls[0][0];
+    const insertParams = queryUnsafeMock.mock.calls[0].slice(1);
+    expect(insertSql).toMatch(/INSERT INTO data_breaches\s*\n?\s*\([^)]*\btitle\b[^)]*\bphi_involved\b/);
+    expect(insertSql).toMatch(/RETURNING[^;]*\btitle\b[^;]*\bphi_involved\b/);
+    expect(insertParams).toContain('Lost laptop');
+    expect(insertParams).toContain(false);
+    expect(row.title).toBe('Lost laptop');
+    expect(row.phi_involved).toBe(false);
+  });
+
+  it('inserts phi_involved true when the report flags PHI', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        breach_id: 'B-201',
+        title: 'Exposed patient records',
+        severity: 'critical',
+        phi_involved: true,
+        affected_records: 40,
+      }])
+      .mockResolvedValueOnce([]) // admin lookup (critical severity triggers notifyAdminsOfBreach)
+      .mockResolvedValueOnce([]);
+
+    await reportBreach({
+      title: 'Exposed patient records',
+      severity: 'critical',
+      description: 'PHI exposed in a misdirected export',
+      phiInvolved: true,
+      affectedRecords: 40,
+    });
+
+    const insertParams = queryUnsafeMock.mock.calls[0].slice(1);
+    expect(insertParams).toContain(true);
   });
 });
 
@@ -126,8 +212,8 @@ describe('breach tenancy (owner decision 2026-07-13)', () => {
   });
 
   it('stamps tenant_id on breach report inserts', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ breach_id: 'B-100', severity: 'low', affected_records: 0 }]);
-    await reportBreach({ severity: 'low', description: 'x', tenantId: TENANT });
+    queryUnsafeMock.mockResolvedValueOnce([{ breach_id: 'B-100', title: 'x', severity: 'low', affected_records: 0 }]);
+    await reportBreach({ title: 'x', severity: 'low', description: 'x', tenantId: TENANT });
 
     const insertSql = queryUnsafeMock.mock.calls[0][0];
     expect(insertSql).toMatch(/INSERT INTO data_breaches\s*\n?\s*\(tenant_id,/);

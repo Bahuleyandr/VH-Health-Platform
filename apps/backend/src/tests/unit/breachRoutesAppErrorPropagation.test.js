@@ -27,6 +27,7 @@ jest.unstable_mockModule('../../services/compliance/breachService.js', () => ({
   resolveBreach: jest.fn(async () => ({})),
   notifyRegulator: jest.fn(async () => ({})),
   notifyDataSubjects: jest.fn(async () => ({})),
+  VALID_SEVERITIES: ['low', 'medium', 'high', 'critical'],
 }));
 jest.unstable_mockModule('../../services/compliance/dataProcessingActivityService.js', () => ({
   archiveDataProcessingActivity: jest.fn(async () => ({})),
@@ -134,10 +135,28 @@ describe('breach routes operational branch surfaces AppError code + details', ()
 
     const response = await request(app)
       .post('/api/v1/compliance/breach/report')
-      .send({ severity: 'HIGH', description: 'Unauthorised PHI export detected on the reporting node' });
+      .send({
+        title: 'Unauthorised PHI export',
+        severity: 'high',
+        description: 'Unauthorised PHI export detected on the reporting node',
+      });
 
     expect(response.statusCode).toBe(409);
     expect(response.body.code).toBe('BREACH_DUPLICATE');
+  });
+
+  test('POST /breach/report — rejects a string PHI flag before calling the service', async () => {
+    const response = await request(app)
+      .post('/api/v1/compliance/breach/report')
+      .send({
+        title: 'Unauthorised PHI export',
+        severity: 'high',
+        description: 'Unauthorised PHI export detected on the reporting node',
+        phi_involved: 'false',
+      });
+
+    expect(response.statusCode).toBe(400);
+    expect(reportBreachMock).not.toHaveBeenCalled();
   });
 });
 

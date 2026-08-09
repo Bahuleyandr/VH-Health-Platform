@@ -56,9 +56,11 @@ export function BreachesTab() {
       fetchAdminAPI("/compliance/breach/report", {
         method: "POST",
         body: {
+          title: payload.title,
           description: payload.description,
           severity: payload.severity,
           affected_records: payload.affected_individuals,
+          phi_involved: payload.phi_involved,
         },
       }),
     onSuccess: () => {
