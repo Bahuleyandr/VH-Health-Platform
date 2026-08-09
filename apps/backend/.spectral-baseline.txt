@@ -2362,9 +2362,6 @@ warning	operation-description	["paths","/api/v1/integrity/sign","post"]	Operatio
 warning	operation-description	["paths","/api/v1/integrity/signatures/{documentType}/{documentId}","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/integrity/signatures/{id}/verify","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/interface-engine/channels/{channelKey}/hl7","post"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/internal/docs","get"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/internal/health","get"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/internal/stats","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/investigations","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/investigations/bookings/create","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/investigations/bookings/my","get"]	Operation "description" must be present and non-empty string.

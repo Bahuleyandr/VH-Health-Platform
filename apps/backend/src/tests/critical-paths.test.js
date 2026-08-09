@@ -128,20 +128,3 @@ describe('Rate limiting', () => {
     expect(defaultProfile.max).not.toBe(Infinity);
   });
 });
-
-// ============================================================
-// 8. Internal routes require API key
-// ============================================================
-describe('Internal routes require API key', () => {
-  it('GET /api/v1/internal without x-api-key returns 401', async () => {
-    const res = await request(app).get('/api/v1/internal');
-    expect(res.statusCode).toBe(401);
-  });
-
-  it('GET /api/v1/internal with wrong x-api-key returns 401', async () => {
-    const res = await request(app)
-      .get('/api/v1/internal')
-      .set('x-api-key', WRONG_API_KEY);
-    expect(res.statusCode).toBe(401);
-  });
-});

@@ -38371,9 +38371,6 @@
       "name": "interface-engine"
     },
     {
-      "name": "internal"
-    },
-    {
       "name": "investigation"
     },
     {
@@ -100176,66 +100173,6 @@
             }
           }
         ]
-      }
-    },
-    "/api/v1/internal/docs": {
-      "get": {
-        "operationId": "get_api_v1_internal_docs",
-        "tags": [
-          "internal"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/internal/health": {
-      "get": {
-        "operationId": "get_api_v1_internal_health",
-        "tags": [
-          "internal"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/internal/stats": {
-      "get": {
-        "operationId": "get_api_v1_internal_stats",
-        "tags": [
-          "internal"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/v1/investigations": {
