@@ -3,10 +3,9 @@
 // register + compliance dashboard (admin only).
 
 import { Router } from 'express';
-import { body, validationResult } from 'express-validator';
+import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import * as breachService from '../../services/compliance/breachService.js';
-import { VALID_SEVERITIES } from '../../services/compliance/breachService.js';
 import {
   archiveDataProcessingActivity,
   getDataProcessingActivity,
@@ -27,7 +26,7 @@ import {
   upsertDataRetentionPolicy,
 } from '../../services/compliance/dataRetentionPolicyService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+import { paramId, breachReportValidator } from '../../validators/sharedValidators.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 
@@ -117,19 +116,12 @@ router.use(requireRole(...ADMIN_ROUTE_ROLES));
  * Report a new data breach.
  * Body: { title, severity, description, affected_records?, affected_patient_uids?, phi_involved?, reported_by? }
  */
-router.post(
-  '/breach/report',
-  requiredString('title', 255),
-  requiredString('description', 2000),
-  requiredEnum('severity', VALID_SEVERITIES),
-  body('phi_involved')
-    .optional({ nullable: true })
-    .isBoolean({ strict: true })
-    .withMessage('phi_involved must be a boolean'),
-  validate,
-  async (req, res, next) => {
-    try {
-      const { title, severity, description, affected_records, affected_patient_uids, phi_involved } = req.body;
+// Note: severity is lowercase — breachService.VALID_SEVERITIES is
+// ['low','medium','high','critical']; the previous inline chain demanded
+// UPPERCASE, which the service then always rejected.
+router.post('/breach/report', ...breachReportValidator, validate, async (req, res, next) => {
+  try {
+    const { title, severity, description, affected_records, affected_patient_uids, phi_involved } = req.body;
 
       if (!title || !severity || !description) {
         return error(res, 'title, severity and description are required', 400);

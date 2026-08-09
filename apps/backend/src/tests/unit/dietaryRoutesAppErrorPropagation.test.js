@@ -71,7 +71,7 @@ describe('dietary routes relay AppError code + details', () => {
       .post('/api/v1/dietary/orders')
       .send({
         patient_uid: '22222222-2222-4222-8222-222222222222',
-        diet_type: 'DIABETIC',
+        diet_type: 'diabetic',
       });
 
     expect(response.statusCode).toBe(409);

@@ -4,7 +4,7 @@ import { validationResult } from 'express-validator';
 import { adminDoctorController } from '../../controllers/doctor/adminDoctorController.js';
 import { doctorStatsController } from '../../controllers/doctor/doctorStatsController.js';
 import { adminDoctorValidators } from '../../validators/doctor/adminDoctorValidator.js';
-import { requiredString } from '../../validators/sharedValidators.js';
+import { doctorCreateValidator } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -42,7 +42,7 @@ router.put('/:id/availability', adminDoctorValidators.updateAvailability, adminD
 router.delete('/:id/account', adminDoctorValidators.deleteDoctor, adminDoctorController.deleteDoctorAccount);
 
 // Legacy routes
-router.post('/', requiredString('name', 255), validate, adminDoctorController.addDoctor);
+router.post('/', ...doctorCreateValidator, validate, adminDoctorController.addDoctor);
 router.delete('/:doctorId', validateDoctorId, adminDoctorController.deleteDoctor);
 
 export default router;
