@@ -28,7 +28,7 @@ describe('GatewayRuntime', () => {
     try {
       const result = await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-A') });
       expect(result.ackCode).toBe('AA');
-      const entries = await runtime.spool('MON-ICU-01').entries();
+      const entries = await runtime.legacySpool('MON-ICU-01').entries();
       expect(entries).toHaveLength(1);
       expect(entries[0].message).toContain('CTRL-A');
       expect(result.ack).toContain('MSA|AA|CTRL-A');
@@ -57,7 +57,7 @@ describe('GatewayRuntime', () => {
       await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-DUP') });
       const second = await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-DUP') });
       expect(second).toMatchObject({ ackCode: 'AA', duplicate: true });
-      const entries = await runtime.spool('MON-ICU-01').entries();
+      const entries = await runtime.legacySpool('MON-ICU-01').entries();
       expect(entries).toHaveLength(1);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -83,9 +83,9 @@ describe('GatewayRuntime', () => {
       }
       await runtime.drainSource('MON-ICU-01');
       expect(seen).toEqual(['CTRL-1', 'CTRL-2', 'CTRL-3']);
-      const remaining = await runtime.spool('MON-ICU-01').entries();
+      const remaining = await runtime.legacySpool('MON-ICU-01').entries();
       expect(remaining).toHaveLength(0);
-      const dead = await readFile(runtime.spool('MON-ICU-01').deadFile, 'utf8');
+      const dead = await readFile(runtime.legacySpool('MON-ICU-01').deadFile, 'utf8');
       expect(dead).toContain('CTRL-2');
     } finally {
       await rm(dir, { recursive: true, force: true });

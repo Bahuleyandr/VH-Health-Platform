@@ -181,7 +181,6 @@ export class GatewayRuntime {
     this.controlIdTtlMs = controlIdTtlMs;
     this.maxControlIds = maxControlIds;
     this.legacySpools = new Map();
-    this.spools = this.legacySpools;
     this.controlIds = new Map();
     this.enrollments = enrollments.map(validateEnrollment);
     this.clockEvidenceProvider = clockEvidenceProvider;
@@ -222,10 +221,6 @@ export class GatewayRuntime {
       }));
     }
     return this.legacySpools.get(source);
-  }
-
-  spool(source) {
-    return this.legacySpool(source);
   }
 
   async initialize() {

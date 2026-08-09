@@ -186,7 +186,7 @@ describe('I09 sequenced gateway crash and recovery behavior', () => {
       expect(wrongSource.ackCode).toBe('AE');
       expect(legacy.ackCode).toBe('AA');
       expect(partition(fixture.runtime).state.accepted.size).toBe(1);
-      expect(fixture.runtime.spool('LEGACY-MON').entries()).resolves.toHaveLength(1);
+      expect(fixture.runtime.legacySpool('LEGACY-MON').entries()).resolves.toHaveLength(1);
     } finally {
       await fixture.cleanup();
     }
