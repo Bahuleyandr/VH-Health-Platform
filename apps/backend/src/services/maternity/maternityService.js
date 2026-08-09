@@ -479,10 +479,17 @@ export async function recordAncVisit({
   if (!visit_date) throw AppError.badRequest('visit_date is required');
   // BE-M1: physiologically sane bounds, validated before any DB call.
   // FHR is the escalation trigger — a garbled 15 or 1600 must be a 400,
-  // never a stored clinical fact.
+  // never a stored clinical fact. Floor is 30, not 50: genuine terminal
+  // fetal bradycardia (30-50 bpm) is charted and must remain recordable
+  // (PR #788 review SF-1). The maternal BP/pulse bounds are wide-but-sane
+  // (SF-2): they feed the post-commit pre-eclampsia engine, so a 9999
+  // systolic must be a 400, never a stored fact + CRITICAL alert.
   assertClinicalNumericRange('gestational_age_weeks', gestational_age_weeks, 4, 45);
   assertClinicalNumericRange('fundal_height_cm', fundal_height_cm, 5, 60, { integer: true });
-  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 50, 250, { integer: true });
+  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 30, 250, { integer: true });
+  assertClinicalNumericRange('bp_systolic', bp_systolic, 40, 300, { integer: true });
+  assertClinicalNumericRange('bp_diastolic', bp_diastolic, 20, 200, { integer: true });
+  assertClinicalNumericRange('pulse_bpm', pulse_bpm, 20, 300, { integer: true });
   const pregnancy = await assertPregnancyInTenant(tenantId, pregnancy_id);
   const tid = tenantOr(tenantId);
 
@@ -866,11 +873,15 @@ export async function runAncPreeclampsiaPostCommitCheck({
     const alerts = await checkFn(patientId, vitalsForCheck, { recordedBy: recorderId });
     return { alerts: alerts || [], checkFailed: false };
   } catch (err) {
-    if (err instanceof AppError) throw err;
     logger.error(
       `ANC pre-eclampsia alert persistence FAILED for visit=${visitId} (BP ${bpText}): ${err?.message}`,
     );
+    // PR #788 review SF-4: the durable audit trail must not be skippable —
+    // write it BEFORE any rethrow, including the AppError passthrough (e.g.
+    // a fail-closed TENANT_CONTEXT_REQUIRED from the anomaly path would
+    // otherwise surface as an error with no audit row).
     await recordCheckFailureAudit('anc_preeclampsia_alert_persist_failed', err);
+    if (err instanceof AppError) throw err;
     // Mirror vitalsChartService: the visit stands (committed above), but the
     // API must NOT report success while a detected anomaly's alert is lost.
     throw AppError.internal(
@@ -2022,10 +2033,11 @@ export async function admitToLabor({
   // BE-M1: physiologically sane bounds, validated before any DB call —
   // rejected (400), never clamped. FHR and cervical findings drive
   // intrapartum escalation; a garbled value must not become chart fact.
+  // FHR floor 30 (not 50): terminal fetal bradycardia is charted (SF-1).
   assertClinicalNumericRange('gestational_age_weeks', gestational_age_weeks, 4, 45);
   assertClinicalNumericRange('cervix_dilation_cm', cervix_dilation_cm, 0, 10);
   assertClinicalNumericRange('cervix_effacement_pct', cervix_effacement_pct, 0, 100, { integer: true });
-  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 50, 250, { integer: true });
+  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 30, 250, { integer: true });
   const tid = tenantOr(tenantId);
   const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
   if (admission_id) {
@@ -2168,6 +2180,14 @@ export async function recordPartographEntry({
   actor_uid, actor_role,
 }) {
   if (!labor_admission_id) throw AppError.badRequest('labor_admission_id is required');
+  // BE-M1 / PR #788 review SF-2: this writer is now an ESCALATION TRIGGER
+  // (action-line / fetal-decel escalation below), so its numerics get the
+  // same reject-not-clamp guard before any DB call — a garbled dilation or
+  // FHR must not auto-raise (or suppress) a CRITICAL escalation.
+  // cervix_dilation_cm is the input to computePartographAlerts; FHR floor 30
+  // keeps terminal fetal bradycardia recordable (SF-1).
+  assertClinicalNumericRange('cervix_dilation_cm', cervix_dilation_cm, 0, 10);
+  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 30, 250, { integer: true });
   const tid = tenantOr(tenantId);
   const labor = await getLaborAdmission({ tenantId: tid, id: labor_admission_id });
   const pregnancy = await assertPregnancyInTenant(tid, labor.pregnancy_id);

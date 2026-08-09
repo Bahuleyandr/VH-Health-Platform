@@ -356,6 +356,59 @@ d('BE-H2 — ANC pre-eclampsia alert-persistence failure is surfaced, never swal
     expect(normalAlerts).toHaveLength(0);
   }, 30_000);
 
+  test('a failing in-tx escalation canonical pair rolls the partograph entry back (atomicity)', async () => {
+    const patient = await seedPatient();
+    const pregnancy = await seedPregnancy(patient.uid);
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    const labor = await admitToLabor({
+      tenantId: TENANT,
+      pregnancy_id: pregnancy.id,
+      cervix_dilation_cm: 3,
+      labor_started_at: twelveHoursAgo,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    });
+    const removeTrigger = await installFailureTrigger({
+      table: 'clinical_timeline_events',
+      operation: 'INSERT',
+      condition: `NEW.patient_uid = '${patient.uid}'::uuid AND NEW.event_type = 'maternity.partograph_escalation_raised'`,
+    });
+
+    await expect(recordPartographEntry({
+      tenantId: TENANT,
+      labor_admission_id: labor.id,
+      cervix_dilation_cm: 5, // 12h in at 5cm -> action line -> escalation pair required
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    })).rejects.toBeTruthy();
+    await removeTrigger();
+
+    const entries = await prisma.$queryRawUnsafe(
+      `SELECT id FROM maternity_partograph_entries WHERE labor_admission_id = $1::int`,
+      Number(labor.id),
+    );
+    expect(entries).toHaveLength(0);
+    // The labour-admission event above committed separately; the ENTRY's own
+    // pair and the escalation pair must both have rolled back with the row.
+    const timeline = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_timeline_events
+        WHERE patient_uid = $1::uuid AND event_type LIKE 'maternity.partograph%'`,
+      patient.uid,
+    );
+    expect(timeline).toHaveLength(0);
+    const alerts = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_alerts WHERE patient_id = $1::int`,
+      patient.id,
+    );
+    expect(alerts).toHaveLength(0);
+    const outboxRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM notification_outbox WHERE payload->>'patient_uid' = $1`,
+      patient.uid,
+    );
+    expect(outboxRows).toHaveLength(0);
+  }, 30_000);
+
   test('fetal deceleration escalates even when the action line is not crossed', async () => {
     const patient = await seedPatient();
     const pregnancy = await seedPregnancy(patient.uid);

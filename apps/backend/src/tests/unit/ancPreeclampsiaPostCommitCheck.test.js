@@ -21,6 +21,7 @@
 
 import { jest } from '@jest/globals';
 
+import { AppError } from '../../utils/AppError.js';
 import { runAncPreeclampsiaPostCommitCheck } from '../../services/maternity/maternityService.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -153,5 +154,25 @@ describe('runAncPreeclampsiaPostCommitCheck (BE-H2)', () => {
     });
     // No couldn't-run broadcast on this branch — the surfaced error is the signal.
     expect(deps.notificationOutbox.queue).not.toHaveBeenCalled();
+  });
+
+  test('Phase B AppError passthrough STILL writes the audit row before rethrowing (SF-4)', async () => {
+    // e.g. a fail-closed TENANT_CONTEXT_REQUIRED thrown inside the anomaly
+    // path: the original error must surface unchanged, but the durable audit
+    // trail must not be skippable.
+    const tenantErr = AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const deps = makeDeps({
+      checkImpl: async () => { throw tenantErr; },
+    });
+
+    await expect(runAncPreeclampsiaPostCommitCheck({ ...baseInput, deps }))
+      .rejects.toMatchObject({ code: 'TENANT_CONTEXT_REQUIRED', statusCode: 403 });
+
+    expect(deps.recordClinicalAuditEvent).toHaveBeenCalledTimes(1);
+    expect(deps.recordClinicalAuditEvent.mock.calls[0][0]).toMatchObject({
+      action: 'anc_preeclampsia_alert_persist_failed',
+      actionStatus: 'failed',
+      idempotencyKey: 'maternity_anc_visits:345:anc_preeclampsia_alert_persist_failed',
+    });
   });
 });

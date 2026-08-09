@@ -34,10 +34,11 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const CHECK_IN = '/api/v1/patient/virtual-ward/check-in';
 
 const RED_PATIENT_UID = randomUUID();
+const AMBER_PATIENT_UID = randomUUID();
 const GREEN_PATIENT_UID = randomUUID();
 const FAIL_PATIENT_UID = randomUUID();
 const CARE_MANAGER_UID = randomUUID();
-const ALL_UIDS = [RED_PATIENT_UID, GREEN_PATIENT_UID, FAIL_PATIENT_UID, CARE_MANAGER_UID];
+const ALL_UIDS = [RED_PATIENT_UID, AMBER_PATIENT_UID, GREEN_PATIENT_UID, FAIL_PATIENT_UID, CARE_MANAGER_UID];
 
 const installedTriggers = [];
 let phoneSequence = 0;
@@ -161,9 +162,11 @@ d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () 
     await cleanup();
     await seedUser(CARE_MANAGER_UID, 'DOCTOR', 'VW-ESC Care Mgr');
     patientIds.red = await seedUser(RED_PATIENT_UID, 'PATIENT', 'VW-ESC Red Patient');
+    patientIds.amber = await seedUser(AMBER_PATIENT_UID, 'PATIENT', 'VW-ESC Amber Patient');
     patientIds.green = await seedUser(GREEN_PATIENT_UID, 'PATIENT', 'VW-ESC Green Patient');
     patientIds.fail = await seedUser(FAIL_PATIENT_UID, 'PATIENT', 'VW-ESC Fail Patient');
     await seedEnrollment(RED_PATIENT_UID);
+    await seedEnrollment(AMBER_PATIENT_UID);
     await seedEnrollment(GREEN_PATIENT_UID);
     await seedEnrollment(FAIL_PATIENT_UID);
   }, 30_000);
@@ -187,6 +190,7 @@ d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () 
     expect(res.statusCode).toBe(201);
     expect(res.body.data.triage_band).toBe('red');
     expect(res.body.data.check_in_id).toBeTruthy();
+    expect(res.body.data.persisted).toBe(true);
     expect(res.body.data.escalation_id).toBeTruthy();
     const checkInId = res.body.data.check_in_id;
     const escalationId = res.body.data.escalation_id;
@@ -245,6 +249,49 @@ d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () 
     expect(outboxRows[0].title).toMatch(/red escalation/i);
   }, 30_000);
 
+  test('amber check-in gets the escalation canonical pair too (SF-3); enrollment flip + outbox stay red-only', async () => {
+    const res = await client('PATIENT', AMBER_PATIENT_UID, patientIds.amber).post(CHECK_IN, {
+      patient_uid: AMBER_PATIENT_UID,
+      symptoms: { fever: true },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.data.triage_band).toBe('amber');
+    expect(res.body.data.persisted).toBe(true);
+    expect(res.body.data.escalation_id).toBeTruthy();
+    const escalationId = res.body.data.escalation_id;
+
+    // Canonical invariant: the amber escalation row carries its own
+    // timeline+audit pair in the same transaction.
+    const escalationTimeline = await prisma.$queryRawUnsafe(
+      `SELECT event_type, event_status FROM clinical_timeline_events WHERE idempotency_key = $1`,
+      `virtual_ward_escalations:${escalationId}:raised`,
+    );
+    expect(escalationTimeline).toHaveLength(1);
+    expect(escalationTimeline[0]).toMatchObject({
+      event_type: 'virtual_ward.escalation_raised',
+      event_status: 'amber',
+    });
+    const escalationAudit = await prisma.$queryRawUnsafe(
+      `SELECT action_status FROM clinical_audit_events WHERE idempotency_key = $1`,
+      `virtual_ward_escalations:${escalationId}:audit:raised`,
+    );
+    expect(escalationAudit).toHaveLength(1);
+
+    // Amber is "follow-up today", not "call now": no enrollment flip, no
+    // red outbox alert.
+    const enrollment = await prisma.$queryRawUnsafe(
+      `SELECT status FROM virtual_ward_enrollments WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT, AMBER_PATIENT_UID,
+    );
+    expect(enrollment[0].status).toBe('active');
+    const outboxRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM notification_outbox WHERE payload->>'patient_uid' = $1`,
+      AMBER_PATIENT_UID,
+    );
+    expect(outboxRows).toHaveLength(0);
+  }, 30_000);
+
   test('non-green persist failure: error response, full rollback, nothing silently dropped', async () => {
     const removeTrigger = await installFailureTrigger({
       table: 'virtual_ward_check_ins',
@@ -296,6 +343,7 @@ d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () 
     expect(res.statusCode).toBe(201);
     expect(res.body.data.triage_band).toBe('green');
     expect(res.body.data.check_in_id).toBeTruthy();
+    expect(res.body.data.persisted).toBe(true);
     expect(res.body.data.escalation_id).toBeNull();
 
     const timeline = await prisma.$queryRawUnsafe(

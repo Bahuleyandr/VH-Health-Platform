@@ -319,37 +319,48 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
         );
         const escId = escRows[0].id;
 
-        if (triage.band === 'red') {
-          // Escalation canonical pair — red is the "call patient now" band;
-          // the escalation itself is a patient-facing clinical event.
-          await recordCanonicalClinicalEvent({
-            tenantId,
-            patientUid: effectivePatientUid,
-            eventType: 'virtual_ward.escalation_raised',
-            eventStatus: 'red',
-            sourceTable: 'virtual_ward_escalations',
-            sourceId: escId,
-            resourceType: 'virtual_ward_escalation',
-            resourceId: escId,
-            actorUid: callerUid,
-            actorRole: callerRole || null,
-            occurredAt: row.submitted_at,
-            visibleToPatient: false,
-            summary: 'Virtual ward RED escalation — contact patient now',
-            payload: {
-              escalation_id: escId,
-              check_in_id: row.id,
-              enrollment_id: enrollment.id,
-              care_manager_uid: enrollment.care_manager_uid || null,
-              triage_score: triage.score,
-              triage_reason_codes: triage.reasons.map((r) => r.code),
-            },
-            afterState: { severity: 'red', enrollment_status: 'escalated' },
-            tags: ['virtual_ward', 'escalation', 'critical'],
-            timelineIdempotencyKey: `virtual_ward_escalations:${escId}:raised`,
-            auditIdempotencyKey: `virtual_ward_escalations:${escId}:audit:raised`,
-          }, { db: tx, strict: true });
+        // Escalation canonical pair for EVERY escalation row (PR #788 review
+        // SF-3): the amber escalation is a patient-facing clinical write too,
+        // so per the canonical invariant it gets its timeline+audit pair in
+        // the same transaction. Only the enrollment 'escalated' flip and the
+        // care-team outbox alert stay red-only ("call patient now") by design.
+        await recordCanonicalClinicalEvent({
+          tenantId,
+          patientUid: effectivePatientUid,
+          eventType: 'virtual_ward.escalation_raised',
+          eventStatus: triage.band,
+          sourceTable: 'virtual_ward_escalations',
+          sourceId: escId,
+          resourceType: 'virtual_ward_escalation',
+          resourceId: escId,
+          actorUid: callerUid,
+          actorRole: callerRole || null,
+          occurredAt: row.submitted_at,
+          visibleToPatient: false,
+          summary: triage.band === 'red'
+            ? 'Virtual ward RED escalation — contact patient now'
+            : 'Virtual ward AMBER escalation — care-manager follow-up today',
+          payload: {
+            escalation_id: escId,
+            check_in_id: row.id,
+            enrollment_id: enrollment.id,
+            care_manager_uid: enrollment.care_manager_uid || null,
+            severity: triage.band,
+            triage_score: triage.score,
+            triage_reason_codes: triage.reasons.map((r) => r.code),
+          },
+          afterState: {
+            severity: triage.band,
+            enrollment_status: triage.band === 'red' ? 'escalated' : 'active',
+          },
+          tags: triage.band === 'red'
+            ? ['virtual_ward', 'escalation', 'critical']
+            : ['virtual_ward', 'escalation'],
+          timelineIdempotencyKey: `virtual_ward_escalations:${escId}:raised`,
+          auditIdempotencyKey: `virtual_ward_escalations:${escId}:audit:raised`,
+        }, { db: tx, strict: true });
 
+        if (triage.band === 'red') {
           // No .catch(() => {}) — the enrollment flip is part of the atomic
           // escalation, not a discardable side note.
           await tx.$queryRawUnsafe(
@@ -440,6 +451,12 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
 
   return {
     check_in_id: checkInId,
+    // Explicit persist indicator (PR #788 review nit): a green-band
+    // best-effort failure still returns 201, so clients need a first-class
+    // flag — not just a null id — to distinguish "recorded" from "accepted
+    // but not persisted". Non-green paths throw instead, so this is only
+    // ever false for green.
+    persisted: checkInId != null,
     enrollment_id: enrollment.id,
     patient_uid: effectivePatientUid,
     triage_score: triage.score,
