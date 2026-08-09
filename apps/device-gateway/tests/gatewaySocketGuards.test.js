@@ -144,6 +144,39 @@ describe('MLLP socket guards', () => {
       await closeGateway(started);
     }
   });
+
+  it('closes listeners already started when a later startup bind fails', async () => {
+    const portProbe = net.createServer();
+    await new Promise((resolve) => portProbe.listen(0, '127.0.0.1', resolve));
+    const mllpPort = portProbe.address().port;
+    await new Promise((resolve) => portProbe.close(resolve));
+
+    const metricsBlocker = net.createServer();
+    // Match startGateway's host-unspecified metrics bind. On dual-stack hosts,
+    // a blocker bound only to 127.0.0.1 does not conflict with an IPv6 bind.
+    await new Promise((resolve) => metricsBlocker.listen(0, resolve));
+    const blockedMetricsPort = metricsBlocker.address().port;
+
+    const replacement = net.createServer();
+    try {
+      await expect(startGateway({
+        listeners: [{ name: 'partial-start', port: mllpPort, host: '127.0.0.1' }],
+        runtime: stubRuntime(),
+        metricsPort: blockedMetricsPort,
+        coldChainIngestPort: null,
+      })).rejects.toMatchObject({ code: 'EADDRINUSE' });
+
+      // The MLLP listener bound successfully before metrics failed. A clean
+      // rollback makes its port immediately reusable.
+      await expect(new Promise((resolve, reject) => {
+        replacement.once('error', reject);
+        replacement.listen(mllpPort, '127.0.0.1', resolve);
+      })).resolves.toBeUndefined();
+    } finally {
+      if (replacement.listening) await new Promise((resolve) => replacement.close(resolve));
+      await new Promise((resolve) => metricsBlocker.close(resolve));
+    }
+  });
 });
 
 describe('socketIdleTimeoutMsFromEnv', () => {

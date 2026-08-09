@@ -708,6 +708,11 @@ function listenServer(server, port, host) {
   });
 }
 
+function closeListeningServer(server) {
+  if (!server?.listening) return Promise.resolve();
+  return new Promise((resolve) => server.close(() => resolve()));
+}
+
 export async function startGateway({
   listeners,
   runtime,
@@ -717,82 +722,94 @@ export async function startGateway({
 }) {
   await runtime.initialize();
   const servers = [];
-  for (const listener of listeners) {
-    const server = net.createServer((socket) => {
-      const reader = new MllpFrameReader();
-      const labels = { listener: listener.name };
-      mllpConnectionsActive.inc(labels);
-      // A TCP-level error on a device connection (ECONNRESET on abrupt
-      // monitor disconnect, EPIPE on a failed ACK write) must never crash the
-      // gateway: with no listener, 'error' is an uncaught exception. Log and
-      // destroy; the device never got its AA, so it retransmits and the
-      // control-id dedupe answers AA Duplicate.
-      socket.on('error', (err) => {
-        console.error(`device-gateway: mllp socket error listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}: ${err?.code || err?.message || err}`);
-        socket.destroy();
-      });
-      // A half-open or wedged connection otherwise holds the frame-reader
-      // buffer, the connection slot, and the active-connections gauge
-      // forever. Idle destroy only — spooled data is durable and unaffected.
-      socket.setTimeout(socketIdleTimeoutMs, () => {
-        console.error(`device-gateway: mllp socket idle timeout after ${socketIdleTimeoutMs}ms listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}`);
-        socket.destroy();
-      });
-      socket.on('data', async (chunk) => {
-        let messages;
-        try {
-          messages = reader.push(chunk);
-        } catch {
+  let metricsServer = null;
+  let coldChainServer = null;
+  try {
+    for (const listener of listeners) {
+      const server = net.createServer((socket) => {
+        const reader = new MllpFrameReader();
+        const labels = { listener: listener.name };
+        mllpConnectionsActive.inc(labels);
+        // A TCP-level error on a device connection (ECONNRESET on abrupt
+        // monitor disconnect, EPIPE on a failed ACK write) must never crash the
+        // gateway: with no listener, 'error' is an uncaught exception. Log and
+        // destroy; the device never got its AA, so it retransmits and the
+        // control-id dedupe answers AA Duplicate.
+        socket.on('error', (err) => {
+          console.error(`device-gateway: mllp socket error listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}: ${err?.code || err?.message || err}`);
           socket.destroy();
-          return;
-        }
-        for (const message of messages) {
+        });
+        // A half-open or wedged connection otherwise holds the frame-reader
+        // buffer, the connection slot, and the active-connections gauge
+        // forever. Idle destroy only — spooled data is durable and unaffected.
+        socket.setTimeout(socketIdleTimeoutMs, () => {
+          console.error(`device-gateway: mllp socket idle timeout after ${socketIdleTimeoutMs}ms listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}`);
+          socket.destroy();
+        });
+        socket.on('data', async (chunk) => {
+          let messages;
           try {
-            const result = await runtime.acceptFrame({
-              listener,
-              sourceIp: normalizeIp(socket.remoteAddress),
-              message,
-            });
-            // The peer can have disconnected while acceptFrame ran (backend
-            // HTTP + fsync'd spool append — the durable append correctly
-            // happens before any ACK and must stay first). Writing to a
-            // destroyed socket would throw/emit 'error'; skip the ACK
-            // instead — the device retransmits and dedupe answers.
-            if (socket.destroyed || !socket.writable) return;
-            socket.write(frameMessage(result.ack));
+            messages = reader.push(chunk);
           } catch {
             socket.destroy();
             return;
           }
-        }
+          for (const message of messages) {
+            try {
+              const result = await runtime.acceptFrame({
+                listener,
+                sourceIp: normalizeIp(socket.remoteAddress),
+                message,
+              });
+              // The peer can have disconnected while acceptFrame ran (backend
+              // HTTP + fsync'd spool append — the durable append correctly
+              // happens before any ACK and must stay first). Writing to a
+              // destroyed socket would throw/emit 'error'; skip the ACK
+              // instead — the device retransmits and dedupe answers.
+              if (socket.destroyed || !socket.writable) return;
+              socket.write(frameMessage(result.ack));
+            } catch {
+              socket.destroy();
+              return;
+            }
+          }
+        });
+        socket.on('close', () => mllpConnectionsActive.dec(labels));
       });
-      socket.on('close', () => mllpConnectionsActive.dec(labels));
+      guardServer(server, `mllp:${listener.name}`);
+      await listenServer(server, listener.port, listener.host || '0.0.0.0');
+      servers.push(server);
+    }
+    metricsServer = http.createServer((req, res) => {
+      if (req.url === '/readyz') {
+        writeJson(res, runtime.isReady() ? 200 : 503, { ready: runtime.isReady() });
+        return;
+      }
+      if (req.url !== '/metrics') {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' });
+      res.end(serializeMetrics());
     });
-    guardServer(server, `mllp:${listener.name}`);
-    await listenServer(server, listener.port, listener.host || '0.0.0.0');
-    servers.push(server);
+    guardServer(metricsServer, 'metrics');
+    await listenServer(metricsServer, metricsPort);
+    coldChainServer = coldChainIngestPort !== null && coldChainIngestPort !== false
+      ? guardServer(createColdChainServer(runtime), 'cold-chain')
+      : null;
+    if (coldChainServer) await listenServer(coldChainServer, coldChainIngestPort);
+    runtime.startSupervisedDrains(Number(process.env.DEVICE_GATEWAY_DRAIN_INTERVAL_MS || 5000));
+    return { servers, metricsServer, coldChainServer };
+  } catch (err) {
+    runtime.stopSupervisedDrains?.();
+    await Promise.allSettled([
+      ...servers,
+      metricsServer,
+      coldChainServer,
+    ].map(closeListeningServer));
+    throw err;
   }
-  const metricsServer = http.createServer((req, res) => {
-    if (req.url === '/readyz') {
-      writeJson(res, runtime.isReady() ? 200 : 503, { ready: runtime.isReady() });
-      return;
-    }
-    if (req.url !== '/metrics') {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' });
-    res.end(serializeMetrics());
-  });
-  guardServer(metricsServer, 'metrics');
-  await listenServer(metricsServer, metricsPort);
-  const coldChainServer = coldChainIngestPort !== null && coldChainIngestPort !== false
-    ? guardServer(createColdChainServer(runtime), 'cold-chain')
-    : null;
-  if (coldChainServer) await listenServer(coldChainServer, coldChainIngestPort);
-  runtime.startSupervisedDrains(Number(process.env.DEVICE_GATEWAY_DRAIN_INTERVAL_MS || 5000));
-  return { servers, metricsServer, coldChainServer };
 }
 
 export function listenerConfigFromEnv() {

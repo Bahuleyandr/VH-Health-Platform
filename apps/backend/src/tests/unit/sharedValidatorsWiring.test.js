@@ -55,7 +55,7 @@ const validate = (req, res, next) => {
 function appFor(chain, { withIdParam = false } = {}) {
   const app = express();
   app.use(express.json());
-  app.post(withIdParam ? '/t/:id' : '/t', ...chain, validate, (req, res) => res.status(200).json({ ok: true }));
+  app.post(withIdParam ? '/t/:id' : '/t', ...chain, validate, (req, res) => res.status(200).json({ ok: true, body: req.body }));
   return app;
 }
 
@@ -77,15 +77,16 @@ const CASES = [
       { patient_uid: UUID, summary: 'Post-op', incoming_nurse: UUID2, shift: 'morning', pending_tasks: 'call ICU' }]],
   ['invoiceValidator', invoiceValidator, false,
     [{ patient_uid: UUID, type: 'consultation', items: [{ description: 'OPD', amount: 500 }], subtotal: 500, total_amount: 500 },
-      { patient_uid: UUID, type: 'pharmacy', items: [{}], subtotal: 0, total_amount: 0.01 }],
+      { patient_uid: UUID, type: 'pharmacy', items: [{}], subtotal: 0, total_amount: 0 }],
     [{ patient_uid: UUID, type: 'consultation', items: [], subtotal: 100, total_amount: 100 },
+      { patient_uid: UUID, type: 'consultation', items: ['OPD'], subtotal: 100, total_amount: 100 },
       { patient_uid: UUID, type: 'consultation', items: [{}], total_amount: 100 },
       { patient_uid: UUID, items: [{}], subtotal: 1, total_amount: 1 }]],
   ['paymentValidator', paymentValidator, true,
     [{ amount: 100, payment_method: 'CASH', transaction_ref: 'TXN-1' }],
     [{ amount: 100, payment_method: 'BITCOIN' }, { payment_method: 'CASH' }]],
   ['insuranceClaimValidator', insuranceClaimValidator, false,
-    [{ patient_uid: UUID, policy_number: 'POL-9', insurance_provider: 'Acme Health', claim_amount: 1200, invoice_id: 7 }],
+    [{ patient_uid: UUID, policy_number: 'POL-9', insurance_provider: 'Acme Health', claim_amount: 1200, invoice_id: '7' }],
     [{ patient_uid: UUID, policy_number: 'POL-9', claim_amount: 1200 },
       { patient_uid: UUID, policy_number: 'POL-9', insurance_provider: 'Acme', claim_amount: 1200, invoice_id: 'seven' }]],
   ['radiologyOrderValidator', radiologyOrderValidator, false,
@@ -95,6 +96,7 @@ const CASES = [
     [{ patient_uid: UUID, blood_group: 'A+', units: 2, component: 'prbc', clinical_indication: 'anemia', urgency: 'urgent' }],
     [{ patient_uid: UUID, blood_group: 'A+', units: 2, component: 'PACKED_RBC', clinical_indication: 'anemia' },
       { patient_uid: UUID, blood_group: 'A+', units: 2, component: 'prbc' },
+      { patient_uid: UUID, blood_group: 'A+', units: 1.5, component: 'prbc', clinical_indication: 'anemia' },
       { patient_uid: UUID, blood_group: 'Z+', units: 2, component: 'prbc', clinical_indication: 'anemia' }]],
   ['dietaryOrderValidator', dietaryOrderValidator, false,
     [{ patient_uid: UUID, diet_type: 'diabetic', restrictions: ['low salt'], allergies: 'nuts, shellfish' }],
@@ -103,25 +105,33 @@ const CASES = [
     [{ patient_uid: UUID, procedure_name: 'Lap chole', surgeon: UUID2, scheduled_date: '2026-09-01', equipment_needed: ['laparoscope'], consent_obtained: true }],
     [{ patient_uid: UUID, procedure_name: 'Lap chole', surgeon: 'dr-bob', scheduled_date: '2026-09-01' },
       { patient_uid: UUID, procedure_name: 'Lap chole', surgeon: UUID2 },
-      { patient_uid: UUID, procedure_name: 'Lap chole', surgeon: UUID2, scheduled_date: 'next tuesday' }]],
+      { patient_uid: UUID, procedure_name: 'Lap chole', surgeon: UUID2, scheduled_date: 'next tuesday' },
+      { patient_uid: UUID, procedure_name: 'Lap chole', surgeon: UUID2, scheduled_date: '2026-09-01', equipment_needed: [{}] }]],
   ['referralValidator', referralValidator, false,
     [{ patient_uid: UUID, reason: 'Acute abdomen', referred_to_department: 'Surgery' },
       { patient_uid: UUID, reason: 'Acute abdomen', to_department: 'Surgery' }],
     [{ patient_uid: UUID, reason: 'Acute abdomen' }, { reason: 'Acute abdomen', referred_to_department: 'Surgery' }]],
   ['consentValidator', consentValidator, false,
-    [{ patient_uid: UUID, consent_type: 'surgery', witness_name: 'A. Witness', witness_uid: UUID2 }],
-    [{ patient_uid: UUID }, { patient_uid: UUID, consent_type: 'surgery', witness_uid: 'mr-witness' }]],
+    [{ patient_uid: UUID, consent_type: 'surgery', consent_method: 'verbal', purpose: 'Procedure', data_categories: ['clinical'], expires_at: '2027-08-10', witness_name: 'A. Witness', witness_uid: UUID2 }],
+    [{ patient_uid: UUID }, { patient_uid: UUID, consent_type: 'surgery', witness_uid: 'mr-witness' },
+      { patient_uid: UUID, consent_type: 'surgery', consent_method: 'telephone' },
+      { patient_uid: UUID, consent_type: 'surgery', data_categories: [{}] }]],
   ['messageValidator', messageValidator, false,
     [{ recipient_uid: UUID2, body: 'Please review bed 4', priority: 'urgent' }],
-    [{ recipient_uid: UUID2 }, { recipient_uid: UUID2, body: 'hi', priority: 'high' }]],
+    [{ recipient_uid: UUID2 }, { recipient_uid: 'nurse-bob', body: 'hi' },
+      { recipient_uid: UUID2, body: 'hi', priority: 'high' }]],
   ['reminderValidator', reminderValidator, false,
     [{ medication_name: 'Metformin', dosage: '500mg', frequency: 'BD', reminder_times: ['08:00', '20:00'], start_date: '2026-08-10' }],
     [{ medication_name: 'Metformin', dosage: '500mg', frequency: 'BD', reminder_times: [], start_date: '2026-08-10' },
+      { medication_name: 'Metformin', dosage: '500mg', frequency: 'BD', reminder_times: ['8am'], start_date: '2026-08-10' },
+      { medication_name: 'Metformin', dosage: '500mg', frequency: 'BD', reminder_times: [800], start_date: '2026-08-10' },
       { medication_name: 'Metformin', dosage: '500mg', frequency: 'BD', reminder_times: ['08:00'] }]],
   ['breachReportValidator', breachReportValidator, false,
     [{ description: 'Laptop stolen', severity: 'high', affected_records: 12, affected_patient_uids: [UUID] }],
     [{ description: 'Laptop stolen', severity: 'HIGH' }, { severity: 'high' },
-      { description: 'Laptop stolen', severity: 'high', affected_patient_uids: 'all' }]],
+      { description: 'Laptop stolen', severity: 'high', affected_records: 1.5 },
+      { description: 'Laptop stolen', severity: 'high', affected_patient_uids: 'all' },
+      { description: 'Laptop stolen', severity: 'high', affected_patient_uids: ['not-a-uuid'] }]],
   ['qualityIncidentValidator', qualityIncidentValidator, false,
     [{ description: 'Patient fall in ward B', incident_type: 'fall', severity: 'moderate', date_occurred: '2026-08-01', patient_uid: UUID }],
     [{ description: 'fall', incident_type: 'FALL', severity: 'moderate', date_occurred: '2026-08-01' },
@@ -131,7 +141,8 @@ const CASES = [
     [[1, 2, 3]]],
   ['featureFlagValidator', featureFlagValidator, false,
     [{ name: 'new-portal', enabled: true, rollout_percentage: 50, allowed_roles: ['ADMIN'] }],
-    [{ enabled: true }, { name: 'new-portal', rollout_percentage: 150 }, { name: 'new-portal', enabled: 'sometimes' }]],
+    [{ enabled: true }, { name: 'new-portal', rollout_percentage: 150 }, { name: 'new-portal', enabled: 'sometimes' },
+      { name: 'new-portal', allowed_roles: [{}] }]],
   ['doctorCreateValidator', doctorCreateValidator, false,
     [{ name: 'Dr. A', department: 'Cardiology', intro: 'Senior cardiologist' }],
     [{ name: 'Dr. A' }, { department: 'Cardiology' }]],
@@ -155,6 +166,39 @@ describe('sharedValidators domain chains (behavior)', () => {
         expect(res.body.success).toBe(false);
         expect(Array.isArray(res.body.errors)).toBe(true);
       });
+  });
+
+  it('normalizes validated numeric and boolean strings before controllers receive them', async () => {
+    const vitalsApp = appFor(vitalsValidator);
+    const vitals = await request(vitalsApp).post('/t').send({
+      patient_uid: UUID,
+      heart_rate: '118',
+      supplemental_o2: 'false',
+    });
+    expect(vitals.statusCode).toBe(200);
+    expect(vitals.body.body).toMatchObject({ heart_rate: 118, supplemental_o2: false });
+
+    const invoiceApp = appFor(invoiceValidator);
+    const invoice = await request(invoiceApp).post('/t').send({
+      patient_uid: UUID,
+      type: 'consultation',
+      items: [{}],
+      subtotal: '0',
+      total_amount: '0',
+    });
+    expect(invoice.statusCode).toBe(200);
+    expect(invoice.body.body).toMatchObject({ subtotal: 0, total_amount: 0 });
+
+    const claimApp = appFor(insuranceClaimValidator);
+    const claim = await request(claimApp).post('/t').send({
+      patient_uid: UUID,
+      policy_number: 'POL-9',
+      insurance_provider: 'Acme Health',
+      claim_amount: 1200,
+      invoice_id: '7',
+    });
+    expect(claim.statusCode).toBe(200);
+    expect(claim.body.body.invoice_id).toBe(7);
   });
 });
 

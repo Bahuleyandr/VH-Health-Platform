@@ -130,7 +130,7 @@ describe('POST /consent/grant — Stage-5 consent method + witness + form langua
       consent_method: 'fingerprint_scan',
     });
     expect(res.statusCode).toBe(400);
-    expect(String(res.body.message || '')).toMatch(/consent_method/i);
+    expect(JSON.stringify(res.body)).toMatch(/consent_method/i);
   });
 
   it('rejects a malformed witness_uid', async () => {

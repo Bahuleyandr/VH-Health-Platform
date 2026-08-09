@@ -105,7 +105,10 @@ export const requiredPhone = (name = 'phone') =>
 
 // Small private helpers used by the domain validators.
 function optionalBool(name) {
-  return body(name).optional({ nullable: true }).isBoolean().withMessage(`${name} must be a boolean`);
+  return body(name)
+    .optional({ nullable: true })
+    .isBoolean().withMessage(`${name} must be a boolean`)
+    .toBoolean();
 }
 
 function optionalUUID(name) {
@@ -115,7 +118,17 @@ function optionalUUID(name) {
 function optionalNumeric(name) {
   // Type-only numeric check: no clinical range enforcement (see
   // vitalsValidator note below).
-  return body(name).optional({ nullable: true }).isFloat().withMessage(`${name} must be a number`);
+  return body(name)
+    .optional({ nullable: true })
+    .isFloat().withMessage(`${name} must be a number`)
+    .toFloat();
+}
+
+function optionalInt(name, { min, max } = {}) {
+  return body(name)
+    .optional({ nullable: true })
+    .isInt({ min, max }).withMessage(`${name} must be an integer`)
+    .toInt();
 }
 
 function optionalArray(name, { min } = {}) {
@@ -207,11 +220,17 @@ export const invoiceValidator = [
   requiredUUID('patient_uid'),
   requiredString('type', 50),
   requiredArray('items'),
+  body('items.*').isObject().withMessage('each invoice item must be an object'),
   // subtotal 0 is legal (full discount) — exists() without checkFalsy.
   body('subtotal')
     .exists({ checkNull: true }).withMessage('subtotal is required')
-    .isFloat({ min: 0 }).withMessage('subtotal must be a non-negative number'),
-  requiredNumber('total_amount', { min: 0 }),
+    .isFloat({ min: 0 }).withMessage('subtotal must be a non-negative number')
+    .toFloat(),
+  // A fully discounted invoice may legitimately total zero as well.
+  body('total_amount')
+    .exists({ checkNull: true }).withMessage('total_amount is required')
+    .isFloat({ min: 0 }).withMessage('total_amount must be a non-negative number')
+    .toFloat(),
   optionalNumber('tax_amount', { min: 0 }),
   optionalNumber('discount_amount', { min: 0 }),
   optionalString('notes', 1000),
@@ -231,7 +250,7 @@ export const insuranceClaimValidator = [
   requiredString('policy_number', 50),
   requiredString('insurance_provider', 200),
   requiredNumber('claim_amount', { min: 0 }),
-  body('invoice_id').optional({ nullable: true }).isInt().withMessage('invoice_id must be an integer'),
+  optionalInt('invoice_id'),
   optionalArray('documents'),
 ];
 
@@ -252,7 +271,10 @@ export const radiologyOrderValidator = [
 export const bloodRequestValidator = [
   requiredUUID('patient_uid'),
   requiredEnum('blood_group', ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
-  requiredNumber('units', { min: 1, max: 10 }),
+  body('units')
+    .exists({ checkFalsy: true }).withMessage('units is required')
+    .isInt({ min: 1, max: 10 }).withMessage('units must be an integer between 1 and 10')
+    .toInt(),
   requiredEnum('component', ['whole_blood', 'prbc', 'ffp', 'platelets', 'cryoprecipitate']),
   requiredString('clinical_indication', 500),
   optionalEnum('urgency', ['routine', 'urgent', 'emergency']),
@@ -288,6 +310,10 @@ export const theatreScheduleValidator = [
   optionalString('scheduled_time', 20),
   optionalNumber('estimated_duration', { min: 1 }),
   optionalArray('equipment_needed'),
+  body('equipment_needed.*')
+    .isString().withMessage('each equipment_needed item must be a string')
+    .trim()
+    .isLength({ min: 1, max: 200 }).withMessage('each equipment_needed item must be between 1 and 200 characters'),
   optionalBool('blood_arranged'),
   optionalBool('consent_obtained'),
 ];
@@ -319,6 +345,14 @@ export const consentValidator = [
   requiredUUID('patient_uid'),
   requiredString('consent_type', 100),
   optionalString('notes', 1000),
+  optionalString('purpose', 500),
+  optionalArray('data_categories'),
+  body('data_categories.*')
+    .isString().withMessage('each data category must be a string')
+    .trim()
+    .isLength({ min: 1, max: 100 }).withMessage('each data category must be between 1 and 100 characters'),
+  optionalDate('expires_at'),
+  optionalEnum('consent_method', ['signature', 'thumbprint', 'verbal']),
   optionalString('witness_name', 160),
   optionalUUID('witness_uid'),
   optionalString('form_language', 30),
@@ -330,7 +364,7 @@ export const consentValidator = [
  * aliases onto recipient_uid/body and lowercases priority.
  */
 export const messageValidator = [
-  requiredString('recipient_uid'),
+  requiredUUID('recipient_uid'),
   requiredString('body', 2000),
   optionalEnum('priority', ['normal', 'urgent', 'critical']),
   optionalUUID('patient_uid'),
@@ -343,6 +377,9 @@ export const reminderValidator = [
   // Frequency aliases (OD/BD/TDS/QID/…) are normalised by the controller.
   requiredString('frequency', 100),
   requiredArray('reminder_times'),
+  body('reminder_times.*')
+    .isString().withMessage('each reminder time must be a string')
+    .matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/).withMessage('each reminder time must use HH:MM in 24-hour time'),
   requiredDate('start_date'),
   optionalDate('end_date'),
   optionalString('notes', 500),
@@ -353,8 +390,9 @@ export const breachReportValidator = [
   requiredString('title', 255),
   requiredString('description', 2000),
   requiredEnum('severity', ['low', 'medium', 'high', 'critical']),
-  optionalNumber('affected_records', { min: 0 }),
+  optionalInt('affected_records', { min: 0 }),
   optionalArray('affected_patient_uids'),
+  body('affected_patient_uids.*').isUUID().withMessage('each affected patient UID must be a valid UUID'),
   body('phi_involved')
     .optional({ nullable: true })
     .isBoolean({ strict: true })
@@ -392,8 +430,13 @@ export const featureFlagValidator = [
   optionalString('description', 500),
   optionalBool('enabled'),
   body('rollout_percentage').optional({ nullable: true })
-    .isInt({ min: 0, max: 100 }).withMessage('rollout_percentage must be an integer between 0 and 100'),
+    .isInt({ min: 0, max: 100 }).withMessage('rollout_percentage must be an integer between 0 and 100')
+    .toInt(),
   optionalArray('allowed_roles'),
+  body('allowed_roles.*')
+    .isString().withMessage('each allowed role must be a string')
+    .trim()
+    .isLength({ min: 1, max: 100 }).withMessage('each allowed role must be between 1 and 100 characters'),
 ];
 
 /** Legacy doctor directory create — POST /doctor (routes/doctor/adminDoctorRoutes.js → adminDoctorController.addDoctor). */
