@@ -184,6 +184,8 @@ class _OtpWidgetState extends State<OtpWidget> {
       // _handleFirebaseAuthSuccess maps its own errors, but _authenticate may
       // route to an injected credential handler, so keep the guard here.
       await _authenticate(credential);
+    } on FirebaseAuthException catch (e) {
+      _setFirebaseVerificationError(e);
     } catch (e) {
       _setInlineError(l.otpInvalidTryAgain);
       developer.log("OTP verification error: $e", name: 'OtpWidget');
@@ -234,12 +236,16 @@ class _OtpWidgetState extends State<OtpWidget> {
     } on FirebaseAuthException catch (e) {
       // Map Firebase codes (wrong code, expired session, throttling, network)
       // to friendly copy — never surface the raw exception string.
-      _showMessage(OtpService.userMessageForOtpVerificationCode(e.code));
-      developer.log("Firebase auth error (${e.code})", name: 'OtpWidget');
+      _setFirebaseVerificationError(e);
     } catch (e) {
       _setInlineError(l.otpAuthenticationFailed);
       developer.log("Firebase auth error: $e", name: 'OtpWidget');
     }
+  }
+
+  void _setFirebaseVerificationError(FirebaseAuthException error) {
+    _setInlineError(OtpService.userMessageForOtpVerificationCode(error.code));
+    developer.log("Firebase auth error (${error.code})", name: 'OtpWidget');
   }
 
   /// Surfaces an error inline under the OTP field instead of a transient

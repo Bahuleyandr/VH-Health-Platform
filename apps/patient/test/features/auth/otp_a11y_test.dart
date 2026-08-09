@@ -230,6 +230,44 @@ void main() {
         await tester.pump(const Duration(seconds: 5));
       },
     );
+
+    testWidgets('wrong Firebase OTP stays inline and clears on edit', (
+      tester,
+    ) async {
+      final service = _FakeOtpService();
+
+      await tester.pumpWidget(
+        harness(
+          OtpWidget(
+            phoneNumber: '+919876543210',
+            onSuccess: () {},
+            otpService: service,
+            credentialHandler: (_) async {
+              throw FirebaseAuthException(code: 'invalid-verification-code');
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      await tester.enterText(find.byType(EditableText), '123456');
+      await tester.pump();
+
+      expect(
+        find.text('That OTP is incorrect. Check the code and try again.'),
+        findsOneWidget,
+      );
+
+      await tester.enterText(find.byType(EditableText), '12345');
+      await tester.pump();
+
+      expect(
+        find.text('That OTP is incorrect. Check the code and try again.'),
+        findsNothing,
+      );
+      await tester.pump(const Duration(seconds: 5));
+    });
   });
 
   group('Verifying announcement (audit H10)', () {
