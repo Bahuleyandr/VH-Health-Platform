@@ -18,12 +18,8 @@ export function getSosPerformanceReport<T = unknown>() {
   return getJSON<T>(API_ENDPOINTS.admin.sos.performanceReport);
 }
 
-export function updateSosConfig<T = unknown>(config: Record<string, unknown>) {
-  return postJSON<T>(API_ENDPOINTS.admin.sos.updateConfig, config);
-}
-
 export function broadcastEmergencyAlert<T = unknown>(
-  message: string, 
+  message: string,
   severity: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH'
 ) {
   return postJSON<T>(API_ENDPOINTS.admin.sos.broadcast, { message, severity });

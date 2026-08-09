@@ -153,8 +153,8 @@ wrapAutoRBAC(consoleSosRoutes, 'adminDashboard', {
     ['/sos/performance-report', dash.sosPerformanceReport],
   ],
 
+  // No /sos/update-config — see the note on sosBroadcast in dashboardController.
   post: [
-    ['/sos/update-config', dash.sosUpdateConfig],
     ['/sos/broadcast', dash.sosBroadcast],
     ['/sos/escalate/:alertId', dash.sosEscalate],
   ],

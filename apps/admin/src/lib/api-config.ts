@@ -190,7 +190,8 @@ export const API_ENDPOINTS = {
       alerts: "/api/v1/admin/sos/alerts", // GET - getAllAlerts()
       emergencyServices: "/api/v1/admin/sos/emergency-services", // GET - getEmergencyServices()
       performanceReport: "/api/v1/admin/sos/performance-report", // GET - getPerformanceReport()
-      updateConfig: "/api/v1/admin/sos/update-config", // POST - updateSystemConfig()
+      // No updateConfig: the backend endpoint never persisted anything and
+      // nothing reads a SOS config, so it was removed (audit F1).
       broadcast: "/api/v1/admin/sos/broadcast", // POST - broadcastEmergencyAlert()
       escalate: (alertId: string | number) =>
         `/api/v1/admin/sos/escalate/${encodeURIComponent(String(alertId))}`, // POST - escalateAlert()

@@ -16,8 +16,11 @@
 // no consumer contract changes.
 
 import logger from '../../logging/logger.js';
+// The console's emergency actions share one implementation with the
+// /api/v1/sos/admin/* surface — see the F1 note in services/sosService.js.
+import { broadcastEmergencyAlert, escalateAlert } from '../../services/sosService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { error, success } from '../../utils/responseHelper.js';
+import { error, relayAppError, success } from '../../utils/responseHelper.js';
 import {
   getUserStats,
   getDoctorStats,
@@ -43,9 +46,6 @@ import {
   getAllAlerts,
   getEmergencyServices,
   getPerformanceReport,
-  updateSystemConfig,
-  broadcastEmergencyAlert,
-  escalateAlert,
   getUploadSummary,
   listQuarantinedFiles,
   getHipaaAuditReport,
@@ -353,9 +353,9 @@ export async function absentReport(req, res) {
 
 /* ------------------------------ SOS (reads) ------------------------------- */
 
-export async function sosAnalytics(_req, res) {
+export async function sosAnalytics(req, res) {
   try {
-    success(res, await getSosAnalytics(), 'SOS analytics');
+    success(res, await getSosAnalytics(resolveTenantOrThrow(req)), 'SOS analytics');
   } catch (err) {
     logger.error('SOS analytics error:', err);
     error(res, 'Failed to get SOS analytics', 500, { safe: true });
@@ -366,7 +366,7 @@ export async function sosAlerts(req, res) {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
     const offset = Math.max(Number(req.query.offset ?? 0), 0);
-    success(res, await getAllAlerts(limit, offset), 'SOS alerts');
+    success(res, await getAllAlerts(resolveTenantOrThrow(req), limit, offset), 'SOS alerts');
   } catch (err) {
     logger.error('SOS alerts list error:', err);
     error(res, 'Failed to get SOS alerts', 500, { safe: true });
@@ -382,9 +382,9 @@ export async function sosEmergencyServices(_req, res) {
   }
 }
 
-export async function sosPerformanceReport(_req, res) {
+export async function sosPerformanceReport(req, res) {
   try {
-    success(res, await getPerformanceReport(), 'SOS performance report');
+    success(res, await getPerformanceReport(resolveTenantOrThrow(req)), 'SOS performance report');
   } catch (err) {
     logger.error('SOS performance report error:', err);
     error(res, 'Failed to get performance report', 500, { safe: true });
@@ -438,33 +438,39 @@ export async function exportReport(req, res) {
   success(res, await generateDashboardReport(format, dateRange), 'Dashboard report');
 }
 
-export async function sosUpdateConfig(req, res) {
-  try {
-    success(res, await updateSystemConfig(req.body || {}), 'SOS config updated');
-  } catch (err) {
-    logger.error('SOS update-config error:', err);
-    error(res, 'Failed to update SOS config', 500, { safe: true });
-  }
-}
+// No sosUpdateConfig: the SOS "system config" endpoint accepted settings, logged
+// them, and reported success — nothing persisted them and nothing reads a SOS
+// config anywhere in the platform, so it was removed rather than given a storage
+// table no consumer would query (audit F1).
 
 export async function sosBroadcast(req, res) {
   try {
-    const { message, severity } = req.body || {};
-    success(res, await broadcastEmergencyAlert({ message, severity }), 'SOS alert broadcast');
+    const { title, message, severity } = req.body || {};
+    const result = await broadcastEmergencyAlert({
+      tenantId: resolveTenantOrThrow(req),
+      // The console's broadcast composer submits a message only; the alert banner
+      // is what titles it.
+      title: title || 'Emergency broadcast',
+      message,
+      severity: severity || 'HIGH',
+    });
+    success(res, result, `Broadcast sent to ${result.notified} staff`);
   } catch (err) {
-    logger.error('SOS broadcast error:', err);
-    error(res, 'Failed to broadcast SOS alert', 500, { safe: true });
+    return relayAppError(res, err, 'Failed to broadcast SOS alert', { safe: true });
   }
 }
 
 export async function sosEscalate(req, res) {
   try {
-    const { alertId } = req.params;
-    const { reason = null } = req.body || {};
-    success(res, await escalateAlert(alertId, reason), 'SOS alert escalated');
+    const result = await escalateAlert({
+      tenantId: resolveTenantOrThrow(req),
+      alertId: req.params.alertId,
+      actorUid: req.user?.uid ?? null,
+      reason: req.body?.reason ?? null,
+    });
+    success(res, result, `Alert escalated to ${result.severity}`);
   } catch (err) {
-    logger.error('SOS escalate error:', err);
-    error(res, 'Failed to escalate SOS alert', 500, { safe: true });
+    return relayAppError(res, err, 'Failed to escalate SOS alert', { safe: true });
   }
 }
 

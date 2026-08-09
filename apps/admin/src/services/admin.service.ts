@@ -181,14 +181,6 @@ class AdminService {
     return this.request(API_ENDPOINTS.admin.sos.performanceReport);
   }
 
-  async updateSosConfig(body: unknown) {
-    return this.request(API_ENDPOINTS.admin.sos.updateConfig, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
-    });
-  }
-
   async broadcastSosAlert(body: {
     message: string;
     severity?: "HIGH" | "MEDIUM" | "LOW";

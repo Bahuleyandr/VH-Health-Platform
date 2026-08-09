@@ -1,72 +1,70 @@
 // src/routes/admin/services/sosService.js
-import logger from '../../../logging/logger.js';
-import {
-  tableExists,
-  columnExists,
-  safeQuery,
-  safeScalar,
-} from './common.js';
+//
+// Read models for the admin SOS console (/api/v1/admin/sos/*).
+//
+// Audit F1: every function here used to be fake. The three mutators were
+// log-only stubs that returned success without touching a table, and all four
+// readers ran SQL that could not execute against this schema — sos_alerts has no
+// is_test_alert / user_uid / notes / description / address column, its statuses
+// are uppercase, and neither emergency_services nor sos_services exists. Every
+// one of those queries threw and was swallowed by safeQuery, so the console
+// rendered zeros and empty tables as if they were readings.
+//
+// The mutators now live in services/sosService.js, shared with the sosController
+// surface at /api/v1/sos/admin/*. What remains is reads, executed directly (a
+// failed read must surface as a 500, never as a plausible zero) and scoped with
+// an explicit tenant predicate — provable in every environment, unlike RLS,
+// which is off outside production.
+import prisma from '../../../lib/prisma.js';
 
 /**
- * Returns aggregated SOS alert metrics:
- * - totalAlerts, activeAlerts, resolvedAlerts, testAlerts
- * - severityCounts {high, medium, low}
- * - last24Hours: alerts created in last 24h
- * - last7Days: array of { date, count } for past 7 days
+ * Aggregated SOS alert metrics for one tenant:
+ * totalAlerts, activeAlerts, resolvedAlerts, cancelledAlerts,
+ * severityCounts {critical, high, medium, low}, last24Hours,
+ * last7Days: array of { date, count }.
+ *
+ * Severity and status are compared case-insensitively: patient-app alerts store
+ * lowercase values (config/sosConfig.js SOS_SEVERITY) while the column default
+ * and staff paths write uppercase.
  */
-export async function getSosAnalytics() {
-  // If the table doesn't exist, return zeros
-  if (!(await tableExists('sos_alerts'))) {
-    return {
-      totalAlerts: 0,
-      activeAlerts: 0,
-      resolvedAlerts: 0,
-      testAlerts: 0,
-      severityCounts: { high: 0, medium: 0, low: 0 },
-      last24Hours: 0,
-      last7Days: [],
-    };
-  }
-
-  // Core aggregated counts
-  const core = await safeQuery(
-    `
-    SELECT
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (WHERE status = 'active')::int AS active,
-      COUNT(*) FILTER (WHERE status IN ('resolved','closed'))::int AS resolved,
-      COUNT(*) FILTER (WHERE COALESCE(is_test_alert, false) = true)::int AS test,
-      COUNT(*) FILTER (WHERE UPPER(severity) = 'HIGH')::int AS high,
-      COUNT(*) FILTER (WHERE UPPER(severity) = 'MEDIUM')::int AS medium,
-      COUNT(*) FILTER (WHERE UPPER(severity) = 'LOW')::int AS low,
-      COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS last24h
-    FROM sos_alerts
-    `,
-    [],
-    'sos.analytics_core'
+export async function getSosAnalytics(tenantId) {
+  const core = await prisma.$queryRawUnsafe(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE UPPER(status) = 'ACTIVE')::int AS active,
+       COUNT(*) FILTER (WHERE UPPER(status) = 'RESPONDING')::int AS responding,
+       COUNT(*) FILTER (WHERE UPPER(status) IN ('RESOLVED','CLOSED'))::int AS resolved,
+       COUNT(*) FILTER (WHERE UPPER(status) = 'CANCELLED')::int AS cancelled,
+       COUNT(*) FILTER (WHERE UPPER(severity) = 'CRITICAL')::int AS critical,
+       COUNT(*) FILTER (WHERE UPPER(severity) = 'HIGH')::int AS high,
+       COUNT(*) FILTER (WHERE UPPER(severity) = 'MEDIUM')::int AS medium,
+       COUNT(*) FILTER (WHERE UPPER(severity) = 'LOW')::int AS low,
+       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')::int AS last24h
+     FROM sos_alerts
+     WHERE tenant_id = $1::uuid`,
+    tenantId,
   );
 
   const row = core[0] || {};
-  // Trend over last 7 days
-  const trend = await safeQuery(
-    `
-    SELECT date_trunc('day', created_at) AS date,
-           COUNT(*)::int AS count
-    FROM sos_alerts
-    WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
-    GROUP BY 1
-    ORDER BY 1
-    `,
-    [],
-    'sos.analytics_trend'
+  const trend = await prisma.$queryRawUnsafe(
+    `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS date,
+            COUNT(*)::int AS count
+     FROM sos_alerts
+     WHERE tenant_id = $1::uuid
+       AND created_at >= CURRENT_DATE - INTERVAL '7 days'
+     GROUP BY 1
+     ORDER BY 1`,
+    tenantId,
   );
 
   return {
     totalAlerts: row.total ?? 0,
     activeAlerts: row.active ?? 0,
+    respondingAlerts: row.responding ?? 0,
     resolvedAlerts: row.resolved ?? 0,
-    testAlerts: row.test ?? 0,
+    cancelledAlerts: row.cancelled ?? 0,
     severityCounts: {
+      critical: row.critical ?? 0,
       high: row.high ?? 0,
       medium: row.medium ?? 0,
       low: row.low ?? 0,
@@ -77,110 +75,80 @@ export async function getSosAnalytics() {
 }
 
 /**
- * Fetch a paginated list of SOS alerts, newest first.
- * @param {number} limit - Max number of alerts to return.
- * @param {number} offset - Number of alerts to skip.
- * @returns {Promise<Array>} Array of alert records.
+ * Paginated SOS alerts for one tenant, newest first.
+ * The users join is tenant-scoped too, so a patient name can never be resolved
+ * across a tenant boundary.
  */
-export async function getAllAlerts(limit = 50, offset = 0) {
-  if (!(await tableExists('sos_alerts'))) {
-    return [];
-  }
-  const list = await safeQuery(
-    `SELECT id, user_uid, phone, latitude, longitude, status, notes, description, address, created_at, resolved_at FROM sos_alerts ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-    [limit, offset],
-    'sos.all_alerts'
+export async function getAllAlerts(tenantId, limit = 50, offset = 0) {
+  return prisma.$queryRawUnsafe(
+    `SELECT sa.id, sa.uid, sa.phone, sa.latitude, sa.longitude, sa.location_name,
+            sa.alert_type, sa.severity, sa.status, sa.message,
+            u.name AS patient_name,
+            sa.raised_at, sa.created_at, sa.responded_at, sa.resolved_at
+     FROM sos_alerts sa
+     LEFT JOIN users u ON u.uid = sa.uid AND u.tenant_id = sa.tenant_id
+     WHERE sa.tenant_id = $1::uuid
+     ORDER BY sa.created_at DESC
+     LIMIT $2 OFFSET $3`,
+    tenantId, limit, offset,
   );
-  return list;
 }
 
 /**
- * Retrieve configured emergency services (e.g. hospitals, police, fire).
- * Tries multiple possible table names and returns the first match.
- * @returns {Promise<Array>} Array of service records or empty.
+ * Emergency services the console can direct responders to.
+ *
+ * `hospitals` is a global reference table with no tenant_id, so this is
+ * deliberately not tenant-scoped. A hospital counts as usable for SOS only when
+ * it is both active and flagged as offering emergency services.
  */
 export async function getEmergencyServices() {
-  // Hardcoded allowlist — never accept table names from user input
-  const ALLOWED_TABLES = new Set(['emergency_services', 'sos_services']);
-  for (const table of ALLOWED_TABLES) {
-    if (await tableExists(table)) {
-      // Use explicit column list per table instead of SELECT *
-      const query = table === 'emergency_services'
-        ? `SELECT id, name, phone, type, address, latitude, longitude, created_at FROM emergency_services ORDER BY name`
-        : `SELECT id, name, phone, type, address, latitude, longitude, created_at FROM sos_services ORDER BY name`;
-      const services = await safeQuery(query, [], `sos.services.${table}`);
-      return services;
-    }
-  }
-  return [];
+  return prisma.$queryRawUnsafe(
+    `SELECT id, name, phone, address, latitude, longitude,
+            'hospital' AS kind,
+            (status = 'active' AND COALESCE(emergency_services, false)) AS enabled
+     FROM hospitals
+     ORDER BY name
+     LIMIT 100`,
+  );
 }
 
 /**
- * Generate a performance report for the SOS system.
- * Includes aggregated metrics and an average response time if a suitable timestamp column exists.
- * @returns {Promise<Object>} Report data.
+ * Responder timing for one tenant, in the milliseconds the console renders.
+ * Acknowledgement is raised_at → responded_at; resolution is raised_at →
+ * resolved_at. Milliseconds are returned as double precision, not bigint —
+ * the BigInt JSON serializer only exists in bin/www.js, which tests never load.
  */
-export async function getPerformanceReport() {
-  // Start with core analytics
-  const metrics = await getSosAnalytics();
-  if (!(await tableExists('sos_alerts'))) {
-    return { metrics, avgResponseTimeMinutes: null };
-  }
+export async function getPerformanceReport(tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT
+       COUNT(*) FILTER (WHERE responded_at IS NOT NULL)::int AS total_acked,
+       COUNT(*) FILTER (WHERE resolved_at IS NOT NULL)::int AS total_resolved,
+       (AVG(EXTRACT(EPOCH FROM (responded_at - raised_at)) * 1000)
+          FILTER (WHERE responded_at IS NOT NULL))::float8 AS average_ack_ms,
+       (PERCENTILE_CONT(0.95) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (responded_at - raised_at)) * 1000)
+          FILTER (WHERE responded_at IS NOT NULL))::float8 AS p95_ack_ms,
+       (AVG(EXTRACT(EPOCH FROM (resolved_at - raised_at)) * 1000)
+          FILTER (WHERE resolved_at IS NOT NULL))::float8 AS average_resolve_ms,
+       (PERCENTILE_CONT(0.95) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (resolved_at - raised_at)) * 1000)
+          FILTER (WHERE resolved_at IS NOT NULL))::float8 AS p95_resolve_ms
+     FROM sos_alerts
+     WHERE tenant_id = $1::uuid`,
+    tenantId,
+  );
 
-  // Try to compute average response time using common resolution columns.
-  // Column names are from a hardcoded allowlist — safe to use in SQL identifiers.
-  let avgResponse = null;
-  const ALLOWED_COLS = new Set(['resolved_at', 'updated_at', 'responded_at']);
-  for (const col of ALLOWED_COLS) {
-    if (await columnExists('sos_alerts', col)) {
-      // Build query per known column — avoids string interpolation in SQL
-      const queries = {
-        resolved_at: `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(resolved_at, NOW()) - created_at)) / 60))::int AS minutes FROM sos_alerts WHERE COALESCE(resolved_at, NOW()) > created_at`,
-        updated_at: `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(updated_at, NOW()) - created_at)) / 60))::int AS minutes FROM sos_alerts WHERE COALESCE(updated_at, NOW()) > created_at`,
-        responded_at: `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(responded_at, NOW()) - created_at)) / 60))::int AS minutes FROM sos_alerts WHERE COALESCE(responded_at, NOW()) > created_at`,
-      };
-      avgResponse = await safeScalar(queries[col], [], null);
-      break;
-    }
-  }
+  const row = rows[0] || {};
   return {
-    metrics,
-    avgResponseTimeMinutes: avgResponse,
+    totalAcked: row.total_acked ?? 0,
+    totalResolved: row.total_resolved ?? 0,
+    // null (not 0) when nothing has been acknowledged or resolved yet — the
+    // console renders an em dash rather than claiming a zero-millisecond response.
+    averageAckMs: row.average_ack_ms ?? null,
+    p95AckMs: row.p95_ack_ms ?? null,
+    averageResolveMs: row.average_resolve_ms ?? null,
+    p95ResolveMs: row.p95_resolve_ms ?? null,
   };
-}
-
-/**
- * Update SOS system configuration settings.
- * Currently acts as a stub that logs the update request.
- * @param {Object} configUpdates - Arbitrary config object.
- * @returns {Promise<Object>} Confirmation.
- */
-export async function updateSystemConfig(configUpdates) {
-  logger.info('SOS system configuration updated', configUpdates);
-  return { success: true, updated: configUpdates };
-}
-
-/**
- * Broadcast a general emergency alert to all registered responders.
- * This stub logs the broadcast details.
- * @param {Object} params - Contains the broadcast message and optional severity.
- * @returns {Promise<Object>} Confirmation.
- */
-export async function broadcastEmergencyAlert({ message, severity = 'HIGH' }) {
-  logger.info('SOS broadcast alert', { message, severity });
-  return { success: true, message: 'Broadcast sent' };
-}
-
-/**
- * Escalate an existing alert by ID.
- * This stub logs the escalation request.
- * @param {number|string} alertId - The ID of the alert to be escalated.
- * @param {string|null} escalationReason - Optional reason for escalation.
- * @returns {Promise<Object>} Confirmation.
- */
-export async function escalateAlert(alertId, escalationReason = null) {
-  logger.info(`SOS alert ${alertId} escalation requested`, { reason: escalationReason });
-  return { success: true, alertId, reason: escalationReason };
 }
 
 export default {
@@ -188,7 +156,4 @@ export default {
   getAllAlerts,
   getEmergencyServices,
   getPerformanceReport,
-  updateSystemConfig,
-  broadcastEmergencyAlert,
-  escalateAlert,
 };
