@@ -145,8 +145,18 @@ export default function SosPage() {
     if (!msg.trim()) return;
     setBroadcasting(true);
     try {
-      await adminService.broadcastSosAlert({ message: msg.trim() });
-      setBroadcastMsg("Broadcast sent.");
+      const response = await adminService.broadcastSosAlert({
+        message: msg.trim(),
+      });
+      const notified = response.data?.notified;
+      if (!Number.isInteger(notified) || notified < 0) {
+        throw new Error("Recipient count was missing from the response");
+      }
+      setBroadcastMsg(
+        notified === 0
+          ? "Broadcast reached no staff. Verify active staff phone numbers before retrying."
+          : `Broadcast sent to ${notified} staff member${notified === 1 ? "" : "s"}.`,
+      );
       setMsg("");
       await refresh();
     } catch (e) {

@@ -1,6 +1,12 @@
 // src/services/admin.service.ts
 import { API_ENDPOINTS, buildProxyUrl } from "@/lib/api-config";
 
+export type SosBroadcastResponse = {
+  success: boolean;
+  data: { notified: number };
+  message: string;
+};
+
 class AdminService {
   // Token is no longer read from localStorage (XSS risk).
   // All requests go through /api/proxy which uses the httpOnly cookie.
@@ -184,7 +190,7 @@ class AdminService {
   async broadcastSosAlert(body: {
     message: string;
     severity?: "HIGH" | "MEDIUM" | "LOW";
-  }) {
+  }): Promise<SosBroadcastResponse> {
     return this.request(API_ENDPOINTS.admin.sos.broadcast, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

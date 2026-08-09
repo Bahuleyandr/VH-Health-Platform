@@ -152,6 +152,19 @@ d('Admin SOS console executes real logic (F1)', () => {
       expect(res.body.data.severity).toBe('HIGH');
     });
 
+    it('serializes concurrent escalations instead of reporting the same step twice', async () => {
+      const id = await seedAlert(TENANT_A, 'LOW');
+
+      const responses = await Promise.all([
+        admin(TENANT_A).post(`/api/v1/admin/sos/escalate/${id}`).send({ reason: 'first responder' }),
+        admin(TENANT_A).post(`/api/v1/admin/sos/escalate/${id}`).send({ reason: 'second responder' }),
+      ]);
+
+      expect(responses.map((res) => res.statusCode)).toEqual([200, 200]);
+      expect(responses.map((res) => res.body.data.severity).sort()).toEqual(['HIGH', 'MEDIUM']);
+      expect(await severityOf(id)).toBe('HIGH');
+    });
+
     it('refuses to escalate past CRITICAL', async () => {
       const id = await seedAlert(TENANT_A, 'CRITICAL');
       const res = await admin(TENANT_A).post(`/api/v1/admin/sos/escalate/${id}`).send({});

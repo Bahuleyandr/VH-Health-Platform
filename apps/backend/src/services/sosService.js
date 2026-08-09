@@ -182,11 +182,6 @@ export const getMedicalInfo = async (uid) => {
 // console used to carry its own log-only stubs that returned success while
 // writing nothing (audit F1); there is now one implementation.
 
-// Stored severities are mixed case — patient alerts land lowercase through
-// SOS_SEVERITY, while the column default and staff paths write uppercase. Compare
-// case-insensitively and write back the canonical uppercase value.
-const SEVERITY_ESCALATION = { LOW: 'MEDIUM', MEDIUM: 'HIGH', HIGH: 'CRITICAL' };
-
 /**
  * Notify every reachable staff member in one tenant of an emergency broadcast.
  * @returns {Promise<{notified: number}>} count of notification rows written.
@@ -202,7 +197,7 @@ export const broadcastEmergencyAlert = async ({ tenantId, title, message, severi
        FROM users
       WHERE role <> 'PATIENT'
         AND is_active = true
-        AND phone IS NOT NULL
+        AND NULLIF(BTRIM(phone), '') IS NOT NULL
         AND tenant_id = $4::uuid
      RETURNING id`,
     // notifications.phone is NOT NULL, so a single phone-less staff row aborts the
@@ -229,14 +224,42 @@ export const escalateAlert = async ({ tenantId, alertId, actorUid = null, reason
     throw AppError.badRequest('Valid alert ID required', 'SOS_ALERT_ID_INVALID');
   }
 
-  const current = await prisma.$queryRawUnsafe(
-    `SELECT id, severity FROM sos_alerts WHERE id = $1::int AND tenant_id = $2::uuid`,
+  // Lock, decide, and update in one statement. A separate SELECT followed by
+  // UPDATE lets concurrent admins read the same severity and both report the
+  // same escalation as successful. The row lock makes concurrent requests
+  // advance the ladder in order.
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH current AS MATERIALIZED (
+       SELECT id, UPPER(COALESCE(severity, '')) AS previous_severity
+         FROM sos_alerts
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        FOR UPDATE
+     ), updated AS (
+       UPDATE sos_alerts AS sa
+          SET severity = CASE current.previous_severity
+            WHEN 'LOW' THEN 'MEDIUM'
+            WHEN 'MEDIUM' THEN 'HIGH'
+            WHEN 'HIGH' THEN 'CRITICAL'
+          END,
+              updated_at = NOW()
+         FROM current
+        WHERE sa.id = current.id
+          AND sa.tenant_id = $2::uuid
+          AND current.previous_severity IN ('LOW', 'MEDIUM', 'HIGH')
+       RETURNING sa.id, sa.severity
+     )
+     SELECT current.id,
+            current.previous_severity,
+            updated.severity
+       FROM current
+       LEFT JOIN updated ON updated.id = current.id`,
     id, tenantId,
   );
-  if (current.length === 0) throw AppError.notFound('Alert not found', 'SOS_ALERT_NOT_FOUND');
+  if (rows.length === 0) throw AppError.notFound('Alert not found', 'SOS_ALERT_NOT_FOUND');
 
-  const previousSeverity = String(current[0].severity || '').toUpperCase();
-  const severity = SEVERITY_ESCALATION[previousSeverity];
+  const previousSeverity = String(rows[0].previous_severity || '').toUpperCase();
+  const severity = rows[0].severity == null ? null : String(rows[0].severity).toUpperCase();
   if (!severity) {
     throw AppError.badRequest(
       `Alert cannot be escalated from severity ${previousSeverity || 'UNKNOWN'}`,
@@ -244,15 +267,8 @@ export const escalateAlert = async ({ tenantId, alertId, actorUid = null, reason
     );
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE sos_alerts SET severity = $3, updated_at = NOW()
-      WHERE id = $1::int AND tenant_id = $2::uuid
-      RETURNING id, severity`,
-    id, tenantId, severity,
-  );
-
   // sos_alerts has no escalation-reason column; the log sink is the only audit
   // trail this action has, so record who escalated what and why.
   logger.warn('SOS alert escalated', { alertId: id, tenantId, previousSeverity, severity, actorUid, reason });
-  return { ...rows[0], previousSeverity };
+  return { id: rows[0].id, severity, previousSeverity };
 };

@@ -69,7 +69,7 @@ describe('broadcastEmergencyAlert', () => {
     await broadcastEmergencyAlert({ tenantId: TENANT, title: 't', message: 'm' });
 
     const [sql, ...params] = queryRawUnsafe.mock.calls[0];
-    expect(sql).toContain('phone IS NOT NULL');
+    expect(sql).toContain("NULLIF(BTRIM(phone), '') IS NOT NULL");
     expect(sql).toContain("role <> 'PATIENT'");
     expect(sql).toContain('tenant_id = $4::uuid');
     expect(params[3]).toBe(TENANT);
@@ -88,23 +88,31 @@ describe('escalateAlert', () => {
 
     await expect(escalateAlert({ tenantId: TENANT, alertId: 7 }))
       .rejects.toMatchObject({ statusCode: 404, code: 'SOS_ALERT_NOT_FOUND' });
-    expect(queryRawUnsafe).toHaveBeenCalledTimes(1); // lookup only, no UPDATE
+    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 
-  it('escalates a lowercase stored severity and writes back the canonical uppercase', async () => {
+  it('atomically escalates a lowercase stored severity and writes back canonical uppercase', async () => {
     // Patient-app alerts store lowercase severities via SOS_SEVERITY.
-    queryRawUnsafe
-      .mockResolvedValueOnce([{ id: 7, severity: 'medium' }])
-      .mockResolvedValueOnce([{ id: 7, severity: 'HIGH' }]);
+    queryRawUnsafe.mockResolvedValueOnce([
+      { id: 7, previous_severity: 'MEDIUM', severity: 'HIGH' },
+    ]);
 
     const result = await escalateAlert({ tenantId: TENANT, alertId: 7 });
 
     expect(result).toEqual({ id: 7, severity: 'HIGH', previousSeverity: 'MEDIUM' });
-    expect(queryRawUnsafe.mock.calls[1]).toContain('HIGH');
+    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
+    const [sql, id, tenantId] = queryRawUnsafe.mock.calls[0];
+    expect(sql).toContain('FOR UPDATE');
+    expect(sql).toContain('UPDATE sos_alerts AS sa');
+    expect(sql).toContain("WHEN 'MEDIUM' THEN 'HIGH'");
+    expect(id).toBe(7);
+    expect(tenantId).toBe(TENANT);
   });
 
-  it('refuses to escalate past CRITICAL without issuing an UPDATE', async () => {
-    queryRawUnsafe.mockResolvedValueOnce([{ id: 7, severity: 'CRITICAL' }]);
+  it('refuses to escalate past CRITICAL in the same atomic statement', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([
+      { id: 7, previous_severity: 'CRITICAL', severity: null },
+    ]);
 
     await expect(escalateAlert({ tenantId: TENANT, alertId: 7 }))
       .rejects.toMatchObject({ statusCode: 400, code: 'SOS_ALERT_AT_MAX_SEVERITY' });
