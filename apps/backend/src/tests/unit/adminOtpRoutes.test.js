@@ -50,11 +50,6 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-// Previously 401-locked for every caller, including a valid admin JWT: this
-// whole file's wrapAutoRBAC(router, 'ALL', ...) block never applied jwtAuth
-// of its own, and the router is mounted (via routes/auth/index.js) before
-// app.js's global jwtAuth. Same root cause and fix as firebaseAuthRoutes.js's
-// admin block.
 describe('admin OTP route protections', () => {
   it('rejects an unauthenticated GET (401, not silently open)', async () => {
     const res = await request(buildApp()).get('/admin/otp/security-alerts');

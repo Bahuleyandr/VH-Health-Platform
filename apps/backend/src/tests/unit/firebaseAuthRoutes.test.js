@@ -99,8 +99,44 @@ describe('firebase auth route protections', () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
+    expect(res.body.error).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
     expect(res.body.code).toBe('FIREBASE_LEGACY_REGISTER_DISABLED');
     expect(controllerMock.registerUser).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy Firebase registration disabled in production even if the compatibility flag is set', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.ENABLE_LEGACY_FIREBASE_REGISTER = 'true';
+
+    const res = await request(buildApp())
+      .post('/firebase/register')
+      .send({
+        phone: '+919876543210',
+        name: 'Patient One',
+      });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
+    expect(res.body.error).toBe('Legacy Firebase registration is disabled. Use Firebase ID-token login.');
+    expect(res.body.code).toBe('FIREBASE_LEGACY_REGISTER_DISABLED');
+    expect(controllerMock.registerUser).not.toHaveBeenCalled();
+  });
+
+  it('allows legacy Firebase registration only when explicitly enabled outside production', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.ENABLE_LEGACY_FIREBASE_REGISTER = 'true';
+
+    const res = await request(buildApp())
+      .post('/firebase/register')
+      .send({
+        phone: '+919876543210',
+        name: 'Patient One',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(controllerMock.registerUser).toHaveBeenCalledTimes(1);
   });
 
   it('requires a local JWT before mutating profile data', async () => {
@@ -127,6 +163,9 @@ describe('firebase auth route protections', () => {
       });
 
     expect(res.statusCode).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toBe('Authenticated user does not match requested phone');
+    expect(res.body.error).toBe('Authenticated user does not match requested phone');
     expect(res.body.code).toBe('FIREBASE_PHONE_MISMATCH');
     expect(controllerMock.updateFcmToken).not.toHaveBeenCalled();
   });
@@ -196,11 +235,8 @@ describe('firebase auth route protections', () => {
     // The route hands the controller the JWT subject; the attacker-chosen uid
     // in the body never becomes the revocation target.
     expect(res.body.uid).toBe('550e8400-e29b-41d4-a716-446655440001');
+  });
 
-  // --- Admin device/token management block (routes/auth/firebaseAuthRoutes.js
-  // "firebaseAdminRoutes"). Previously 401-locked for every caller, including
-  // a valid admin JWT, because the block never applied jwtAuth of its own and
-  // the router is mounted before app.js's global jwtAuth. ---
   describe('firebaseAdminRoutes admin block', () => {
     const adminRoutes = [
       ['get', '/firebase/admin/users'],
@@ -219,14 +255,14 @@ describe('firebase auth route protections', () => {
       expect(res.statusCode).toBe(403);
     });
 
-    it('GET /admin/users reaches the handler for a valid admin JWT (200, not 401/500)', async () => {
+    it('GET /admin/users honestly reports Not Implemented for a valid admin JWT', async () => {
       const res = await request(buildApp())
         .get('/firebase/admin/users')
         .set('Authorization', 'Bearer admin-token');
 
-      expect(res.statusCode).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.users).toEqual([]);
+      expect(res.statusCode).toBe(501);
+      expect(res.body.success).toBe(false);
+      expect(res.body.data).toBeUndefined();
     });
 
     it('GET /admin/devices reaches the handler for a valid admin JWT (501 honest-not-implemented, not 401/200-fake)', async () => {

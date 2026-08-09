@@ -30,13 +30,7 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// ADMIN ROUTES - Full RBAC protection (ADMIN only).
-//
-// Mounted at /api/v1/auth/admin/otp (app.js, before the global
-// app.use(jwtAuth)), so wrapAutoRBAC's injected rbac(['ALL']) check needs its
-// own jwtAuth here — nothing upstream sets req.user for this mount. Same gap
-// and same fix as firebaseAuthRoutes.js's admin block; see adminAuthRoutes.js
-// / staffAuthRoutes.js for the established per-router pattern.
+// This router is mounted before the global JWT middleware.
 router.use(jwtAuth);
 router.use(enforceFullScope);
 
