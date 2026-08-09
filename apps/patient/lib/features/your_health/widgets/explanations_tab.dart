@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -165,13 +167,7 @@ class PatientExplainerDetailScreen extends StatefulWidget {
 
 class _PatientExplainerDetailScreenState
     extends State<PatientExplainerDetailScreen> {
-  late Future<PatientExplainer> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = widget.repository.getExplainer(widget.reviewId);
-  }
+  Future<PatientExplainer>? _future;
 
   void _retry() {
     setState(() {
@@ -183,7 +179,11 @@ class _PatientExplainerDetailScreenState
   Widget build(BuildContext context) {
     // FL-H1: deep-linkable records detail — gated like the /health hub.
     // The static grace window keeps hub -> detail from double-prompting.
-    return BiometricGate(builder: _buildUnlocked);
+    return BiometricGate(onGranted: _onUnlocked, builder: _buildUnlocked);
+  }
+
+  void _onUnlocked() {
+    _future ??= widget.repository.getExplainer(widget.reviewId);
   }
 
   Widget _buildUnlocked(BuildContext context) {
@@ -191,7 +191,7 @@ class _PatientExplainerDetailScreenState
     return Scaffold(
       appBar: AppBar(title: Text(l10n.yourHealthExplanationsDetailTitle)),
       body: FutureBuilder<PatientExplainer>(
-        future: _future,
+        future: _future!,
         initialData: widget.initialExplainer,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting &&

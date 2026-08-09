@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
@@ -99,6 +101,34 @@ void main() {
     expect(find.text('Review flag'), findsOneWidget);
     expect(find.text('Call the hospital if fever returns.'), findsOneWidget);
     expect(repository.detailRequests, 1);
+  });
+
+  testWidgets('detail fetch waits for biometric access to be granted', (
+    tester,
+  ) async {
+    final grant = Completer<bool>();
+    BiometricGate.debugDefaultAuthCheckOverride = (_) => grant.future;
+    final repository = _FakeExplainersRepository([_sampleExplainer()]);
+
+    await tester.pumpWidget(
+      _LocalizedHarness(
+        child: PatientExplainerDetailScreen(
+          reviewId: 42,
+          repository: repository,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.detailRequests, 0);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    grant.complete(true);
+    await tester.pumpAndSettle();
+
+    expect(repository.detailRequests, 1);
+    expect(find.text('Explanation'), findsOneWidget);
   });
 }
 

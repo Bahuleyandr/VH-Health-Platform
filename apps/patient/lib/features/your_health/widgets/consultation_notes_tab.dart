@@ -223,16 +223,7 @@ class _ConsultationNoteDetailScreenState
   bool _isLoading = true;
   String? _error;
   DateTime? _cachedAt;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _fetchNote();
-      }
-    });
-  }
+  bool _didUnlock = false;
 
   Future<void> _fetchNote() async {
     if (!mounted) return;
@@ -269,7 +260,13 @@ class _ConsultationNoteDetailScreenState
   Widget build(BuildContext context) {
     // FL-H1: deep-linkable records detail — gated like the /health hub.
     // The static grace window keeps hub -> detail from double-prompting.
-    return BiometricGate(builder: _buildUnlocked);
+    return BiometricGate(onGranted: _onUnlocked, builder: _buildUnlocked);
+  }
+
+  void _onUnlocked() {
+    if (_didUnlock) return;
+    _didUnlock = true;
+    unawaited(_fetchNote());
   }
 
   Widget _buildUnlocked(BuildContext context) {

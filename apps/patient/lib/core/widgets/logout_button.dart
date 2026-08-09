@@ -79,7 +79,7 @@ class LogoutButton extends StatelessWidget {
       if (context.mounted) {
         try {
           context.read<DependentsProvider>().clear();
-          context.read<UserProvider>().clear();
+          await context.read<UserProvider>().clear();
         } catch (_) {
           // Provider not in this subtree — ignore.
         }

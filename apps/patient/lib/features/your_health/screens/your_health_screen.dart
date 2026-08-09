@@ -68,6 +68,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   late TabController _tabController;
   bool _hasExplanationsTab = false;
   bool _didRequestExplainers = false;
+  bool _didUnlockProtectedData = false;
   List<PatientExplainer> _explainers = [];
 
   /// GlobalKey for the My Uploads tab so we can call showUploadSheet from the FAB.
@@ -110,13 +111,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       _tabController.index = tabIndex;
     }
 
-    if (!_isGuest) {
-      _fetchRecords();
-      if (!_didRequestExplainers) {
-        _didRequestExplainers = true;
-        _fetchExplainersPreview();
-      }
-    } else {
+    if (_isGuest) {
       setState(() {
         _isLoadingRecords = false;
       });
@@ -336,7 +331,20 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     // biometric lock (no-op when the Settings toggle is off). Guests have
     // no records to protect, so the guest view is not gated.
     if (_isGuest) return _buildUnlocked(context);
-    return BiometricGate(builder: _buildUnlocked);
+    return BiometricGate(
+      onGranted: _onProtectedDataUnlocked,
+      builder: _buildUnlocked,
+    );
+  }
+
+  void _onProtectedDataUnlocked() {
+    if (_didUnlockProtectedData) return;
+    _didUnlockProtectedData = true;
+    unawaited(_fetchRecords());
+    if (!_didRequestExplainers) {
+      _didRequestExplainers = true;
+      unawaited(_fetchExplainersPreview());
+    }
   }
 
   Widget _buildUnlocked(BuildContext context) {

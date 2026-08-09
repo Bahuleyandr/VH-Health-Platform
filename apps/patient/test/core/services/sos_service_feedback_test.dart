@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/services/sos_api_service.dart';
@@ -25,6 +27,26 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Emergency dispatch is unavailable'), findsOneWidget);
+  });
+
+  testWidgets('success is announced only after SOS dispatch completes', (
+    tester,
+  ) async {
+    final dispatch = Completer<void>();
+    SOSService.debugSetTriggerOverride(([context]) => dispatch.future);
+
+    await tester.pumpWidget(const _SosHarness());
+    await tester.tap(find.text('Trigger SOS'));
+    await tester.pump();
+
+    expect(find.text('Sending SOS alert…'), findsOneWidget);
+    expect(find.text('SOS alert has been triggered!'), findsNothing);
+
+    dispatch.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sending SOS alert…'), findsNothing);
+    expect(find.text('SOS alert has been triggered!'), findsOneWidget);
   });
 }
 
