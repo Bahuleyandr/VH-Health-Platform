@@ -79,6 +79,14 @@ async function cleanup() {
     `DELETE FROM appointment_queues WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     TENANT_A, TENANT_B,
   ).catch(() => {});
+  // Payment-link distribution over SMS records a notification_outbox intent
+  // (audit 2026-08-09 finding F7). Those rows FK to tenants, so they have to
+  // go before the users/tenants deletes below — otherwise the tenant delete
+  // fails silently (every statement here is .catch'd) and leaks across runs.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM notification_outbox WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+    TENANT_A, TENANT_B,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
     ...USER_UIDS,
@@ -373,8 +381,32 @@ d('NL-3 P4 teleconsult operational wrap-up deep coverage', () => {
     expect(created.status).toBe('created');
     expect(created.invoice_id).toBe(invoiceA);
     expect(created.link.invoice_id).toBe(invoiceA);
-    expect(created.link.status).toBe('sent');
-    expect(created.link.sent_via_sms_at).toBeTruthy();
+
+    // Audit 2026-08-09 finding F7. This assertion used to read
+    // `status === 'sent'` + a truthy `sent_via_sms_at`, which recorded a
+    // delivery that never happened: no SMS gateway is configured, so nothing
+    // left the box. The honest outcome for an SMS-only send is that the link
+    // is NOT stamped, and the delivery intent lands on the notification
+    // outbox instead — where the drain resolves it to
+    // rejected('sms_gateway_not_configured') rather than silently succeeding.
+    expect(created.link.status).toBe('created');
+    expect(created.link.sent_via_sms_at).toBeFalsy();
+    expect(created.sent).toBe(false);
+
+    const smsIntents = await prisma.$queryRawUnsafe(
+      `SELECT status, channel, recipient_phone
+         FROM notification_outbox
+        WHERE tenant_id = $1::uuid AND source_event_key = $2
+        ORDER BY id`,
+      TENANT_A,
+      `billing-payment-link:${created.link.id}`,
+    );
+    expect(smsIntents).toHaveLength(1);
+    expect(smsIntents[0]).toMatchObject({
+      channel: 'sms',
+      status: 'PENDING',
+      recipient_phone: '+919099990001',
+    });
 
     const reused = await createTeleconsultPostConsultPaymentLink({
       tenantId: TENANT_A,
@@ -390,6 +422,16 @@ d('NL-3 P4 teleconsult operational wrap-up deep coverage', () => {
       invoiceA,
     );
     expect(linkCount[0].n).toBe(1);
+
+    // Re-sending the same link re-renders the same intent, so the outbox
+    // delivery-intent uniqueness collapses it — one row, not one per resend.
+    const smsIntentsAfterReuse = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM notification_outbox
+        WHERE tenant_id = $1::uuid AND source_event_key = $2`,
+      TENANT_A,
+      `billing-payment-link:${created.link.id}`,
+    );
+    expect(smsIntentsAfterReuse[0].n).toBe(1);
 
     const apptB = await seedAppointment({ tenantId: TENANT_B, patientId: patientBId, doctorId: doctorBId, slot: '13:20' });
     const consultB = await seedTeleconsultation({
