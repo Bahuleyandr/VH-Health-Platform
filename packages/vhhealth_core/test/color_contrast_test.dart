@@ -74,6 +74,22 @@ void main() {
       );
     });
 
+    test('chooses the passing direction on a mid-tone background', () {
+      const midToneBackground = Color(0xFFAAAAAA);
+      const foreground = Color(0xFF888888);
+
+      final adjusted = ensureTextContrast(foreground, midToneBackground);
+
+      expect(
+        contrastRatio(adjusted, midToneBackground),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(
+        adjusted.computeLuminance(),
+        lessThan(foreground.computeLuminance()),
+      );
+    });
+
     test('honours a custom minimum ratio', () {
       const pastel = Color(0xFFA8E6CF);
       final adjusted = ensureTextContrast(
@@ -82,6 +98,24 @@ void main() {
         minRatio: 3.0,
       );
       expect(contrastRatio(adjusted, lightBackground), greaterThanOrEqualTo(3));
+    });
+
+    test('rejects impossible or non-finite minimum ratios', () {
+      for (final ratio in [0.9, 21.1, double.nan, double.infinity]) {
+        expect(
+          () => ensureTextContrast(Colors.black, Colors.white, minRatio: ratio),
+          throwsArgumentError,
+        );
+      }
+
+      expect(
+        () => ensureTextContrast(
+          const Color(0xFF888888),
+          const Color(0xFF888888),
+          minRatio: 21,
+        ),
+        throwsArgumentError,
+      );
     });
   });
 }

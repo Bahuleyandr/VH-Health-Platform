@@ -229,7 +229,9 @@ class AppTheme {
           surface: darkSurfaceColor,
           onSurface: darkOnSurfaceColor,
           error: errorColor,
-          onError: Colors.white,
+          // The bright error red passes as foreground on dark surfaces, while
+          // black is the accessible content colour on a solid error fill.
+          onError: Colors.black,
         );
 
     final textTheme = TextTheme(

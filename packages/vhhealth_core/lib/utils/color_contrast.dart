@@ -20,10 +20,10 @@ double contrastRatio(Color a, Color b) {
 /// Returns [foreground] unchanged when it already meets [minRatio] against
 /// [background]; otherwise returns the nearest same-hue colour that does.
 ///
-/// The adjustment walks HSL lightness away from the background (darker on
-/// light backgrounds, lighter on dark ones) in small steps until the ratio
-/// is met, preserving hue and saturation. Falls back to pure black/white,
-/// which maximises contrast when even the extreme lightness in-hue fails.
+/// The adjustment searches HSL lightness in both directions, preserving hue
+/// and saturation, and chooses the nearest colour that meets the ratio. This
+/// matters for mid-tone backgrounds, where luminance alone cannot safely
+/// predict whether a lighter or darker foreground will pass.
 ///
 /// Intended for accent/brand colours used as *text or icon* colour on a
 /// known backdrop — e.g. the pastel feature colours in the patient app,
@@ -33,20 +33,50 @@ Color ensureTextContrast(
   Color background, {
   double minRatio = 4.5,
 }) {
+  if (!minRatio.isFinite || minRatio < 1 || minRatio > 21) {
+    throw ArgumentError.value(
+      minRatio,
+      'minRatio',
+      'must be a finite WCAG contrast ratio between 1 and 21',
+    );
+  }
   if (contrastRatio(foreground, background) >= minRatio) return foreground;
 
-  final backgroundIsDark = background.computeLuminance() <= 0.5;
-  var hsl = HSLColor.fromColor(foreground);
-  const step = 0.05;
-  for (var i = 0; i < 40; i++) {
-    final lightness = backgroundIsDark
-        ? (hsl.lightness + step).clamp(0.0, 1.0)
-        : (hsl.lightness - step).clamp(0.0, 1.0);
-    hsl = hsl.withLightness(lightness);
-    final candidate = hsl.toColor();
-    if (contrastRatio(candidate, background) >= minRatio) return candidate;
+  final source = HSLColor.fromColor(foreground);
+
+  Color? nearestPassingColor(double targetLightness) {
+    final extreme = source.withLightness(targetLightness).toColor();
+    if (contrastRatio(extreme, background) < minRatio) return null;
+
+    var failing = source.lightness;
+    var passing = targetLightness;
+    for (var i = 0; i < 24; i++) {
+      final midpoint = (failing + passing) / 2;
+      final candidate = source.withLightness(midpoint).toColor();
+      if (contrastRatio(candidate, background) >= minRatio) {
+        passing = midpoint;
+      } else {
+        failing = midpoint;
+      }
+    }
+    return source.withLightness(passing).toColor();
   }
-  return backgroundIsDark
-      ? const Color(0xFFFFFFFF)
-      : const Color(0xFF000000);
+
+  final darker = nearestPassingColor(0);
+  final lighter = nearestPassingColor(1);
+  if (darker == null && lighter == null) {
+    throw ArgumentError.value(
+      minRatio,
+      'minRatio',
+      'cannot be achieved against the supplied background',
+    );
+  }
+  if (darker == null) return lighter!;
+  if (lighter == null) return darker;
+
+  final darkerDistance =
+      (HSLColor.fromColor(darker).lightness - source.lightness).abs();
+  final lighterDistance =
+      (HSLColor.fromColor(lighter).lightness - source.lightness).abs();
+  return darkerDistance <= lighterDistance ? darker : lighter;
 }

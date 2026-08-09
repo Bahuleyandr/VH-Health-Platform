@@ -70,6 +70,10 @@ void main() {
         contrastRatio(scheme.error, VhDesignTokens.coreBackgroundDark),
         greaterThanOrEqualTo(4.5),
       );
+      expect(
+        contrastRatio(scheme.onError, scheme.error),
+        greaterThanOrEqualTo(4.5),
+      );
     });
 
     test('coreLight token error matches the compliant on-surface red', () {
