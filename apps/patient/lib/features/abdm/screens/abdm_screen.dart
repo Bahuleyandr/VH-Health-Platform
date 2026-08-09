@@ -11,7 +11,11 @@ import 'package:vhhealth/core/services/abdm_api_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class AbdmScreen extends StatefulWidget {
-  const AbdmScreen({super.key});
+  const AbdmScreen({super.key, this.loadLinkage});
+
+  /// Overrides the `/abdm/my-abha` fetch. Tests only — production passes null
+  /// and the tab calls [AbdmApiService.getMyAbha].
+  final Future<AbhaLinkage> Function()? loadLinkage;
 
   @override
   State<AbdmScreen> createState() => _AbdmScreenState();
@@ -56,7 +60,10 @@ class _AbdmScreenState extends State<AbdmScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [_MyAbhaTab(), _ConsentRequestsTab()],
+              children: [
+                MyAbhaTab(loadLinkage: widget.loadLinkage),
+                const _ConsentRequestsTab(),
+              ],
             ),
           ),
         ],
@@ -67,16 +74,25 @@ class _AbdmScreenState extends State<AbdmScreen>
 
 // ─── My ABHA Tab ───
 
-class _MyAbhaTab extends StatefulWidget {
-  const _MyAbhaTab();
+/// Public so widget tests can drive its states directly, without standing up
+/// the whole screen (whose consent tab does its own network fetch).
+@visibleForTesting
+class MyAbhaTab extends StatefulWidget {
+  const MyAbhaTab({super.key, this.loadLinkage});
+
+  final Future<AbhaLinkage> Function()? loadLinkage;
 
   @override
-  State<_MyAbhaTab> createState() => _MyAbhaTabState();
+  State<MyAbhaTab> createState() => _MyAbhaTabState();
 }
 
-class _MyAbhaTabState extends State<_MyAbhaTab> {
-  bool _loading = false;
+class _MyAbhaTabState extends State<MyAbhaTab> {
+  // Starts true: the first frame is the spinner, never a momentary flash of the
+  // "not registered" prompt before the status is known.
+  bool _loading = true;
+  String? _loadError;
   String? _abhaNumber;
+  String? _abhaAddress;
   bool _showRegistration = false;
   bool _showOtpVerification = false;
 
@@ -97,18 +113,29 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
   }
 
   Future<void> _checkAbha() async {
-    final phone = context.read<UserProvider>().phone;
-    if (phone.isEmpty) return;
-
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
-      final result = await AbdmApiService.getPatientByAbha(phone);
+      final linkage = await (widget.loadLinkage ?? AbdmApiService.getMyAbha)();
       if (!mounted) return;
-      if (result != null && result['abhaNumber'] != null) {
-        setState(() => _abhaNumber = result['abhaNumber'] as String);
-      }
+      setState(() {
+        _abhaNumber = linkage.abhaNumber;
+        _abhaAddress = linkage.abhaAddress;
+      });
+    } on AbdmException catch (e) {
+      // Surface the failure. Swallowing it would render the registration form,
+      // which tells an already-linked patient to register a second ABHA.
+      if (mounted) setState(() => _loadError = e.message);
     } catch (e) {
       if (kDebugMode) debugPrint('ABDM check error: $e');
+      if (mounted) {
+        setState(
+          () => _loadError =
+              'Could not check your ABHA status. Please try again.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -200,7 +227,15 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
     final theme = Theme.of(context);
 
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        key: ValueKey('abha_loading'),
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    // Status unknown — say so and offer a retry, rather than guessing "unlinked"
+    if (_loadError != null) {
+      return _buildErrorState(theme);
     }
 
     // OTP verification step
@@ -213,18 +248,63 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
       return _buildRegistrationForm(theme);
     }
 
-    // Already registered — show ABHA card
-    if (_abhaNumber != null) {
+    // Already linked — show ABHA card (number, address, or both)
+    if (_abhaNumber != null || _abhaAddress != null) {
       return _buildAbhaCard(theme);
     }
 
-    // Not registered — show info + register button
+    // Not linked — show info + register button
     return _buildInfoCard(theme);
+  }
+
+  Widget _buildErrorState(ThemeData theme) {
+    return SingleChildScrollView(
+      key: const ValueKey('abha_error'),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Icon(Icons.cloud_off, size: 64, color: theme.colorScheme.error),
+          const SizedBox(height: 16),
+          Text(
+            'Could not check your ABHA status',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _loadError!,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "We can't tell whether you already have an ABHA linked, so "
+            'registration is hidden until this loads.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            key: const ValueKey('abha_retry'),
+            onPressed: _checkAbha,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildInfoCard(ThemeData theme) {
     final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
+      key: const ValueKey('abha_info'),
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
@@ -268,50 +348,67 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
 
   Widget _buildAbhaCard(ThemeData theme) {
     final l = AppLocalizations.of(context)!;
+    final abhaNumber = _abhaNumber;
+    final abhaAddress = _abhaAddress;
     return SingleChildScrollView(
+      key: const ValueKey('abha_card'),
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           Icon(Icons.verified, size: 64, color: theme.colorScheme.primary),
           const SizedBox(height: 16),
-          Text(l.abdmYourNumber, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Text(
-                      _abhaNumber!,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
+          if (abhaNumber != null) ...[
+            Text(l.abdmYourNumber, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        abhaNumber,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      textAlign: TextAlign.center,
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.copy),
-                    tooltip: 'Copy ABHA Number',
-                    onPressed: () {
-                      // PAT-9: Copy the ABHA number and schedule a clipboard
-                      // clear after 30 s so PHI does not linger in the
-                      // clipboard indefinitely (pastes into other apps, etc.).
-                      Clipboard.setData(ClipboardData(text: _abhaNumber!));
-                      _showSnackBar(
-                        'ABHA number copied — clipboard clears in 30 s',
-                      );
-                      Timer(const Duration(seconds: 30), () {
-                        Clipboard.setData(const ClipboardData(text: ''));
-                      });
-                    },
-                  ),
-                ],
+                    IconButton(
+                      icon: const Icon(Icons.copy),
+                      tooltip: 'Copy ABHA Number',
+                      onPressed: () {
+                        // PAT-9: Copy the ABHA number and schedule a clipboard
+                        // clear after 30 s so PHI does not linger in the
+                        // clipboard indefinitely (pastes into other apps, etc.).
+                        Clipboard.setData(ClipboardData(text: abhaNumber));
+                        _showSnackBar(
+                          'ABHA number copied — clipboard clears in 30 s',
+                        );
+                        Timer(const Duration(seconds: 30), () {
+                          Clipboard.setData(const ClipboardData(text: ''));
+                        });
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
+          ],
+          if (abhaAddress != null) ...[
+            const SizedBox(height: 16),
+            Text('ABHA Address', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              abhaAddress,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ],
       ),
     );

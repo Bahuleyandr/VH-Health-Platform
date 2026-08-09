@@ -389,6 +389,53 @@ class ABDMService {
   }
 
   /**
+   * Resolve the CALLING patient's own ABHA linkage state.
+   *
+   * Deliberately reads only the local linkage columns on `users` and never
+   * touches `abdmGateway` — every gateway-backed route 503s while ABDM
+   * credentials are unset, and a patient must still be able to see whether
+   * their account is already linked. Returns an honest empty state
+   * (`linked: false`) rather than 404 when the patient simply has no ABHA yet;
+   * a 404 here means "no such patient record", which is a different fact.
+   *
+   * Scoped with an explicit tenant predicate rather than relying on RLS, so the
+   * scoping holds in every environment and is observable from a test.
+   *
+   * @param {string} patientUid - Caller's own UUID (from the JWT, never a param)
+   * @returns {Object} { linked, abhaNumber, abhaAddress }
+   */
+  async getMyAbhaLinkage(patientUid, { tenantId = null } = {}) {
+    const tid = requireTenantId(tenantId);
+    if (!patientUid) {
+      throw AppError.badRequest('Patient UID is required', 'MISSING_PATIENT_UID');
+    }
+
+    const result = await prisma.$queryRawUnsafe(
+      `SELECT uid, abha_number, abha_address
+       FROM users
+       WHERE uid = $1::uuid
+         AND tenant_id = $2::uuid
+         AND role = 'PATIENT'
+         AND is_active = true
+       LIMIT 1`,
+      patientUid, tid
+    );
+
+    if (result.length === 0) {
+      throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
+    }
+
+    const abhaNumber = result[0].abha_number || null;
+    const abhaAddress = result[0].abha_address || null;
+
+    return {
+      linked: Boolean(abhaNumber || abhaAddress),
+      abhaNumber,
+      abhaAddress,
+    };
+  }
+
+  /**
    * Lookup a patient by their ABHA number.
    * @param {string} abhaNumber - ABHA number
    * @returns {Object} Patient record
