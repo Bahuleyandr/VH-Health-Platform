@@ -177,6 +177,58 @@ describe('recordApgar validation', () => {
   });
 });
 
+// BE-M1 (review 2026-08-09): clinical numerics on the ANC and labour-ward
+// writers are range-validated BEFORE any DB call — a garbled FHR of 15 or
+// 1600 must be a 400 (MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE), never a stored
+// clinical fact, because FHR / cervical findings drive intrapartum
+// escalation. Rejection, not clamping (mirrors recordFetalKick's kick_count
+// 0..999 guard in the same file).
+describe('recordAncVisit clinical range validation (BE-M1)', () => {
+  const base = { tenantId: T, pregnancy_id: 1, visit_date: '2026-08-01' };
+
+  it.each([
+    ['fetal_heart_rate_bpm', 15],
+    ['fetal_heart_rate_bpm', 1600],
+    ['fetal_heart_rate_bpm', 0],
+    ['fetal_heart_rate_bpm', 140.5], // int column — whole numbers only
+    ['fetal_heart_rate_bpm', 'garbled'],
+    ['gestational_age_weeks', 0],
+    ['gestational_age_weeks', 60],
+    ['fundal_height_cm', 2],
+    ['fundal_height_cm', 400],
+  ])('rejects out-of-range %s=%p before touching the DB', async (field, value) => {
+    await expect(
+      recordAncVisit({ ...base, [field]: value }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE',
+      message: expect.stringMatching(new RegExp(field, 'i')),
+    });
+  });
+});
+
+describe('admitToLabor clinical range validation (BE-M1)', () => {
+  const base = { tenantId: T, pregnancy_id: 1 };
+
+  it.each([
+    ['fetal_heart_rate_bpm', 15],
+    ['fetal_heart_rate_bpm', 1600],
+    ['cervix_dilation_cm', 15],
+    ['cervix_dilation_cm', -1],
+    ['cervix_effacement_pct', 150],
+    ['cervix_effacement_pct', 42.5], // int column — whole numbers only
+    ['gestational_age_weeks', 60],
+  ])('rejects out-of-range %s=%p before touching the DB', async (field, value) => {
+    await expect(
+      admitToLabor({ ...base, [field]: value }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE',
+      message: expect.stringMatching(new RegExp(field, 'i')),
+    });
+  });
+});
+
 describe('recordPostnatalVisit validation', () => {
   it('rejects missing delivery_id', async () => {
     await expect(

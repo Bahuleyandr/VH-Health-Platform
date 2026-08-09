@@ -29,8 +29,10 @@ import { createInvestigationOrder } from '../investigation/orderService.js';
 import { populateAuthorshipCareTeam } from '../security/careTeamPopulationService.js';
 import {
   recordCanonicalClinicalEvent,
+  recordClinicalAuditEvent,
   recordMedicationSafetyReviews,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { safeCanonical } from '../clinical/canonicalOperationalBridgeService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { publishOpChildResourceLinkedFromEncounterTx } from '../appointment/opChildResourceEventService.js';
 import { enrichMedicationsWithComposition } from '../pharmacy/compositionIdentityService.js';
@@ -587,11 +589,127 @@ function renderBlocker(b) {
   return String(b);
 }
 
+// Human-readable staff alert copy per post-commit integration stage. The MAR
+// copy is the load-bearing one: a medication order that commits with zero
+// scheduled doses is invisible on the ward MAR until someone schedules it
+// manually.
+const ORDER_INTEGRATION_FAILURE_ALERTS = {
+  mar_schedule: {
+    action: 'mar_scheduling_failed',
+    title: 'Medication order has NO scheduled MAR doses',
+    body: (order) => `MAR scheduling FAILED for medication order ${order.order_number} — no doses are on the drug chart. Schedule the doses manually and verify the order.`,
+  },
+  ward_indent: {
+    action: 'ward_indent_creation_failed',
+    title: 'Ward indent missing for medication order',
+    body: (order) => `Ward pharmacy indent creation FAILED for medication order ${order.order_number} — the ward stock request was not raised. Raise the indent manually.`,
+  },
+  integration_dispatch: {
+    action: 'order_integration_dispatch_failed',
+    title: 'Order downstream dispatch failed',
+    body: (order) => `Downstream integration dispatch FAILED for ${order.order_type} order ${order.order_number} — verify the receiving worklist (MAR / lab / radiology) picked the order up.`,
+  },
+};
+
+/**
+ * Durable escalation for a post-commit integration failure on a COMMITTED
+ * clinical order (review 2026-08-09, finding BE-H1). These hooks run after
+ * the order transaction committed — the order must stand — so a failure here
+ * previously left only a log line: a medication order could commit with zero
+ * scheduled MAR doses and no detector. Every swallow in the post-create
+ * integration region now escalates durably:
+ *
+ *   1. a notification_outbox alert to the relevant clinical staff (same
+ *      broadcast recipient/topic shape as the STAT push below) — durable,
+ *      retried by the outbox drain, deduplicated on source_event_key; and
+ *   2. a clinical_audit_events row (action_status 'failed', deterministic
+ *      idempotency key `clinical_orders:<id>:<stage>_failed`) via the
+ *      canonical helpers under the safeCanonical post-commit policy
+ *      (42P01 canonical-table-absent -> warn; any other fault -> ERROR log).
+ *
+ * The two attempts are INDEPENDENT — one failing never skips the other; if
+ * both fail, the logger.error trail remains as the last resort. Never
+ * throws. Exported for unit tests (precedent: buildMarEntryFromOrderDetails).
+ */
+export async function escalateOrderIntegrationFailure({ order, stage, err, deps = {} } = {}) {
+  const copy = ORDER_INTEGRATION_FAILURE_ALERTS[stage];
+  if (!order?.id || !copy) return { alertQueued: false, auditRecorded: false };
+  const outbox = deps.notificationOutbox || notificationOutbox;
+  const recordAudit = deps.recordClinicalAuditEvent || recordClinicalAuditEvent;
+  const runSafeCanonical = deps.safeCanonical || safeCanonical;
+
+  let alertQueued = false;
+  try {
+    const queued = await outbox.queue({
+      type: 'push',
+      recipientId: null, // broadcast to relevant clinical staff (STAT-push shape)
+      tenantId: order.tenant_id || null,
+      title: copy.title,
+      body: copy.body(order),
+      data: {
+        source_event_key: `clinical_orders:${order.id}:${stage}_failed:alert`,
+        order_id: order.id,
+        order_number: order.order_number,
+        order_type: order.order_type,
+        priority: order.priority,
+        patient_uid: order.patient_uid,
+        failure_stage: stage,
+        error_code: err?.code || null,
+      },
+      channel: 'clinical_alert',
+    }, { strict: true });
+    alertQueued = !!queued;
+  } catch (queueErr) {
+    logger.error(
+      `Order ${stage} failure alert could NOT be queued for order ${order.order_number}: ${queueErr.message}`,
+      { order_id: order.id, stage },
+    );
+  }
+
+  let auditRecorded = false;
+  await runSafeCanonical(`order ${stage} failure audit (order ${order.order_number})`, async () => {
+    const row = await recordAudit({
+      tenantId: order.tenant_id || null,
+      patientUid: order.patient_uid,
+      encounterId: order.encounter_id || null,
+      action: copy.action,
+      actionStatus: 'failed',
+      actorUid: order.ordered_by || null,
+      resourceType: 'clinical_order',
+      resourceTable: 'clinical_orders',
+      resourceId: String(order.id),
+      metadata: {
+        order_number: order.order_number,
+        order_type: order.order_type,
+        priority: order.priority,
+        failure_stage: stage,
+        error: err?.message || String(err),
+        error_code: err?.code || null,
+        alert_queued: alertQueued,
+      },
+      idempotencyKey: `clinical_orders:${order.id}:${stage}_failed`,
+    });
+    auditRecorded = !!row;
+    return row;
+  });
+
+  if (!alertQueued && !auditRecorded) {
+    // Last resort — both durable escalation channels failed.
+    logger.error(
+      `Order ${stage} failure escalation FULLY degraded for order ${order.order_number} — no outbox alert and no audit row persisted`,
+      { order_id: order.id, patient_uid: order.patient_uid, stage, error: err?.message },
+    );
+  }
+  return { alertQueued, auditRecorded };
+}
+
 /**
  * Post-commit best-effort side effects for a freshly created order: ward
  * indent for IPD medication orders, downstream integration dispatch, and
- * a STAT push. All failures are logged, never thrown — shared by the
- * single-order and bulk paths.
+ * a STAT push. Failures never throw (the committed order must stand), but
+ * they are no longer silent: each clinically meaningful swallow escalates
+ * durably via escalateOrderIntegrationFailure (outbox alert + failed audit
+ * row) — shared by the single-order and bulk paths.
  */
 async function dispatchPostCreateSideEffects(order) {
   if (order.order_type === 'medication') {
@@ -626,16 +744,23 @@ async function dispatchPostCreateSideEffects(order) {
   }
 
   if (order.order_type === 'medication' && order.encounter_id) {
-    await createWardIndentForClinicalMedicationOrder(order).catch((err) => {
+    await createWardIndentForClinicalMedicationOrder(order).catch(async (err) => {
+      // BE-H1: the order committed but the ward stock request was not raised —
+      // log loudly AND escalate durably (outbox alert + failed audit row).
       logger.error(`Failed to create ward indent for medication order ${order.order_number}: ${err.message}`);
+      await escalateOrderIntegrationFailure({ order, stage: 'ward_indent', err });
     });
   }
 
   // Dispatch integrations. Investigation materialization is awaited so
   // a freshly-saved lab order is present on the lab worklist by the time
   // the doctor sees the create response; other integrations stay best-effort.
-  const integrationDispatch = dispatchOrderIntegrations(order).catch((err) => {
+  // BE-H1: a dispatch failure that reaches this catch (the MAR-scheduling
+  // failure is escalated by its own inner catch and does not re-throw) is
+  // escalated durably — never just a log line.
+  const integrationDispatch = dispatchOrderIntegrations(order).catch(async (err) => {
     logger.error(`Order integration dispatch failed for order ${order.order_number}: ${err.message}`);
+    await escalateOrderIntegrationFailure({ order, stage: 'integration_dispatch', err });
   });
   if (order.order_type === 'investigation') {
     await integrationDispatch;
@@ -1075,12 +1200,19 @@ async function dispatchOrderIntegrations(order) {
       // MAR_SCHEDULE_DOSE_CEILING instead of silently truncating a long
       // duration to 14 days. This hook is post-commit best-effort (the order
       // itself must stand), so the refusal lands here — carry the error code
-      // and identifiers so the zero-MAR outcome is unambiguous in the logs,
-      // not a generic scheduling hiccup.
+      // and identifiers so the zero-MAR outcome is unambiguous in the logs.
       logger.error(
         `Failed to create MAR entries for order ${order.order_number}: ${err.message}`,
         { code: err?.code || null, order_id: order.id, patient_uid: order.patient_uid },
       );
+      // BE-H1 (review 2026-08-09): a log line is not a detector — a medication
+      // order that commits with ZERO scheduled doses simply disappears from the
+      // ward MAR. Escalate durably: a notification_outbox alert to clinical
+      // staff plus a clinical_audit_events 'failed' row (idempotency key
+      // clinical_orders:<id>:mar_schedule_failed), attempted independently so
+      // one channel failing never silences the other. Never throws — the
+      // committed order must stand.
+      await escalateOrderIntegrationFailure({ order, stage: 'mar_schedule', err });
     }
   }
 
