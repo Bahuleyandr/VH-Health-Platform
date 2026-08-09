@@ -9,7 +9,7 @@
 // Also pins that a positive sepsis screen is VISIBLE on the timeline (summary,
 // payload.sepsis_screen_positive, sepsis-screen-positive tag) and that a NEWS2
 // assessment with no caller-supplied scale locks the patient-level resolved
-// scale (users.news2_spo2_scale, migration 643) into the stored inputs.
+// scale (users.news2_spo2_scale, migration 646) into the stored inputs.
 //
 // Mechanism mirrors canonical-timeline-atomicity.deep.test.js (module-mocked
 // canonical writer, real Postgres tx). Self-skips without a DB.

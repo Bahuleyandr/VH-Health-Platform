@@ -9,7 +9,7 @@
 //     now delegates here (adapter pinned below).
 //   * Scale selection was caller-supplied per reading with no patient-level
 //     source of truth; resolveSpo2ScaleForPatient reads the new
-//     users.news2_spo2_scale flag (migration 643), defaulting to Scale 1.
+//     users.news2_spo2_scale flag (migration 646), defaulting to Scale 1.
 //
 // Correct Scale-2 SpO2 behavior (RCP): on room air 93-100% scores 0; the
 // elevated bands 93-94→1 / 95-96→2 / >=97→3 apply ONLY on supplemental O2.
@@ -129,7 +129,7 @@ describe('scale selection + normalization', () => {
   });
 });
 
-describe('resolveSpo2ScaleForPatient (users.news2_spo2_scale, migration 643)', () => {
+describe('resolveSpo2ScaleForPatient (users.news2_spo2_scale, migration 646)', () => {
   beforeEach(() => queryMock.mockReset());
 
   test('flag = 2 → Scale 2', async () => {

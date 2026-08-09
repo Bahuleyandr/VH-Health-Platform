@@ -40,7 +40,7 @@ export function normalizeSpo2Scale(value) {
 
 /**
  * Resolve which NEWS2 SpO2 scale applies to a patient from the patient-level
- * flag (users.news2_spo2_scale, migration 643 — set only for patients with a
+ * flag (users.news2_spo2_scale, migration 646 — set only for patients with a
  * documented hypercapnic-respiratory-failure risk, RCP NEWS2 Scale 2).
  * Fail-safe: any lookup problem scores on Scale 1 rather than blocking the
  * clinical write — Scale 1 never under-alarms.
@@ -390,7 +390,7 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
  * post-commit so the score is atomic with the vitals row.
  *
  * A caller-supplied spo2_scale (bedside clinical judgment) is honored after
- * validation; when absent the patient-level flag decides (migration 643).
+ * validation; when absent the patient-level flag decides (migration 646).
  *
  * The detail row + canonical timeline/audit pair commit in ONE transaction
  * (docs/CANONICAL_CLINICAL_TIMELINE.md): a failed canonical emit rolls back

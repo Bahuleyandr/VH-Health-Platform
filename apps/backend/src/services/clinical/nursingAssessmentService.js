@@ -201,7 +201,7 @@ export async function recordAssessment({
   }
 
   // NEWS2 with no caller-supplied scale: the patient-level flag decides
-  // (migration 643). The applied scale is locked into the stored inputs so
+  // (migration 646). The applied scale is locked into the stored inputs so
   // the persisted row stays reproducible even if the flag later changes
   // (scoring_version discipline — rows must not silently re-grade).
   let effectiveInputs = inputs ?? {};

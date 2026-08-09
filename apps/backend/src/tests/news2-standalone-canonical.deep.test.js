@@ -6,7 +6,7 @@
 // news2_scores tenant column default-stamped DEFAULT_TENANT_ID).
 //
 // Also pins the C-M7 patient-level scale resolution end-to-end: a patient whose
-// users.news2_spo2_scale flag (migration 643) is 2, on room air with SpO2 97,
+// users.news2_spo2_scale flag (migration 646) is 2, on room air with SpO2 97,
 // persists spo2_scale=2 and total_score=0 — NOT a 3-point red parameter.
 //
 // Mechanism mirrors canonical-timeline-atomicity.deep.test.js: the canonical

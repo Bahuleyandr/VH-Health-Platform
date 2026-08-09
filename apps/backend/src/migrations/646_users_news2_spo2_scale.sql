@@ -1,4 +1,4 @@
--- 643: patient-level NEWS2 SpO2 scale flag (C-M7).
+-- 646: patient-level NEWS2 SpO2 scale flag (C-M7).
 --
 -- RCP NEWS2 (2017): SpO2 Scale 2 (target saturation 88-92%) applies ONLY to
 -- patients with a clinically confirmed hypercapnic-respiratory-failure risk
