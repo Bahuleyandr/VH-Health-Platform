@@ -82,9 +82,9 @@ async function seedDirtyBed(bedNumber) {
 async function seedAssignedRequest(bedId) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO housekeeping_requests
-       (requester_id, requester_uid, location_text, request_type, urgency, description,
+       (requester_id, requester_uid, bed_id, location_text, request_type, urgency, description,
         status, assigned_to, assigned_to_uid, assigned_at, tenant_id, updated_at)
-     VALUES ($1::int, $2::uuid, $3, 'bed_cleaning', 'high', $4,
+     VALUES ($1::int, $2::uuid, $6::int, $3, 'bed_cleaning', 'high', $4,
              'assigned', $1::int, $2::uuid, NOW(), $5::uuid, NOW())
      RETURNING id, request_number, status`,
     staffId,
@@ -92,6 +92,7 @@ async function seedAssignedRequest(bedId) {
     WARD_NAME,
     `Bed turnover cleaning required for ${WARD_NAME}. bed_id=${bedId}.`,
     TENANT,
+    bedId,
   );
   requestIds.push(rows[0].id);
   return rows[0];

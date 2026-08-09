@@ -38,8 +38,10 @@ const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = randomUUID();
 const DISCHARGER_UID = randomUUID();
+const CLEANER_UID = randomUUID();
 const PATIENT_PHONE = `9000${String(Math.floor(Math.random() * 1e6)).padStart(6, '0')}`;
 const DISCHARGER_PHONE = `9000${String(Math.floor(Math.random() * 1e6)).padStart(6, '0')}`;
+const CLEANER_PHONE = `9000${String(Math.floor(Math.random() * 1e6)).padStart(6, '0')}`;
 const WARD_NAME = `BED-SLA-WARD-${randomUUID().slice(0, 6)}`;
 const BED_NO = `BD-SLA-${randomUUID().slice(0, 6)}`;
 
@@ -88,7 +90,7 @@ async function cleanupAll() {
   await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = $1`, BED_NO).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = $1`, WARD_NAME).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DISCHARGER_UID,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, DISCHARGER_UID, CLEANER_UID,
   ).catch(() => {});
 }
 
@@ -124,6 +126,11 @@ d('Bed cleaning-turnaround SLA atomicity (audit §3)', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
        VALUES ($1::uuid, $2, 'Bed SLA Discharger', 'NURSING_STAFF', true, $3::uuid, NOW())`,
       DISCHARGER_UID, DISCHARGER_PHONE, TENANT_ID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'Bed SLA Cleaner', 'HOUSEKEEPING_STAFF', true, $3::uuid, NOW())`,
+      CLEANER_UID, CLEANER_PHONE, TENANT_ID,
     );
     const w = await prisma.$queryRawUnsafe(
       `INSERT INTO wards (name, floor, total_beds) VALUES ($1, 1, 1) RETURNING id`, WARD_NAME,
@@ -182,7 +189,7 @@ d('Bed cleaning-turnaround SLA atomicity (audit §3)', () => {
 
     await bedService.markBedReady(bedId, {
       actorUid: DISCHARGER_UID,
-      cleanerId: DISCHARGER_UID, // direct attestation clears the proof-of-cleaning gate
+      cleanerId: CLEANER_UID, // direct attestation (validated housekeeping staff) clears the proof gate
       tenantId: TENANT_ID,
     });
 

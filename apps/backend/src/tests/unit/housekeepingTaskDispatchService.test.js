@@ -74,9 +74,11 @@ describe('housekeepingTaskDispatchService', () => {
         return [{
           id: 100,
           request_number: 'HKR-100',
-          assigned_to: params[6],
-          assigned_to_uid: params[7],
-          status: params[9],
+          bed_id: params[3],
+          patient_uid: params[4],
+          assigned_to: params[8],
+          assigned_to_uid: params[9],
+          status: params[11],
         }];
       }
       if (sql.includes('INSERT INTO housekeeping_request_recipients')) {
@@ -133,12 +135,32 @@ describe('housekeepingTaskDispatchService', () => {
     });
     expect(result.recipients.map(row => row.id)).toEqual([20, 30]);
 
+    const requesterLookup = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes('WHERE uid = $1::uuid')
+    );
+    expect(requesterLookup[0]).toContain('tenant_id = $2::uuid');
+    expect(requesterLookup[2]).toBe(TENANT_ID);
+
+    const rosterLookup = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes('staff_shift_roster_boards')
+    );
+    expect(rosterLookup[0]).toContain('b.tenant_id = $4::uuid');
+    expect(rosterLookup[4]).toBe(TENANT_ID);
+
+    const inchargeLookup = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes("role = 'HOUSEKEEPING_INCHARGE'")
+    );
+    expect(inchargeLookup[0]).toContain('tenant_id = $1::uuid');
+    expect(inchargeLookup[1]).toBe(TENANT_ID);
+
     const requestInsert = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
       sql.includes('INSERT INTO housekeeping_requests')
     );
     expect(requestInsert).toBeTruthy();
-    expect(requestInsert[3]).toBeNull();
-    expect(requestInsert.slice(1, 11)).toEqual(expect.arrayContaining([
+    expect(requestInsert[3]).toBeNull(); // zone_id (no matching zone)
+    expect(requestInsert[4]).toBe(42); // structured bed linkage (migration 645)
+    expect(requestInsert[5]).toBeNull(); // patient_uid (none passed)
+    expect(requestInsert.slice(1, 13)).toEqual(expect.arrayContaining([
       10,
       REQUESTER_UID,
       'ICU / ICU-001',
@@ -158,8 +180,11 @@ describe('housekeepingTaskDispatchService', () => {
       sql.includes('FROM housekeeping_requests') && sql.includes('COALESCE(status')
     );
     expect(dedupeLookup[0]).toMatch(/tenant_id = \$1::uuid/);
+    // Dedupe keys on the structured bed_id column, not the spoofable
+    // free-text "bed_id=N." description marker (Phase-3 B-L4).
+    expect(dedupeLookup[0]).toMatch(/bed_id = \$2::int/);
     expect(dedupeLookup[1]).toBe(TENANT_ID);
-    expect(dedupeLookup[2]).toBe('%bed_id=42.%');
+    expect(dedupeLookup[2]).toBe(42);
 
     const recipientInserts = prismaMock.$queryRawUnsafe.mock.calls.filter(([sql]) =>
       sql.includes('INSERT INTO housekeeping_request_recipients')
@@ -170,6 +195,7 @@ describe('housekeepingTaskDispatchService', () => {
       sql.includes('INSERT INTO notifications')
     );
     expect(notificationInsert).toBeTruthy();
+    expect(notificationInsert[1]).toBe(TENANT_ID);
     expect(notificationInsert[6]).toContain('"source":"bed_cleaning_dispatch"');
     expect(result.fanout.notification_count).toBe(2);
   });

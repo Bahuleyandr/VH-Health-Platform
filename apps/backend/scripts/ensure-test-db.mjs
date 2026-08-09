@@ -417,7 +417,7 @@ function ensureCompatibilityTables() {
     BEGIN
       ALTER TABLE beds DROP CONSTRAINT IF EXISTS beds_status_check;
       ALTER TABLE beds ADD CONSTRAINT beds_status_check
-        CHECK (status IN ('available', 'occupied', 'reserved', 'maintenance', 'cleaning'));
+        CHECK (status IN ('available', 'occupied', 'reserved', 'maintenance', 'cleaning', 'dirty'));
     END $$;
 
     ALTER TABLE beds

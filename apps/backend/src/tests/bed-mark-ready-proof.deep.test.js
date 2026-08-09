@@ -12,10 +12,18 @@
 //   1. Marking ready with NO proof (no cleaner, no ticket) is REJECTED and the
 //      bed stays 'cleaning'.
 //   2. A cleaningTicketId that is NOT resolved (still 'open') is REJECTED.
-//   3. A resolved cleaning ticket (status 'completed') lets the bed go ready AND
-//      the audit_logs row is present SYNCHRONOUSLY by the time the call returns
-//      (no setImmediate race).
+//   3. A resolved cleaning ticket (status 'completed', linked to THIS bed) lets
+//      the bed go ready AND the audit_logs row is present SYNCHRONOUSLY by the
+//      time the call returns (no setImmediate race).
 //   4. A cleanerId alone (direct attestation) is sufficient proof.
+//
+// Phase-3 B-M2 hardening, proven here too:
+//   5. A resolved ticket linked to a DIFFERENT bed is REJECTED (the ticket must
+//      cover the bed being readied — housekeeping_requests.bed_id, mig 645).
+//   6. A resolved ticket with NO bed linkage (e.g. a spoofed manual request) is
+//      REJECTED.
+//   7. A cleanerId that does not resolve to an active housekeeping staff member
+//      is REJECTED (arbitrary strings are not attestations).
 //
 // Self-isolating fixtures.
 
@@ -70,14 +78,14 @@ d('markBedReady proof-of-cleaning + synchronous audit (MEDIUM §4)', () => {
     await cleanup();
     const a = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
-       VALUES ($1::uuid, '9000088001', 'Bed Ready Actor', 'HOUSEKEEPING', true, $2::uuid, NOW())
+       VALUES ($1::uuid, '9000088001', 'Bed Ready Actor', 'HOUSEKEEPING_INCHARGE', true, $2::uuid, NOW())
        RETURNING id`,
       ACTOR_UID, TENANT_ID,
     );
     actorId = a[0].id;
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
-       VALUES ($1::uuid, '9000088002', 'Bed Cleaner', 'HOUSEKEEPING', true, $2::uuid, NOW())`,
+       VALUES ($1::uuid, '9000088002', 'Bed Cleaner', 'HOUSEKEEPING_STAFF', true, $2::uuid, NOW())`,
       CLEANER_UID, TENANT_ID,
     );
     const w = await prisma.$queryRawUnsafe(
@@ -103,24 +111,24 @@ d('markBedReady proof-of-cleaning + synchronous audit (MEDIUM §4)', () => {
   it('rejects an UNRESOLVED cleaning ticket (status open) — bed stays cleaning', async () => {
     const bedId = await makeCleaningBed('OPENTKT');
     const tkt = await prisma.$queryRawUnsafe(
-      `INSERT INTO housekeeping_requests (requester_id, location_text, request_type, status)
-       VALUES ($1, $2, 'cleaning', 'open') RETURNING id`,
-      actorId, `BRP-OPENTKT`,
+      `INSERT INTO housekeeping_requests (requester_id, bed_id, location_text, request_type, status)
+       VALUES ($1, $3, $2, 'bed_cleaning', 'open') RETURNING id`,
+      actorId, `BRP-OPENTKT`, bedId,
     );
     await expect(
       bedManagementService.markBedReady(bedId, {
         actorUid: ACTOR_UID, cleaningTicketId: tkt[0].id, tenantId: TENANT_ID,
       }),
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BED_READY_PROOF_UNRESOLVED' });
     expect(await bedStatus(bedId)).toBe('cleaning');
   });
 
-  it('a RESOLVED cleaning ticket lets the bed go ready AND writes the audit row synchronously', async () => {
+  it('a RESOLVED cleaning ticket linked to this bed lets it go ready AND writes the audit row synchronously', async () => {
     const bedId = await makeCleaningBed('DONETKT');
     const tkt = await prisma.$queryRawUnsafe(
-      `INSERT INTO housekeeping_requests (requester_id, location_text, request_type, status, completed_at)
-       VALUES ($1, $2, 'cleaning', 'completed', NOW()) RETURNING id`,
-      actorId, `BRP-DONETKT`,
+      `INSERT INTO housekeeping_requests (requester_id, bed_id, location_text, request_type, status, completed_at)
+       VALUES ($1, $3, $2, 'bed_cleaning', 'completed', NOW()) RETURNING id`,
+      actorId, `BRP-DONETKT`, bedId,
     );
     const bed = await bedManagementService.markBedReady(bedId, {
       actorUid: ACTOR_UID, cleaningTicketId: tkt[0].id, tenantId: TENANT_ID,
@@ -137,5 +145,56 @@ d('markBedReady proof-of-cleaning + synchronous audit (MEDIUM §4)', () => {
     });
     expect(bed.status).toBe('available');
     expect(await auditCount(bedId)).toBe(1);
+  });
+
+  it('rejects a resolved ticket linked to a DIFFERENT bed — proof must cover the bed being readied', async () => {
+    const bedId = await makeCleaningBed('MISMATCH-A');
+    const otherBedId = await makeCleaningBed('MISMATCH-B');
+    const tkt = await prisma.$queryRawUnsafe(
+      `INSERT INTO housekeeping_requests (requester_id, bed_id, location_text, request_type, status, completed_at)
+       VALUES ($1, $3, $2, 'bed_cleaning', 'completed', NOW()) RETURNING id`,
+      actorId, `BRP-MISMATCH`, otherBedId,
+    );
+    await expect(
+      bedManagementService.markBedReady(bedId, {
+        actorUid: ACTOR_UID, cleaningTicketId: tkt[0].id, tenantId: TENANT_ID,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BED_READY_PROOF_BED_MISMATCH' });
+    expect(await bedStatus(bedId)).toBe('cleaning');
+    expect(await auditCount(bedId)).toBe(0);
+  });
+
+  it('rejects a resolved ticket with NO bed linkage (spoofed free-text marker is not linkage)', async () => {
+    const bedId = await makeCleaningBed('SPOOF');
+    // A manual request whose description carries the legacy "bed_id=N." marker
+    // but was never dispatched for this bed — bed_id column stays NULL.
+    const tkt = await prisma.$queryRawUnsafe(
+      `INSERT INTO housekeeping_requests (requester_id, location_text, request_type, status, completed_at, description)
+       VALUES ($1, $2, 'cleaning', 'completed', NOW(), $3) RETURNING id`,
+      actorId, `BRP-SPOOF`, `Looks legit. bed_id=${bedId}.`,
+    );
+    await expect(
+      bedManagementService.markBedReady(bedId, {
+        actorUid: ACTOR_UID, cleaningTicketId: tkt[0].id, tenantId: TENANT_ID,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BED_READY_PROOF_BED_MISMATCH' });
+    expect(await bedStatus(bedId)).toBe('cleaning');
+  });
+
+  it('rejects a cleanerId that is not an active housekeeping staff member', async () => {
+    const bedId = await makeCleaningBed('BADCLEANER');
+    await expect(
+      bedManagementService.markBedReady(bedId, {
+        actorUid: ACTOR_UID, cleanerId: 'not-a-real-cleaner', tenantId: TENANT_ID,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BED_READY_CLEANER_INVALID' });
+    // A random uuid that matches no user is rejected the same way.
+    await expect(
+      bedManagementService.markBedReady(bedId, {
+        actorUid: ACTOR_UID, cleanerId: 'a6ed0000-0000-4000-8000-0000000000ff', tenantId: TENANT_ID,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'BED_READY_CLEANER_INVALID' });
+    expect(await bedStatus(bedId)).toBe('cleaning');
+    expect(await auditCount(bedId)).toBe(0);
   });
 });

@@ -1200,6 +1200,7 @@ model beds {
   wards                       wards?                        @relation(fields: [ward_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_beds_tenant")
   device_patient_associations device_patient_associations[]
+  housekeeping_requests       housekeeping_requests[]
 
   @@index([patient_id], map: "idx_beds_patient_id")
   @@index([status], map: "idx_beds_status")
@@ -13230,8 +13231,11 @@ model housekeeping_requests {
   created_at                                         DateTime?                         @default(now()) @db.Timestamptz(6)
   updated_at                                         DateTime?                         @default(now()) @db.Timestamptz(6)
   tenant_id                                          String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  bed_id                                             Int?
+  patient_uid                                        String?                           @db.Uuid
   housekeeping_request_recipients                    housekeeping_request_recipients[]
   housekeeping_request_updates                       housekeeping_request_updates[]
+  beds                                               beds?                             @relation(fields: [bed_id], references: [id], onUpdate: NoAction, map: "fk_housekeeping_requests_bed")
   tenants                                            tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_housekeeping_requests_tenant")
   users_housekeeping_requests_assigned_byTousers     users?                            @relation("housekeeping_requests_assigned_byTousers", fields: [assigned_by], references: [id], onUpdate: NoAction)
   users_housekeeping_requests_assigned_by_uidTousers users?                            @relation("housekeeping_requests_assigned_by_uidTousers", fields: [assigned_by_uid], references: [uid], onUpdate: NoAction)
@@ -13250,6 +13254,7 @@ model housekeeping_requests {
   @@index([requester_id, created_at], map: "idx_housekeeping_requests_requester")
   @@index([status, urgency], map: "idx_housekeeping_requests_status")
   @@index([tenant_id], map: "idx_housekeeping_requests_tenant_id")
+  @@index([tenant_id, bed_id], map: "idx_housekeeping_requests_bed", where: raw("(bed_id IS NOT NULL)"))
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.

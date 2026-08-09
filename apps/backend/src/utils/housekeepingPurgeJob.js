@@ -75,30 +75,46 @@ export async function purgeHousekeepingPhotos() {
     }
 
     // ── 3. Completed/verified requests older than 90 days ────────────────────
+    // Retention runs from RESOLUTION (completed/verified), not creation — a
+    // ticket that sat open for months still keeps its completion evidence for
+    // the full window after it was actually resolved.
     const expiredCompleted = await prisma.$queryRawUnsafe(`
       SELECT id, photo_key, completion_photo_key FROM housekeeping_requests
       WHERE status IN ('completed','verified','closed')
-        AND created_at < NOW() - $1::INTERVAL
+        AND (photo_key IS NOT NULL OR completion_photo_key IS NOT NULL)
+        AND COALESCE(completed_at, verified_at, created_at) < NOW() - $1::INTERVAL
     `, `${RETENTION.completed_request_days} days`);
 
     for (const row of expiredCompleted) {
-      const keysToDelete = [row.photo_key, row.completion_photo_key].filter(Boolean);
-      for (const key of keysToDelete) {
+      // Null a photo ref ONLY after its R2 delete succeeded. Nulling on a
+      // failed delete orphans the object in R2 forever (the key was the only
+      // pointer) while the DB claims it was purged.
+      const clearedColumns = [];
+      if (row.photo_key) {
         try {
-          await deleteObject(key);
+          await deleteObject(row.photo_key);
           purged++;
+          clearedColumns.push('photo_key = NULL', 'photo_url = NULL');
         } catch (e) {
-          logger.warn(`Failed to purge HK request photo ${key}: ${e.message}`);
+          logger.warn(`Failed to purge HK request photo ${row.photo_key}: ${e.message}`);
           errors++;
         }
       }
-      if (keysToDelete.length) {
-        await prisma.$queryRawUnsafe(`
-          UPDATE housekeeping_requests SET
-            photo_key = NULL, photo_url = NULL,
-            completion_photo_key = NULL, completion_photo_url = NULL
-          WHERE id = $1
-        `, row.id);
+      if (row.completion_photo_key) {
+        try {
+          await deleteObject(row.completion_photo_key);
+          purged++;
+          clearedColumns.push('completion_photo_key = NULL', 'completion_photo_url = NULL');
+        } catch (e) {
+          logger.warn(`Failed to purge HK request photo ${row.completion_photo_key}: ${e.message}`);
+          errors++;
+        }
+      }
+      if (clearedColumns.length) {
+        await prisma.$queryRawUnsafe(
+          `UPDATE housekeeping_requests SET ${clearedColumns.join(', ')} WHERE id = $1`,
+          row.id
+        );
       }
     }
 

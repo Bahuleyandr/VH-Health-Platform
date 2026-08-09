@@ -1,9 +1,10 @@
 import crypto from 'crypto';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
+  HOUSEKEEPING_SLA_MINUTES,
   ensureHousekeepingRequestRecipients,
   notifyHousekeepingRecipients,
   resolveHousekeepingRecipientsForTarget,
@@ -12,11 +13,19 @@ import {
   emitHousekeepingRequestRaised,
   emitHousekeepingRequestStatus,
 } from '../../services/clinical/canonicalOperationalBridgeService.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 
 // ─── SLA durations (minutes) ─────────────────────────────────────────────────
-const SLA_MINUTES = { urgent: 30, high: 120, normal: 240, low: 1440 };
+// Single shared table (housekeepingTaskDispatchService) — every entry point
+// (staff raise, admin create, bed-cleaning dispatch) must assign the same
+// urgency the same deadline.
+const SLA_MINUTES = HOUSEKEEPING_SLA_MINUTES;
 const ACTIVE_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
 const HOUSEKEEPING_ASSIGNABLE_ROLES = ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'];
+
+function requestTenantId(req) {
+  return requireTenantId(req.tenantId || req.user?.tenant_id || req.user?.tenantId);
+}
 
 // ─── Signature hash for proof of work ────────────────────────────────────────
 function generateSignature(staffId, zoneId, timestamp, photoKey) {
@@ -45,13 +54,12 @@ function requireZoneAdmin(req, res) {
   return false;
 }
 
+// Bed↔request linkage is the structured housekeeping_requests.bed_id column
+// (migration 645) written by the bed-cleaning dispatcher — NOT a free-text
+// "bed_id=N" marker parsed out of description/notes, which was user-suppliable
+// on the manual request endpoints and could point at any bed in any tenant.
 function extractLinkedBedId(requestRow = {}) {
-  const haystack = [requestRow.description, requestRow.notes, requestRow.location_text]
-    .filter(Boolean)
-    .join('\n');
-  const match = haystack.match(/\bbed_id\s*=\s*(\d+)\b/i);
-  if (!match) return null;
-  const bedId = Number.parseInt(match[1], 10);
+  const bedId = Number.parseInt(String(requestRow.bed_id ?? ''), 10);
   return Number.isInteger(bedId) && bedId > 0 ? bedId : null;
 }
 
@@ -59,12 +67,15 @@ async function markLinkedDirtyBedCleaning(requestRow, actorUid, db = prisma) {
   const bedId = extractLinkedBedId(requestRow);
   if (!bedId) return;
 
+  // Tenant-scoped: the linked bed must belong to the request's tenant.
   const updated = await db.$queryRawUnsafe(
     `UPDATE beds
         SET status = 'cleaning', updated_at = NOW()
       WHERE id = $1::int AND status = 'dirty'
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
       RETURNING id, status`,
-    bedId
+    bedId,
+    requestRow.tenant_id || null
   );
 
   if (!updated.length) return;
@@ -275,6 +286,7 @@ export const raiseRequest = async (req, res) => {
     const slaDueAt = new Date(Date.now() + slaMinutes * 60000).toISOString();
     const recipients = await resolveHousekeepingRecipientsForTarget({
       zoneId: zone_id || null,
+      tenantId: requestTenantId(req),
     });
     const primaryAssignee =
       recipients.find(row => row.recipient_kind !== 'incharge') ||
@@ -283,7 +295,7 @@ export const raiseRequest = async (req, res) => {
 
     // Phase 1 — request row, system update, recipient rows, and the canonical
     // timeline/audit emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const inserted = await tx.$queryRawUnsafe(
         `
       INSERT INTO housekeeping_requests
@@ -292,7 +304,8 @@ export const raiseRequest = async (req, res) => {
          assigned_to_uid, assigned_at, status, sla_due_at)
       VALUES ($1::int,$2::uuid,$3::int,$4,$5,$6,$7,$8,$9,$10,$11,$12::int,
               $13::uuid,$14::timestamptz,$15,$16::timestamptz)
-      RETURNING id, request_number, requester_id, requester_uid, zone_id, assigned_to,
+      RETURNING id, request_number, requester_id, requester_uid, zone_id, bed_id, patient_uid,
+        tenant_id, assigned_to,
         request_type, request_type as task_type, urgency, description, description as notes,
         status, completed_at, created_at, sla_due_at
     `,
@@ -342,6 +355,7 @@ export const raiseRequest = async (req, res) => {
     });
 
     await notifyHousekeepingRecipientsBestEffort('raise', {
+      tenantId: requestTenantId(req),
       requestId: result[0].id,
       recipients,
       title: 'Housekeeping request raised',
@@ -447,7 +461,7 @@ export const startRequest = async (req, res) => {
 
     // Phase 1 — status flip, linked bed flip, system update, and the canonical
     // emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests
@@ -467,8 +481,8 @@ export const startRequest = async (req, res) => {
            )
          )
          AND status IN ('assigned', 'open')
-      RETURNING id, request_number, requester_id, zone_id, assigned_to,
-        request_type, request_type as task_type, urgency, status, description,
+      RETURNING id, request_number, requester_id, zone_id, bed_id, patient_uid, tenant_id,
+        assigned_to, request_type, request_type as task_type, urgency, status, description,
         description as notes, completed_at, created_at, sla_due_at
     `,
         id,
@@ -555,7 +569,7 @@ export const completeRequest = async (req, res) => {
     // Phase 1 — completion update, system update, and the canonical emit
     // commit or roll back together. The WHERE re-checks the Phase-0 ownership
     // guard so a concurrent reassignment cannot slip through the gap.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests SET
@@ -576,8 +590,8 @@ export const completeRequest = async (req, res) => {
                AND hrr.staff_id = $6
           )
         )
-      RETURNING id, request_number, requester_id, zone_id, assigned_to,
-        request_type, request_type as task_type, status, description,
+      RETURNING id, request_number, requester_id, zone_id, bed_id, patient_uid, tenant_id,
+        assigned_to, request_type, request_type as task_type, status, description,
         description as notes, completed_at, created_at
     `,
         completion_notes || null,
@@ -923,7 +937,7 @@ export const delegateFloorAssignment = async (req, res) => {
       return error(res, 'zone_id or floor is required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await prisma.$transaction(async tx => {
+    const result = await setTenantTx(requestTenantId(req), async tx => {
       let sourceAssignment = null;
       if (close_existing) {
         const existing = await tx.$queryRawUnsafe(
@@ -1068,7 +1082,7 @@ export const assignRequest = async (req, res) => {
 
     // Phase 1 — assignment update, linked bed flip, system update, and the
     // canonical emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests SET
@@ -1076,7 +1090,8 @@ export const assignRequest = async (req, res) => {
         assigned_at = NOW(), assigned_by = $3, assigned_by_uid = $4::uuid,
         status = 'assigned', updated_at = NOW()
       WHERE id = $5::int AND status IN ('open','assigned')
-      RETURNING id, request_number, zone_id, assigned_to, assigned_to_uid,
+      RETURNING id, request_number, zone_id, bed_id, patient_uid, tenant_id,
+        assigned_to, assigned_to_uid,
         location_text, request_type, request_type as task_type, status, description,
         description as notes, completed_at, created_at
     `,
@@ -1171,14 +1186,15 @@ export const verifyRequest = async (req, res) => {
 
     // Phase 1 — verification update, system update, and the canonical emit
     // commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests
       SET status = 'verified', verified_by = $1, verified_by_uid = $2::uuid,
         verified_at = NOW(), updated_at = NOW()
       WHERE id = $3::int AND status = 'completed'
-      RETURNING id, request_number, zone_id, assigned_to, request_type,
+      RETURNING id, request_number, zone_id, bed_id, patient_uid, tenant_id,
+        assigned_to, request_type,
         request_type as task_type, status, description, description as notes,
         completed_at, created_at
     `,
@@ -1490,10 +1506,11 @@ export const adminCreateRequest = async (req, res) => {
       if (!assignedUser) return error(res, 'Assigned staff not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const slaMinutes = { urgent: 30, high: 60, normal: 120, low: 240 }[urgency] ?? 120;
+    const slaMinutes = SLA_MINUTES[urgency] ?? SLA_MINUTES.normal;
     const sla_due_at = new Date(Date.now() + slaMinutes * 60 * 1000).toISOString();
     const rosterRecipients = await resolveHousekeepingRecipientsForTarget({
       zoneId: zone_id || null,
+      tenantId: requestTenantId(req),
     });
     const recipients = [
       ...(assignedUser
@@ -1509,7 +1526,7 @@ export const adminCreateRequest = async (req, res) => {
 
     // Phase 1 — request row, recipient rows, system update, and the canonical
     // timeline/audit emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const inserted = await tx.$queryRawUnsafe(
         `
       INSERT INTO housekeeping_requests
@@ -1517,7 +1534,8 @@ export const adminCreateRequest = async (req, res) => {
          status, assigned_to, assigned_to_uid, assigned_at, assigned_by, assigned_by_uid, sla_due_at)
       VALUES ($1, $2::uuid, $3::int, $4, $5, $6, $7,
               $8, $9, $10::uuid, $11::timestamptz, $12, $13::uuid, $14::timestamptz)
-      RETURNING id, request_number, requester_id, requester_uid, zone_id, assigned_to,
+      RETURNING id, request_number, requester_id, requester_uid, zone_id, bed_id, patient_uid,
+        tenant_id, assigned_to,
         request_type, request_type as task_type, urgency, description, description as notes,
         status, completed_at, created_at, sla_due_at
     `,
@@ -1563,6 +1581,7 @@ export const adminCreateRequest = async (req, res) => {
     });
 
     await notifyHousekeepingRecipientsBestEffort('admin-create', {
+      tenantId: requestTenantId(req),
       requestId: result[0].id,
       recipients,
       title: 'Housekeeping request raised',
