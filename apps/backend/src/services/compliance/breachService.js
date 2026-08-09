@@ -15,7 +15,7 @@ import { requireTenantId } from '../tenant/tenantService.js';
 // off); crossTenant is the SUPER_ADMIN-only view and runs under the explicit
 // super-admin RLS bypass.
 
-export const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
+export const VALID_SEVERITIES = Object.freeze(['low', 'medium', 'high', 'critical']);
 
 // Valid status transitions — each key lists the statuses it can move to
 const VALID_TRANSITIONS = {
@@ -31,8 +31,15 @@ const VALID_TRANSITIONS = {
  * For high/critical severity, immediately queues admin notifications.
  */
 export async function reportBreach({ title, severity, description, affectedRecords, affectedPatientUids, phiInvolved, reportedBy, tenantId }) {
-  if (!title || !severity || !description) {
+  const cleanTitle = typeof title === 'string' ? title.trim() : '';
+  if (!cleanTitle || !severity || !description) {
     throw AppError.badRequest('title, severity and description are required');
+  }
+  if (cleanTitle.length > 255) {
+    throw AppError.badRequest('title must be at most 255 characters');
+  }
+  if (phiInvolved != null && typeof phiInvolved !== 'boolean') {
+    throw AppError.badRequest('phiInvolved must be a boolean');
   }
 
   if (!VALID_SEVERITIES.includes(severity)) {
@@ -49,12 +56,12 @@ export async function reportBreach({ title, severity, description, affectedRecor
                phi_involved, discovered_at, reported_by, status, created_at`,
 
       tid,
-      title,
+      cleanTitle,
       severity,
       description,
       affectedRecords || 0,
       affectedPatientUids || [],
-      Boolean(phiInvolved),
+      phiInvolved ?? false,
       reportedBy || null,
 
   );

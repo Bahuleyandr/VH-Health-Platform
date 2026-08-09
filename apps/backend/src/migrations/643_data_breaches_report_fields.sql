@@ -13,18 +13,29 @@
 -- report path without adding these columns would trade a silent write-loss
 -- bug for a hard crash.
 --
--- title is nullable: enforced as required at the application layer
--- (reportBreach validates it alongside severity/description), matching how
--- this table already leaves description/severity validation to the
--- service rather than a NOT NULL — a partially-entered breach record must
--- still be insertable by future write paths (e.g. an import) without
--- fighting a DB-level constraint. phi_involved defaults to false so it is
--- safe to add NOT NULL directly.
+-- title is required by every read surface. Backfill existing rows from their
+-- required description before applying NOT NULL so an older record cannot
+-- make the compliance list crash when it calls title.toLowerCase().
+-- phi_involved defaults to false so it is safe to add NOT NULL directly.
 
 BEGIN;
 
 ALTER TABLE data_breaches
   ADD COLUMN IF NOT EXISTS title VARCHAR(255),
   ADD COLUMN IF NOT EXISTS phi_involved BOOLEAN NOT NULL DEFAULT false;
+
+UPDATE data_breaches
+   SET title = LEFT(
+     COALESCE(
+       NULLIF(BTRIM(description), ''),
+       'Reported data breach ' || COALESCE(breach_id, id::text)
+     ),
+     255
+   )
+ WHERE title IS NULL
+    OR BTRIM(title) = '';
+
+ALTER TABLE data_breaches
+  ALTER COLUMN title SET NOT NULL;
 
 COMMIT;

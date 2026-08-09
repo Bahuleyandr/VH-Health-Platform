@@ -4507,7 +4507,7 @@ model data_breaches {
   dpa_id                          Int?
   cross_border_impact             Boolean                     @default(false)
   tenant_id                       String                      @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  title                           String?                     @db.VarChar(255)
+  title                           String                      @db.VarChar(255)
   phi_involved                    Boolean                     @default(false)
   data_processing_activities      data_processing_activities? @relation(fields: [dpa_id], references: [id], onUpdate: NoAction)
   tenants                         tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_data_breaches_tenant")

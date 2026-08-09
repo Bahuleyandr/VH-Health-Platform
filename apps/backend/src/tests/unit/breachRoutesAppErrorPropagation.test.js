@@ -144,6 +144,20 @@ describe('breach routes operational branch surfaces AppError code + details', ()
     expect(response.statusCode).toBe(409);
     expect(response.body.code).toBe('BREACH_DUPLICATE');
   });
+
+  test('POST /breach/report — rejects a string PHI flag before calling the service', async () => {
+    const response = await request(app)
+      .post('/api/v1/compliance/breach/report')
+      .send({
+        title: 'Unauthorised PHI export',
+        severity: 'high',
+        description: 'Unauthorised PHI export detected on the reporting node',
+        phi_involved: 'false',
+      });
+
+    expect(response.statusCode).toBe(400);
+    expect(reportBreachMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('breach routes non-operational tail still forwards to the global handler (R2)', () => {

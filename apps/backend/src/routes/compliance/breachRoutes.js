@@ -3,7 +3,7 @@
 // register + compliance dashboard (admin only).
 
 import { Router } from 'express';
-import { validationResult } from 'express-validator';
+import { body, validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import * as breachService from '../../services/compliance/breachService.js';
 import { VALID_SEVERITIES } from '../../services/compliance/breachService.js';
@@ -117,38 +117,49 @@ router.use(requireRole(...ADMIN_ROUTE_ROLES));
  * Report a new data breach.
  * Body: { title, severity, description, affected_records?, affected_patient_uids?, phi_involved?, reported_by? }
  */
-router.post('/breach/report', requiredString('title', 255), requiredString('description', 2000), requiredEnum('severity', VALID_SEVERITIES), validate, async (req, res, next) => {
-  try {
-    const { title, severity, description, affected_records, affected_patient_uids, phi_involved } = req.body;
+router.post(
+  '/breach/report',
+  requiredString('title', 255),
+  requiredString('description', 2000),
+  requiredEnum('severity', VALID_SEVERITIES),
+  body('phi_involved')
+    .optional({ nullable: true })
+    .isBoolean({ strict: true })
+    .withMessage('phi_involved must be a boolean'),
+  validate,
+  async (req, res, next) => {
+    try {
+      const { title, severity, description, affected_records, affected_patient_uids, phi_involved } = req.body;
 
-    if (!title || !severity || !description) {
-      return error(res, 'title, severity and description are required', 400);
+      if (!title || !severity || !description) {
+        return error(res, 'title, severity and description are required', 400);
+      }
+
+      const reportedBy = req.user?.uid || req.user?.id || null;
+
+      const breach = await breachService.reportBreach({
+        title,
+        severity,
+        description,
+        affectedRecords: affected_records,
+        affectedPatientUids: affected_patient_uids,
+        phiInvolved: phi_involved,
+        reportedBy,
+        tenantId: req.tenantId,
+      });
+
+      logger.info('Breach reported via API', { breach_id: breach.breach_id, admin_uid: reportedBy });
+
+      return success(res, breach, 'Data breach reported successfully', 201);
+    } catch (err) {
+      if (err.isOperational) {
+        return relayAppError(res, err, 'Failed to report breach');
+      }
+      logger.error('Failed to report breach:', { error: err.message });
+      next(err);
     }
-
-    const reportedBy = req.user?.uid || req.user?.id || null;
-
-    const breach = await breachService.reportBreach({
-      title,
-      severity,
-      description,
-      affectedRecords: affected_records,
-      affectedPatientUids: affected_patient_uids,
-      phiInvolved: phi_involved,
-      reportedBy,
-      tenantId: req.tenantId,
-    });
-
-    logger.info('Breach reported via API', { breach_id: breach.breach_id, admin_uid: reportedBy });
-
-    return success(res, breach, 'Data breach reported successfully', 201);
-  } catch (err) {
-    if (err.isOperational) {
-      return relayAppError(res, err, 'Failed to report breach');
-    }
-    logger.error('Failed to report breach:', { error: err.message });
-    next(err);
-  }
-});
+  },
+);
 
 /**
  * PUT /compliance/breach/:id/contain

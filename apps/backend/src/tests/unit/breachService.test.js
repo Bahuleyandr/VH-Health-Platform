@@ -98,6 +98,30 @@ describe('breach title + PHI-involved persistence (audit F3 follow-up)', () => {
     expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
 
+  it('rejects whitespace-only and overlong titles before querying', async () => {
+    await expect(reportBreach({
+      title: '   ',
+      severity: 'low',
+      description: 'x',
+    })).rejects.toThrow(/title.*required/);
+    await expect(reportBreach({
+      title: 'x'.repeat(256),
+      severity: 'low',
+      description: 'x',
+    })).rejects.toThrow(/at most 255/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-boolean PHI flag instead of coercing a false string to true', async () => {
+    await expect(reportBreach({
+      title: 'Lost laptop',
+      severity: 'low',
+      description: 'x',
+      phiInvolved: 'false',
+    })).rejects.toThrow(/phiInvolved must be a boolean/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
   it('inserts and returns title + phi_involved, defaulting phi_involved to false', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       breach_id: 'B-200',
