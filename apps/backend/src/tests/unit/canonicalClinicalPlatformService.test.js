@@ -5,7 +5,16 @@ const loggerWarnMock = jest.fn();
 const validatePrescriptionSafetyMock = jest.fn();
 const getLegacyPatientTimelineMock = jest.fn();
 
-const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
+// Transaction client handed to the prisma.$transaction callback — separate
+// from the base mock so tests can assert which statements ran inside the tx.
+const txQueryUnsafeMock = jest.fn();
+const __prismaTxMock = { $queryRawUnsafe: txQueryUnsafeMock };
+const transactionMock = jest.fn(async (fn) => fn(__prismaTxMock));
+
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryUnsafeMock,
+  $transaction: transactionMock,
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
@@ -57,6 +66,8 @@ const ACTOR = '33333333-3333-4333-8333-333333333333';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset().mockResolvedValue([]);
+  txQueryUnsafeMock.mockReset().mockResolvedValue([]);
+  transactionMock.mockClear();
   loggerWarnMock.mockReset();
   validatePrescriptionSafetyMock.mockReset().mockResolvedValue({ safe: true, warnings: [], blockers: [] });
   getLegacyPatientTimelineMock.mockReset().mockResolvedValue([]);
@@ -387,6 +398,92 @@ describe('canonical clinical platform service', () => {
       statusCode: 409,
       code: 'INVALID_ENCOUNTER_TRANSITION',
     });
+  });
+
+  it('runs the encounter UPDATE and canonical emits in one transaction when no client is supplied', async () => {
+    // getEncounter pre-check runs on the base client.
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: ENCOUNTER,
+      tenant_id: TENANT,
+      patient_uid: PATIENT,
+      status: 'open',
+    }]);
+    const updatedRow = {
+      id: ENCOUNTER,
+      tenant_id: TENANT,
+      patient_uid: PATIENT,
+      status: 'active',
+      updated_at: new Date('2026-08-09T10:00:00.000Z'),
+    };
+    txQueryUnsafeMock
+      .mockResolvedValueOnce([updatedRow])
+      .mockResolvedValueOnce([{ id: 'timeline-1' }])
+      .mockResolvedValueOnce([{ id: 'audit-1' }]);
+
+    const result = await transitionEncounter(ENCOUNTER, 'active', {
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: 'DOCTOR',
+    });
+
+    expect(result).toBe(updatedRow);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    // Base client only served the pre-check read; the UPDATE + both canonical
+    // emits all ran through the transaction client.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain('SELECT * FROM patient_encounters');
+    expect(txQueryUnsafeMock).toHaveBeenCalledTimes(3);
+    expect(txQueryUnsafeMock.mock.calls[0][0]).toContain('UPDATE patient_encounters');
+    expect(txQueryUnsafeMock.mock.calls[0][0]).toContain('AND status = $4::text');
+    expect(txQueryUnsafeMock.mock.calls[1][0]).toContain('clinical_timeline_events');
+    expect(txQueryUnsafeMock.mock.calls[2][0]).toContain('clinical_audit_events');
+  });
+
+  it('surfaces a conflict when the guarded UPDATE matches no row (concurrent transition)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: ENCOUNTER,
+      tenant_id: TENANT,
+      patient_uid: PATIENT,
+      status: 'open',
+    }]);
+    // The status changed between the pre-check read and the UPDATE, so the
+    // `AND status = $4` guard matches nothing.
+    txQueryUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(transitionEncounter(ENCOUNTER, 'active', {
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: 'DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'INVALID_ENCOUNTER_TRANSITION',
+    });
+    // No canonical emit was attempted after the failed guard.
+    expect(txQueryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates canonical emit failures instead of resolving null', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: ENCOUNTER,
+      tenant_id: TENANT,
+      patient_uid: PATIENT,
+      status: 'open',
+    }]);
+    txQueryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: ENCOUNTER,
+        tenant_id: TENANT,
+        patient_uid: PATIENT,
+        status: 'active',
+        updated_at: new Date('2026-08-09T10:00:00.000Z'),
+      }])
+      .mockRejectedValueOnce(new Error('timeline write failed'));
+
+    await expect(transitionEncounter(ENCOUNTER, 'active', {
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      actorRole: 'DOCTOR',
+    })).rejects.toThrow('timeline write failed');
   });
 
   it('lists canonical audit, SLA, and medication safety rows for an encounter', async () => {
