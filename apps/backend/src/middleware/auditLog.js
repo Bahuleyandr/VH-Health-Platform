@@ -337,8 +337,15 @@ export function excludesAuditRequestBody(cleanPath) {
 }
 
 // ─── Paths to skip entirely ──────────────────────────────────────────────────
+// '/pay/' is the public bill-payment landing page (audit F8). Its URL carries
+// the payment link_token, which IS the bearer credential for that link — the
+// same reason paymentLinkService never logs it. Auditing the path would persist
+// the credential into audit_logs (and the Winston file fallback), so this
+// unauthenticated read-only page is skipped outright. Matching is on '/pay/'
+// with the trailing slash, which no other route contains ('/payment-links/',
+// '/payroll/' etc. do not match).
 const SKIP_PATHS = [
-  '/health', '/ping', '/favicon',
+  '/health', '/ping', '/favicon', '/pay/',
 ];
 
 // GET-only paths that are too noisy to log (reads, not writes)

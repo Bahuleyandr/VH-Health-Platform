@@ -230,6 +230,7 @@ import sessionRoutes from './routes/sessionRoutes.js';
 // Billing & Invoicing
 import billingRoutes from './routes/billing/billingRoutes.js';
 import billingV2Routes from './routes/billing/billingV2Routes.js';
+import publicPaymentPageRoutes from './routes/billing/publicPaymentPageRoutes.js';
 import labRoutes from './routes/lab/labRoutes.js';
 import labIngestRoutes from './routes/lab/labIngestRoutes.js';
 import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
@@ -770,6 +771,19 @@ app.use('/api/v1/fhir', publicSmartFhirResourceRouter);
 // DB-audit during an outage, so access is Winston-file logged inside the router
 // instead.
 app.use('/downtime/static', genericLimiter, requireDowntimeAccess, staticDowntimeRoutes);
+
+// ====================================
+// PUBLIC PAYMENT LANDING PAGE (audit F8)
+// ====================================
+// The bill-payment URL we already SMS/WhatsApp/email to patients
+// (`${HOSPITAL_PAY_BASE_URL}/<token>` — paymentLinkService.sendPaymentLink).
+// Mounted BEFORE validateApiKey and jwtAuth because the recipient is a patient
+// in a mobile browser holding no credential but the token in the URL; the
+// token itself is the capability. It is a browser page, not a JSON API, so it
+// renders HTML rather than the success()/error() envelope. Rate-limited with
+// the patient profile — that limiter is the anti-enumeration control, and the
+// router answers unknown and malformed tokens with one identical page.
+app.use('/pay', patientRateLimiter, publicPaymentPageRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE
