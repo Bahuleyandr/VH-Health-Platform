@@ -4,12 +4,40 @@
 // autofill), H9 (inline error announced via live region), H10 (auto-submit
 // "Verifying..." announcement), M18 (OTP step transition announced), and
 // L5 (phone field autofill hint).
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/widgets/phone_input_field.dart';
+import 'package:vhhealth/features/auth/services/otp_service.dart';
 import 'package:vhhealth/features/auth/widgets/otp_ui_components.dart';
 import 'package:vhhealth/features/auth/widgets/otp_widget.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+
+class _FakeOtpService extends OtpService {
+  late Function(PhoneAuthCredential, String) _onAutoRetrieved;
+
+  @override
+  Future<void> sendOTP({
+    required String phoneNumber,
+    required Function(String) onCodeSent,
+    required Function(PhoneAuthCredential, String) onAutoRetrieved,
+    required Function(String) onError,
+  }) async {
+    _onAutoRetrieved = onAutoRetrieved;
+    onCodeSent('verification-id');
+  }
+
+  Future<void> autoRetrieve(String smsCode) async {
+    final credential = PhoneAuthProvider.credential(
+      verificationId: 'auto-verification-id',
+      smsCode: smsCode,
+    );
+    final result = _onAutoRetrieved(credential, smsCode);
+    if (result is Future<void>) await result;
+  }
+}
 
 void main() {
   Widget harness(Widget child) {
@@ -204,6 +232,44 @@ void main() {
   });
 
   group('Verifying announcement (audit H10)', () {
+    testWidgets('auto-retrieval performs one credential exchange', (
+      tester,
+    ) async {
+      final service = _FakeOtpService();
+      final allowAuthentication = Completer<void>();
+      var authenticationCalls = 0;
+
+      await tester.pumpWidget(
+        harness(
+          OtpWidget(
+            phoneNumber: '+919876543210',
+            onSuccess: () {},
+            otpService: service,
+            credentialHandler: (_) async {
+              authenticationCalls++;
+              await allowAuthentication.future;
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      final autoRetrieve = service.autoRetrieve('123456');
+      await tester.pump();
+
+      expect(authenticationCalls, 1);
+      expect(find.text('Verifying...'), findsOneWidget);
+
+      allowAuthentication.complete();
+      await autoRetrieve;
+      await tester.pump();
+
+      expect(authenticationCalls, 1);
+      expect(find.text('Verifying...'), findsNothing);
+      await tester.pump(const Duration(seconds: 5));
+    });
+
     testWidgets('verifying state swaps in a live-region "Verifying..."', (
       tester,
     ) async {

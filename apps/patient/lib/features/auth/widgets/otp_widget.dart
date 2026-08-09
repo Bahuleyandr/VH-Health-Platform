@@ -8,14 +8,21 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
 import 'dart:developer' as developer;
 
+typedef OtpCredentialHandler =
+    Future<void> Function(PhoneAuthCredential credential);
+
 class OtpWidget extends StatefulWidget {
   final String phoneNumber;
   final VoidCallback onSuccess;
+  final OtpService? otpService;
+  final OtpCredentialHandler? credentialHandler;
 
   const OtpWidget({
     super.key,
     required this.phoneNumber,
     required this.onSuccess,
+    this.otpService,
+    this.credentialHandler,
   });
 
   @override
@@ -25,7 +32,7 @@ class OtpWidget extends StatefulWidget {
 class _OtpWidgetState extends State<OtpWidget> {
   final TextEditingController otpController = TextEditingController();
   final _secureStorage = VHSecureStorage.instance;
-  final _otpService = OtpService();
+  late final OtpService _otpService;
 
   /// Returns a masked version of an E.164 phone number, keeping only the
   /// country code and last 2 digits visible.
@@ -60,6 +67,7 @@ class _OtpWidgetState extends State<OtpWidget> {
   @override
   void initState() {
     super.initState();
+    _otpService = widget.otpService ?? OtpService();
     // Post-frame: _sendOTP reads AppLocalizations (an inherited widget),
     // which cannot be looked up from initState.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -94,10 +102,22 @@ class _OtpWidgetState extends State<OtpWidget> {
         _showMessage("${l.otpOtpSentTo} ${_maskPhone(widget.phoneNumber)}");
       },
       onAutoRetrieved: (credential, smsCode) async {
-        if (!mounted) return;
+        if (!mounted || isVerifying) return;
+        setState(() {
+          isVerifying = true;
+          errorText = null;
+        });
+
+        // pin_code_fields invokes onChanged/onCompleted synchronously when
+        // controller.text changes. Set the single-flight guard first so the
+        // auto-retrieved credential cannot race a second manual exchange.
         otpController.text = smsCode;
         _showMessage(l.otpAutoFilled);
-        await _handleFirebaseAuthSuccess(credential);
+        try {
+          await _authenticate(credential);
+        } finally {
+          if (mounted) setState(() => isVerifying = false);
+        }
       },
       onError: (error) {
         _showMessage(error);
@@ -107,6 +127,8 @@ class _OtpWidgetState extends State<OtpWidget> {
   }
 
   Future<void> _verifyOTP() async {
+    if (isVerifying) return;
+
     final l = AppLocalizations.of(context)!;
     final otp = otpController.text.trim();
     if (otp.length != 6) {
@@ -129,13 +151,17 @@ class _OtpWidgetState extends State<OtpWidget> {
         verificationId: verificationId!,
         smsCode: otp,
       );
-      await _handleFirebaseAuthSuccess(credential);
+      await _authenticate(credential);
     } catch (e) {
       _setInlineError(l.otpInvalidTryAgain);
       developer.log("OTP verification error: $e", name: 'OtpWidget');
     }
 
     if (mounted) setState(() => isVerifying = false);
+  }
+
+  Future<void> _authenticate(PhoneAuthCredential credential) {
+    return (widget.credentialHandler ?? _handleFirebaseAuthSuccess)(credential);
   }
 
   Future<void> _handleFirebaseAuthSuccess(
