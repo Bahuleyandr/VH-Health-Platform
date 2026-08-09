@@ -12,7 +12,7 @@ import { AppError } from '../../utils/AppError.js';
 import { parseHL7 } from '../hl7/hl7Parser.js';
 import { obxResultsToVitals } from '../fhir/observationVitalsMapper.js';
 import { recordVitals } from './vitalsChartService.js';
-import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import {
   authenticateDeviceCredential,
   getActiveDeviceByCode,
@@ -30,6 +30,9 @@ import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecove
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEVICE_GATEWAY_ROLE = 'DEVICE_GATEWAY';
+const OBSERVED_AT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const HOSPITAL_TIME_ZONE = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+const TIME_ZONE_FORMATTERS = new Map();
 const NEWS2_RELEVANT_FIELDS = new Set([
   'heart_rate',
   'systolic_bp',
@@ -39,8 +42,96 @@ const NEWS2_RELEVANT_FIELDS = new Set([
   'consciousness',
 ]);
 
+function timeZoneFormatter(timeZone) {
+  if (!TIME_ZONE_FORMATTERS.has(timeZone)) {
+    TIME_ZONE_FORMATTERS.set(timeZone, new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }));
+  }
+  return TIME_ZONE_FORMATTERS.get(timeZone);
+}
+
+function wallClockToInstant({ year, month, day, hours, minutes, seconds, ms }, timeZone) {
+  const desired = Date.UTC(year, month - 1, day, hours, minutes, seconds, ms);
+  let candidate = desired;
+  let formatter;
+  try {
+    formatter = timeZoneFormatter(timeZone);
+  } catch {
+    return null;
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const date = new Date(candidate);
+    const parts = Object.fromEntries(
+      formatter.formatToParts(date)
+        .filter(({ type }) => type !== 'literal')
+        .map(({ type, value }) => [type, Number(value)]),
+    );
+    const rendered = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+      date.getUTCMilliseconds(),
+    );
+    const correction = desired - rendered;
+    candidate += correction;
+    if (correction === 0) return new Date(candidate);
+  }
+  return null;
+}
+
 /**
- * Extract patient uid + OBX observations from a parsed ORU message.
+ * Parse an HL7 v2 TS value — `YYYYMMDD[HH[MM[SS[.S+]]]][±ZZZZ]` — into a JS
+ * Date. An explicit ±ZZZZ offset is honored; offset-less timestamps are
+ * interpreted in the configured hospital timezone because bedside monitors
+ * are set to ward wall clocks. Returns null for empty/invalid input.
+ */
+export function parseHl7Timestamp(text, timeZone = HOSPITAL_TIME_ZONE) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+  const m = raw.match(
+    /^(\d{4})(\d{2})(\d{2})(?:(\d{2})(?:(\d{2})(?:(\d{2})(?:\.(\d+))?)?)?)?([+-]\d{4})?$/,
+  );
+  if (!m) return null;
+  const [, y, mo, d, hh, mm, ss, frac, offset] = m;
+  const year = Number(y);
+  const month = Number(mo);
+  const day = Number(d);
+  if (month < 1 || month > 12) return null;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) return null;
+  const hours = Number(hh ?? 0);
+  const minutes = Number(mm ?? 0);
+  const seconds = Number(ss ?? 0);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  const ms = frac ? Math.round(Number(`0.${frac}`) * 1000) : 0;
+  let date;
+  if (offset) {
+    const sign = offset[0] === '-' ? -1 : 1;
+    const offsetMinutes = sign * ((Number(offset.slice(1, 3)) * 60) + Number(offset.slice(3, 5)));
+    date = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms) - (offsetMinutes * 60 * 1000));
+  } else {
+    date = wallClockToInstant({ year, month, day, hours, minutes, seconds, ms }, timeZone);
+  }
+  return !date || Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Extract patient uid + OBX observations from a parsed ORU message, plus the
+ * device observation timestamp: the first valid OBX-14 across OBX segments,
+ * else OBR-7 from the first OBR segment, else null (`observedAt`), with
+ * `observedAtSource` naming which field supplied it ('obx14' | 'obr7' | null).
  * Pure given parseHL7 output — exported for unit tests.
  */
 export function extractVitalsFromOru(parsed) {
@@ -51,7 +142,8 @@ export function extractVitalsFromOru(parsed) {
   const candidate = String(rawId || '').split('^')[0].split('~')[0].trim();
   const patientUid = UUID_RE.test(candidate) ? candidate : null;
 
-  const observations = find('OBX').map((obx) => {
+  const obxSegments = find('OBX');
+  const observations = obxSegments.map((obx) => {
     const f = obx.fields || [];
     const codeField = String(f[3] ?? '');
     const code = codeField.split('^')[0].trim();
@@ -59,7 +151,26 @@ export function extractVitalsFromOru(parsed) {
     return { loinc_code: code, value_numeric: Number.parseFloat(value), value_text: value };
   }).filter((o) => o.loinc_code);
 
-  return { patientUid, observations };
+  let observedAt = null;
+  let observedAtSource = null;
+  for (const obx of obxSegments) {
+    const parsedTs = parseHl7Timestamp(obx.fields?.[14]);
+    if (parsedTs) {
+      observedAt = parsedTs;
+      observedAtSource = 'obx14';
+      break;
+    }
+  }
+  if (!observedAt) {
+    const obr = find('OBR')[0];
+    const parsedTs = parseHl7Timestamp(obr?.fields?.[7]);
+    if (parsedTs) {
+      observedAt = parsedTs;
+      observedAtSource = 'obr7';
+    }
+  }
+
+  return { patientUid, observations, observedAt, observedAtSource };
 }
 
 export function extractDeviceMessageMeta(parsed = {}) {
@@ -106,12 +217,14 @@ async function insertInterfaceMessage({
   message,
   status = 'received',
   errorText = null,
+  resultCount = null,
   verdicts = null,
-} = {}) {
-  const rows = await prisma.$queryRawUnsafe(
+} = {}, db = prisma) {
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO lab_interface_messages
-       (tenant_id, analyzer_code, direction, protocol, message_type, raw_message, status, error, verdicts, processed_at)
-     VALUES ($1::uuid, $2, 'inbound', 'hl7v2', 'ORU^VITALS', $3, $4::text, $5, $6::jsonb,
+       (tenant_id, analyzer_code, direction, protocol, message_type, raw_message, status, error,
+        result_count, verdicts, processed_at)
+     VALUES ($1::uuid, $2, 'inbound', 'hl7v2', 'ORU^VITALS', $3, $4::text, $5, $6::int, $7::jsonb,
              CASE WHEN $4::text IN ('ingested', 'failed') THEN NOW() ELSE NULL END)
      RETURNING id`,
     tenantId,
@@ -119,13 +232,14 @@ async function insertInterfaceMessage({
     String(message),
     status,
     errorText,
+    resultCount,
     verdicts ? JSON.stringify(verdicts) : null,
   );
   return Number(rows[0].id);
 }
 
-async function updateInterfaceMessage(messageId, { status, errorText = null, resultCount = null, verdicts = null } = {}) {
-  await prisma.$executeRawUnsafe(
+async function updateInterfaceMessage(messageId, { status, errorText = null, resultCount = null, verdicts = null } = {}, db = prisma) {
+  await db.$executeRawUnsafe(
     `UPDATE lab_interface_messages SET
        status = $2,
        result_count = $3::int,
@@ -166,38 +280,79 @@ async function findDeviceRegistry({ tenantId, deviceCode, context }) {
   return device;
 }
 
-async function markControlId({ tenantId, deviceId, controlId }) {
-  if (!controlId || !deviceId) return { duplicate: false, controlIdRowId: null };
+// C-M3: the control-id ledger is consulted (read-only) at the top of the
+// gateway branch and CONSUMED (inserted) only once the outcome of this
+// delivery is durable or definitive — charted vitals, or a deliberate
+// suppression. A transient failure leaves no row behind, so the gateway's
+// redelivery of the same control-id is re-processed instead of being
+// swallowed as a duplicate AA while the sample was never charted.
+async function isDuplicateControlId({ tenantId, deviceId, controlId }) {
+  if (!controlId || !deviceId) return false;
   await prisma.$executeRawUnsafe(
     `DELETE FROM device_vitals_control_ids WHERE expires_at < NOW()`,
   ).catch(() => {});
   const rows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM device_vitals_control_ids
+      WHERE tenant_id = $1::uuid
+        AND device_registry_id = $2
+        AND control_id = $3
+        AND expires_at >= NOW()
+      LIMIT 1`,
+    tenantId,
+    deviceId,
+    controlId,
+  );
+  return rows.length > 0;
+}
+
+async function consumeControlId({ tenantId, deviceId, controlId, messageId = null, db = prisma }) {
+  if (!controlId || !deviceId) return { consumed: false, conflict: false };
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO device_vitals_control_ids
-       (tenant_id, device_registry_id, control_id)
-     VALUES ($1::uuid, $2, $3)
+       (tenant_id, device_registry_id, control_id, interface_message_id)
+     VALUES ($1::uuid, $2, $3, $4::int)
      ON CONFLICT (tenant_id, device_registry_id, control_id) DO NOTHING
      RETURNING id`,
     tenantId,
     deviceId,
     controlId,
-  );
-  return { duplicate: rows.length === 0, controlIdRowId: rows[0]?.id ?? null };
-}
-
-async function linkControlId(rowId, messageId) {
-  if (!rowId || !messageId) return;
-  await prisma.$executeRawUnsafe(
-    `UPDATE device_vitals_control_ids
-        SET interface_message_id = $2
-      WHERE id = $1`,
-    rowId,
     messageId,
-  ).catch(() => {});
+  );
+  return { consumed: rows.length > 0, conflict: rows.length === 0 };
 }
 
-async function countSuppressed({ tenantId, deviceId, reason }) {
+async function linkControlIdMessage({ tenantId, deviceId, controlId, messageId, db }) {
+  const rows = await db.$queryRawUnsafe(
+    `UPDATE device_vitals_control_ids
+        SET interface_message_id = $4::int
+      WHERE tenant_id = $1::uuid
+        AND device_registry_id = $2
+        AND control_id = $3
+      RETURNING id`,
+    tenantId,
+    deviceId,
+    controlId,
+    messageId,
+  );
+  if (rows.length !== 1) {
+    throw AppError.internal(
+      'Device-vitals control ID could not be linked to its interface message',
+      'DEVICE_VITALS_CONTROL_ID_LINK_FAILED',
+    );
+  }
+}
+
+class ConcurrentControlIdError extends Error {
+  constructor() {
+    super('Device vitals control ID was consumed by a concurrent delivery');
+    this.name = 'ConcurrentControlIdError';
+  }
+}
+
+async function countSuppressed({ tenantId, deviceId, reason, db = prisma, strict = false }) {
   if (!deviceId || !reason) return;
-  await prisma.$executeRawUnsafe(
+  const write = db.$executeRawUnsafe(
     `INSERT INTO device_vital_suppression_counters (tenant_id, device_registry_id, reason, count, updated_at)
      VALUES ($1::uuid, $2, $3, 1, NOW())
      ON CONFLICT (tenant_id, device_registry_id, reason)
@@ -205,7 +360,12 @@ async function countSuppressed({ tenantId, deviceId, reason }) {
     tenantId,
     deviceId,
     reason,
-  ).catch((err) => logger.warn(`Device suppression counter failed: ${err?.message || err}`));
+  );
+  if (strict) {
+    await write;
+  } else {
+    await write.catch((err) => logger.warn(`Device suppression counter failed: ${err?.message || err}`));
+  }
 }
 
 async function latestDeviceVitals({ tenantId, patientUid, sourceDevice }) {
@@ -243,13 +403,21 @@ function withinChartingInterval(latest = null, intervalMinutes = 5) {
   return ageMs >= 0 && ageMs < intervalMinutes * 60 * 1000;
 }
 
-async function artifactVerdicts({ tenantId, device, patientUid, channel, candidates }) {
+async function artifactVerdicts({
+  tenantId,
+  device,
+  patientUid,
+  channel,
+  candidates,
+  db = prisma,
+  strict = false,
+}) {
   const verdicts = {};
   if (!device || candidates.length === 0) return verdicts;
   const required = Number(device.artifact_filter_required ?? 2);
   const windowSize = Number(device.artifact_filter_window ?? 3);
   for (const candidate of candidates) {
-    await prisma.$executeRawUnsafe(
+    const write = db.$executeRawUnsafe(
       `INSERT INTO device_vital_sample_observations
          (tenant_id, device_registry_id, patient_uid, channel, vital_name, severity, breached)
        VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, true)`,
@@ -259,8 +427,13 @@ async function artifactVerdicts({ tenantId, device, patientUid, channel, candida
       channel || '',
       candidate.vital_name,
       candidate.severity,
-    ).catch((err) => logger.warn(`Device artifact observation failed: ${err?.message || err}`));
-    const rows = await prisma.$queryRawUnsafe(
+    );
+    if (strict) {
+      await write;
+    } else {
+      await write.catch((err) => logger.warn(`Device artifact observation failed: ${err?.message || err}`));
+    }
+    const rows = await db.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS breached
          FROM (
            SELECT breached
@@ -284,16 +457,22 @@ async function artifactVerdicts({ tenantId, device, patientUid, channel, candida
     const corroborated = Number(rows[0]?.breached ?? 0) >= required;
     verdicts[candidate.vital_name] = { corroborated, required, window: windowSize };
     if (!corroborated) {
-      await countSuppressed({ tenantId, deviceId: device.id, reason: 'artifact_filter' });
+      await countSuppressed({
+        tenantId,
+        deviceId: device.id,
+        reason: 'artifact_filter',
+        db,
+        strict,
+      });
     }
   }
   return verdicts;
 }
 
-async function hasOpenRepeatAlert(patientId, candidate, windows) {
+async function hasOpenRepeatAlert(patientId, candidate, windows, db = prisma) {
   const fallback = candidate.severity === 'CRITICAL' ? 10 : 30;
   const windowMinutes = Number.parseInt(windows?.[candidate.severity] ?? fallback, 10) || fallback;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT id
        FROM clinical_alerts
       WHERE patient_id = $1::int
@@ -311,7 +490,16 @@ async function hasOpenRepeatAlert(patientId, candidate, windows) {
   return rows.length > 0;
 }
 
-async function buildAlertOptions({ tenantId, device, patientRow, patientUid, channel, vitals }) {
+async function buildAlertOptions({
+  tenantId,
+  device,
+  patientRow,
+  patientUid,
+  channel,
+  vitals,
+  db = prisma,
+  strict = false,
+}) {
   if (!device) return null;
   const candidates = await classifyVitalAnomalyCandidates(patientRow.id, vitalsForAlertCheck(vitals));
   const windows = {
@@ -319,8 +507,14 @@ async function buildAlertOptions({ tenantId, device, patientRow, patientUid, cha
     WARNING: Number(device.warning_suppression_window_minutes ?? 30),
   };
   for (const candidate of candidates) {
-    if (await hasOpenRepeatAlert(patientRow.id, candidate, windows)) {
-      await countSuppressed({ tenantId, deviceId: device.id, reason: 'repeat_window' });
+    if (await hasOpenRepeatAlert(patientRow.id, candidate, windows, db)) {
+      await countSuppressed({
+        tenantId,
+        deviceId: device.id,
+        reason: 'repeat_window',
+        db,
+        strict,
+      });
     }
   }
   return {
@@ -332,6 +526,8 @@ async function buildAlertOptions({ tenantId, device, patientRow, patientUid, cha
       patientUid,
       channel,
       candidates,
+      db,
+      strict,
     }),
   };
 }
@@ -347,7 +543,6 @@ async function shouldChartDeviceVitals({ tenantId, device, patientUid, sourceDev
   if (hasNews2RelevantDelta(vitals, latest)) {
     return { persist: true, reason: 'news2_delta', candidates };
   }
-  await countSuppressed({ tenantId, deviceId: device.id, reason: 'charting_interval' });
   return { persist: false, reason: 'charting_interval', candidates };
 }
 
@@ -406,11 +601,24 @@ export async function ingestDeviceVitals({
 
   const isGateway = gatewayContext(context);
   let messageId = null;
-  let controlIdRowId = null;
 
   try {
     const parsed = parseHL7(String(message));
-    const { patientUid: pidPatientUid, observations } = extractVitalsFromOru(parsed);
+    const {
+      patientUid: pidPatientUid,
+      observations,
+      observedAt: rawObservedAt,
+      observedAtSource: rawObservedAtSource,
+    } = extractVitalsFromOru(parsed);
+    // C-L5: stamp the vitals row with the device's observation time rather
+    // than the drain/receipt time. Guard against device clock skew — an
+    // observation timestamp more than 5 minutes in the future is ignored and
+    // the row falls back to the receipt time (NOW()).
+    const futureSkewMs = rawObservedAt ? rawObservedAt.getTime() - Date.now() : 0;
+    const observedAt = rawObservedAt && futureSkewMs <= OBSERVED_AT_MAX_FUTURE_SKEW_MS
+      ? rawObservedAt
+      : null;
+    const observedAtSource = observedAt ? rawObservedAtSource : 'receipt-fallback';
     const meta = extractDeviceMessageMeta(parsed);
     const normalizedDeviceCode = cleanText(deviceCode || meta.sourceDeviceCode, 120) || 'monitor';
     const normalizedChannel = cleanText(channel || meta.channel, 80) || '';
@@ -428,12 +636,14 @@ export async function ingestDeviceVitals({
         status: 'received',
       });
     } else {
-      const control = await markControlId({
+      // C-M3: duplicate CHECK only — the control-id is consumed later, once
+      // the outcome is durable (charted) or definitive (suppressed).
+      const duplicate = await isDuplicateControlId({
         tenantId,
         deviceId: device.id,
         controlId: meta.controlId,
       });
-      if (control.duplicate) {
+      if (duplicate) {
         await countSuppressed({ tenantId, deviceId: device.id, reason: 'duplicate_control_id' });
         return {
           duplicate: true,
@@ -443,7 +653,6 @@ export async function ingestDeviceVitals({
           unmapped: [],
         };
       }
-      controlIdRowId = control.controlIdRowId;
     }
 
     const resolved = isGateway
@@ -485,6 +694,33 @@ export async function ingestDeviceVitals({
         patientRow,
       });
       if (!chartDecision.persist) {
+        const consumed = await setTenantTx(tenantId, async (tx) => {
+          const outcome = await consumeControlId({
+            tenantId,
+            deviceId: device.id,
+            controlId: meta.controlId,
+            db: tx,
+          });
+          if (outcome.conflict) return false;
+          await countSuppressed({
+            tenantId,
+            deviceId: device.id,
+            reason: chartDecision.reason,
+            db: tx,
+            strict: true,
+          });
+          return true;
+        });
+        if (!consumed) {
+          await countSuppressed({ tenantId, deviceId: device.id, reason: 'duplicate_control_id' });
+          return {
+            duplicate: true,
+            ack: 'AA',
+            control_id: meta.controlId,
+            mapped: [],
+            unmapped: [],
+          };
+        }
         return {
           suppressed: true,
           reason: chartDecision.reason,
@@ -494,49 +730,99 @@ export async function ingestDeviceVitals({
           unmapped: mapping.unmapped,
         };
       }
-      messageId = await insertInterfaceMessage({
-        tenantId,
-        deviceCode: normalizedDeviceCode,
-        message,
-        status: 'received',
-      });
-      await linkControlId(controlIdRowId, messageId);
       await touchDeviceSeen({ tenantId, id: device.id });
     }
 
-    const alertOptions = await buildAlertOptions({
-      tenantId,
-      device,
-      patientRow,
-      patientUid: resolved.patientUid,
-      channel: normalizedChannel,
-      vitals: mapping.vitals,
+    const buildSuccessVerdicts = (vitals, news2) => ({
+      mapped: mapping.mapped,
+      unmapped: mapping.unmapped,
+      vitals_chart_id: vitals.id,
+      news2: news2 ? { total: news2.total_score ?? news2.totalScore ?? null } : null,
+      control_id: meta.controlId,
+      device_registry_id: device?.id ?? null,
+      association_id: resolved.association?.id ?? null,
+      // Receipt-vs-observation audit trail: the lab_interface_messages row's
+      // own timestamps stay the receipt time; the verdicts carry the device
+      // observation time actually stamped on the vitals row (null when the
+      // receipt fallback was used) and which source supplied it.
+      observed_at: observedAt ? observedAt.toISOString() : null,
+      observed_at_source: observedAtSource,
     });
 
-    const result = await recordVitals({
-      tenant_id: tenantId,
-      patient_uid: resolved.patientUid,
-      ...mapping.vitals,
-      source: 'device',
-      source_device: normalizedDeviceCode,
-      notes: `Device ORU ingest (${mapping.mapped.join(', ')})`,
-      recorded_by: context.actorUid,
-      alertOptions,
-    });
+    let result;
+    try {
+      result = await recordVitals({
+        tenant_id: tenantId,
+        patient_uid: resolved.patientUid,
+        ...mapping.vitals,
+        source: 'device',
+        source_device: normalizedDeviceCode,
+        notes: `Device ORU ingest (${mapping.mapped.join(', ')})`,
+        recorded_by: context.actorUid,
+        // C-L5: device observation time (OBX-14 / OBR-7) when present and sane;
+        // undefined falls back to NOW() (receipt time) inside recordVitals.
+        ...(observedAt ? { recorded_at: observedAt } : {}),
+      }, isGateway ? {
+        beforeWrite: async ({ tx }) => {
+          const consumed = await consumeControlId({
+            tenantId,
+            deviceId: device.id,
+            controlId: meta.controlId,
+            db: tx,
+          });
+          if (consumed.conflict) throw new ConcurrentControlIdError();
+          const alertOptions = await buildAlertOptions({
+            tenantId,
+            device,
+            patientRow,
+            patientUid: resolved.patientUid,
+            channel: normalizedChannel,
+            vitals: mapping.vitals,
+            db: tx,
+            strict: true,
+          });
+          return { alertOptions };
+        },
+        beforeCommit: async ({ tx, vitals, news2 }) => {
+          const atomicMessageId = await insertInterfaceMessage({
+            tenantId,
+            deviceCode: normalizedDeviceCode,
+            message,
+            status: 'ingested',
+            resultCount: mapping.mapped.length,
+            verdicts: buildSuccessVerdicts(vitals, news2),
+          }, tx);
+          await linkControlIdMessage({
+            tenantId,
+            deviceId: device.id,
+            controlId: meta.controlId,
+            messageId: atomicMessageId,
+            db: tx,
+          });
+          messageId = atomicMessageId;
+        },
+      } : undefined);
+    } catch (err) {
+      if (err instanceof ConcurrentControlIdError) {
+        messageId = null;
+        await countSuppressed({ tenantId, deviceId: device.id, reason: 'duplicate_control_id' });
+        return {
+          duplicate: true,
+          ack: 'AA',
+          control_id: meta.controlId,
+          mapped: [],
+          unmapped: [],
+        };
+      }
+      throw err;
+    }
 
-    if (messageId) {
+    const successVerdicts = buildSuccessVerdicts(result.vitals, result.news2);
+    if (!isGateway && messageId) {
       await updateInterfaceMessage(messageId, {
         status: 'ingested',
         resultCount: mapping.mapped.length,
-        verdicts: {
-          mapped: mapping.mapped,
-          unmapped: mapping.unmapped,
-          vitals_chart_id: result.vitals.id,
-          news2: result.news2 ? { total: result.news2.total_score ?? result.news2.totalScore ?? null } : null,
-          control_id: meta.controlId,
-          device_registry_id: device?.id ?? null,
-          association_id: resolved.association?.id ?? null,
-        },
+        verdicts: successVerdicts,
       });
     }
 
@@ -551,13 +837,10 @@ export async function ingestDeviceVitals({
       control_id: meta.controlId,
     };
   } catch (err) {
-    if (controlIdRowId && err instanceof AppError && err.code === 'DEVICE_NOT_ASSOCIATED') {
-      await linkControlId(controlIdRowId, err.details?.interface_message_id || messageId);
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM device_vitals_control_ids WHERE id = $1`,
-        controlIdRowId,
-      ).catch(() => {});
-    }
+    // C-M3: the control-id claim rolls back with any pre-commit failure, so the
+    // gateway can retry when no durable outcome exists. DEVICE_NOT_ASSOCIATED
+    // still parks its failed, replayable interface message (written inside
+    // resolveGatewayPatient).
     if (messageId) {
       await updateInterfaceMessage(messageId, {
         status: 'failed',
@@ -713,40 +996,67 @@ export async function listUnverifiedDeviceVitals({ patientUid = null, limit = 50
   );
 }
 
-/** Clinician verification of a device vitals row (audited). */
+/**
+ * Clinician verification of a device vitals row.
+ *
+ * Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+ * the vitals_chart flip + one clinical_timeline_events row + one
+ * clinical_audit_events row persist in the SAME transaction.
+ * recordCanonicalClinicalEvent throws in-tx (CANONICAL_TIMELINE_REQUIRED /
+ * CANONICAL_AUDIT_REQUIRED) when either canonical write does not land, so a
+ * failed canonical pair rolls the verification flip back rather than leaving
+ * the timeline/audit layer out of sync. Verification is one-shot — the
+ * device_verified=false guard makes a second call NOT_FOUND — so the
+ * insert-once idempotency key is correct.
+ */
 export async function verifyDeviceVitals(vitalsId, context = {}) {
   if (!context.actorUid) throw AppError.unauthorized('Verifier identity missing');
   if (!context.tenantId) throw AppError.badRequest('tenantId is required', 'DEVICE_VITALS_NO_TENANT');
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE vitals_chart SET
-       device_verified = true, verified_by = $2::uuid, verified_at = NOW()
-     WHERE id = $1 AND source = 'device' AND device_verified = false AND tenant_id = $3::uuid
-     RETURNING id, patient_uid, source_device, device_verified, verified_at`,
-    vitalsId,
-    context.actorUid,
-    context.tenantId,
-  );
-  if (!rows.length) {
-    throw AppError.notFound('Unverified device vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
-  }
-  const row = rows[0];
-  await recordClinicalAuditEvent({
-    tenantId: context.tenantId,
-    patientUid: row.patient_uid,
-    action: 'vitals.device_verified',
-    actorUid: context.actorUid,
-    actorRole: context.actorRole || null,
-    resourceType: 'vitals',
-    resourceTable: 'vitals_chart',
-    resourceId: String(row.id),
-    afterState: { device_verified: true },
-    metadata: { source_device: row.source_device },
-    idempotencyKey: `vitals_chart:${row.id}:device_verified`,
+  return setTenantTx(context.tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE vitals_chart SET
+         device_verified = true, verified_by = $2::uuid, verified_at = NOW()
+       WHERE id = $1 AND source = 'device' AND device_verified = false AND tenant_id = $3::uuid
+       RETURNING id, patient_uid, source_device, device_verified, verified_at`,
+      vitalsId,
+      context.actorUid,
+      context.tenantId,
+    );
+    if (!rows.length) {
+      throw AppError.notFound('Unverified device vitals row not found', 'DEVICE_VITALS_NOT_FOUND');
+    }
+    const row = rows[0];
+    const idempotencyKey = `vitals_chart:${row.id}:device_verified`;
+    await recordCanonicalClinicalEvent({
+      tenantId: context.tenantId,
+      patientUid: row.patient_uid,
+      eventType: 'vitals.device_verified',
+      eventStatus: 'verified',
+      sourceTable: 'vitals_chart',
+      sourceId: String(row.id),
+      resourceType: 'vitals',
+      resourceTable: 'vitals_chart',
+      resourceId: String(row.id),
+      actorUid: context.actorUid,
+      actorRole: context.actorRole || null,
+      summary: `Device vitals verified (${row.source_device || 'monitor'})`,
+      payload: {
+        vitals_chart_id: row.id,
+        source_kind: 'device',
+        verification_status: 'verified',
+      },
+      afterState: { device_verified: true },
+      metadata: { source_device: row.source_device },
+      tags: ['vitals', 'device-synced', 'verified'],
+      timelineIdempotencyKey: idempotencyKey,
+      auditIdempotencyKey: idempotencyKey,
+    }, { db: tx });
+    return row;
   });
-  return row;
 }
 
 export default {
+  parseHl7Timestamp,
   extractVitalsFromOru,
   extractDeviceMessageMeta,
   ingestDeviceVitals,

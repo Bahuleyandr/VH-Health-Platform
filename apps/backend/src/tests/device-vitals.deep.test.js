@@ -5,8 +5,9 @@
 // verifies it (audited), and failures stay replayable in the interface
 // inbox.
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenant } from '../lib/prisma.js';
 import { authClient } from './testClient.js';
+import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 import { extractVitalsFromOru } from '../services/emr/deviceVitalsService.js';
 import { parseHL7 } from '../services/hl7/hl7Parser.js';
 
@@ -28,9 +29,48 @@ const oruFor = (uid) => [
 ].join('\r');
 
 async function cleanup() {
+  const patients = await prisma.$queryRawUnsafe(
+    `SELECT uid, tenant_id FROM users WHERE name = 'C5TEST Patient'`,
+  ).catch(() => []);
+  const patientUids = patients.map((row) => row.uid);
   await prisma.$executeRawUnsafe(
     `DELETE FROM lab_interface_messages WHERE raw_message LIKE '%C5TESTMON%'`,
   ).catch(() => {});
+  if (patientUids.length) {
+    for (const tenantId of new Set(patients.map((row) => row.tenant_id))) {
+      await setTenant(tenantId, async (tx) => {
+        await tx.$executeRawUnsafe(
+          `UPDATE tasks
+              SET workflow_sla_instance_id = NULL,
+                  sla_completion_semantics = 'none'
+            WHERE patient_uid = ANY($1::uuid[])`,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM tasks WHERE patient_uid = ANY($1::uuid[])`,
+          patientUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM workflow_sla_instances WHERE patient_uid = ANY($1::uuid[])`,
+          patientUids,
+        );
+      }).catch(() => {});
+    }
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM clinical_timeline_events WHERE patient_uid = ANY($1::uuid[])`,
+      patientUids,
+    ).catch(() => {});
+    await deleteWithAuditBypass(
+      prisma,
+      `DELETE FROM clinical_audit_events WHERE patient_uid = ANY($1::uuid[])`,
+      patientUids,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM news2_scores WHERE patient_uid = ANY($1::uuid[])`,
+      patientUids,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM vitals_chart WHERE source_device LIKE 'C5TEST%'`,
   ).catch(() => {});
@@ -111,6 +151,16 @@ d('Device vitals ingestion — deep round-trip (roadmap C5)', () => {
     );
     expect(audit.length).toBe(1);
     expect(audit[0].chain_hash).toMatch(/^[0-9a-f]{64}$/); // C4 chain covers it
+
+    // Canonical invariant: verification writes the timeline + audit PAIR in
+    // the same transaction, keyed by the one-shot idempotency key.
+    const pair = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM clinical_timeline_events WHERE idempotency_key = $1) AS timeline,
+         (SELECT COUNT(*)::int FROM clinical_audit_events WHERE idempotency_key = $1) AS audit`,
+      `vitals_chart:${vitalsId}:device_verified`,
+    );
+    expect(pair[0]).toMatchObject({ timeline: 1, audit: 1 });
 
     const emptyQueue = await authClient('NURSING_STAFF')
       .get('/api/v1/devices/vitals/unverified')
