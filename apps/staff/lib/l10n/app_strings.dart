@@ -3070,6 +3070,8 @@ class AppStrings {
       format('logout.blocked_body', {'count': count});
   String get logoutStaySignedIn => _t('logout.stay_signed_in');
   String get logoutReviewOfflineWork => _t('logout.review_offline_work');
+  String get logoutServerRevocationFailed =>
+      _t('logout.server_revocation_failed');
   String sessionRevocationPreservedItems(int count) =>
       format('session_revocation.preserved_items', {'count': count});
 
@@ -3855,6 +3857,11 @@ class AppStrings {
           'You have {count} unresolved offline clinical item(s). To prevent loss or recording under the wrong staff account, you cannot sign out yet. Open Sync status and follow the reconciliation handoff.',
       'logout.stay_signed_in': 'Stay signed in',
       'logout.review_offline_work': 'Review offline work',
+      // Deliberately English-only for now: _t falls back to the en map, and an
+      // unreviewed machine translation of a security message is worse than a
+      // readable English one. Tracked for the translation reviewers.
+      'logout.server_revocation_failed':
+          'Signed out on this device, but the server did not confirm the session was revoked. Sign in and out again on a working connection.',
       'session_revocation.preserved_items':
           '{count} unresolved offline clinical item(s) remain encrypted on this device for later reconciliation.',
       // Greetings
