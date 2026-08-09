@@ -44,7 +44,12 @@ export async function raiseCdsAlert({ patientUid, encounterId = null, alertType,
   // Lazy import so cdsEngine's heavy import graph isn't pulled at module load
   // (and so suites mocking prisma.js aren't broken by an eager pull-in).
   const { persistCdsAlert } = await import('../emr/cdsEngine.js');
-  await persistCdsAlert({ patientUid, encounterId, alertType, severity, title, description, sourceData });
+  const outcome = await persistCdsAlert({ patientUid, encounterId, alertType, severity, title, description, sourceData });
+  if (!outcome?.persisted) {
+    // persistCdsAlert has already audited the drop; report the failure so
+    // callers don't treat the alert as surfaced.
+    return { raised: false, reason: outcome?.reason || 'persist_failed' };
+  }
   return { raised: true, reason: 'raised' };
 }
 

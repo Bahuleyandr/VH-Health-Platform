@@ -20,6 +20,7 @@ beforeEach(() => {
   getClinicalAiModule.mockResolvedValue({ enabled: true });
   resolvePatientContext.mockResolvedValue(ADULT);
   queryRawUnsafe.mockResolvedValue([]); // no standing alert
+  persistCdsAlert.mockResolvedValue({ persisted: true });
 });
 const news2 = (over) => ({ totalScore: 6, clinicalRisk: 'medium', escalationAction: 'x', scores: { heart_rate: 2 }, anyParamThree: false, ...over });
 
@@ -72,4 +73,11 @@ test('escalates when the new severity is higher than the standing one', async ()
   const r = await surfaceNews2Cds({ patientUid: 'p1', news2: news2({ totalScore: 8, clinicalRisk: 'high' }) }); // critical
   expect(r.raised).toBe(true);
   expect(persistCdsAlert).toHaveBeenCalledWith(expect.objectContaining({ severity: 'critical' }));
+});
+
+test('reports raised:false when persistence fails (no silent claim of success)', async () => {
+  persistCdsAlert.mockResolvedValueOnce({ persisted: false, reason: 'persist_failed' });
+  const r = await surfaceNews2Cds({ patientUid: 'p1', news2: news2() });
+  expect(r.raised).toBe(false);
+  expect(r.reason).toBe('persist_failed');
 });

@@ -1,10 +1,15 @@
 // src/services/emr/cdsEngine.js
+import { randomUUID } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { emitCdsAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
-import { recordMedicationSafetyReviews } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  recordClinicalAuditEvent,
+  recordMedicationSafetyReviews,
+} from '../clinical/canonicalClinicalPlatformService.js';
 
 
 // ===================================================================
@@ -87,26 +92,86 @@ async function resolveUserIdFromUid(patientUid) {
   return user?.id ?? null;
 }
 
+/**
+ * Audit a CDS alert that could NOT be persisted to cds_alerts. The audit row is
+ * the durable trace of the drop (IDs and alert content are fine in the DB); the
+ * logger lines deliberately carry no patient identifiers or clinical text.
+ * Never throws. Returns true when the audit row was recorded.
+ */
+async function auditDroppedCdsAlert({ patientUid, encounterId, alertType, severity, title, tenantId, reason, error }) {
+  try {
+    const audit = await recordClinicalAuditEvent({
+      tenantId: tenantId || undefined,
+      patientUid,
+      action: 'cds.alert.persist_failed',
+      actionStatus: 'failed',
+      resourceType: 'cds_alert',
+      resourceTable: 'cds_alerts',
+      // Each drop is its own event — never absorb a second drop into the
+      // first via the derived idempotency key.
+      idempotencyKey: `cds_alerts:persist_failed:${randomUUID()}`,
+      metadata: {
+        alert_type: alertType,
+        severity,
+        title: String(title || '').slice(0, 300),
+        encounter_id: encounterId ?? null,
+        reason,
+        error: error ? String(error.message || error).slice(0, 500) : null,
+      },
+    });
+    if (!audit) throw new Error('audit writer returned no row');
+    return true;
+  } catch (auditErr) {
+    // Distinctive, greppable marker for ops alerting: a clinical safety alert
+    // was dropped AND the drop could not be audited. No PHI in this line.
+    logger.error('CDS_ALERT_DROP_UNAUDITED: CDS alert lost and audit write failed', {
+      alert_type: alertType,
+      severity,
+      reason,
+      audit_error: String(auditErr?.message || auditErr).slice(0, 300),
+    });
+    return false;
+  }
+}
+
+/**
+ * Persist a CDS alert to cds_alerts. Failures are NEVER silent: every drop
+ * writes a clinical_audit_events row (or the distinctive
+ * CDS_ALERT_DROP_UNAUDITED log line when even that fails), and the outcome is
+ * returned so callers can mark their responses degraded.
+ *
+ * @returns {Promise<{ persisted: boolean, reason?: string, audited?: boolean }>}
+ */
 export async function persistCdsAlert({ patientUid, encounterId, alertType, severity, title, description, sourceData }) {
   try {
     // Resolve the owning tenant from the patient. cds_alerts carries a
     // tenant_id with a DB DEFAULT of the global default tenant, so a bare
     // create without tenant_id silently writes the alert into the WRONG
-    // tenant — fail SAFE instead (skip the write) when it can't be resolved.
+    // tenant. When the owner can't be resolved, fall back to the
+    // request-scoped tenant context (flagged in source_data) so the alert is
+    // kept rather than dropped; only when neither resolves do we drop — and
+    // then the drop is audited and reported to the caller.
     const owner = await prisma.users.findUnique({
       where: { uid: patientUid },
       select: { tenant_id: true },
     });
-    const tenantId = owner?.tenant_id ?? null;
+    let tenantId = owner?.tenant_id ?? null;
+    let tenantUnresolved = false;
     if (!tenantId) {
-      logger.error(
-        `Skipping CDS alert persist (${alertType}): could not resolve owning tenant for patient_uid=${patientUid}`,
-      );
-      return;
+      tenantId = getCurrentTenantId();
+      tenantUnresolved = true;
+    }
+    if (!tenantId) {
+      logger.error(`Dropping CDS alert (${alertType}): no owning tenant and no request tenant context`);
+      const audited = await auditDroppedCdsAlert({
+        patientUid, encounterId, alertType, severity, title,
+        reason: 'tenant_unresolved',
+      });
+      return { persisted: false, reason: 'tenant_unresolved', audited };
     }
 
-    // Explicitly stamp tenant_id (resolved above; fail-safe on null) so the
-    // alert lands in the owning tenant rather than the cds_alerts DB DEFAULT.
+    // Explicitly stamp tenant_id (resolved above) so the alert lands in the
+    // owning tenant rather than the cds_alerts DB DEFAULT.
     // This single create is auto-scoped by the prisma proxy under the request's
     // tenant context; kept as a plain create (no interactive setTenantTx tx) so
     // cdsEngine — imported across the clinical layer — does not pull the
@@ -119,12 +184,70 @@ export async function persistCdsAlert({ patientUid, encounterId, alertType, seve
         severity,
         title,
         description,
-        source_data: sourceData ?? null,
+        source_data: tenantUnresolved
+          ? { ...(sourceData ?? {}), tenant_unresolved: true }
+          : (sourceData ?? null),
         tenant_id: tenantId,
       },
     });
+    return { persisted: true };
   } catch (persistErr) {
     logger.error(`Failed to persist CDS alert (${alertType}): ${persistErr.message}`);
+    const audited = await auditDroppedCdsAlert({
+      patientUid, encounterId, alertType, severity, title,
+      reason: 'persist_failed',
+      error: persistErr,
+    });
+    return { persisted: false, reason: 'persist_failed', audited };
+  }
+}
+
+/**
+ * Shared degraded-CDS alert shown wherever safety checks could not run. The
+ * order-sign hook (last gate before a medication order is signed) escalates
+ * severity to critical.
+ */
+export function buildCdsUnavailableAlert({ severity = 'warning' } = {}) {
+  return {
+    type: 'system_error',
+    severity,
+    title: severity === 'critical'
+      ? 'CDS safety checks unavailable — do NOT sign without manual verification'
+      : 'CDS safety checks unavailable — verify interactions/allergies manually',
+    description: 'Clinical decision support could not complete safety checks for this order. '
+      + 'Verify drug interactions, allergies, and duplicate therapy manually before proceeding.',
+    canOverride: true,
+    degraded: true,
+  };
+}
+
+/**
+ * Audit a CDS safety-check run that failed outright (checkOrder or a CDS Hooks
+ * sub-check). Never throws; no PHI in logger output.
+ */
+export async function recordCdsCheckFailureAudit({ patientUid, encounterId, context, error }) {
+  try {
+    const audit = await recordClinicalAuditEvent({
+      patientUid,
+      action: 'cds.check.failed',
+      actionStatus: 'failed',
+      resourceType: 'cds_check',
+      resourceTable: 'cds_alerts',
+      idempotencyKey: `cds_check:failed:${randomUUID()}`,
+      metadata: {
+        context: String(context || 'check_order').slice(0, 120),
+        encounter_id: encounterId ?? null,
+        error: error ? String(error.message || error).slice(0, 500) : null,
+      },
+    });
+    if (!audit) throw new Error('audit writer returned no row');
+    return true;
+  } catch (auditErr) {
+    logger.error('CDS_CHECK_FAILURE_UNAUDITED: CDS check failed and audit write failed', {
+      context: String(context || 'check_order').slice(0, 120),
+      audit_error: String(auditErr?.message || auditErr).slice(0, 300),
+    });
+    return false;
   }
 }
 
@@ -238,10 +361,13 @@ export async function checkOrder(order, _patientContext = {}) {
       alerts.push(...duplicateAlerts, ...recentAlerts);
     }
 
-    // Persist any critical/warning alerts.
+    // Persist any critical/warning alerts. A failed persist must not look
+    // like a clean pass: the alert is annotated and the whole response is
+    // flagged degraded so surfaces can tell the clinician.
+    let persistenceDegraded = false;
     for (const alert of alerts) {
       if (alert.severity === 'critical' || alert.severity === 'warning') {
-        await persistCdsAlert({
+        const outcome = await persistCdsAlert({
           patientUid: order.patient_uid,
           encounterId: order.encounter_id,
           alertType: alert.type,
@@ -250,24 +376,38 @@ export async function checkOrder(order, _patientContext = {}) {
           description: alert.description,
           sourceData: alert.sourceData,
         });
+        if (!outcome?.persisted) {
+          alert.persistence_degraded = true;
+          persistenceDegraded = true;
+        }
       }
     }
 
     const safe = alerts.every((a) => a.severity === 'info');
 
-    return { safe, alerts };
+    return {
+      safe,
+      alerts,
+      ...(persistenceDegraded ? { degraded: true, degraded_reason: 'cds_alert_persistence_failed' } : {}),
+    };
   } catch (err) {
     logger.error(`CDS checkOrder error: ${err.message}`);
-    // Fail open — return safe with a warning that CDS could not complete checks.
+    // Fail flagged-degraded, not open: an engine failure means NO safety
+    // check ran, so the order cannot be reported safe. A warning-severity
+    // system alert tells the clinician to verify manually, and the failed run
+    // is audited. (Not thrown: hard-blocking all order entry on a CDS outage
+    // is its own patient-safety risk — callers surface the degraded payload.)
+    await recordCdsCheckFailureAudit({
+      patientUid: order.patient_uid,
+      encounterId: order.encounter_id,
+      context: 'check_order',
+      error: err,
+    });
     return {
-      safe: true,
-      alerts: [{
-        type: 'system_error',
-        severity: 'info',
-        title: 'CDS check incomplete',
-        description: 'Clinical decision support checks could not be fully completed. Please verify manually.',
-        canOverride: true,
-      }],
+      safe: false,
+      degraded: true,
+      degraded_reason: 'cds_engine_error',
+      alerts: [buildCdsUnavailableAlert()],
     };
   }
 }
@@ -660,7 +800,7 @@ export async function checkCriticalLabValues(labResult, patientUid) {
     };
     alerts.push(alert);
 
-    await persistCdsAlert({
+    const outcome = await persistCdsAlert({
       patientUid,
       encounterId: labResult.encounter_id,
       alertType: 'critical_lab',
@@ -669,6 +809,7 @@ export async function checkCriticalLabValues(labResult, patientUid) {
       description,
       sourceData: alert.sourceData,
     });
+    if (!outcome?.persisted) alert.persistence_degraded = true;
   }
 
   return alerts;
@@ -809,7 +950,7 @@ export async function getProtocolReminders(patientUid, encounterId) {
 
       alerts.push(alert);
 
-      await persistCdsAlert({
+      const outcome = await persistCdsAlert({
         patientUid,
         encounterId,
         alertType: 'protocol_reminder',
@@ -818,6 +959,7 @@ export async function getProtocolReminders(patientUid, encounterId) {
         description: alert.description,
         sourceData: alert.sourceData,
       });
+      if (!outcome?.persisted) alert.persistence_degraded = true;
     }
   }
 

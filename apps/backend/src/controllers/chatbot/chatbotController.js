@@ -10,18 +10,24 @@ import logger from '../../logging/logger.js';
 import { triageSymptoms } from '../../services/chatbot/triageService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-async function _buildPatientContext(userId) {
-  if (!userId) return null;
+async function _buildPatientContext(userUid, tenantId) {
+  if (!userUid || !tenantId) return null;
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT u.id, u.gender, u.birthday,
-              COALESCE(
-                (SELECT json_agg(json_build_object('name', allergy_name, 'severity', severity))
-                   FROM patient_allergies WHERE patient_id = u.id AND is_active = true),
-                '[]'::json
-              ) AS allergies
-         FROM users u WHERE u.id = $1`,
-      userId,
+               COALESCE(
+                 (SELECT json_agg(json_build_object('name', allergy_name, 'severity', severity))
+                    FROM patient_allergies
+                   WHERE patient_id = u.id
+                     AND tenant_id = u.tenant_id
+                     AND is_active = true),
+                 '[]'::json
+               ) AS allergies
+          FROM users u
+         WHERE u.uid = $1::uuid
+           AND u.tenant_id = $2::uuid`,
+      userUid,
+      tenantId,
     );
     if (rows.length === 0) return null;
     const r = rows[0];
@@ -42,8 +48,19 @@ async function _buildPatientContext(userId) {
 export async function triage(req, res) {
   try {
     const { symptoms, history } = req.body;
-    const patientContext = await _buildPatientContext(req.user?.id);
-    const result = await triageSymptoms({ symptoms, history, patientContext });
+    const patientContext = await _buildPatientContext(req.user?.uid, req.tenantId);
+    const result = await triageSymptoms({
+      symptoms,
+      history,
+      patientContext,
+      // Thread the tenant's data-residency region so the egress guard can
+      // actually match the allowlist (previously never passed, making the
+      // region guard all-or-nothing), plus tenant/patient identity for the
+      // governed-framework generation + review rows.
+      tenantRegion: req.tenant?.region || null,
+      tenantId: req.tenantId || null,
+      patientUid: req.user?.uid || null,
+    });
     return success(res, result, 'Triage complete');
   } catch (err) {
     const status = err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;

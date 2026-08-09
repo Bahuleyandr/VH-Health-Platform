@@ -32,20 +32,27 @@
 // is enforced by the system prompt regardless of provider — the patient app
 // sees the same shape either way.
 //
-// GOVERNANCE STATUS (WS5 B5.2):
-//   Applied: runOutputDefenses (PHI leak + numeric mismatch heuristics),
-//            region/egress guard (CHATBOT_EXTERNAL_REGIONS allowlist),
-//            decision-support-only disclaimer on every response.
-//   NOT YET applied: full clinical-AI review queue (clinicalAiWorkflowService)
-//            and module-level budget guardrails. These require a DB-backed
-//            clinical_ai_modules row for this surface and a review queue
-//            table entry for each triage call. That wiring is deferred to a
-//            follow-on governance batch (AI-8 or equivalent) because it
-//            requires schema additions + a new migration. Track this gap as
-//            GOVERNANCE_GAP_TRIAGE_REVIEW_QUEUE in the tech-debt register.
+// GOVERNANCE STATUS (WS5 B5.2, completed in the CDS/AI hardening batch):
+//   - Registered clinical_ai_modules row: `patient_triage` (registry entry in
+//     clinicalAiModuleService.js auto-upserts on boot — live-provider calls
+//     run only while the module is enabled for the tenant).
+//   - Framework budget guardrails (getClinicalAiBudgetStatus) gate every
+//     live-provider call; usage is recorded to clinical_ai_generations so the
+//     daily token/cost budgets account for this surface.
+//   - Flagged / blocked / urgent_care outputs enqueue a pending
+//     clinical_ai_reviews row for RETROSPECTIVE clinician review (this is a
+//     patient-facing real-time surface — same non-blocking signoff posture as
+//     patient_record_chatbot).
+//   - runOutputDefenses (PHI leak + numeric mismatch heuristics), the
+//     region/egress guard (CHATBOT_EXTERNAL_REGIONS, fail-closed semantics
+//     aligned with CLINICAL_AI_EXTERNAL_REGIONS), the decision-support-only
+//     disclaimer, and fail-closed output parsing remain in force.
 
 import logger from '../../logging/logger.js';
 import { runOutputDefenses } from '../ai/hallucinationDefenses.js';
+
+// clinical_ai_modules registry key for this surface.
+const MODULE_KEY = 'patient_triage';
 
 // ---------------------------------------------------------------------------
 // Provider configuration
@@ -69,13 +76,14 @@ const API_KEY = process.env.CHATBOT_API_KEY || process.env.ANTHROPIC_API_KEY || 
 // ---------------------------------------------------------------------------
 // Region / egress guard
 // CHATBOT_EXTERNAL_REGIONS — comma-separated region codes (e.g. "US,AP").
-// Mirrors CLINICAL_AI_EXTERNAL_REGIONS in localLlmClient.
-// Empty / unset → all regions permitted (acceptable for single-tenant pilot).
-// When set, PHI from a tenant outside the list is blocked before any network
-// call is made.
+// Semantics are aligned with CLINICAL_AI_EXTERNAL_REGIONS in localLlmClient
+// (fail-closed hardening, audit 2026-06-18):
+//   - empty/unset: a tenant that CARRIES a region is DENIED external use; only
+//     a region-less tenant (single-tenant pilot) is allowed.
+//   - '*' wildcard: every region allowed (deliberate, audited opt-out).
+//   - otherwise: exact allowlist match.
+// When blocked, PHI never leaves before any network call is made.
 // ---------------------------------------------------------------------------
-const EXTERNAL_PROVIDER = new Set(['anthropic', 'openai']);
-
 function _isExternalUrl(url) {
   if (!url) return false;
   try {
@@ -89,9 +97,10 @@ function _isExternalUrl(url) {
 
 function _tenantCanUseExternal(tenantRegion) {
   const raw = (process.env.CHATBOT_EXTERNAL_REGIONS || '').trim();
-  if (!raw) return true;
-  if (!tenantRegion) return false;
+  if (!raw) return !tenantRegion;
   const allowed = raw.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+  if (allowed.includes('*')) return true;
+  if (!tenantRegion) return false;
   return allowed.includes(String(tenantRegion).trim().toUpperCase());
 }
 
@@ -119,6 +128,118 @@ function _templateResponse() {
     safetyFlags: [],
     governanceNote: 'AI triage unavailable — template fallback active.',
   };
+}
+
+// ---------------------------------------------------------------------------
+// Governed-framework wiring: module gate, budget guardrails, and generation /
+// review persistence (clinical_ai_generations / clinical_ai_reviews). All
+// imports are lazy so the template path stays DB-free and this module's
+// load-time import graph stays light (mirrors cdsAlertSurfacing).
+// ---------------------------------------------------------------------------
+
+async function _governanceGate({ tenantId }) {
+  try {
+    const { getClinicalAiTenantModule, getClinicalAiGuardrails, getClinicalAiBudgetStatus } =
+      await import('../ai/clinicalAiModuleService.js');
+    const module = await getClinicalAiTenantModule(MODULE_KEY, { tenantId });
+    if (!module?.enabled) return { allowed: false, reason: 'module_disabled', module: module || null };
+    const guardrails = await getClinicalAiGuardrails();
+    const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails, tenantId });
+    if (guardrails?.enabled && budget?.tripped) {
+      return { allowed: false, reason: 'budget_guardrail_tripped', module };
+    }
+    return { allowed: true, module };
+  } catch (err) {
+    // Fail closed for egress: when governance state cannot be read, PHI does
+    // not go to a live provider. (No PHI in this log line.)
+    logger.error('Triage: governance gate unavailable — falling back to template', {
+      error: String(err?.message || err).slice(0, 300),
+    });
+    return { allowed: false, reason: 'governance_unavailable', module: null };
+  }
+}
+
+function _reviewReasonsFor(result) {
+  const reasons = [];
+  if (result.blocked === true) reasons.push('output_blocked');
+  if ((result.safetyFlags || []).length > 0) reasons.push('safety_flags');
+  if (result.triage === 'urgent_care') reasons.push('urgent_care_escalation');
+  return reasons;
+}
+
+/**
+ * Persist the triage outcome through the governed framework's tables: one
+ * clinical_ai_generations row per live-provider call (feeds the daily budget
+ * guardrails), plus a pending clinical_ai_reviews row when the output was
+ * blocked, flagged, or an urgent_care escalation — the retrospective review
+ * queue for this patient-facing surface. The writes are atomic. A persistence
+ * failure is loud and causes a successful model answer to be withheld; safe
+ * blocked fallbacks remain safe to return even when the review store is down.
+ */
+async function _recordTriageOutcome({ tenantId, patientUid, module, result, usage, reviewReasons }) {
+  try {
+    const { setTenantTx } = await import('../../lib/prisma.js');
+    const { requireTenantId } = await import('../tenant/tenantService.js');
+    const tid = requireTenantId(tenantId || null);
+    const draft = {
+      triage: result.triage ?? null,
+      differential: result.differential ?? [],
+      summary: result.summary ?? null,
+      redFlags: result.redFlags ?? [],
+      blocked: result.blocked === true,
+    };
+    const generationId = await setTenantTx(tid, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `INSERT INTO clinical_ai_generations
+         (tenant_id, patient_uid, task_type, module_key, provider, model, prompt_version, status,
+          used_ai, safety_flags, draft, prompt_tokens, completion_tokens, total_tokens, metadata,
+          created_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, $3, $4, $5, 'patient-triage-v1', $6, true, $7::jsonb,
+               $8::jsonb, $9, $10, $11, $12::jsonb, NOW(), NOW())
+       RETURNING id`,
+        tid,
+        patientUid || null,
+        MODULE_KEY,
+        result.provider || PROVIDER,
+        result.model || MODEL,
+        result.blocked === true ? 'failed' : 'draft',
+        JSON.stringify(result.safetyFlags || []),
+        JSON.stringify(draft),
+        usage?.prompt_tokens || 0,
+        usage?.completion_tokens || 0,
+        usage?.total_tokens || 0,
+        JSON.stringify({ surface: MODULE_KEY, review_reasons: reviewReasons }),
+      );
+      const insertedGenerationId = rows?.[0]?.id ?? null;
+      if (insertedGenerationId == null) throw new Error('generation insert returned no id');
+      if (reviewReasons.length) {
+        await tx.$queryRawUnsafe(
+          `INSERT INTO clinical_ai_reviews
+           (tenant_id, generation_id, module_key, patient_uid, decision, metadata, created_at, updated_at)
+         VALUES ($1::uuid, $2, $3, $4::uuid, 'pending', $5::jsonb, NOW(), NOW())`,
+          tid,
+          insertedGenerationId,
+          MODULE_KEY,
+          patientUid || null,
+          JSON.stringify({
+            review_roles: module?.settings?.reviewRoles || ['DOCTOR', 'ADMIN'],
+            requires_signoff: false,
+            review_mode: 'retrospective',
+            reasons: reviewReasons,
+          }),
+        );
+      }
+      return insertedGenerationId;
+    });
+    return generationId;
+  } catch (err) {
+    // Distinctive, greppable marker for ops alerting. (No PHI in this line.)
+    logger.error('TRIAGE_GOVERNANCE_RECORD_FAILED: triage generation/review row not persisted', {
+      error: String(err?.message || err).slice(0, 300),
+      review_reasons: reviewReasons,
+    });
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +277,10 @@ stroke-symptoms / severe-bleeding / anaphylaxis must be "urgent_care".`;
  *                                         (e.g. 'IN', 'US'). Used for the
  *                                         egress guard when CHATBOT_EXTERNAL_REGIONS
  *                                         is set.
+ * @param {string}   [opts.tenantId]       requesting tenant (governance gate +
+ *                                         generation/review persistence)
+ * @param {string}   [opts.patientUid]     patient uid for the generation /
+ *                                         review rows (IDs in the DB are fine)
  * @returns {Promise<object>} parsed triage JSON + governance fields
  */
 export async function triageSymptoms({
@@ -163,6 +288,8 @@ export async function triageSymptoms({
   history = [],
   patientContext = null,
   tenantRegion = null,
+  tenantId = null,
+  patientUid = null,
 } = {}) {
   if (!symptoms || typeof symptoms !== 'string' || symptoms.trim().length < 5) {
     const err = new Error('symptoms must be at least 5 characters');
@@ -178,11 +305,26 @@ export async function triageSymptoms({
     return _templateResponse();
   }
 
+  // --- Governance gate (module enablement + budget guardrails) ---
+  // Live-provider calls run only while the patient_triage clinical_ai_modules
+  // row is enabled for the tenant and the daily budget guardrails have head-
+  // room. Blocked calls fall back to the safe template (never a hard error on
+  // this patient-facing surface).
+  const gate = await _governanceGate({ tenantId });
+  if (!gate.allowed) {
+    logger.warn('Triage: live provider blocked by governance gate — template fallback active', {
+      reason: gate.reason,
+    });
+    const result = _templateResponse();
+    result.governanceNote = `patient_triage_governance_blocked:${gate.reason} — template fallback active`;
+    return result;
+  }
+
   // --- Region / egress guard ---
   // External providers (anthropic, openai) must be permitted for this
   // tenant's region. Local/self-hosted OpenAI-compatible endpoints that
   // resolve to a LOCAL_HOST bypass this check (same as localLlmClient).
-  const isExternalCall = EXTERNAL_PROVIDER.has(PROVIDER) || _isExternalUrl(BASE_URL);
+  const isExternalCall = _isExternalUrl(BASE_URL);
   if (isExternalCall && !_tenantCanUseExternal(tenantRegion)) {
     const blockedRegion = tenantRegion ? String(tenantRegion).toUpperCase() : 'UNKNOWN';
     logger.warn('Triage: PHI egress blocked by region policy', {
@@ -231,9 +373,32 @@ export async function triageSymptoms({
     safetyFlags: [{ severity: 'high', code, message: reason }, ...extraFlags],
   });
 
-  const rawText = PROVIDER === 'openai'
+  const buildGovernanceRecordFallback = ({ urgent = false } = {}) => ({
+    ..._templateResponse(),
+    ...(urgent ? {
+      triage: 'urgent_care',
+      summary: 'We could not complete the required safety recording. Please seek urgent medical care now.',
+    } : {}),
+    governanceNote: 'patient_triage_governance_record_failed — template fallback active',
+    safetyFlags: [{
+      severity: 'high',
+      code: 'TRIAGE_GOVERNANCE_RECORD_FAILED',
+      message: 'The assistant response was withheld because its required safety record could not be stored.',
+    }],
+  });
+
+  const { text: rawText, usage } = PROVIDER === 'openai'
     ? await _callOpenAICompatible({ userMessage, history })
     : await _callAnthropic({ userMessage, history });
+
+  const recordOutcome = (result) => _recordTriageOutcome({
+    tenantId,
+    patientUid,
+    module: gate.module,
+    result,
+    usage,
+    reviewReasons: _reviewReasonsFor(result),
+  });
 
   let parsed;
   try {
@@ -253,11 +418,33 @@ export async function triageSymptoms({
       model: MODEL,
       detectionFlagCodes: detectionFlags.map((f) => f.code),
     });
-    return buildBlockedTriage({
+    const blockedResult = buildBlockedTriage({
       code: 'TRIAGE_UNPARSEABLE_OUTPUT_BLOCKED',
       reason: 'The assistant response could not be safely interpreted.',
       extraFlags: detectionFlags,
     });
+    await recordOutcome(blockedResult);
+    return blockedResult;
+  }
+
+  const validTriageCategories = new Set(['self_care', 'see_doctor_now', 'urgent_care']);
+  const stringArray = (value) => Array.isArray(value) && value.every((item) => typeof item === 'string');
+  if (
+    !parsed
+    || typeof parsed !== 'object'
+    || Array.isArray(parsed)
+    || !validTriageCategories.has(parsed.triage)
+    || !stringArray(parsed.differential)
+    || typeof parsed.summary !== 'string'
+    || !parsed.summary.trim()
+    || !stringArray(parsed.redFlags)
+  ) {
+    const blockedResult = buildBlockedTriage({
+      code: 'TRIAGE_SCHEMA_INVALID',
+      reason: 'The assistant response did not match the required triage schema.',
+    });
+    await recordOutcome(blockedResult);
+    return blockedResult;
   }
 
   // --- Output defenses ---
@@ -279,11 +466,13 @@ export async function triageSymptoms({
       model: MODEL,
       flagCount: safetyFlags.length,
     });
-    return buildBlockedTriage({
+    const blockedResult = buildBlockedTriage({
       code: 'TRIAGE_OUTPUT_BLOCKED_CRITICAL',
       reason: 'The assistant response failed an automated safety check.',
       extraFlags: safetyFlags,
     });
+    await recordOutcome(blockedResult);
+    return blockedResult;
   } else if (safetyFlags.length > 0) {
     logger.warn('Triage: output defense flags raised', {
       provider: PROVIDER,
@@ -292,14 +481,18 @@ export async function triageSymptoms({
     });
   }
 
-  return {
+  const result = {
     ...parsed,
-    raw: rawText,
     provider: PROVIDER,
     model: MODEL,
     disclaimer: CLINICAL_DISCLAIMER,
     safetyFlags,
   };
+  const generationId = await recordOutcome(result);
+  if (generationId == null) {
+    return buildGovernanceRecordFallback({ urgent: result.triage === 'urgent_care' });
+  }
+  return result;
 }
 
 // -- Anthropic Messages API ---------------------------------------------------
@@ -343,9 +536,19 @@ async function _callAnthropic({ userMessage, history }) {
   }
 
   const data = await resp.json();
-  return Array.isArray(data.content)
+  const text = Array.isArray(data.content)
     ? data.content.filter((c) => c.type === 'text').map((c) => c.text).join('')
     : '';
+  const promptTokens = data?.usage?.input_tokens || 0;
+  const completionTokens = data?.usage?.output_tokens || 0;
+  return {
+    text,
+    usage: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: promptTokens + completionTokens,
+    },
+  };
 }
 
 // -- OpenAI-compatible chat-completions ---------------------------------------
@@ -389,7 +592,16 @@ async function _callOpenAICompatible({ userMessage, history }) {
   }
 
   const data = await resp.json();
-  return data?.choices?.[0]?.message?.content ?? '';
+  const promptTokens = data?.usage?.prompt_tokens || 0;
+  const completionTokens = data?.usage?.completion_tokens || 0;
+  return {
+    text: data?.choices?.[0]?.message?.content ?? '',
+    usage: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: data?.usage?.total_tokens || (promptTokens + completionTokens),
+    },
+  };
 }
 
 // -- Helpers ------------------------------------------------------------------

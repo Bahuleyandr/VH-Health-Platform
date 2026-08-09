@@ -45,8 +45,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => mockPrisma,
 }));
 
+const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  default: mockLogger,
 }));
 
 // canonicalOperationalBridgeService.emitCdsAlertAcknowledged is a fire-and-forget
@@ -66,8 +67,12 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 }));
 
 const cds = await import('../../services/emr/cdsEngine.js');
+// Real (unmocked) tenant context helper — used to exercise the request-tenant
+// fallback in persistCdsAlert.
+const { runInTenantContext } = await import('../../lib/tenantContext.js');
 
 const PATIENT_UID = 'patient-uid-1';
+const REQUEST_TENANT = '10000000-0000-4000-8000-000000000002';
 
 // Default: every model returns []. Individual tests override the specific calls
 // they exercise. resolveUserIdFromUid / persistCdsAlert both call
@@ -82,6 +87,7 @@ function resetMocks() {
     }
   }
   emitCdsAlertAcknowledged.mockClear();
+  for (const fn of Object.values(mockLogger)) fn.mockClear();
   // users.findUnique is used both for tenant resolution (returns {tenant_id})
   // and uid→id resolution (returns {id}). A single object satisfying both is
   // fine for the default case.
@@ -543,27 +549,119 @@ describe('checkOrder', () => {
     expect(result).toEqual({ safe: true, alerts: [] });
   });
 
-  it('fails open with a system_error info alert when a check throws', async () => {
+  it('fails flagged-degraded (safe:false + warning system alert) when a check throws', async () => {
     mockPrisma.medication_administrations.findMany.mockRejectedValue(new Error('db down'));
     const result = await cds.checkOrder({ type: 'medication', medication_name: 'Warfarin', patient_uid: PATIENT_UID });
-    expect(result.safe).toBe(true);
-    expect(result.alerts[0].type).toBe('system_error');
+    // NOT fail-open any more: an engine failure means no safety check ran.
+    expect(result.safe).toBe(false);
+    expect(result.degraded).toBe(true);
+    expect(result.degraded_reason).toBe('cds_engine_error');
+    expect(result.alerts).toHaveLength(1);
+    expect(result.alerts[0]).toMatchObject({
+      type: 'system_error',
+      severity: 'warning',
+      canOverride: true,
+    });
+    expect(result.alerts[0].title).toMatch(/CDS safety checks unavailable/);
+    // The failed run is audited to clinical_audit_events.
+    const auditSql = mockPrisma.$queryRawUnsafe.mock.calls.map((c) => c[0]).join('\n');
+    expect(auditSql).toContain('INSERT INTO clinical_audit_events');
+  });
+
+  it('marks the response degraded when alert persistence fails', async () => {
+    mockPrisma.medication_administrations.findMany.mockResolvedValue([{ medication_name: 'Ibuprofen' }]);
+    mockPrisma.prescriptions.findMany.mockResolvedValue([]);
+    mockPrisma.drug_interactions.findMany.mockResolvedValue([
+      { id: 1, drug_a: 'warfarin', drug_b: 'ibuprofen', severity: 'severe', description: 'bleed risk' },
+    ]);
+    mockPrisma.cds_alerts.create.mockRejectedValue(new Error('insert failed'));
+
+    const result = await cds.checkOrder({
+      type: 'medication', medication_name: 'Warfarin', patient_uid: PATIENT_UID,
+    });
+
+    expect(result.safe).toBe(false);
+    expect(result.degraded).toBe(true);
+    expect(result.degraded_reason).toBe('cds_alert_persistence_failed');
+    const failedAlert = result.alerts.find((a) => a.type === 'drug_interaction');
+    expect(failedAlert.persistence_degraded).toBe(true);
   });
 });
 
-// ── persistCdsAlert fail-safe (exercised via checkCriticalLabValues) ──────────
-describe('persistCdsAlert fail-safe', () => {
-  it('skips the write when the owning tenant cannot be resolved', async () => {
-    mockPrisma.users.findUnique.mockResolvedValue(null); // no owner → null tenant
-    const alerts = await cds.checkCriticalLabValues({ test_name: 'Potassium', value: 2.0 }, PATIENT_UID);
-    expect(alerts).toHaveLength(1); // alert still returned to caller
-    expect(mockPrisma.cds_alerts.create).not.toHaveBeenCalled(); // but not persisted
+// ── persistCdsAlert loud-failure contract ────────────────────────────────────
+// Persistence failures are no longer silent: every drop returns
+// { persisted:false, reason } to the caller and writes a clinical_audit_events
+// row (or, failing that, the distinctive CDS_ALERT_DROP_UNAUDITED log line).
+describe('persistCdsAlert loud-failure contract', () => {
+  const ALERT = {
+    patientUid: PATIENT_UID,
+    encounterId: 12,
+    alertType: 'critical_lab',
+    severity: 'critical',
+    title: 't',
+    description: 'd',
+    sourceData: { a: 1 },
+  };
+
+  it('returns { persisted: true } on success', async () => {
+    const outcome = await cds.persistCdsAlert(ALERT);
+    expect(outcome).toEqual({ persisted: true });
+    expect(mockPrisma.cds_alerts.create).toHaveBeenCalledTimes(1);
   });
 
-  it('swallows a create failure (best-effort persist) without throwing', async () => {
+  it('drops + audits when neither owning tenant nor request tenant resolves', async () => {
+    mockPrisma.users.findUnique.mockResolvedValue(null); // no owner → null tenant
+    // Audit insert succeeds (any $queryRawUnsafe returns a row).
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([{ id: 1, tenant_id: null }]);
+
+    const outcome = await cds.persistCdsAlert(ALERT);
+
+    expect(outcome).toMatchObject({ persisted: false, reason: 'tenant_unresolved', audited: true });
+    expect(mockPrisma.cds_alerts.create).not.toHaveBeenCalled();
+    const auditSql = mockPrisma.$queryRawUnsafe.mock.calls.map((c) => c[0]).join('\n');
+    expect(auditSql).toContain('INSERT INTO clinical_audit_events');
+  });
+
+  it('falls back to the request tenant (flagged) when the owner tenant is unresolvable', async () => {
+    mockPrisma.users.findUnique.mockResolvedValue(null); // no owner → null tenant
+
+    const outcome = await runInTenantContext(REQUEST_TENANT, () => cds.persistCdsAlert(ALERT));
+
+    expect(outcome).toEqual({ persisted: true });
+    expect(mockPrisma.cds_alerts.create).toHaveBeenCalledTimes(1);
+    const data = mockPrisma.cds_alerts.create.mock.calls[0][0].data;
+    expect(data.tenant_id).toBe(REQUEST_TENANT);
+    expect(data.source_data).toMatchObject({ a: 1, tenant_unresolved: true });
+  });
+
+  it('returns persisted:false + audits when the create fails, and the caller-visible alert is annotated', async () => {
     mockPrisma.cds_alerts.create.mockRejectedValue(new Error('insert failed'));
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([{ id: 9, tenant_id: null }]);
+
+    const outcome = await cds.persistCdsAlert(ALERT);
+    expect(outcome).toMatchObject({ persisted: false, reason: 'persist_failed', audited: true });
+    const auditSql = mockPrisma.$queryRawUnsafe.mock.calls.map((c) => c[0]).join('\n');
+    expect(auditSql).toContain('INSERT INTO clinical_audit_events');
+
+    // Callers surfacing alerts annotate them instead of pretending success.
     const alerts = await cds.checkCriticalLabValues({ test_name: 'Potassium', value: 2.0 }, PATIENT_UID);
     expect(alerts).toHaveLength(1); // caller still gets the alert
+    expect(alerts[0].persistence_degraded).toBe(true);
+  });
+
+  it('emits the distinctive CDS_ALERT_DROP_UNAUDITED log line when the audit write also fails', async () => {
+    mockPrisma.cds_alerts.create.mockRejectedValue(new Error('insert failed'));
+    mockPrisma.$queryRawUnsafe.mockRejectedValue(new Error('audit db down'));
+
+    const outcome = await cds.persistCdsAlert(ALERT);
+
+    expect(outcome).toMatchObject({ persisted: false, reason: 'persist_failed', audited: false });
+    const unauditedLine = mockLogger.error.mock.calls.find(
+      (call) => String(call[0]).startsWith('CDS_ALERT_DROP_UNAUDITED'),
+    );
+    expect(unauditedLine).toBeDefined();
+    // No PHI / patient identifiers in the structured log payload.
+    expect(JSON.stringify(unauditedLine)).not.toContain(PATIENT_UID);
   });
 });
 

@@ -12,12 +12,14 @@
 import express from 'express';
 
 import {
+  buildCdsUnavailableAlert,
   checkDrugInteractions,
   checkAllergies,
   checkDuplicateOrders,
   checkOrder,
   getActiveAlerts,
   getProtocolReminders,
+  recordCdsCheckFailureAudit,
 } from '../../services/emr/cdsEngine.js';
 import {
   buildCardsResponse,
@@ -119,13 +121,29 @@ router.post('/:id', async (req, res, next) => {
         if (!patientUid) break;
         const medications = extractMedicationNames(context);
         if (!medications.length) break;
+        const FAILED = Symbol('cds-check-failed');
         const perMed = await Promise.all(medications.map(async (medicationName) => {
-          const [interactions, allergyConflicts, duplicates] = await Promise.all([
-            checkDrugInteractions(medicationName, patientUid).catch(() => []),
-            checkAllergies(medicationName, patientUid).catch(() => []),
-            checkDuplicateOrders('medication', { medication_name: medicationName }, patientUid).catch(() => []),
-          ]);
-          return [...interactions, ...allergyConflicts, ...duplicates];
+          const results = await Promise.all([
+            checkDrugInteractions(medicationName, patientUid),
+            checkAllergies(medicationName, patientUid),
+            checkDuplicateOrders('medication', { medication_name: medicationName }, patientUid),
+          ].map((p) => p.catch((err) => {
+            logger.error('CDS Hooks medication-prescribe sub-check failed', { error: err.message });
+            return FAILED;
+          })));
+          const medAlerts = results.filter((r) => r !== FAILED).flat();
+          if (results.includes(FAILED)) {
+            // A skipped safety check must never look like a clean pass:
+            // surface a degraded warning card and audit the failed run.
+            await recordCdsCheckFailureAudit({
+              patientUid,
+              encounterId,
+              context: 'cds_hooks:medication-prescribe',
+              error: new Error('one or more medication safety sub-checks failed'),
+            });
+            medAlerts.push(buildCdsUnavailableAlert());
+          }
+          return medAlerts;
         }));
         alerts = perMed.flat();
         break;
@@ -144,6 +162,26 @@ router.post('/:id', async (req, res, next) => {
         // ServiceRequest, MedicationRequest) is intentionally narrow here:
         // we cover MedicationRequest and ServiceRequest, the two shapes
         // CDS Hooks order-select/order-sign actually carries.
+        //
+        // checkOrder itself now degrades visibly on engine failure; this
+        // catch is the last-resort guard for a rejection outside that path.
+        // It must never collapse to an empty card list — the clinician gets
+        // a degraded warning card (critical on order-sign, the final gate
+        // before a medication order is signed) and the failure is audited.
+        const cdsUnavailable = async (err) => {
+          logger.error('CDS Hooks order check failed', { hook: service.hook, error: err.message });
+          await recordCdsCheckFailureAudit({
+            patientUid,
+            encounterId,
+            context: `cds_hooks:${service.hook}`,
+            error: err,
+          });
+          return {
+            alerts: [buildCdsUnavailableAlert({
+              severity: service.hook === 'order-sign' ? 'critical' : 'warning',
+            })],
+          };
+        };
         const perOrder = await Promise.all(draftOrders.map(async (resource) => {
           if (resource.resourceType === 'MedicationRequest') {
             const medicationName = resource.medicationCodeableConcept?.text
@@ -156,7 +194,7 @@ router.post('/:id', async (req, res, next) => {
               medication_name: medicationName,
               patient_uid: patientUid,
               encounter_id: encounterId,
-            }).catch(() => ({ alerts: [] }));
+            }).catch(cdsUnavailable);
             return result.alerts || [];
           }
           if (resource.resourceType === 'ServiceRequest') {
@@ -169,7 +207,7 @@ router.post('/:id', async (req, res, next) => {
               test_name: testName,
               patient_uid: patientUid,
               encounter_id: encounterId,
-            }).catch(() => ({ alerts: [] }));
+            }).catch(cdsUnavailable);
             return result.alerts || [];
           }
           return [];

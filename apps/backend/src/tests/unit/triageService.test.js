@@ -36,6 +36,17 @@ jest.unstable_mockModule('../../services/ai/hallucinationDefenses.js', () => ({
   draftFingerprint: jest.fn(() => 'abc123'),
 }));
 
+// Governed-framework mocks (lazy-imported by triageService on the live path).
+// Defaults: patient_triage module enabled, guardrails off, budget headroom.
+const mockGetClinicalAiModule = jest.fn(async () => ({
+  module_key: 'patient_triage',
+  enabled: true,
+  settings: { reviewRoles: ['DOCTOR', 'ADMIN'] },
+}));
+const mockGetClinicalAiGuardrails = jest.fn(async () => ({ enabled: false }));
+const mockGetClinicalAiBudgetStatus = jest.fn(async () => ({ tripped: false }));
+const mockQueryRawUnsafe = jest.fn(async () => [{ id: 41 }]);
+
 // ---------------------------------------------------------------------------
 // Env + module loader helper
 // ---------------------------------------------------------------------------
@@ -85,6 +96,25 @@ async function loadService(envOverrides = {}) {
     temperatureForRisk: jest.fn(() => 0.15),
     draftFingerprint: jest.fn(() => 'abc123'),
   }));
+  jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
+    getClinicalAiModule: mockGetClinicalAiModule,
+    getClinicalAiTenantModule: mockGetClinicalAiModule,
+    getClinicalAiGuardrails: mockGetClinicalAiGuardrails,
+    getClinicalAiBudgetStatus: mockGetClinicalAiBudgetStatus,
+    default: {
+      getClinicalAiModule: mockGetClinicalAiModule,
+      getClinicalAiGuardrails: mockGetClinicalAiGuardrails,
+      getClinicalAiBudgetStatus: mockGetClinicalAiBudgetStatus,
+    },
+  }));
+  jest.unstable_mockModule('../../lib/prisma.js', () => ({
+    default: { $queryRawUnsafe: mockQueryRawUnsafe },
+    setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: mockQueryRawUnsafe }),
+  }));
+  jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
+    DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
+    requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
+  }));
 
   const mod = await import('../../services/chatbot/triageService.js');
 
@@ -109,6 +139,19 @@ function anthropicOk(triage = 'self_care', summary = 'You seem fine.') {
           text: JSON.stringify({ triage, differential: [], summary, redFlags: [] }),
         },
       ],
+    }),
+  };
+}
+
+function openAiOk(triage = 'self_care', summary = 'You seem fine.') {
+  return {
+    ok: true,
+    json: async () => ({
+      choices: [{
+        message: {
+          content: JSON.stringify({ triage, differential: [], summary, redFlags: [] }),
+        },
+      }],
     }),
   };
 }
@@ -221,6 +264,27 @@ describe('triageService — anthropic provider: model default + governance', () 
     expect(typeof callArg.draft).toBe('object');
   });
 
+  it('never returns provider text outside the defended JSON object', async () => {
+    const unsafePreamble = 'untrusted preamble with secret marker';
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{
+          type: 'text',
+          text: `${unsafePreamble}\n${JSON.stringify({
+            triage: 'self_care', differential: [], summary: 'Rest.', redFlags: [],
+          })}`,
+        }],
+      }),
+    }));
+
+    const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+
+    expect(result.raw).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(unsafePreamble);
+    expect(result.summary).toBe('Rest.');
+  });
+
   it('merges safetyFlags returned by runOutputDefenses into the result', async () => {
     const mockFlag = { severity: 'medium', code: 'UNVERIFIED_NUMERIC', message: 'test flag' };
     mockRunOutputDefenses.mockReturnValueOnce([mockFlag]);
@@ -314,8 +378,12 @@ describe('triageService — region / egress guard', () => {
     }
   });
 
-  it('permits external call when CHATBOT_EXTERNAL_REGIONS is unset (all allowed)', async () => {
-    global.fetch = jest.fn(async () => anthropicOk('self_care', 'Fine.'));
+  it('DENIES a region-tagged tenant when CHATBOT_EXTERNAL_REGIONS is unset (fail-closed, aligned with CLINICAL_AI_EXTERNAL_REGIONS)', async () => {
+    let fetchWasCalled = false;
+    global.fetch = jest.fn(async () => {
+      fetchWasCalled = true;
+      return anthropicOk('self_care', 'Fine.');
+    });
 
     const { mod: svc, cleanup } = await loadService({
       CHATBOT_PROVIDER: 'anthropic',
@@ -328,7 +396,65 @@ describe('triageService — region / egress guard', () => {
         symptoms: 'mild headache',
         tenantRegion: 'IN',
       });
+      expect(fetchWasCalled).toBe(false);
+      expect(result.provider).toBe('template');
+      expect(result.governanceNote).toMatch(/external_provider_blocked_for_region:IN/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('permits a REGION-LESS tenant when CHATBOT_EXTERNAL_REGIONS is unset (single-tenant pilot escape)', async () => {
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'Fine.'));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild headache' });
       expect(result.provider).toBe('anthropic');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("permits every region on the explicit '*' wildcard", async () => {
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'Fine.'));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+      CHATBOT_EXTERNAL_REGIONS: '*',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'mild headache',
+        tenantRegion: 'IN',
+      });
+      expect(result.provider).toBe('anthropic');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('permits a region-tagged tenant to use a loopback OpenAI-compatible endpoint without an external allowlist', async () => {
+    global.fetch = jest.fn(async () => openAiOk('self_care', 'Fine.'));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'openai',
+      CHATBOT_BASE_URL: 'http://127.0.0.1:11434/v1',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'mild headache',
+        tenantRegion: 'IN',
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(result.provider).toBe('openai');
     } finally {
       cleanup();
     }
@@ -423,6 +549,31 @@ describe('triageService — critical safety flag blocks the parsed response', ()
     mockRunOutputDefenses.mockClear();
   });
 
+  it('blocks a parseable response that does not match the required triage schema', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: JSON.stringify({ triage: 'go_home', summary: 'Fine.' }) }],
+      }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'I feel unwell today' });
+      expect(result.blocked).toBe(true);
+      expect(result.triage).toBe('see_doctor_now');
+      expect(result.safetyFlags).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'TRIAGE_SCHEMA_INVALID' }),
+      ]));
+    } finally {
+      cleanup();
+    }
+  });
+
   afterEach(() => {
     global.fetch = savedFetch;
   });
@@ -455,6 +606,40 @@ describe('triageService — critical safety flag blocks the parsed response', ()
     }
   });
 
+  it('records the blocked output as a failed generation and enqueues a retrospective review', async () => {
+    mockRunOutputDefenses.mockReturnValueOnce([
+      { severity: 'critical', code: 'PHI_LEAK', message: 'hallucinated PHI' },
+    ]);
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'flagged content'));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+    });
+
+    try {
+      mockQueryRawUnsafe.mockClear();
+      await svc.triageSymptoms({
+        symptoms: 'I feel unwell today',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+
+      const calls = mockQueryRawUnsafe.mock.calls;
+      const genCall = calls.find((c) => c[0].includes('INSERT INTO clinical_ai_generations'));
+      expect(genCall).toBeDefined();
+      // status param ($6) is 'failed' for a blocked output.
+      expect(genCall.slice(1)).toContain('failed');
+      const reviewCall = calls.find((c) => c[0].includes('INSERT INTO clinical_ai_reviews'));
+      expect(reviewCall).toBeDefined();
+      const reviewMeta = JSON.parse(reviewCall[5]);
+      expect(reviewMeta.review_mode).toBe('retrospective');
+      expect(reviewMeta.reasons).toEqual(expect.arrayContaining(['output_blocked']));
+    } finally {
+      cleanup();
+    }
+  });
+
   it('still returns the parsed content when only a NON-critical flag fires (annotate, not block)', async () => {
     mockRunOutputDefenses.mockReturnValueOnce([
       { severity: 'medium', code: 'UNVERIFIED_NUMERIC', message: 'x' },
@@ -475,6 +660,182 @@ describe('triageService — critical safety flag blocks the parsed response', ()
       expect(result.safetyFlags).toEqual(
         expect.arrayContaining([expect.objectContaining({ code: 'UNVERIFIED_NUMERIC' })]),
       );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 6 — governed-framework wiring (patient_triage module)
+// ---------------------------------------------------------------------------
+
+describe('triageService — governed framework (patient_triage)', () => {
+  let savedFetch;
+
+  beforeEach(() => {
+    savedFetch = global.fetch;
+    mockRunOutputDefenses.mockClear();
+    mockQueryRawUnsafe.mockClear();
+    mockQueryRawUnsafe.mockImplementation(async () => [{ id: 41 }]);
+  });
+
+  afterEach(() => {
+    global.fetch = savedFetch;
+  });
+
+  const LIVE_ENV = { CHATBOT_PROVIDER: 'anthropic', CHATBOT_API_KEY: 'test-key' };
+
+  it('falls back to the template (no external call) when the patient_triage module is disabled', async () => {
+    let fetchWasCalled = false;
+    global.fetch = jest.fn(async () => {
+      fetchWasCalled = true;
+      return anthropicOk();
+    });
+    mockGetClinicalAiModule.mockResolvedValueOnce({ module_key: 'patient_triage', enabled: false });
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+      expect(fetchWasCalled).toBe(false);
+      expect(result.provider).toBe('template');
+      expect(result.governanceNote).toMatch(/patient_triage_governance_blocked:module_disabled/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('falls back to the template when the daily budget guardrail is tripped', async () => {
+    let fetchWasCalled = false;
+    global.fetch = jest.fn(async () => {
+      fetchWasCalled = true;
+      return anthropicOk();
+    });
+    mockGetClinicalAiGuardrails.mockResolvedValueOnce({ enabled: true });
+    mockGetClinicalAiBudgetStatus.mockResolvedValueOnce({ tripped: true, blocking_reasons: ['Daily clinical AI token budget exhausted'] });
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+      expect(fetchWasCalled).toBe(false);
+      expect(result.provider).toBe('template');
+      expect(result.governanceNote).toMatch(/patient_triage_governance_blocked:budget_guardrail_tripped/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('fails CLOSED to the template when governance state cannot be read', async () => {
+    let fetchWasCalled = false;
+    global.fetch = jest.fn(async () => {
+      fetchWasCalled = true;
+      return anthropicOk();
+    });
+    mockGetClinicalAiModule.mockRejectedValueOnce(new Error('db down'));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+      expect(fetchWasCalled).toBe(false);
+      expect(result.provider).toBe('template');
+      expect(result.governanceNote).toMatch(/patient_triage_governance_blocked:governance_unavailable/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('records a clinical_ai_generations row (with token usage) for a clean live response — and no review row', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ triage: 'self_care', differential: [], summary: 'Rest.', redFlags: [] }),
+        }],
+        usage: { input_tokens: 120, output_tokens: 30 },
+      }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      await svc.triageSymptoms({
+        symptoms: 'mild cold today',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+
+      const calls = mockQueryRawUnsafe.mock.calls;
+      const genCall = calls.find((c) => c[0].includes('INSERT INTO clinical_ai_generations'));
+      expect(genCall).toBeDefined();
+      expect(genCall[1]).toBe('20000000-0000-4000-8000-000000000009'); // tenant_id
+      expect(genCall[2]).toBe('30000000-0000-4000-8000-000000000004'); // patient_uid
+      expect(genCall[3]).toBe('patient_triage'); // task_type = module_key
+      expect(genCall.slice(1)).toEqual(expect.arrayContaining([120, 30, 150])); // token usage
+      expect(calls.find((c) => c[0].includes('INSERT INTO clinical_ai_reviews'))).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('enqueues a retrospective review for an urgent_care escalation', async () => {
+    global.fetch = jest.fn(async () => anthropicOk('urgent_care', 'Go to A&E now.'));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'crushing chest pain',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+      expect(result.triage).toBe('urgent_care'); // response NOT blocked — review is retrospective
+
+      const reviewCall = mockQueryRawUnsafe.mock.calls.find((c) => c[0].includes('INSERT INTO clinical_ai_reviews'));
+      expect(reviewCall).toBeDefined();
+      const reviewMeta = JSON.parse(reviewCall[5]);
+      expect(reviewMeta.reasons).toEqual(['urgent_care_escalation']);
+      expect(reviewMeta.review_roles).toEqual(['DOCTOR', 'ADMIN']);
+      expect(reviewMeta.requires_signoff).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('withholds a non-urgent model answer when its required governance record cannot be stored', async () => {
+    global.fetch = jest.fn(async () => anthropicOk('self_care', 'Rest.'));
+    mockQueryRawUnsafe.mockRejectedValue(new Error('generations table down'));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'mild cold today',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+      expect(result.triage).toBe('see_doctor_now');
+      expect(result.provider).toBe('template');
+      expect(result.summary).not.toBe('Rest.');
+      expect(result.safetyFlags).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'TRIAGE_GOVERNANCE_RECORD_FAILED' }),
+      ]));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('preserves urgent escalation while withholding model content after a governance-record failure', async () => {
+    global.fetch = jest.fn(async () => anthropicOk('urgent_care', 'model-authored urgent text'));
+    mockQueryRawUnsafe.mockRejectedValue(new Error('generations table down'));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'crushing chest pain',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+      expect(result.triage).toBe('urgent_care');
+      expect(result.provider).toBe('template');
+      expect(result.summary).not.toContain('model-authored');
     } finally {
       cleanup();
     }

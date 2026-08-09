@@ -11,6 +11,7 @@ const { raiseCdsAlert } = await import('../../services/cds/cdsAlertSurfacing.js'
 beforeEach(() => {
   jest.clearAllMocks();
   queryRawUnsafe.mockResolvedValue([]); // no standing alert
+  persistCdsAlert.mockResolvedValue({ persisted: true });
 });
 
 test('raises a cds_alert when none is standing', async () => {
@@ -48,4 +49,10 @@ test('no-ops on missing args or an unknown severity', async () => {
   expect((await raiseCdsAlert({ alertType: 'X', severity: 'warning' })).raised).toBe(false);
   expect((await raiseCdsAlert({ patientUid: 'p1', alertType: 'X', severity: 'bogus' })).raised).toBe(false);
   expect(persistCdsAlert).not.toHaveBeenCalled();
+});
+
+test('propagates a persistence failure as raised:false with the reason', async () => {
+  persistCdsAlert.mockResolvedValueOnce({ persisted: false, reason: 'tenant_unresolved' });
+  const r = await raiseCdsAlert({ patientUid: 'p1', alertType: 'X', severity: 'warning', title: 't', description: 'd' });
+  expect(r).toEqual({ raised: false, reason: 'tenant_unresolved' });
 });
