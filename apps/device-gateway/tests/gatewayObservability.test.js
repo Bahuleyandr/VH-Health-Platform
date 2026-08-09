@@ -126,6 +126,40 @@ describe('supervised drain logging (GW-M1)', () => {
   });
 });
 
+describe('recovery-state gauge transitions (GW-L2)', () => {
+  it('zeroes the previous state series when a partition transitions', async () => {
+    const { dir, runtime } = await tempRuntime({});
+    const fakePartition = (state) => ({
+      ref: 'gwl2testref',
+      stats: () => ({
+        depth: 0,
+        oldestAgeSeconds: 0,
+        headPosition: '0',
+        backendHighWaterPosition: '0',
+        recoveryState: state,
+        reconciliationState: null,
+      }),
+    });
+    try {
+      await runtime.refreshPartitionMetrics(fakePartition('replaying'));
+      expect(serializeMetrics())
+        .toContain('gateway_recovery_state{partition_ref="gwl2testref",state="replaying"} 1');
+      await runtime.refreshPartitionMetrics(fakePartition('ready'));
+      const metrics = serializeMetrics();
+      expect(metrics)
+        .toContain('gateway_recovery_state{partition_ref="gwl2testref",state="replaying"} 0');
+      expect(metrics)
+        .toContain('gateway_recovery_state{partition_ref="gwl2testref",state="ready"} 1');
+      // Re-reporting the same state leaves it at 1.
+      await runtime.refreshPartitionMetrics(fakePartition('ready'));
+      expect(serializeMetrics())
+        .toContain('gateway_recovery_state{partition_ref="gwl2testref",state="ready"} 1');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('metrics stay PHI-free alongside logging', () => {
   it('does not leak identifiers into serialized metrics', () => {
     expect(serializeMetrics()).not.toContain(PATIENT_UID);

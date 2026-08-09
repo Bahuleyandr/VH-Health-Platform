@@ -188,6 +188,7 @@ export class GatewayRuntime {
     this.stageHook = stageHook;
     this.partitionByEnrollment = new Map();
     this.inFlight = new Set();
+    this.lastRecoveryState = new Map();
     this.drainTimer = null;
     this.startupFault = null;
     this.store = this.createStore();
@@ -645,6 +646,13 @@ export class GatewayRuntime {
       { partition_ref: partition.ref },
       Number(BigInt(stats.headPosition) - BigInt(stats.backendHighWaterPosition)),
     );
+    // Zero the previous state's series on transition so at most one state
+    // reports 1 per partition (e.g. replaying -> ready).
+    const previousState = this.lastRecoveryState.get(partition.ref);
+    if (previousState !== undefined && previousState !== stats.recoveryState) {
+      gatewayRecoveryState.set({ partition_ref: partition.ref, state: previousState }, 0);
+    }
+    this.lastRecoveryState.set(partition.ref, stats.recoveryState);
     gatewayRecoveryState.set({ partition_ref: partition.ref, state: stats.recoveryState }, 1);
   }
 
