@@ -936,10 +936,11 @@ export async function collectAdmissionClinicalContext(admissionId, tenantId = nu
   };
 }
 
-export async function createDowntimeSnapshot(patientUid, generatedBy, { scope = 'patient_chart', hoursToLive = 12 } = {}) {
-  const patient = await getPatient(patientUid);
-  if (!patient) throw AppError.notFound('Patient not found');
-
+export async function createDowntimeSnapshot(
+  patientUid,
+  generatedBy,
+  { scope = 'patient_chart', hoursToLive = 12, tenantId = null } = {},
+) {
   // Stamp the snapshot with the patient's own tenant. Model-delegate calls
   // like the create below never set the app.current_tenant_id GUC (the
   // prisma proxy only wraps the raw-SQL methods), so the GUC-aware column
@@ -949,14 +950,22 @@ export async function createDowntimeSnapshot(patientUid, generatedBy, { scope = 
   // result is embedded verbatim in API/snapshot payloads
   // (collectAdmissionClinicalContext's `patient` and this snapshot's
   // `payload.patient`) — so tenant_id is read via a separate narrow lookup.
-  const tenantRow = await prisma.users.findUnique({
-    where: { uid: patientUid },
+  const tenantRow = await prisma.users.findFirst({
+    where: {
+      uid: patientUid,
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+    },
     select: { tenant_id: true },
   });
+  if (!tenantRow) throw AppError.notFound('Patient not found');
+  const snapshotTenantId = tenantRow.tenant_id ?? undefined;
+  const patient = await getPatient(patientUid);
+  if (!patient) throw AppError.notFound('Patient not found');
 
   const timeline = await getPatientTimeline(patientUid, {
     limit: 300,
     sort: 'desc',
+    tenantId: snapshotTenantId,
   });
   const expiresAt = new Date(Date.now() + Math.max(1, hoursToLive) * 60 * 60 * 1000);
   const payload = {
@@ -969,7 +978,7 @@ export async function createDowntimeSnapshot(patientUid, generatedBy, { scope = 
     data: {
       // undefined (not null) preserves the DB column default as the fallback
       // when the patient row carries no tenant_id.
-      tenant_id: tenantRow?.tenant_id ?? undefined,
+      tenant_id: snapshotTenantId,
       patient_uid: patientUid,
       scope,
       generated_by: generatedBy || null,

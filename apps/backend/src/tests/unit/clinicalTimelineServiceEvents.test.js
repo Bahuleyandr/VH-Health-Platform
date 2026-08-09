@@ -13,7 +13,7 @@ const prismaMock = {
   clinical_orders: emptyFindMany(),
   nurse_handovers: emptyFindMany(),
   referrals: emptyFindMany(),
-  users: { findUnique: jest.fn() },
+  users: { findUnique: jest.fn(), findFirst: jest.fn() },
   downtime_snapshots: { create: jest.fn() },
 };
 
@@ -121,19 +121,18 @@ describe('downtime snapshot tenant stamping', () => {
   it('passes the patient tenant_id into the downtime_snapshots create', async () => {
     prismaMock.users.findUnique
       // getPatient projection (no tenant_id — shared with response payloads)
-      .mockResolvedValueOnce({ uid: PATIENT_UID, name: 'Test Patient' })
-      // narrow tenant lookup
-      .mockResolvedValueOnce({ tenant_id: TENANT });
+      .mockResolvedValueOnce({ uid: PATIENT_UID, name: 'Test Patient' });
+    prismaMock.users.findFirst.mockResolvedValueOnce({ tenant_id: TENANT });
     prismaMock.downtime_snapshots.create.mockResolvedValueOnce({
       id: 1,
       patient_uid: PATIENT_UID,
       scope: 'patient_chart',
     });
 
-    await createDowntimeSnapshot(PATIENT_UID, null);
+    await createDowntimeSnapshot(PATIENT_UID, null, { tenantId: TENANT });
 
-    expect(prismaMock.users.findUnique).toHaveBeenNthCalledWith(2, {
-      where: { uid: PATIENT_UID },
+    expect(prismaMock.users.findFirst).toHaveBeenCalledWith({
+      where: { uid: PATIENT_UID, tenant_id: TENANT },
       select: { tenant_id: true },
     });
     expect(prismaMock.downtime_snapshots.create).toHaveBeenCalledTimes(1);
@@ -141,13 +140,22 @@ describe('downtime snapshot tenant stamping', () => {
   });
 
   it('leaves tenant_id undefined so the DB default applies when the patient row has none', async () => {
-    prismaMock.users.findUnique
-      .mockResolvedValueOnce({ uid: PATIENT_UID, name: 'Test Patient' })
-      .mockResolvedValueOnce({ tenant_id: null });
+    prismaMock.users.findUnique.mockResolvedValueOnce({ uid: PATIENT_UID, name: 'Test Patient' });
+    prismaMock.users.findFirst.mockResolvedValueOnce({ tenant_id: null });
     prismaMock.downtime_snapshots.create.mockResolvedValueOnce({ id: 2 });
 
     await createDowntimeSnapshot(PATIENT_UID, null);
 
     expect(prismaMock.downtime_snapshots.create.mock.calls[0][0].data.tenant_id).toBeUndefined();
+  });
+
+  it('rejects a patient outside the requested tenant before loading PHI', async () => {
+    prismaMock.users.findFirst.mockResolvedValueOnce(null);
+
+    await expect(createDowntimeSnapshot(PATIENT_UID, null, { tenantId: TENANT }))
+      .rejects.toMatchObject({ statusCode: 404 });
+
+    expect(prismaMock.users.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.downtime_snapshots.create).not.toHaveBeenCalled();
   });
 });

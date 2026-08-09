@@ -6,7 +6,7 @@
 // tables; successful writes emit through these helpers.
 
 import { randomUUID } from 'node:crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
@@ -866,12 +866,12 @@ export async function transitionEncounter(encounterId, nextStatus, input = {}, o
       return updated;
     };
     // A caller-supplied client owns its transaction boundary; otherwise open
-    // one here — production callers pass no options.db, which previously
-    // meant autocommit and a committed status change with zero canonical
-    // rows whenever the emit failed.
+    // a tenant-scoped transaction. A bare prisma.$transaction callback does
+    // not install app.current_tenant_id, so it would make this PHI mutation
+    // atomic while silently bypassing the repository's RLS boundary.
     return options.db
       ? await applyTransition(db)
-      : await prisma.$transaction(applyTransition);
+      : await setTenantTx(requireTenantId(existing.tenant_id), applyTransition);
   } catch (err) {
     // House-style narrow tolerance (see isSchemaMissing): only a
     // genuinely-absent canonical table (SQLSTATE 42P01) is swallowed into a

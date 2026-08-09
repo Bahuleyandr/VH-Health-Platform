@@ -5,11 +5,12 @@ const loggerWarnMock = jest.fn();
 const validatePrescriptionSafetyMock = jest.fn();
 const getLegacyPatientTimelineMock = jest.fn();
 
-// Transaction client handed to the prisma.$transaction callback — separate
-// from the base mock so tests can assert which statements ran inside the tx.
+// Tenant-scoped transaction client — separate from the base mock so tests can
+// assert which statements ran after the RLS boundary was installed.
 const txQueryUnsafeMock = jest.fn();
 const __prismaTxMock = { $queryRawUnsafe: txQueryUnsafeMock };
 const transactionMock = jest.fn(async (fn) => fn(__prismaTxMock));
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(__prismaTxMock));
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryUnsafeMock,
@@ -17,7 +18,7 @@ const __prismaDefaultMock = {
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
-  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
@@ -68,6 +69,7 @@ beforeEach(() => {
   queryUnsafeMock.mockReset().mockResolvedValue([]);
   txQueryUnsafeMock.mockReset().mockResolvedValue([]);
   transactionMock.mockClear();
+  setTenantTxMock.mockClear();
   loggerWarnMock.mockReset();
   validatePrescriptionSafetyMock.mockReset().mockResolvedValue({ safe: true, warnings: [], blockers: [] });
   getLegacyPatientTimelineMock.mockReset().mockResolvedValue([]);
@@ -427,7 +429,8 @@ describe('canonical clinical platform service', () => {
     });
 
     expect(result).toBe(updatedRow);
-    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
+    expect(transactionMock).not.toHaveBeenCalled();
     // Base client only served the pre-check read; the UPDATE + both canonical
     // emits all ran through the transaction client.
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);

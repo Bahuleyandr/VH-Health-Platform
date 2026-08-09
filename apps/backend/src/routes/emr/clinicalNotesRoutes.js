@@ -492,6 +492,7 @@ router.post('/downtime-snapshot/:patientUid', guardClinicalNoteView, async (req,
     const snapshot = await createDowntimeSnapshot(patientUid, req.user.uid, {
       scope: req.body?.scope || 'patient_chart',
       hoursToLive,
+      tenantId: req.tenantId || req.user?.tenant_id,
     });
 
     logPhiAccess({
