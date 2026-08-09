@@ -118,7 +118,11 @@ export default function MessagingPage() {
     (async () => {
       await fetchAdminAPI(`/staff-messaging/threads/${open}/read`, {
         method: "POST",
-      }).catch(() => {});
+      }).catch((err: unknown) => {
+        // Surface instead of swallowing: a failed mark-read leaves the inbox
+        // unread count drifting from what the user has actually seen.
+        console.error(`Failed to mark thread ${open} as read`, err);
+      });
       qc.invalidateQueries({ queryKey: ["staff-messaging", "inbox"] });
     })();
   }, [open, qc]);

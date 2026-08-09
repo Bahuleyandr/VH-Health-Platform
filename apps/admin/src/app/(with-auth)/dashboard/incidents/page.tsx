@@ -465,7 +465,12 @@ export default function IncidentsPage() {
           const fresh = d.incidents.find((i) => i.id === selected.id);
           if (fresh) setSelected(fresh);
         })
-        .catch(() => {});
+        .catch((err: unknown) => {
+          // The list/stats invalidation above still refreshes the board, but
+          // the open detail panel would silently keep showing stale data.
+          console.error("Failed to refresh incident detail", err);
+          toast.error("Update saved, but the detail panel could not refresh");
+        });
     }
   }, [qc, selected]);
 

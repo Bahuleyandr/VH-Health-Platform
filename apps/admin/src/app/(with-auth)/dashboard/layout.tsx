@@ -36,6 +36,10 @@ const navigation: NavItem[] = [
   { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
   { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
   { name: 'Queue Displays', href: '/dashboard/queue-displays', minRole: 'STAFF' },
+  // AD-H2: Code Blue / Code STEMI live board (realtime staff:code-blue /
+  // staff:code-stemi). Route policy allows all clinical staff (STAFF rank);
+  // without this entry the board was unreachable from any UI.
+  { name: 'Clinical Alerts', href: '/dashboard/clinical-alerts', minRole: 'STAFF' },
   { name: 'Oncology', href: '/dashboard/oncology', minRole: 'STAFF' },
   { name: 'Nuclear Med & Radiotherapy', href: '/dashboard/radiation-oncology', minRole: 'STAFF' },
   { name: 'Transplant', href: '/dashboard/transplant', minRole: 'STAFF' },

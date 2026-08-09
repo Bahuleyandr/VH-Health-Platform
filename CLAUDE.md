@@ -76,7 +76,7 @@ lefthook install                    # registers pre-commit/pre-push hooks
 
 # Per-stack installs
 cd apps/backend && npm install && cp .env.example .env     # fill secrets
-cd ../admin    && npm install && cp .env.local.example .env.local
+cd ../admin    && npm install && cp .env.example .env.local
 cd ../..
 dart pub get                                               # Flutter workspace
 melos bootstrap

@@ -21,6 +21,29 @@ import type {
   TrailTarget,
 } from "./components/types";
 
+/** Compliance page — a failed load must be visible, never a blank tab. */
+function QueryErrorBanner({
+  error,
+  fallback,
+  onRetry,
+}: {
+  error: unknown;
+  fallback: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 flex items-center justify-between gap-3">
+      <span>{error instanceof Error ? error.message : fallback}</span>
+      <button
+        onClick={onRetry}
+        className="shrink-0 font-medium text-red-700 hover:text-red-900 underline"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 export default function AuditPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [days, setDays] = useState(30);
@@ -118,29 +141,60 @@ export default function AuditPage() {
         ))}
       </div>
 
-      {tab === "overview" && (
-        <AuditOverviewTab
-          data={dashQuery.data}
-          isLoading={dashQuery.isLoading}
-          onOpenTrail={setTrailTarget}
-        />
-      )}
-      {tab === "activity" && (
-        <HRActivityTab
-          data={activityQuery.data}
-          isLoading={activityQuery.isLoading}
-          days={days}
-        />
-      )}
-      {tab === "sla" && (
-        <SLAComplianceTab data={slaQuery.data} isLoading={slaQuery.isLoading} />
-      )}
+      {tab === "overview" &&
+        (dashQuery.isError ? (
+          <QueryErrorBanner
+            error={dashQuery.error}
+            fallback="Failed to load the audit dashboard"
+            onRetry={() => dashQuery.refetch()}
+          />
+        ) : (
+          <AuditOverviewTab
+            data={dashQuery.data}
+            isLoading={dashQuery.isLoading}
+            onOpenTrail={setTrailTarget}
+          />
+        ))}
+      {tab === "activity" &&
+        (activityQuery.isError ? (
+          <QueryErrorBanner
+            error={activityQuery.error}
+            fallback="Failed to load the HR activity report"
+            onRetry={() => activityQuery.refetch()}
+          />
+        ) : (
+          <HRActivityTab
+            data={activityQuery.data}
+            isLoading={activityQuery.isLoading}
+            days={days}
+          />
+        ))}
+      {tab === "sla" &&
+        (slaQuery.isError ? (
+          <QueryErrorBanner
+            error={slaQuery.error}
+            fallback="Failed to load the SLA compliance report"
+            onRetry={() => slaQuery.refetch()}
+          />
+        ) : (
+          <SLAComplianceTab
+            data={slaQuery.data}
+            isLoading={slaQuery.isLoading}
+          />
+        ))}
 
       {trailTarget && (
         <AuditTrailDialog
           target={trailTarget}
           data={trailQuery.data as Record<string, unknown> | null | undefined}
           isLoading={trailQuery.isLoading}
+          errorMessage={
+            trailQuery.isError
+              ? trailQuery.error instanceof Error
+                ? trailQuery.error.message
+                : "Failed to load the audit trail"
+              : null
+          }
           onClose={() => setTrailTarget(null)}
         />
       )}

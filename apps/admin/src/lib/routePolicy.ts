@@ -233,7 +233,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   pcpndt: { minRank: ADMIN_ONLY },
   bmw: { minRank: ADMIN_ONLY },
   "drug-returns": { minRank: ADMIN_ONLY },
-  records: { minRank: ADMIN_ONLY },
   pharmacy: { minRank: ADMIN_ONLY },
   attendance: { minRank: ADMIN_ONLY },
   uploads: { minRank: ADMIN_ONLY },
@@ -250,7 +249,6 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   compliance: { minRank: ADMIN_ONLY },
   "system-logs": { minRank: ADMIN_ONLY },
   "report-builder": { minRank: ADMIN_ONLY },
-  logs: { minRank: ADMIN_ONLY },
   database: { minRank: ADMIN_ONLY }, // live DB browser — admin only
   "admin-management": { minRank: ADMIN_ONLY },
 
