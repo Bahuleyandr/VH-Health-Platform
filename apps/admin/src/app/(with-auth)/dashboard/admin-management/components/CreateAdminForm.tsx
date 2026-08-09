@@ -31,15 +31,21 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
 
     const formData = new FormData(e.currentTarget);
     const data = {
+      username: formData.get("username") as string,
       name: formData.get("name") as string,
       email: formData.get("email") as string,
       password: formData.get("password") as string,
-      role: formData.get("role") as string,
     };
 
     // Basic validation
-    if (!data.name || !data.email || !data.password) {
-      setError("Name, Email, and Password are required.");
+    if (!data.username || !data.name || !data.email || !data.password) {
+      setError("Username, Name, Email, and Password are required.");
+      setLoading(false);
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_-]{3,50}$/.test(data.username)) {
+      setError("Username must be 3–50 letters, numbers, underscores, or hyphens.");
       setLoading(false);
       return;
     }
@@ -53,6 +59,12 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
 
     if (data.password.length < 8) {
       setError("Password must be at least 8 characters long.");
+      setLoading(false);
+      return;
+    }
+
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/.test(data.password)) {
+      setError("Password must include uppercase, lowercase, a number, and a special character.");
       setLoading(false);
       return;
     }
@@ -88,6 +100,28 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label
+            htmlFor="username"
+            className="block text-sm font-medium text-foreground mb-1"
+          >
+            Username *
+          </label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            required
+            minLength={3}
+            maxLength={50}
+            pattern="[A-Za-z0-9_-]+"
+            autoComplete="username"
+            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+            disabled={loading}
+            placeholder="new-admin"
+          />
+        </div>
+
         <div>
           <label
             htmlFor="name"
@@ -138,35 +172,20 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
             autoComplete="new-password"
             required
             minLength={8}
+            pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+"
             className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             disabled={loading}
             placeholder="Minimum 8 characters"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Must be at least 8 characters long
+            At least 8 characters with uppercase, lowercase, a number, and a special character
           </p>
         </div>
-
-        <div>
-          <label
-            htmlFor="role"
-            className="block text-sm font-medium text-foreground mb-1"
-          >
-            Role *
-          </label>
-          <select
-            id="role"
-            name="role"
-            required
-            className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-            disabled={loading}
-            defaultValue="ADMIN"
-          >
-            <option value="ADMIN">Admin</option>
-            <option value="SUPER_ADMIN">Super Admin</option>
-          </select>
-        </div>
       </div>
+
+      <p className="text-sm text-muted-foreground">
+        New accounts are created with the Admin role.
+      </p>
 
       <div>
         <button
