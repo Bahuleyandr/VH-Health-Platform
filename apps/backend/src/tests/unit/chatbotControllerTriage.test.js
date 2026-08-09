@@ -38,7 +38,7 @@ beforeEach(() => {
 test('passes tenantRegion, tenantId, and patientUid through to triageSymptoms', async () => {
   const req = {
     body: { symptoms: 'headache for two days', history: [] },
-    user: { id: 7, uid: '30000000-0000-4000-8000-000000000004' },
+    user: { uid: '30000000-0000-4000-8000-000000000004' },
     tenantId: '20000000-0000-4000-8000-000000000009',
     tenant: { region: 'IN' },
   };
@@ -50,11 +50,16 @@ test('passes tenantRegion, tenantId, and patientUid through to triageSymptoms', 
     tenantId: '20000000-0000-4000-8000-000000000009',
     patientUid: '30000000-0000-4000-8000-000000000004',
   }));
+  expect(queryRawUnsafe).toHaveBeenCalledWith(
+    expect.stringContaining('u.uid = $1::uuid'),
+    '30000000-0000-4000-8000-000000000004',
+    '20000000-0000-4000-8000-000000000009',
+  );
   expect(successHelper).toHaveBeenCalled();
 });
 
 test('defaults tenantRegion/tenantId/patientUid to null when the request carries none', async () => {
-  const req = { body: { symptoms: 'headache for two days' }, user: { id: 7 } };
+  const req = { body: { symptoms: 'headache for two days' }, user: {} };
   await triage(req, {});
 
   expect(triageSymptoms).toHaveBeenCalledWith(expect.objectContaining({
@@ -62,4 +67,5 @@ test('defaults tenantRegion/tenantId/patientUid to null when the request carries
     tenantId: null,
     patientUid: null,
   }));
+  expect(queryRawUnsafe).not.toHaveBeenCalled();
 });

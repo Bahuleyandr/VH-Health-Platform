@@ -98,6 +98,7 @@ async function loadService(envOverrides = {}) {
   }));
   jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
     getClinicalAiModule: mockGetClinicalAiModule,
+    getClinicalAiTenantModule: mockGetClinicalAiModule,
     getClinicalAiGuardrails: mockGetClinicalAiGuardrails,
     getClinicalAiBudgetStatus: mockGetClinicalAiBudgetStatus,
     default: {
@@ -108,6 +109,7 @@ async function loadService(envOverrides = {}) {
   }));
   jest.unstable_mockModule('../../lib/prisma.js', () => ({
     default: { $queryRawUnsafe: mockQueryRawUnsafe },
+    setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: mockQueryRawUnsafe }),
   }));
   jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
     DEFAULT_TENANT_ID: '00000000-0000-4000-8000-000000000001',
@@ -137,6 +139,19 @@ function anthropicOk(triage = 'self_care', summary = 'You seem fine.') {
           text: JSON.stringify({ triage, differential: [], summary, redFlags: [] }),
         },
       ],
+    }),
+  };
+}
+
+function openAiOk(triage = 'self_care', summary = 'You seem fine.') {
+  return {
+    ok: true,
+    json: async () => ({
+      choices: [{
+        message: {
+          content: JSON.stringify({ triage, differential: [], summary, redFlags: [] }),
+        },
+      }],
     }),
   };
 }
@@ -247,6 +262,27 @@ describe('triageService — anthropic provider: model default + governance', () 
     // draft should be the parsed object, not the raw string
     expect(callArg.draft).toHaveProperty('triage');
     expect(typeof callArg.draft).toBe('object');
+  });
+
+  it('never returns provider text outside the defended JSON object', async () => {
+    const unsafePreamble = 'untrusted preamble with secret marker';
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{
+          type: 'text',
+          text: `${unsafePreamble}\n${JSON.stringify({
+            triage: 'self_care', differential: [], summary: 'Rest.', redFlags: [],
+          })}`,
+        }],
+      }),
+    }));
+
+    const result = await svc.triageSymptoms({ symptoms: 'mild headache today' });
+
+    expect(result.raw).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(unsafePreamble);
+    expect(result.summary).toBe('Rest.');
   });
 
   it('merges safetyFlags returned by runOutputDefenses into the result', async () => {
@@ -403,6 +439,26 @@ describe('triageService — region / egress guard', () => {
       cleanup();
     }
   });
+
+  it('permits a region-tagged tenant to use a loopback OpenAI-compatible endpoint without an external allowlist', async () => {
+    global.fetch = jest.fn(async () => openAiOk('self_care', 'Fine.'));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'openai',
+      CHATBOT_BASE_URL: 'http://127.0.0.1:11434/v1',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'mild headache',
+        tenantRegion: 'IN',
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(result.provider).toBe('openai');
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -491,6 +547,31 @@ describe('triageService — critical safety flag blocks the parsed response', ()
   beforeEach(() => {
     savedFetch = global.fetch;
     mockRunOutputDefenses.mockClear();
+  });
+
+  it('blocks a parseable response that does not match the required triage schema', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        content: [{ type: 'text', text: JSON.stringify({ triage: 'go_home', summary: 'Fine.' }) }],
+      }),
+    }));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'anthropic',
+      CHATBOT_API_KEY: 'test-key',
+    });
+
+    try {
+      const result = await svc.triageSymptoms({ symptoms: 'I feel unwell today' });
+      expect(result.blocked).toBe(true);
+      expect(result.triage).toBe('see_doctor_now');
+      expect(result.safetyFlags).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'TRIAGE_SCHEMA_INVALID' }),
+      ]));
+    } finally {
+      cleanup();
+    }
   });
 
   afterEach(() => {
@@ -719,14 +800,42 @@ describe('triageService — governed framework (patient_triage)', () => {
     }
   });
 
-  it('a governance-persistence failure never breaks the patient-facing response', async () => {
+  it('withholds a non-urgent model answer when its required governance record cannot be stored', async () => {
     global.fetch = jest.fn(async () => anthropicOk('self_care', 'Rest.'));
     mockQueryRawUnsafe.mockRejectedValue(new Error('generations table down'));
 
     const { mod: svc, cleanup } = await loadService(LIVE_ENV);
     try {
-      const result = await svc.triageSymptoms({ symptoms: 'mild cold today' });
-      expect(result.triage).toBe('self_care');
+      const result = await svc.triageSymptoms({
+        symptoms: 'mild cold today',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+      expect(result.triage).toBe('see_doctor_now');
+      expect(result.provider).toBe('template');
+      expect(result.summary).not.toBe('Rest.');
+      expect(result.safetyFlags).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'TRIAGE_GOVERNANCE_RECORD_FAILED' }),
+      ]));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('preserves urgent escalation while withholding model content after a governance-record failure', async () => {
+    global.fetch = jest.fn(async () => anthropicOk('urgent_care', 'model-authored urgent text'));
+    mockQueryRawUnsafe.mockRejectedValue(new Error('generations table down'));
+
+    const { mod: svc, cleanup } = await loadService(LIVE_ENV);
+    try {
+      const result = await svc.triageSymptoms({
+        symptoms: 'crushing chest pain',
+        tenantId: '20000000-0000-4000-8000-000000000009',
+        patientUid: '30000000-0000-4000-8000-000000000004',
+      });
+      expect(result.triage).toBe('urgent_care');
+      expect(result.provider).toBe('template');
+      expect(result.summary).not.toContain('model-authored');
     } finally {
       cleanup();
     }
