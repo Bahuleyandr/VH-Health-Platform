@@ -22,10 +22,11 @@
 
 import { createHash } from 'node:crypto';
 
+import { getStaffRosterRoleCodes } from '../../config/rolePolicyGraph.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { ROLES, isAdmin } from '../../utils/roleHelpers.js';
+import { isAdmin } from '../../utils/roleHelpers.js';
 import { normalizeRole } from '../../utils/roles.js';
 import { isInpatientPendingResultPhysicianRole } from '../emr/inpatientPendingResultPolicy.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
@@ -5278,15 +5279,15 @@ export async function settleEdDestinationHandoffReviewTaskTx({
   return settled;
 }
 
-// Role codes a task may be (re)assigned to. Inbox visibility matches
-// UPPER(BTRIM(assigned_to_role)) against the actor's canonical queue role
-// (listInboxTasks), so an unknown role string produces a task NO inbox will
-// ever surface. TENANT_ADMIN is not in ROLES but is the established
-// assignment convention of the external*RecoveryService review tasks.
-const ASSIGNABLE_TASK_ROLE_CODES = new Set([
-  ...Object.values(ROLES),
-  'TENANT_ADMIN',
-]);
+// Role codes a task may be (re)assigned to. Use the authoritative human staff
+// roster rather than the legacy ROLES constants: the latter omits valid queues
+// such as COMPLIANCE_OFFICER and includes non-human principals such as PATIENT
+// and DEVICE_GATEWAY. Inbox visibility matches the actor's canonical queue
+// role, so accepting a machine, patient, pseudo, or unknown token can strand
+// the task where no eligible staff member can claim it.
+const ASSIGNABLE_TASK_ROLE_CODES = new Set(
+  getStaffRosterRoleCodes({ includeAdmin: true }),
+);
 
 function requireAssignableTaskRole(role) {
   const canonical = normalizeRole(role);

@@ -2929,6 +2929,39 @@ describe('reassignTask + listTasks + postTaskComment', () => {
     expect(setTenantTxMock).not.toHaveBeenCalled();
   });
 
+  it('accepts human roster roles that are not present in the legacy role constants', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+
+    await reassignTask({
+      tenantId: TENANT,
+      id: 1,
+      assignedToRole: 'COMPLIANCE_OFFICER',
+    });
+
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([
+      null,
+      'COMPLIANCE_OFFICER',
+    ]);
+  });
+
+  it.each(['PATIENT', 'DEVICE_GATEWAY', 'TENANT_ADMIN'])(
+    'rejects non-human or pseudo role queue %s before touching the task',
+    async (assignedToRole) => {
+      await expect(reassignTask({
+        tenantId: TENANT,
+        id: 1,
+        assignedToRole,
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'TASK_ASSIGNMENT_ROLE_UNKNOWN',
+      });
+
+      expect(queryUnsafeMock).not.toHaveBeenCalled();
+      expect(setTenantTxMock).not.toHaveBeenCalled();
+    },
+  );
+
   it('canonicalizes role aliases so inbox queue matching stays exact', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
