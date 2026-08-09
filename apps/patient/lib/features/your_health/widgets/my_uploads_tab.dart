@@ -1,4 +1,6 @@
 // My Uploads tab — self-contained widget with its own state and data fetching
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
@@ -235,7 +237,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                       backgroundColor: Colors.green,
                     ),
                   );
-                  _fetchRecords();
+                  unawaited(_fetchRecords());
                   if (uploadedRecord.isNotEmpty) {
                     _openExtractionReview(uploadedRecord);
                   }

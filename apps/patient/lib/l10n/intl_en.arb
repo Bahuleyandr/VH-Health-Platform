@@ -69,6 +69,10 @@
   "@authSosTooltip": {
     "description": "Tooltip shown when hovering the SOS FloatingActionButton"
   },
+  "authSosSending": "Sending SOS alert…",
+  "@authSosSending": {
+    "description": "Immediate snack-bar feedback while the SOS alert is being sent"
+  },
   "authSosTriggered": "SOS alert has been triggered!",
   "@authSosTriggered": {
     "description": "Snack-bar message after SOS is successfully sent"
@@ -765,6 +769,22 @@
   "settingsSecurity": "Security",
   "@settingsSecurity": {
     "description": "Section title for biometric login"
+  },
+  "biometricGateReason": "Unlock to view your medical records",
+  "@biometricGateReason": {
+    "description": "OS biometric prompt reason when opening medical records"
+  },
+  "biometricGateLockedTitle": "Unlock required",
+  "@biometricGateLockedTitle": {
+    "description": "Title on the locked pane when biometric unlock is denied"
+  },
+  "biometricGateLockedMessage": "Your health records are protected by your biometric lock. Confirm your identity to continue.",
+  "@biometricGateLockedMessage": {
+    "description": "Body copy on the locked pane when biometric unlock is denied"
+  },
+  "biometricGateUnlockButton": "Unlock",
+  "@biometricGateUnlockButton": {
+    "description": "Retry button on the locked pane"
   },
   "settingsBiometricLogin": "Use biometric login",
   "@settingsBiometricLogin": {
@@ -1984,6 +2004,14 @@
   "circularDialNoFeatures": "No features available",
   "@circularDialNoFeatures": {
     "description": "Empty state for circular feature dial"
+  },
+  "circularDialCenterLabel": "Health Hub",
+  "@circularDialCenterLabel": {
+    "description": "Accessible label and tooltip for the dashboard dial's centre button"
+  },
+  "circularDialCenterHint": "Opens Health Points",
+  "@circularDialCenterHint": {
+    "description": "Accessibility hint describing what tapping the dial centre button does"
   },
   "deliveryYourLocation": "Your Location",
   "@deliveryYourLocation": {

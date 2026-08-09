@@ -392,7 +392,7 @@ Future<void> main() async {
 
       // Start connectivity monitoring and sync any queued offline writes.
       ConnectivitySyncService.instance.startListening();
-      ConnectivitySyncService.instance.syncPending();
+      unawaited(ConnectivitySyncService.instance.syncPending());
 
       final app = enableSentry
           ? SentryWidget(child: const VHHealthStaffApp())

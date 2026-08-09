@@ -69,6 +69,7 @@
   "@authSosTooltip": {
     "description": "SOS ఫ్లోటింగ్ యాక్షన్ బటన్‌పై హోవర్ చేసినప్పుడు చూపించే టూల్‌టిప్"
   },
+  "authSosSending": "SOS హెచ్చరిక పంపబడుతోంది…",
   "authSosTriggered": "SOS హెచ్చరిక ప్రేరేపించబడింది!",
   "@authSosTriggered": {
     "description": "SOS విజయవంతంగా పంపిన తర్వాత స్నాక్‌బార్ సందేశం"
@@ -766,6 +767,10 @@
   "@settingsSecurity": {
     "description": "బయోమెట్రిక్ లాగిన్ కోసం విభాగం శీర్షిక"
   },
+  "biometricGateReason": "మీ వైద్య రికార్డులను చూడటానికి అన్‌లాక్ చేయండి",
+  "biometricGateLockedTitle": "అన్‌లాక్ అవసరం",
+  "biometricGateLockedMessage": "మీ ఆరోగ్య రికార్డులు మీ బయోమెట్రిక్ లాక్‌తో రక్షించబడ్డాయి. కొనసాగడానికి మీ గుర్తింపును నిర్ధారించండి.",
+  "biometricGateUnlockButton": "అన్‌లాక్ చేయండి",
   "settingsBiometricLogin": "బయోమెట్రిక్ లాగిన్‌ను ఉపయోగించండి",
   "@settingsBiometricLogin": {
     "description": "బయోమెట్రిక్ టోగుల్ కోసం లేబుల్"
@@ -1943,6 +1948,14 @@
   "circularDialNoFeatures": "ఫీచర్లు ఏవీ అందుబాటులో లేవు",
   "@circularDialNoFeatures": {
     "description": "Empty state for circular feature dial"
+  },
+  "circularDialCenterLabel": "ఆరోగ్య హబ్",
+  "@circularDialCenterLabel": {
+    "description": "Accessible label and tooltip for the dashboard dial's centre button"
+  },
+  "circularDialCenterHint": "ఆరోగ్య పాయింట్లను తెరుస్తుంది",
+  "@circularDialCenterHint": {
+    "description": "Accessibility hint describing what tapping the dial centre button does"
   },
   "deliveryYourLocation": "మీ స్థానం",
   "@deliveryYourLocation": {

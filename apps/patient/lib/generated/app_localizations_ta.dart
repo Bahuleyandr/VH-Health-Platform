@@ -63,6 +63,9 @@ class AppLocalizationsTa extends AppLocalizations {
   String get authSosTooltip => 'SOS அனுப்பவும்';
 
   @override
+  String get authSosSending => 'SOS எச்சரிக்கை அனுப்பப்படுகிறது…';
+
+  @override
   String get authSosTriggered => 'SOS எச்சரிக்கை தூண்டப்பட்டது!';
 
   @override
@@ -639,6 +642,20 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get settingsSecurity => 'பாதுகாப்பு';
+
+  @override
+  String get biometricGateReason =>
+      'உங்கள் மருத்துவப் பதிவுகளைப் பார்க்க திறக்கவும்';
+
+  @override
+  String get biometricGateLockedTitle => 'திறத்தல் தேவை';
+
+  @override
+  String get biometricGateLockedMessage =>
+      'உங்கள் சுகாதாரப் பதிவுகள் உங்கள் பயோமெட்ரிக் பூட்டால் பாதுகாக்கப்படுகின்றன. தொடர உங்கள் அடையாளத்தை உறுதிப்படுத்தவும்.';
+
+  @override
+  String get biometricGateUnlockButton => 'திற';
 
   @override
   String get settingsBiometricLogin => 'பயோமெட்ரிக் உள்நுழைவைப் பயன்படுத்தவும்';
@@ -2043,6 +2060,12 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get circularDialNoFeatures => 'அம்சங்கள் இல்லை';
+
+  @override
+  String get circularDialCenterLabel => 'சுகாதார மையம்';
+
+  @override
+  String get circularDialCenterHint => 'சுகாதார புள்ளிகளைத் திறக்கும்';
 
   @override
   String get deliveryYourLocation => 'உங்கள் இருப்பிடம்';

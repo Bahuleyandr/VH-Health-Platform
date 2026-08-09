@@ -8,6 +8,8 @@
 //   • animates the ring from 0 to the current value on load
 //   • expands to reveal a per-dimension breakdown when tapped
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -54,7 +56,7 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
           _data = res.dataAsMap();
           _loading = false;
         });
-        _anim.forward(from: 0);
+        unawaited(_anim.forward(from: 0));
       } else {
         setState(() => _loading = false);
       }

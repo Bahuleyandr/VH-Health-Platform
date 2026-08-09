@@ -7,7 +7,7 @@ import logger from '../../logging/logger.js';
 import radiologyService from '../../services/radiology/radiologyService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
+import { paramId, radiologyOrderValidator } from '../../validators/sharedValidators.js';
 import { emitRadiologyEvent } from '../../utils/websocket/realtimeEmitter.js';
 import { canSignRadiologyReport } from '../../utils/roleHelpers.js';
 
@@ -50,7 +50,7 @@ function handleOperationalError(res, err) {
  * POST /radiology/orders
  * Create a new radiology order
  */
-router.post('/orders', requiredUUID('patient_uid'), requiredString('modality', 50), requiredString('body_part', 100), validate, async (req, res, next) => {
+router.post('/orders', ...radiologyOrderValidator, validate, async (req, res, next) => {
   try {
     const orderData = {
       patient_uid: req.body.patient_uid,

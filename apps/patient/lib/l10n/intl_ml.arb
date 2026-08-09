@@ -69,6 +69,7 @@
   "@authSosTooltip": {
     "description": "SOS ഫ്ലോട്ടിംഗ് ആക്ഷൻ ബട്ടണിൽ ഹോവർ ചെയ്യുമ്പോൾ കാണിക്കുന്ന ടൂൾടിപ്പ്"
   },
+  "authSosSending": "SOS അലേർട്ട് അയയ്ക്കുന്നു…",
   "authSosTriggered": "SOS അലേർട്ട് പ്രവർത്തനക്ഷമമാക്കി!",
   "@authSosTriggered": {
     "description": "SOS വിജയകരമായി അയച്ചതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ സന്ദേശം"
@@ -766,6 +767,10 @@
   "@settingsSecurity": {
     "description": "ബയോമെട്രിക് ലോഗിനിനായുള്ള വിഭാഗം തലക്കെട്ട്"
   },
+  "biometricGateReason": "നിങ്ങളുടെ മെഡിക്കൽ രേഖകൾ കാണാൻ അൺലോക്ക് ചെയ്യുക",
+  "biometricGateLockedTitle": "അൺലോക്ക് ആവശ്യമാണ്",
+  "biometricGateLockedMessage": "നിങ്ങളുടെ ആരോഗ്യ രേഖകൾ നിങ്ങളുടെ ബയോമെട്രിക് ലോക്ക് ഉപയോഗിച്ച് സംരക്ഷിച്ചിരിക്കുന്നു. തുടരാൻ നിങ്ങളുടെ ഐഡന്റിറ്റി സ്ഥിരീകരിക്കുക.",
+  "biometricGateUnlockButton": "അൺലോക്ക്",
   "settingsBiometricLogin": "ബയോമെട്രിക് ലോഗിൻ ഉപയോഗിക്കുക",
   "@settingsBiometricLogin": {
     "description": "ബയോമെട്രിക് ടോഗിളിനായുള്ള ലേബൽ"
@@ -1943,6 +1948,14 @@
   "circularDialNoFeatures": "ഫീച്ചറുകളൊന്നും ലഭ്യമല്ല",
   "@circularDialNoFeatures": {
     "description": "Empty state for circular feature dial"
+  },
+  "circularDialCenterLabel": "ഹെൽത്ത് ഹബ്",
+  "@circularDialCenterLabel": {
+    "description": "Accessible label and tooltip for the dashboard dial's centre button"
+  },
+  "circularDialCenterHint": "ആരോഗ്യ പോയിൻ്റുകൾ തുറക്കുന്നു",
+  "@circularDialCenterHint": {
+    "description": "Accessibility hint describing what tapping the dial centre button does"
   },
   "deliveryYourLocation": "നിങ്ങളുടെ സ്ഥാനം",
   "@deliveryYourLocation": {

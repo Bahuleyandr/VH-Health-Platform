@@ -40,13 +40,21 @@ jest.unstable_mockModule('../../services/cds/deteriorationEarlyWarningService.js
 }));
 
 // Mock prisma so the news2_scores INSERT is observable without a real DB.
+// setTenantTx runs its callback with a tx client backed by the same spy —
+// recordNEWS2 now wraps the persist + canonical emit in a tenant-scoped tx.
 const insertSpy = jest.fn(async () => [{
   id: 4242, patient_uid: 'x', total_score: 0, clinical_risk: 'high',
   recorded_by: 'y', recorded_at: new Date(), created_at: new Date(),
 }]);
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: insertSpy },
-  setTenantTx: jest.fn(),
+  setTenantTx: jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: insertSpy })),
+}));
+
+// Stub the canonical emit — this suite pins escalation loudness, not the
+// timeline invariant (news2-standalone-canonical.deep.test.js pins that).
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: jest.fn(async () => ({ timeline: { id: 1 }, audit: { id: 1 } })),
 }));
 
 const { recordNEWS2 } = await import('../../services/clinical/news2Service.js');

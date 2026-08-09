@@ -90,7 +90,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   Future<void> _loadPatientId() async {
     _patientId = await _secureStorage.read(key: 'user_id');
     if (_patientId != null) {
-      _fetchAppointments();
+      unawaited(_fetchAppointments());
     } else {
       if (mounted) setState(() => _loadingAppointments = false);
     }
@@ -224,48 +224,51 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
           return;
         }
         // Show a bottom sheet with document links
-        showModalBottomSheet(
-          context: context,
-          builder: (ctx) => Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l.appointmentsDocumentsTitle,
-                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...docs.map((d) {
-                  final m = d as Map<String, dynamic>;
-                  final url = m['file_url']?.toString();
-                  final name =
-                      m['file_name'] ??
-                      m['document_type'] ??
-                      l.appointmentsDocumentFallback;
-                  return ListTile(
-                    leading: const Icon(Icons.description),
-                    title: Text(name),
-                    subtitle: Text(
-                      m['document_type']?.toString().replaceAll('_', ' ') ?? '',
+        unawaited(
+          showModalBottomSheet(
+            context: context,
+            builder: (ctx) => Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l.appointmentsDocumentsTitle,
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    trailing: url != null
-                        ? const Icon(Icons.open_in_new)
-                        : null,
-                    onTap: url == null
-                        ? null
-                        : () async {
-                            await SafeUrlLauncher.launch(
-                              url,
-                              mode: LaunchMode.externalApplication,
-                            );
-                          },
-                  );
-                }),
-              ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...docs.map((d) {
+                    final m = d as Map<String, dynamic>;
+                    final url = m['file_url']?.toString();
+                    final name =
+                        m['file_name'] ??
+                        m['document_type'] ??
+                        l.appointmentsDocumentFallback;
+                    return ListTile(
+                      leading: const Icon(Icons.description),
+                      title: Text(name),
+                      subtitle: Text(
+                        m['document_type']?.toString().replaceAll('_', ' ') ??
+                            '',
+                      ),
+                      trailing: url != null
+                          ? const Icon(Icons.open_in_new)
+                          : null,
+                      onTap: url == null
+                          ? null
+                          : () async {
+                              await SafeUrlLauncher.launch(
+                                url,
+                                mode: LaunchMode.externalApplication,
+                              );
+                            },
+                    );
+                  }),
+                ],
+              ),
             ),
           ),
         );
@@ -306,7 +309,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
         await PatientCacheInvalidation.afterAppointmentMutation();
         if (!mounted) return;
         _showSuccess(l.appointmentsCancelledToast);
-        _fetchAppointments();
+        unawaited(_fetchAppointments());
       } else {
         _showError(resp.failureMessage(l.appointmentsCancelFailed));
       }
@@ -462,7 +465,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
         await PatientCacheInvalidation.afterAppointmentMutation();
         if (!mounted) return;
         _showSuccess(l.appointmentsRescheduledToast);
-        _fetchAppointments();
+        unawaited(_fetchAppointments());
       } else {
         _showError(resp.failureMessage(l.appointmentsRescheduleFailed));
       }

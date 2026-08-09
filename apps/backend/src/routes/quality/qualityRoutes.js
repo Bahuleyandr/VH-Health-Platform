@@ -12,7 +12,7 @@ import {
 } from '../../services/feedback/npsService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isStaff, isAdmin, isClinical } from '../../utils/roleHelpers.js';
-import { requiredString, requiredEnum, requiredDate, requiredUUID, paramId } from '../../validators/sharedValidators.js';
+import { requiredString, requiredEnum, requiredDate, requiredUUID, paramId, qualityIncidentValidator } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -25,8 +25,8 @@ const router = Router();
 const QUALITY_ROLES = ['QUALITY_OFFICER', 'ADMIN', 'SUPER_ADMIN'];
 const LEADERSHIP_ROLES = ['CMO', 'CNO', 'DEPARTMENT_HEAD'];
 const IC_ROLES = ['INFECTION_CONTROL_OFFICER'];
-const INCIDENT_TYPES = ['fall', 'medication_error', 'infection', 'equipment_failure', 'near_miss', 'complaint', 'other'];
-const INCIDENT_SEVERITIES = ['minor', 'moderate', 'major', 'sentinel', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+// Incident type/severity enums live with qualityIncidentValidator in
+// src/validators/sharedValidators.js (wired on POST /incidents below).
 const INFECTION_SITES = ['surgical_site', 'bloodstream', 'urinary', 'respiratory', 'wound', 'other'];
 
 function hasQualityAccess(role) {
@@ -44,10 +44,7 @@ function hasICAccess(role) {
  * Report a new quality incident — any staff can report
  */
 router.post('/incidents',
-  requiredString('description', 2000),
-  requiredEnum('incident_type', INCIDENT_TYPES),
-  requiredEnum('severity', INCIDENT_SEVERITIES),
-  requiredDate('date_occurred'),
+  ...qualityIncidentValidator,
   validate,
   async (req, res, next) => {
   try {

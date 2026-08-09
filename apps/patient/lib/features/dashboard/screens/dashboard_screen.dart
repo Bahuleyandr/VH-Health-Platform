@@ -247,7 +247,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_isGuestSession) return;
     try {
       await Future.delayed(const Duration(seconds: 1));
-      if (mounted) _fetchAndStoreDashboardFresh();
+      if (mounted) unawaited(_fetchAndStoreDashboardFresh());
     } catch (e) {
       debugPrint('Dashboard error: $e');
     }
@@ -277,17 +277,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
 
         // Listen for fresh network data if cache was served first
-        result.onFresh?.then((fresh) async {
-          final cached = await ApiCacheManager.load('/portal/command-center');
-          if (!mounted) return;
-          if (fresh.isSuccess) {
-            _applyCommandCenter(
-              _asStringMap(fresh.data),
-              staleLabel: null,
-              cachedAt: cached?.cachedAt,
-            );
-          }
-        });
+        unawaited(
+          result.onFresh?.then((fresh) async {
+            final cached = await ApiCacheManager.load('/portal/command-center');
+            if (!mounted) return;
+            if (fresh.isSuccess) {
+              _applyCommandCenter(
+                _asStringMap(fresh.data),
+                staleLabel: null,
+                cachedAt: cached?.cachedAt,
+              );
+            }
+          }),
+        );
       } else {
         setState(() {
           _commandCenterLoading = false;
@@ -427,10 +429,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _openProfileEdit(BuildContext context) async {
     if (_isGuestSession) {
-      showGuestSignInPrompt(
-        context,
-        featureLabel: _featureLabelForRoute('/profile-edit'),
-        returnTo: '/profile-edit',
+      unawaited(
+        showGuestSignInPrompt(
+          context,
+          featureLabel: _featureLabelForRoute('/profile-edit'),
+          returnTo: '/profile-edit',
+        ),
       );
       return;
     }

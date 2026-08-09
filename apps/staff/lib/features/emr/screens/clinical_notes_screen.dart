@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/dictation/dictation_section_router.dart';
@@ -1023,20 +1025,22 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     }
 
     // Show a simple loading dialog while we wait on the LLM (3-30s typical).
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => Center(
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 12),
-                Text(AppStrings.of(ctx).aiAssistGenerating),
-              ],
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => Center(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 12),
+                  Text(AppStrings.of(ctx).aiAssistGenerating),
+                ],
+              ),
             ),
           ),
         ),
@@ -2076,7 +2080,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         if (tabIndex >= 0) {
           _notesByType.remove(tabType);
           if (_tabController.index == tabIndex) {
-            _loadNotesForTab(tabIndex);
+            unawaited(_loadNotesForTab(tabIndex));
           } else if (_tabController.index >= _noteTypes.length) {
             _tabController.animateTo(tabIndex);
           }

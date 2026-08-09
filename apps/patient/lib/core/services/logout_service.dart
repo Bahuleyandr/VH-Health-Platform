@@ -11,6 +11,7 @@ import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
+import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 
 /// Centralized logout that clears ALL local state.
@@ -36,6 +37,8 @@ class LogoutService {
 
   /// Full logout: clears credentials, disconnects services, wipes caches.
   static Future<void> logout() async {
+    BiometricGate.clearUnlockState();
+
     // 1. Disconnect real-time services. Both the legacy WebSocketService AND
     //    the shared RealtimeClient (vhhealth_core) must be torn down — the
     //    RealtimeClient singleton otherwise stays authenticated and keeps

@@ -69,6 +69,7 @@
   "@authSosTooltip": {
     "description": "SOS மிதக்கும் செயல் பொத்தானின் மீது சுட்டியை வைக்கும்போது காட்டப்படும் உதவிக்குறிப்பு"
   },
+  "authSosSending": "SOS எச்சரிக்கை அனுப்பப்படுகிறது…",
   "authSosTriggered": "SOS எச்சரிக்கை தூண்டப்பட்டது!",
   "@authSosTriggered": {
     "description": "SOS வெற்றிகரமாக அனுப்பப்பட்ட பிறகு சிற்றுண்டிப் பட்டி செய்தி"
@@ -766,6 +767,10 @@
   "@settingsSecurity": {
     "description": "பயோமெட்ரிக் உள்நுழைவிற்கான பகுதி தலைப்பு"
   },
+  "biometricGateReason": "உங்கள் மருத்துவப் பதிவுகளைப் பார்க்க திறக்கவும்",
+  "biometricGateLockedTitle": "திறத்தல் தேவை",
+  "biometricGateLockedMessage": "உங்கள் சுகாதாரப் பதிவுகள் உங்கள் பயோமெட்ரிக் பூட்டால் பாதுகாக்கப்படுகின்றன. தொடர உங்கள் அடையாளத்தை உறுதிப்படுத்தவும்.",
+  "biometricGateUnlockButton": "திற",
   "settingsBiometricLogin": "பயோமெட்ரிக் உள்நுழைவைப் பயன்படுத்தவும்",
   "@settingsBiometricLogin": {
     "description": "பயோமெட்ரிக் மாற்றுவதற்கான லேபிள்"
@@ -1943,6 +1948,14 @@
   "circularDialNoFeatures": "அம்சங்கள் இல்லை",
   "@circularDialNoFeatures": {
     "description": "Empty state for circular feature dial"
+  },
+  "circularDialCenterLabel": "சுகாதார மையம்",
+  "@circularDialCenterLabel": {
+    "description": "Accessible label and tooltip for the dashboard dial's centre button"
+  },
+  "circularDialCenterHint": "சுகாதார புள்ளிகளைத் திறக்கும்",
+  "@circularDialCenterHint": {
+    "description": "Accessibility hint describing what tapping the dial centre button does"
   },
   "deliveryYourLocation": "உங்கள் இருப்பிடம்",
   "@deliveryYourLocation": {

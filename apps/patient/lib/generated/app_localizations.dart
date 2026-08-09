@@ -206,6 +206,12 @@ abstract class AppLocalizations {
   /// **'Send SOS'**
   String get authSosTooltip;
 
+  /// Immediate snack-bar feedback while the SOS alert is being sent
+  ///
+  /// In en, this message translates to:
+  /// **'Sending SOS alert…'**
+  String get authSosSending;
+
   /// Snack-bar message after SOS is successfully sent
   ///
   /// In en, this message translates to:
@@ -1273,6 +1279,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Security'**
   String get settingsSecurity;
+
+  /// OS biometric prompt reason when opening medical records
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock to view your medical records'**
+  String get biometricGateReason;
+
+  /// Title on the locked pane when biometric unlock is denied
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock required'**
+  String get biometricGateLockedTitle;
+
+  /// Body copy on the locked pane when biometric unlock is denied
+  ///
+  /// In en, this message translates to:
+  /// **'Your health records are protected by your biometric lock. Confirm your identity to continue.'**
+  String get biometricGateLockedMessage;
+
+  /// Retry button on the locked pane
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get biometricGateUnlockButton;
 
   /// Label for biometric toggle
   ///
@@ -3853,6 +3883,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No features available'**
   String get circularDialNoFeatures;
+
+  /// Accessible label and tooltip for the dashboard dial's centre button
+  ///
+  /// In en, this message translates to:
+  /// **'Health Hub'**
+  String get circularDialCenterLabel;
+
+  /// Accessibility hint describing what tapping the dial centre button does
+  ///
+  /// In en, this message translates to:
+  /// **'Opens Health Points'**
+  String get circularDialCenterHint;
 
   /// Label for user location on delivery map
   ///

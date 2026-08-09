@@ -5,8 +5,10 @@
 - `widget_test.dart` — legacy smoke test.
 - `core/config/campus_config_test.dart` — campus config helpers (pre-existing).
 - `core/config/role_config_test.dart` — **NEW 2026-04-14.** 13 test cases locking in `StaffRole.fromString` behaviour (canonical parse, trim + case-insensitive, fallback to `general` for unknown), the `isAdminTier` membership, and per-role dispatch of `getFeaturesForRole` + `getBottomNavForRole`. Every role-aware feature gate runs through this file.
-- `core/widgets/debounced_button_test.dart` — debounce behaviour (pre-existing).
 - `features/auth/services/login_service_test.dart` — login flow validators (pre-existing).
+
+(`core/widgets/debounced_button_test.dart` was removed 2026-08 together with
+the never-referenced `DebouncedButton` widget it tested.)
 
 ## Running
 

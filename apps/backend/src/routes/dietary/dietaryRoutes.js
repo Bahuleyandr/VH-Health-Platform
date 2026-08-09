@@ -6,7 +6,7 @@ import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import dietaryService from '../../services/dietary/dietaryService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
-import { requiredUUID, requiredString, paramId } from '../../validators/sharedValidators.js';
+import { paramId, dietaryOrderValidator } from '../../validators/sharedValidators.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
 const validate = (req, res, next) => {
@@ -25,7 +25,7 @@ function tenantOf(req) {
  * POST /dietary/orders
  * Create a new diet order
  */
-router.post('/orders', requiredUUID('patient_uid'), requiredString('diet_type', 100), validate, async (req, res, next) => {
+router.post('/orders', ...dietaryOrderValidator, validate, async (req, res, next) => {
   try {
     const orderData = {
       patient_uid: req.body.patient_uid,

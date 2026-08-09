@@ -340,7 +340,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   }
 
   Future<void> _stopWalk() async {
-    _positionStream?.cancel();
+    unawaited(_positionStream?.cancel());
     _positionStream = null;
     _elapsedTimer?.cancel();
     _elapsedTimer = null;

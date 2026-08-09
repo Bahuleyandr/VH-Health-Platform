@@ -21,7 +21,14 @@ const ADULT_RANGES = {
   systolic_bp: { min: 80, max: 160, critical_min: 60, critical_max: 200, unit: 'mmHg' },
   diastolic_bp: { min: 50, max: 100, critical_min: 40, critical_max: 120, unit: 'mmHg' },
   temperature: { min: 35.5, max: 38.5, critical_min: 34.0, critical_max: 40.0, unit: '°C' },
-  oxygen_saturation: { min: 92, max: 100, critical_min: 85, critical_max: 100, unit: '%' },
+  // SpO2 has NO upper critical band: 100% is a normal physiological value,
+  // and the classifiers below treat `critical_max` as INCLUSIVE (>=), so a
+  // finite 100 here classified a perfectly-oxygenated patient as CRITICAL
+  // and fired the code-blue fan-out. `Infinity` is unreachable for every
+  // finite reading, keeping SpO2 alerts low-side only. Implausible values
+  // (>100) are rejected at the write path (utils/clinical/vitalPlausibility.js)
+  // before they ever reach classification.
+  oxygen_saturation: { min: 92, max: 100, critical_min: 85, critical_max: Infinity, unit: '%' },
   respiratory_rate: { min: 10, max: 24, critical_min: 6, critical_max: 35, unit: '/min' },
   blood_glucose: { min: 70, max: 180, critical_min: 50, critical_max: 400, unit: 'mg/dL' },
 };
@@ -38,7 +45,8 @@ const PAEDIATRIC_RANGES = {
   systolic_bp: { min: 75, max: 115, critical_min: 60, critical_max: 130, unit: 'mmHg' },
   diastolic_bp: { min: 45, max: 80, critical_min: 35, critical_max: 95, unit: 'mmHg' },
   temperature: { min: 35.5, max: 38.0, critical_min: 34.0, critical_max: 40.0, unit: '°C' },
-  oxygen_saturation: { min: 94, max: 100, critical_min: 88, critical_max: 100, unit: '%' },
+  // No upper critical band — same rationale as the adult table above.
+  oxygen_saturation: { min: 94, max: 100, critical_min: 88, critical_max: Infinity, unit: '%' },
   respiratory_rate: { min: 18, max: 40, critical_min: 10, critical_max: 60, unit: '/min' },
   blood_glucose: { min: 60, max: 180, critical_min: 40, critical_max: 400, unit: 'mg/dL' },
 };
@@ -185,7 +193,9 @@ export function normalizeTemperatureC(value, unit) {
  * Call this after any vital sign is recorded.
  * @param {number} patientId - Patient DB ID
  * @param {Object} vitals - { heart_rate, systolic_bp, diastolic_bp, temperature, oxygen_saturation, ... }
- * @param {Object} context - { recordedBy, requestId, tenantId? }
+ * @param {Object} context - { recordedBy, requestId, tenantId? } — tenantId,
+ *   when supplied by a caller that already resolved the patient's tenant,
+ *   scopes the alert persistence without a users lookup
  * @returns {Array} alerts - Array of generated alerts
  */
 export async function checkVitalAnomalies(patientId, vitals, context = {}) {
@@ -295,55 +305,43 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
   if (alerts.length > 0) {
     const hasCritical = alerts.some((a) => a.severity === 'CRITICAL');
 
-    // Resolve patient_uid for the CDS-alert mirror — cds_alerts is keyed
-    // by uuid, not the int patient_id. Single lookup outside the loop
-    // so the mirror is amortised across multiple alert rows.
-    let pregnancyCdsPatientUid = null;
-    if (alerts.some((a) => a.is_pregnancy_bp_signal)) {
-      try {
-        const r = await prisma.$queryRawUnsafe(
-          `SELECT uid FROM users WHERE id = $1::int LIMIT 1`,
-          patientId,
-        );
-        pregnancyCdsPatientUid = r[0]?.uid ?? null;
-      } catch (err) {
-        logger.warn(`vitalSignMonitor: patient uid lookup failed for cds_alerts mirror: ${err.message}`);
-      }
-    }
-
-    // Resolve the patient UUID + tenant once for the results-inbox producer
-    // hook below AND for scoping the persistence transaction. clinical_alerts
-    // is keyed by the int patient_id and carries a tenant_id whose DEFAULT
-    // reads the `app.current_tenant_id` GUC — so wrapping the INSERT in
+    // Resolve the patient UUID + tenant ONCE for every consumer below: the
+    // cds_alerts mirror (uuid-keyed), the results-inbox producer hook, and —
+    // load-bearing for EVERY severity — the persistence transaction scope.
+    // clinical_alerts carries a tenant_id whose DEFAULT reads the
+    // `app.current_tenant_id` GUC, so wrapping the INSERT in
     // setTenantTx(tenant) stamps the row with the PATIENT's tenant instead of
-    // the literal single-tenant fallback. `users` carries tenant_id, so we read
-    // it here. We run this lookup whenever a CRITICAL alert fired — even if the
-    // pregnancy mirror already resolved the uid — because we still need the
-    // tenant_id (the pregnancy lookup above selects uid only).
-    let criticalPatientUid = null;
-    // Callers that already resolved the patient tenant can scope WARNING-only
-    // alert batches directly. Without this, the lookup below never runs for a
-    // non-CRITICAL pregnancy BP alert and requireTenantId(null) fails after the
-    // ANC visit has already committed.
-    let criticalPatientTenantId = context.tenantId || null;
-    if (hasCritical) {
+    // the single-tenant fallback. Previously the tenant lookup ran only when
+    // a CRITICAL fired, so WARNING-only batches were persisted under the
+    // default tenant (or threw TENANT_CONTEXT_REQUIRED post-commit when the
+    // default-tenant fallback is disabled). A caller that already resolved
+    // the tenant (e.g. vitalsChartService.recordVitals) passes it via
+    // `context.tenantId` and wins; the users lookup is the fallback for
+    // callers that only hold the int patient_id.
+    const contextTenantId = typeof context.tenantId === 'string' && context.tenantId.trim() !== ''
+      ? context.tenantId
+      : null;
+    let alertPatientUid = null;
+    let alertPatientTenantId = contextTenantId;
+    // The uid is only consumed by the pregnancy CDS mirror and the CRITICAL
+    // fan-out; skip the lookup entirely when neither needs it AND the tenant
+    // is already known.
+    const needsUidLookup = hasCritical || alerts.some((a) => a.is_pregnancy_bp_signal);
+    if (needsUidLookup || !alertPatientTenantId) {
       try {
         const r = await prisma.$queryRawUnsafe(
           `SELECT uid, tenant_id FROM users WHERE id = $1::int LIMIT 1`,
           patientId,
         );
-        // Prefer the freshly-resolved uid; fall back to the pregnancy lookup
-        // (same patient) so behaviour is unchanged when the row is missing.
-        criticalPatientUid = r[0]?.uid ?? pregnancyCdsPatientUid;
-        criticalPatientTenantId = criticalPatientTenantId ?? r[0]?.tenant_id ?? null;
+        alertPatientUid = r[0]?.uid ?? null;
+        alertPatientTenantId = alertPatientTenantId ?? r[0]?.tenant_id ?? null;
       } catch (err) {
-        logger.warn(`vitalSignMonitor: patient uid/tenant lookup failed for results-inbox task: ${err.message}`);
-        // Still allow the task to be created against the pregnancy-resolved uid
-        // (if any) under the default tenant.
-        criticalPatientUid = pregnancyCdsPatientUid;
+        logger.warn(`vitalSignMonitor: patient uid/tenant lookup failed for alert persistence: ${err.message}`);
+        // Persistence still proceeds under the context/default tenant so a
+        // clinical alert is never dropped for a failed tenant lookup.
       }
     }
-    const persistTenantId = requireTenantId(criticalPatientTenantId);
+    const persistTenantId = requireTenantId(alertPatientTenantId);
 
     // ---- Phase 1: atomic persistence of the clinical_alerts fan-out ----
     // Only the load-bearing safety rows live in the transaction so it stays
@@ -405,13 +403,13 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       // duplicate-order alerts the dashboard already reads. Best-effort:
       // a mirror failure must not undo the committed clinical_alerts row
       // or block the alert dispatch. Finding b6dc4ea4.
-      if (alert.is_pregnancy_bp_signal && pregnancyCdsPatientUid) {
+      if (alert.is_pregnancy_bp_signal && alertPatientUid) {
         try {
           await prisma.$executeRawUnsafe(
             `INSERT INTO cds_alerts
                (patient_uid, alert_type, severity, title, description, source_data)
              VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)`,
-            pregnancyCdsPatientUid,
+            alertPatientUid,
             alert.vital_name === 'preeclampsia_screen'
               ? 'PREECLAMPSIA_SCREEN_POSITIVE'
               : 'PREGNANCY_HYPERTENSION',
@@ -451,8 +449,8 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
             '../../services/clinical/resuscitationEventService.js'
           );
           resusEvent = await createEventFromCriticalVital({
-            tenantId: criticalPatientTenantId,
-            patientUid: criticalPatientUid,
+            tenantId: alertPatientTenantId,
+            patientUid: alertPatientUid,
             clinicalAlertId,
             reason: alert.message,
             recordedBy: alert.recorded_by ? String(alert.recorded_by) : null,
@@ -507,8 +505,8 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
               // Land the task under the PATIENT's tenant (resolved from
               // users.tenant_id above); fall back to the default tenant only
               // when the lookup failed / the user row had no tenant.
-              tenantId: requireTenantId(criticalPatientTenantId),
-              patientUid: criticalPatientUid,
+              tenantId: requireTenantId(alertPatientTenantId),
+              patientUid: alertPatientUid,
               source: 'vital_alert',
               resourceType: 'clinical_alert',
               resourceId: clinicalAlertId,

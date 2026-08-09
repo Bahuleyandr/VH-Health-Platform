@@ -62,6 +62,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get authSosTooltip => 'Send SOS';
 
   @override
+  String get authSosSending => 'Sending SOS alert…';
+
+  @override
   String get authSosTriggered => 'SOS alert has been triggered!';
 
   @override
@@ -625,6 +628,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsSecurity => 'Security';
+
+  @override
+  String get biometricGateReason => 'Unlock to view your medical records';
+
+  @override
+  String get biometricGateLockedTitle => 'Unlock required';
+
+  @override
+  String get biometricGateLockedMessage =>
+      'Your health records are protected by your biometric lock. Confirm your identity to continue.';
+
+  @override
+  String get biometricGateUnlockButton => 'Unlock';
 
   @override
   String get settingsBiometricLogin => 'Use biometric login';
@@ -1997,6 +2013,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get circularDialNoFeatures => 'No features available';
+
+  @override
+  String get circularDialCenterLabel => 'Health Hub';
+
+  @override
+  String get circularDialCenterHint => 'Opens Health Points';
 
   @override
   String get deliveryYourLocation => 'Your Location';

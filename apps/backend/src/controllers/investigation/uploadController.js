@@ -193,10 +193,32 @@ export const downloadFile = async (req, res) => {
     // Set appropriate headers for file download
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${fileData.fileName}"`);
-    
-    // Stream the file
+
+    // Stream the file. A stream 'error' after piping has started fires
+    // asynchronously — the surrounding try/catch cannot see it, and with no
+    // listener it becomes an uncaught exception that takes down the whole
+    // process (bin/www.js shuts the API down on uncaughtException). Guard it
+    // the same way routes/storage/storageRoutes.js does.
+    fileData.stream.on('error', (streamErr) => {
+      logger.error('Download File stream error:', streamErr);
+      if (!res.headersSent) {
+        res.removeHeader('Content-Disposition');
+        res.removeHeader('Content-Type');
+        return error(res, 'Failed to download file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      }
+      // Response already started — nothing valid can be sent; abort it so the
+      // client sees a truncated transfer instead of a hung connection.
+      res.destroy();
+    });
+    // If the client goes away mid-download, destroy the source stream so the
+    // underlying file descriptor is released instead of leaking.
+    res.on('close', () => {
+      if (typeof fileData.stream.destroy === 'function' && !fileData.stream.destroyed) {
+        fileData.stream.destroy();
+      }
+    });
     fileData.stream.pipe(res);
-    
+
   } catch (err) {
     logger.error('Download File Error:', err);
     

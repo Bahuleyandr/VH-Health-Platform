@@ -310,7 +310,7 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
         orderId: _asInt(order['id']) ?? 0,
         reason: reason,
       );
-      if (mounted) _load();
+      if (mounted) unawaited(_load());
     } catch (e) {
       if (!mounted) return;
       _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);

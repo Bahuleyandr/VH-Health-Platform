@@ -3,6 +3,8 @@
 // Tab UI lives in lib/features/gamification/widgets/*_tab.dart; this file
 // owns data fetching + orchestration only.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vhhealth/core/services/api_client.dart';
@@ -260,9 +262,9 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
             data['description']?.toString() ??
             'Reward claimed!';
         _showVoucherDialog(voucherCode, rewardDesc);
-        _fetchMilestones();
-        _fetchSummary();
-        _fetchHubStats();
+        unawaited(_fetchMilestones());
+        unawaited(_fetchSummary());
+        unawaited(_fetchHubStats());
       } else {
         _showError(resp.failureMessage('Failed to claim milestone'));
       }

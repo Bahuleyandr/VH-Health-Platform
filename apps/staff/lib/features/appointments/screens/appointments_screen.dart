@@ -366,7 +366,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           'status': appointmentStatusFilterLabel(status, strings: s),
         }),
       );
-      _load();
+      unawaited(_load());
     } catch (e) {
       if (!mounted) return;
       ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
@@ -410,7 +410,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         context,
         s.lookup('s4.lib.front_office_workbench.appointment_rescheduled'),
       );
-      _load();
+      unawaited(_load());
     } catch (e) {
       if (!mounted) return;
       ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
@@ -1156,7 +1156,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           context,
           s.lookup('s4.lib.appointments.appointment_created_successfully'),
         );
-        _load();
+        unawaited(_load());
       }
     } finally {
       lookupDebounce?.cancel();

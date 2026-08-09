@@ -18,7 +18,7 @@ import {
 } from '../../services/bloodbank/transfusionSafetyService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
-import { requiredUUID, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+import { requiredNumber, requiredEnum, paramId, bloodRequestValidator } from '../../validators/sharedValidators.js';
 import { emitBloodBankEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 // Shared failure mapper for the B5 closed-loop endpoints.
@@ -220,7 +220,7 @@ router.get('/registers/:registerType', async (req, res, next) => {
  * POST /blood-bank/request
  * Create a new blood request
  */
-router.post('/request', requiredUUID('patient_uid'), requiredEnum('blood_group', ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']), requiredNumber('units', { min: 1, max: 10 }), validate, async (req, res, next) => {
+router.post('/request', ...bloodRequestValidator, validate, async (req, res, next) => {
   try {
     const requestData = {
       patient_uid: req.body.patient_uid,

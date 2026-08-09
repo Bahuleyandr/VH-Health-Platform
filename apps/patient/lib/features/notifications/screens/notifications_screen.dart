@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -79,26 +81,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         });
       }
       // Listen for fresh data from background refresh
-      result.onFresh?.then((fresh) async {
-        if (fresh.isSuccess) {
-          final cached = await ApiCacheManager.load('/notifications/my');
-          if (!mounted) return;
-          final data = fresh.data;
-          final List<dynamic> list;
-          if (data is List) {
-            list = data;
-          } else if (data is Map && data['notifications'] is List) {
-            list = data['notifications'] as List<dynamic>;
-          } else {
-            list = fresh.dataAsList();
+      unawaited(
+        result.onFresh?.then((fresh) async {
+          if (fresh.isSuccess) {
+            final cached = await ApiCacheManager.load('/notifications/my');
+            if (!mounted) return;
+            final data = fresh.data;
+            final List<dynamic> list;
+            if (data is List) {
+              list = data;
+            } else if (data is Map && data['notifications'] is List) {
+              list = data['notifications'] as List<dynamic>;
+            } else {
+              list = fresh.dataAsList();
+            }
+            setState(() {
+              _staleLabel = null;
+              _cachedAt = cached?.cachedAt;
+              notifications = list;
+            });
           }
-          setState(() {
-            _staleLabel = null;
-            _cachedAt = cached?.cachedAt;
-            notifications = list;
-          });
-        }
-      });
+        }),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {

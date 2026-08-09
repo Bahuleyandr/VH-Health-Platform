@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -119,7 +121,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
               .toList();
           _loading = false;
         });
-        _syncNotifications();
+        unawaited(_syncNotifications());
       } else {
         setState(() {
           _error = resp.failureMessage(l.medicationRemindersLoadFailed);
@@ -166,7 +168,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
           '/reminders/medication/${reminder.id}',
         );
         if (mounted && resp.isSuccess) {
-          _loadReminders();
+          unawaited(_loadReminders());
         }
       } else {
         // Reactivate by updating is_active
@@ -181,7 +183,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
           },
         );
         if (mounted && resp.isSuccess) {
-          _loadReminders();
+          unawaited(_loadReminders());
         }
       }
     } catch (e) {
@@ -193,8 +195,8 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
     try {
       final resp = await ApiClient.delete('/reminders/medication/$id');
       if (mounted && resp.isSuccess) {
-        NotificationScheduler.cancelReminder(id);
-        _loadReminders();
+        unawaited(NotificationScheduler.cancelReminder(id));
+        unawaited(_loadReminders());
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Error deleting reminder: $e');
@@ -223,6 +225,9 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
       appBar: AppBar(title: Text(l.medicationRemindersTitle)),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddReminderSheet,
+        // Accessible name for the icon-only FAB (screen readers announce it;
+        // long-press shows it visually).
+        tooltip: l.medicationReminderAdd,
         child: const Icon(Icons.add),
       ),
       body: DataStateBuilder<_Reminder>(

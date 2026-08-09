@@ -135,7 +135,7 @@ class _QueueScreenState extends State<QueueScreen> {
     try {
       await ScheduleApiService.updateAppointmentStatus(id, 'in-progress');
       setState(() => _consultationStart = DateTime.now());
-      _load();
+      unawaited(_load());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -160,7 +160,7 @@ class _QueueScreenState extends State<QueueScreen> {
         _consultationStart = null;
         _elapsed = Duration.zero;
       });
-      _load();
+      unawaited(_load());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -183,16 +183,18 @@ class _QueueScreenState extends State<QueueScreen> {
         appointment['patient']?['name']?.toString() ??
         AppStrings.of(context).queueUnknownPatient;
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => _PatientDetailsSheet(
-        phone: phone,
-        patientName: patientName,
-        appointment: appointment,
+    unawaited(
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) => _PatientDetailsSheet(
+          phone: phone,
+          patientName: patientName,
+          appointment: appointment,
+        ),
       ),
     );
   }

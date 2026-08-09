@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -1372,7 +1374,7 @@ class _PendingTabState extends State<_PendingTab> {
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _load();
+        unawaited(_load());
       }
     } catch (e) {
       if (mounted) {
@@ -1759,20 +1761,22 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
       }
     }
     if (!mounted) return;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (ctx) => _InvestigationResultSheet(
-        investigation: detail,
-        patientName: investigationPatientLabel(
-          detail,
-          fallbackName: widget.initialPatientName,
-          fallbackPhone: widget.initialPatientPhone,
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
         ),
-        onReopened: _load,
+        builder: (ctx) => _InvestigationResultSheet(
+          investigation: detail,
+          patientName: investigationPatientLabel(
+            detail,
+            fallbackName: widget.initialPatientName,
+            fallbackPhone: widget.initialPatientPhone,
+          ),
+          onReopened: _load,
+        ),
       ),
     );
   }

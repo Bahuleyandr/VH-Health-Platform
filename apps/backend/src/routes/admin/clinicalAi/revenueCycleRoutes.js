@@ -375,4 +375,36 @@ router.patch('/payer-variance/reviews/:id', async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Coding-suggestion batch (admin trigger for the nightly sweep). Generates
+// review-gated coding suggestions only — nothing is ever auto-applied to
+// claims or the record; every suggestion lands as a pending
+// clinical_ai_reviews item for the coding team. The clinical_coding_assist
+// module gate applies inside the service (disabled module → no-op summary).
+// ---------------------------------------------------------------------------
+router.post('/coding-batch/run-sweep', async (req, res, next) => {
+  try {
+    const { runCodingSuggestionBatch } = await import('../../../services/ai/codingBatchSuggestionService.js');
+    const result = await runCodingSuggestionBatch({
+      tenantId: req.tenantId,
+      limit: req.body?.limit,
+      lookbackDays: req.body?.lookback_days,
+      triggeredBy: req.user?.uid || null,
+      source: 'admin',
+    });
+    // Literal module key (not the service's exported constant) so the batch
+    // service stays a lazy import on this route module.
+    await logClinicalAiAudit(req, 'CLINICAL_AI_CODING_BATCH_RUN', 'clinical_coding_assist', null, {
+      candidates: result.candidates,
+      suggested: result.suggested,
+      review_items: result.review_items,
+      skipped: result.skipped.length,
+      stopped_reason: result.stopped_reason,
+    });
+    return success(res, result, 'Coding suggestion batch completed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 export default router;

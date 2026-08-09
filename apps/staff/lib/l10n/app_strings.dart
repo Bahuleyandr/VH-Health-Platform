@@ -1395,6 +1395,8 @@ class AppStrings {
   String get composerSourceOrderSet => _t('composer.source.order_set');
   String get composerSourceCatalog => _t('composer.source.catalog');
   String get composerBlockedChip => _t('composer.blocked_chip');
+  String get composerCdsUnavailableChip => _t('composer.cds_unavailable_chip');
+  String get composerSearchFailed => _t('composer.search_failed');
   String get composerChipMedication => _t('composer.chip.medication');
   String get composerChipInvestigation => _t('composer.chip.investigation');
   String get composerAddToBasket => _t('composer.add_to_basket');
@@ -4970,6 +4972,9 @@ class AppStrings {
       'composer.source.order_set': 'Order set',
       'composer.source.catalog': 'Catalog',
       'composer.blocked_chip': 'Blocked by safety checks',
+      'composer.cds_unavailable_chip': 'Safety pre-check unavailable',
+      'composer.search_failed':
+          'Catalog search failed. Check connection and retry.',
       'composer.chip.medication': 'Medication',
       'composer.chip.investigation': 'Investigation',
       'composer.add_to_basket': 'Add to basket',
@@ -6681,11 +6686,6 @@ class AppStrings {
       's4.lib.admission_case_sheet.saving': "Saving",
       's4.lib.admission_case_sheet.save_case_sheet': "Save Case Sheet",
       's4.lib.app_router.go_home': "Go Home",
-      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
-          "Appointment queue workflows now run from the consolidated workbench.",
-      's4.lib.appointment_queue.open_front_office': "Open Front Office",
-      's4.lib.appointment_queue.opening_front_office_workbench':
-          "Opening Front Office Workbench",
       'appointments.status.all': 'All',
       'appointments.status.scheduled': 'Scheduled',
       'appointments.status.confirmed': 'Confirmed',
@@ -11457,6 +11457,9 @@ class AppStrings {
       'composer.source.catalog': 'कैटलॉग',
       // REVIEW: safety wording
       'composer.blocked_chip': 'सुरक्षा जाँच द्वारा अवरुद्ध',
+      'composer.cds_unavailable_chip': 'सुरक्षा पूर्व-जाँच उपलब्ध नहीं',
+      'composer.search_failed':
+          'कैटलॉग खोज विफल रही। कनेक्शन जाँचें और पुनः प्रयास करें।',
       'composer.chip.medication': 'दवा',
       'composer.chip.investigation': 'जाँच',
       'composer.add_to_basket': 'बास्केट में जोड़ें',
@@ -13067,12 +13070,6 @@ class AppStrings {
       's4.lib.admission_case_sheet.saving': "सहेज रहा है",
       's4.lib.admission_case_sheet.save_case_sheet': "केस शीट सहेजें",
       's4.lib.app_router.go_home': "घर जाओ",
-      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
-          "अपॉइंटमेंट कतार वर्कफ़्लो अब समेकित कार्यक्षेत्र से चलते हैं।",
-      's4.lib.appointment_queue.open_front_office': "फ्रंट ऑफिस खोलें",
-      's4.lib.appointment_queue.opening_front_office_workbench':
-          "फ्रंट ऑफिस कार्यक्षेत्र खोलना",
-      // REVIEW: S4 appointment queue machine translations - confirm front-desk wording.
       'appointments.status.all': 'सभी',
       'appointments.status.scheduled': 'निर्धारित',
       'appointments.status.confirmed': 'पुष्ट',
@@ -17872,6 +17869,10 @@ class AppStrings {
       'composer.source.catalog': 'பட்டியல்',
       // REVIEW: AI first-pass, safety wording
       'composer.blocked_chip': 'பாதுகாப்புச் சரிபார்ப்பால் தடுக்கப்பட்டது',
+      'composer.cds_unavailable_chip':
+          'பாதுகாப்பு முன்-சரிபார்ப்பு கிடைக்கவில்லை',
+      'composer.search_failed':
+          'கேட்டலாக் தேடல் தோல்வியடைந்தது. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.',
       // REVIEW: AI first-pass
       'composer.chip.medication': 'மருந்து',
       // REVIEW: AI first-pass
@@ -19964,13 +19965,6 @@ class AppStrings {
       's4.lib.admission_case_sheet.saving': "சேமிக்கிறது",
       's4.lib.admission_case_sheet.save_case_sheet': "கேஸ் ஷீட்டை சேமிக்கவும்",
       's4.lib.app_router.go_home': "வீட்டிற்கு செல்",
-      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
-          "அப்பாயிண்ட்மெண்ட் வரிசை பணிப்பாய்வுகள் இப்போது ஒருங்கிணைக்கப்பட்ட பணியிடத்தில் இருந்து இயங்குகின்றன.",
-      's4.lib.appointment_queue.open_front_office':
-          "முன் அலுவலகத்தைத் திறக்கவும்",
-      's4.lib.appointment_queue.opening_front_office_workbench':
-          "முன் அலுவலக பணிப்பெட்டியைத் திறக்கிறது",
-      // REVIEW: S4 appointment queue machine translations - confirm front-desk wording.
       'appointments.status.all': 'அனைத்தும்',
       'appointments.status.scheduled': 'திட்டமிடப்பட்டது',
       'appointments.status.confirmed': 'உறுதிப்படுத்தப்பட்டது',
@@ -24892,6 +24886,9 @@ class AppStrings {
       'composer.source.catalog': 'జాబితా',
       // REVIEW: AI first-pass, safety wording
       'composer.blocked_chip': 'భద్రతా తనిఖీలచే నిరోధించబడింది',
+      'composer.cds_unavailable_chip': 'భద్రతా ముందస్తు తనిఖీ అందుబాటులో లేదు',
+      'composer.search_failed':
+          'కేటలాగ్ శోధన విఫలమైంది. కనెక్షన్ తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.',
       // REVIEW: AI first-pass
       'composer.chip.medication': 'మందు',
       // REVIEW: AI first-pass
@@ -26947,12 +26944,6 @@ class AppStrings {
       's4.lib.admission_case_sheet.saving': "సేవ్ చేస్తోంది",
       's4.lib.admission_case_sheet.save_case_sheet': "కేస్ షీట్ సేవ్ చేయండి",
       's4.lib.app_router.go_home': "ఇంటికి వెళ్ళు",
-      's4.lib.appointment_queue.appointment_queue_workflows_now_run_from_the_con':
-          "అపాయింట్‌మెంట్ క్యూ వర్క్‌ఫ్లోలు ఇప్పుడు ఏకీకృత వర్క్‌బెంచ్ నుండి అమలు చేయబడతాయి.",
-      's4.lib.appointment_queue.open_front_office': "ఫ్రంట్ ఆఫీస్ తెరవండి",
-      's4.lib.appointment_queue.opening_front_office_workbench':
-          "ఫ్రంట్ ఆఫీస్ వర్క్‌బెంచ్ తెరవడం",
-      // REVIEW: S4 appointment queue machine translations - confirm front-desk wording.
       'appointments.status.all': 'అన్నీ',
       'appointments.status.scheduled': 'షెడ్యూల్ చేయబడింది',
       'appointments.status.confirmed': 'నిర్ధారించబడింది',
@@ -31501,6 +31492,9 @@ class AppStrings {
       'composer.source.order_set': 'ഓർഡർ സെറ്റ്',
       'composer.source.catalog': 'കാറ്റലോഗ്',
       'composer.blocked_chip': 'സുരക്ഷാ പരിശോധനയിൽ തടഞ്ഞു',
+      'composer.cds_unavailable_chip': 'സുരക്ഷാ മുൻകൂർ പരിശോധന ലഭ്യമല്ല',
+      'composer.search_failed':
+          'കാറ്റലോഗ് തിരയൽ പരാജയപ്പെട്ടു. കണക്ഷൻ പരിശോധിച്ച് വീണ്ടും ശ്രമിക്കുക.',
       'composer.chip.medication': 'മരുന്ന്',
       'composer.chip.investigation': 'പരിശോധന',
       'composer.add_to_basket': 'ബാസ്കറ്റിൽ ചേർക്കുക',

@@ -1,4 +1,6 @@
 // Prescriptions tab — self-contained widget with its own state and data fetching
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/utils/document_opener.dart';
@@ -636,7 +638,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                                         backgroundColor: Colors.green,
                                       ),
                                     );
-                                    _fetchPrescriptions(); // refresh
+                                    unawaited(_fetchPrescriptions()); // refresh
                                   }
                                 } else {
                                   if (mounted) {

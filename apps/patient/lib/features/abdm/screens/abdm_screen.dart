@@ -555,7 +555,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
             behavior: SnackBarBehavior.floating,
           ),
         );
-        _loadConsents();
+        unawaited(_loadConsents());
       }
     } on AbdmException catch (e) {
       if (mounted) {

@@ -61,6 +61,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get authSosTooltip => 'SOS भेजें';
 
   @override
+  String get authSosSending => 'SOS अलर्ट भेजा जा रहा है…';
+
+  @override
   String get authSosTriggered => 'SOS अलर्ट शुरू हो गया है!';
 
   @override
@@ -625,6 +628,20 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get settingsSecurity => 'सुरक्षा';
+
+  @override
+  String get biometricGateReason =>
+      'अपने मेडिकल रिकॉर्ड देखने के लिए अनलॉक करें';
+
+  @override
+  String get biometricGateLockedTitle => 'अनलॉक आवश्यक';
+
+  @override
+  String get biometricGateLockedMessage =>
+      'आपके स्वास्थ्य रिकॉर्ड आपके बायोमेट्रिक लॉक से सुरक्षित हैं। जारी रखने के लिए अपनी पहचान की पुष्टि करें।';
+
+  @override
+  String get biometricGateUnlockButton => 'अनलॉक करें';
 
   @override
   String get settingsBiometricLogin => 'बायोमेट्रिक लॉगिन का उपयोग करें';
@@ -2002,6 +2019,12 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get circularDialNoFeatures => 'कोई सुविधा उपलब्ध नहीं';
+
+  @override
+  String get circularDialCenterLabel => 'हेल्थ हब';
+
+  @override
+  String get circularDialCenterHint => 'हेल्थ पॉइंट खोलता है';
 
   @override
   String get deliveryYourLocation => 'आपका स्थान';

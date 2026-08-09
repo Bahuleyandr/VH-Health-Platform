@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
@@ -119,7 +121,7 @@ class _DisputeScreenState extends State<DisputeScreen>
           _requestedCheckOut = null;
         });
         _tabController.animateTo(1);
-        _loadDisputes();
+        unawaited(_loadDisputes());
       }
     } catch (e) {
       if (mounted) {

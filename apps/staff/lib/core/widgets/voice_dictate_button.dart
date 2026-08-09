@@ -153,7 +153,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
           textDirection,
         ),
       );
-      HapticFeedback.lightImpact();
+      unawaited(HapticFeedback.lightImpact());
     } catch (e) {
       if (mounted) {
         ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
@@ -173,10 +173,12 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
     final textDirection = Directionality.of(context);
     final view = View.of(context);
     // Show a brief "transcribing…" indicator while the upload is in flight.
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _TranscribingDialog(),
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const _TranscribingDialog(),
+      ),
     );
     try {
       // Announce that recording has ended and transcription is in
@@ -190,7 +192,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
             textDirection,
           ),
         );
-        HapticFeedback.selectionClick();
+        unawaited(HapticFeedback.selectionClick());
       }
       final transcript = await VoiceDictationService.stopAndTranscribe(
         patientUid: widget.patientUid,
@@ -202,11 +204,13 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
           ? _appendTranscript(transcript)
           : await widget.onTranscript!(context, transcript);
       if (!mounted) return;
-      Telemetry.event('voice_dictation.completed', {
-        'has_patient': widget.patientUid != null ? 'true' : 'false',
-        'inserted': inserted ? 'true' : 'false',
-        'transcript_chars': transcript.length.toString(),
-      });
+      unawaited(
+        Telemetry.event('voice_dictation.completed', {
+          'has_patient': widget.patientUid != null ? 'true' : 'false',
+          'inserted': inserted ? 'true' : 'false',
+          'transcript_chars': transcript.length.toString(),
+        }),
+      );
       if (inserted) {
         SuccessToast.show(
           context,

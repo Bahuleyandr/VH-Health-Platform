@@ -3,6 +3,8 @@
 // Patient secure-messaging inbox — Sprint 10. Hits /portal/messages.
 // FAB opens the compose sheet for a new thread.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/services/api_client.dart';
@@ -119,7 +121,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       builder: (_) => const _ComposeSheet(),
     );
     if (result == true && mounted) {
-      _fetch();
+      unawaited(_fetch());
     }
   }
 

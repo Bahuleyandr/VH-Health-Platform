@@ -1319,7 +1319,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           return;
         }
       }
-      _loadInitial();
+      unawaited(_loadInitial());
     }
   }
 

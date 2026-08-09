@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -963,7 +965,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
         'clinical_notes': _prescriptionClinicalNotes(content),
       },
     );
-    if (mounted) _loadTimeline();
+    if (mounted) unawaited(_loadTimeline());
   }
 
   Map<String, dynamic> _currentOpContent() {
@@ -1106,7 +1108,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
 
   Future<void> _openInvestigationsAfterNote() async {
     await context.push(_investigationsRoute);
-    if (mounted) _loadTimeline();
+    if (mounted) unawaited(_loadTimeline());
   }
 
   Future<void> _saveOpNote({
@@ -1177,7 +1179,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen>
       if (openInvestigationsAfter) {
         await _openInvestigationsAfterNote();
       }
-      _loadTimeline();
+      unawaited(_loadTimeline());
     } catch (e) {
       if (!mounted) return;
       setState(() => _savingNote = false);

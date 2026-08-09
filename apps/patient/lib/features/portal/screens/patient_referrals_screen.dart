@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -50,17 +52,19 @@ class _PatientReferralsScreenState extends State<PatientReferralsScreen> {
         _cachedAt = page.cachedAt;
         _loading = false;
       });
-      page.onFresh
-          ?.then((fresh) async {
-            final cached = await ApiCacheManager.load('/portal/referrals');
-            if (!mounted) return;
-            setState(() {
-              _referrals = fresh;
-              _staleLabel = null;
-              _cachedAt = cached?.cachedAt;
-            });
-          })
-          .catchError((Object _) {});
+      unawaited(
+        page.onFresh
+            ?.then((fresh) async {
+              final cached = await ApiCacheManager.load('/portal/referrals');
+              if (!mounted) return;
+              setState(() {
+                _referrals = fresh;
+                _staleLabel = null;
+                _cachedAt = cached?.cachedAt;
+              });
+            })
+            .catchError((Object _) {}),
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() {

@@ -69,6 +69,7 @@
   "@authSosTooltip": {
     "description": "SOS फ्लोटिंगएक्शनबटन पर होवर करते समय दिखाया गया टूलटिप"
   },
+  "authSosSending": "SOS अलर्ट भेजा जा रहा है…",
   "authSosTriggered": "SOS अलर्ट शुरू हो गया है!",
   "@authSosTriggered": {
     "description": "SOS सफलतापूर्वक भेजे जाने के बाद स्नैक-बार संदेश"
@@ -766,6 +767,10 @@
   "@settingsSecurity": {
     "description": "बायोमेट्रिक लॉगिन के लिए अनुभाग शीर्षक"
   },
+  "biometricGateReason": "अपने मेडिकल रिकॉर्ड देखने के लिए अनलॉक करें",
+  "biometricGateLockedTitle": "अनलॉक आवश्यक",
+  "biometricGateLockedMessage": "आपके स्वास्थ्य रिकॉर्ड आपके बायोमेट्रिक लॉक से सुरक्षित हैं। जारी रखने के लिए अपनी पहचान की पुष्टि करें।",
+  "biometricGateUnlockButton": "अनलॉक करें",
   "settingsBiometricLogin": "बायोमेट्रिक लॉगिन का उपयोग करें",
   "@settingsBiometricLogin": {
     "description": "बायोमेट्रिक टॉगल के लिए लेबल"
@@ -1416,6 +1421,8 @@
   "departmentsConsultationFee": "परामर्श शुल्क",
   "departmentsNoDoctors": "इस विभाग में कोई डॉक्टर उपलब्ध नहीं",
   "circularDialNoFeatures": "कोई सुविधा उपलब्ध नहीं",
+  "circularDialCenterLabel": "हेल्थ हब",
+  "circularDialCenterHint": "हेल्थ पॉइंट खोलता है",
   "deliveryYourLocation": "आपका स्थान",
   "authDevLoginSkipOtp": "डेव लॉगिन (OTP छोड़ें)",
   "permissionGateSettingUp": "सेट किया जा रहा है...",

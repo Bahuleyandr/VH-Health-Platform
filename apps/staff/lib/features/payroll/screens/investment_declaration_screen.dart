@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/services/hr_api_service.dart';
@@ -228,7 +230,7 @@ class _InvestmentDeclarationScreenState
             backgroundColor: const Color(0xFF007A64),
           ),
         );
-        _loadDeclarations();
+        unawaited(_loadDeclarations());
       }
     } catch (e) {
       if (mounted) {

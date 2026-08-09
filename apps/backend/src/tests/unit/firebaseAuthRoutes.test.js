@@ -57,6 +57,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: { $queryRaw: jest.fn(), $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() },
+}));
+
 const { default: firebaseAuthRoutes } = await import('../../routes/auth/firebaseAuthRoutes.js');
 
 function buildApp() {
@@ -231,5 +235,59 @@ describe('firebase auth route protections', () => {
     // The route hands the controller the JWT subject; the attacker-chosen uid
     // in the body never becomes the revocation target.
     expect(res.body.uid).toBe('550e8400-e29b-41d4-a716-446655440001');
+  });
+
+  describe('firebaseAdminRoutes admin block', () => {
+    const adminRoutes = [
+      ['get', '/firebase/admin/users'],
+      ['get', '/firebase/admin/devices'],
+      ['post', '/firebase/admin/revoke-user-tokens'],
+      ['post', '/firebase/admin/cleanup-devices'],
+    ];
+
+    it.each(adminRoutes)('rejects %s %s without a JWT (401, not silently open)', async (method, path) => {
+      const res = await request(buildApp())[method](path);
+      expect(res.statusCode).toBe(401);
+    });
+
+    it.each(adminRoutes)('rejects %s %s for a non-admin JWT (403, not 401 from a missing req.user)', async (method, path) => {
+      const res = await request(buildApp())[method](path).set('Authorization', 'Bearer patient-token');
+      expect(res.statusCode).toBe(403);
+    });
+
+    it('GET /admin/users honestly reports Not Implemented for a valid admin JWT', async () => {
+      const res = await request(buildApp())
+        .get('/firebase/admin/users')
+        .set('Authorization', 'Bearer admin-token');
+
+      expect(res.statusCode).toBe(501);
+      expect(res.body.success).toBe(false);
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it('GET /admin/devices reaches the handler for a valid admin JWT (501 honest-not-implemented, not 401/200-fake)', async () => {
+      const res = await request(buildApp())
+        .get('/firebase/admin/devices')
+        .set('Authorization', 'Bearer admin-token');
+
+      expect(res.statusCode).toBe(501);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('POST /admin/revoke-user-tokens reaches the handler for a valid admin JWT (501, not 401)', async () => {
+      const res = await request(buildApp())
+        .post('/firebase/admin/revoke-user-tokens')
+        .set('Authorization', 'Bearer admin-token');
+
+      expect(res.statusCode).toBe(501);
+    });
+
+    it('POST /admin/cleanup-devices reaches the handler for a valid admin JWT (501, not 401)', async () => {
+      const res = await request(buildApp())
+        .post('/firebase/admin/cleanup-devices')
+        .set('Authorization', 'Bearer admin-token');
+
+      expect(res.statusCode).toBe(501);
+    });
   });
 });

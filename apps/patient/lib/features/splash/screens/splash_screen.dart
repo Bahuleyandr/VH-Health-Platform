@@ -174,10 +174,12 @@ class _SplashScreenState extends State<SplashScreen>
       // /dashboard?phone= probe see the right value on first paint.
       try {
         // ignore: use_build_context_synchronously
-        context.read<UserProvider>().setUser(
-          phone,
-          name,
-          hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
+        unawaited(
+          context.read<UserProvider>().setUser(
+            phone,
+            name,
+            hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
+          ),
         );
         await PushNotificationService.syncForSignedInUser(
           phone: phone,
