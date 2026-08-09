@@ -2945,8 +2945,24 @@ describe('reassignTask + listTasks + postTaskComment', () => {
     ]);
   });
 
-  it.each(['PATIENT', 'DEVICE_GATEWAY', 'TENANT_ADMIN'])(
-    'rejects non-human or pseudo role queue %s before touching the task',
+  it('keeps the established tenant administrator recovery queue assignable', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+
+    await reassignTask({
+      tenantId: TENANT,
+      id: 1,
+      assignedToRole: 'TENANT_ADMIN',
+    });
+
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([
+      null,
+      'TENANT_ADMIN',
+    ]);
+  });
+
+  it.each(['PATIENT', 'DEVICE_GATEWAY'])(
+    'rejects non-human role queue %s before touching the task',
     async (assignedToRole) => {
       await expect(reassignTask({
         tenantId: TENANT,

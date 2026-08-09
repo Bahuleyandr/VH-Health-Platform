@@ -5282,12 +5282,12 @@ export async function settleEdDestinationHandoffReviewTaskTx({
 // Role codes a task may be (re)assigned to. Use the authoritative human staff
 // roster rather than the legacy ROLES constants: the latter omits valid queues
 // such as COMPLIANCE_OFFICER and includes non-human principals such as PATIENT
-// and DEVICE_GATEWAY. Inbox visibility matches the actor's canonical queue
-// role, so accepting a machine, patient, pseudo, or unknown token can strand
-// the task where no eligible staff member can claim it.
-const ASSIGNABLE_TASK_ROLE_CODES = new Set(
-  getStaffRosterRoleCodes({ includeAdmin: true }),
-);
+// and DEVICE_GATEWAY. TENANT_ADMIN remains an explicit system recovery queue
+// used by the external integration recovery services.
+const ASSIGNABLE_TASK_ROLE_CODES = new Set([
+  ...getStaffRosterRoleCodes({ includeAdmin: true }),
+  'TENANT_ADMIN',
+]);
 
 function requireAssignableTaskRole(role) {
   const canonical = normalizeRole(role);
