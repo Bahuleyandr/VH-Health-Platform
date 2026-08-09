@@ -15,7 +15,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:vhhealth_core/config/client_readiness_config.dart';
 import 'package:vhhealth_core/config/tenant_config.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
-    show ApiConfig, SecurityConfig;
+    show ApiConfig, SecurityConfig, VHHttpClient;
 
 // Firebase Options
 import 'firebase_options.dart';
@@ -85,21 +85,23 @@ Future<void> main() async {
 
       // PAT-1: Activate Firebase App Check to attest that API calls originate
       // from a genuine, unmodified build of this app.
-      // - Profile/release builds: Play Integrity (Android) / DeviceCheck (iOS).
-      // - Debug builds: DebugProvider (produces a test token; requires the
-      //   debug token to be registered in the Firebase console).
+      // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
+      // - Debug AND profile builds (staging App Distribution ships
+      //   debug-signed profile APKs that cannot pass real attestation):
+      //   DebugProvider (produces a test token; requires the debug token to
+      //   be registered in the Firebase console).
       // Wrapped in try/catch so a provider misconfiguration never blocks startup.
       try {
         await FirebaseAppCheck.instance.activate(
-          // Profile/release: Play Integrity (Android) / DeviceCheck (iOS).
-          // Debug: DebugProvider — register the printed token in the
+          // Release: Play Integrity (Android) / DeviceCheck (iOS).
+          // Debug/profile: DebugProvider — register the printed token in the
           // Firebase console under App Check → Apps → Manage debug tokens.
-          providerAndroid: kDebugMode
-              ? AndroidDebugProvider()
-              : AndroidPlayIntegrityProvider(),
-          providerApple: kDebugMode
-              ? AppleDebugProvider()
-              : AppleDeviceCheckProvider(),
+          providerAndroid: kReleaseMode
+              ? const AndroidPlayIntegrityProvider()
+              : const AndroidDebugProvider(),
+          providerApple: kReleaseMode
+              ? const AppleDeviceCheckProvider()
+              : const AppleDebugProvider(),
           // Web provider is not used by the mobile patient app but is listed
           // explicitly so accidental web builds surface a clear config error
           // rather than silently bypassing attestation.
@@ -112,6 +114,11 @@ Future<void> main() async {
         // during local development or on devices without Play Services.
         debugPrint('FirebaseAppCheck.activate skipped: $e');
       }
+      // Attach the attestation token to every backend API request. Core's
+      // resolver is fail-open: if activation failed above, getToken() errors
+      // and the request goes out without the header (backend is report-only).
+      VHHttpClient.appCheckTokenProvider = () =>
+          FirebaseAppCheck.instance.getToken();
 
       crashlyticsEnabled =
           !const bool.fromEnvironment(

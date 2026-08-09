@@ -84,7 +84,7 @@ ARG APP_NAME="VH Health Staff"
 ARG SENTRY_DSN=
 ARG SENTRY_ENVIRONMENT=staff-web
 ARG SENTRY_RELEASE=
-# ReCaptcha v3 site key for Firebase App Check on staff web. Empty is safe:
+# reCAPTCHA Enterprise site key for Firebase App Check on staff web. Empty is safe:
 # main.dart skips App Check activation on web when the key is unset (the
 # dart-define default is ''), so no bogus attestation is attempted.
 # Provision via the Firebase console — see docs/runbooks/FIREBASE_KEY_ROTATION.md.
