@@ -1,6 +1,5 @@
 // settings_controller.dart
 import 'package:go_router/go_router.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
@@ -193,7 +192,6 @@ class SettingsController {
       } catch (e) {
         debugPrint('Settings logout cleanup failed: $e');
       }
-      await FirebaseAuth.instance.signOut();
       await LogoutService.logout();
       if (context.mounted) {
         context.go('/login');
@@ -239,7 +237,6 @@ class SettingsController {
       await _accountDeletionService.deleteAccount(
         freshFirebaseIdToken: freshToken,
       );
-      await FirebaseAuth.instance.signOut();
       await LogoutService.logout();
       if (context.mounted) {
         Navigator.of(context, rootNavigator: true).pop();

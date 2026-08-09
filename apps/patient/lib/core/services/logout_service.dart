@@ -107,7 +107,11 @@ class LogoutService {
 
     // 8. Clear in-memory user identity. UserProvider is the single source
     //    of truth; its backing storage keys were wiped in step 3 above.
-    await Future<void>.sync(_dependencies.clearUserProvider);
+    try {
+      await Future<void>.sync(_dependencies.clearUserProvider);
+    } catch (e) {
+      debugPrint('LogoutService: user provider clear failed: $e');
+    }
 
     // 9. Sign out of Firebase — LAST. The router treats a live Firebase user
     //    as "logged in" and re-evaluates its redirect on Firebase auth-state

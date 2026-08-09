@@ -68,6 +68,24 @@ void main() {
     },
   );
 
+  test(
+    'logout still signs out of Firebase when user provider clearing fails',
+    () async {
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, throwOn: 'user-provider'),
+      );
+
+      await expectLater(LogoutService.logout(), completes);
+
+      expect(calls, contains('firebase-signout'));
+      expect(
+        calls.indexOf('firebase-signout'),
+        greaterThan(calls.indexOf('user-provider')),
+      );
+    },
+  );
+
   test('logout does not throw when Firebase sign-out itself fails', () async {
     final calls = <String>[];
     LogoutService.debugSetDependencies(

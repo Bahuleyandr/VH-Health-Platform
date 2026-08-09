@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:vhhealth/features/auth/widgets/otp_ui_components.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
 import 'package:vhhealth/features/auth/services/resend_cooldown.dart';
 import 'dart:developer' as developer;
@@ -10,11 +11,13 @@ import 'dart:developer' as developer;
 class OtpWidget extends StatefulWidget {
   final String phoneNumber;
   final VoidCallback onSuccess;
+  final OtpService? otpService;
 
   const OtpWidget({
     super.key,
     required this.phoneNumber,
     required this.onSuccess,
+    this.otpService,
   });
 
   @override
@@ -24,7 +27,7 @@ class OtpWidget extends StatefulWidget {
 class _OtpWidgetState extends State<OtpWidget> {
   final TextEditingController otpController = TextEditingController();
   final _secureStorage = VHSecureStorage.instance;
-  final _otpService = OtpService();
+  late final OtpService _otpService;
 
   /// Returns a masked version of an E.164 phone number, keeping only the
   /// country code and last 2 digits visible.
@@ -60,6 +63,7 @@ class _OtpWidgetState extends State<OtpWidget> {
   @override
   void initState() {
     super.initState();
+    _otpService = widget.otpService ?? OtpService();
     _resendCooldown.addListener(_onCooldownTick);
     _sendOTP();
   }
@@ -80,6 +84,7 @@ class _OtpWidgetState extends State<OtpWidget> {
     // but never let a queued tap restart the send early.
     if (_resendCooldown.isActive && otpSent) return;
 
+    final hadUsableCode = verificationId != null && otpSent;
     setState(() {
       otpSent = false;
       isResending = true;
@@ -108,7 +113,15 @@ class _OtpWidgetState extends State<OtpWidget> {
       },
       onError: (error) {
         _showMessage(error);
-        if (mounted) setState(() => isResending = false);
+        if (mounted) {
+          setState(() {
+            // A failed resend does not invalidate the prior verification ID.
+            // Keep that already-delivered OTP usable instead of trapping the
+            // patient behind another successful SMS request.
+            otpSent = hadUsableCode;
+            isResending = false;
+          });
+        }
       },
     );
   }
@@ -157,7 +170,11 @@ class _OtpWidgetState extends State<OtpWidget> {
       );
 
       if (!backendLoginOk) {
-        await FirebaseAuth.instance.signOut();
+        // The backend exchange may have written part of the local session
+        // before a later storage write failed. Use the centralized teardown
+        // so no partial JWT can make the router treat this failed login as an
+        // authenticated session when Firebase sign-out refreshes it.
+        await LogoutService.logout();
         _showMessage(
           "Phone verified, but hospital login failed. Please try again.",
         );
