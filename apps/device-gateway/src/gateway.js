@@ -3,6 +3,7 @@ import http from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ack, extractMeta, messageText } from './hl7.js';
+import { errorFields, logEvent } from './logger.js';
 import { MllpFrameReader, frameMessage } from './mllpFrameReader.js';
 import {
   I09_GATEWAY_SEQUENCE_CONTRACT,
@@ -307,6 +308,14 @@ export class GatewayRuntime {
     mllpMessagesReceived.inc({ source_ref: sourceRef || 'unresolved', status: isCapacity ? 'rejected' : 'error' });
     gatewayRefusals.inc({ reason: bounded });
     if (isCapacity) gatewayReconciliation.inc({ reason: bounded });
+    // The metric label is bounded (unknown failures collapse to
+    // 'spool_corrupt'), so preserve the real underlying error identity here.
+    logEvent(isCapacity ? 'warn' : 'error', 'mllp_refusal', {
+      source_ref: sourceRef || 'unresolved',
+      reason: bounded,
+      ack_code: ackCode,
+      ...errorFields(err),
+    });
     return { ackCode, ack: ack(message || '', ackCode, err?.code || 'REJECTED'), errorCode: err?.code || 'REJECTED' };
   }
 
@@ -600,7 +609,11 @@ export class GatewayRuntime {
     const drain = async () => {
       for (const enrollment of this.enrollments) await this.drainPartition(enrollment);
     };
-    this.drainTimer = setInterval(() => { drain().catch(() => {}); }, intervalMs);
+    this.drainTimer = setInterval(() => {
+      drain().catch((err) => {
+        logEvent('error', 'supervised_drain_failed', errorFields(err));
+      });
+    }, intervalMs);
     this.drainTimer.unref?.();
   }
 
