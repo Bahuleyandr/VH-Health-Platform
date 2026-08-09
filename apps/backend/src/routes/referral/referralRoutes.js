@@ -31,6 +31,7 @@ import {
   requiredUUID,
   requiredString,
   paramId,
+  referralValidator,
 } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
@@ -163,7 +164,7 @@ function actorContext(req) {
  * forcing every caller to send both. Finding:
  * 2026-05-09-dynamic-acute-abdomen-doctor-referral-dual-field-validation-conflict.
  */
-router.post('/', rejectMobileClinicalWrite, requiredUUID('patient_uid'), requiredString('reason', 1000), validate, async (req, res, next) => {
+router.post('/', rejectMobileClinicalWrite, ...referralValidator, validate, async (req, res, next) => {
   try {
     if (!canRequestWardReferral(req.user?.role)) {
       return error(res, 'Only doctors and ward nursing roles can request referrals', 403);

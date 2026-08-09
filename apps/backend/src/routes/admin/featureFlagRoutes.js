@@ -3,7 +3,7 @@ import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import { getFlags, setFlag, deleteFlag } from '../../services/featureFlags/featureFlagService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { requiredString, paramId } from '../../validators/sharedValidators.js';
+import { paramId, featureFlagValidator } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -25,7 +25,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /admin/feature-flags — create or update a flag
-router.post('/', requiredString('name', 100), validate, async (req, res) => {
+router.post('/', ...featureFlagValidator, validate, async (req, res) => {
   try {
     const { name, description, enabled, rollout_percentage, allowed_roles } = req.body || {};
     if (!name) {

@@ -95,6 +95,9 @@ describe('billing routes relay AppError code + details', () => {
       .post('/api/v1/billing/invoice')
       .send({
         patient_uid: '22222222-2222-4222-8222-222222222222',
+        type: 'OP',
+        items: [{ description: 'Consultation', amount: 100 }],
+        subtotal: 100,
         total_amount: 100,
       });
 

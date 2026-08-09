@@ -18,6 +18,7 @@ import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionServi
 import { success, error } from '../../utils/responseHelper.js';
 import {
   requiredUUID, requiredString, requiredNumber, optionalString, paramId,
+  marScheduleValidator, marAdministerValidator, handoverValidator,
 } from '../../validators/sharedValidators.js';
 
 // Dedicated audio uploader — memory-backed, 20MB cap, audio-mime allowlist.
@@ -253,7 +254,7 @@ router.post('/progress-notes', requireIdempotencyKey({ required: false, scope: '
   }
 });
 
-router.post('/mar/schedule', requiredUUID('patient_uid'), validate, guardClinicalPatientWrite, async (req, res, next) => {
+router.post('/mar/schedule', ...marScheduleValidator, validate, guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const { patient_uid, prescription_id, medications } = req.body;
 
@@ -287,7 +288,7 @@ router.post('/mar/schedule', requiredUUID('patient_uid'), validate, guardClinica
  * POST /clinical/mar/:id/administer
  * Record medication administration.
  */
-router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), optionalString('override_reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/administer', ...marAdministerValidator, validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { notes, witness_uid, override_reason } = req.body;
@@ -496,7 +497,7 @@ router.post('/handover/generate', requiredUUID('patient_uid'), validate, guardCl
  * POST /clinical/handover
  * Create a nurse handover note.
  */
-router.post('/handover', requiredUUID('patient_uid'), requiredString('summary', 2000), requiredString('incoming_nurse'), validate, guardClinicalPatientWrite, async (req, res, next) => {
+router.post('/handover', ...handoverValidator, validate, guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const data = {
       ...req.body,

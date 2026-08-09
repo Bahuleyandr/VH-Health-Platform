@@ -1,7 +1,7 @@
 import express from 'express';
 import { validationResult } from 'express-validator';
 import * as reminderController from '../../controllers/patient/medicationReminderController.js';
-import { requiredString, paramId } from '../../validators/sharedValidators.js';
+import { paramId, reminderValidator } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -15,7 +15,7 @@ const router = express.Router();
 router.get('/medication/due', reminderController.getDueReminders);
 
 // CRUD
-router.post('/medication', requiredString('medication_name', 255), requiredString('dosage', 100), validate, reminderController.createReminder);
+router.post('/medication', ...reminderValidator, validate, reminderController.createReminder);
 router.get('/medication', reminderController.getActiveReminders);
 router.put('/medication/:id', paramId(), validate, reminderController.updateReminder);
 router.delete('/medication/:id', paramId(), validate, reminderController.deactivateReminder);
