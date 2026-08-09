@@ -105,12 +105,12 @@ const ESCALATABLE_STATUSES = ['open', 'overdue', 'blocked'];
 // action cannot be performed must NOT consume its tier — recording the fired
 // marker while doing nothing would silently swallow the escalation. Such rules
 // are skipped loudly instead (upsertEscalationRule refuses to activate them).
-const ENGINE_SUPPORTED_ACTION_KINDS = new Set([
+const ENGINE_SUPPORTED_ACTION_KINDS = Object.freeze(new Set([
   'notify',
   'reassign',
   'escalate_priority',
   'auto_resolve',
-]);
+]));
 
 // The mig-269 rule_code that is the critical-result clock; also the sla_key the
 // producer stamps and the backfill backstop re-derives from.
@@ -597,6 +597,17 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
   const tier = payload.tier ?? null;
   const action = ruleRow.action_kind;
   const nowIso = now.toISOString();
+
+  // In-transaction backstop for the sweep-loop guard above: an action kind
+  // with no executor must never consume its tier. The rule loop already skips
+  // such rules loudly, but any future caller that reaches this function with
+  // an unsupported kind would stamp the fired marker while performing
+  // nothing — so refuse here, before any write, and roll the claim back.
+  if (!ENGINE_SUPPORTED_ACTION_KINDS.has(action)) {
+    throw new Error(
+      `escalation action_kind '${action}' has no executor — refusing to record a fired marker for rule ${ruleRow.id}`,
+    );
+  }
 
   if (action === 'escalate_priority' && isS4ProtectedTask(taskRow)) {
     throw new Error('Protected S4 tasks cannot be reprioritized by the generic escalation engine');
