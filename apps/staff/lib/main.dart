@@ -217,7 +217,7 @@ Future<void> main() async {
         //   DebugProvider — register the printed token in the Firebase
         //   console under App Check → Apps → Manage debug tokens.
         // - Web (a real shipping target: dart2js CI lane + Dockerfile.web): a
-        //   ReCaptcha v3 site key must be supplied via
+        //   reCAPTCHA Enterprise site key must be supplied via
         //   --dart-define=VH_RECAPTCHA_SITE_KEY=... (see
         //   docs/runbooks/FIREBASE_KEY_ROTATION.md). Without one, activation is
         //   skipped entirely rather than attesting with a bogus key.
@@ -246,7 +246,7 @@ Future<void> main() async {
                   ? const AppleDeviceCheckProvider()
                   : const AppleDebugProvider(),
               providerWeb: kIsWeb
-                  ? ReCaptchaV3Provider(recaptchaSiteKey)
+                  ? ReCaptchaEnterpriseProvider(recaptchaSiteKey)
                   : null,
             );
             // Attach the attestation token to every backend API request —

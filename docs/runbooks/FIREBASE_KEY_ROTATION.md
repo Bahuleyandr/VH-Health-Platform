@@ -106,7 +106,7 @@ Firebase console → project `vhhealth` → **Project settings → Your apps**.
    iOS → **DeviceCheck**.
 2. Debug builds use the debug provider — register each developer's
    printed debug token under **App Check → Apps → Manage debug tokens**.
-3. **Staff web**: create a **ReCaptcha v3** site key
+3. **Staff web**: create a **reCAPTCHA Enterprise score** site key
    (Google Cloud console → Security → reCAPTCHA, or via the App Check web
    registration flow) for the staff web origin. Store it as GitHub secret
    `VH_RECAPTCHA_SITE_KEY` — `release-images.yml` passes it into the
