@@ -53,6 +53,21 @@ function safeReason(value, fallback = 'spool_corrupt') {
   return SAFE_REASONS.has(value) ? value : fallback;
 }
 
+const TIMEOUT_ERROR_CODES = new Set([
+  'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT', 'AbortError', 'TimeoutError',
+]);
+
+// Bounded failure label for legacy drain delivery errors. Only genuine
+// timeouts count as backend_timeout; other statusless errors (DNS failures,
+// connection resets, programming errors) are labeled backend_unreachable
+// instead of being miscounted as timeouts.
+function legacyDeliveryFailureReason(err) {
+  if (Number.isInteger(err?.status)) return err.status >= 500 ? 'backend_5xx' : 'backend_4xx';
+  const code = err?.code || err?.cause?.code || err?.name;
+  return TIMEOUT_ERROR_CODES.has(code) ? 'backend_timeout' : 'backend_unreachable';
+}
+
 function positiveInteger(value, label) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`${label} must be a positive integer`);
@@ -430,14 +445,43 @@ export class GatewayRuntime {
           patient_uid: entry.patient_uid,
           channel: entry.channel,
         });
-        await spool.remove(entry.id);
       } catch (err) {
         if (err.status >= 400 && err.status < 500) {
           await spool.deadLetter(entry, 'legacy_4xx');
           gatewayForwardFailures.inc({ reason: 'backend_4xx' });
+          logEvent('warn', 'legacy_drain_dead_letter', {
+            source_ref: spool.source,
+            entry_id: entry.id,
+            reason: 'backend_4xx',
+            ...errorFields(err),
+          });
           continue;
         }
-        gatewayForwardFailures.inc({ reason: err.status >= 500 ? 'backend_5xx' : 'backend_timeout' });
+        const reason = legacyDeliveryFailureReason(err);
+        gatewayForwardFailures.inc({ reason });
+        logEvent('warn', 'legacy_drain_delivery_failed', {
+          source_ref: spool.source,
+          entry_id: entry.id,
+          reason,
+          ...errorFields(err),
+        });
+        break;
+      }
+      try {
+        await spool.remove(entry.id);
+      } catch (err) {
+        // The backend already ingested this entry; a remove failure is a
+        // local spool fault, not a backend failure, so label it as such and
+        // stop the pass. The entry WILL be re-delivered on the next drain —
+        // fully preventing that needs a durable delivered-outcome journal for
+        // the legacy spool (deeper redesign; enrolled I09 partitions already
+        // have one via recordBackendOutcome).
+        gatewayForwardFailures.inc({ reason: 'spool_remove_failed' });
+        logEvent('error', 'legacy_spool_remove_failed', {
+          source_ref: spool.source,
+          entry_id: entry.id,
+          ...errorFields(err),
+        });
         break;
       }
     }
