@@ -20,6 +20,7 @@ describe('canonical timeline coverage guard', () => {
     ['services/emr/diagnosisService.js', ['recordCanonicalClinicalEvent', 'diagnosis.added', 'diagnosis.status_updated']],
     ['services/clinical/handoverService.js', ['recordCanonicalClinicalEvent', 'handover.created', 'handover.acknowledged']],
     ['services/emr/admissionService.js', ['recordCanonicalClinicalEvent', 'admission.created', 'bed.assigned', 'bed.transferred']],
+    ['services/ai/virtualWardService.js', ['recordCanonicalClinicalEvent', 'virtual_ward.check_in_recorded', 'virtual_ward.escalation_raised']],
     ['services/clinical/canonicalOperationalBridgeService.js', [
       'recordCanonicalClinicalEvent',
       'startWorkflowSla',

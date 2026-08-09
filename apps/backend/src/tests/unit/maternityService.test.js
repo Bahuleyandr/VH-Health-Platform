@@ -177,6 +177,109 @@ describe('recordApgar validation', () => {
   });
 });
 
+// BE-M1 (review 2026-08-09): clinical numerics on the ANC and labour-ward
+// writers are range-validated BEFORE any DB call — a garbled FHR of 15 or
+// 1600 must be a 400 (MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE), never a stored
+// clinical fact, because FHR / cervical findings drive intrapartum
+// escalation. Rejection, not clamping (mirrors recordFetalKick's kick_count
+// 0..999 guard in the same file).
+describe('recordAncVisit clinical range validation (BE-M1)', () => {
+  const base = { tenantId: T, pregnancy_id: 1, visit_date: '2026-08-01' };
+
+  it.each([
+    ['fetal_heart_rate_bpm', 15], // the audit's garble example — below the 30 floor
+    ['fetal_heart_rate_bpm', 1600],
+    ['fetal_heart_rate_bpm', 0],
+    ['fetal_heart_rate_bpm', 140.5], // int column — whole numbers only
+    ['fetal_heart_rate_bpm', 'garbled'],
+    ['gestational_age_weeks', 0],
+    ['gestational_age_weeks', 60],
+    ['fundal_height_cm', 2],
+    ['fundal_height_cm', 400],
+    // SF-2: maternal vitals feed the post-commit pre-eclampsia engine — a
+    // 9999 systolic must be a 400, never a stored fact + CRITICAL alert.
+    ['bp_systolic', 9999],
+    ['bp_systolic', 30],
+    ['bp_diastolic', 999],
+    ['bp_diastolic', 10],
+    ['pulse_bpm', 5],
+    ['pulse_bpm', 999],
+  ])('rejects out-of-range %s=%p before touching the DB', async (field, value) => {
+    await expect(
+      recordAncVisit({ ...base, [field]: value }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE',
+      message: expect.stringMatching(new RegExp(field, 'i')),
+    });
+  });
+
+  it('accepts FHR 30 — terminal fetal bradycardia is charted, not garble (SF-1)', async () => {
+    // Passes range validation; whatever the environment rejects next
+    // (pregnancy lookup / DB availability) must NOT be the range guard.
+    await expect(
+      recordAncVisit({ ...base, pregnancy_id: 999999999, fetal_heart_rate_bpm: 30 }),
+    ).rejects.not.toMatchObject({ code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE' });
+  });
+});
+
+describe('admitToLabor clinical range validation (BE-M1)', () => {
+  const base = { tenantId: T, pregnancy_id: 1 };
+
+  it.each([
+    ['fetal_heart_rate_bpm', 15],
+    ['fetal_heart_rate_bpm', 1600],
+    ['cervix_dilation_cm', 15],
+    ['cervix_dilation_cm', -1],
+    ['cervix_effacement_pct', 150],
+    ['cervix_effacement_pct', 42.5], // int column — whole numbers only
+    ['gestational_age_weeks', 60],
+  ])('rejects out-of-range %s=%p before touching the DB', async (field, value) => {
+    await expect(
+      admitToLabor({ ...base, [field]: value }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE',
+      message: expect.stringMatching(new RegExp(field, 'i')),
+    });
+  });
+
+  it('accepts FHR 30 — terminal fetal bradycardia is charted, not garble (SF-1)', async () => {
+    await expect(
+      admitToLabor({ ...base, pregnancy_id: 999999999, fetal_heart_rate_bpm: 30 }),
+    ).rejects.not.toMatchObject({ code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE' });
+  });
+});
+
+// SF-2: the partograph writer is now an escalation trigger (BE-M2), so its
+// numerics get the same reject-not-clamp guard — a garbled dilation or FHR
+// must not auto-raise (or suppress) a CRITICAL escalation.
+describe('recordPartographEntry clinical range validation (SF-2)', () => {
+  const base = { tenantId: T, labor_admission_id: 1 };
+
+  it.each([
+    ['cervix_dilation_cm', 15],
+    ['cervix_dilation_cm', -1],
+    ['fetal_heart_rate_bpm', 15],
+    ['fetal_heart_rate_bpm', 1600],
+    ['fetal_heart_rate_bpm', 120.5], // int column — whole numbers only
+  ])('rejects out-of-range %s=%p before touching the DB', async (field, value) => {
+    await expect(
+      recordPartographEntry({ ...base, [field]: value }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE',
+      message: expect.stringMatching(new RegExp(field, 'i')),
+    });
+  });
+
+  it('accepts FHR 30 — terminal fetal bradycardia is charted, not garble (SF-1)', async () => {
+    await expect(
+      recordPartographEntry({ ...base, labor_admission_id: 999999999, fetal_heart_rate_bpm: 30 }),
+    ).rejects.not.toMatchObject({ code: 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE' });
+  });
+});
+
 describe('recordPostnatalVisit validation', () => {
   it('rejects missing delivery_id', async () => {
     await expect(

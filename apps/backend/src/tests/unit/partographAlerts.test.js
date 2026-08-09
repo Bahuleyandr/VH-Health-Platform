@@ -51,6 +51,16 @@ describe('computePartographAlerts', () => {
     expect(r.on_action_line).toBe(false);  // action line is at 4 (no slope yet)
   });
 
+  it('does not project the action line backwards into its first four hours', () => {
+    const r = computePartographAlerts({
+      activePhaseStartedAt: start,
+      recordedAt: '2026-01-01T02:00:00Z',
+      dilationCm: 3,
+    });
+    expect(r.on_alert_line).toBe(true);
+    expect(r.on_action_line).toBe(false);
+  });
+
   it('at hour 5, dilation 4cm = action line crossed (expected at action = 4 + (5-4) = 5)', () => {
     const r = computePartographAlerts({
       activePhaseStartedAt: start,

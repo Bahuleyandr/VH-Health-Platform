@@ -20,10 +20,13 @@ import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import {
   currentCanonicalTransactionRevision,
   recordCanonicalClinicalEvent,
+  recordClinicalAuditEvent,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { safeCanonical } from '../clinical/canonicalOperationalBridgeService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   assertExclusiveNewbornLink,
@@ -45,6 +48,28 @@ const tenantOr = (tenantId) => requireTenantId(tenantId);
 
 function canonicalStateFingerprint(state) {
   return createHash('sha256').update(JSON.stringify(state)).digest('hex').slice(0, 32);
+}
+
+// BE-M1 (review 2026-08-09): reject-not-clamp range guard for clinical
+// numerics. The labour-ward and ANC writers previously stored any Number()
+// coercion as clinical fact — a garbled FHR of 15 or 1600 landed on the chart
+// and FHR is the intrapartum escalation trigger. Mirrors the validation
+// pattern recordFetalKick already uses in this file (kick_count 0..999 is
+// rejected with a 400), but as a shared helper: absent values (null /
+// undefined / '') pass through untouched; anything present must be a finite
+// number (a whole number where the column is integer) inside physiologically
+// sane bounds, else the write is rejected with a 400-class error before any
+// DB call.
+function assertClinicalNumericRange(field, value, min, max, { integer = false } = {}) {
+  if (value === null || value === undefined || value === '') return;
+  const n = Number(value);
+  if (!Number.isFinite(n) || (integer && !Number.isInteger(n)) || n < min || n > max) {
+    throw AppError.badRequest(
+      `${field} must be a ${integer ? 'whole ' : ''}number between ${min} and ${max}`,
+      'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE',
+      { field, value: value === undefined ? null : value, min, max },
+    );
+  }
 }
 
 // ── OBGyn labour-ward credential gate (credential-hardening 2026-07-13) ──────
@@ -452,6 +477,19 @@ export async function recordAncVisit({
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!visit_date) throw AppError.badRequest('visit_date is required');
+  // BE-M1: physiologically sane bounds, validated before any DB call.
+  // FHR is the escalation trigger — a garbled 15 or 1600 must be a 400,
+  // never a stored clinical fact. Floor is 30, not 50: genuine terminal
+  // fetal bradycardia (30-50 bpm) is charted and must remain recordable
+  // (PR #788 review SF-1). The maternal BP/pulse bounds are wide-but-sane
+  // (SF-2): they feed the post-commit pre-eclampsia engine, so a 9999
+  // systolic must be a 400, never a stored fact + CRITICAL alert.
+  assertClinicalNumericRange('gestational_age_weeks', gestational_age_weeks, 4, 45);
+  assertClinicalNumericRange('fundal_height_cm', fundal_height_cm, 5, 60, { integer: true });
+  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 30, 250, { integer: true });
+  assertClinicalNumericRange('bp_systolic', bp_systolic, 40, 300, { integer: true });
+  assertClinicalNumericRange('bp_diastolic', bp_diastolic, 20, 200, { integer: true });
+  assertClinicalNumericRange('pulse_bpm', pulse_bpm, 20, 300, { integer: true });
   const pregnancy = await assertPregnancyInTenant(tenantId, pregnancy_id);
   const tid = tenantOr(tenantId);
 
@@ -658,48 +696,202 @@ export async function recordAncVisit({
   // Pregnancy BP thresholds live in vitalSignMonitor's
   // PREGNANCY_BP_OVERRIDES and only fire when users.is_pregnant=TRUE.
   // The pregnancy projection is committed with the visit above. Alert
-  // generation remains post-commit and must NEVER block visit creation.
+  // generation remains post-commit and must NEVER block visit creation —
+  // but per BE-H2 (review 2026-08-09) it is no longer allowed to fail
+  // silently either; see runAncPreeclampsiaPostCommitCheck.
   let alerts = [];
+  let alertsCheckFailed = false;
   if (bp_systolic != null || bp_diastolic != null) {
-    try {
-      const patientRows = await prisma.$queryRawUnsafe(
-        `SELECT u.id
-           FROM maternity_pregnancies p
-           JOIN users u ON u.uid = p.patient_uid
-          WHERE p.tenant_id = $1::uuid
-            AND u.tenant_id = $1::uuid
-            AND p.id = $2::int
-          LIMIT 1`,
-        tid,
-        pregnancy.id,
-      );
-      const patient = patientRows[0];
-      if (patient?.id) {
-        let recorderId = null;
-        if (recorded_by) {
-          const rRows = await prisma.$queryRawUnsafe(
-            `SELECT id FROM users
-              WHERE tenant_id = $1::uuid AND uid = $2::uuid
-              LIMIT 1`,
-            tid,
-            String(recorded_by),
-          );
-          recorderId = rRows[0]?.id ?? null;
-        }
-        const vitalsForCheck = {};
-        if (bp_systolic != null) vitalsForCheck.systolic_bp = Number(bp_systolic);
-        if (bp_diastolic != null) vitalsForCheck.diastolic_bp = Number(bp_diastolic);
-        if (urine_albumin != null) vitalsForCheck.urine_albumin = urine_albumin;
-        alerts = await checkVitalAnomalies(patient.id, vitalsForCheck, {
-          recordedBy: recorderId,
-        });
-      }
-    } catch (err) {
-      logger.warn(`ANC pre-eclampsia check failed for pregnancy=${pregnancy_id}: ${err.message}`);
-    }
+    const vitalsForCheck = {};
+    if (bp_systolic != null) vitalsForCheck.systolic_bp = Number(bp_systolic);
+    if (bp_diastolic != null) vitalsForCheck.diastolic_bp = Number(bp_diastolic);
+    if (urine_albumin != null) vitalsForCheck.urine_albumin = urine_albumin;
+    const outcome = await runAncPreeclampsiaPostCommitCheck({
+      tenantId: tid,
+      pregnancyId: pregnancy.id,
+      patientUid: String(pregnancy.patient_uid),
+      visitId: visit.id,
+      vitalsForCheck,
+      recordedBy: recorded_by ? String(recorded_by) : null,
+    });
+    alerts = outcome.alerts;
+    alertsCheckFailed = outcome.checkFailed;
   }
 
-  return { ...visit, alerts };
+  // alerts_check_failed tells callers "the pre-eclampsia screen did NOT run"
+  // — without it, a lookup failure was indistinguishable from a clean
+  // no-alert result and a 142/92 ANC visit read as 'no alerts'.
+  return { ...visit, alerts, alerts_check_failed: alertsCheckFailed };
+}
+
+/**
+ * BE-H2 (review 2026-08-09) — hardened post-commit ANC pre-eclampsia check.
+ *
+ * The previous single try/catch swallowed EVERY failure of this block to a
+ * logger.warn and returned alerts: [] — the caller was told "no alerts" when
+ * the check never ran. This mirrors the hardened main vitals path
+ * (vitalsChartService.recordVitals lines ~700-734, which throws
+ * CLINICAL_ALERT_PERSIST_FAILED when alert persistence fails), split into two
+ * phases so the two failure classes are handled per their clinical meaning:
+ *
+ *   Phase A — resolving the int ids the alert engine needs. A failure here
+ *   means the check COULD NOT RUN: the committed visit (and the 200) stand,
+ *   but we escalate durably — a notification_outbox broadcast alert to the
+ *   same clinical-staff audience the successful pre-eclampsia
+ *   clinical_alerts fan-out reaches, plus a clinical_audit_events 'failed'
+ *   row — and return checkFailed: true so the response payload carries
+ *   alerts_check_failed instead of a fake clean "no alerts".
+ *
+ *   Phase B — checkVitalAnomalies itself. It only throws when it detected an
+ *   anomaly and could not persist the clinical_alerts fan-out (its no-alert
+ *   path never throws), so a throw here means a REAL pre-eclampsia signal was
+ *   about to be dropped: write the audit-trail row, then surface
+ *   CLINICAL_ALERT_PERSIST_FAILED to the caller — the visit stands, but the
+ *   API must not report success while the alert is unpersisted (exactly the
+ *   vitalsChartService semantics).
+ *
+ * The alert-escalation attempts are independently guarded; if every durable
+ * channel fails, the logger.error trail is the documented last resort.
+ * Exported for unit tests via the injectable `deps` seam (precedent:
+ * orderEntryService.buildMarEntryFromOrderDetails exports a helper for
+ * testability). BOUNDARY: vitalSignMonitor itself is intentionally untouched.
+ */
+export async function runAncPreeclampsiaPostCommitCheck({
+  tenantId,
+  pregnancyId,
+  patientUid,
+  visitId,
+  vitalsForCheck = {},
+  recordedBy = null,
+  deps = {},
+} = {}) {
+  const db = deps.db || prisma;
+  const checkFn = deps.checkVitalAnomalies || checkVitalAnomalies;
+  const outbox = deps.notificationOutbox || notificationOutbox;
+  const recordAudit = deps.recordClinicalAuditEvent || recordClinicalAuditEvent;
+  const runSafeCanonical = deps.safeCanonical || safeCanonical;
+
+  const bpText = `${vitalsForCheck.systolic_bp ?? '?'}/${vitalsForCheck.diastolic_bp ?? '?'}`;
+
+  const recordCheckFailureAudit = async (action, err) => {
+    let recorded = false;
+    await runSafeCanonical(`ANC pre-eclampsia ${action} audit (visit ${visitId})`, async () => {
+      const row = await recordAudit({
+        tenantId,
+        patientUid,
+        action,
+        actionStatus: 'failed',
+        actorUid: recordedBy,
+        resourceType: 'anc_visit',
+        resourceTable: 'maternity_anc_visits',
+        resourceId: String(visitId),
+        metadata: {
+          pregnancy_id: pregnancyId,
+          bp: bpText,
+          urine_albumin: vitalsForCheck.urine_albumin ?? null,
+          error: err?.message || String(err),
+        },
+        // Deterministic per visit: repeated failures of the same visit's
+        // check collapse into the one durable trace (retries stay quiet).
+        idempotencyKey: `maternity_anc_visits:${visitId}:${action}`,
+      });
+      recorded = !!row;
+      return row;
+    });
+    return recorded;
+  };
+
+  // ── Phase A — resolve the int ids the alert engine needs ────────────
+  let patientId = null;
+  let recorderId = null;
+  try {
+    const patientRows = await db.$queryRawUnsafe(
+      `SELECT u.id
+         FROM maternity_pregnancies p
+         JOIN users u ON u.uid = p.patient_uid
+        WHERE p.tenant_id = $1::uuid
+          AND u.tenant_id = $1::uuid
+          AND p.id = $2::int
+        LIMIT 1`,
+      tenantId,
+      pregnancyId,
+    );
+    patientId = patientRows[0]?.id ?? null;
+    if (recordedBy) {
+      const rRows = await db.$queryRawUnsafe(
+        `SELECT id FROM users
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid
+          LIMIT 1`,
+        tenantId,
+        recordedBy,
+      );
+      recorderId = rRows[0]?.id ?? null;
+    }
+    if (!patientId) {
+      // Previously a silent skip — the caller saw alerts: [] as if the
+      // screen ran clean. Treat exactly like any other couldn't-run failure.
+      throw new Error(`patient row not resolvable for pregnancy=${pregnancyId}`);
+    }
+  } catch (err) {
+    logger.error(
+      `ANC pre-eclampsia check could NOT run for visit=${visitId} pregnancy=${pregnancyId} (BP ${bpText}): ${err.message}`,
+    );
+    let alertQueued = false;
+    try {
+      const queued = await outbox.queue({
+        type: 'push',
+        recipientId: null, // broadcast to clinical staff — same audience the pre-eclampsia clinical_alerts fan-out reaches
+        tenantId,
+        title: 'ANC pre-eclampsia screen did not run',
+        body: `Pre-eclampsia screening FAILED to run for an ANC visit with BP ${bpText}. Review the visit and screen the patient manually.`,
+        data: {
+          source_event_key: `maternity_anc_visits:${visitId}:preeclampsia_check_failed:alert`,
+          anc_visit_id: visitId,
+          pregnancy_id: pregnancyId,
+          patient_uid: patientUid,
+          bp: bpText,
+        },
+        channel: 'clinical_alert',
+      }, { strict: true });
+      alertQueued = !!queued;
+    } catch (queueErr) {
+      logger.error(
+        `ANC pre-eclampsia check-failure alert could NOT be queued for visit=${visitId}: ${queueErr.message}`,
+      );
+    }
+    const auditRecorded = await recordCheckFailureAudit('anc_preeclampsia_check_failed', err);
+    if (!alertQueued && !auditRecorded) {
+      logger.error(
+        `ANC pre-eclampsia check-failure escalation FULLY degraded for visit=${visitId} — no outbox alert and no audit row persisted`,
+      );
+    }
+    return { alerts: [], checkFailed: true };
+  }
+
+  // ── Phase B — run the check; a throw is an alert-persistence failure ──
+  try {
+    const alerts = await checkFn(patientId, vitalsForCheck, {
+      recordedBy: recorderId,
+      tenantId,
+    });
+    return { alerts: alerts || [], checkFailed: false };
+  } catch (err) {
+    logger.error(
+      `ANC pre-eclampsia alert persistence FAILED for visit=${visitId} (BP ${bpText}): ${err?.message}`,
+    );
+    // PR #788 review SF-4: the durable audit trail must not be skippable —
+    // write it BEFORE any rethrow, including the AppError passthrough (e.g.
+    // a fail-closed TENANT_CONTEXT_REQUIRED from the anomaly path would
+    // otherwise surface as an error with no audit row).
+    await recordCheckFailureAudit('anc_preeclampsia_alert_persist_failed', err);
+    if (err instanceof AppError) throw err;
+    // Mirror vitalsChartService: the visit stands (committed above), but the
+    // API must NOT report success while a detected anomaly's alert is lost.
+    throw AppError.internal(
+      'ANC visit was recorded but a pre-eclampsia clinical alert could not be persisted — escalate to the responsible clinician.',
+      'CLINICAL_ALERT_PERSIST_FAILED',
+    );
+  }
 }
 
 // ── A7 — ANC operational helpers (migration 181) ────────────────────
@@ -1841,6 +2033,14 @@ export async function admitToLabor({
   actor_uid, actor_role,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
+  // BE-M1: physiologically sane bounds, validated before any DB call —
+  // rejected (400), never clamped. FHR and cervical findings drive
+  // intrapartum escalation; a garbled value must not become chart fact.
+  // FHR floor 30 (not 50): terminal fetal bradycardia is charted (SF-1).
+  assertClinicalNumericRange('gestational_age_weeks', gestational_age_weeks, 4, 45);
+  assertClinicalNumericRange('cervix_dilation_cm', cervix_dilation_cm, 0, 10);
+  assertClinicalNumericRange('cervix_effacement_pct', cervix_effacement_pct, 0, 100, { integer: true });
+  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 30, 250, { integer: true });
   const tid = tenantOr(tenantId);
   const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
   if (admission_id) {
@@ -1865,13 +2065,13 @@ export async function admitToLabor({
       Number(pregnancy.id),
       admission_id ? Number(admission_id) : null,
       admission_reason || null,
-      gestational_age_weeks ? Number(gestational_age_weeks) : null,
+      gestational_age_weeks != null && gestational_age_weeks !== '' ? Number(gestational_age_weeks) : null,
       membrane_status || null,
       membranes_ruptured_at || null,
-      cervix_dilation_cm ? Number(cervix_dilation_cm) : null,
-      cervix_effacement_pct ? Number(cervix_effacement_pct) : null,
+      cervix_dilation_cm != null && cervix_dilation_cm !== '' ? Number(cervix_dilation_cm) : null,
+      cervix_effacement_pct != null && cervix_effacement_pct !== '' ? Number(cervix_effacement_pct) : null,
       station || null, presentation || null,
-      fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
+      fetal_heart_rate_bpm != null && fetal_heart_rate_bpm !== '' ? Number(fetal_heart_rate_bpm) : null,
       contractions_per_10min ? Number(contractions_per_10min) : null,
       labor_started_at || null,
       attending_obstetrician ? String(attending_obstetrician) : null,
@@ -1967,8 +2167,41 @@ export function computePartographAlerts({ activePhaseStartedAt, recordedAt, dila
   const expectedAtAction = 4 + Math.max(0, hoursElapsed - 4) * 1.0;
   return {
     on_alert_line: dilationCm < expectedAtAlert,
-    on_action_line: dilationCm < expectedAtAction,
+    // The action line starts four hours to the right of the alert line. It
+    // does not exist during the first four hours of documented active labour;
+    // treating its pre-start projection as 4 cm raises false emergency alerts.
+    on_action_line: hoursElapsed >= 4 && dilationCm < expectedAtAction,
   };
+}
+
+async function resolvePartographActivePhaseStart({ tenantId, labor, recordedAt, dilationCm }) {
+  const candidates = [];
+  const admissionDilation = Number(labor.cervix_dilation_cm);
+  if (Number.isFinite(admissionDilation) && admissionDilation >= 4 && labor.admitted_at) {
+    candidates.push(labor.admitted_at);
+  }
+
+  const priorRows = await prisma.$queryRawUnsafe(
+    `SELECT recorded_at
+       FROM maternity_partograph_entries
+      WHERE tenant_id = $1::uuid
+        AND labor_admission_id = $2::int
+        AND cervix_dilation_cm >= 4
+      ORDER BY recorded_at ASC
+      LIMIT 1`,
+    tenantId,
+    Number(labor.id),
+  );
+  if (priorRows[0]?.recorded_at) candidates.push(priorRows[0].recorded_at);
+  if (Number.isFinite(Number(dilationCm)) && Number(dilationCm) >= 4) {
+    candidates.push(recordedAt);
+  }
+
+  const valid = candidates
+    .map((value) => ({ value, time: new Date(value).getTime() }))
+    .filter(({ time }) => Number.isFinite(time))
+    .sort((a, b) => a.time - b.time);
+  return valid[0]?.value ?? null;
 }
 
 export async function recordPartographEntry({
@@ -1983,22 +2216,52 @@ export async function recordPartographEntry({
   actor_uid, actor_role,
 }) {
   if (!labor_admission_id) throw AppError.badRequest('labor_admission_id is required');
+  // BE-M1 / PR #788 review SF-2: this writer is now an ESCALATION TRIGGER
+  // (action-line / fetal-decel escalation below), so its numerics get the
+  // same reject-not-clamp guard before any DB call — a garbled dilation or
+  // FHR must not auto-raise (or suppress) a CRITICAL escalation.
+  // cervix_dilation_cm is the input to computePartographAlerts; FHR floor 30
+  // keeps terminal fetal bradycardia recordable (SF-1).
+  assertClinicalNumericRange('cervix_dilation_cm', cervix_dilation_cm, 0, 10);
+  assertClinicalNumericRange('fetal_heart_rate_bpm', fetal_heart_rate_bpm, 30, 250, { integer: true });
   const tid = tenantOr(tenantId);
   const labor = await getLaborAdmission({ tenantId: tid, id: labor_admission_id });
   const pregnancy = await assertPregnancyInTenant(tid, labor.pregnancy_id);
 
-  // Active phase starts when dilation first reaches 4cm. We use the
-  // labor_started_at as an approximation; if not set, fall back to
-  // admitted_at.
-  const activePhaseStart = labor.labor_started_at || labor.admitted_at;
   const recAt = recorded_at || new Date().toISOString();
+  // Action-line timing starts at the first DOCUMENTED dilation of at least
+  // 4 cm. `labor_started_at` is contraction onset, not active-phase onset;
+  // using it can make the very first 3-5 cm partograph entry look many hours
+  // overdue and trigger a false emergency escalation.
+  const activePhaseStart = await resolvePartographActivePhaseStart({
+    tenantId: tid,
+    labor,
+    recordedAt: recAt,
+    dilationCm: cervix_dilation_cm,
+  });
   const { on_alert_line, on_action_line } = computePartographAlerts({
     activePhaseStartedAt: activePhaseStart,
     recordedAt: recAt,
     dilationCm: cervix_dilation_cm != null ? Number(cervix_dilation_cm) : null,
   });
 
-  return setTenantTx(tid, async (tx) => {
+  // BE-M2 (review 2026-08-09): on_action_line is the WHO trigger for
+  // emergency intervention in obstructed labour, and a recorded fetal
+  // deceleration is a fetal-distress signal — previously both were stored
+  // on the row and consumed by NOTHING (visible only if someone re-opened
+  // the partograph screen). When either fires, the entry now raises an
+  // escalation: a canonical escalation pair atomic with the entry (below,
+  // in-tx), then a clinical_alerts row + a durable notification_outbox
+  // alert to the care team post-commit (each independently guarded — the
+  // committed entry is itself the clinical evidence and must stand).
+  const decelText = String(fetal_decel || '').trim().toLowerCase();
+  const fetalDecelFlagged = !!decelText && !['none', 'no', 'absent', 'nil', 'normal'].includes(decelText);
+  const escalationNeeded = on_action_line === true || fetalDecelFlagged;
+  const escalationReason = on_action_line === true
+    ? (fetalDecelFlagged ? 'action_line_crossed_and_fetal_decel' : 'action_line_crossed')
+    : 'fetal_decel';
+
+  const entry = await setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO maternity_partograph_entries
          (labor_admission_id, recorded_at,
@@ -2073,8 +2336,158 @@ export async function recordPartographEntry({
       auditIdempotencyKey: `maternity_partograph_entries:${entry.id}:audit:recorded`,
     }, { db: tx, strict: true });
 
+    if (escalationNeeded) {
+      // BE-M2: the escalation itself is a clinical write — per the canonical
+      // invariant it gets its own timeline + audit pair, atomic with the
+      // entry (fixed insert-once key: partograph entries are append-only,
+      // corrections are new entries).
+      await recordCanonicalClinicalEvent({
+        tenantId: tid,
+        patientUid: String(pregnancy.patient_uid),
+        eventType: 'maternity.partograph_escalation_raised',
+        eventStatus: 'raised',
+        eventSubtype: escalationReason,
+        sourceTable: 'maternity_partograph_entries',
+        sourceId: entry.id,
+        resourceType: 'partograph_entry',
+        resourceId: entry.id,
+        actorUid: actor_uid || recorded_by || null,
+        actorRole: actor_role || null,
+        occurredAt: entry.recorded_at,
+        visibleToPatient: false,
+        summary: on_action_line === true
+          ? 'Partograph ACTION line crossed — obstetric review required now'
+          : 'Fetal heart rate deceleration recorded on partograph — obstetric review required',
+        payload: {
+          partograph_entry_id: entry.id,
+          labor_admission_id: labor.id,
+          pregnancy_id: pregnancy.id,
+          escalation_reason: escalationReason,
+          on_alert_line: entry.on_alert_line,
+          on_action_line: entry.on_action_line,
+          fetal_decel: entry.fetal_decel || null,
+          fetal_heart_rate_bpm: entry.fetal_heart_rate_bpm ?? null,
+          cervix_dilation_cm: entry.cervix_dilation_cm ?? null,
+        },
+        afterState: {
+          on_action_line: entry.on_action_line,
+          fetal_decel: entry.fetal_decel || null,
+          escalation_raised: true,
+        },
+        tags: ['maternity', 'partograph', 'escalation'],
+        timelineIdempotencyKey: `maternity_partograph_entries:${entry.id}:escalation_raised`,
+        auditIdempotencyKey: `maternity_partograph_entries:${entry.id}:audit:escalation_raised`,
+      }, { db: tx, strict: true });
+    }
+
     return entry;
   });
+
+  if (escalationNeeded) {
+    await raisePartographEscalationSideEffects({
+      tenantId: tid,
+      pregnancy,
+      labor,
+      entry,
+      escalationReason,
+      recordedBy: recorded_by ? String(recorded_by) : null,
+    });
+  }
+
+  return { ...entry, escalation_raised: escalationNeeded };
+}
+
+/**
+ * BE-M2 — post-commit escalation fan-out for an action-line / fetal-decel
+ * partograph entry: a clinical_alerts row for the staff review queue (the
+ * same table the vitals anomaly engine feeds) and a durable
+ * notification_outbox alert to the care team. The canonical escalation pair
+ * was already written atomically with the entry, so a failure here is
+ * detectable — each attempt is independently guarded and failures log at
+ * ERROR, never throw (the committed partograph entry is the clinical
+ * evidence and must stand). Exported for unit tests via the `deps` seam.
+ */
+export async function raisePartographEscalationSideEffects({
+  tenantId,
+  pregnancy,
+  labor,
+  entry,
+  escalationReason,
+  recordedBy = null,
+  deps = {},
+} = {}) {
+  const runTenantTx = deps.setTenantTx || setTenantTx;
+  const outbox = deps.notificationOutbox || notificationOutbox;
+
+  const message = escalationReason === 'fetal_decel'
+    ? `Partograph: fetal deceleration (${entry.fetal_decel}) recorded${entry.fetal_heart_rate_bpm != null ? ` with FHR ${entry.fetal_heart_rate_bpm} bpm` : ''} — obstetric review required.`
+    : `Partograph ACTION line crossed (dilation ${entry.cervix_dilation_cm ?? '?'} cm) — WHO trigger for emergency intervention; obstetrician review required now.${entry.fetal_decel ? ` Fetal decel: ${entry.fetal_decel}.` : ''}`;
+
+  // clinical_alerts row — same staff review queue the vitals anomaly engine
+  // feeds. patient_id / created_by are int FKs; resolve the uuid identities.
+  try {
+    await runTenantTx(tenantId, async (tx) => {
+      const patientRows = await tx.$queryRawUnsafe(
+        `SELECT id FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid LIMIT 1`,
+        tenantId,
+        String(pregnancy.patient_uid),
+      );
+      const patientIntId = patientRows[0]?.id ?? null;
+      if (!patientIntId) throw new Error(`patient row not resolvable for uid=${pregnancy.patient_uid}`);
+      let recorderIntId = null;
+      if (recordedBy) {
+        const rRows = await tx.$queryRawUnsafe(
+          `SELECT id FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid LIMIT 1`,
+          tenantId,
+          recordedBy,
+        );
+        recorderIntId = rRows[0]?.id ?? null;
+      }
+      await tx.$executeRawUnsafe(
+        `INSERT INTO clinical_alerts
+           (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
+         VALUES ($1::int, 'PARTOGRAPH_ESCALATION', $2, $3::numeric, 'CRITICAL', $4, $5::int, NOW())`,
+        patientIntId,
+        escalationReason === 'fetal_decel' ? 'fetal_decel' : 'partograph_action_line',
+        escalationReason === 'fetal_decel'
+          ? entry.fetal_heart_rate_bpm ?? null
+          : entry.cervix_dilation_cm ?? null,
+        message,
+        recorderIntId,
+      );
+    });
+  } catch (err) {
+    logger.error(
+      `Partograph escalation clinical_alerts row FAILED for entry=${entry.id} labor=${labor.id}: ${err.message}`,
+    );
+  }
+
+  // Durable care-team notification — retried by the outbox drain,
+  // deduplicated on source_event_key.
+  try {
+    await outbox.queue({
+      type: 'push',
+      recipientId: labor.attending_obstetrician ? String(labor.attending_obstetrician) : null,
+      tenantId,
+      title: escalationReason === 'fetal_decel'
+        ? 'Partograph: fetal deceleration — review now'
+        : 'Partograph ACTION line crossed — review now',
+      body: message,
+      data: {
+        source_event_key: `maternity_partograph_entries:${entry.id}:escalation_alert`,
+        partograph_entry_id: entry.id,
+        labor_admission_id: labor.id,
+        pregnancy_id: pregnancy.id,
+        patient_uid: String(pregnancy.patient_uid),
+        escalation_reason: escalationReason,
+      },
+      channel: 'clinical_alert',
+    }, { strict: true });
+  } catch (err) {
+    logger.error(
+      `Partograph escalation notification could NOT be queued for entry=${entry.id} labor=${labor.id}: ${err.message}`,
+    );
+  }
 }
 
 export async function listPartographEntries({ tenantId, labor_admission_id }) {

@@ -14,11 +14,17 @@
  * and resolves each. Decision-support only — never auto-actions care.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
+import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
+import {
+  recordCanonicalClinicalEvent,
+  recordClinicalAuditEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
+import { safeCanonical } from '../clinical/canonicalOperationalBridgeService.js';
 
 const MODULE_KEY = 'virtual_ward_triage';
 
@@ -156,18 +162,27 @@ export async function enrollPatient({ tenantId = null, patientUid, admissionId =
 
 async function resolveEnrollment({ tenantId, patientUid, enrollmentId }) {
   if (enrollmentId) {
+    const parsedEnrollmentId = Number(enrollmentId);
+    if (!Number.isInteger(parsedEnrollmentId) || parsedEnrollmentId <= 0) return null;
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, tenant_id, patient_uid, status, care_manager_uid FROM virtual_ward_enrollments
-       WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-      Number.parseInt(enrollmentId, 10),
-      tenantId
+       WHERE id = $1
+         AND tenant_id = $2::uuid
+         AND patient_uid = $3::uuid
+         AND status IN ('active', 'escalated')
+       LIMIT 1`,
+      parsedEnrollmentId,
+      tenantId,
+      patientUid,
     );
     return rows[0] || null;
   }
   if (patientUid) {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, tenant_id, patient_uid, status, care_manager_uid FROM virtual_ward_enrollments
-       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'active'
+       WHERE tenant_id = $1::uuid
+         AND patient_uid = $2::uuid
+         AND status IN ('active', 'escalated')
        ORDER BY start_date DESC LIMIT 1`,
       tenantId,
       patientUid
@@ -217,9 +232,13 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
 
   const triage = triageCheckIn({ symptoms, vitals, medicationAdherencePct, moodScore, painScore });
 
-  let checkInId = null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const patientGenerated = callerRole === 'PATIENT' || !callerRole;
+
+  // Insert the check-in row + its canonical timeline/audit pair inside the
+  // caller-provided transaction (canonical clinical timeline invariant: the
+  // detail row and the timeline+audit pair commit together or not at all).
+  const persistCheckInTx = async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
       `INSERT INTO virtual_ward_check_ins
          (tenant_id, enrollment_id, patient_uid, submitted_at, symptoms, vitals,
           medication_adherence_pct, mood_score, pain_score, wearable_payload, source,
@@ -241,49 +260,214 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
       triage.band,
       JSON.stringify(triage.reasons)
     );
-    checkInId = rows[0]?.id || null;
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Virtual ward check-in persist failed', { error: err.message });
-    }
-  }
+    const row = rows[0];
+    await recordCanonicalClinicalEvent({
+      tenantId,
+      patientUid: effectivePatientUid,
+      eventType: 'virtual_ward.check_in_recorded',
+      eventStatus: triage.band,
+      eventSubtype: source,
+      sourceTable: 'virtual_ward_check_ins',
+      sourceId: row.id,
+      resourceType: 'virtual_ward_check_in',
+      resourceId: row.id,
+      actorUid: callerUid,
+      actorRole: callerRole || null,
+      occurredAt: row.submitted_at,
+      visibleToPatient: true,
+      summary: `Virtual ward check-in triaged ${triage.band} (score ${triage.score})`,
+      payload: {
+        check_in_id: row.id,
+        enrollment_id: enrollment.id,
+        triage_band: triage.band,
+        triage_score: triage.score,
+        triage_reason_codes: triage.reasons.map((r) => r.code),
+        source,
+        source_kind: patientGenerated ? 'patient_generated' : 'staff_recorded',
+        verification_status: 'unverified',
+      },
+      afterState: { triage_band: triage.band, triage_score: triage.score },
+      tags: patientGenerated
+        ? ['virtual_ward', 'patient_generated', 'unverified']
+        : ['virtual_ward', 'staff_recorded', 'unverified'],
+      // Fixed insert-once keys: check-in rows are append-only (no UPDATE
+      // path in product code); corrections are new check-ins.
+      timelineIdempotencyKey: `virtual_ward_check_ins:${row.id}:recorded`,
+      auditIdempotencyKey: `virtual_ward_check_ins:${row.id}:audit:recorded`,
+    }, { db: tx, strict: true });
+    return row;
+  };
 
-  // Red + amber → escalation row for the care manager.
+  let checkInId = null;
   let escalationId = null;
-  if (checkInId && triage.band !== 'green') {
-    try {
-      const rows = await prisma.$queryRawUnsafe(
-        `INSERT INTO virtual_ward_escalations
-           (tenant_id, enrollment_id, check_in_id, patient_uid, severity, reason, created_at)
-         VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, NOW())
-         RETURNING id`,
-        tenantId,
-        enrollment.id,
-        checkInId,
-        effectivePatientUid,
-        triage.band,
-        triage.reasons.map((r) => `${r.code}: ${r.message}`).join(' | ').slice(0, 2000)
-      );
-      escalationId = rows[0]?.id || null;
 
-      if (triage.band === 'red') {
-        await prisma.$queryRawUnsafe(
-          `UPDATE virtual_ward_enrollments
-           SET status = 'escalated', updated_at = NOW()
-           WHERE id = $1 AND tenant_id = $2::uuid`,
+  if (triage.band !== 'green') {
+    // Red/amber — a deteriorating patient. Check-in persist + escalation row
+    // (+ enrollment escalation and the in-tx care-team outbox alert for red)
+    // are ONE transaction, and any failure THROWS: the previous shape caught
+    // the INSERT failure, skipped escalation (it was gated on checkInId) and
+    // returned HTTP 200 with check_in_id null — a red-band check-in was
+    // "accepted" with nothing persisted and nobody escalated. The virtual-ward
+    // tables ship in the migrations (026 + baseline), so there is deliberately
+    // NO missing-schema grace on this path: a missing table is an environment
+    // defect and must surface as an error, never a silent 200.
+    try {
+      const result = await setTenantTx(tenantId, async (tx) => {
+        const row = await persistCheckInTx(tx);
+        const escRows = await tx.$queryRawUnsafe(
+          `INSERT INTO virtual_ward_escalations
+             (tenant_id, enrollment_id, check_in_id, patient_uid, severity, reason, created_at)
+           VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, NOW())
+           RETURNING id`,
+          tenantId,
           enrollment.id,
-          tenantId
-        ).catch(() => {});
-      }
+          row.id,
+          effectivePatientUid,
+          triage.band,
+          triage.reasons.map((r) => `${r.code}: ${r.message}`).join(' | ').slice(0, 2000)
+        );
+        const escId = escRows[0].id;
+
+        // Escalation canonical pair for EVERY escalation row (PR #788 review
+        // SF-3): the amber escalation is a patient-facing clinical write too,
+        // so per the canonical invariant it gets its timeline+audit pair in
+        // the same transaction. Only the enrollment 'escalated' flip and the
+        // care-team outbox alert stay red-only ("call patient now") by design.
+        await recordCanonicalClinicalEvent({
+          tenantId,
+          patientUid: effectivePatientUid,
+          eventType: 'virtual_ward.escalation_raised',
+          eventStatus: triage.band,
+          sourceTable: 'virtual_ward_escalations',
+          sourceId: escId,
+          resourceType: 'virtual_ward_escalation',
+          resourceId: escId,
+          actorUid: callerUid,
+          actorRole: callerRole || null,
+          occurredAt: row.submitted_at,
+          visibleToPatient: false,
+          summary: triage.band === 'red'
+            ? 'Virtual ward RED escalation — contact patient now'
+            : 'Virtual ward AMBER escalation — care-manager follow-up today',
+          payload: {
+            escalation_id: escId,
+            check_in_id: row.id,
+            enrollment_id: enrollment.id,
+            care_manager_uid: enrollment.care_manager_uid || null,
+            severity: triage.band,
+            triage_score: triage.score,
+            triage_reason_codes: triage.reasons.map((r) => r.code),
+          },
+          afterState: {
+            severity: triage.band,
+            enrollment_status: triage.band === 'red' ? 'escalated' : 'active',
+          },
+          tags: triage.band === 'red'
+            ? ['virtual_ward', 'escalation', 'critical']
+            : ['virtual_ward', 'escalation'],
+          timelineIdempotencyKey: `virtual_ward_escalations:${escId}:raised`,
+          auditIdempotencyKey: `virtual_ward_escalations:${escId}:audit:raised`,
+        }, { db: tx, strict: true });
+
+        if (triage.band === 'red') {
+          // No .catch(() => {}) — the enrollment flip is part of the atomic
+          // escalation, not a discardable side note.
+          const enrollmentUpdates = await tx.$executeRawUnsafe(
+            `UPDATE virtual_ward_enrollments
+             SET status = 'escalated', updated_at = NOW()
+             WHERE id = $1 AND tenant_id = $2::uuid`,
+            enrollment.id,
+            tenantId
+          );
+          if (enrollmentUpdates !== 1) {
+            throw new Error(`eligible virtual-ward enrollment disappeared during escalation: ${enrollment.id}`);
+          }
+
+          // Durable care-team alert, in the SAME transaction: the escalation
+          // must never be only a DB row nobody is told about. The outbox
+          // drain retries delivery; source_event_key dedupes exact retries.
+          await notificationOutbox.queue({
+            type: 'push',
+            recipientId: enrollment.care_manager_uid ? String(enrollment.care_manager_uid) : null,
+            tenantId,
+            title: 'Virtual ward RED escalation — contact patient now',
+            body: `A virtual-ward check-in triaged RED (score ${triage.score}): ${triage.reasons.map((r) => r.message).join('; ').slice(0, 500)}`,
+            data: {
+              source_event_key: `virtual_ward_escalations:${escId}:red_alert`,
+              escalation_id: escId,
+              check_in_id: row.id,
+              enrollment_id: enrollment.id,
+              patient_uid: effectivePatientUid,
+              triage_band: triage.band,
+              triage_score: triage.score,
+            },
+            channel: 'clinical_alert',
+          }, { tx, strict: true });
+        }
+
+        return { checkInId: row.id, escalationId: escId };
+      });
+      checkInId = result.checkInId;
+      escalationId = result.escalationId;
     } catch (err) {
-      if (!isMissingSchemaError(err)) {
-        logger.warn('Virtual ward escalation persist failed', { error: err.message });
-      }
+      logger.error('Virtual ward check-in persist/escalation FAILED — rolled back', {
+        error: err.message,
+        code: err?.code || null,
+        enrollment_id: enrollment.id,
+        patient_uid: effectivePatientUid,
+        triage_band: triage.band,
+      });
+      if (err instanceof AppError) throw err;
+      throw AppError.internal(
+        'Check-in could not be recorded — please retry, and contact your care team directly if symptoms are severe.',
+        'VIRTUAL_WARD_CHECKIN_PERSIST_FAILED',
+      );
+    }
+  } else {
+    // Green — stable, no escalation is needed, but the check-in remains a
+    // clinical record. A failed write must be reported honestly so the patient
+    // can retry; returning 201 with `persisted:false` still makes ordinary API
+    // clients display a false success and silently loses longitudinal evidence.
+    try {
+      const row = await setTenantTx(tenantId, (tx) => persistCheckInTx(tx));
+      checkInId = row.id;
+    } catch (err) {
+      logger.error('Virtual ward green check-in persist failed', {
+        error: err.message,
+        enrollment_id: enrollment.id,
+        patient_uid: effectivePatientUid,
+      });
+      await safeCanonical(`virtual ward green check-in persist failure audit (enrollment ${enrollment.id})`, () =>
+        recordClinicalAuditEvent({
+          tenantId,
+          patientUid: effectivePatientUid,
+          action: 'virtual_ward_check_in_persist_failed',
+          actionStatus: 'failed',
+          actorUid: callerUid,
+          resourceType: 'virtual_ward_check_in',
+          resourceTable: 'virtual_ward_check_ins',
+          resourceId: `enrollment:${enrollment.id}`,
+          metadata: {
+            enrollment_id: enrollment.id,
+            triage_band: triage.band,
+            triage_score: triage.score,
+            error: err?.message || String(err),
+          },
+          // Each distinct failure occurrence gets its own audit row — this is
+          // a failure trail, not an insert-once lifecycle event.
+          idempotencyKey: `virtual_ward_enrollments:${enrollment.id}:check_in_persist_failed:${Date.now()}`,
+        }));
+      if (err instanceof AppError) throw err;
+      throw AppError.internal(
+        'Check-in could not be recorded — please retry.',
+        'VIRTUAL_WARD_CHECKIN_PERSIST_FAILED',
+      );
     }
   }
 
   return {
     check_in_id: checkInId,
+    persisted: true,
     enrollment_id: enrollment.id,
     patient_uid: effectivePatientUid,
     triage_score: triage.score,

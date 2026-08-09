@@ -40,6 +40,14 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent: jest.fn(),
   // Monotonic like pg_current_xact_id() so revision keys stay unique per write.
   currentCanonicalTransactionRevision: jest.fn(async () => String(++mockTxRevision)),
+  // maternityService (BE-H2/BE-M2 hardening, 2026-08-09) now also imports the
+  // audit recorder plus canonicalOperationalBridgeService, whose module graph
+  // pulls these named exports from the mocked module — provide them so the
+  // import link resolves (the tenant-authz assertions never exercise them).
+  recordClinicalAuditEvent: jest.fn(),
+  completeWorkflowSla: jest.fn(),
+  startWorkflowSla: jest.fn(),
+  isSchemaMissing: jest.fn(() => false),
 }));
 
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({
