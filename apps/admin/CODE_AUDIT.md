@@ -21,7 +21,7 @@
 > Treat the recommendations below as context, not a live to-do list. The old
 > admin roadmap was removed after the major god-page splits landed. Current
 > platform priorities live in
-> [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md)
+> [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md)
 > and [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md).
 
 ---

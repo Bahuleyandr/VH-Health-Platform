@@ -7,4 +7,4 @@ export const API_KEY = (process.env.BACKEND_API_KEY ||
   process.env.API_KEY ||
   "") as string;
 export const ORIGIN: string =
-  process.env.NEXT_PUBLIC_APP_ORIGIN ?? "http://localhost:3000";
+  process.env.NEXT_PUBLIC_APP_ORIGIN ?? "http://localhost:3001";
