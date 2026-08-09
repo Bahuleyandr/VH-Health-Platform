@@ -124,7 +124,7 @@ export function loadExternalRecoveryWorkbench(
   }
   const suffix = query.size ? `?${query.toString()}` : "";
   return fetchAdminAPI<ExternalRecoveryWorkbench>(
-    `/continuity/external-recovery/workbench${suffix}`,
+    `/admin/continuity/external-recovery/workbench${suffix}`,
   );
 }
 
@@ -133,7 +133,7 @@ export function registerExternalRecoveryOffset(
   request: ExternalRecoveryRegisterRequest,
 ): Promise<ExternalRecoveryActionReceipt> {
   return fetchAdminAPI<ExternalRecoveryActionReceipt>(
-    "/continuity/external-recovery/offsets",
+    "/admin/continuity/external-recovery/offsets",
     {
       method: "POST",
       headers: { "Idempotency-Key": requireIdempotencyKey(idempotencyKey) },
@@ -148,7 +148,7 @@ export function authorizeExternalRecoveryResume(
   request: ExternalRecoveryResumeRequest,
 ): Promise<ExternalRecoveryActionReceipt> {
   return fetchAdminAPI<ExternalRecoveryActionReceipt>(
-    `/continuity/external-recovery/offsets/${encodeURIComponent(offsetId)}/resume-authorizations`,
+    `/admin/continuity/external-recovery/offsets/${encodeURIComponent(offsetId)}/resume-authorizations`,
     {
       method: "POST",
       headers: { "Idempotency-Key": requireIdempotencyKey(idempotencyKey) },

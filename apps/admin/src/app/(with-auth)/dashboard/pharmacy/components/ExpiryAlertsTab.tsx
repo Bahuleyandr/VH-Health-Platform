@@ -47,7 +47,7 @@ export function ExpiryAlertsTab() {
 
   const scanMut = useMutation({
     mutationFn: () =>
-      fetchAdminAPI("/pharmacy/inventory/v2/expiry-scan", { method: "POST" }),
+      fetchAdminAPI("/pharmacy/inventory/v2/run-expiry-scan", { method: "POST" }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["pharmacy", "expiry-alerts"] }),
   });

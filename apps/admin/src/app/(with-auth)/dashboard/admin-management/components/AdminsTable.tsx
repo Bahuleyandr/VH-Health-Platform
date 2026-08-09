@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { useState, useMemo } from "react";
 import type { AdminUser } from "@/lib/types";
-import { putJSON } from "@/lib/api";
+import { postJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -70,16 +70,16 @@ export function AdminsTable({
     setUpdatingAdminId(pendingAdmin.uid);
 
     try {
+      const endpoint =
+        pendingAction === "deactivate"
+          ? API_ENDPOINTS.auth.admin.deactivate
+          : API_ENDPOINTS.auth.admin.reactivate;
       const body =
         pendingAction === "deactivate"
-          ? {
-              action: pendingAction,
-              adminId: pendingAdmin.uid,
-              reason: "Deactivated via admin portal",
-            }
-          : { action: pendingAction, adminId: pendingAdmin.uid };
+          ? { adminId: pendingAdmin.uid, reason: "Deactivated via admin portal" }
+          : { adminId: pendingAdmin.uid };
 
-      await putJSON(API_ENDPOINTS.auth.adminManagement, body);
+      await postJSON(endpoint, body);
 
       onAdminUpdated?.();
     } catch (error) {

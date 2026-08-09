@@ -58,8 +58,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
     }
 
     try {
-      // Use centralized endpoint that supports POST for admin creation
-      await postJSON(API_ENDPOINTS.auth.adminManagement, data);
+      await postJSON(API_ENDPOINTS.auth.admin.createAdmin, data);
 
       setSuccess("Admin user created successfully!");
       toast.success("Admin user created successfully");
