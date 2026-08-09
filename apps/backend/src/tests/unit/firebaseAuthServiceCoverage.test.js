@@ -110,6 +110,7 @@ const {
   linkFirebaseAccount,
   updateFcmToken,
   revokeFirebaseSession,
+  revokeOwnFirebaseSession,
   verifyTokenStatus,
   getHealthStatus,
   legacyRegisterUser,
@@ -637,6 +638,52 @@ describe('revokeFirebaseSession', () => {
     expect(upd[1]).toBe('fb-revoke-1');
     expect(result.firebaseUid).toBe('fb-revoke-1');
     expect(typeof result.revokedAt).toBe('string');
+  });
+});
+
+// ───────────────────────── revokeOwnFirebaseSession ─────────────────
+
+describe('revokeOwnFirebaseSession', () => {
+  it('throws BAD_REQUEST when the caller uid is missing', async () => {
+    await expect(revokeOwnFirebaseSession(null)).rejects.toMatchObject({ statusCode: 400 });
+    expect(revokeRefreshTokensMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves the caller OWN firebase_uid from the users row and revokes that', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ firebase_uid: 'fb-owned-by-caller' }]);
+    revokeRefreshTokensMock.mockResolvedValue(undefined);
+
+    const result = await revokeOwnFirebaseSession('550e8400-e29b-41d4-a716-446655440001');
+
+    // The lookup is keyed by the JWT subject — the ONLY identity input.
+    const lookup = prismaMock.$queryRawUnsafe.mock.calls[0];
+    expect(lookup[0]).toMatch(/SELECT firebase_uid\s+FROM users/i);
+    expect(lookup[1]).toBe('550e8400-e29b-41d4-a716-446655440001');
+
+    expect(revokeRefreshTokensMock).toHaveBeenCalledWith('fb-owned-by-caller');
+    expect(result.revoked).toBe(true);
+    expect(result.firebaseUid).toBe('fb-owned-by-caller');
+  });
+
+  it('reports revoked=false without calling Firebase when the user has no linked Firebase UID', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ firebase_uid: null }]);
+
+    const result = await revokeOwnFirebaseSession('550e8400-e29b-41d4-a716-446655440009');
+
+    expect(revokeRefreshTokensMock).not.toHaveBeenCalled();
+    expect(result.revoked).toBe(false);
+    // Honest, not a fake success: the caller can tell nothing was revoked.
+    expect(result.reason).toBe('NO_FIREBASE_SESSION');
+  });
+
+  it('reports revoked=false when no users row matches the caller uid', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const result = await revokeOwnFirebaseSession('550e8400-e29b-41d4-a716-446655440010');
+
+    expect(revokeRefreshTokensMock).not.toHaveBeenCalled();
+    expect(result.revoked).toBe(false);
+    expect(result.reason).toBe('NO_FIREBASE_SESSION');
   });
 });
 

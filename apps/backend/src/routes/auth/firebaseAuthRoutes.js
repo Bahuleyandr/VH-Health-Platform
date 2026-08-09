@@ -137,13 +137,28 @@ wrapRoutesWithValidation(
         firebaseAuthController.updateFcmToken
       ],
       
-      // Revoke Firebase Session
+      // Revoke Firebase Session — ADMIN force-logout of an arbitrary UID.
+      // The target is named in the body, so this MUST stay ADMIN-only.
       [
         '/revoke-session',
         jwtAuth,
         enforceFullScope,
         requireRole('ADMIN'),
         firebaseAuthController.revokeSession
+      ],
+
+      // Revoke MY Firebase Session — self-service logout for the patient app.
+      // Authentication is the whole authorization story here: the controller
+      // derives the Firebase UID from the JWT subject, so there is no target to
+      // authorize and nothing for a role gate to protect. Unlike the sibling
+      // self-service routes it takes no body at all, so it deliberately does
+      // NOT use requireFirebaseSelfServiceAuth (whose phone binding would force
+      // the client to put its phone on the wire for no security gain).
+      [
+        '/revoke-my-session',
+        jwtAuth,
+        enforceFullScope,
+        firebaseAuthController.revokeMySession
       ]
     ]
   },

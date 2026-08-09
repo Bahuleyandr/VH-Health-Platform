@@ -416,6 +416,49 @@ export const revokeFirebaseSession = async firebaseUid => {
   };
 };
 
+// Self-service counterpart to revokeFirebaseSession, for a user signing
+// themselves out.
+//
+// revokeFirebaseSession above takes the target UID as an argument, which is why
+// its route is ADMIN-gated: it is a force-logout primitive, and letting a caller
+// name the victim would be an IDOR. This function closes that hole by
+// construction — the ONLY identity input is `userUid`, the verified JWT subject,
+// and the Firebase UID is resolved from that user's own row. There is no
+// parameter a caller could point at somebody else.
+//
+// `users.uid` is globally unique, so the uid predicate alone is the ownership
+// binding; no extra tenant scoping is needed to make it safe (same lookup shape
+// as resolveTenantIdForUid in loginSessionHelper.js).
+export const revokeOwnFirebaseSession = async userUid => {
+  if (!userUid) {
+    const error = new Error('Authenticated user is required');
+    error.statusCode = HTTP_STATUS.BAD_REQUEST;
+    throw error;
+  }
+
+  const rows = await query(
+    `SELECT firebase_uid
+       FROM users
+      WHERE uid = $1::uuid
+      LIMIT 1`,
+    [String(userUid)]
+  );
+
+  const firebaseUid = rows[0]?.firebase_uid;
+
+  // Staff/admin identities and pre-Firebase patient accounts have no linked
+  // Firebase credential. That is not an error — but say so plainly rather than
+  // reporting a revocation that never happened.
+  if (!firebaseUid) {
+    logger.info('🔐 Self-revoke requested for a user with no linked Firebase UID');
+    return { revoked: false, reason: 'NO_FIREBASE_SESSION' };
+  }
+
+  const result = await revokeFirebaseSession(firebaseUid);
+
+  return { revoked: true, ...result };
+};
+
 // Verify token status
 export const verifyTokenStatus = async idToken => {
   const decodedToken = await admin.auth().verifyIdToken(idToken, true);

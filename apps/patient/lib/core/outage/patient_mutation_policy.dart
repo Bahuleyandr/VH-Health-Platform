@@ -26,7 +26,7 @@ class PatientMutationPolicy {
             path.endsWith('/claim')) ||
         path.startsWith('/devices/') ||
         path == '/auth/firebase/update-fcm-token' ||
-        path == '/auth/firebase/revoke-session') {
+        path == '/auth/firebase/revoke-my-session') {
       return PatientMutationCategory.remoteState;
     }
 

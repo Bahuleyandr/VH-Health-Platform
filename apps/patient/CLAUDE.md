@@ -214,7 +214,7 @@ Builders are param-free unless noted.
 | Login | `/auth/firebase/firebase-login` | POST |
 | Profile setup | `/auth/firebase/complete-profile` | POST |
 | FCM token | `/auth/firebase/update-fcm-token` | POST |
-| Revoke session | `/auth/firebase/revoke-session` | POST |
+| Revoke own session | `/auth/firebase/revoke-my-session` | POST |
 | **Users** | | |
 | Get/Update profile | `/users/:phone` | GET, PUT |
 | **Dashboard** | | |

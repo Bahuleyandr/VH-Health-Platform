@@ -9,6 +9,7 @@ const controllerMock = {
   linkAccount: jest.fn((_req, res) => res.status(200).json({ ok: true })),
   updateFcmToken: jest.fn((req, res) => res.status(200).json({ phone: req.body.phone })),
   revokeSession: jest.fn((_req, res) => res.status(200).json({ ok: true })),
+  revokeMySession: jest.fn((req, res) => res.status(200).json({ uid: req.user?.uid })),
   verifyToken: jest.fn((_req, res) => res.status(200).json({ ok: true })),
   getHealthStatus: jest.fn((_req, res) => res.status(200).json({ ok: true })),
   testRoute: jest.fn((_req, res) => res.status(200).json({ ok: true })),
@@ -195,5 +196,40 @@ describe('firebase auth route protections', () => {
 
     expect(adminRes.statusCode).toBe(200);
     expect(controllerMock.revokeSession).toHaveBeenCalledTimes(1);
+  });
+
+  // Self-service counterpart to the admin-only route above. The patient app
+  // calls this on logout; it must NOT require ADMIN, and it must derive the
+  // identity from the JWT rather than a caller-supplied firebaseUid (which is
+  // exactly the IDOR the admin gate above exists to prevent).
+  it('requires a local JWT before self-revoking a Firebase session', async () => {
+    const res = await request(buildApp()).post('/firebase/revoke-my-session').send();
+
+    expect(res.statusCode).toBe(401);
+    expect(controllerMock.revokeMySession).not.toHaveBeenCalled();
+  });
+
+  it('lets an ordinary patient self-revoke their own Firebase session', async () => {
+    const res = await request(buildApp())
+      .post('/firebase/revoke-my-session')
+      .set('Authorization', 'Bearer patient-token')
+      .send();
+
+    expect(res.statusCode).toBe(200);
+    expect(controllerMock.revokeMySession).toHaveBeenCalledTimes(1);
+    // Identity comes from the token, not the request.
+    expect(res.body.uid).toBe('550e8400-e29b-41d4-a716-446655440001');
+  });
+
+  it('ignores a caller-supplied firebaseUid on the self-service route', async () => {
+    const res = await request(buildApp())
+      .post('/firebase/revoke-my-session')
+      .set('Authorization', 'Bearer patient-token')
+      .send({ firebaseUid: 'victim-firebase-uid' });
+
+    expect(res.statusCode).toBe(200);
+    // The route hands the controller the JWT subject; the attacker-chosen uid
+    // in the body never becomes the revocation target.
+    expect(res.body.uid).toBe('550e8400-e29b-41d4-a716-446655440001');
   });
 });
