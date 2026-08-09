@@ -135,6 +135,24 @@ describe('housekeepingTaskDispatchService', () => {
     });
     expect(result.recipients.map(row => row.id)).toEqual([20, 30]);
 
+    const requesterLookup = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes('WHERE uid = $1::uuid')
+    );
+    expect(requesterLookup[0]).toContain('tenant_id = $2::uuid');
+    expect(requesterLookup[2]).toBe(TENANT_ID);
+
+    const rosterLookup = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes('staff_shift_roster_boards')
+    );
+    expect(rosterLookup[0]).toContain('b.tenant_id = $4::uuid');
+    expect(rosterLookup[4]).toBe(TENANT_ID);
+
+    const inchargeLookup = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
+      sql.includes("role = 'HOUSEKEEPING_INCHARGE'")
+    );
+    expect(inchargeLookup[0]).toContain('tenant_id = $1::uuid');
+    expect(inchargeLookup[1]).toBe(TENANT_ID);
+
     const requestInsert = prismaMock.$queryRawUnsafe.mock.calls.find(([sql]) =>
       sql.includes('INSERT INTO housekeeping_requests')
     );
@@ -177,6 +195,7 @@ describe('housekeepingTaskDispatchService', () => {
       sql.includes('INSERT INTO notifications')
     );
     expect(notificationInsert).toBeTruthy();
+    expect(notificationInsert[1]).toBe(TENANT_ID);
     expect(notificationInsert[6]).toContain('"source":"bed_cleaning_dispatch"');
     expect(result.fanout.notification_count).toBe(2);
   });

@@ -688,90 +688,86 @@ class BedManagementService {
 
     // Proof-of-cleaning gate. A cleanerId is direct attestation; otherwise the
     // cleaning ticket must exist, belong to this tenant, cover THIS bed, and be
-    // resolved. Pre-flight on plain prisma so a P2025/validation issue surfaces
-    // as a 4xx, not a 500 inside the tx.
+    // resolved.
     if (!cleanerId && !cleaningTicketId) {
       throw AppError.badRequest(
         'Proof of cleaning required to mark a bed ready — supply a resolved cleaning_ticket_id or the cleaner_id who performed the turnover.',
         'BED_READY_PROOF_REQUIRED',
       );
     }
-    // cleanerId attestation must name a real, active housekeeping staff member
-    // of this tenant — an arbitrary string is not an attestation. Accepts the
-    // users.uid (uuid) or int users.id.
-    if (cleanerId) {
-      const cleanerUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(cleanerId).trim())
-        ? String(cleanerId).trim()
-        : null;
-      const cleanerIntId = /^\d+$/.test(String(cleanerId).trim())
-        ? Number.parseInt(String(cleanerId).trim(), 10)
-        : null;
-      const cleanerRows = (cleanerUuid || cleanerIntId != null)
-        ? await prisma.$queryRawUnsafe(
-          `SELECT id, uid, role FROM users
-            WHERE (($1::uuid IS NOT NULL AND uid = $1::uuid)
-               OR ($2::int IS NOT NULL AND id = $2::int))
-              AND is_active = true
-              AND role IN ('HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE')
-              AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
-            LIMIT 1`,
-          cleanerUuid,
-          cleanerIntId,
-          effectiveTenantId,
-        )
-        : [];
-      if (!cleanerRows.length) {
-        throw AppError.badRequest(
-          'cleaner_id does not resolve to an active housekeeping staff member of this tenant — a bed-ready attestation must name the cleaner who performed the turnover.',
-          'BED_READY_CLEANER_INVALID',
-        );
+    const transactionTenantId = requireTenantId(effectiveTenantId);
+    // Atomic: proof rows are locked and revalidated in the SAME transaction as
+    // the bed flip and audit. A pre-flight check would let a concurrent ticket
+    // cancellation or cleaner deactivation invalidate the attestation between
+    // the read and the cleaning -> available mutation.
+    const result = await setTenantTx(transactionTenantId, async (tx) => {
+      if (cleanerId) {
+        const cleanerUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(cleanerId).trim())
+          ? String(cleanerId).trim()
+          : null;
+        const cleanerIntId = /^\d+$/.test(String(cleanerId).trim())
+          ? Number.parseInt(String(cleanerId).trim(), 10)
+          : null;
+        const cleanerRows = (cleanerUuid || cleanerIntId != null)
+          ? await tx.$queryRawUnsafe(
+            `SELECT id, uid, role FROM users
+              WHERE (($1::uuid IS NOT NULL AND uid = $1::uuid)
+                 OR ($2::int IS NOT NULL AND id = $2::int))
+                AND is_active = true
+                AND role IN ('HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE')
+                AND tenant_id = $3::uuid
+              LIMIT 1
+              FOR SHARE`,
+            cleanerUuid,
+            cleanerIntId,
+            transactionTenantId,
+          )
+          : [];
+        if (!cleanerRows.length) {
+          throw AppError.badRequest(
+            'cleaner_id does not resolve to an active housekeeping staff member of this tenant — a bed-ready attestation must name the cleaner who performed the turnover.',
+            'BED_READY_CLEANER_INVALID',
+          );
+        }
       }
-    }
-    let proofTicket = null;
-    if (cleaningTicketId) {
-      // Tenant-scoped (migration 336 added tenant_id) and matched to THIS bed
-      // via the structured bed_id linkage (migration 643) — a resolved ticket
-      // for some other bed, or another tenant's ticket, is not proof this bed
-      // was cleaned.
-      const ticketRows = await prisma.$queryRawUnsafe(
-        `SELECT id, status, completed_at, verified_at, bed_id, patient_uid
-           FROM housekeeping_requests
-          WHERE id = $1
-            AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
-          LIMIT 1`,
-        Number(cleaningTicketId),
-        effectiveTenantId,
-      );
-      const ticket = ticketRows[0];
-      if (!ticket) {
-        throw AppError.badRequest(
-          `Cleaning ticket ${cleaningTicketId} was not found for this tenant.`,
-          'BED_READY_PROOF_TICKET_NOT_FOUND',
-        );
-      }
-      if (Number(ticket.bed_id) !== Number(bedId)) {
-        throw AppError.badRequest(
-          `Cleaning ticket ${cleaningTicketId} is not linked to bed ${bedId} — proof of cleaning must reference the bed being readied.`,
-          'BED_READY_PROOF_BED_MISMATCH',
-        );
-      }
-      // Resolved = a real completion signal. An 'open'/'assigned'/'in_progress'
-      // ticket is NOT proof the room was actually cleaned.
-      const resolved = ['completed', 'verified'].includes(String(ticket.status || '').toLowerCase())
-        || ticket.completed_at != null
-        || ticket.verified_at != null;
-      if (!resolved) {
-        throw AppError.badRequest(
-          `Cleaning ticket ${cleaningTicketId} is not resolved — a bed can only be readied against a completed/verified cleaning ticket (or with a cleaner_id attestation).`,
-          'BED_READY_PROOF_UNRESOLVED',
-        );
-      }
-      proofTicket = ticket;
-    }
 
-    // Atomic: the bed flip + audit row commit together (synchronous, no
-    // setImmediate). RLS-scoped under the beds tenant_isolation policy.
-    const rows = await setTenantTx(requireTenantId(effectiveTenantId), async (tx) => {
+      let proofTicket = null;
+      if (cleaningTicketId) {
+        const ticketRows = await tx.$queryRawUnsafe(
+          `SELECT id, status, completed_at, verified_at, bed_id, patient_uid
+             FROM housekeeping_requests
+            WHERE id = $1
+              AND tenant_id = $2::uuid
+            LIMIT 1
+            FOR UPDATE`,
+          Number(cleaningTicketId),
+          transactionTenantId,
+        );
+        const ticket = ticketRows[0];
+        if (!ticket) {
+          throw AppError.badRequest(
+            `Cleaning ticket ${cleaningTicketId} was not found for this tenant.`,
+            'BED_READY_PROOF_TICKET_NOT_FOUND',
+          );
+        }
+        if (Number(ticket.bed_id) !== Number(bedId)) {
+          throw AppError.badRequest(
+            `Cleaning ticket ${cleaningTicketId} is not linked to bed ${bedId} — proof of cleaning must reference the bed being readied.`,
+            'BED_READY_PROOF_BED_MISMATCH',
+          );
+        }
+        const resolved = ['completed', 'verified'].includes(String(ticket.status || '').toLowerCase())
+          || ticket.completed_at != null
+          || ticket.verified_at != null;
+        if (!resolved) {
+          throw AppError.badRequest(
+            `Cleaning ticket ${cleaningTicketId} is not resolved — a bed can only be readied against a completed/verified cleaning ticket (or with a cleaner_id attestation).`,
+            'BED_READY_PROOF_UNRESOLVED',
+          );
+        }
+        proofTicket = ticket;
+      }
+
       const updated = await tx.$queryRawUnsafe(
         `UPDATE beds
          SET status = 'available', updated_at = NOW()
@@ -833,14 +829,14 @@ class BedManagementService {
         },
       }, { db: tx });
 
-      return updated;
+      return { bed: updated[0], proofTicket };
     });
 
     logger.info(`Bed ${bedId} marked as available by ${actorUid || 'unknown'}`);
     // Canonical bed.ready timeline/audit + cleaning-SLA completion — best-effort
     // (the operational bridge swallows internally) and post-commit.
     await emitBedMarkedReady({
-      bed: rows[0],
+      bed: result.bed,
       bedId,
       actorUid,
       actorRole: 'HOUSEKEEPING',
@@ -849,10 +845,10 @@ class BedManagementService {
       notes,
       // Patient whose stay triggered the turnover (from the proof ticket) —
       // lets the canonical bed.ready event land on that patient's timeline.
-      patientUid: proofTicket?.patient_uid || null,
+      patientUid: result.proofTicket?.patient_uid || null,
       tenantId: effectiveTenantId,
     });
-    return rows[0];
+    return result.bed;
   }
 
   // =========================================================================

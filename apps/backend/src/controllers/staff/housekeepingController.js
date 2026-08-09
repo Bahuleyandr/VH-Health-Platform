@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
@@ -13,6 +13,7 @@ import {
   emitHousekeepingRequestRaised,
   emitHousekeepingRequestStatus,
 } from '../../services/clinical/canonicalOperationalBridgeService.js';
+import { requireTenantId } from '../../services/tenant/tenantService.js';
 
 // ─── SLA durations (minutes) ─────────────────────────────────────────────────
 // Single shared table (housekeepingTaskDispatchService) — every entry point
@@ -21,6 +22,10 @@ import {
 const SLA_MINUTES = HOUSEKEEPING_SLA_MINUTES;
 const ACTIVE_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
 const HOUSEKEEPING_ASSIGNABLE_ROLES = ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'];
+
+function requestTenantId(req) {
+  return requireTenantId(req.tenantId || req.user?.tenant_id || req.user?.tenantId);
+}
 
 // ─── Signature hash for proof of work ────────────────────────────────────────
 function generateSignature(staffId, zoneId, timestamp, photoKey) {
@@ -281,6 +286,7 @@ export const raiseRequest = async (req, res) => {
     const slaDueAt = new Date(Date.now() + slaMinutes * 60000).toISOString();
     const recipients = await resolveHousekeepingRecipientsForTarget({
       zoneId: zone_id || null,
+      tenantId: requestTenantId(req),
     });
     const primaryAssignee =
       recipients.find(row => row.recipient_kind !== 'incharge') ||
@@ -289,7 +295,7 @@ export const raiseRequest = async (req, res) => {
 
     // Phase 1 — request row, system update, recipient rows, and the canonical
     // timeline/audit emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const inserted = await tx.$queryRawUnsafe(
         `
       INSERT INTO housekeeping_requests
@@ -349,6 +355,7 @@ export const raiseRequest = async (req, res) => {
     });
 
     await notifyHousekeepingRecipientsBestEffort('raise', {
+      tenantId: requestTenantId(req),
       requestId: result[0].id,
       recipients,
       title: 'Housekeeping request raised',
@@ -454,7 +461,7 @@ export const startRequest = async (req, res) => {
 
     // Phase 1 — status flip, linked bed flip, system update, and the canonical
     // emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests
@@ -562,7 +569,7 @@ export const completeRequest = async (req, res) => {
     // Phase 1 — completion update, system update, and the canonical emit
     // commit or roll back together. The WHERE re-checks the Phase-0 ownership
     // guard so a concurrent reassignment cannot slip through the gap.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests SET
@@ -930,7 +937,7 @@ export const delegateFloorAssignment = async (req, res) => {
       return error(res, 'zone_id or floor is required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await prisma.$transaction(async tx => {
+    const result = await setTenantTx(requestTenantId(req), async tx => {
       let sourceAssignment = null;
       if (close_existing) {
         const existing = await tx.$queryRawUnsafe(
@@ -1075,7 +1082,7 @@ export const assignRequest = async (req, res) => {
 
     // Phase 1 — assignment update, linked bed flip, system update, and the
     // canonical emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests SET
@@ -1179,7 +1186,7 @@ export const verifyRequest = async (req, res) => {
 
     // Phase 1 — verification update, system update, and the canonical emit
     // commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `
       UPDATE housekeeping_requests
@@ -1503,6 +1510,7 @@ export const adminCreateRequest = async (req, res) => {
     const sla_due_at = new Date(Date.now() + slaMinutes * 60 * 1000).toISOString();
     const rosterRecipients = await resolveHousekeepingRecipientsForTarget({
       zoneId: zone_id || null,
+      tenantId: requestTenantId(req),
     });
     const recipients = [
       ...(assignedUser
@@ -1518,7 +1526,7 @@ export const adminCreateRequest = async (req, res) => {
 
     // Phase 1 — request row, recipient rows, system update, and the canonical
     // timeline/audit emit commit or roll back together.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(requestTenantId(req), async (tx) => {
       const inserted = await tx.$queryRawUnsafe(
         `
       INSERT INTO housekeeping_requests
@@ -1573,6 +1581,7 @@ export const adminCreateRequest = async (req, res) => {
     });
 
     await notifyHousekeepingRecipientsBestEffort('admin-create', {
+      tenantId: requestTenantId(req),
       requestId: result[0].id,
       recipients,
       title: 'Housekeeping request raised',

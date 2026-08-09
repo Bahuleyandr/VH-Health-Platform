@@ -66,15 +66,18 @@ function priorityForUrgency(urgency) {
   return urgency === 'urgent' ? 'HIGH' : urgency.toUpperCase();
 }
 
-async function resolveRequester(requesterUid) {
+async function resolveRequester(requesterUid, tenantId) {
+  const normalizedTenantId = requireTenantId(tenantId);
   if (requesterUid) {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, uid, name, phone, role
          FROM users
         WHERE uid = $1::uuid
+          AND tenant_id = $2::uuid
           AND is_active = true
         LIMIT 1`,
-      requesterUid
+      requesterUid,
+      normalizedTenantId,
     );
     if (rows.length) return rows[0];
   }
@@ -83,6 +86,7 @@ async function resolveRequester(requesterUid) {
     `SELECT id, uid, name, phone, role
        FROM users
       WHERE is_active = true
+        AND tenant_id = $1::uuid
         AND role IN ('SUPER_ADMIN', 'ADMIN', 'HOUSEKEEPING_INCHARGE')
       ORDER BY CASE role
                  WHEN 'SUPER_ADMIN' THEN 0
@@ -90,7 +94,8 @@ async function resolveRequester(requesterUid) {
                  ELSE 2
                END,
                id
-      LIMIT 1`
+      LIMIT 1`,
+    normalizedTenantId,
   );
   return fallbackRows[0] || null;
 }
@@ -117,7 +122,12 @@ export async function resolveBedCleaningContext(bedId) {
   return rows[0] || null;
 }
 
-async function findCurrentRosterRecipients({ targetId, now = new Date(), timezone = DEFAULT_TIMEZONE }) {
+async function findCurrentRosterRecipients({
+  targetId,
+  now = new Date(),
+  timezone = DEFAULT_TIMEZONE,
+  tenantId,
+}) {
   if (!targetId) return [];
   return prisma.$queryRawUnsafe(
     `WITH ctx AS (
@@ -140,11 +150,13 @@ async function findCurrentRosterRecipients({ targetId, now = new Date(), timezon
         AND b.roster_date IN (ctx.local_date, ctx.local_date - 1)
        JOIN staff_shift_roster_assignments a
          ON a.roster_id = b.id
+        AND a.tenant_id = $4::uuid
         AND a.status = 'published'
         AND a.assignment_target_type = 'housekeeping_zone'
         AND a.assignment_target_id = $1::int
-       JOIN users u ON u.id = a.staff_id
+       JOIN users u ON u.id = a.staff_id AND u.tenant_id = $4::uuid
       WHERE u.is_active = true
+        AND b.tenant_id = $4::uuid
         AND u.role IN ('HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE')
         AND (
           (
@@ -164,11 +176,12 @@ async function findCurrentRosterRecipients({ targetId, now = new Date(), timezon
       ORDER BY u.id, a.is_lead DESC, b.shift_start ASC`,
     targetId,
     now.toISOString(),
-    timezone
+    timezone,
+    requireTenantId(tenantId),
   );
 }
 
-async function findActiveDelegationRecipients({ zoneId, floor, now = new Date() }) {
+async function findActiveDelegationRecipients({ zoneId, floor, now = new Date(), tenantId }) {
   if (!zoneId && !floor) return [];
   return prisma.$queryRawUnsafe(
     `SELECT DISTINCT ON (u.id)
@@ -183,9 +196,10 @@ async function findActiveDelegationRecipients({ zoneId, floor, now = new Date() 
               ELSE 'housekeeping_delegation'
             END AS source
        FROM housekeeping_floor_assignments hfa
-       JOIN users u ON u.id = hfa.staff_id
-       LEFT JOIN housekeeping_zones hz ON hz.id = hfa.zone_id
+       JOIN users u ON u.id = hfa.staff_id AND u.tenant_id = $4::uuid
+       LEFT JOIN housekeeping_zones hz ON hz.id = hfa.zone_id AND hz.tenant_id = $4::uuid
       WHERE hfa.status = 'active'
+        AND hfa.tenant_id = $4::uuid
         AND hfa.effective_from <= $3::timestamptz
         AND (hfa.effective_to IS NULL OR hfa.effective_to > $3::timestamptz)
         AND u.is_active = true
@@ -200,11 +214,12 @@ async function findActiveDelegationRecipients({ zoneId, floor, now = new Date() 
                hfa.created_at ASC`,
     zoneId || null,
     floor || null,
-    now.toISOString()
+    now.toISOString(),
+    requireTenantId(tenantId),
   );
 }
 
-async function findHousekeepingIncharges() {
+async function findHousekeepingIncharges(tenantId) {
   return prisma.$queryRawUnsafe(
     `SELECT id,
             uid,
@@ -215,16 +230,19 @@ async function findHousekeepingIncharges() {
             'housekeeping_incharge'::text AS source
        FROM users
       WHERE is_active = true
+        AND tenant_id = $1::uuid
         AND role = 'HOUSEKEEPING_INCHARGE'
-      ORDER BY name NULLS LAST, id`
+      ORDER BY name NULLS LAST, id`,
+    requireTenantId(tenantId),
   );
 }
 
 async function resolveRequestZoneId(context = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id
-       FROM housekeeping_zones
+      FROM housekeeping_zones
       WHERE is_active = true
+        AND tenant_id = $3::uuid
         AND (
           ($1::int IS NOT NULL AND id = $1::int)
           OR ($2::text IS NOT NULL AND LOWER(name) = LOWER($2::text))
@@ -238,7 +256,8 @@ async function resolveRequestZoneId(context = {}) {
         id
       LIMIT 1`,
     context.ward_id || null,
-    context.ward_name || null
+    context.ward_name || null,
+    requireTenantId(context.tenant_id),
   );
   return rows[0]?.id || null;
 }
@@ -249,12 +268,13 @@ export async function resolveHousekeepingRecipientsForTarget({
   floor = null,
   now = new Date(),
   timezone = DEFAULT_TIMEZONE,
+  tenantId = DEFAULT_TENANT_ID,
 } = {}) {
   const targetId = wardId || zoneId || null;
   const [rosterRecipients, delegationRecipients, incharges] = await Promise.all([
-    findCurrentRosterRecipients({ targetId, now, timezone }),
-    findActiveDelegationRecipients({ zoneId: targetId, floor, now }),
-    findHousekeepingIncharges(),
+    findCurrentRosterRecipients({ targetId, now, timezone, tenantId }),
+    findActiveDelegationRecipients({ zoneId: targetId, floor, now, tenantId }),
+    findHousekeepingIncharges(tenantId),
   ]);
 
   return uniqueRecipients([
@@ -488,7 +508,7 @@ export async function createBedCleaningRequest({
     throw Object.assign(new Error('Bed not found for housekeeping dispatch'), { statusCode: 404 });
   }
 
-  const requester = await resolveRequester(requesterUid);
+  const requester = await resolveRequester(requesterUid, context.tenant_id);
   if (!requester) {
     throw Object.assign(new Error('No active requester available for housekeeping dispatch'), {
       statusCode: 409,
@@ -500,6 +520,7 @@ export async function createBedCleaningRequest({
     wardId: context.ward_id,
     floor: context.floor,
     now,
+    tenantId: context.tenant_id,
   });
   const requestZoneId = await resolveRequestZoneId(context);
   const primary = getPrimaryAssignee(recipients);
@@ -574,6 +595,7 @@ export async function createBedCleaningRequest({
   if (!created) {
     const existing = request;
     const fanout = await fanOutHousekeepingRequest({
+      tenantId: context.tenant_id,
       requestId: existing.id,
       recipients,
       title: 'Housekeeping: bed cleaning required',
@@ -612,6 +634,7 @@ export async function createBedCleaningRequest({
   await stampTerminalCleanRequest({ isolationContext, requestId: request.id });
 
   const fanout = await fanOutHousekeepingRequest({
+    tenantId: context.tenant_id,
     requestId: request.id,
     recipients,
     title: 'Housekeeping: bed cleaning required',

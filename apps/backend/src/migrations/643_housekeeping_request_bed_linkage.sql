@@ -48,7 +48,9 @@ UPDATE housekeeping_requests hr
  WHERE hr.bed_id IS NULL
    AND hr.request_type = 'bed_cleaning'
    AND hr.description ~ 'bed_id=[0-9]+\.'
-   AND b.id = (substring(hr.description FROM 'bed_id=([0-9]+)\.'))::int
+   -- Compare as text so an attacker-supplied out-of-range digit string cannot
+   -- make the migration abort while casting it to integer.
+   AND b.id::text = substring(hr.description FROM 'bed_id=([0-9]+)\.')
    AND b.tenant_id = hr.tenant_id;
 
 -- Serves the dedupe probe / sweep NOT EXISTS ("active ticket for this bed in
