@@ -4,28 +4,31 @@ import 'package:vhhealth/core/services/logout_service.dart';
 void main() {
   tearDown(LogoutService.debugResetDependencies);
 
-  test(
-    'logout clears realtime, caches, staging, and user provider state',
-    () async {
-      final calls = <String>[];
-      LogoutService.debugSetDependencies(_dependencies(calls));
+  test('logout clears realtime, caches, staging, user provider state, and '
+      'signs out of Firebase last', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(_dependencies(calls));
 
-      await LogoutService.logout();
+    await LogoutService.logout();
 
-      expect(calls, [
-        'websocket',
-        'realtime',
-        'push-user',
-        'notifications',
-        'secure-storage',
-        'api-cache',
-        'file-cache',
-        'doc-staging',
-        'cycle-tracker',
-        'user-provider',
-      ]);
-    },
-  );
+    expect(calls, [
+      'websocket',
+      'realtime',
+      'push-user',
+      'notifications',
+      'secure-storage',
+      'api-cache',
+      'file-cache',
+      'doc-staging',
+      'cycle-tracker',
+      'user-provider',
+      // Firebase sign-out MUST come last: it is what fires the router's
+      // auth-state refreshListenable, and by then every other logged-in
+      // signal (JWT, UserProvider) must already be gone so the redirect
+      // lands on /login.
+      'firebase-signout',
+    ]);
+  });
 
   test(
     'logout continues clearing local state when websocket teardown fails',
@@ -45,10 +48,53 @@ void main() {
           'doc-staging',
           'cycle-tracker',
           'user-provider',
+          'firebase-signout',
         ]),
       );
     },
   );
+
+  test(
+    'logout still signs out of Firebase when earlier teardown steps fail',
+    () async {
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, throwOn: 'secure-storage'),
+      );
+
+      await LogoutService.logout();
+
+      expect(calls, contains('firebase-signout'));
+    },
+  );
+
+  test(
+    'logout still signs out of Firebase when user provider clearing fails',
+    () async {
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, throwOn: 'user-provider'),
+      );
+
+      await expectLater(LogoutService.logout(), completes);
+
+      expect(calls, contains('firebase-signout'));
+      expect(
+        calls.indexOf('firebase-signout'),
+        greaterThan(calls.indexOf('user-provider')),
+      );
+    },
+  );
+
+  test('logout does not throw when Firebase sign-out itself fails', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, throwOn: 'firebase-signout'),
+    );
+
+    await expectLater(LogoutService.logout(), completes);
+    expect(calls, contains('firebase-signout'));
+  });
 }
 
 LogoutServiceDependencies _dependencies(List<String> calls, {String? throwOn}) {
@@ -70,5 +116,6 @@ LogoutServiceDependencies _dependencies(List<String> calls, {String? throwOn}) {
     purgeDocumentStaging: step('doc-staging'),
     clearCycleTracker: step('cycle-tracker'),
     clearUserProvider: step('user-provider'),
+    signOutFirebase: step('firebase-signout'),
   );
 }

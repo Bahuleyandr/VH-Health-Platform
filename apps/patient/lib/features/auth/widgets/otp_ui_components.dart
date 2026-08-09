@@ -9,6 +9,9 @@ class OtpForm extends StatelessWidget {
   final bool otpSent;
   final bool isVerifying;
   final bool isResending;
+
+  /// Seconds left before another resend is allowed; 0 = no cooldown.
+  final int resendCooldownSeconds;
   final VoidCallback onVerifyPressed;
   final VoidCallback onResendPressed;
   final Function(String) onOtpChanged;
@@ -21,6 +24,7 @@ class OtpForm extends StatelessWidget {
     required this.otpSent,
     required this.isVerifying,
     required this.isResending,
+    this.resendCooldownSeconds = 0,
     required this.onVerifyPressed,
     required this.onResendPressed,
     required this.onOtpChanged,
@@ -50,6 +54,7 @@ class OtpForm extends StatelessWidget {
         OtpResendButton(
           isResending: isResending,
           isVerifying: isVerifying,
+          cooldownSeconds: resendCooldownSeconds,
           onPressed: onResendPressed,
         ),
         const SizedBox(height: 24),
@@ -245,19 +250,25 @@ class OtpVerifyButton extends StatelessWidget {
 class OtpResendButton extends StatelessWidget {
   final bool isResending;
   final bool isVerifying;
+
+  /// Seconds left before another resend is allowed; while > 0 the button is
+  /// disabled and shows the countdown.
+  final int cooldownSeconds;
   final VoidCallback onPressed;
 
   const OtpResendButton({
     super.key,
     required this.isResending,
     required this.isVerifying,
+    this.cooldownSeconds = 0,
     required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
+    final onCooldown = cooldownSeconds > 0;
     return TextButton(
-      onPressed: (isResending || isVerifying) ? null : onPressed,
+      onPressed: (isResending || isVerifying || onCooldown) ? null : onPressed,
       style: TextButton.styleFrom(
         foregroundColor: Colors.teal,
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -275,9 +286,11 @@ class OtpResendButton extends StatelessWidget {
                 Text(AppLocalizations.of(context)!.otpResendingOtp),
               ],
             )
-          : const Text(
-              "Didn't receive OTP? Resend",
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          : Text(
+              onCooldown
+                  ? 'Resend OTP in ${cooldownSeconds}s'
+                  : "Didn't receive OTP? Resend",
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             ),
     );
   }
