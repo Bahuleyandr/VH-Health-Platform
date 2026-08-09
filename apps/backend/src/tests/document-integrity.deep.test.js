@@ -95,6 +95,7 @@ async function waitForPhiAuditWrites(expected, timeoutMs = 10000) {
   if (expected === 0) return;
 
   const deadline = Date.now() + timeoutMs;
+  let observed = 0;
   while (Date.now() < deadline) {
     const [row] = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS count
@@ -102,9 +103,12 @@ async function waitForPhiAuditWrites(expected, timeoutMs = 10000) {
         WHERE tenant_id = $1::uuid`,
       TENANT_ID,
     );
-    if (row.count >= expected) return;
+    observed = Number(row.count);
+    if (observed >= expected) return;
     await new Promise((r) => setTimeout(r, 25));
   }
+
+  throw new Error(`Timed out waiting for ${expected} PHI audit writes; observed ${observed}`);
 }
 
 d('Document integrity — deep round-trip (roadmap C4)', () => {
