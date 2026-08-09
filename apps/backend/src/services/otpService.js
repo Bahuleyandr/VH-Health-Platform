@@ -7,6 +7,7 @@ import { SECURITY_CONFIG } from '../config/securityConfig.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import bcrypt from 'bcrypt';
+import { AppError } from '../utils/AppError.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 
 // OTPs are short-lived, so a low bcrypt cost is sufficient and keeps verify fast.
@@ -51,8 +52,12 @@ export class OTPService {
 
       return { otp, expiresAt, sessionId: session.id };
     } catch (err) {
-      logger.warn('OTP sessions error, using mock:', err.message);
-      return { otp, expiresAt, sessionId: `mock_${Date.now()}` };
+      // Audit F10 companion: a fabricated sessionId here means the caller
+      // believes an OTP session exists when nothing was persisted — the
+      // phone can never verify, and the real cause (DB outage) is masked as
+      // a mysterious user-side OTP failure. Fail loudly instead.
+      logger.error('OTP session store failed:', err.message);
+      throw new AppError('OTP could not be sent — please try again', 503, 'OTP_SESSION_UNAVAILABLE');
     }
   }
 

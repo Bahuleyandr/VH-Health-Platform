@@ -25,7 +25,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { isUserTokensRevoked, revokeAllUserTokens } = await import('../../utils/tokenBlacklist.js');
+const { isUserTokensRevoked, revokeAllUserTokens, blacklistToken } = await import('../../utils/tokenBlacklist.js');
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
@@ -78,5 +78,43 @@ describe('tokenBlacklist revoke-all fallback', () => {
     await expect(
       revokeAllUserTokens('42', { requireEvidence: true }),
     ).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
+  });
+});
+
+describe('tokenBlacklist blacklistToken (single-token revoke, audit F10)', () => {
+  const future = Math.floor(Date.now() / 1000) + 3600;
+
+  it('ordinary callers stay best-effort: resolves even when both stores fail', async () => {
+    cacheSetMock.mockResolvedValue(false);
+    queryRawUnsafeMock.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(blacklistToken('jti-1', future, 'logout')).resolves.toBeUndefined();
+  });
+
+  it('fails closed when evidence is required and both Redis and DB writes fail', async () => {
+    cacheSetMock.mockResolvedValue(false);
+    queryRawUnsafeMock.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(
+      blacklistToken('jti-1', future, 'logout', { requireEvidence: true }),
+    ).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
+  });
+
+  it('evidence mode resolves normally when Redis persists even if the DB write fails', async () => {
+    cacheSetMock.mockResolvedValueOnce(true);
+    queryRawUnsafeMock.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(
+      blacklistToken('jti-1', future, 'logout', { requireEvidence: true }),
+    ).resolves.toMatchObject({ redis: { persisted: true } });
+  });
+
+  it('evidence mode resolves normally when the DB persists even if Redis fails', async () => {
+    cacheSetMock.mockResolvedValueOnce(false);
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(
+      blacklistToken('jti-1', future, 'logout', { requireEvidence: true }),
+    ).resolves.toMatchObject({ database: { persisted: true } });
   });
 });

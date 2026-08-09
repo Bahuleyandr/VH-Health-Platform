@@ -44,32 +44,71 @@ export class RevocationWriteUnavailableError extends Error {
  * @param {string} jti - JWT ID to blacklist
  * @param {number} expiresAt - Token expiry as Unix timestamp (seconds)
  * @param {string} [reason] - Why the token was blacklisted (e.g. 'logout', 'refresh_rotation')
+ * @param {{requireEvidence?: boolean}} [opts] - When `requireEvidence` is true
+ *   (audit F10), the DB write is awaited inline instead of fired-and-forgotten,
+ *   and a `RevocationWriteUnavailableError` is thrown if NEITHER store
+ *   persisted the entry — callers that must not claim success on a silent
+ *   revocation failure (e.g. logout) opt into this. Default false preserves
+ *   the original best-effort behaviour for every other existing caller.
  */
-export async function blacklistToken(jti, expiresAt, reason = 'logout') {
-  if (!jti) return;
+export async function blacklistToken(jti, expiresAt, reason = 'logout', { requireEvidence = false } = {}) {
+  if (!jti) return requireEvidence ? null : undefined;
 
   const now = Math.floor(Date.now() / 1000);
   const ttl = Math.max(expiresAt - now, 0);
-  if (ttl <= 0) return; // Already expired, no need to blacklist
+  if (ttl <= 0) return requireEvidence ? null : undefined; // Already expired, no need to blacklist
 
   // Redis: fast path
+  let redisError = null;
+  let redisPersisted = false;
   try {
-    await cacheSet(`${BLACKLIST_PREFIX}${jti}`, { reason, blacklistedAt: now }, ttl);
+    redisPersisted = await cacheSet(`${BLACKLIST_PREFIX}${jti}`, { reason, blacklistedAt: now }, ttl) === true;
   } catch (err) {
+    redisError = err;
     logger.warn('Token blacklist Redis write failed:', err.message);
   }
 
-  // DB: persistent fallback (fire-and-forget)
-  setImmediate(async () => {
-    try {
-      await prisma.$queryRawUnsafe(`
-        INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
-        VALUES ($1, to_timestamp($2), $3, NOW())
-        ON CONFLICT (jti) DO NOTHING
-      `, jti, expiresAt, reason);
-    } catch (err) {
-      logger.warn('Token blacklist DB write failed:', err.message);
-    }
+  if (!requireEvidence) {
+    // DB: persistent fallback (fire-and-forget) — unchanged for existing callers.
+    setImmediate(async () => {
+      try {
+        await prisma.$queryRawUnsafe(`
+          INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+          VALUES ($1, to_timestamp($2), $3, NOW())
+          ON CONFLICT (jti) DO NOTHING
+        `, jti, expiresAt, reason);
+      } catch (err) {
+        logger.warn('Token blacklist DB write failed:', err.message);
+      }
+    });
+    return undefined;
+  }
+
+  // Evidence required: await the DB write so a failure there is visible.
+  let databaseError = null;
+  let databasePersisted = false;
+  try {
+    await prisma.$queryRawUnsafe(`
+      INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+      VALUES ($1, to_timestamp($2), $3, NOW())
+      ON CONFLICT (jti) DO NOTHING
+    `, jti, expiresAt, reason);
+    databasePersisted = true;
+  } catch (err) {
+    databaseError = err;
+    logger.warn('Token blacklist DB write failed:', err.message);
+  }
+
+  if (!redisPersisted && !databasePersisted) {
+    throw new RevocationWriteUnavailableError(
+      'No token revocation store accepted the blacklist entry',
+      { redis: redisError, database: databaseError },
+    );
+  }
+
+  return Object.freeze({
+    redis: Object.freeze({ persisted: redisPersisted }),
+    database: Object.freeze({ persisted: databasePersisted }),
   });
 }
 
