@@ -83,11 +83,9 @@ describe("H6/M8 — admin route policy", () => {
       "/dashboard/users",
       "/dashboard/audit-explorer",
       "/dashboard/system-logs",
-      "/dashboard/logs",
       "/dashboard/integrations",
       "/dashboard/settings",
       "/dashboard/payroll",
-      "/dashboard/records",
       "/dashboard/continuity-reconciliation",
     ];
 

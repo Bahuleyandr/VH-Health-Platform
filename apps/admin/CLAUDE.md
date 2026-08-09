@@ -38,8 +38,7 @@ src/
       uploads/               # File management + HIPAA
       sos/                   # Emergency alert management
       settings/              # System settings
-      logs/                  # Audit + system logs
-      system-logs/           # (legacy, same as logs)
+      system-logs/           # System error/audit log viewer
     layout.tsx               # Root layout (imports globals.css + Providers)
     providers.tsx             # QueryClient + AuthProvider + Toaster
   lib/
