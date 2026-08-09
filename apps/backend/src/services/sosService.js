@@ -6,6 +6,8 @@ import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { AppError } from '../utils/AppError.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
+import { logSecurityEvent } from '../utils/securityAuditLogger.js';
+import { sendSecurityWebhook } from '../utils/securityWebhook.js';
 import * as locationService from './locationService.js';
 import * as notificationService from './notification/notificationService.js';
 
@@ -28,17 +30,42 @@ export const createAlert = async (alertData) => {
     nearbyServices = await locationService.findNearbyEmergencyServices(latitude, longitude);
   }
 
+  // Fan out to the emergency team. The sos_alerts row above is already
+  // committed, so a fan-out failure must not 500 the SOS (the patient would
+  // retry and duplicate the alert, or believe nothing was recorded) — but the
+  // response below must never claim teams were notified when they were not
+  // (audit BE-M3). notifyEmergencyTeam owns the zero-responder loud-failure
+  // path (durable security-audit row + ops webhook + admin fallback fan-out);
+  // escalation of unread responder notifications is owned by the existing
+  // unread-critical-notification-escalation cron.
+  let notifiedCount = 0;
   if (!isTestAlert) {
-    await notificationService.notifyEmergencyTeam({
-      id: alert.id, phone, severity, message, latitude, longitude,
-      user_name: user.name,
-    }, nearbyServices.hospitals || []);
-
-    await scheduleEscalation(alert.id, severity);
-    await logSecurityEvent(alert, user, ip_address);
+    try {
+      const notifyResult = await notificationService.notifyEmergencyTeam({
+        id: alert.id, uid: user.uid || null, phone, severity, message,
+        latitude, longitude, user_name: user.name,
+      }, nearbyServices.hospitals || []);
+      notifiedCount = notifyResult?.notified_count ?? 0;
+    } catch (notifyErr) {
+      logger.error(`SOS alert ${alert.id}: emergency-team fan-out failed — teams NOT notified`, {
+        error: notifyErr.message,
+      });
+      logSecurityEvent('SOS_ESCALATION_FAILED', {
+        userId: user.uid || null,
+        ip: ip_address,
+        path: '/sos',
+        statusCode: 200,
+        reason: `SOS alert ${alert.id}: responder fan-out threw: ${notifyErr.message}`,
+      });
+      sendSecurityWebhook('SOS_ESCALATION_FAILED', {
+        reason: `SOS alert ${alert.id} (severity ${severity}) fan-out failed: ${notifyErr.message}`,
+        ip: ip_address,
+        path: '/sos',
+      });
+    }
   }
 
-  return formatAlertResponse(alert, nearbyServices, severity, isTestAlert);
+  return formatAlertResponse(alert, nearbyServices, severity, isTestAlert, notifiedCount);
 };
 
 const insertAlert = async (data) => {
@@ -69,24 +96,21 @@ async function getUserMedicalInfo(phone) {
   return user;
 }
 
-async function scheduleEscalation(alertId, severity) {
-  logger.info(`Escalation scheduled for alert ${alertId} with severity ${severity}.`);
-}
-
-async function logSecurityEvent(alert, user, ip_address) {
-  logger.info(`Security event logged for SOS alert ${alert.id} from user ${user.uid || user.phone} at IP ${ip_address}`);
-}
-
-function formatAlertResponse(alert, nearbyServices, severity, isTestAlert) {
+function formatAlertResponse(alert, nearbyServices, severity, isTestAlert, notifiedCount = 0) {
+  const teamsNotified = !isTestAlert && notifiedCount > 0;
   return {
     alert_id: alert.id,
     status: 'active',
     severity,
     timestamp: alert.created_at,
     is_test: isTestAlert,
+    teams_notified: teamsNotified,
+    responders_notified_count: isTestAlert ? 0 : notifiedCount,
     message: isTestAlert
       ? 'Test alert created successfully. No notifications were sent.'
-      : 'SOS alert created successfully. Emergency teams have been notified.',
+      : teamsNotified
+        ? 'SOS alert created successfully. Emergency teams have been notified.'
+        : 'SOS alert recorded, but automatic notification of emergency teams could not be confirmed. Please call emergency services directly.',
     nearby_hospitals: nearbyServices.hospitals || [],
     nearby_police: nearbyServices.police_stations || [],
   };
