@@ -1944,6 +1944,14 @@
   "@circularDialNoFeatures": {
     "description": "Empty state for circular feature dial"
   },
+  "circularDialCenterLabel": "சுகாதார மையம்",
+  "@circularDialCenterLabel": {
+    "description": "Accessible label and tooltip for the dashboard dial's centre button"
+  },
+  "circularDialCenterHint": "சுகாதார புள்ளிகளைத் திறக்கும்",
+  "@circularDialCenterHint": {
+    "description": "Accessibility hint describing what tapping the dial centre button does"
+  },
   "deliveryYourLocation": "உங்கள் இருப்பிடம்",
   "@deliveryYourLocation": {
     "description": "Label for user location on delivery map"

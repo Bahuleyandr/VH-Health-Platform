@@ -1944,6 +1944,14 @@
   "@circularDialNoFeatures": {
     "description": "Empty state for circular feature dial"
   },
+  "circularDialCenterLabel": "ഹെൽത്ത് ഹബ്",
+  "@circularDialCenterLabel": {
+    "description": "Accessible label and tooltip for the dashboard dial's centre button"
+  },
+  "circularDialCenterHint": "ആരോഗ്യ പോയിൻ്റുകൾ തുറക്കുന്നു",
+  "@circularDialCenterHint": {
+    "description": "Accessibility hint describing what tapping the dial centre button does"
+  },
   "deliveryYourLocation": "നിങ്ങളുടെ സ്ഥാനം",
   "@deliveryYourLocation": {
     "description": "Label for user location on delivery map"

@@ -532,52 +532,61 @@ class _AppointmentBookTabState extends State<AppointmentBookTab> {
                 final time = slot['time'] as String;
                 final available = slot['available'] as bool? ?? false;
                 final isSelected = _selectedSlotTime == time;
-                return GestureDetector(
-                  onTap: available
-                      ? () {
-                          setState(() {
-                            _selectedSlotTime = time;
-                            final parts = time.split(':');
-                            _selectedTime = TimeOfDay(
-                              hour: int.parse(parts[0]),
-                              minute: int.parse(parts[1]),
-                            );
-                          });
-                        }
-                      : null,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? const Color(0xFF00796B)
-                          : available
-                          ? const Color(0xFFE0F2F1)
-                          : theme.colorScheme.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isSelected
-                            ? const Color(0xFF00796B)
-                            : available
-                            ? const Color(0xFF80CBC4)
-                            : theme.colorScheme.outlineVariant,
+                return Semantics(
+                  button: true,
+                  enabled: available,
+                  selected: isSelected,
+                  child: GestureDetector(
+                    onTap: available
+                        ? () {
+                            setState(() {
+                              _selectedSlotTime = time;
+                              final parts = time.split(':');
+                              _selectedTime = TimeOfDay(
+                                hour: int.parse(parts[0]),
+                                minute: int.parse(parts[1]),
+                              );
+                            });
+                          }
+                        : null,
+                    child: Container(
+                      // 48dp minimum tap target (WCAG 2.5.8 / Android
+                      // accessibility guideline).
+                      constraints: const BoxConstraints(
+                        minWidth: 48,
+                        minHeight: 48,
                       ),
-                    ),
-                    child: Text(
-                      time,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
                         color: isSelected
-                            ? Colors.white
-                            : available
                             ? const Color(0xFF00796B)
-                            : theme.colorScheme.onSurfaceVariant,
-                        decoration: available
-                            ? null
-                            : TextDecoration.lineThrough,
+                            : available
+                            ? const Color(0xFFE0F2F1)
+                            : theme.colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF00796B)
+                              : available
+                              ? const Color(0xFF80CBC4)
+                              : theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                      child: Text(
+                        time,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: isSelected
+                              ? Colors.white
+                              : available
+                              ? const Color(0xFF00796B)
+                              : theme.colorScheme.onSurfaceVariant,
+                          decoration: available
+                              ? null
+                              : TextDecoration.lineThrough,
+                        ),
                       ),
                     ),
                   ),
