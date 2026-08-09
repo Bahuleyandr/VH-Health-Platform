@@ -209,7 +209,7 @@ export async function revokeAllUserTokens(userId, { requireEvidence = false } = 
 }
 
 /**
- * Check if all tokens for a user were revoked after the token was issued.
+ * Check if all tokens for a user were revoked at or after the token was issued.
  * @param {string} userId
  * @param {number} tokenIssuedAt - Token iat claim (Unix timestamp)
  * @returns {Promise<boolean>} - true if token should be rejected
@@ -221,7 +221,7 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt) {
   try {
     const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
     redisAnswered = isRedisConnected();
-    if (result && result.revokedAt && result.revokedAt > tokenIssuedAt) {
+    if (result && result.revokedAt && result.revokedAt >= tokenIssuedAt) {
       return true;
     }
   } catch {
@@ -235,7 +235,7 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt) {
          FROM invalidated_tokens
         WHERE jti = $1
           AND expires_at > NOW()
-          AND created_at > to_timestamp($2)
+          AND created_at >= to_timestamp($2)
         LIMIT 1`,
       `user:${userId}`,
       issuedAt,
