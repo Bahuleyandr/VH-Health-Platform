@@ -4,8 +4,8 @@
 // The legacy page was no longer linked from anywhere but stayed URL-reachable
 // and could still sign summaries through the deprecated flow (2026-08-09
 // hygiene audit, AD-M1). Permanently redirect to the successor.
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
 export default function LegacyDischargeSummaryRedirect() {
-  redirect("/dashboard/discharge-summaries");
+  permanentRedirect("/dashboard/discharge-summaries");
 }

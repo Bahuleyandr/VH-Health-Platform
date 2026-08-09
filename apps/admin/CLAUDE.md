@@ -97,7 +97,7 @@ ingress-nginx → `Service/vhhealth-admin`.
 - `NEXT_PUBLIC_API_URL` — backend URL (default: `https://api.vhhealth.app`)
 - `BACKEND_API_KEY` (or legacy `API_KEY`) — **server-only** API key; injected by `/api/proxy` and `/api/login`. Never expose as `NEXT_PUBLIC_*`.
 - `NEXT_PUBLIC_ALLOWED_ORIGIN` — CSRF origin allowlist for `/api/login`, `/api/refresh`, `/api/logout`, `/api/proxy` mutations.
-- `ADMIN_IP_ALLOWLIST` (optional) — comma-separated list of exact client IPs allowed through `middleware.ts`. Unset → disabled.
+- `ADMIN_IP_ALLOWLIST` — comma-separated exact client IPs or IPv4 CIDR ranges allowed through `middleware.ts`. Optional in development; required in production, where an empty/missing value fails closed.
 - `NEXT_PUBLIC_SENTRY_DSN` — activate Sentry in production. Instrumentation files already wired.
 - `JWT_SECRET` — used by `middleware.ts` `jose.jwtVerify` for signature validation. Fails closed in production when unset.
 
