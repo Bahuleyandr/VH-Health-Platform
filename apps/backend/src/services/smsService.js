@@ -1,6 +1,22 @@
 // src/services/smsService.js
-// SMS / WhatsApp notification service
-// No external SMS provider is configured. Calls are logged as dry-run events.
+// SMS provider seam.
+//
+// No external SMS provider is configured. `sendSMS` logs a dry-run event and
+// nothing leaves the box, so it has NO runtime caller by design: the
+// notification-outbox drain resolves an `sms` attempt to
+// `rejected('sms_gateway_not_configured')` without pretending to send
+// (`notificationOutboxDelivery.js`, `notificationDispatcher.js`). This module
+// is the slot a real gateway drops into — at that point the drain's sms
+// branch calls sendSMS and records a genuine provider receipt.
+//
+// To send a patient an SMS, queue the intent:
+//   import { queuePatientSms } from '../utils/notifications/smsOutbox.js';
+// That leaves a durable, replayable notification_outbox row instead of a log
+// line that looks like a delivery (audit 2026-08-09 finding F7).
+// `src/tests/unit/smsProviderSeam.test.js` fails the build if a request path
+// or cron job starts importing this module again.
+//
+// fix-deferred: SMS gateway integration — wire the provider inside sendSMS.
 
 import logger from '../logging/logger.js';
 
@@ -16,7 +32,12 @@ function normalizePhone(phone) {
 }
 
 /**
- * Send a raw SMS
+ * Send a raw SMS.
+ *
+ * Callers: the notification-outbox drain only. Returns nothing and resolves
+ * even when no provider is configured — the outbox layer, not this function,
+ * decides what an unconfigured channel means for the delivery ledger.
+ *
  * @param {string} phone - Any format Indian mobile number
  * @param {string} message - Plain text message
  */
@@ -28,41 +49,4 @@ export async function sendSMS(phone, message) {
   }
 
   logger.info(`[SMS DRY RUN] To: ${maskPhoneForLog(intlPhone)} | ${message}`);
-}
-
-/**
- * Send appointment confirmation SMS to patient
- */
-export async function sendAppointmentConfirmationSMS(phone, patientName, doctorName, date, time, tokenNumber, department) {
-  if (!phone) return;
-  try {
-    const formattedDate = new Date(date).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'long', year: 'numeric'
-    });
-    const deptPart = department ? ` (${department})` : '';
-    const hospitalPhone = process.env.HOSPITAL_PHONE || '044-XXXXXXXX';
-    const message =
-      `Dear ${patientName}, your appointment at Venkataeswara Hospitals is confirmed.\n` +
-      `Date: ${formattedDate}\nTime: ${time}\nDoctor: Dr. ${doctorName}${deptPart}\n` +
-      `Token: #${tokenNumber}\n\nPlease arrive 15 min early. For queries call: ${hospitalPhone}`;
-    await sendSMS(phone, message);
-  } catch (err) {
-    logger.warn('[SMS] Confirmation SMS error:', err.message);
-  }
-}
-
-/**
- * Send appointment reminder SMS to patient
- */
-export async function sendAppointmentReminderSMS(phone, patientName, doctorName, time, hoursAhead, tokenNumber) {
-  if (!phone) return;
-  try {
-    const hoursLabel = hoursAhead > 1 ? `${hoursAhead} hours` : '1 hour';
-    const message =
-      `Reminder: Dear ${patientName}, you have an appointment at Venkataeswara Hospitals in ${hoursLabel}.\n` +
-      `Time: ${time} | Dr. ${doctorName} | Token #${tokenNumber}`;
-    await sendSMS(phone, message);
-  } catch (err) {
-    logger.warn('[SMS] Reminder SMS error:', err.message);
-  }
 }

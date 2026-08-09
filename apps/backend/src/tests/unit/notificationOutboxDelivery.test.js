@@ -20,9 +20,15 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: jest.fn(async (_tenantId, callback) => callback({
     $queryRawUnsafe: queryRawUnsafeMock,
   })),
+  // notificationOutbox.js (imported below for its intent builder) needs this
+  // export to link, even though the builder itself never touches the DB.
+  setTenantTx: jest.fn(async (_tenantId, callback) => callback({
+    $queryRawUnsafe: queryRawUnsafeMock,
+  })),
 }));
 jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
   runInTenantContext: (_tenantId, callback) => callback(),
+  getCurrentTenantId: () => TENANT_ID,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('../../services/tenant/tenantSettingsService.js', () => ({
@@ -47,6 +53,9 @@ jest.unstable_mockModule('../../services/notification/notificationDeliveryLedger
 
 const { deliverNotificationOutboxRow } = await import(
   '../../utils/notifications/notificationOutboxDelivery.js'
+);
+const { __testing__: outboxInternals } = await import(
+  '../../utils/notifications/notificationOutbox.js'
 );
 
 function row(overrides = {}) {
@@ -162,6 +171,46 @@ describe('notification outbox durable provider delivery', () => {
       outcome: 'rejected',
       providerCode: 'sms_gateway_not_configured',
       receiptSource: 'provider_response',
+    }));
+  });
+
+  // Audit 2026-08-09 finding F7 — ties the two halves of the fix together:
+  // an intent queued by utils/notifications/smsOutbox.js lands on the `sms`
+  // channel, and draining that row produces an honest provider rejection
+  // rather than a silent dry-run "success".
+  test('a queuePatientSms-shaped intent drains to rejected(sms_gateway_not_configured)', async () => {
+    const intent = outboxInternals.buildIntent({
+      type: 'sms',
+      tenantId: TENANT_ID,
+      recipientId: 77,
+      recipientPhone: '+919000000004',
+      title: 'Investigation booking confirmed',
+      body: 'Your investigation INV-5 is confirmed.',
+      data: { type: 'investigation_confirmed', booking_id: '5' },
+      templateVersion: 'sms.investigation_booking_confirmed.v1',
+    });
+    expect(intent.channel).toBe('sms');
+
+    getTenantSettingsMock.mockResolvedValue({});
+    beginProviderAttemptsMock.mockResolvedValue([attempt('sms')]);
+
+    const result = await deliverNotificationOutboxRow(row({
+      id: 1002,
+      type: intent.type,
+      recipient_id: intent.recipientId,
+      recipient_phone: intent.recipientPhone,
+      title: intent.title,
+      body: intent.body,
+      payload: { tenant_id: TENANT_ID, ...intent.data },
+      rendered_intent_hash: intent.renderedIntentHash,
+    }));
+
+    expect(result.outcome).toBe('rejected');
+    expect(result.mode).toBe('legacy');
+    expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      outcome: 'rejected',
+      providerCode: 'sms_gateway_not_configured',
     }));
   });
 

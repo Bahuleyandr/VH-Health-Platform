@@ -63,23 +63,41 @@ export async function sendPushWithRetry(deviceToken, payload, userId = null) {
 }
 
 /**
- * Send SMS with automatic retry on failure.
- * On failure, queues to failed_notifications table for exponential backoff retry.
+ * Record an SMS intent on the notification outbox, which owns durable retry
+ * (5-min backoff, 3 attempts, per-tenant channel cursor). There is no SMS
+ * gateway, so this never reports a send — the outbox drain resolves the row
+ * with an honest `sms_gateway_not_configured` provider receipt
+ * (audit 2026-08-09 finding F7).
+ *
+ * If the outbox itself cannot record the intent, fall back to the legacy
+ * failed_notifications backoff table so the intent is not simply lost.
  */
 export async function sendSMSWithRetry(phone, message, userId = null) {
+  let failureReason = 'notification outbox queue returned no row';
   try {
-    const { sendSMS } = await import('./smsService.js');
-    await sendSMS(phone, message);
+    const { queuePatientSms } = await import('../utils/notifications/smsOutbox.js');
+    const result = await queuePatientSms({
+      recipientId: userId,
+      recipientPhone: phone,
+      title: 'Notification',
+      body: message,
+      data: { type: 'sms_retry_service' },
+      context: 'notification-retry-service',
+    });
+    if (result.queued) return;
+    failureReason = result.reason || failureReason;
   } catch (err) {
-    logger.warn(`[RetryService] SMS failed for ${maskPhoneForLog(phone)}, queuing retry: ${err.message}`);
-    try {
-      await query(`
-        INSERT INTO failed_notifications (user_id, type, phone, body, error_message, next_retry_at)
-        VALUES ($1::uuid, 'sms', $2, $3, $4, NOW())
-      `, [toUuidOrNull(userId), phone, message, err.message]);
-    } catch (dbErr) {
-      logger.error(`[RetryService] Failed to queue SMS retry: ${dbErr.message}`);
-    }
+    failureReason = err.message;
+  }
+
+  logger.warn(`[RetryService] SMS intent not recorded for ${maskPhoneForLog(phone)}, queuing retry: ${failureReason}`);
+  try {
+    await query(`
+      INSERT INTO failed_notifications (user_id, type, phone, body, error_message, next_retry_at)
+      VALUES ($1::uuid, 'sms', $2, $3, $4, NOW())
+    `, [toUuidOrNull(userId), phone, message, failureReason]);
+  } catch (dbErr) {
+    logger.error(`[RetryService] Failed to queue SMS retry: ${dbErr.message}`);
   }
 }
 
@@ -92,7 +110,7 @@ export async function retryFailedNotifications() {
   let pending;
   try {
     pending = await query(`
-      SELECT id, user_id, phone, device_token, title, body, type, data, error_message, retry_count, max_retries, last_retry_at, created_at
+      SELECT id, user_id, phone, device_token, title, body, type, data, error_message, retry_count, max_retries, last_retry_at, created_at, tenant_id::text AS tenant_id
       FROM failed_notifications
       WHERE status = 'pending' AND next_retry_at <= NOW() AND retry_count < max_retries
       ORDER BY created_at ASC LIMIT 50
@@ -120,10 +138,22 @@ export async function retryFailedNotifications() {
         await query(`UPDATE failed_notifications SET status='sent', last_retry_at=NOW() WHERE id=$1`, [notif.id]);
         logger.info(`[RetryService] Push retry succeeded for notification ${notif.id}`);
       } else if (notif.type === 'sms' && notif.phone) {
-        const { sendSMS } = await import('./smsService.js');
-        await sendSMS(notif.phone, notif.body);
-        await query(`UPDATE failed_notifications SET status='sent', last_retry_at=NOW() WHERE id=$1`, [notif.id]);
-        logger.info(`[RetryService] SMS retry succeeded for notification ${notif.id}`);
+        // Hand the intent to the notification outbox, which is the durable
+        // owner of SMS delivery state. The row leaves this backoff table as
+        // 'queued_outbox' — never 'sent', because no SMS gateway exists.
+        const { queuePatientSms } = await import('../utils/notifications/smsOutbox.js');
+        const queued = await queuePatientSms({
+          tenantId: notif.tenant_id || null,
+          recipientId: notif.user_id || null,
+          recipientPhone: notif.phone,
+          title: notif.title || 'Notification',
+          body: notif.body,
+          data: { type: 'sms_retry_service', failed_notification_id: String(notif.id) },
+          context: 'notification-retry-service',
+        });
+        if (!queued.queued) throw new Error(`outbox queue failed: ${queued.reason}`);
+        await query(`UPDATE failed_notifications SET status='queued_outbox', last_retry_at=NOW() WHERE id=$1`, [notif.id]);
+        logger.info(`[RetryService] SMS intent ${notif.id} handed to the notification outbox (row ${queued.outboxId}); not delivered — no SMS gateway is configured`);
       }
     } catch (err) {
       const newRetry = notif.retry_count + 1;

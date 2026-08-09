@@ -145,13 +145,16 @@ export const placeOrder = async (req, res) => {
       return created;
     });
 
-    setImmediate(async () => {
+    setImmediate(() => {
+      // Trace only — no pharmacist alert is dispatched here. (The vestigial
+      // `import('smsService.js')` this block used to perform sent nothing and
+      // implied one; removed with audit 2026-08-09 finding F7.)
       try {
-        await import('../../services/smsService.js');
         // Don't log raw patient name (PHI). Identify by order + patient id.
         logger.info(`Pharmacy order ${order.order_number} placed by patient ${patientId}`);
       } catch (e) {
-        logger.warn('Pharmacist alert failed:', e.message);
+        // A throw here would be an unhandled exception on the event loop.
+        logger.warn('Pharmacy order placement trace failed:', e.message);
       }
     });
 
@@ -308,13 +311,24 @@ export const confirmOrder = async (req, res) => {
     });
     setImmediate(async () => {
       try {
-        const { sendSMS } = await import('../../services/smsService.js');
+        const { queuePatientSms } = await import('../../utils/notifications/smsOutbox.js');
         const patientPhone = order[0].phone || order[0].delivery_phone;
-        if (sendSMS && patientPhone) {
-          await sendSMS(
-            patientPhone,
-            `Dear ${order[0].patient_name || 'Patient'}, your pharmacy order ${order[0].order_number} is confirmed. Total: Rs.${total_amount || 'TBD'}. Cash on delivery.`
-          ).catch(e => logger.warn('Pharmacy confirm SMS failed:', e.message));
+        if (patientPhone) {
+          await queuePatientSms({
+            tenantId: result[0]?.tenant_id || req.tenantId,
+            recipientId: order[0].patient_id,
+            recipientPhone: patientPhone,
+            title: 'Pharmacy order confirmed',
+            body: `Dear ${order[0].patient_name || 'Patient'}, your pharmacy order ${order[0].order_number} is confirmed. Total: Rs.${total_amount || 'TBD'}. Cash on delivery.`,
+            data: {
+              type: 'pharmacy_order_confirmed',
+              order_id: String(order[0].id),
+              order_number: order[0].order_number || null,
+            },
+            sourceEventKey: `pharmacy-order-confirmed:${order[0].id}`,
+            templateVersion: 'sms.pharmacy_order_confirmed.v1',
+            context: 'pharmacy-order-confirmed',
+          });
         }
       } catch (e) {
         logger.warn('Pharmacy confirm notification failed:', e.message);
@@ -462,13 +476,24 @@ export const dispatchOrder = async (req, res) => {
     });
     setImmediate(async () => {
       try {
-        const { sendSMS } = await import('../../services/smsService.js');
+        const { queuePatientSms } = await import('../../utils/notifications/smsOutbox.js');
         const patientPhone = order[0].phone || order[0].delivery_phone;
-        if (sendSMS && patientPhone) {
-          await sendSMS(
-            patientPhone,
-            `Your medicines (${order[0].order_number}) have been dispatched. Estimated delivery: ~${eta.estimated_mins} minutes. ${delivery_person_phone ? 'Delivery contact: ' + delivery_person_phone : ''}`
-          ).catch(e => logger.warn('Dispatch SMS failed:', e.message));
+        if (patientPhone) {
+          await queuePatientSms({
+            tenantId: result[0]?.tenant_id || req.tenantId,
+            recipientId: order[0].patient_id,
+            recipientPhone: patientPhone,
+            title: 'Pharmacy order dispatched',
+            body: `Your medicines (${order[0].order_number}) have been dispatched. Estimated delivery: ~${eta.estimated_mins} minutes. ${delivery_person_phone ? 'Delivery contact: ' + delivery_person_phone : ''}`,
+            data: {
+              type: 'pharmacy_order_dispatched',
+              order_id: String(order[0].id),
+              order_number: order[0].order_number || null,
+            },
+            sourceEventKey: `pharmacy-order-dispatched:${order[0].id}`,
+            templateVersion: 'sms.pharmacy_order_dispatched.v1',
+            context: 'pharmacy-order-dispatched',
+          });
         }
       } catch (e) {
         logger.warn('Dispatch notification failed:', e.message);

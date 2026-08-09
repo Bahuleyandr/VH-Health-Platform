@@ -1,13 +1,14 @@
 // src/services/billing/paymentLinkService.js
 //
 // Sprint 4 — UPI / payment-gateway link creation, distribution, and
-// reconciliation. Uses the existing sendSMS / sendWhatsApp / sendEmail
-// notification infrastructure for distribution.
+// reconciliation. WhatsApp and email distribute through their own
+// providers; SMS has no gateway, so it queues a notification-outbox intent
+// and the link is NOT stamped as sent over that channel.
 
 import { randomBytes } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { sendSMS } from '../smsService.js';
+import { queuePatientSms } from '../../utils/notifications/smsOutbox.js';
 import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification.js';
 import { AppError } from '../../utils/AppError.js';
@@ -301,13 +302,30 @@ export async function sendPaymentLink({
 
   const updates = {};
   const requestedChannels = normalizePaymentLinkChannels(channels);
+  // SMS has no configured gateway. Queue the durable intent on the
+  // notification outbox and deliberately do NOT stamp sent_via_sms_at —
+  // that column is a delivery claim, and nothing was delivered
+  // (audit 2026-08-09 finding F7).
   if (requestedChannels.includes('sms') && patient_phone) {
-    try {
-      await sendSMS(patient_phone, messageBody);
-      updates.sent_via_sms_at = 'NOW()';
-    } catch (e) {
-      logger.warn('paymentLink SMS send failed', { error: e.message, link_id: link.id });
-    }
+    await queuePatientSms({
+      tenantId,
+      recipientId: link.patient_uid || null,
+      recipientPhone: patient_phone,
+      title: `Hospital bill — ${amountStr}`,
+      // Never persist the link token in outbox payload metadata — it is a
+      // bearer credential. It stays inside the message body only.
+      body: messageBody,
+      data: {
+        type: 'billing_payment_link',
+        payment_link_id: String(link.id),
+        invoice_id: link.invoice_id === null || link.invoice_id === undefined
+          ? null
+          : String(link.invoice_id),
+      },
+      sourceEventKey: `billing-payment-link:${link.id}`,
+      templateVersion: 'sms.billing_payment_link.v1',
+      context: 'billing-payment-link',
+    });
   }
   if (requestedChannels.includes('whatsapp') && patient_phone) {
     try {
@@ -343,15 +361,9 @@ export async function sendPaymentLink({
       link.id,
     );
   }
-  if (updates.sent_via_sms_at) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE billing_payment_links SET sent_via_sms_at = NOW(),
-              status = CASE WHEN status = 'created' THEN 'sent' ELSE status END,
-              updated_at = NOW()
-        WHERE id = $1::int`,
-      link.id,
-    );
-  }
+  // No sent_via_sms_at branch on purpose: the SMS channel has no gateway, so
+  // there is never a send to stamp. Re-add it together with the provider
+  // integration behind smsService.sendSMS.
   if (updates.sent_via_email_at) {
     await prisma.$executeRawUnsafe(
       `UPDATE billing_payment_links SET sent_via_email_at = NOW(),

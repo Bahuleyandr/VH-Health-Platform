@@ -20,6 +20,7 @@ const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
 const sendEmailMock = jest.fn();
 const sendWhatsAppMock = jest.fn();
+const queuePatientSmsMock = jest.fn();
 const collectPaymentMock = jest.fn();
 const loggerWarnMock = jest.fn();
 
@@ -46,6 +47,10 @@ jest.unstable_mockModule('../../utils/notifications/sendEmailNotification.js', (
 
 jest.unstable_mockModule('../../utils/notifications/sendWhatsAppNotification.js', () => ({
   sendWhatsApp: sendWhatsAppMock,
+}));
+
+jest.unstable_mockModule('../../utils/notifications/smsOutbox.js', () => ({
+  queuePatientSms: queuePatientSmsMock,
 }));
 
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
@@ -335,6 +340,36 @@ describe('sendPaymentLink', () => {
       expect.objectContaining({ error: 'twilio down' }),
     );
     expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  // Audit 2026-08-09 finding F7 — the SMS channel has no gateway.
+  it('queues an outbox intent on the sms channel and never stamps sent_via_sms_at', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 5, link_token: 'tok', status: 'created', amount: '2500',
+        patient_uid: PATIENT_A, invoice_id: 71,
+      }])
+      .mockResolvedValueOnce([{ id: 5, link_token: 'tok', status: 'created', amount: '2500' }]);
+    queuePatientSmsMock.mockResolvedValueOnce({ queued: true, outboxId: 88 });
+
+    const out = await sendPaymentLink({
+      tenantId: TENANT, link_token: 'tok', channels: ['sms'],
+      patient_phone: '+919999999999',
+    });
+
+    expect(queuePatientSmsMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT,
+      recipientId: PATIENT_A,
+      recipientPhone: '+919999999999',
+      sourceEventKey: 'billing-payment-link:5',
+      body: expect.stringContaining('https://api.vhhealth.app/pay/tok'),
+    }));
+    // The link-token is a bearer credential: it may appear in the message
+    // body but must never be persisted in outbox payload metadata.
+    expect(JSON.stringify(queuePatientSmsMock.mock.calls[0][0].data)).not.toContain('tok');
+    // No delivery stamp and no status flip to 'sent' — nothing was delivered.
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(out.status).toBe('created');
   });
 
   it('sends email on the email channel and stamps the email timestamp', async () => {

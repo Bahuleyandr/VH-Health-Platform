@@ -2,7 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../logMasking.js';
-import { sendAppointmentReminderSMS } from '../../services/smsService.js';
+import { queueAppointmentReminderSms } from './smsOutbox.js';
 import { sendStaffNotifications } from '../../services/notification/staffNotificationService.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
@@ -31,7 +31,8 @@ async function sendTimedRemindersInner() {
 
     const [res24h, res1h] = await Promise.all([
       prisma.$queryRawUnsafe(`
-        SELECT a.id, a.appointment_time, a.token_number,
+        SELECT a.id, a.tenant_id, a.appointment_time, a.token_number,
+               u.id AS patient_user_id,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
                d.name AS doctor_name, doc.department
         FROM appointments a
@@ -44,6 +45,7 @@ async function sendTimedRemindersInner() {
       `, in23h, in24h),
       prisma.$queryRawUnsafe(`
         SELECT a.id, a.tenant_id, a.appointment_time, a.token_number,
+               u.id AS patient_user_id,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
                d.id AS doctor_user_id, d.uid AS doctor_uid, d.name AS doctor_name,
                doc.department
@@ -57,14 +59,22 @@ async function sendTimedRemindersInner() {
       `, in30m, in90m),
     ]);
 
-    // Send 24h reminders
+    // Queue 24h reminders. The SMS leg records a notification-outbox intent —
+    // there is no SMS gateway, so nothing here may report a delivery.
     const sentIds24h = [];
     for (const appt of res24h) {
       try {
-        await sendAppointmentReminderSMS(
-          appt.patient_phone, appt.patient_name, appt.doctor_name,
-          appt.appointment_time, 24, appt.token_number
-        );
+        await queueAppointmentReminderSms({
+          tenantId: appt.tenant_id || null,
+          recipientId: appt.patient_user_id || null,
+          phone: appt.patient_phone,
+          patientName: appt.patient_name,
+          doctorName: appt.doctor_name,
+          time: appt.appointment_time,
+          hoursAhead: 24,
+          tokenNumber: appt.token_number,
+          appointmentId: appt.id,
+        });
         if (appt.device_token) {
           await sendPushNotification({
             tokens: appt.device_token,
@@ -82,17 +92,24 @@ async function sendTimedRemindersInner() {
     // Batch update all successfully sent 24h reminders
     if (sentIds24h.length > 0) {
       await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', sentIds24h);
-      logger.info(`[Reminders] Batch updated ${sentIds24h.length} appointments with 24h reminder sent`);
+      logger.info(`[Reminders] Marked ${sentIds24h.length} appointments as 24h-reminder attempted`);
     }
 
-    // Send 1h reminders
+    // Queue 1h reminders (same honesty rule as the 24h leg above).
     const sentIds1h = [];
     for (const appt of res1h) {
       try {
-        await sendAppointmentReminderSMS(
-          appt.patient_phone, appt.patient_name, appt.doctor_name,
-          appt.appointment_time, 1, appt.token_number
-        );
+        await queueAppointmentReminderSms({
+          tenantId: appt.tenant_id || null,
+          recipientId: appt.patient_user_id || null,
+          phone: appt.patient_phone,
+          patientName: appt.patient_name,
+          doctorName: appt.doctor_name,
+          time: appt.appointment_time,
+          hoursAhead: 1,
+          tokenNumber: appt.token_number,
+          appointmentId: appt.id,
+        });
         if (appt.device_token) {
           await sendPushNotification({
             tokens: appt.device_token,
@@ -134,10 +151,12 @@ async function sendTimedRemindersInner() {
     // Batch update all successfully sent 1h reminders
     if (sentIds1h.length > 0) {
       await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', sentIds1h);
-      logger.info(`[Reminders] Batch updated ${sentIds1h.length} appointments with 1h reminder sent`);
+      logger.info(`[Reminders] Marked ${sentIds1h.length} appointments as 1h-reminder attempted`);
     }
 
-    logger.info(`[Reminders] Done: ${res24h.length} 24h + ${res1h.length} 1h reminders sent`);
+    // "processed", not "sent": the SMS leg only reaches the outbox, and the
+    // push leg is best-effort per appointment.
+    logger.info(`[Reminders] Done: ${res24h.length} 24h + ${res1h.length} 1h reminders processed`);
   } catch (err) {
     logger.error('[Reminders] sendTimedReminders error:', err.message);
   }
