@@ -107256,6 +107256,38 @@
         ]
       }
     },
+    "/api/v1/patient-flow/transport/tasks/{taskId}/verify": {
+      "post": {
+        "operationId": "post_api_v1_patient_flow_transport_tasks_by_taskId_verify",
+        "tags": [
+          "patient-flow"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Verify a completed patient transport handoff",
+        "description": "Records receiving-staff verification after the assigned porter completes the transport. The completing porter cannot verify the same handoff.",
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/patient-flow/transport/zones": {
       "get": {
         "operationId": "get_api_v1_patient_flow_transport_zones",

@@ -5,8 +5,13 @@
 //   - /admissions/:id/attendant-passes             list, replace, revoke
 //   - /ward-indents                                request, approve, reject, issue, receive, list
 //
-// Mounted under /api/v1/ipd. RBAC follows the existing platform pattern
-// — admin/billing/pharmacy roles gated upstream in app.js.
+// Mounted under /api/v1/ipd. The app.js mount gates the whole namespace
+// on the broad IPD_SUPPORT_ROUTE_ROLES union (billing + ip_flow +
+// pharmacy + front desk); the per-route requireRole guards below
+// re-narrow each operation to the roles that own it — the same
+// re-narrowing pattern bedManagementRoutes uses under the widened
+// /api/v1/beds mount, and the same segregation-of-duties model as
+// billingV2Routes (money-OUT stricter than money-IN).
 //
 // We import ipdSupportService as a default-namespace and call its named
 // methods (`ipdSupportService.X`) — both rules below would otherwise
@@ -20,8 +25,54 @@ import ipdSupportService from '../../services/ipd/ipdSupportService.js';
 import { wrapAsync } from '../../config/routeWrapper.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import {
+  BILLING_ROUTE_ROLES,
+  IP_FLOW_ROUTE_ROLES,
+  PHARMACY_ROUTE_ROLES,
+} from '../../config/routeRolePolicy.js';
 
 const router = express.Router();
+
+// ── Per-operation role sets (B-M4) ───────────────────────────────────
+//
+// Money-IN (deposit collection): billing roles plus the front-desk /
+// admission-desk staff who take advances at admit time — mirrors
+// billingV2's requireStaffOrAdmin + BILLING_V2_EXTRA_STAFF_ROLES surface.
+const DEPOSIT_COLLECT_ROLES = [...new Set([
+  ...BILLING_ROUTE_ROLES,
+  'RECEPTIONIST',
+  'ADMISSION_OFFICER',
+  'IPD_COUNSELLOR',
+])];
+
+// Money-OUT (refund payout): finance/cashier roles + admin only —
+// byte-for-byte the BILLING_CASH_OUT_ROLES segregation-of-duties set in
+// billingV2Routes.js ("cash-out paths reachable by non-finance staff").
+// CASHIER is kept for parity with that set even though the current
+// app.js mount union does not include it (harmless if the union widens).
+const DEPOSIT_REFUND_ROLES = [
+  'ADMIN', 'SUPER_ADMIN',
+  'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'BILLING_STAFF', 'CASHIER',
+];
+
+// Attendant passes (replacement issue / revoke): admission-desk and ward
+// leadership own the pass lifecycle; porters/pharmacy/billing do not.
+const ATTENDANT_PASS_ROLES = [
+  'ADMIN', 'SUPER_ADMIN',
+  'ADMISSION_OFFICER', 'RECEPTIONIST',
+  'NURSING_INCHARGE', 'IP_INCHARGE',
+];
+
+// Ward indents: the ward (nursing/clinical) side requests and receives
+// (pharmacy may also raise replenishment indents — parity with the
+// /api/v1/pharmacy/ward-indents surface); only the pharmacy side
+// approves, rejects, and issues stock (the stock-decrement step).
+const WARD_INDENT_REQUEST_ROLES = [...new Set([
+  ...IP_FLOW_ROUTE_ROLES,
+  ...PHARMACY_ROUTE_ROLES,
+])];
+const WARD_INDENT_SUPPLY_ROLES = PHARMACY_ROUTE_ROLES;
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -41,6 +92,7 @@ function requireIntParam(value, fieldName) {
 
 router.post(
   '/admissions/:id/advance-deposits',
+  requireRole(...DEPOSIT_COLLECT_ROLES),
   wrapAsync(async (req, res) => {
     const admissionId = requireIntParam(req.params.id, 'admissionId');
     const { amount, payment_method, payment_reference, purpose, notes } = req.body ?? {};
@@ -72,6 +124,7 @@ router.get(
 
 router.post(
   '/advance-deposits/:depositId/refund',
+  requireRole(...DEPOSIT_REFUND_ROLES),
   wrapAsync(async (req, res) => {
     const parentDepositId = requireIntParam(req.params.depositId, 'depositId');
     const { refund_amount, payment_method, payment_reference, notes } = req.body ?? {};
@@ -101,6 +154,7 @@ router.get(
 
 router.post(
   '/admissions/:id/attendant-passes/replacement',
+  requireRole(...ATTENDANT_PASS_ROLES),
   wrapAsync(async (req, res) => {
     const admissionId = requireIntParam(req.params.id, 'admissionId');
     const { patient_uid, patient_name, ward_id, ward_name, notes } = req.body ?? {};
@@ -121,6 +175,7 @@ router.post(
 
 router.post(
   '/attendant-passes/:passId/revoke',
+  requireRole(...ATTENDANT_PASS_ROLES),
   wrapAsync(async (req, res) => {
     const passId = requireIntParam(req.params.passId, 'passId');
     const { reason } = req.body ?? {};
@@ -138,6 +193,7 @@ router.post(
 
 router.post(
   '/ward-indents',
+  requireRole(...WARD_INDENT_REQUEST_ROLES),
   wrapAsync(async (req, res) => {
     const { ward_id, admission_id, encounter_id, patient_uid, indent_type, items, notes } = req.body ?? {};
     const indent = await ipdSupportService.createWardIndent({
@@ -198,6 +254,7 @@ router.get(
 
 router.post(
   '/ward-indents/:indentId/approve',
+  requireRole(...WARD_INDENT_SUPPLY_ROLES),
   wrapAsync(async (req, res) => {
     const indentId = requireIntParam(req.params.indentId, 'indentId');
     const indent = await ipdSupportService.approveWardIndent({
@@ -211,6 +268,7 @@ router.post(
 
 router.post(
   '/ward-indents/:indentId/reject',
+  requireRole(...WARD_INDENT_SUPPLY_ROLES),
   wrapAsync(async (req, res) => {
     const indentId = requireIntParam(req.params.indentId, 'indentId');
     const { reason } = req.body ?? {};
@@ -226,6 +284,7 @@ router.post(
 
 router.post(
   '/ward-indents/:indentId/issue',
+  requireRole(...WARD_INDENT_SUPPLY_ROLES),
   wrapAsync(async (req, res) => {
     const indentId = requireIntParam(req.params.indentId, 'indentId');
     const { item_quantities_issued } = req.body ?? {};
@@ -241,6 +300,7 @@ router.post(
 
 router.post(
   '/ward-indents/:indentId/receive',
+  requireRole(...WARD_INDENT_REQUEST_ROLES),
   wrapAsync(async (req, res) => {
     const indentId = requireIntParam(req.params.indentId, 'indentId');
     const indent = await ipdSupportService.receiveWardIndent({

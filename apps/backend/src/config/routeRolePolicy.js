@@ -245,6 +245,15 @@ export const PATIENT_TRANSPORT_ROUTE_ROLES = mergeRoles(
   ]),
 );
 
+export const PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'diagnostics', 'emergency']),
+  rolesFrom([
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'MEDICAL_SUPERINTENDENT',
+  ]),
+);
+
 export const PATIENT_TRANSPORT_SETTINGS_ROUTE_ROLES = mergeRoles(
   ADMIN_ROUTE_ROLES,
   rolesFrom([

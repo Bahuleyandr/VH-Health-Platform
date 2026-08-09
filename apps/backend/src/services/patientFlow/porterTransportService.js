@@ -1,5 +1,6 @@
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { AppError } from '../../utils/AppError.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
@@ -23,6 +24,21 @@ const DEFAULT_ESCALATION_ROLES = Object.freeze([
   'RECEPTION_INCHARGE',
   'IP_INCHARGE',
   'MEDICAL_SUPERINTENDENT',
+]);
+// B-L5(b) — cancellation ownership. The route mount admits the whole
+// transport role union (requesters + coordinators + the porters who
+// execute jobs), but cancelling a transport job — which closes its SLA
+// instance — belongs to the people who own the demand side: the staff
+// member who raised it, transport coordination, and the escalation
+// chain. Porters (DRIVER / AMBULANCE_DRIVER / DELIVERY_STAFF /
+// EMERGENCY_RESPONDER) must decline/hand back instead of killing the
+// task and its SLA evidence.
+const TRANSPORT_CANCEL_ROLES = Object.freeze([
+  'SUPER_ADMIN',
+  'ADMIN',
+  'AMBULANCE_COORDINATOR',
+  'ADMISSION_OFFICER',
+  ...DEFAULT_ESCALATION_ROLES,
 ]);
 const DEFAULT_SOURCE_SLA_MINUTES = Object.freeze({
   appointment_checkin: 20,
@@ -883,6 +899,7 @@ async function notifyRecipients({
 
   for (const row of target) {
     const queued = await notificationOutbox.queue({
+      tenantId,
       type: 'push',
       recipientId: row.id,
       recipientPhone: row.phone || null,
@@ -1215,6 +1232,23 @@ async function transitionTransportTask({
         throw AppError.forbidden('Only an assigned transport recipient can update this task', 'TRANSPORT_ASSIGNEE_REQUIRED');
       }
     }
+    if (nextStatus === 'cancelled') {
+      // B-L5(b) — cancellation is not open to the whole transport role
+      // union. Allowed: the staff member who raised the job, or a
+      // coordination/escalation role (TRANSPORT_CANCEL_ROLES). Porters
+      // executing the job cannot cancel it (and with it its SLA).
+      const role = cleanText(actorRole, 80).toUpperCase();
+      const uid = maybeUuid(actorUid);
+      const isRequester = Boolean(uid)
+        && Boolean(task.requested_by)
+        && String(task.requested_by) === uid;
+      if (!isRequester && !TRANSPORT_CANCEL_ROLES.includes(role)) {
+        throw AppError.forbidden(
+          'Only the requester or a transport coordination role can cancel a transport task',
+          'TRANSPORT_CANCEL_ROLE_REQUIRED',
+        );
+      }
+    }
 
     const updateParams = [
       tid,
@@ -1240,12 +1274,8 @@ async function transitionTransportTask({
       setClauses.push('picked_up_at = COALESCE(picked_up_at, NOW())');
       setClauses.push('picked_up_by = COALESCE(picked_up_by, $5::uuid)');
     } else if (nextStatus === 'completed') {
-      updateParams.push(maybeUuid(body.verifiedBy ?? body.verified_by));
-      updateParams.push(intId(body.verifierId ?? body.verifier_id));
       setClauses.push('completed_at = COALESCE(completed_at, NOW())');
       setClauses.push('completed_by = COALESCE(completed_by, $5::uuid)');
-      setClauses.push('verified_by = COALESCE($7::uuid, verified_by)');
-      setClauses.push('verifier_id = COALESCE($8::int, verifier_id)');
     } else if (nextStatus === 'cancelled') {
       updateParams.push(cleanText(body.reason ?? body.cancellationReason ?? body.cancellation_reason, 500) || null);
       setClauses.push('cancelled_at = COALESCE(cancelled_at, NOW())');
@@ -1342,6 +1372,121 @@ export function completeTransportTask(args) {
     allowedFrom: ['assigned', 'accepted', 'picked_up'],
     requireRecipient: true,
   });
+}
+
+export async function verifyTransportTask({
+  tenantId,
+  taskId,
+  actorUid,
+  body = {},
+}) {
+  const tid = requireTenantId(tenantId);
+  const id = intId(taskId);
+  const verifierUid = maybeUuid(actorUid);
+  if (!id) throw AppError.badRequest('Transport task id is required', 'TRANSPORT_TASK_ID_REQUIRED');
+  if (!verifierUid) {
+    throw AppError.forbidden(
+      'An authenticated receiving staff member is required to verify the handoff',
+      'TRANSPORT_VERIFIER_REQUIRED',
+    );
+  }
+
+  const result = await setTenantTx(tid, async (tx) => {
+    const task = await loadTask(tx, { tenantId: tid, taskId: id, lock: true });
+    if (task.status !== 'completed') {
+      throw AppError.invalidTransition(task.status, 'verified', ['completed']);
+    }
+    if (task.verified_by) {
+      if (String(task.verified_by).toLowerCase() === verifierUid.toLowerCase()) return task;
+      throw AppError.conflict(
+        'Transport handoff has already been verified',
+        'TRANSPORT_HANDOFF_ALREADY_VERIFIED',
+        { verified_by: task.verified_by },
+      );
+    }
+    if (String(task.completed_by || '').toLowerCase() === verifierUid.toLowerCase()
+      || isTransportAssignee(task, { uid: verifierUid })) {
+      throw AppError.forbidden(
+        'The porter who completed the transport cannot verify the receiving handoff',
+        'TRANSPORT_INDEPENDENT_VERIFIER_REQUIRED',
+      );
+    }
+
+    const verifierRows = await tx.$queryRawUnsafe(
+      `SELECT id, role
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND is_active = TRUE
+        LIMIT 1`,
+      tid,
+      verifierUid,
+    );
+    const verifier = verifierRows[0];
+    if (!verifier) {
+      throw AppError.forbidden(
+        'An active receiving staff member is required to verify the handoff',
+        'TRANSPORT_VERIFIER_REQUIRED',
+      );
+    }
+    if (!PATIENT_TRANSPORT_VERIFY_ROUTE_ROLES.includes(String(verifier.role || '').toUpperCase())) {
+      throw AppError.forbidden(
+        'The authenticated staff role cannot verify a receiving handoff',
+        'TRANSPORT_VERIFIER_ROLE_REQUIRED',
+      );
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE porter_transport_tasks
+          SET verified_by = $3::uuid,
+              verifier_id = $4::int,
+              updated_by = $3::uuid,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND id = $2::bigint
+          AND status = 'completed'
+          AND verified_by IS NULL
+        RETURNING *`,
+      tid,
+      id,
+      verifierUid,
+      Number(verifier.id),
+    );
+    const updated = serializeTask(rows[0]);
+    if (!updated) {
+      throw AppError.conflict(
+        'Transport handoff verification changed concurrently',
+        'TRANSPORT_HANDOFF_VERIFICATION_STALE',
+      );
+    }
+
+    await appendUpdate(tx, {
+      tenantId: tid,
+      taskId: id,
+      authorUid: verifierUid,
+      authorRole: verifier.role,
+      fromStatus: 'completed',
+      toStatus: 'completed',
+      message: body.message || 'Receiving handoff verified',
+      locationText: body.locationText ?? body.location_text ?? null,
+      metadata: { ...jsonObject(body.metadata, {}), handoff_verified: true },
+    });
+    await recordTaskCanonicalEvents(tx, {
+      tenantId: tid,
+      task: updated,
+      actorUid: verifierUid,
+      actorRole: verifier.role,
+      action: 'verified',
+      status: 'verified',
+      summary: `Patient transport task ${updated.task_number} receiving handoff verified`,
+      beforeState: { status: 'completed', verified_by: null },
+      afterState: { status: 'completed', verified_by: verifierUid },
+    });
+    return updated;
+  });
+
+  emitTransportEvent('transport-task-verified', { tenantId: tid });
+  return result;
 }
 
 export function cancelTransportTask(args) {
@@ -1587,4 +1732,5 @@ export default {
   runTransportEscalationSweep,
   updateTransportSettings,
   upsertTransportZone,
+  verifyTransportTask,
 };

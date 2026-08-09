@@ -15,6 +15,7 @@ import { sendStaffNotifications } from '../notification/staffNotificationService
 import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
 import { postAdvanceRefundEntry } from '../billing/ledger/ledgerPostings.js';
 import { deriveAdvanceBalanceFromLedgerTx } from '../billing/billingV2Service.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 // Wave-4B-1 — 'deferred' is the IRDAI/MCI emergency-care payment mode for
 // unidentified patients and brought-in-dead RTA victims. The hospital must
@@ -388,100 +389,139 @@ export async function refundAdvanceDeposit({
   if (!refundedBy) throw AppError.badRequest('refundedBy is required');
 
   const wiring = await resolveLedgerWiring(tid);
-  return setTenantTx(tid, async (tx) => {
-    const parent = await tx.advance_deposits.findFirst({
-      where: { id: parentDepositId, tenant_id: tid },
-      select: {
-        id: true, amount: true, admission_id: true, patient_uid: true,
-        is_refund: true, purpose: true,
-      },
-    });
-    if (!parent) throw AppError.notFound('Parent deposit not found');
-    if (parent.is_refund) {
-      throw AppError.badRequest('Cannot refund a refund row — refund the original deposit');
-    }
-    // Sum existing refunds against this parent.
-    const existingRefunds = await tx.advance_deposits.aggregate({
-      where: { parent_deposit_id: parentDepositId, is_refund: true, tenant_id: tid },
-      _sum: { amount: true },
-    });
-    const alreadyRefunded = Math.abs(Number(existingRefunds._sum.amount ?? 0));
-    const parentAmount = Number(parent.amount);
-    if (alreadyRefunded + num > parentAmount) {
-      throw AppError.badRequest(
-        `Refund total would exceed deposit (${parentAmount}; already refunded ${alreadyRefunded}; this refund ${num})`,
-      );
-    }
-
-    const receiptNumber = await nextReceiptNumber(tx);
-    const refund = await tx.advance_deposits.create({
-      data: {
-        admission_id: parent.admission_id,
-        patient_uid: parent.patient_uid,
-        receipt_number: receiptNumber,
-        amount: -num,                       // negative for the refund row
-        parent_deposit_id: parent.id,
-        payment_method: paymentMethod,
-        payment_reference: paymentReference ?? null,
-        purpose: parent.purpose,
-        is_refund: true,
-        notes,
-        collected_by: refundedBy,
-        tenant_id: tid,
-      },
-    });
-
-    // F-2 — propagate the refund debit to the mirrored billing_advances
-    // row (linked via reference `IPD/<parent receipt>`). Caps at 0 so
-    // billing_advances.balance never goes negative — a refund against
-    // an already-settled advance won't reverse the settlement here;
-    // that needs an explicit billingV2 raiseRefund call.
-    const parentRows = await tx.$queryRawUnsafe(
-      `SELECT receipt_number FROM advance_deposits WHERE id = $1::int AND tenant_id = $2::uuid`,
-      parent.id, tid,
-    );
-    const parentReceipt = parentRows[0]?.receipt_number;
-    if (parentReceipt) {
-      const ref = `IPD/${parentReceipt}`;
-      if (wiring.sameTx) {
-        // Phase 4-6 (enforce): post the advance refund to the ledger and DERIVE the
-        // mirrored billing_advances balance from it — no rogue direct write. Capped
-        // at the (ledger-derived) balance, mirroring the legacy GREATEST(...,0), so
-        // the no-negative constraint can't reject a partial over-refund. (Shadow
-        // keeps the byte-identical legacy decrement below; flipping a tenant to
-        // enforce backfills pre-flip IPD-refund deltas like the opening cutover.)
-        const advRows = await tx.$queryRawUnsafe(
-          `SELECT id, patient_uid, balance FROM billing_advances WHERE reference = $1 AND tenant_id = $2::uuid`,
-          ref, tid,
+  // Retry once on receipt_number unique-conflict — mirrors
+  // collectAdvanceDeposit: `nextReceiptNumber` picks max+1 inside the tx,
+  // so a refund racing a concurrent collector (different parent rows, no
+  // shared lock) can still collide on the monthly counter. Without the
+  // retry that accidental collision surfaced as an opaque 500.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await setTenantTx(tid, async (tx) => {
+        // B-M3 — lock the parent deposit row FOR UPDATE before reading the
+        // refunded total. Without the lock, two concurrent refunds both read
+        // the same "already refunded" sum, both pass the over-refund check,
+        // and both pay out (the deposit balance check was purely
+        // read-then-write). Same row-lock discipline as billingV2Service's
+        // debitAdvance (`SELECT … FROM billing_advances … FOR UPDATE`): every
+        // refund against a parent serializes on the parent row, so the
+        // in-tx recompute below always sees the winner's committed refund.
+        const parentRows = await tx.$queryRawUnsafe(
+          `SELECT id, amount, admission_id, patient_uid, is_refund, purpose, receipt_number
+             FROM advance_deposits
+            WHERE id = $1::int AND tenant_id = $2::uuid
+              FOR UPDATE`,
+          parentDepositId, tid,
         );
-        const adv = advRows[0];
-        const refundable = adv ? Math.min(num, Number(adv.balance)) : 0;
-        if (adv && refundable > 0) {
-          await postAdvanceRefundEntry({
-            advance: { id: adv.id, patient_uid: adv.patient_uid },
-            amount: refundable, mode: paymentMethod,
-            idempotencyKey: `ipd-advance-refund-${refund.id}`,
-            tenantId: tid, tx,
-          });
-          await deriveAdvanceBalanceFromLedgerTx(tx, adv.id, { exhaustedStatus: 'EXHAUSTED' });
+        const parent = parentRows[0];
+        if (!parent) throw AppError.notFound('Parent deposit not found');
+        if (parent.is_refund) {
+          throw AppError.badRequest('Cannot refund a refund row — refund the original deposit');
         }
-      } else {
-        // Shadow/off: legacy direct decrement of the mirrored row (capped at 0) —
-        // unchanged from before this phase.
-        await tx.$executeRawUnsafe(
-          `UPDATE billing_advances
-              SET balance = GREATEST(balance - $1::numeric, 0::numeric),
-                  status = CASE WHEN GREATEST(balance - $1::numeric, 0::numeric) <= 0.005
-                                THEN 'EXHAUSTED' ELSE status END,
-                  updated_at = NOW()
-            WHERE reference = $2 AND tenant_id = $3::uuid`,
-          num, ref, tid,
-        );
-      }
-    }
+        // Recompute existing refunds against this parent AFTER the lock —
+        // this sum is now serialized against every other refund of the same
+        // parent deposit.
+        const existingRefunds = await tx.advance_deposits.aggregate({
+          where: { parent_deposit_id: parentDepositId, is_refund: true, tenant_id: tid },
+          _sum: { amount: true },
+        });
+        const alreadyRefunded = Math.abs(Number(existingRefunds._sum.amount ?? 0));
+        const parentAmount = Number(parent.amount);
+        if (alreadyRefunded + num > parentAmount) {
+          // 409, not 400: the request may have been valid when the client
+          // composed it — a concurrent refund consumed the balance first.
+          // Conflict semantics tell the client to re-read the deposit state
+          // and retry with an adjusted amount (same convention as the MAR
+          // state-conflict guard).
+          throw AppError.conflict(
+            `Refund total would exceed deposit (${parentAmount}; already refunded ${alreadyRefunded}; this refund ${num})`,
+            'DEPOSIT_REFUND_EXCEEDS_BALANCE',
+            {
+              parent_deposit_id: parent.id,
+              deposit_amount: parentAmount,
+              already_refunded: alreadyRefunded,
+              requested_refund: num,
+              refundable_remaining: Math.max(parentAmount - alreadyRefunded, 0),
+            },
+          );
+        }
 
-    return refund;
-  });
+        const receiptNumber = await nextReceiptNumber(tx);
+        const refund = await tx.advance_deposits.create({
+          data: {
+            admission_id: parent.admission_id,
+            patient_uid: parent.patient_uid,
+            receipt_number: receiptNumber,
+            amount: -num,                       // negative for the refund row
+            parent_deposit_id: parent.id,
+            payment_method: paymentMethod,
+            payment_reference: paymentReference ?? null,
+            purpose: parent.purpose,
+            is_refund: true,
+            notes,
+            collected_by: refundedBy,
+            tenant_id: tid,
+          },
+        });
+
+        // F-2 — propagate the refund debit to the mirrored billing_advances
+        // row (linked via reference `IPD/<parent receipt>`). Caps at 0 so
+        // billing_advances.balance never goes negative — a refund against
+        // an already-settled advance won't reverse the settlement here;
+        // that needs an explicit billingV2 raiseRefund call.
+        // (parent.receipt_number comes from the FOR UPDATE lock read above.)
+        const parentReceipt = parent.receipt_number;
+        if (parentReceipt) {
+          const ref = `IPD/${parentReceipt}`;
+          if (wiring.sameTx) {
+            // Phase 4-6 (enforce): post the advance refund to the ledger and DERIVE the
+            // mirrored billing_advances balance from it — no rogue direct write. Capped
+            // at the (ledger-derived) balance, mirroring the legacy GREATEST(...,0), so
+            // the no-negative constraint can't reject a partial over-refund. (Shadow
+            // keeps the byte-identical legacy decrement below; flipping a tenant to
+            // enforce backfills pre-flip IPD-refund deltas like the opening cutover.)
+            const advRows = await tx.$queryRawUnsafe(
+              `SELECT id, patient_uid, balance FROM billing_advances WHERE reference = $1 AND tenant_id = $2::uuid`,
+              ref, tid,
+            );
+            const adv = advRows[0];
+            const refundable = adv ? Math.min(num, Number(adv.balance)) : 0;
+            if (adv && refundable > 0) {
+              await postAdvanceRefundEntry({
+                advance: { id: adv.id, patient_uid: adv.patient_uid },
+                amount: refundable, mode: paymentMethod,
+                idempotencyKey: `ipd-advance-refund-${refund.id}`,
+                tenantId: tid, tx,
+              });
+              await deriveAdvanceBalanceFromLedgerTx(tx, adv.id, { exhaustedStatus: 'EXHAUSTED' });
+            }
+          } else {
+            // Shadow/off: legacy direct decrement of the mirrored row (capped at 0) —
+            // unchanged from before this phase.
+            await tx.$executeRawUnsafe(
+              `UPDATE billing_advances
+                  SET balance = GREATEST(balance - $1::numeric, 0::numeric),
+                      status = CASE WHEN GREATEST(balance - $1::numeric, 0::numeric) <= 0.005
+                                    THEN 'EXHAUSTED' ELSE status END,
+                      updated_at = NOW()
+                WHERE reference = $2 AND tenant_id = $3::uuid`,
+              num, ref, tid,
+            );
+          }
+        }
+
+        return refund;
+      });
+    } catch (err) {
+      // Prisma P2002 = unique constraint violation. Retry once for receipt_number.
+      if (err?.code === 'P2002' && attempt === 0) {
+        logger.warn(`refundAdvanceDeposit: receipt_number conflict on parent deposit ${parentDepositId}, retrying`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Unreachable — the loop either returns or rethrows.
+  throw AppError.badRequest('Failed to allocate receipt number after retry');
 }
 
 /**
@@ -1146,7 +1186,7 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
       });
     }
 
-    return tx.ward_indents.update({
+    const issued = await tx.ward_indents.update({
       where: { id: indentId },
       data: {
         status: 'issued',
@@ -1156,6 +1196,53 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
       },
       include: { items: true },
     });
+
+    // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+    // issuing a patient-linked ward indent is a patient-facing clinical write —
+    // it dispenses stock against the patient and flips the linked medication
+    // clinical_orders to 'verified'. Persist exactly one clinical_timeline_events
+    // row + one clinical_audit_events row IN THE SAME TRANSACTION as the state
+    // flip; a failed canonical write rolls the issue back (strict). Fixed
+    // insert-once keys are safe here: the 'approved' → 'issued' transition is
+    // one-way (guarded above), so this emit runs at most once per indent.
+    // Ward-stock indents with no linked patient are operational, not
+    // patient-facing — the canonical layer keys on patient_uid, so they skip.
+    if (issued.patient_uid) {
+      await recordCanonicalClinicalEvent({
+        tenantId: tid,
+        patientUid: String(issued.patient_uid),
+        encounterId: issued.encounter_id || null,
+        eventType: 'ward_indent.issued',
+        eventStatus: 'issued',
+        sourceTable: 'ward_indents',
+        sourceId: String(issued.id),
+        resourceType: 'ward_indent',
+        resourceId: String(issued.id),
+        actorUid: issuedBy,
+        occurredAt: issued.issued_at,
+        visibleToPatient: false,
+        summary: `Ward indent ${issued.indent_number} issued`,
+        payload: {
+          indent_id: issued.id,
+          indent_number: issued.indent_number,
+          indent_type: issued.indent_type,
+          ward_id: issued.ward_id,
+          ward_name: issued.ward_name,
+          admission_id: issued.admission_id,
+          item_count: issued.items?.length ?? 0,
+          verified_clinical_order_ids: clinicalOrderIds,
+        },
+        beforeState: { status: 'approved' },
+        afterState: {
+          status: 'issued',
+          verified_clinical_order_ids: clinicalOrderIds,
+        },
+        timelineIdempotencyKey: `ward_indents:${issued.id}:issued`,
+        auditIdempotencyKey: `ward_indents:${issued.id}:audit:issued`,
+      }, { db: tx, strict: true });
+    }
+
+    return issued;
   });
 }
 

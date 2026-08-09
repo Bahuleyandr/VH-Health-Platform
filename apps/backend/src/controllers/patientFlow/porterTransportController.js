@@ -12,6 +12,7 @@ import {
   readTransportSettings,
   updateTransportSettings,
   upsertTransportZone,
+  verifyTransportTask,
 } from '../../services/patientFlow/porterTransportService.js';
 
 function actorUid(req) {
@@ -148,6 +149,17 @@ export async function postTransportTaskComplete(req, res) {
     body: req.body ?? {},
   });
   return success(res, { task }, 'Transport task completed');
+}
+
+export async function postTransportTaskVerify(req, res) {
+  const task = await verifyTransportTask({
+    tenantId: req.tenantId,
+    taskId: req.params.taskId,
+    actorUid: actorUid(req),
+    actorRole: actorRole(req),
+    body: req.body ?? {},
+  });
+  return success(res, { task }, 'Transport handoff verified');
 }
 
 export async function postTransportTaskCancel(req, res) {
