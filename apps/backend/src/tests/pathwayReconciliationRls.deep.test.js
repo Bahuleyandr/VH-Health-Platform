@@ -108,8 +108,15 @@ describeIfDb('pathway reconciliation projectorCoverage under enforced RLS (F-M5)
 
     // Seed a healthy pathway_registry offsets row for the projector consumer
     // through the migration-603 accessors (the sanctioned lifecycle path).
+    // Completion is constrained: event_consumer_offsets_completion_check
+    // (migration 578) requires backfill_cursor_event_id =
+    // historical_cutoff_event_id before backfill_completed_at may be set, so
+    // register(..., TRUE) — which inserts cursor 0 + completed_at now() —
+    // violates it on any DB whose cutoff is > 0. Always use the two-step
+    // lifecycle: register incomplete, then advance the cursor to the cutoff
+    // with completed = TRUE.
     const existing = await ownerQuery(
-      `SELECT consumer_key, backfill_completed_at, intake_retired_at
+      `SELECT consumer_key, historical_cutoff_event_id, backfill_completed_at, intake_retired_at
          FROM public.pathway_projector_offset_get($1::text, $2::integer, FALSE)`,
       [PATHWAY_PROJECTOR_CONSUMER_KEY, PATHWAY_PROJECTOR_GENERATION],
     );
@@ -119,17 +126,25 @@ describeIfDb('pathway reconciliation projectorCoverage under enforced RLS (F-M5)
       );
       await ownerQuery(
         `SELECT consumer_key
-           FROM public.pathway_projector_offset_register($1::text, $2::integer, $3::bigint, TRUE)`,
+           FROM public.pathway_projector_offset_register($1::text, $2::integer, $3::bigint, FALSE)`,
+        [PATHWAY_PROJECTOR_CONSUMER_KEY, PATHWAY_PROJECTOR_GENERATION, cutoff.rows[0].cutoff],
+      );
+      await ownerQuery(
+        `SELECT consumer_key
+           FROM public.pathway_projector_offset_advance($1::text, $2::integer, $3::bigint, TRUE)`,
         [PATHWAY_PROJECTOR_CONSUMER_KEY, PATHWAY_PROJECTOR_GENERATION, cutoff.rows[0].cutoff],
       );
     } else if (!existing.rows[0].backfill_completed_at) {
+      // Advance to the row's own cutoff (not its current cursor — completing
+      // at cursor < cutoff trips the same completion check).
       await ownerQuery(
         `SELECT consumer_key
-           FROM public.pathway_projector_offset_advance($1::text, $2::integer,
-                  (SELECT backfill_cursor_event_id
-                     FROM public.pathway_projector_offset_get($1::text, $2::integer, FALSE)),
-                  TRUE)`,
-        [PATHWAY_PROJECTOR_CONSUMER_KEY, PATHWAY_PROJECTOR_GENERATION],
+           FROM public.pathway_projector_offset_advance($1::text, $2::integer, $3::bigint, TRUE)`,
+        [
+          PATHWAY_PROJECTOR_CONSUMER_KEY,
+          PATHWAY_PROJECTOR_GENERATION,
+          existing.rows[0].historical_cutoff_event_id,
+        ],
       );
     }
   });
