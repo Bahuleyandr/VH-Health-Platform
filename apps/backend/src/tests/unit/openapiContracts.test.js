@@ -27,6 +27,7 @@ import * as clinicalContinuityReconciliation from '../../../scripts/openapi/sche
 import * as downtimeWardPacks from '../../../scripts/openapi/schemas/downtimeWardPacks.mjs';
 import * as downtimeStaticMirror from '../../../scripts/openapi/schemas/downtimeStaticMirror.mjs';
 import * as continuityFacilityContextGrants from '../../../scripts/openapi/schemas/continuityFacilityContextGrants.mjs';
+import * as publicPaymentPage from '../../../scripts/openapi/schemas/publicPaymentPage.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -54,7 +55,8 @@ const MODULES = [
   clinicalContinuityReconciliation,
   downtimeWardPacks,
   downtimeStaticMirror,
-  continuityFacilityContextGrants
+  continuityFacilityContextGrants,
+  publicPaymentPage
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

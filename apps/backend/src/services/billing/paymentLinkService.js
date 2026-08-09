@@ -273,6 +273,97 @@ export async function getPaymentLink({ tenantId, link_token }) {
   return rows[0];
 }
 
+// ---------------------------------------------------------------------------
+// PUBLIC (unauthenticated) payment-page view.
+//
+// Everything above this block is staff-facing and tenant-scoped. This one is
+// read by GET /pay/:token — a browser page the patient opens from the SMS /
+// WhatsApp / email link, with no JWT, no API key, and therefore NO tenant
+// context. Three consequences the next reader must not "fix":
+//
+//   1. The lookup is BY TOKEN ALONE. link_token is globally UNIQUE
+//      (152_billing_payment_links.sql:24) and the tenant is *derived* from the
+//      row, so a tenant predicate is impossible here, not merely omitted. RLS
+//      still holds: migration 304's tenant_isolation policy is permissive when
+//      `app.current_tenant_id` is unset (304:264-269), and this route is
+//      mounted above tenantRlsMiddleware, so the row resolves.
+//   2. The token IS the bearer credential. Never log it, and never widen the
+//      SELECT — the returned view is the PHI allowlist for the page and is
+//      pinned by src/tests/unit/publicPaymentPageView.test.js.
+//   3. A malformed token returns the same `null` as an unknown one, so the
+//      route cannot become a token-enumeration oracle.
+// ---------------------------------------------------------------------------
+
+// generateToken() emits 24 random bytes as base64url (32 chars). Accept that
+// alphabet with slack for historical rows; anything else never reaches the DB.
+const PUBLIC_LINK_TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+export function isWellFormedPaymentLinkToken(token) {
+  return typeof token === 'string' && PUBLIC_LINK_TOKEN_RE.test(token);
+}
+
+/**
+ * Resolve the display state of a link row. `expires_at` is honoured directly
+ * rather than trusting `status`, because expiry is flipped by the
+ * expireStaleLinks() cron — between the deadline and the next cron pass a row
+ * is still 'created'/'sent' but must NOT be presented as payable.
+ */
+export function resolvePaymentLinkPublicState(row, now = new Date()) {
+  const status = String(row?.status || '').toLowerCase();
+  const expiresAt = row?.expires_at ? new Date(row.expires_at) : null;
+  const isExpired = expiresAt !== null && expiresAt.getTime() <= now.getTime();
+
+  if (status === 'paid') return 'paid';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'expired' || isExpired) return 'expired';
+  if (status === 'created' || status === 'sent') return 'payable';
+  // Unknown/future status: never claim payable.
+  return 'unavailable';
+}
+
+export async function getPublicPaymentLinkView({ link_token }, now = new Date()) {
+  if (!isWellFormedPaymentLinkToken(link_token)) return null;
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT pl.amount,
+            pl.currency,
+            pl.status,
+            pl.expires_at,
+            pl.paid_at,
+            pl.upi_deep_link,
+            pl.upi_payee_name,
+            bi.invoice_number
+       FROM billing_payment_links pl
+       LEFT JOIN billing_invoices bi
+              ON bi.id = pl.invoice_id
+             AND bi.tenant_id = pl.tenant_id
+      WHERE pl.link_token = $1
+      LIMIT 1`,
+    String(link_token),
+  );
+  if (!rows.length) return null;
+
+  const row = rows[0];
+  const state = resolvePaymentLinkPublicState(row, now);
+  // Only ever hand the browser a real UPI intent. The column is built
+  // server-side by buildUpiDeepLink(), but validating the scheme keeps a
+  // malformed/backfilled row from rendering an arbitrary href.
+  const deepLink = String(row.upi_deep_link || '');
+  const upiDeepLink = state === 'payable' && deepLink.startsWith('upi://pay?') ? deepLink : null;
+
+  return {
+    state,
+    amount: Number(row.amount),
+    currency: String(row.currency || 'INR'),
+    // Null when the link is an advance (no invoice). Never the patient's name.
+    invoiceReference: row.invoice_number ? String(row.invoice_number) : null,
+    hospitalName: String(row.upi_payee_name || process.env.HOSPITAL_NAME || 'Hospital'),
+    upiDeepLink,
+    paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
+    expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+  };
+}
+
 /**
  * Send the link to the patient via SMS, WhatsApp, and/or email.
  * Records send timestamps on the link row.
@@ -291,10 +382,15 @@ export async function sendPaymentLink({
 
   // Build a short message body. Localise via the hospital's preferred
   // language eventually; for MVP we keep it bilingual English+Hindi.
+  //
+  // UPI ONLY. The landing page offers a upi:// intent and nothing else — no
+  // card/netbanking/wallet gateway is integrated anywhere in this codebase —
+  // so the message must not promise those rails. Widen this wording only in
+  // the same change that actually lands a gateway.
   const amountStr = `₹${Number(link.amount).toFixed(2)}`;
   const messageBody = [
     `Your hospital bill of ${amountStr} is ready.`,
-    `Pay via UPI / card / wallet here: ${shareUrl}`,
+    `Pay by UPI here: ${shareUrl}`,
     '',
     `बिल ₹${Number(link.amount).toFixed(2)} का तैयार है। भुगतान करें: ${shareUrl}`,
   ].join('\n');

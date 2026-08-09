@@ -40,6 +40,7 @@ import * as clinicalContinuityReconciliation from './openapi/schemas/clinicalCon
 import * as downtimeWardPacks from './openapi/schemas/downtimeWardPacks.mjs';
 import * as downtimeStaticMirror from './openapi/schemas/downtimeStaticMirror.mjs';
 import * as continuityFacilityContextGrants from './openapi/schemas/continuityFacilityContextGrants.mjs';
+import * as publicPaymentPage from './openapi/schemas/publicPaymentPage.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -68,7 +69,8 @@ const SCHEMA_MODULES = [
   clinicalContinuityReconciliation,
   downtimeWardPacks,
   downtimeStaticMirror,
-  continuityFacilityContextGrants
+  continuityFacilityContextGrants,
+  publicPaymentPage
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the
