@@ -53,7 +53,14 @@ export function BreachesTab() {
 
   const reportMutation = useMutation({
     mutationFn: (payload: ReportBreachPayload) =>
-      fetchAdminAPI("/compliance/breaches", { method: "POST", body: payload }),
+      fetchAdminAPI("/compliance/breach/report", {
+        method: "POST",
+        body: {
+          description: payload.description,
+          severity: payload.severity,
+          affected_records: payload.affected_individuals,
+        },
+      }),
     onSuccess: () => {
       toast.success("Breach reported successfully");
       queryClient.invalidateQueries({ queryKey: ["compliance-breaches"] });

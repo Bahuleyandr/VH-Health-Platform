@@ -83,8 +83,7 @@ export default function EditPermissionsPage() {
     setError(null);
 
     try {
-      await putJSON(API_ENDPOINTS.auth.adminManagement, {
-        action: "updatePermissions",
+      await putJSON(API_ENDPOINTS.auth.admin.updatePermissions, {
         adminId: admin.uid,
         permissions: selectedPermissions,
       });

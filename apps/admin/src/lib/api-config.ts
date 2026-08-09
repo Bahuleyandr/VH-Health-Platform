@@ -63,6 +63,10 @@ export const API_ENDPOINTS = {
       forgotPassword: "/api/v1/auth/admin/forgot-password", // POST
       resetPassword: "/api/v1/auth/admin/reset-password", // POST
       changePassword: "/api/v1/auth/admin/change-password", // POST
+      createAdmin: "/api/v1/auth/admin/create-admin", // POST (SUPER_ADMIN)
+      deactivate: "/api/v1/auth/admin/deactivate", // POST (SUPER_ADMIN)
+      reactivate: "/api/v1/auth/admin/reactivate", // POST (SUPER_ADMIN)
+      updatePermissions: "/api/v1/auth/admin/update-permissions", // PUT (SUPER_ADMIN)
     },
 
     // Staff authentication (employee ID + password)

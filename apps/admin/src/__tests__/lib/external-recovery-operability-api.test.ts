@@ -44,7 +44,7 @@ describe("external-recovery operability Admin API", () => {
     });
 
     expect(mockedFetch).toHaveBeenCalledWith(
-      "/continuity/external-recovery/workbench?interface_family=I10&recovery_state=paused",
+      "/admin/continuity/external-recovery/workbench?interface_family=I10&recovery_state=paused",
     );
   });
 
@@ -52,7 +52,7 @@ describe("external-recovery operability Admin API", () => {
     await registerExternalRecoveryOffset("external-register-41", registration);
 
     expect(mockedFetch).toHaveBeenCalledWith(
-      "/continuity/external-recovery/offsets",
+      "/admin/continuity/external-recovery/offsets",
       {
         method: "POST",
         headers: { "Idempotency-Key": "external-register-41" },
@@ -80,7 +80,7 @@ describe("external-recovery operability Admin API", () => {
     );
 
     expect(mockedFetch).toHaveBeenCalledWith(
-      "/continuity/external-recovery/offsets/11111111-1111-4111-8111-111111111111/resume-authorizations",
+      "/admin/continuity/external-recovery/offsets/11111111-1111-4111-8111-111111111111/resume-authorizations",
       expect.objectContaining({
         method: "POST",
         headers: { "Idempotency-Key": "external-resume-41" },
