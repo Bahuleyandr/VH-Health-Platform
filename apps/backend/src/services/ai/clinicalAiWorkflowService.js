@@ -827,6 +827,10 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
       userPrompt: `${state.prompt.user_prompt_template}\n\n${JSON.stringify({ module_key: state.moduleKey, chart_packet: state.packet })}`,
       tenantRegion: state.requestContext.tenant_region,
       tenantId: state.tenantId,
+      // JSON contract for structured outputs on providers that support it
+      // (currently Anthropic). Loose registry stubs are filtered out inside
+      // the client; safeJsonParse below remains the parser/fallback either way.
+      jsonSchema: state.prompt?.output_schema || state.module?.settings?.outputSchema || null,
     });
     return { aiResult, draft: safeJsonParse(aiResult.text, state.fallbackDraft) };
   },
@@ -1017,6 +1021,12 @@ export { ADMISSION_MODULES };
 // Re-exported helpers for parent workflows that need to fabricate the
 // initial state shape that the admission_ai_draft graph expects.
 export { requireEnabledModule, resolveTenantId };
+
+// Re-exported persistence helpers so out-of-graph orchestrators (e.g. the
+// nightly coding-suggestion batch) land their drafts through the SAME
+// clinical_ai_generations / clinical_ai_reviews write path — one canonical
+// insert, one review-queue shape, no parallel mechanism.
+export { saveGeneration, createReviewPlaceholder };
 
 // Exported as a pure function so the AI-5 invariant (zero citations on a
 // citations-required module is a CRITICAL/blocking flag) is unit-testable

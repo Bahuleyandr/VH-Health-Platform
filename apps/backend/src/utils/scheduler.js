@@ -757,6 +757,22 @@ if (process.env.NODE_ENV !== 'test') {
     }));
   }
 
+  // Nightly clinical-coding suggestion batch — flag-gated, OFF by default.
+  // Double-gated: this env flag AND the clinical_coding_assist module (which
+  // ships disabled) must both be enabled before any suggestion is generated.
+  // Suggestions only ever land as PENDING clinical_ai_reviews items for the
+  // coding team — nothing is auto-applied to claims or the record. Per-tenant
+  // fan-out with fault isolation; lazy import keeps the AI workflow graph out
+  // of the scheduler's boot path when the flag is off.
+  if (String(process.env.CLINICAL_AI_CODING_BATCH_ENABLED || '').toLowerCase() === 'true') {
+    registerCron('45 1 * * *', withJobLock('coding-suggestion-batch', async () => {
+      const { runCodingSuggestionBatch } = await import('../services/ai/codingBatchSuggestionService.js');
+      const r = await runForEachTenant('coding-suggestion-batch', (tenantId) =>
+        runCodingSuggestionBatch({ tenantId, source: 'scheduled' }));
+      logger.info('coding-suggestion-batch complete', r);
+    }));
+  }
+
   // 🖨️ Every 15 minutes - regenerate per-ward downtime packs (roadmap A3).
   //
   // REMOVED in-process registration (audit C-5). A dedicated k8s CronJob owns
