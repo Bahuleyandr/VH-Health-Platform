@@ -976,11 +976,13 @@ describe('AuthService.logout', () => {
     const res = await AuthService.logout('tok');
 
     expect(res).toEqual({ phone: '+919998887776' });
-    expect(mockBlacklistToken).toHaveBeenCalledWith('jti-1', 9999999999, 'logout');
+    // Audit F10: revocation calls opt into requireEvidence so a silent
+    // write failure can no longer be mistaken for a successful logout.
+    expect(mockBlacklistToken).toHaveBeenCalledWith('jti-1', 9999999999, 'logout', { requireEvidence: true });
     // Sol Ultra #19: login mints an access + a sibling refresh JWT with no shared
     // session-family id, so blacklisting only the presented token leaves the
     // sibling usable. Logout must revoke every token for this identity.
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('u1');
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('u1', { requireEvidence: true });
     expect(mockPrisma.auth_logs.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'logout', success: true }) }),
     );
@@ -993,12 +995,42 @@ describe('AuthService.logout', () => {
     expect(mockBlacklistToken).not.toHaveBeenCalled();
   });
 
-  it('swallows errors and returns {} (logout must never throw)', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+91', jti: 'j', exp: 1 });
+  // Audit F10 (2026-08-09): a silent revocation-store failure used to be
+  // swallowed here and reported to the client as a successful logout, even
+  // though the JWT (patient tokens live 7 days) was never actually revoked.
+  // Revocation failures must now propagate so the controller can return an
+  // honest error instead of "Logged out successfully".
+  it('throws when the token blacklist write fails (revocation, not just audit, must be provably done)', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+91', jti: 'j', exp: 9999999999 });
+    mockBlacklistToken.mockRejectedValueOnce(
+      Object.assign(new Error('No token revocation store accepted the blacklist entry'), {
+        code: 'REVOCATION_WRITE_UNAVAILABLE',
+      }),
+    );
+
+    await expect(AuthService.logout('tok')).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
+    expect(mockPrisma.auth_logs.create).not.toHaveBeenCalled();
+  });
+
+  it('throws when revokeAllUserTokens fails, even though the presented-token blacklist write succeeded', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+91', jti: 'j', exp: 9999999999 });
+    mockRevokeAllUserTokens.mockRejectedValueOnce(
+      Object.assign(new Error('No token revocation store accepted the revoke-all marker'), {
+        code: 'REVOCATION_WRITE_UNAVAILABLE',
+      }),
+    );
+
+    await expect(AuthService.logout('tok')).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
+  });
+
+  it('an audit-log write failure does not undo an otherwise-successful revocation', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+91', jti: 'j', exp: 9999999999 });
     mockPrisma.auth_logs.create.mockRejectedValue(new Error('db down'));
 
     const res = await AuthService.logout('tok');
-    expect(res).toEqual({});
+    expect(res).toEqual({ phone: '+91' });
+    expect(mockBlacklistToken).toHaveBeenCalled();
+    expect(mockRevokeAllUserTokens).toHaveBeenCalled();
   });
 
   it('does not blacklist when the decoded token lacks jti/exp', async () => {

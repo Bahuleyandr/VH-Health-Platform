@@ -44,3 +44,33 @@ describe('root OTPService verification hardening', () => {
     expect(mockPrisma.otp_sessions.update).not.toHaveBeenCalled();
   });
 });
+
+// Audit F10 companion (2026-08-09 VH Health full audit): a failed
+// otp_sessions insert used to be swallowed and answered with a fabricated
+// `mock_<timestamp>` sessionId, so the caller believed an OTP session existed
+// when nothing was persisted — verification would then fail mysteriously
+// later, masking a DB outage as a user-side OTP failure. Local override (not
+// the shared __mocks__/prisma.js) so this file doesn't widen a fixture other
+// suites depend on: storeOTP calls otp_sessions.deleteMany before create,
+// which the shared mock doesn't define.
+describe('OTPService.storeOTP (audit F10 companion — session-insert honesty)', () => {
+  beforeEach(() => {
+    mockPrisma.otp_sessions.deleteMany = jest.fn().mockResolvedValue({ count: 0 });
+  });
+
+  it('throws a 503 instead of returning a fabricated mock_ sessionId when the DB insert fails', async () => {
+    mockPrisma.otp_sessions.create.mockRejectedValueOnce(new Error('database unavailable'));
+
+    await expect(OTPService.storeOTP('+919876543210', 'login')).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'OTP_SESSION_UNAVAILABLE',
+    });
+  });
+
+  it('happy path is unaffected: still returns the real DB session id', async () => {
+    mockPrisma.otp_sessions.create.mockResolvedValueOnce({ id: 77, expires_at: new Date() });
+
+    const result = await OTPService.storeOTP('+919876543210', 'login');
+    expect(result.sessionId).toBe(77);
+  });
+});

@@ -1136,42 +1136,52 @@ export class AuthService {
   }
 
   static async logout(token, _req) {
-    try {
-      const decoded = verifyToken(token);
-      if (decoded) {
-        // Blacklist the presented token so it can't be reused
-        if (decoded.jti && decoded.exp) {
-          await blacklistToken(decoded.jti, decoded.exp, 'logout');
-        }
-
-        // A login mints an access token AND a sibling refresh token with
-        // independent jti values and no shared session-family id. Blacklisting
-        // only the presented token therefore leaves its sibling valid — a copied
-        // refresh token could still be rotated into a fresh session after a
-        // "successful" logout (Sol Ultra #19). Revoke every token for this
-        // identity so both credentials (and any other active session) are cut
-        // off. NOTE: this makes logout end all of the user's sessions; a
-        // per-device model would require a session-family id on both tokens.
-        const revokeKey = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
-        if (revokeKey != null) {
-          await revokeAllUserTokens(String(revokeKey));
-        }
-
-        await prisma.auth_logs.create({
-          data: {
-            user_id: decoded.uid,
-            phone: decoded.phone,
-            action: 'logout',
-            success: true,
-          },
-        });
-        return { phone: decoded.phone };
-      }
-      return {};
-    } catch (error) {
-      logger.error('Logout error:', error);
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      // Nothing to revoke — an already-invalid token has no live session, so
+      // there's no honesty gap in telling the caller they're logged out.
       return {};
     }
+
+    // Revocation is the security-critical action (audit F10) — a failure here
+    // must propagate so the controller can report it, rather than being
+    // swallowed into a fake success while the JWT (patient tokens live 7 days)
+    // stays valid. requireEvidence:true makes blacklistToken/revokeAllUserTokens
+    // throw RevocationWriteUnavailableError when neither Redis nor the DB
+    // persisted the entry, instead of silently no-oping.
+    if (decoded.jti && decoded.exp) {
+      await blacklistToken(decoded.jti, decoded.exp, 'logout', { requireEvidence: true });
+    }
+
+    // A login mints an access token AND a sibling refresh token with
+    // independent jti values and no shared session-family id. Blacklisting
+    // only the presented token therefore leaves its sibling valid — a copied
+    // refresh token could still be rotated into a fresh session after a
+    // "successful" logout (Sol Ultra #19). Revoke every token for this
+    // identity so both credentials (and any other active session) are cut
+    // off. NOTE: this makes logout end all of the user's sessions; a
+    // per-device model would require a session-family id on both tokens.
+    const revokeKey = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
+    if (revokeKey != null) {
+      await revokeAllUserTokens(String(revokeKey), { requireEvidence: true });
+    }
+
+    // Audit trail is best-effort — a logging hiccup must not undo (or mask)
+    // an otherwise-successful revocation.
+    try {
+      await prisma.auth_logs.create({
+        data: {
+          user_id: decoded.uid,
+          phone: decoded.phone,
+          action: 'logout',
+          success: true,
+        },
+      });
+    } catch (auditErr) {
+      logger.warn('Logout audit log write failed:', auditErr.message);
+    }
+
+    return { phone: decoded.phone };
   }
 
   /**

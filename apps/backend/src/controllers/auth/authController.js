@@ -72,7 +72,7 @@ export const logout = async (req, res) => {
     success(res, { message: 'Logged out successfully. Please discard your token.', phone: userPhone }, 'Logout successful');
   } catch (err) {
     logger.error('Logout Error:', err);
-    success(res, { message: 'Logged out successfully. Please discard your token.' }, 'Logout successful');
+    error(res, 'Failed to logout', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
