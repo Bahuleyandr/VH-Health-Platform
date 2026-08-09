@@ -48,6 +48,8 @@ function token() {
 describeIfDb('pathway reconciliation projectorCoverage under enforced RLS (F-M5)', () => {
   let owner;
   let tenantId;
+  let originalOffset = null;
+  let createdOffset = false;
 
   async function ownerQuery(text, params = []) {
     const result = await owner.query(text, params);
@@ -116,11 +118,14 @@ describeIfDb('pathway reconciliation projectorCoverage under enforced RLS (F-M5)
     // lifecycle: register incomplete, then advance the cursor to the cutoff
     // with completed = TRUE.
     const existing = await ownerQuery(
-      `SELECT consumer_key, historical_cutoff_event_id, backfill_completed_at, intake_retired_at
+      `SELECT consumer_key, historical_cutoff_event_id, backfill_cursor_event_id,
+              backfill_completed_at, intake_retired_at, updated_at
          FROM public.pathway_projector_offset_get($1::text, $2::integer, FALSE)`,
       [PATHWAY_PROJECTOR_CONSUMER_KEY, PATHWAY_PROJECTOR_GENERATION],
     );
+    originalOffset = existing.rows[0] || null;
     if (existing.rowCount === 0) {
+      createdOffset = true;
       const cutoff = await ownerQuery(
         'SELECT COALESCE(MAX(id), 0)::bigint AS cutoff FROM event_outbox',
       );
@@ -160,6 +165,32 @@ describeIfDb('pathway reconciliation projectorCoverage under enforced RLS (F-M5)
       await owner
         .query('DELETE FROM tenants WHERE id = $1::uuid', [tenantId])
         .catch(() => {});
+      if (createdOffset) {
+        await owner.query(
+          `DELETE FROM event_consumer_offsets
+            WHERE scope_kind = 'pathway_registry'
+              AND consumer_key = $1::text
+              AND generation = $2::integer`,
+          [PATHWAY_PROJECTOR_CONSUMER_KEY, PATHWAY_PROJECTOR_GENERATION],
+        );
+      } else if (originalOffset) {
+        await owner.query(
+          `UPDATE event_consumer_offsets
+              SET backfill_cursor_event_id = $3::bigint,
+                  backfill_completed_at = $4::timestamptz,
+                  updated_at = $5::timestamptz
+            WHERE scope_kind = 'pathway_registry'
+              AND consumer_key = $1::text
+              AND generation = $2::integer`,
+          [
+            PATHWAY_PROJECTOR_CONSUMER_KEY,
+            PATHWAY_PROJECTOR_GENERATION,
+            originalOffset.backfill_cursor_event_id,
+            originalOffset.backfill_completed_at,
+            originalOffset.updated_at,
+          ],
+        );
+      }
       await owner.end().catch(() => {});
     }
     await prisma.$disconnect().catch(() => {});
