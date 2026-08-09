@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -7,6 +8,7 @@ import 'package:web_socket_channel/status.dart' as ws_status;
 
 import '../config/api_config.dart';
 import 'auth_service.dart';
+import 'crash_reporter.dart';
 import 'http_client.dart';
 
 /// A single event received from the real-time fabric.
@@ -22,6 +24,10 @@ class RealtimeEvent {
   /// Client-side receive timestamp.
   final DateTime at;
 }
+
+/// Coarse transport state so UIs can surface degraded realtime
+/// (e.g. a "reconnecting" banner) instead of silently missing events.
+enum RealtimeConnectionState { connected, reconnecting, disconnected }
 
 /// Shared WebSocket client for the VHHealth real-time fabric (backend `/ws`).
 ///
@@ -42,6 +48,12 @@ class RealtimeEvent {
 ///    When the server closes with 4001 (auth failure), it first joins
 ///    [VHHttpClient.refreshAuthToken], then reconnects with the rotated JWT.
 ///    If refresh fails, [onSessionExpired] fires and reconnects stop.
+///  - Never silently kills a denied channel (FL-M4): `subscribe-denied` is
+///    reported to [CrashReporter], surfaced via [onDeniedChannelsChange], and
+///    the channel stays desired so the next successful connect/auth retries
+///    the join. The channel's stream stays open.
+///  - Exposes [connectionState] / [onConnectionStateChange] so UIs can show
+///    degraded realtime.
 class RealtimeClient {
   RealtimeClient._();
   static final RealtimeClient instance = RealtimeClient._();
@@ -63,14 +75,57 @@ class RealtimeClient {
   /// Channels the server has acknowledged as subscribed this connection.
   final Set<String> _serverSubscribed = <String>{};
 
-  int _backoffMs = 1000;
-  static const int _maxBackoffMs = 30000;
+  /// Channels the server answered with `subscribe-denied` (FL-M4). They STAY
+  /// in [_desiredChannels] — a denial can be transient (server hiccup,
+  /// role/tenant propagation race) and a channel like `staff:code-blue` must
+  /// never die silently — so the join is re-attempted on the next successful
+  /// connect/auth rather than looped against the denial.
+  final Set<String> _deniedChannels = <String>{};
+  final StreamController<Set<String>> _deniedController =
+      StreamController<Set<String>>.broadcast();
+
+  int _reconnectAttempts = 0;
+
+  static int _reconnectInitialMs = 1000;
+  static int _reconnectMaxMs = 30000;
+  static final Random _random = Random();
 
   bool _connecting = false;
   bool _shouldReconnect = false;
   bool _sessionExpired = false;
 
   static String? _wsUrlOverrideForTesting;
+
+  RealtimeConnectionState _connectionState =
+      RealtimeConnectionState.disconnected;
+  final StreamController<RealtimeConnectionState> _stateController =
+      StreamController<RealtimeConnectionState>.broadcast();
+
+  /// Current transport state (see [RealtimeConnectionState]).
+  RealtimeConnectionState get connectionState => _connectionState;
+
+  /// Emits on every [connectionState] transition. Never closed — the
+  /// singleton client survives disconnect/connect cycles.
+  Stream<RealtimeConnectionState> get onConnectionStateChange =>
+      _stateController.stream;
+
+  /// Channels currently in a server-denied state (still desired, will be
+  /// re-attempted on the next successful connect/auth).
+  Set<String> get deniedChannels => Set.unmodifiable(_deniedChannels);
+
+  /// Emits the full denied set on every change, so UIs can flag channels
+  /// with degraded realtime. Never closed.
+  Stream<Set<String>> get onDeniedChannelsChange => _deniedController.stream;
+
+  void _setConnectionState(RealtimeConnectionState state) {
+    if (_connectionState == state) return;
+    _connectionState = state;
+    _stateController.add(state);
+  }
+
+  void _emitDenied() {
+    _deniedController.add(Set.unmodifiable(_deniedChannels));
+  }
 
   /// True while the underlying socket is open.
   bool get isConnected => _channel != null && !_sessionExpired;
@@ -79,6 +134,30 @@ class RealtimeClient {
   static void setWsUrlForTesting(String? url) {
     _wsUrlOverrideForTesting = url;
   }
+
+  /// Backoff for the [attempt]-th reconnect (1-based), before jitter:
+  /// initial → x2 per attempt → capped, then flat forever (never gives up).
+  @visibleForTesting
+  static int reconnectDelayMs(int attempt) {
+    var delay = _reconnectInitialMs;
+    for (var i = 1; i < attempt && delay < _reconnectMaxMs; i++) {
+      delay *= 2;
+    }
+    return delay > _reconnectMaxMs ? _reconnectMaxMs : delay;
+  }
+
+  @visibleForTesting
+  static void setReconnectBackoffForTesting({int? initialMs, int? maxMs}) {
+    _reconnectInitialMs = initialMs ?? 1000;
+    _reconnectMaxMs = maxMs ?? 30000;
+  }
+
+  @visibleForTesting
+  int get reconnectAttemptsForTesting => _reconnectAttempts;
+
+  /// 0..25% of the initial delay, so simultaneous clients don't reconnect in
+  /// lockstep after a shared server hiccup.
+  static int _jitterMs() => _random.nextInt(_reconnectInitialMs ~/ 4 + 1);
 
   /// Derive the WebSocket URL from [ApiConfig.baseUrl]. Strips `/api/v1` and
   /// replaces `https`/`http` with `wss`/`ws`.
@@ -127,8 +206,9 @@ class RealtimeClient {
 
       channel.sink.add(jsonEncode({'action': 'auth', 'token': jwt}));
 
-      _backoffMs = 1000;
+      _reconnectAttempts = 0;
       _serverSubscribed.clear();
+      _setConnectionState(RealtimeConnectionState.connected);
 
       _wsSub = channel.stream.listen(
         _onMessage,
@@ -164,7 +244,10 @@ class RealtimeClient {
       case 'connected':
       case 'subscribed':
         if (msg['channel'] is String) {
-          _serverSubscribed.add(msg['channel'] as String);
+          final channel = msg['channel'] as String;
+          _serverSubscribed.add(channel);
+          // Successful (re)join — the channel is no longer denied.
+          if (_deniedChannels.remove(channel)) _emitDenied();
         }
         return;
       case 'unsubscribed':
@@ -173,12 +256,23 @@ class RealtimeClient {
         }
         return;
       case 'subscribe-denied':
-        // Server rejected this channel — stop desiring it so we don't retry.
+        // FL-M4: never silently kill the channel. The denial may be
+        // transient, so keep the channel desired (the resubscribe loop on
+        // the next successful connect/auth retries it), keep its stream
+        // open, report it, and surface it via [onDeniedChannelsChange].
+        // We do NOT hot-loop retries against an authorization denial.
         final denied = msg['channel'] as String?;
-        if (denied != null) {
-          _desiredChannels.remove(denied);
-          _controllers.remove(denied)?.close();
-        }
+        if (denied == null || !_desiredChannels.contains(denied)) return;
+        unawaited(
+          CrashReporter.instance.recordError(
+            StateError('Realtime channel subscribe denied: $denied'),
+            StackTrace.current,
+            context: 'RealtimeClient subscribe-denied',
+            extra: {'channel': denied, 'reason': msg['reason']},
+            fatal: false,
+          ),
+        );
+        if (_deniedChannels.add(denied)) _emitDenied();
         return;
     }
 
@@ -204,6 +298,12 @@ class RealtimeClient {
     _channel = null;
     _serverSubscribed.clear();
 
+    _setConnectionState(
+      _shouldReconnect
+          ? RealtimeConnectionState.reconnecting
+          : RealtimeConnectionState.disconnected,
+    );
+
     // 4001 == auth failure (token invalid/revoked/expired).
     //
     // Previously: gave up immediately and fired onSessionExpired. That diverged
@@ -220,11 +320,15 @@ class RealtimeClient {
 
     if (!_shouldReconnect) return;
 
+    // Transient error/close: rejoin with capped exponential backoff +
+    // jitter, retrying indefinitely — realtime must never give up while the
+    // caller still wants it. Reopening re-sends every desired channel.
+    _reconnectAttempts += 1;
+    final delayMs = reconnectDelayMs(_reconnectAttempts) + _jitterMs();
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(Duration(milliseconds: _backoffMs), () {
+    _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
       _openSocket();
     });
-    _backoffMs = (_backoffMs * 2).clamp(1000, _maxBackoffMs);
   }
 
   Future<void> _handleAuthFailureAndMaybeReconnect() async {
@@ -232,7 +336,7 @@ class RealtimeClient {
     if (refreshed && _shouldReconnect) {
       // VHHttpClient has already persisted the rotated JWT — our next
       // _openSocket() call picks it up via AuthService.getJwt().
-      _backoffMs = 1000;
+      _reconnectAttempts = 0;
       _reconnectTimer?.cancel();
       _reconnectTimer = Timer(const Duration(milliseconds: 200), _openSocket);
       return;
@@ -243,6 +347,7 @@ class RealtimeClient {
     await AuthService.clearRefreshToken();
     _sessionExpired = true;
     _shouldReconnect = false;
+    _setConnectionState(RealtimeConnectionState.disconnected);
     try {
       onSessionExpired?.call();
     } catch (_) {
@@ -295,6 +400,7 @@ class RealtimeClient {
   void unsubscribe(String channel) {
     _desiredChannels.remove(channel);
     _serverSubscribed.remove(channel);
+    if (_deniedChannels.remove(channel)) _emitDenied();
     final c = _controllers.remove(channel);
     c?.close();
     try {
@@ -309,6 +415,12 @@ class RealtimeClient {
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _reconnectAttempts = 0;
+    if (_deniedChannels.isNotEmpty) {
+      _deniedChannels.clear();
+      _emitDenied();
+    }
+    _setConnectionState(RealtimeConnectionState.disconnected);
     await _wsSub?.cancel();
     _wsSub = null;
     try {
