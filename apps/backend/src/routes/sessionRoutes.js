@@ -14,6 +14,12 @@ import { success, error } from '../utils/responseHelper.js';
 
 const router = Router();
 
+// Acting-as rewrites req.user to the dependent, but the presented JWT still
+// belongs to the guardian recorded on req.acting. Session self-service must
+// always operate on that token bearer or its JTI can be attributed to the
+// dependent's registry.
+const bearerUid = (req) => req.acting?.actorUid ?? req.user?.uid;
+
 /**
  * The caller's own token claims, as verified by jwtMiddleware. Threaded into
  * the service so a session can be reported (and revoked) even on login paths
@@ -31,7 +37,7 @@ const callerToken = (req) => ({
  */
 router.get('/', async (req, res) => {
   try {
-    const userId = req.user?.uid;
+    const userId = bearerUid(req);
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
 
     const result = await listActiveSessions(userId, callerToken(req));
@@ -48,7 +54,7 @@ router.get('/', async (req, res) => {
  */
 router.delete('/:jti', async (req, res) => {
   try {
-    const userId = req.user?.uid;
+    const userId = bearerUid(req);
     const { jti } = req.params;
 
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
@@ -78,7 +84,7 @@ router.delete('/:jti', async (req, res) => {
  */
 router.post('/revoke-all', async (req, res) => {
   try {
-    const userId = req.user?.uid;
+    const userId = bearerUid(req);
     const currentJti = req.user?.jti; // From JWT claims
 
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);

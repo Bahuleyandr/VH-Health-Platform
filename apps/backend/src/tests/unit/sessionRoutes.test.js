@@ -43,18 +43,21 @@ const TOKEN_EXPIRES_AT = '2026-08-09T12:00:00.000Z';
 // unauthenticated branches. sessionRoutes reads req.user directly — it does
 // not mount jwtMiddleware, so there is nothing to stub there.
 let currentUser;
+let currentActing;
 
 const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
   req.id = 'test-request-id';
   req.user = currentUser;
+  req.acting = currentActing;
   next();
 });
 app.use('/api/v1/sessions', sessionRoutes);
 
 beforeEach(() => {
   currentUser = { uid: UID, role: 'PATIENT', jti: JTI, tokenExpiresAt: TOKEN_EXPIRES_AT };
+  currentActing = undefined;
   listActiveSessionsMock.mockReset();
   revokeSessionMock.mockReset();
   revokeAllOtherSessionsMock.mockReset();
@@ -91,6 +94,23 @@ describe('GET /api/v1/sessions', () => {
     expect(response.status).toBe(401);
     expect(response.body.success).toBe(false);
     expect(listActiveSessionsMock).not.toHaveBeenCalled();
+  });
+
+  it('scopes an acting-as request to the JWT bearer, not the dependent', async () => {
+    currentUser = { ...currentUser, uid: OTHER_UID };
+    currentActing = { actorUid: UID };
+    listActiveSessionsMock.mockResolvedValue({
+      sessions: [],
+      complete: false,
+      coverage: 'current_token_and_latest_registry_row',
+    });
+
+    await request(app).get('/api/v1/sessions');
+
+    expect(listActiveSessionsMock).toHaveBeenCalledWith(UID, {
+      jti: JTI,
+      expiresAt: TOKEN_EXPIRES_AT,
+    });
   });
 
   it('reports a listing failure as an error, not an empty session list', async () => {
@@ -170,6 +190,16 @@ describe('DELETE /api/v1/sessions/:jti', () => {
     expect(revokeSessionMock).toHaveBeenCalledWith(UID, JTI, expect.any(Object));
   });
 
+  it('cannot attribute the bearer token to an acting-as dependent', async () => {
+    currentUser = { ...currentUser, uid: OTHER_UID };
+    currentActing = { actorUid: UID };
+    revokeSessionMock.mockResolvedValue({ success: true, message: 'ok' });
+
+    await request(app).delete(`/api/v1/sessions/${JTI}`);
+
+    expect(revokeSessionMock).toHaveBeenCalledWith(UID, JTI, expect.any(Object));
+  });
+
   it('reports an unexpected service throw as an error', async () => {
     revokeSessionMock.mockRejectedValue(new Error('boom'));
 
@@ -220,5 +250,20 @@ describe('POST /api/v1/sessions/revoke-all', () => {
 
     expect(response.status).toBe(401);
     expect(revokeAllOtherSessionsMock).not.toHaveBeenCalled();
+  });
+
+  it('scopes bulk session handling to the JWT bearer during acting-as', async () => {
+    currentUser = { ...currentUser, uid: OTHER_UID };
+    currentActing = { actorUid: UID };
+    revokeAllOtherSessionsMock.mockResolvedValue({
+      success: false,
+      code: SESSION_REVOKE_FAILURE.REGISTRY_INCOMPLETE,
+      revokedCount: 0,
+      failedCount: null,
+    });
+
+    await request(app).post('/api/v1/sessions/revoke-all');
+
+    expect(revokeAllOtherSessionsMock).toHaveBeenCalledWith(UID, JTI);
   });
 });
