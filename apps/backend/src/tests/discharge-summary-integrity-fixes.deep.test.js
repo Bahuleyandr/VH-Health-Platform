@@ -170,7 +170,7 @@ d('Discharge summary integrity fixes (A-M3 / A-M4 / A-L5)', () => {
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60_000);
 
   // ── A-M4: createDraft admission validation ────────────────────────
 
