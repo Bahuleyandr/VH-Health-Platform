@@ -7647,6 +7647,86 @@
           }
         }
       },
+      "ClinicalAiCodingBatchSweepResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "module_key",
+              "source",
+              "candidates",
+              "suggested",
+              "review_items",
+              "skipped"
+            ],
+            "properties": {
+              "module_key": {
+                "type": "string",
+                "example": "clinical_coding_assist"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "scheduled",
+                  "admin"
+                ]
+              },
+              "tenant_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "candidates": {
+                "type": "integer",
+                "example": 0
+              },
+              "suggested": {
+                "type": "integer",
+                "example": 0
+              },
+              "review_items": {
+                "type": "integer",
+                "example": 0
+              },
+              "skipped": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "admission_id",
+                    "reason"
+                  ],
+                  "properties": {
+                    "admission_id": {
+                      "type": "integer"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "stopped_reason": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
       "ClinicalAiCommandCenterCensusLosBridge": {
         "type": "object",
         "additionalProperties": false,
@@ -43287,6 +43367,27 @@
         }
       }
     },
+    "/api/v1/admin/clinical-ai/coding-batch/run-sweep": {
+      "post": {
+        "operationId": "post_api_v1_admin_clinical_ai_coding_batch_run_sweep",
+        "tags": [
+          "revenue-cycle"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalAiCodingBatchSweepResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Runs the clinical-coding suggestion batch for the current tenant: de-identifies signed documentation, generates ICD coding suggestions through the governed clinical-AI module, and enqueues each suggestion as a pending review item for the coding team. Nothing is auto-applied to claims or the record; the clinical_coding_assist module gate applies and a disabled module returns a no-op summary."
+      }
+    },
     "/api/v1/admin/clinical-ai/command-center/evaluate": {
       "post": {
         "operationId": "post_api_v1_admin_clinical_ai_command_center_evaluate",
@@ -73649,6 +73750,27 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/clinical-ai/control/coding-batch/run-sweep": {
+      "post": {
+        "operationId": "post_api_v1_clinical_ai_control_coding_batch_run_sweep",
+        "tags": [
+          "revenue-cycle"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClinicalAiCodingBatchSweepResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Runs the clinical-coding suggestion batch for the current tenant: de-identifies signed documentation, generates ICD coding suggestions through the governed clinical-AI module, and enqueues each suggestion as a pending review item for the coding team. Nothing is auto-applied to claims or the record; the clinical_coding_assist module gate applies and a disabled module returns a no-op summary."
       }
     },
     "/api/v1/clinical-ai/control/command-center/evaluate": {

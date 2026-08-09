@@ -352,6 +352,24 @@ export const envSchema = Joi.object({
     .optional()
     .label('CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED'),
 
+  // Nightly clinical-coding suggestion batch — review-gated drafts only, off
+  // by default (double-gated with the clinical_coding_assist module toggle).
+  CLINICAL_AI_CODING_BATCH_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('CLINICAL_AI_CODING_BATCH_ENABLED'),
+  CLINICAL_AI_CODING_BATCH_LIMIT: Joi.number()
+    .min(1)
+    .max(100)
+    .optional()
+    .label('CLINICAL_AI_CODING_BATCH_LIMIT'),
+  CLINICAL_AI_CODING_BATCH_LOOKBACK_DAYS: Joi.number()
+    .min(1)
+    .max(90)
+    .optional()
+    .label('CLINICAL_AI_CODING_BATCH_LOOKBACK_DAYS'),
+
   PATHWAY_PROJECTOR_SHADOW_ENABLED: Joi.string()
     .valid('true', 'false')
     .default('false')

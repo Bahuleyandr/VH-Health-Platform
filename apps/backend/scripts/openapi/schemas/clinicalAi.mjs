@@ -675,6 +675,44 @@ export const schemas = {
     },
   },
 
+  // POST /coding-batch/run-sweep → { success, message, data: summary }.
+  // runCodingSuggestionBatch returns a fixed PHI-free summary: counts, the
+  // per-admission skip reasons, and why the run stopped early (if it did).
+  ClinicalAiCodingBatchSweepResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['module_key', 'source', 'candidates', 'suggested', 'review_items', 'skipped'],
+        properties: {
+          module_key: { type: 'string', example: 'clinical_coding_assist' },
+          source: { type: 'string', enum: ['scheduled', 'admin'] },
+          tenant_id: { type: 'string', format: 'uuid' },
+          candidates: { type: 'integer', example: 0 },
+          suggested: { type: 'integer', example: 0 },
+          review_items: { type: 'integer', example: 0 },
+          skipped: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['admission_id', 'reason'],
+              properties: {
+                admission_id: { type: 'integer' },
+                reason: { type: 'string' },
+              },
+            },
+          },
+          stopped_reason: { type: 'string', nullable: true },
+        },
+      },
+    },
+  },
+
   // =========================================================================
   // STRICT — discharge-compose workflow runs (T7). The three discharge-compose
   // endpoints that surface REAL `clinical_ai_workflow_runs` table rows get a
@@ -2806,6 +2844,15 @@ const CONTROL_OPS = [
   ['POST /payer-variance/evaluate', { response: 'ClinicalAiDraftResponse' }],
   ['GET /payer-variance/reviews', { response: 'ClinicalAiCountListResponse' }],
   ['PATCH /payer-variance/reviews/{id}', { response: 'ClinicalAiReviewDecisionResponse' }],
+
+  // ---- Coding-suggestion batch (revenueCycleRoutes.js) — 1 op. STRICT. ----
+  // Admin trigger for the nightly coding-suggestion sweep. Returns the
+  // service's fixed PHI-free run summary. Description authored here (not
+  // baselined) so the spectral operation-description baseline never grows.
+  ['POST /coding-batch/run-sweep', {
+    description: 'Runs the clinical-coding suggestion batch for the current tenant: de-identifies signed documentation, generates ICD coding suggestions through the governed clinical-AI module, and enqueues each suggestion as a pending review item for the coding team. Nothing is auto-applied to claims or the record; the clinical_coding_assist module gate applies and a disabled module returns a no-op summary.',
+    response: 'ClinicalAiCodingBatchSweepResponse',
+  }],
 
   // -------------------------------------------------------------------------
   // prior-auth-appeal chain (priorAuthAppealRoutes.js) — 4 ops. The

@@ -55,6 +55,7 @@ const {
   getClinicalAiRuntimeStatus,
   checkDeepModuleReadiness,
   assertDeepModuleLive,
+  normalizeStructuredOutputSchema,
 } = await import('../../services/ai/localLlmClient.js');
 // Real (un-mocked) metrics + logger-mock handles so the deep-tier safety tests
 // can assert the named counter increments and the WARN fires. logger.js is
@@ -494,7 +495,14 @@ describe('clinical AI provider client', () => {
     );
     const body = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(body.model).toBe('claude-test-model');
-    expect(body.system).toBe('System safety prompt');
+    // Modernized provider path: cacheable system block, no sampling params
+    // (current Anthropic models reject non-default temperature), and no
+    // structured output unless a schema is supplied.
+    expect(body.system).toEqual([
+      { type: 'text', text: 'System safety prompt', cache_control: { type: 'ephemeral' } },
+    ]);
+    expect(body.temperature).toBeUndefined();
+    expect(body.output_config).toBeUndefined();
     expect(body.messages).toEqual([{ role: 'user', content: 'Patient context' }]);
   });
 
@@ -1107,6 +1115,205 @@ describe('clinical AI provider client', () => {
         code: 'CLINICAL_AI_DEEP_MODULE_NOT_LIVE',
         readiness: expect.objectContaining({ ready: false }),
       });
+    });
+  });
+
+  // ── Anthropic provider modernization (governed Claude adoption, Part 2) ──
+  describe('anthropic provider modernization', () => {
+    function allowAnthropic() {
+      process.env.CLINICAL_AI_PROVIDER = 'anthropic';
+      process.env.CLINICAL_AI_MODEL = 'claude-test-model';
+      process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+      process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+      mockModule = { ...mockModule, external_allowed: true };
+    }
+
+    const WELL_FORMED_SCHEMA = {
+      type: 'object',
+      required: ['summary'],
+      properties: {
+        summary: { type: 'string' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['code'],
+            properties: { code: { type: 'string' } },
+          },
+        },
+      },
+    };
+
+    it('treats stop_reason=refusal as NON-retryable and falls back with the reason recorded', async () => {
+      allowAnthropic();
+      global.fetch.mockResolvedValue(okJson({
+        id: 'msg-refusal',
+        stop_reason: 'refusal',
+        stop_details: { category: 'cyber' },
+        content: [],
+        usage: { input_tokens: 21, output_tokens: 0 },
+      }));
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+      });
+
+      expect(result.usedAi).toBe(false);
+      expect(result.generation_mode).toBe('template_fallback');
+      expect(result.provider_status).toBe('error');
+      expect(result.reason).toBe('anthropic_refusal:cyber');
+      expect(result.fallback_reason).toBe('anthropic_refusal:cyber');
+      // NON-retryable: exactly one provider call — a refusal must never burn
+      // the transient-retry budget as "empty content".
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      // Refusal tokens are billed — usage is carried into the fallback result.
+      expect(result.usage.prompt_tokens).toBe(21);
+    });
+
+    it('sends output_config.format (structured outputs) when a well-formed jsonSchema is supplied', async () => {
+      allowAnthropic();
+      global.fetch.mockResolvedValue(okJson({
+        id: 'msg-structured',
+        content: [{ type: 'text', text: '{"summary":"ok"}' }],
+        usage: { input_tokens: 8, output_tokens: 4 },
+      }));
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        jsonSchema: WELL_FORMED_SCHEMA,
+      });
+
+      expect(result.usedAi).toBe(true);
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.output_config).toEqual({
+        format: {
+          type: 'json_schema',
+          schema: expect.objectContaining({
+            type: 'object',
+            additionalProperties: false,
+            required: ['summary'],
+          }),
+        },
+      });
+      // Nested objects are normalized too.
+      expect(body.output_config.format.schema.properties.items.items.additionalProperties).toBe(false);
+    });
+
+    it('retries ONCE without output_config when the endpoint rejects the schema with HTTP 400', async () => {
+      allowAnthropic();
+      global.fetch
+        .mockResolvedValueOnce({ ok: false, status: 400, json: () => Promise.resolve({}) })
+        .mockResolvedValueOnce(okJson({
+          id: 'msg-plain',
+          content: [{ type: 'text', text: '```json\n{"summary":"ok"}\n```' }],
+          usage: { input_tokens: 8, output_tokens: 4 },
+        }));
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        jsonSchema: WELL_FORMED_SCHEMA,
+      });
+
+      expect(result.usedAi).toBe(true);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      const firstBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+      const secondBody = JSON.parse(global.fetch.mock.calls[1][1].body);
+      expect(firstBody.output_config).toBeDefined();
+      expect(secondBody.output_config).toBeUndefined();
+    });
+
+    it('normalizeStructuredOutputSchema rejects the loose registry stubs and enforces additionalProperties:false', () => {
+      // The discharge_summary registry stub has required[] but NO properties —
+      // must never activate structured output.
+      expect(normalizeStructuredOutputSchema({
+        type: 'object',
+        required: ['hospital_course', 'discharge_diagnosis'],
+      })).toBeNull();
+      // required keys missing from properties → rejected.
+      expect(normalizeStructuredOutputSchema({
+        type: 'object',
+        required: ['a', 'b'],
+        properties: { a: { type: 'string' } },
+      })).toBeNull();
+      expect(normalizeStructuredOutputSchema(null)).toBeNull();
+      expect(normalizeStructuredOutputSchema({})).toBeNull();
+      // Well-formed schema passes with every object node closed.
+      const normalized = normalizeStructuredOutputSchema(WELL_FORMED_SCHEMA);
+      expect(normalized.additionalProperties).toBe(false);
+      expect(normalized.properties.items.items.additionalProperties).toBe(false);
+      expect(normalized.properties.items.items.required).toEqual(['code']);
+    });
+  });
+
+  // ── Feature A: discharge-summary deep tier on Anthropic (env-only glue) ──
+  describe('discharge deep tier via CLINICAL_AI_DEEP_* (anthropic)', () => {
+    const DEEP_DISCHARGE_SETTINGS = {
+      risk: 'high',
+      model_tier: 'deep',
+      requiresClinicianSignoff: true,
+    };
+
+    it('is OFF by default: with no deep provider configured the discharge module stays on the labeled template path', async () => {
+      mockModule = { ...mockModule, settings: DEEP_DISCHARGE_SETTINGS };
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+      });
+
+      expect(result).toMatchObject({
+        usedAi: false,
+        provider: 'template',
+        tier: 'deep',
+        generation_mode: 'template_fallback',
+      });
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('routes discharge_summary to Anthropic with the deep-tier key once every egress gate is explicitly opened', async () => {
+      process.env.CLINICAL_AI_DEEP_PROVIDER = 'anthropic';
+      process.env.CLINICAL_AI_DEEP_MODEL = 'deep-test-model';
+      process.env.CLINICAL_AI_DEEP_API_KEY = 'deep-tier-key';
+      process.env.CLINICAL_AI_API_KEY = 'standard-key';
+      process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+      process.env.CLINICAL_AI_EXTERNAL_REGIONS = 'IN';
+      mockModule = { ...mockModule, external_allowed: true, settings: DEEP_DISCHARGE_SETTINGS };
+      global.fetch.mockResolvedValue(okJson({
+        id: 'msg-deep',
+        content: [{ type: 'text', text: 'Deep discharge draft' }],
+        usage: { input_tokens: 30, output_tokens: 12, cache_read_input_tokens: 5 },
+      }));
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        tenantRegion: 'IN',
+      });
+
+      expect(result).toMatchObject({
+        usedAi: true,
+        provider: 'anthropic',
+        model: 'deep-test-model',
+        tier: 'deep',
+        generation_mode: 'ai',
+        text: 'Deep discharge draft',
+      });
+      // Cache-read tokens are counted into prompt tokens.
+      expect(result.usage.prompt_tokens).toBe(35);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.anthropic.com/v1/messages',
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'x-api-key': 'deep-tier-key' }),
+        })
+      );
     });
   });
 });
