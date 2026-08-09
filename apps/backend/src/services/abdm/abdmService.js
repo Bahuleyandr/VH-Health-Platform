@@ -1067,19 +1067,104 @@ class ABDMService {
       keyMaterial,
       safeDataPushUrl,
       tenantId,
-    ).catch((err) => {
+    ).catch(async (err) => {
       logger.error('Failed to process ABDM data request', {
         transactionId,
         error: err.message,
       });
-      // Mark as FAILED (tenant-scoped).
-      setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
-        `UPDATE abdm_data_requests SET status = 'FAILED' WHERE transaction_id = $1 AND tenant_id = $2::uuid`,
-        transactionId, tenantId,
-      )).catch(() => {});
+      // Mark as FAILED (tenant-scoped) with a bounded retry. Previously this
+      // marker write was itself fire-and-forget, so a DB failure left the
+      // consent-bound request 'PROCESSING' forever with no signal (BE-M7);
+      // sweepStuckDataRequests is the backstop when even the retries fail.
+      await this._markDataRequestFailed(transactionId, tenantId);
     });
 
     return requestResult[0];
+  }
+
+  /**
+   * Mark a data request FAILED, retrying the marker write a bounded number of
+   * times. Never throws — this runs on the async tail of a callback whose
+   * HTTP response has already been sent. Returns true when the marker landed.
+   * Runs pre-RLS callbacks' tenant model: every query carries an explicit
+   * `AND tenant_id = $N::uuid` predicate in addition to setTenant().
+   * @param {string} transactionId
+   * @param {string} tenantId
+   * @param {Object} [options]
+   * @param {number} [options.attempts] - Total write attempts (default 3)
+   * @param {number} [options.backoffMs] - Base linear backoff between attempts
+   * @returns {Promise<boolean>}
+   */
+  async _markDataRequestFailed(transactionId, tenantId, { attempts = 3, backoffMs = 500 } = {}) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
+          `UPDATE abdm_data_requests SET status = 'FAILED'
+            WHERE transaction_id = $1 AND tenant_id = $2::uuid AND status = 'PROCESSING'`,
+          transactionId, tenantId,
+        ));
+        return true;
+      } catch (markErr) {
+        logger.error('ABDM data request FAILED-marker write failed', {
+          transactionId,
+          tenantId,
+          attempt,
+          attempts,
+          error: markErr.message,
+        });
+        if (attempt < attempts) {
+          await new Promise((resolve) => setTimeout(resolve, backoffMs * attempt));
+        }
+      }
+    }
+    logger.error(
+      'ABDM data request is stuck in PROCESSING — FAILED-marker retries exhausted; the stuck-request sweep will retry',
+      { transactionId, tenantId },
+    );
+    return false;
+  }
+
+  /**
+   * Sweep for data requests stuck in PROCESSING (cron backstop for BE-M7).
+   * A PROCESSING row only means "an in-process async pipeline is running";
+   * after a crash/restart — or when the FAILED-marker write above lost its
+   * retries — nothing owns the row and it would stay PROCESSING forever.
+   * Marks stale rows FAILED per tenant. Rows carrying an I16 recovery claim
+   * (recovery_inbox_id) belong to the owner-driven recovery workbench
+   * (migration 618) and are never touched here.
+   * @param {Object} [options]
+   * @param {number} [options.olderThanMinutes] - Staleness threshold (default 60)
+   * @param {number} [options.limit] - Max rows per run (default 100)
+   * @returns {Promise<{ scanned: number, swept: number, failed: number }>}
+   */
+  async sweepStuckDataRequests({ olderThanMinutes = 60, limit = 100 } = {}) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT transaction_id, tenant_id::text AS tenant_id
+         FROM abdm_data_requests
+        WHERE status = 'PROCESSING'
+          AND recovery_inbox_id IS NULL
+          AND created_at < NOW() - ($1::int * INTERVAL '1 minute')
+        ORDER BY created_at
+        LIMIT $2::int`,
+      olderThanMinutes, limit,
+    );
+    if (rows.length === 0) {
+      return { scanned: 0, swept: 0, failed: 0 };
+    }
+
+    logger.error('ABDM stuck data requests found in PROCESSING past the deadline', {
+      count: rows.length,
+      older_than_minutes: olderThanMinutes,
+      transaction_ids: rows.slice(0, 20).map((row) => row.transaction_id),
+    });
+
+    let swept = 0;
+    let failed = 0;
+    for (const row of rows) {
+      const marked = await this._markDataRequestFailed(row.transaction_id, row.tenant_id, { attempts: 1 });
+      if (marked) swept += 1; else failed += 1;
+    }
+    return { scanned: rows.length, swept, failed };
   }
 
   /**
