@@ -1785,6 +1785,50 @@ class AppLocalizationsEn extends AppLocalizations {
   String get otpSentSuccess => 'OTP has been sent to your phone number';
 
   @override
+  String get otpFieldSemanticLabel => '6-digit OTP code';
+
+  @override
+  String otpDigitsRemaining(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Enter $count more digits',
+      one: 'Enter 1 more digit',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get otpAllDigitsEntered => 'All 6 digits entered';
+
+  @override
+  String get otpVerifying => 'Verifying...';
+
+  @override
+  String get otpDidntReceiveResend => 'Didn\'t receive OTP? Resend';
+
+  @override
+  String get otpInvalidTryAgain => 'Invalid OTP. Please try again.';
+
+  @override
+  String get otpVerificationSessionExpired =>
+      'Verification session expired. Please resend the OTP.';
+
+  @override
+  String get otpAutoFilled => 'OTP auto-filled';
+
+  @override
+  String get otpVerifiedSuccess => 'OTP verified';
+
+  @override
+  String get otpBackendLoginFailed =>
+      'Phone verified, but hospital login failed. Please try again.';
+
+  @override
+  String get otpAuthenticationFailed =>
+      'Authentication failed. Please try again.';
+
+  @override
   String get dashboardScheduleNextVisit => 'Schedule your next visit';
 
   @override

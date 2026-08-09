@@ -3458,6 +3458,72 @@ abstract class AppLocalizations {
   /// **'OTP has been sent to your phone number'**
   String get otpSentSuccess;
 
+  /// Accessible name for the 6-digit OTP entry field (screen readers)
+  ///
+  /// In en, this message translates to:
+  /// **'6-digit OTP code'**
+  String get otpFieldSemanticLabel;
+
+  /// Screen-reader hint while the OTP field is partially filled
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Enter 1 more digit} other{Enter {count} more digits}}'**
+  String otpDigitsRemaining(num count);
+
+  /// Screen-reader hint once every OTP digit has been entered
+  ///
+  /// In en, this message translates to:
+  /// **'All 6 digits entered'**
+  String get otpAllDigitsEntered;
+
+  /// Verifying state announced/shown while the OTP is being checked
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying...'**
+  String get otpVerifying;
+
+  /// Resend link under the OTP field
+  ///
+  /// In en, this message translates to:
+  /// **'Didn\'t receive OTP? Resend'**
+  String get otpDidntReceiveResend;
+
+  /// Inline error under the OTP field when the code is wrong
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid OTP. Please try again.'**
+  String get otpInvalidTryAgain;
+
+  /// Inline error when the verification session is missing/expired
+  ///
+  /// In en, this message translates to:
+  /// **'Verification session expired. Please resend the OTP.'**
+  String get otpVerificationSessionExpired;
+
+  /// Announcement when the OTP is auto-retrieved from SMS
+  ///
+  /// In en, this message translates to:
+  /// **'OTP auto-filled'**
+  String get otpAutoFilled;
+
+  /// Announcement after the OTP is verified successfully
+  ///
+  /// In en, this message translates to:
+  /// **'OTP verified'**
+  String get otpVerifiedSuccess;
+
+  /// Inline error when phone verification succeeded but hospital backend login failed
+  ///
+  /// In en, this message translates to:
+  /// **'Phone verified, but hospital login failed. Please try again.'**
+  String get otpBackendLoginFailed;
+
+  /// Inline error for a generic authentication failure at the OTP step
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication failed. Please try again.'**
+  String get otpAuthenticationFailed;
+
   /// Dashboard widget title when no upcoming visit
   ///
   /// In en, this message translates to:

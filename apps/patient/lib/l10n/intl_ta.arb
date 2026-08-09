@@ -1713,6 +1713,17 @@
   "@otpSentSuccess": {
     "description": "Snackbar after OTP resend succeeds"
   },
+  "otpFieldSemanticLabel": "6 இலக்க OTP குறியீடு",
+  "otpDigitsRemaining": "{count, plural, =1{மேலும் 1 இலக்கத்தை உள்ளிடவும்} other{மேலும் {count} இலக்கங்களை உள்ளிடவும்}}",
+  "otpAllDigitsEntered": "அனைத்து 6 இலக்கங்களும் உள்ளிடப்பட்டன",
+  "otpVerifying": "சரிபார்க்கிறது...",
+  "otpDidntReceiveResend": "OTP வரவில்லையா? மீண்டும் அனுப்பவும்",
+  "otpInvalidTryAgain": "தவறான OTP. மீண்டும் முயற்சிக்கவும்.",
+  "otpVerificationSessionExpired": "சரிபார்ப்பு அமர்வு காலாவதியானது. OTP-ஐ மீண்டும் அனுப்பவும்.",
+  "otpAutoFilled": "OTP தானாக நிரப்பப்பட்டது",
+  "otpVerifiedSuccess": "OTP சரிபார்க்கப்பட்டது",
+  "otpBackendLoginFailed": "தொலைபேசி எண் சரிபார்க்கப்பட்டது, ஆனால் மருத்துவமனை உள்நுழைவு தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.",
+  "otpAuthenticationFailed": "அங்கீகாரம் தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.",
   "dashboardScheduleNextVisit": "உங்கள் அடுத்த வருகையைத் திட்டமிடுங்கள்",
   "@dashboardScheduleNextVisit": {
     "description": "Dashboard widget title when no upcoming visit"

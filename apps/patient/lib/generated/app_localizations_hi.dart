@@ -1791,6 +1791,50 @@ class AppLocalizationsHi extends AppLocalizations {
   String get otpSentSuccess => 'OTP आपके फ़ोन नंबर पर भेज दिया गया है';
 
   @override
+  String get otpFieldSemanticLabel => '6 अंकों का OTP कोड';
+
+  @override
+  String otpDigitsRemaining(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count और अंक दर्ज करें',
+      one: '1 और अंक दर्ज करें',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get otpAllDigitsEntered => 'सभी 6 अंक दर्ज हो गए';
+
+  @override
+  String get otpVerifying => 'सत्यापित हो रहा है...';
+
+  @override
+  String get otpDidntReceiveResend => 'OTP प्राप्त नहीं हुआ? पुनः भेजें';
+
+  @override
+  String get otpInvalidTryAgain => 'अमान्य OTP। कृपया पुनः प्रयास करें।';
+
+  @override
+  String get otpVerificationSessionExpired =>
+      'सत्यापन सत्र समाप्त हो गया। कृपया OTP पुनः भेजें।';
+
+  @override
+  String get otpAutoFilled => 'OTP स्वतः भर गया';
+
+  @override
+  String get otpVerifiedSuccess => 'OTP सत्यापित हो गया';
+
+  @override
+  String get otpBackendLoginFailed =>
+      'फ़ोन सत्यापित हुआ, लेकिन अस्पताल लॉगिन विफल रहा। कृपया पुनः प्रयास करें।';
+
+  @override
+  String get otpAuthenticationFailed =>
+      'प्रमाणीकरण विफल रहा। कृपया पुनः प्रयास करें।';
+
+  @override
   String get dashboardScheduleNextVisit => 'अपनी अगली विज़िट शेड्यूल करें';
 
   @override

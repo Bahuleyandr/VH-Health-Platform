@@ -1,7 +1,9 @@
 // otp_widget.dart - Main widget file (Business logic only)
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 import 'package:vhhealth/features/auth/widgets/otp_ui_components.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
 import 'dart:developer' as developer;
@@ -50,10 +52,19 @@ class _OtpWidgetState extends State<OtpWidget> {
   bool isVerifying = false;
   bool isResending = false;
 
+  /// Inline error shown under the OTP field (and announced by screen
+  /// readers via the field's live region). Cleared as soon as the user
+  /// edits the code.
+  String? errorText;
+
   @override
   void initState() {
     super.initState();
-    _sendOTP();
+    // Post-frame: _sendOTP reads AppLocalizations (an inherited widget),
+    // which cannot be looked up from initState.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _sendOTP();
+    });
   }
 
   @override
@@ -63,9 +74,11 @@ class _OtpWidgetState extends State<OtpWidget> {
   }
 
   Future<void> _sendOTP() async {
+    final l = AppLocalizations.of(context)!;
     setState(() {
       otpSent = false;
       isResending = true;
+      errorText = null;
     });
 
     // No need to store the result if you're not using it
@@ -78,12 +91,12 @@ class _OtpWidgetState extends State<OtpWidget> {
           otpSent = true;
           isResending = false;
         });
-        _showMessage("OTP sent to ${_maskPhone(widget.phoneNumber)}");
+        _showMessage("${l.otpOtpSentTo} ${_maskPhone(widget.phoneNumber)}");
       },
       onAutoRetrieved: (credential, smsCode) async {
         if (!mounted) return;
         otpController.text = smsCode;
-        _showMessage("OTP auto-filled ✅");
+        _showMessage(l.otpAutoFilled);
         await _handleFirebaseAuthSuccess(credential);
       },
       onError: (error) {
@@ -94,18 +107,22 @@ class _OtpWidgetState extends State<OtpWidget> {
   }
 
   Future<void> _verifyOTP() async {
+    final l = AppLocalizations.of(context)!;
     final otp = otpController.text.trim();
     if (otp.length != 6) {
-      _showMessage("Please enter a valid 6-digit OTP");
+      _setInlineError(l.otpOtpMustBe6Digits);
       return;
     }
 
     if (verificationId == null) {
-      _showMessage("Verification ID missing. Please resend OTP.");
+      _setInlineError(l.otpVerificationSessionExpired);
       return;
     }
 
-    setState(() => isVerifying = true);
+    setState(() {
+      isVerifying = true;
+      errorText = null;
+    });
 
     try {
       final credential = PhoneAuthProvider.credential(
@@ -114,7 +131,7 @@ class _OtpWidgetState extends State<OtpWidget> {
       );
       await _handleFirebaseAuthSuccess(credential);
     } catch (e) {
-      _showMessage("Invalid OTP. Please try again.");
+      _setInlineError(l.otpInvalidTryAgain);
       developer.log("OTP verification error: $e", name: 'OtpWidget');
     }
 
@@ -124,9 +141,11 @@ class _OtpWidgetState extends State<OtpWidget> {
   Future<void> _handleFirebaseAuthSuccess(
     PhoneAuthCredential credential,
   ) async {
+    if (!mounted) return;
+    final l = AppLocalizations.of(context)!;
     try {
       await FirebaseAuth.instance.signInWithCredential(credential);
-      _showMessage("OTP verified ✅");
+      _showMessage(l.otpVerifiedSuccess);
 
       developer.log(
         "Firebase authentication successful - awaiting backend login",
@@ -141,9 +160,7 @@ class _OtpWidgetState extends State<OtpWidget> {
 
       if (!backendLoginOk) {
         await FirebaseAuth.instance.signOut();
-        _showMessage(
-          "Phone verified, but hospital login failed. Please try again.",
-        );
+        _setInlineError(l.otpBackendLoginFailed);
         return;
       }
 
@@ -153,16 +170,23 @@ class _OtpWidgetState extends State<OtpWidget> {
       );
       widget.onSuccess();
     } catch (e) {
-      _showMessage("Authentication failed: ${e.toString()}");
+      _setInlineError(l.otpAuthenticationFailed);
       developer.log("Firebase auth error: $e", name: 'OtpWidget');
     }
   }
 
+  /// Surfaces an error inline under the OTP field instead of a transient
+  /// snackbar, so it persists until the user edits the code and is
+  /// announced by the field's live region (audit H9).
+  void _setInlineError(String msg) {
+    if (mounted) setState(() => errorText = msg);
+  }
+
   void _showMessage(String msg) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
-      );
+      // Live-region snackbar so TalkBack/VoiceOver announce transient
+      // confirmations ("OTP sent", "OTP verified") when they appear.
+      LiveRegionSnackBar.show(context, message: msg);
     }
   }
 
@@ -174,9 +198,13 @@ class _OtpWidgetState extends State<OtpWidget> {
       otpSent: otpSent,
       isVerifying: isVerifying,
       isResending: isResending,
+      errorText: errorText,
       onVerifyPressed: _verifyOTP,
       onResendPressed: _sendOTP,
       onOtpChanged: (value) {
+        if (errorText != null) {
+          setState(() => errorText = null);
+        }
         if (value.length == 6 && !isVerifying) {
           _verifyOTP();
         }

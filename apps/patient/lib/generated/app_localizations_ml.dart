@@ -1822,6 +1822,50 @@ class AppLocalizationsMl extends AppLocalizations {
   String get otpSentSuccess => 'OTP നിങ്ങളുടെ ഫോൺ നമ്പറിലേക്ക് അയച്ചു';
 
   @override
+  String get otpFieldSemanticLabel => '6 അക്ക OTP കോഡ്';
+
+  @override
+  String otpDigitsRemaining(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count അക്കങ്ങൾ കൂടി നൽകുക',
+      one: 'ഒരു അക്കം കൂടി നൽകുക',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get otpAllDigitsEntered => 'എല്ലാ 6 അക്കങ്ങളും നൽകി';
+
+  @override
+  String get otpVerifying => 'പരിശോധിക്കുന്നു...';
+
+  @override
+  String get otpDidntReceiveResend => 'OTP ലഭിച്ചില്ലേ? വീണ്ടും അയയ്ക്കുക';
+
+  @override
+  String get otpInvalidTryAgain => 'അസാധുവായ OTP. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get otpVerificationSessionExpired =>
+      'പരിശോധനാ സെഷൻ കാലഹരണപ്പെട്ടു. ദയവായി OTP വീണ്ടും അയയ്ക്കുക.';
+
+  @override
+  String get otpAutoFilled => 'OTP സ്വയമേവ പൂരിപ്പിച്ചു';
+
+  @override
+  String get otpVerifiedSuccess => 'OTP പരിശോധിച്ചുറപ്പിച്ചു';
+
+  @override
+  String get otpBackendLoginFailed =>
+      'ഫോൺ പരിശോധിച്ചു, പക്ഷേ ആശുപത്രി ലോഗിൻ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get otpAuthenticationFailed =>
+      'ഓതന്റിക്കേഷൻ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
   String get dashboardScheduleNextVisit =>
       'നിങ്ങളുടെ അടുത്ത സന്ദർശനം ഷെഡ്യൂൾ ചെയ്യുക';
 
