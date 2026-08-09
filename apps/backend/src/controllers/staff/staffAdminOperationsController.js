@@ -153,14 +153,9 @@ export const exportStaffData = async (req, res) => {
         data = await exportAttendanceData(department, start_date, end_date);
         break;
       case 'performance':
-        data = await exportPerformanceData(department, start_date, end_date);
-        break;
       case 'leave':
-        data = await exportLeaveData(department, start_date, end_date);
-        break;
       case 'payroll':
-        data = await exportPayrollData(department, start_date, end_date);
-        break;
+        return error(res, `${type} export is not yet implemented`, 501);
       default:
         return error(res, 'Invalid export type', HTTP_STATUS.BAD_REQUEST);
     }
@@ -406,19 +401,4 @@ async function exportAttendanceData(department, start_date, end_date) {
 
   // CAN-005: escape + formula-neutralize employee fields (name etc.).
   return rowsToCsv(headers, rows);
-}
-
-async function exportPerformanceData(_department, _start_date, _end_date) {
-  // Similar implementation for performance data
-  return 'Performance data export not yet implemented';
-}
-
-async function exportLeaveData(_department, _start_date, _end_date) {
-  // Similar implementation for leave data
-  return 'Leave data export not yet implemented';
-}
-
-async function exportPayrollData(_department, _start_date, _end_date) {
-  // Similar implementation for payroll data
-  return 'Payroll data export not yet implemented';
 }

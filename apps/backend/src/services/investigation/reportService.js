@@ -9,6 +9,7 @@ import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import prisma from '../../lib/prisma.js';
 import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../utils/investigation/investigationHelpers.js';
+import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 
 async function getInvestigationWithDetails(id) {
   const rows = await prisma.$queryRaw`
@@ -196,7 +197,7 @@ export const emailInvestigationReport = async (investigationId, emailOptions, _s
   const pdfBuffer = await generateInvestigationReport(investigationId);
   const investigation = await getInvestigationWithDetails(investigationId);
 
-  const _mailOptions = {
+  const result = await sendEmail({
     to: emailOptions.email,
     cc: emailOptions.cc,
     subject: `Investigation Report: ${investigation.test_name}`,
@@ -206,7 +207,17 @@ export const emailInvestigationReport = async (investigationId, emailOptions, _s
       content: pdfBuffer,
       contentType: 'application/pdf',
     }],
-  };
+    receiptMode: true,
+  });
 
-  return { success: true, messageId: 'mock-message-id' };
+  const allRecipientsRejected = Array.isArray(result?.accepted)
+    && result.accepted.length === 0
+    && Array.isArray(result.rejected)
+    && result.rejected.length > 0;
+
+  if (!result?.messageId || result.outcome === 'rejected' || allRecipientsRejected) {
+    throw new Error(`Failed to email investigation report: ${result?.code || 'smtp_not_accepted'}`);
+  }
+
+  return { success: true, messageId: result.messageId };
 };

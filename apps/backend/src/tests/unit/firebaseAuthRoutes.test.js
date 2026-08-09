@@ -272,6 +272,7 @@ describe('firebase auth route protections', () => {
 
       expect(res.statusCode).toBe(501);
       expect(res.body.success).toBe(false);
+      expect(res.body.data).toBeUndefined();
     });
 
     it('POST /admin/revoke-user-tokens reaches the handler for a valid admin JWT (501, not 401)', async () => {

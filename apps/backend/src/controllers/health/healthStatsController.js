@@ -24,22 +24,6 @@ export async function getHealthStatistics(req, res) {
     }, 'Health statistics retrieved successfully');
   } catch (err) {
     logger.error('Database error:', err);
-    
-    // Fallback with mock data
-    success(res, {
-      statistics: {
-        totals: {
-          total_records: 0,
-          unique_patients: 0,
-          recent_records: 0
-        },
-        by_type: [],
-        daily_activity: []
-      },
-      period_days: parseInt(req.query.days) || 7,
-      note: 'Statistics unavailable - health_records table may not exist',
-      requestedBy: req.user?.name,
-      timestamp: new Date().toISOString()
-    }, 'Health statistics retrieved (empty - table may not exist)');
+    error(res, 'Failed to retrieve health statistics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 }

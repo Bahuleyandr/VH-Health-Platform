@@ -253,18 +253,6 @@ export const overrideAttendance = async (req, res) => {
 
 // Sync Biometric Data
 export const syncBiometricData = async (req, res) => {
-  try {
-    // This would integrate with actual biometric system
-    // For now, returning mock response
-    
-    success(res, {
-      synced: 0,
-      failed: 0,
-      lastSync: new Date(),
-      message: 'Biometric sync feature not yet implemented'
-    }, 'Biometric sync initiated');
-  } catch (err) {
-    logger.error('Biometric Sync Error:', err);
-    error(res, 'Failed to sync biometric data', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
+  // No biometric system integration exists yet.
+  error(res, 'Biometric sync is not yet implemented', 501);
 };

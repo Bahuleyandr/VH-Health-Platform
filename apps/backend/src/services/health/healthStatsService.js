@@ -50,15 +50,6 @@ export async function getHealthStatistics(days = TREND_PERIODS.WEEK) {
     };
   } catch (error) {
     logger.error(`[HealthStatsService] Error getting health statistics: ${error.message}`);
-    // Return empty statistics on error
-    return {
-      totals: {
-        total_records: 0,
-        unique_patients: 0,
-        recent_records: 0
-      },
-      by_type: [],
-      daily_activity: []
-    };
+    throw error;
   }
 }
