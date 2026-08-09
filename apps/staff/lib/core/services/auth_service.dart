@@ -54,16 +54,26 @@ class StaffLogoutResult {
   const StaffLogoutResult._({
     required this.status,
     required this.blockingWriteCount,
+    this.serverRevocationFailed = false,
   });
 
   const StaffLogoutResult.blocked(int count)
     : this._(status: StaffLogoutStatus.blocked, blockingWriteCount: count);
 
-  const StaffLogoutResult.signedOut()
-    : this._(status: StaffLogoutStatus.signedOut, blockingWriteCount: 0);
+  const StaffLogoutResult.signedOut({bool serverRevocationFailed = false})
+    : this._(
+        status: StaffLogoutStatus.signedOut,
+        blockingWriteCount: 0,
+        serverRevocationFailed: serverRevocationFailed,
+      );
 
   final StaffLogoutStatus status;
   final int blockingWriteCount;
+
+  /// True when local sign-out completed but the backend never confirmed it
+  /// revoked this device's session token, so the bearer token may still be
+  /// usable until it expires.
+  final bool serverRevocationFailed;
 
   bool get isBlocked => status == StaffLogoutStatus.blocked;
   bool get isSignedOut => status == StaffLogoutStatus.signedOut;
@@ -383,13 +393,25 @@ class AuthService {
         return StaffLogoutResult.blocked(blockingCount);
       }
 
+      // The server call is what actually revokes the session: it deletes the
+      // staff_auth_sessions row (killing the refresh credential) AND blacklists
+      // this device's access-token jti. Local teardown below runs either way —
+      // refusing to sign out because the network is down would strand a staff
+      // member on a shared ward device, which is worse than a token that lapses
+      // on its own — but the failure is REPORTED rather than swallowed, because
+      // "logged out" with a live bearer token is a lie (audit follow-up P12).
+      var serverRevocationFailed = false;
       try {
-        await ApiClient.post('/auth/staff/logout', body: {});
+        final response = await ApiClient.post('/auth/staff/logout', body: {});
+        serverRevocationFailed = !response.isSuccess;
       } catch (e) {
+        serverRevocationFailed = true;
         debugPrint('AuthService.logout error: $e');
       }
       await _clearLocalSession(telemetryEvent: 'auth.logout');
-      return const StaffLogoutResult.signedOut();
+      return StaffLogoutResult.signedOut(
+        serverRevocationFailed: serverRevocationFailed,
+      );
     } finally {
       syncService.endSessionBarrier();
     }

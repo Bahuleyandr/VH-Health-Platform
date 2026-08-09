@@ -194,9 +194,19 @@ class SettingsController {
       } catch (e) {
         debugPrint('Settings logout cleanup failed: $e');
       }
-      await LogoutService.logout();
+      // LogoutService signs out of Firebase as its own final step now, so this
+      // path must not do it again ahead of the teardown (PR #783 ordering).
+      final outcome = await LogoutService.logout();
       if (context.mounted) {
         context.go('/login');
+      }
+      // Local teardown always runs, so never block the sign-out — but say so
+      // when the VH token could not be revoked server-side.
+      if (!outcome.serverSessionRevoked) {
+        _showSnackBar(
+          'Signed out on this device. We could not reach the server, so other '
+          'devices may stay signed in until you retry.',
+        );
       }
     }
   }

@@ -4,14 +4,18 @@ import 'package:vhhealth/core/services/logout_service.dart';
 void main() {
   tearDown(LogoutService.debugResetDependencies);
 
-  test('logout clears realtime, caches, staging, user provider state, and '
-      'signs out of Firebase last', () async {
+  test('logout revokes the server session first, clears realtime, caches, '
+      'staging and user provider state, and signs out of Firebase last',
+      () async {
     final calls = <String>[];
     LogoutService.debugSetDependencies(_dependencies(calls));
 
     await LogoutService.logout();
 
     expect(calls, [
+      // Server revocation runs FIRST — it authenticates with the very token
+      // being revoked, so it must precede the secure-storage wipe.
+      'server-revoke',
       'websocket',
       'realtime',
       'push-user',
@@ -95,9 +99,55 @@ void main() {
     await expectLater(LogoutService.logout(), completes);
     expect(calls, contains('firebase-signout'));
   });
+
+  test('logout reports a confirmed server-side revocation', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(_dependencies(calls));
+
+    final outcome = await LogoutService.logout();
+
+    expect(outcome.serverSessionRevoked, isTrue);
+  });
+
+  test(
+    'a refused server revocation still clears local state, and is reported',
+    () async {
+      // The trade this pins: being offline (or refused) must never trap a user
+      // in a signed-in session, but it must not be reported as a full logout
+      // either — the VH JWT is still live on the server.
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, revokeResult: false),
+      );
+
+      final outcome = await LogoutService.logout();
+
+      expect(outcome.serverSessionRevoked, isFalse);
+      expect(calls, containsAll(<String>['secure-storage', 'user-provider']));
+    },
+  );
+
+  test(
+    'a throwing server revocation still clears local state, and is reported',
+    () async {
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, throwOn: 'server-revoke'),
+      );
+
+      final outcome = await LogoutService.logout();
+
+      expect(outcome.serverSessionRevoked, isFalse);
+      expect(calls, containsAll(<String>['secure-storage', 'user-provider']));
+    },
+  );
 }
 
-LogoutServiceDependencies _dependencies(List<String> calls, {String? throwOn}) {
+LogoutServiceDependencies _dependencies(
+  List<String> calls, {
+  String? throwOn,
+  bool revokeResult = true,
+}) {
   LogoutStep step(String name) {
     return () {
       calls.add(name);
@@ -106,6 +156,11 @@ LogoutServiceDependencies _dependencies(List<String> calls, {String? throwOn}) {
   }
 
   return LogoutServiceDependencies(
+    revokeServerSession: () {
+      calls.add('server-revoke');
+      if (throwOn == 'server-revoke') throw StateError('server-revoke failed');
+      return revokeResult;
+    },
     disconnectWebSocket: step('websocket'),
     disconnectRealtime: step('realtime'),
     clearPushSignedInUser: step('push-user'),

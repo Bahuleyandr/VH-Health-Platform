@@ -113,7 +113,19 @@ class LogoutFlow {
 
     context.read<SessionTimeoutProvider>().stopTracking();
     if (!context.mounted) return true;
+    final messenger = result.serverRevocationFailed
+        ? ScaffoldMessenger.maybeOf(context)
+        : null;
     context.go('/login');
+    // Local sign-out is complete, but the bearer token may still be live —
+    // say so rather than letting the staff member assume the session is dead.
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(strings.logoutServerRevocationFailed),
+        backgroundColor: AppTheme.errorRed,
+        duration: const Duration(seconds: 6),
+      ),
+    );
     return true;
   }
 }

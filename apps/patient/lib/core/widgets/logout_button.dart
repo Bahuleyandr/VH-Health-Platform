@@ -87,14 +87,29 @@ class LogoutButton extends StatelessWidget {
 
       // Centralised teardown: disconnects the realtime + WebSocket PHI channels
       // (previously MISSING from this button path), cancels local
-      // notifications, wipes secure storage + API cache + downloaded-file
-      // cache (raw PHI) + plaintext cycle data, and signs out of Firebase as
-      // its final step. Single source of truth so a new teardown step added
-      // to logout can't be missed here.
-      await LogoutService.logout();
+      // notifications, revokes the VH JWT server-side, wipes secure storage +
+      // API cache + downloaded-file cache (raw PHI) + plaintext cycle data,
+      // and signs out of Firebase as its final step. Single source of truth so
+      // a new teardown step added to logout can't be missed here.
+      final outcome = await LogoutService.logout();
 
       if (context.mounted) {
         context.go('/login');
+      }
+
+      // Local sign-out succeeded either way, but if the backend never revoked
+      // the token we must not let the user believe every device is signed out.
+      if (!outcome.serverSessionRevoked && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Signed out on this device. We could not reach the server, so '
+              'other devices may stay signed in until you retry.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 6),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Logout error: $e');
