@@ -96,6 +96,12 @@ async function cleanup() {
     `DROP FUNCTION IF EXISTS test_device_vitals_concurrent_hold()`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DROP TRIGGER IF EXISTS test_device_vitals_retryable_failure ON vitals_chart`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DROP FUNCTION IF EXISTS test_device_vitals_retryable_failure()`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DROP TRIGGER IF EXISTS test_device_vitals_postcommit_failure ON clinical_alerts`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -406,12 +412,33 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
   test('unexpected (non-AppError) gateway failure is 503-retryable and releases the claim', async () => {
     const controlId = 'GWCM3-CTL-RETRYABLE';
 
-    // heart_rate is numeric(6,2) — an out-of-range value blows up INSIDE the
-    // vitals transaction (after the claim insert), i.e. a server-side,
-    // non-AppError failure. The gateway must get a 5xx so its spool retains
-    // the sample instead of dead-lettering it.
-    await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '99999' })))
-      .rejects.toMatchObject({ code: 'DEVICE_VITALS_INGEST_RETRYABLE', statusCode: 503 });
+    await prisma.$executeRawUnsafe(
+      `CREATE FUNCTION test_device_vitals_retryable_failure()
+       RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN
+         RAISE EXCEPTION 'forced retryable device vitals failure';
+       END;
+       $$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_device_vitals_retryable_failure
+       BEFORE INSERT ON vitals_chart
+       FOR EACH ROW
+       WHEN (NEW.patient_uid = 'cafe0c53-0000-4000-8000-0000000000b8'::uuid)
+       EXECUTE FUNCTION test_device_vitals_retryable_failure()`,
+    );
+
+    try {
+      await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '82' })))
+        .rejects.toMatchObject({ code: 'DEVICE_VITALS_INGEST_RETRYABLE', statusCode: 503 });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS test_device_vitals_retryable_failure ON vitals_chart`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_device_vitals_retryable_failure()`,
+      );
+    }
 
     // The claim rolled back with the transaction — nothing consumed.
     expect(await controlIdRows(controlId)).toHaveLength(0);
