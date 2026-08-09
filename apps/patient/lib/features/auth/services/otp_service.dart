@@ -7,18 +7,60 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth/core/services/backend_api_service.dart';
 
+/// Signature of [FirebaseAuth.verifyPhoneNumber] (the subset this app uses).
+/// Injectable so unit tests can drive the codeSent/verificationFailed paths
+/// without a Firebase app.
+typedef VerifyPhoneNumberFn =
+    Future<void> Function({
+      required String phoneNumber,
+      required PhoneVerificationCompleted verificationCompleted,
+      required PhoneVerificationFailed verificationFailed,
+      required PhoneCodeSent codeSent,
+      required PhoneCodeAutoRetrievalTimeout codeAutoRetrievalTimeout,
+      int? forceResendingToken,
+    });
+
 class OtpService {
-  /// Send OTP to phone number
+  OtpService({VerifyPhoneNumberFn? verifyPhoneNumber})
+    : _verifyPhoneNumber = verifyPhoneNumber ?? _firebaseVerifyPhoneNumber;
+
+  final VerifyPhoneNumberFn _verifyPhoneNumber;
+
+  static Future<void> _firebaseVerifyPhoneNumber({
+    required String phoneNumber,
+    required PhoneVerificationCompleted verificationCompleted,
+    required PhoneVerificationFailed verificationFailed,
+    required PhoneCodeSent codeSent,
+    required PhoneCodeAutoRetrievalTimeout codeAutoRetrievalTimeout,
+    int? forceResendingToken,
+  }) {
+    return FirebaseAuth.instance.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      verificationCompleted: verificationCompleted,
+      verificationFailed: verificationFailed,
+      codeSent: codeSent,
+      codeAutoRetrievalTimeout: codeAutoRetrievalTimeout,
+      forceResendingToken: forceResendingToken,
+    );
+  }
+
+  /// Send OTP to phone number.
+  ///
+  /// [forceResendingToken] — pass the token surfaced by a previous
+  /// [onCodeSent] when the user taps "Resend" so Firebase reuses the same
+  /// verification session instead of starting a fresh one (which burns
+  /// quota and can trip abuse throttling).
   Future<void> sendOTP({
     required String phoneNumber,
-    required Function(String) onCodeSent,
+    required Function(String verificationId, int? resendToken) onCodeSent,
     required Function(PhoneAuthCredential, String) onAutoRetrieved,
     required Function(String) onError,
+    int? forceResendingToken,
   }) async {
     try {
-      await FirebaseAuth.instance.verifyPhoneNumber(
+      await _verifyPhoneNumber(
         phoneNumber: phoneNumber,
-        verificationCompleted: (credential) async {
+        verificationCompleted: (credential) {
           final smsCode = credential.smsCode;
           if (smsCode != null) {
             onAutoRetrieved(credential, smsCode);
@@ -33,12 +75,13 @@ class OtpService {
           }
           onError(userMessageForFirebaseAuthCode(e.code));
         },
-        codeSent: (id, _) {
-          onCodeSent(id);
+        codeSent: (id, resendToken) {
+          onCodeSent(id, resendToken);
         },
         codeAutoRetrievalTimeout: (id) {
           // Handle timeout if needed
         },
+        forceResendingToken: forceResendingToken,
       );
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) {
@@ -78,6 +121,30 @@ class OtpService {
       'missing-client-identifier' =>
         'This app cannot send OTPs right now. Please update the app or contact support.',
       _ => 'Unable to send OTP. Please try again.',
+    };
+  }
+
+  /// Friendly copy for [FirebaseAuthException] codes raised while verifying
+  /// an entered OTP (`signInWithCredential`). Companion to
+  /// [userMessageForFirebaseAuthCode], which covers the send step — without
+  /// this, a wrong code surfaced the raw
+  /// `[firebase_auth/invalid-verification-code] ...` string to the patient.
+  static String userMessageForOtpVerificationCode(String code) {
+    return switch (code) {
+      'invalid-verification-code' =>
+        'That OTP is incorrect. Check the code and try again.',
+      'invalid-verification-id' ||
+      'session-expired' ||
+      'code-expired' => 'This OTP has expired. Tap Resend to get a new code.',
+      'too-many-requests' =>
+        'Too many verification attempts. Please wait and try again.',
+      'quota-exceeded' =>
+        'OTP service is temporarily unavailable. Please try again later.',
+      'network-request-failed' =>
+        'Network error while verifying OTP. Check your connection and try again.',
+      'user-disabled' =>
+        'This account has been disabled. Please contact the hospital for help.',
+      _ => 'Unable to verify OTP. Please try again.',
     };
   }
 

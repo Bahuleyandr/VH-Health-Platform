@@ -5,7 +5,9 @@ import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 import 'package:vhhealth/features/auth/widgets/otp_ui_components.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
+import 'package:vhhealth/features/auth/services/resend_cooldown.dart';
 import 'dart:developer' as developer;
 
 typedef OtpCredentialHandler =
@@ -64,10 +66,17 @@ class _OtpWidgetState extends State<OtpWidget> {
   /// edits the code.
   String? errorText;
 
+  /// Firebase resend token from the last codeSent callback. Passed back on
+  /// resend so Firebase reuses the same verification session instead of
+  /// starting a fresh one.
+  int? _resendToken;
+  final ResendCooldown _resendCooldown = ResendCooldown();
+
   @override
   void initState() {
     super.initState();
     _otpService = widget.otpService ?? OtpService();
+    _resendCooldown.addListener(_onCooldownTick);
     // Post-frame: _sendOTP reads AppLocalizations (an inherited widget),
     // which cannot be looked up from initState.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -75,14 +84,24 @@ class _OtpWidgetState extends State<OtpWidget> {
     });
   }
 
+  void _onCooldownTick() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     otpController.dispose();
+    _resendCooldown.dispose();
     super.dispose();
   }
 
   Future<void> _sendOTP() async {
+    // Belt-and-braces: the resend button is disabled during the cooldown,
+    // but never let a queued tap restart the send early.
+    if (_resendCooldown.isActive && otpSent) return;
+
     final l = AppLocalizations.of(context)!;
+    final hadUsableCode = verificationId != null && otpSent;
     setState(() {
       otpSent = false;
       isResending = true;
@@ -92,13 +111,16 @@ class _OtpWidgetState extends State<OtpWidget> {
     // No need to store the result if you're not using it
     await _otpService.sendOTP(
       phoneNumber: widget.phoneNumber,
-      onCodeSent: (id) {
+      forceResendingToken: _resendToken,
+      onCodeSent: (id, resendToken) {
         if (!mounted) return;
         setState(() {
           verificationId = id;
+          _resendToken = resendToken ?? _resendToken;
           otpSent = true;
           isResending = false;
         });
+        _resendCooldown.start();
         _showMessage("${l.otpOtpSentTo} ${_maskPhone(widget.phoneNumber)}");
       },
       onAutoRetrieved: (credential, smsCode) async {
@@ -121,7 +143,15 @@ class _OtpWidgetState extends State<OtpWidget> {
       },
       onError: (error) {
         _showMessage(error);
-        if (mounted) setState(() => isResending = false);
+        if (mounted) {
+          setState(() {
+            // A failed resend does not invalidate the prior verification ID.
+            // Keep that already-delivered OTP usable instead of trapping the
+            // patient behind another successful SMS request.
+            otpSent = hadUsableCode;
+            isResending = false;
+          });
+        }
       },
     );
   }
@@ -151,6 +181,8 @@ class _OtpWidgetState extends State<OtpWidget> {
         verificationId: verificationId!,
         smsCode: otp,
       );
+      // _handleFirebaseAuthSuccess maps its own errors, but _authenticate may
+      // route to an injected credential handler, so keep the guard here.
       await _authenticate(credential);
     } catch (e) {
       _setInlineError(l.otpInvalidTryAgain);
@@ -185,7 +217,11 @@ class _OtpWidgetState extends State<OtpWidget> {
       );
 
       if (!backendLoginOk) {
-        await FirebaseAuth.instance.signOut();
+        // The backend exchange may have written part of the local session
+        // before a later storage write failed. Use the centralized teardown
+        // so no partial JWT can make the router treat this failed login as an
+        // authenticated session when Firebase sign-out refreshes it.
+        await LogoutService.logout();
         _setInlineError(l.otpBackendLoginFailed);
         return;
       }
@@ -195,6 +231,11 @@ class _OtpWidgetState extends State<OtpWidget> {
         name: 'OtpWidget',
       );
       widget.onSuccess();
+    } on FirebaseAuthException catch (e) {
+      // Map Firebase codes (wrong code, expired session, throttling, network)
+      // to friendly copy — never surface the raw exception string.
+      _showMessage(OtpService.userMessageForOtpVerificationCode(e.code));
+      developer.log("Firebase auth error (${e.code})", name: 'OtpWidget');
     } catch (e) {
       _setInlineError(l.otpAuthenticationFailed);
       developer.log("Firebase auth error: $e", name: 'OtpWidget');
@@ -225,6 +266,7 @@ class _OtpWidgetState extends State<OtpWidget> {
       isVerifying: isVerifying,
       isResending: isResending,
       errorText: errorText,
+      resendCooldownSeconds: _resendCooldown.remainingSeconds,
       onVerifyPressed: _verifyOTP,
       onResendPressed: _sendOTP,
       onOtpChanged: (value) {

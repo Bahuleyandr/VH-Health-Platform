@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -87,12 +86,11 @@ class LogoutButton extends StatelessWidget {
 
       // Centralised teardown: disconnects the realtime + WebSocket PHI channels
       // (previously MISSING from this button path), cancels local
-      // notifications, and wipes secure storage + API cache + downloaded-file
-      // cache (raw PHI) + plaintext cycle data. Single source of truth so a new
-      // teardown step added to logout can't be missed here.
+      // notifications, wipes secure storage + API cache + downloaded-file
+      // cache (raw PHI) + plaintext cycle data, and signs out of Firebase as
+      // its final step. Single source of truth so a new teardown step added
+      // to logout can't be missed here.
       await LogoutService.logout();
-
-      await FirebaseAuth.instance.signOut();
 
       if (context.mounted) {
         context.go('/login');

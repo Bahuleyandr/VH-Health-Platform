@@ -21,12 +21,13 @@ class _FakeOtpService extends OtpService {
   @override
   Future<void> sendOTP({
     required String phoneNumber,
-    required Function(String) onCodeSent,
+    required Function(String verificationId, int? resendToken) onCodeSent,
     required Function(PhoneAuthCredential, String) onAutoRetrieved,
     required Function(String) onError,
+    int? forceResendingToken,
   }) async {
     _onAutoRetrieved = onAutoRetrieved;
-    onCodeSent('verification-id');
+    onCodeSent('verification-id', null);
   }
 
   Future<void> autoRetrieve(String smsCode) async {

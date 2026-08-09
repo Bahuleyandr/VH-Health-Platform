@@ -211,11 +211,13 @@ Future<void> main() async {
         // Activate Firebase App Check so Firebase-backed surfaces (FCM,
         // Crashlytics) can attest that requests come from a genuine, unmodified
         // build. Mirrors the patient app's PAT-1 activation.
-        // - Profile/release builds: Play Integrity (Android) / DeviceCheck (iOS).
-        // - Debug builds: DebugProvider — register the printed token in the
-        //   Firebase console under App Check → Apps → Manage debug tokens.
+        // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
+        // - Debug AND profile builds (staging App Distribution ships
+        //   debug-signed profile APKs that cannot pass real attestation):
+        //   DebugProvider — register the printed token in the Firebase
+        //   console under App Check → Apps → Manage debug tokens.
         // - Web (a real shipping target: dart2js CI lane + Dockerfile.web): a
-        //   ReCaptcha v3 site key must be supplied via
+        //   reCAPTCHA Enterprise site key must be supplied via
         //   --dart-define=VH_RECAPTCHA_SITE_KEY=... (see
         //   docs/runbooks/FIREBASE_KEY_ROTATION.md). Without one, activation is
         //   skipped entirely rather than attesting with a bogus key.
@@ -237,16 +239,21 @@ Future<void> main() async {
           // enabled in the Firebase console.
           try {
             await FirebaseAppCheck.instance.activate(
-              providerAndroid: kDebugMode
-                  ? const AndroidDebugProvider()
-                  : const AndroidPlayIntegrityProvider(),
-              providerApple: kDebugMode
-                  ? const AppleDebugProvider()
-                  : const AppleDeviceCheckProvider(),
+              providerAndroid: kReleaseMode
+                  ? const AndroidPlayIntegrityProvider()
+                  : const AndroidDebugProvider(),
+              providerApple: kReleaseMode
+                  ? const AppleDeviceCheckProvider()
+                  : const AppleDebugProvider(),
               providerWeb: kIsWeb
-                  ? ReCaptchaV3Provider(recaptchaSiteKey)
+                  ? ReCaptchaEnterpriseProvider(recaptchaSiteKey)
                   : null,
             );
+            // Attach the attestation token to every backend API request —
+            // only wired here, where activation actually ran (not desktop,
+            // not web without a site key). Core's resolver is fail-open.
+            VHHttpClient.appCheckTokenProvider = () =>
+                FirebaseAppCheck.instance.getToken();
           } catch (e) {
             debugPrint('FirebaseAppCheck.activate skipped: $e');
           }

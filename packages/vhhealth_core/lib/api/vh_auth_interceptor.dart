@@ -40,10 +40,14 @@ class VHAuthInterceptor implements Interceptor {
 
   Future<Request> _attachHeaders(Request request) async {
     final jwt = await AuthService.getJwt();
+    // Shared fail-open resolver — never throws, never blocks past its timeout.
+    final appCheckToken = await VHHttpClient.currentAppCheckToken();
     final headers = {
       ...request.headers,
       if (ApiConfig.apiKey.isNotEmpty) 'x-api-key': ApiConfig.apiKey,
       if (jwt != null && jwt.isNotEmpty) 'Authorization': 'Bearer $jwt',
+      if (appCheckToken != null && appCheckToken.isNotEmpty)
+        'X-Firebase-AppCheck': appCheckToken,
     };
     return request.copyWith(headers: headers);
   }

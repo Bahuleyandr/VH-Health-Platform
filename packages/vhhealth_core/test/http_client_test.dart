@@ -49,6 +49,7 @@ void main() {
     _installSecureStorageFake();
     VHHttpClient.onSessionExpired = null;
     VHHttpClient.deviceTypeProvider = null;
+    VHHttpClient.appCheckTokenProvider = null;
   });
 
   tearDown(() async {
@@ -56,6 +57,8 @@ void main() {
     VHHttpClient.resetClientForTesting();
     VHHttpClient.onSessionExpired = null;
     VHHttpClient.deviceTypeProvider = null;
+    VHHttpClient.appCheckTokenProvider = null;
+    VHHttpClient.appCheckTokenTimeout = const Duration(seconds: 2);
   });
 
   test(
@@ -511,6 +514,134 @@ void main() {
       );
 
       final resp = await VHHttpClient.get('/device-check');
+      expect(resp.isSuccess, isTrue);
+    });
+  });
+
+  group('VHHttpClient - App Check header', () {
+    test('attaches X-Firebase-AppCheck on authenticated POST', () async {
+      await AuthService.setJwt('access');
+      VHHttpClient.appCheckTokenProvider = () async => 'attest-token';
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.method, 'POST');
+          expect(req.headers['Authorization'], 'Bearer access');
+          expect(req.headers['X-Firebase-AppCheck'], 'attest-token');
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post('/vitals', body: {'bp': '120/80'});
+      expect(resp.isSuccess, isTrue);
+    });
+
+    test('attaches X-Firebase-AppCheck on unauthenticated requests', () async {
+      // The pre-API-key /auth/firebase mount verifies App Check before any
+      // JWT exists, so the header must ride auth:false calls too.
+      VHHttpClient.appCheckTokenProvider = () async => 'attest-token';
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.headers.containsKey('Authorization'), isFalse);
+          expect(req.headers['X-Firebase-AppCheck'], 'attest-token');
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post(
+        '/auth/firebase/firebase-login',
+        auth: false,
+        body: {'idToken': 'firebase-id-token'},
+      );
+      expect(resp.isSuccess, isTrue);
+    });
+
+    test('omits the header when no provider is installed', () async {
+      await AuthService.setJwt('access');
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.headers.containsKey('X-Firebase-AppCheck'), isFalse);
+          return http.Response(
+            jsonEncode({'success': true, 'data': 'ok'}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.get('/ping');
+      expect(resp.isSuccess, isTrue);
+    });
+
+    test('omits the header when the provider returns null or empty', () async {
+      await AuthService.setJwt('access');
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.headers.containsKey('X-Firebase-AppCheck'), isFalse);
+          return http.Response(
+            jsonEncode({'success': true, 'data': 'ok'}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      VHHttpClient.appCheckTokenProvider = () async => null;
+      expect((await VHHttpClient.get('/ping')).isSuccess, isTrue);
+
+      VHHttpClient.appCheckTokenProvider = () async => '';
+      expect((await VHHttpClient.get('/ping')).isSuccess, isTrue);
+    });
+
+    test('fails open when the provider throws — request succeeds', () async {
+      await AuthService.setJwt('access');
+      VHHttpClient.appCheckTokenProvider = () async =>
+          throw StateError('App Check not activated');
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.headers.containsKey('X-Firebase-AppCheck'), isFalse);
+          return http.Response(
+            jsonEncode({'success': true, 'data': 'ok'}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.get('/ping');
+      expect(resp.isSuccess, isTrue);
+    });
+
+    test('fails open when the provider hangs past the timeout', () async {
+      await AuthService.setJwt('access');
+      VHHttpClient.appCheckTokenTimeout = const Duration(milliseconds: 50);
+      // Never completes — the timeout must release the request without it.
+      VHHttpClient.appCheckTokenProvider = () => Completer<String?>().future;
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.headers.containsKey('X-Firebase-AppCheck'), isFalse);
+          return http.Response(
+            jsonEncode({'success': true, 'data': 'ok'}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.get('/ping');
       expect(resp.isSuccess, isTrue);
     });
   });
