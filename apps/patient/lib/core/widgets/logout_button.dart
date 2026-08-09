@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/device_service.dart';
-import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
@@ -62,14 +61,13 @@ class LogoutButton extends StatelessWidget {
     if (confirm != true || !context.mounted) return;
 
     try {
-      // Unregister device and revoke session before clearing storage
+      // Unregister the device before clearing storage. LogoutService owns both
+      // server-session revocations so every logout path observes one combined
+      // result and preserves the required Firebase-before-VH ordering.
       final storage = VHSecureStorage.instance;
       final phone = await storage.read(key: 'user_phone') ?? '';
       try {
-        await Future.wait([
-          DeviceService.unregisterDevice(phone),
-          FirebaseSessionService.revokeSession(),
-        ]);
+        await DeviceService.unregisterDevice(phone);
       } catch (e) {
         debugPrint('Logout cleanup: $e');
       }
@@ -87,14 +85,29 @@ class LogoutButton extends StatelessWidget {
 
       // Centralised teardown: disconnects the realtime + WebSocket PHI channels
       // (previously MISSING from this button path), cancels local
-      // notifications, wipes secure storage + API cache + downloaded-file
-      // cache (raw PHI) + plaintext cycle data, and signs out of Firebase as
-      // its final step. Single source of truth so a new teardown step added
-      // to logout can't be missed here.
-      await LogoutService.logout();
+      // notifications, revokes the VH JWT server-side, wipes secure storage +
+      // API cache + downloaded-file cache (raw PHI) + plaintext cycle data,
+      // and signs out of Firebase as its final step. Single source of truth so
+      // a new teardown step added to logout can't be missed here.
+      final outcome = await LogoutService.logout();
 
       if (context.mounted) {
         context.go('/login');
+      }
+
+      // Local sign-out succeeded either way, but if the backend never revoked
+      // the token we must not let the user believe every device is signed out.
+      if (!outcome.serverSessionRevoked && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Signed out on this device. We could not reach the server, so '
+              'other devices may stay signed in until you retry.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 6),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Logout error: $e');
