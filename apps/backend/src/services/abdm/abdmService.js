@@ -7,6 +7,7 @@ import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { maskEmail, maskGeneric } from '../../utils/piiMask.js';
 import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { encryptFhirBundle } from './abdmCrypto.js';
@@ -172,6 +173,34 @@ function requireTenantId(tenantId) {
   return tenantId;
 }
 
+/** Render 14 ABHA digits in the canonical 2-4-4-4 hyphenated spelling. */
+function hyphenateAbhaNumber(cleanAbha) {
+  return `${cleanAbha.slice(0, 2)}-${cleanAbha.slice(2, 6)}-${cleanAbha.slice(6, 10)}-${cleanAbha.slice(10)}`;
+}
+
+/**
+ * Validate + normalize an optional ABHA address ("user@abdm").
+ *
+ * Deliberately shape-only: the suffix differs by environment (`@abdm` in
+ * production, `@sbx` in the sandbox) and the handle rules are set by NHA, so
+ * pinning either here would reject valid addresses. This rejects the failure
+ * that actually happens — a phone number, a plain name, or an ABHA number
+ * typed into the address field — and leaves the rest to the gateway.
+ */
+function normalizeAbhaAddress(abhaAddress) {
+  if (abhaAddress === undefined || abhaAddress === null) return null;
+  const trimmed = String(abhaAddress).trim().toLowerCase();
+  if (!trimmed) return null;
+  // users.abha_address is VARCHAR(100); refuse rather than let Postgres 22001.
+  if (trimmed.length > 100 || !/^[a-z0-9][a-z0-9._-]{0,63}@[a-z0-9][a-z0-9.-]{0,34}$/.test(trimmed)) {
+    throw AppError.badRequest(
+      'Invalid ABHA address. Expected the form name@abdm.',
+      'INVALID_ABHA_ADDRESS',
+    );
+  }
+  return trimmed;
+}
+
 class ABDMService {
   async getAdminStatus({ tenantId = null } = {}) {
     const tid = requireTenantId(tenantId);
@@ -301,11 +330,23 @@ class ABDMService {
   }
 
   /**
-   * Link an ABHA ID to a patient account. Verifies via ABDM gateway first.
+   * Link an ABHA the patient ALREADY HOLDS to their VH Health account.
+   *
+   * This is a LINK operation, not an enrolment: it binds an existing national
+   * health identifier to a local patient row. Creating a brand-new ABHA is an
+   * ABDM enrolment flow (Aadhaar/mobile OTP) that this platform does not
+   * implement and cannot reach — `abdmGateway` exposes no enrolment call.
+   * Patients without an ABHA obtain one from the ABHA app or an enrolment
+   * centre and then link it here.
+   *
+   * Works with ABDM credentials unset: gateway verification is applied only
+   * when `ABDM_CONFIG.enabled`, and fails closed when it is.
+   *
    * @param {string} patientUid - Patient's UUID
-   * @param {string} abhaNumber - 14-digit ABHA number
-   * @param {string} abhaAddress - ABHA address (user@abdm)
-   * @returns {Object} Updated patient record
+   * @param {string} abhaNumber - 14-digit ABHA number (hyphens permitted)
+   * @param {string} abhaAddress - ABHA address (user@abdm), optional
+   * @returns {{linked: boolean, abhaNumber: string|null, abhaAddress: string|null}}
+   *   The resulting linkage, in the same shape as `getMyAbhaLinkage`.
    */
   async registerABHA(patientUid, abhaNumber, abhaAddress, { tenantId = null } = {}) {
     const tid = requireTenantId(tenantId);
@@ -317,10 +358,12 @@ class ABDMService {
     }
 
     // Validate ABHA number format (14 digits, may contain hyphens)
-    const cleanAbha = abhaNumber.replace(/-/g, '');
+    const cleanAbha = String(abhaNumber).trim().replace(/-/g, '');
     if (!/^\d{14}$/.test(cleanAbha)) {
       throw AppError.badRequest('Invalid ABHA number format. Must be 14 digits.', 'INVALID_ABHA_FORMAT');
     }
+    const normalizedAbha = String(abhaNumber).trim();
+    const normalizedAddress = normalizeAbhaAddress(abhaAddress);
 
     // Check patient exists
     const patientResult = await prisma.$queryRawUnsafe(
@@ -336,14 +379,19 @@ class ABDMService {
       throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
     }
 
-    // Check ABHA not already linked to another patient
+    // Check ABHA not already linked to another patient. The column stores the
+    // number as supplied, and both the plain 14-digit and the canonical
+    // 2-4-4-4 hyphenated spellings are in circulation (inbound ABDM callbacks
+    // carry the hyphenated form), so an exact-string guard alone lets the same
+    // ABHA be linked twice under two spellings. Compare both; an IN over the
+    // two literals still uses idx_users_abha_number.
     const existingAbha = await prisma.$queryRawUnsafe(
       `SELECT uid FROM users
        WHERE tenant_id = $1::uuid
-         AND abha_number = $2
-         AND uid != $3::uuid
+         AND abha_number IN ($2, $3)
+         AND uid != $4::uuid
        LIMIT 1`,
-      tid, abhaNumber, patientUid
+      tid, cleanAbha, hyphenateAbhaNumber(cleanAbha), patientUid
     );
     if (existingAbha.length > 0) {
       throw AppError.conflict('This ABHA number is already linked to another patient', 'ABHA_ALREADY_LINKED');
@@ -376,16 +424,26 @@ class ABDMService {
        SET abha_number = $1, abha_address = $2, updated_at = NOW()
        WHERE uid = $3::uuid AND tenant_id = $4::uuid
        RETURNING uid, tenant_id, name, phone, abha_number, abha_address, updated_at`,
-      abhaNumber, abhaAddress || null, patientUid, tid
+      normalizedAbha, normalizedAddress, patientUid, tid
     );
 
+    // An ABHA number is a national health identifier — mask it in logs, per the
+    // house rule for user data (this line previously logged it in the clear).
     logger.info('ABHA linked to patient', {
       patientUid,
-      abhaNumber,
-      abhaAddress: abhaAddress || null,
+      abhaNumber: maskGeneric(normalizedAbha),
+      abhaAddress: normalizedAddress ? maskEmail(normalizedAddress) : null,
     });
 
-    return result[0];
+    // Return the linkage, not the user row: the row carries name/phone/tenant
+    // the caller did not ask for, and this shape matches getMyAbhaLinkage so a
+    // client can render the linked state straight from either response.
+    const row = result[0] || {};
+    return {
+      linked: true,
+      abhaNumber: row.abha_number ?? normalizedAbha,
+      abhaAddress: row.abha_address ?? normalizedAddress,
+    };
   }
 
   /**

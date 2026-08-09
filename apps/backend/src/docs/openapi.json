@@ -57,6 +57,75 @@
           }
         }
       },
+      "AbhaLinkRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "abha_number"
+        ],
+        "properties": {
+          "abha_number": {
+            "type": "string",
+            "description": "14-digit ABHA number of an account the patient ALREADY HOLDS. Hyphens in the canonical 2-4-4-4 spelling are accepted and stored as sent; anything that is not 14 digits once hyphens are removed is rejected with INVALID_ABHA_FORMAT.",
+            "example": "12-3456-7890-1234"
+          },
+          "abha_address": {
+            "type": "string",
+            "nullable": true,
+            "description": "Optional ABHA address (\"user@abdm\"). Validated for shape only — the suffix differs between the production (@abdm) and sandbox (@sbx) environments — and lower-cased before storage. A malformed value is rejected with INVALID_ABHA_ADDRESS rather than stored.",
+            "example": "patient@abdm"
+          },
+          "patient_uid": {
+            "type": "string",
+            "nullable": true,
+            "description": "Link on behalf of another patient. ADMIN and SUPER_ADMIN only; any other role supplying a uid other than its own is refused with 403. Omit for self-linkage — the target is then taken from the JWT."
+          }
+        }
+      },
+      "AbhaLinkResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "linked",
+          "abhaNumber",
+          "abhaAddress"
+        ],
+        "properties": {
+          "linked": {
+            "type": "boolean",
+            "description": "Always true on a 200 — the response describes the linkage that now exists."
+          },
+          "abhaNumber": {
+            "type": "string",
+            "nullable": true,
+            "description": "The ABHA number now on file, as stored."
+          },
+          "abhaAddress": {
+            "type": "string",
+            "nullable": true,
+            "description": "The normalized ABHA address now on file, or null when none was supplied."
+          }
+        }
+      },
+      "AbhaLinkResultResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AbhaLinkResult"
+          }
+        }
+      },
       "AbhaLinkage": {
         "type": "object",
         "additionalProperties": false,
@@ -38975,8 +39044,20 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Success"
+                  "$ref": "#/components/schemas/AbhaLinkResultResponse"
                 }
+              }
+            }
+          }
+        },
+        "summary": "Link an existing ABHA to a patient account",
+        "description": "Binds an ABHA (Ayushman Bharat Health Account) the patient ALREADY HOLDS to their VH Health record, and returns the resulting linkage in the same shape as `GET /api/v1/abdm/my-abha`. Despite the path, this is a LINK and not an enrolment: creating a new ABHA is an ABDM Aadhaar/mobile-OTP flow this platform does not implement, so a patient without an ABHA obtains one from the ABHA app or an enrolment centre first. By default a caller links only their own account; ADMIN and SUPER_ADMIN may pass `patient_uid` to link on behalf of a patient, and every other role supplying someone else's uid gets a 403. The ABHA number must be unique within the tenant — a number already held by another patient, in either the plain or the hyphenated spelling, is refused with 409 ABHA_ALREADY_LINKED. Works while ABDM credentials are unconfigured (the linkage is recorded locally); once `ABDM_ENABLED` is set the number is first verified against the ABDM gateway and linkage FAILS CLOSED with 503 ABHA_VERIFICATION_FAILED if that verification cannot be completed, unless the audited `ABDM_ABHA_ALLOW_UNVERIFIED` override is active. The write is recorded to the HIPAA PHI access log.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AbhaLinkRequest"
               }
             }
           }

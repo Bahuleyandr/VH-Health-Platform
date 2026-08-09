@@ -64,8 +64,16 @@ describe('ABDM tenant authorization', () => {
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([PATIENT, TENANT]);
 
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('tenant_id = $1::uuid');
-    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('abha_number = $2');
-    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([TENANT, '12-3456-7890-1234', PATIENT]);
+    // Duplicate guard probes BOTH circulating spellings of the same ABHA
+    // (plain 14-digit and canonical 2-4-4-4 hyphenated) — audit follow-up P13:
+    // an exact-string guard let one ABHA link to two patients under two spellings.
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('abha_number IN ($2, $3)');
+    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([
+      TENANT,
+      '12345678901234',
+      '12-3456-7890-1234',
+      PATIENT,
+    ]);
 
     expect(queryRawUnsafeMock.mock.calls[2][0]).toContain('WHERE uid = $3::uuid AND tenant_id = $4::uuid');
     expect(queryRawUnsafeMock.mock.calls[2].slice(1)).toEqual(['12-3456-7890-1234', 'patient@abdm', PATIENT, TENANT]);
