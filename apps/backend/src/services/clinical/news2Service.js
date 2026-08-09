@@ -1,6 +1,9 @@
 // src/services/clinical/news2Service.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
+import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 
 // ===================================================================
 // NEWS2 Scoring — Pure calculation functions + persistence
@@ -24,12 +27,56 @@ function presentNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-export function calculateNEWS2(vitals) {
+/**
+ * Normalize an SpO2 scale value to 1 or 2, or null when unrecognized.
+ * Accepts numeric and string forms ('2' arrives from JSON bodies and the
+ * nursing-assessment inputs blob).
+ */
+export function normalizeSpo2Scale(value) {
+  const n = presentNumber(value);
+  if (n === 1 || n === 2) return n;
+  return null;
+}
+
+/**
+ * Resolve which NEWS2 SpO2 scale applies to a patient from the patient-level
+ * flag (users.news2_spo2_scale, migration 643 — set only for patients with a
+ * documented hypercapnic-respiratory-failure risk, RCP NEWS2 Scale 2).
+ * Fail-safe: any lookup problem scores on Scale 1 rather than blocking the
+ * clinical write — Scale 1 never under-alarms.
+ * @param {string} patientUid
+ * @param {{ db?: object }} [options] transaction client when called in-tx
+ * @returns {Promise<1|2>}
+ */
+export async function resolveSpo2ScaleForPatient(patientUid, { db } = {}) {
+  if (!patientUid) return 1;
+  const client = db || prisma;
+  try {
+    const rows = await client.$queryRawUnsafe(
+      `SELECT news2_spo2_scale FROM users WHERE uid = $1::uuid LIMIT 1`,
+      String(patientUid),
+    );
+    return normalizeSpo2Scale(rows?.[0]?.news2_spo2_scale) ?? 1;
+  } catch (err) {
+    logger.warn(`NEWS2 spo2-scale lookup failed for patient ${patientUid}: ${err.message} — defaulting to Scale 1`);
+    return 1;
+  }
+}
+
+/**
+ * The single NEWS2 scorer (C-M7 — the divergent copy in
+ * nursingAssessmentService.scoreNews2 now delegates here).
+ * @param {Object} vitals
+ * @param {{ spo2Scale?: 1|2 }} [options] resolved SpO2 scale; wins over a
+ *   per-reading vitals.spo2_scale. Unrecognized values fall back to Scale 1 —
+ *   the elevated Scale-2 bands must never apply by accident.
+ */
+export function calculateNEWS2(vitals, options = {}) {
   const {
-    spo2_scale = 1,
     supplemental_o2 = false,
     consciousness,
   } = vitals;
+  const spo2Scale = normalizeSpo2Scale(options.spo2Scale ?? vitals.spo2_scale) ?? 1;
 
   // Partial scoring (audit 2026-06-18 §4): score a parameter ONLY when a usable
   // value is present. Previously every parameter ran through a fall-through
@@ -51,18 +98,23 @@ export function calculateNEWS2(vitals) {
 
   const spo2Value = presentNumber(vitals.spo2);
   if (spo2Value === null) missingParams.push('spo2');
-  else if (spo2_scale === 1) {
+  else if (spo2Scale === 1) {
     // Scale 1 (most patients)
     if (spo2Value <= 91) scores.spo2 = 3;
     else if (spo2Value <= 93) scores.spo2 = 2;
     else if (spo2Value <= 95) scores.spo2 = 1;
     else scores.spo2 = 0;
   } else {
-    // Scale 2 (patients with hypercapnic respiratory failure, target 88-92%)
+    // Scale 2 (patients with hypercapnic respiratory failure, target 88-92%).
+    // RCP NEWS2: the elevated >=93 bands (93-94→1, 95-96→2, >=97→3) apply
+    // ONLY when the patient is ON supplemental oxygen; on room air any
+    // saturation >92 scores 0 — a normal saturation must never be a red
+    // parameter (previously spo2 >= 97 on room air scored 3 and fired the
+    // single-red escalation).
     if (spo2Value <= 83) scores.spo2 = 3;
     else if (spo2Value <= 85) scores.spo2 = 2;
     else if (spo2Value <= 87) scores.spo2 = 1;
-    else if (spo2Value <= 92) scores.spo2 = 0;
+    else if (spo2Value <= 92 || !supplemental_o2) scores.spo2 = 0;
     else if (spo2Value <= 94) scores.spo2 = 1;
     else if (spo2Value <= 96) scores.spo2 = 2;
     else scores.spo2 = 3;
@@ -180,11 +232,14 @@ const NEWS2_ESCALATION_THRESHOLD = 5;
  * @param {string} patientUid
  * @param {Object} vitals
  * @param {string} recordedBy
- * @param {{ db?: object }} [options]
+ * @param {{ db?: object, spo2Scale?: 1|2 }} [options] `spo2Scale` is the
+ *   resolved patient-level scale (resolveSpo2ScaleForPatient); it wins over a
+ *   per-reading vitals.spo2_scale and is what gets persisted.
  */
 export async function persistNews2(patientUid, vitals, recordedBy, options = {}) {
   const db = options.db || prisma;
-  const computed = calculateNEWS2(vitals);
+  const spo2Scale = normalizeSpo2Scale(options.spo2Scale ?? vitals.spo2_scale) ?? 1;
+  const computed = calculateNEWS2(vitals, { spo2Scale });
   // Partial scoring: record whenever at least one core parameter is present.
   // Nothing usable → nothing to persist.
   if (!computed.scorable) return null;
@@ -205,7 +260,7 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
     patientUid,
     vitals.respiration_rate ?? null,
     vitals.spo2 ?? null,
-    vitals.spo2_scale || 1,
+    spo2Scale,
     vitals.supplemental_o2 || false,
     vitals.temperature ?? null,
     vitals.systolic_bp ?? null,
@@ -333,13 +388,67 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
  * for the dedicated NEWS2 endpoint; vitalsChartService.recordVitals instead
  * calls persistNews2({ db: tx }) inside its transaction and escalateNews2
  * post-commit so the score is atomic with the vitals row.
+ *
+ * A caller-supplied spo2_scale (bedside clinical judgment) is honored after
+ * validation; when absent the patient-level flag decides (migration 643).
+ *
+ * The detail row + canonical timeline/audit pair commit in ONE transaction
+ * (docs/CANONICAL_CLINICAL_TIMELINE.md): a failed canonical emit rolls back
+ * the news2_scores row. The canonical emit lives HERE and not in persistNews2
+ * on purpose — on the vitals path the vitals.recorded event already covers the
+ * timeline, and the invariant is exactly one timeline row per clinical action.
  * @returns {Object|null} Saved NEWS2 record (null when no usable parameter)
  */
 export async function recordNEWS2(patientUid, vitals, recordedBy, options = {}) {
-  const persisted = await persistNews2(patientUid, vitals, recordedBy, options);
+  const explicitScale = vitals?.spo2_scale ?? options.spo2Scale;
+  let spo2Scale;
+  if (explicitScale === undefined || explicitScale === null || explicitScale === '') {
+    spo2Scale = await resolveSpo2ScaleForPatient(patientUid);
+  } else {
+    spo2Scale = normalizeSpo2Scale(explicitScale);
+    if (spo2Scale === null) {
+      throw AppError.badRequest('spo2_scale must be 1 or 2');
+    }
+  }
+
+  // Resolve the tenant BEFORE the write: the canonical emit must carry it
+  // explicitly (the emit funnel default-stamps DEFAULT_TENANT_ID otherwise)
+  // and setTenantTx sets the GUC that stamps news2_scores.tenant_id — the
+  // standalone path previously ran on plain prisma and default-stamped both.
+  const tenantId = requireTenantId(options?.tenantId ?? await resolvePatientTenantId(patientUid));
+
+  const persisted = await setTenantTx(tenantId, async (tx) => {
+    const p = await persistNews2(patientUid, vitals, recordedBy, { db: tx, spo2Scale });
+    if (!p) return null;
+    await recordCanonicalClinicalEvent({
+      tenantId,
+      patientUid,
+      eventType: 'news2.recorded',
+      eventStatus: 'recorded',
+      sourceTable: 'news2_scores',
+      sourceId: p.record.id,
+      resourceType: 'news2_score',
+      resourceId: p.record.id,
+      actorUid: recordedBy || null,
+      summary: `NEWS2 ${p.computed.totalScore} (${p.computed.clinicalRisk.replace(/_/g, ' ')}) recorded`,
+      payload: {
+        total_score: p.computed.totalScore,
+        clinical_risk: p.computed.clinicalRisk,
+        escalation_action: p.computed.escalationAction,
+        scores: p.computed.scores,
+        any_param_three: p.computed.anyParamThree,
+        partial: p.computed.partial,
+        missing_params: p.computed.missingParams,
+        spo2_scale: spo2Scale,
+      },
+      afterState: p.record,
+      tags: ['news2'],
+    }, { db: tx });
+    return p;
+  });
   if (!persisted) return null;
   const { record, computed } = persisted;
-  await escalateNews2(patientUid, record, computed, { tenantId: options?.tenantId ?? null });
+  await escalateNews2(patientUid, record, computed, { tenantId });
   logger.info(`NEWS2 recorded for patient ${patientUid}: score=${computed.totalScore}, risk=${computed.clinicalRisk}`);
   return record;
 }
@@ -378,6 +487,8 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
 export default {
   calculateNEWS2,
   getClinicalRisk,
+  normalizeSpo2Scale,
+  resolveSpo2ScaleForPatient,
   persistNews2,
   escalateNews2,
   recordNEWS2,
