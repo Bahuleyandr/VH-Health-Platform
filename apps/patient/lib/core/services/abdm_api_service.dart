@@ -5,29 +5,63 @@ import 'package:vhhealth/core/services/api_client.dart';
 class AbdmApiService {
   AbdmApiService._();
 
-  /// Link the patient's EXISTING ABHA to their VH Health account.
+  /// Link an ABHA the patient ALREADY HOLDS to their account.
   ///
-  /// This does not create an ABHA. The backend has no enrolment path — the
-  /// ABDM gateway client exposes only `verifyABHA`, and `POST /abdm/register-abha`
-  /// is an UPDATE of the caller's `abha_number`/`abha_address` columns. Patients
-  /// without an ABHA create one on the official ABDM portal first.
+  /// `POST /abdm/register-abha` is a linkage endpoint despite its name — it
+  /// binds an existing ABHA number to the patient row. It is NOT an enrolment
+  /// call: creating a new ABHA is an ABDM Aadhaar/mobile-OTP flow the backend
+  /// does not implement (the ABDM gateway client exposes only `verifyABHA`).
+  /// This method previously posted an enrolment payload
+  /// (`mobile`/`name`/`yearOfBirth`/`gender`/`email`) that the endpoint has
+  /// never accepted, so every call 400'd. Patients without an ABHA create one
+  /// on the official ABDM portal first.
   ///
   /// `patient_uid` is deliberately omitted: the backend defaults the target to
   /// the caller's own JWT uid, and sending someone else's is refused anyway.
-  static Future<void> linkAbha({
+  ///
+  /// Returns the resulting `{linked, abhaNumber, abhaAddress}` linkage — the
+  /// same shape `GET /abdm/my-abha` returns.
+  static Future<Map<String, dynamic>> linkAbha({
     required String abhaNumber,
     String? abhaAddress,
   }) async {
+    final address = abhaAddress?.trim();
     final response = await ApiClient.post(
       '/abdm/register-abha',
       body: {
-        'abha_number': abhaNumber,
-        if (abhaAddress != null && abhaAddress.isNotEmpty)
-          'abha_address': abhaAddress,
+        'abha_number': abhaNumber.trim(),
+        if (address != null && address.isNotEmpty) 'abha_address': address,
       },
     );
-    if (!response.isSuccess) {
-      throw AbdmException(response.failureMessage('Could not link your ABHA'));
+    if (response.isSuccess) {
+      return response.dataAsMap();
+    }
+    throw AbdmException(linkFailureMessage(response));
+  }
+
+  /// Human-readable message for a failed [linkAbha], keyed off the backend
+  /// error code so the wording does not depend on server copy. Visible for
+  /// testing — the mapping is the part worth pinning.
+  @visibleForTesting
+  static String linkFailureMessage(ApiResponse response) {
+    switch (response.code) {
+      case 'INVALID_ABHA_FORMAT':
+        return 'That does not look like an ABHA number. Enter all 14 digits.';
+      case 'INVALID_ABHA_ADDRESS':
+        return 'That does not look like an ABHA address. It should look like name@abdm.';
+      case 'ABHA_ALREADY_LINKED':
+        return 'This ABHA is already linked to another patient. Please check the '
+            'number, or ask the hospital front desk for help.';
+      case 'ABHA_VERIFICATION_FAILED':
+        return 'We could not verify this ABHA with ABDM just now, so it has not '
+            'been linked. Please try again in a few minutes.';
+      case 'PATIENT_NOT_FOUND':
+        return 'We could not find your patient record. Please ask the hospital '
+            'front desk to check your registration.';
+      default:
+        return response.failureMessage(
+          'Could not link your ABHA (${response.statusCode})',
+        );
     }
   }
 

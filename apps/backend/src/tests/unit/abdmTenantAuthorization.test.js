@@ -64,8 +64,16 @@ describe('ABDM tenant authorization', () => {
     expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([PATIENT, TENANT]);
 
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('tenant_id = $1::uuid');
-    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('abha_number = $2');
-    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([TENANT, '12-3456-7890-1234', PATIENT]);
+    // Duplicate guard probes BOTH circulating spellings of the same ABHA
+    // (plain 14-digit and canonical 2-4-4-4 hyphenated) — audit follow-up P13:
+    // an exact-string guard let one ABHA link to two patients under two spellings.
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('abha_number IN ($2, $3)');
+    expect(queryRawUnsafeMock.mock.calls[1].slice(1)).toEqual([
+      TENANT,
+      '12345678901234',
+      '12-3456-7890-1234',
+      PATIENT,
+    ]);
 
     expect(queryRawUnsafeMock.mock.calls[2][0]).toContain('WHERE uid = $3::uuid AND tenant_id = $4::uuid');
     expect(queryRawUnsafeMock.mock.calls[2].slice(1)).toEqual(['12-3456-7890-1234', 'patient@abdm', PATIENT, TENANT]);
@@ -82,12 +90,45 @@ describe('ABDM tenant authorization', () => {
     await abdmService.getAdminStatus({ tenantId: TENANT });
 
     expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('tenant_id = $1::uuid');
-    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('abha_number = $2');
-    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([TENANT, '12-3456-7890-1234']);
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('abha_number IN ($2, $3)');
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain("role = 'PATIENT'");
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
+      TENANT,
+      '12345678901234',
+      '12-3456-7890-1234',
+    ]);
 
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('FROM users');
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('tenant_id = $1::uuid');
     expect(queryRawUnsafeMock.mock.calls[3][0]).toContain('FROM abdm_consents');
     expect(queryRawUnsafeMock.mock.calls[3][0]).toContain('tenant_id = $1::uuid');
+  });
+
+  it('fails closed when legacy spellings resolve to multiple patients', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      { uid: PATIENT, tenant_id: TENANT },
+      { uid: '22222222-2222-4222-8222-222222222222', tenant_id: TENANT },
+    ]);
+
+    await expect(
+      abdmService.getPatientByABHA('12345678901234', { tenantId: TENANT }),
+    ).rejects.toMatchObject({ code: 'ABHA_MULTIPLE_PATIENTS', statusCode: 409 });
+  });
+
+  it('normalizes inbound ABHA lookup and rejects same-tenant ambiguity', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([
+      { uid: PATIENT, tenant_id: TENANT },
+      { uid: '22222222-2222-4222-8222-222222222222', tenant_id: TENANT },
+    ]);
+
+    await expect(
+      abdmService._resolvePatientTenantByAbha('12-3456-7890-1234'),
+    ).rejects.toMatchObject({ code: 'ABDM_ABHA_MULTI_PATIENT', statusCode: 409 });
+
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('abha_number IN ($1, $2)');
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([
+      '12345678901234',
+      '12-3456-7890-1234',
+    ]);
   });
 });

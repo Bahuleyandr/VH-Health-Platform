@@ -43,6 +43,7 @@ import * as downtimeStaticMirror from './openapi/schemas/downtimeStaticMirror.mj
 import * as continuityFacilityContextGrants from './openapi/schemas/continuityFacilityContextGrants.mjs';
 import * as publicPaymentPage from './openapi/schemas/publicPaymentPage.mjs';
 import * as firebaseAuth from './openapi/schemas/firebaseAuth.mjs';
+import * as abdmAbhaRegistration from './openapi/schemas/abdmAbhaRegistration.mjs';
 
 const SCHEMA_MODULES = [
   abdm,
@@ -74,7 +75,8 @@ const SCHEMA_MODULES = [
   downtimeStaticMirror,
   continuityFacilityContextGrants,
   publicPaymentPage,
-  firebaseAuth
+  firebaseAuth,
+  abdmAbhaRegistration
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

@@ -322,11 +322,23 @@ function canManageAnyAbha(role) {
 
 /**
  * POST /abdm/register-abha
- * Link ABHA number to patient account (patient or admin).
+ * Link an ABHA the patient ALREADY HOLDS to their account (patient or admin).
+ *
+ * Body: `{ abha_number, abha_address? , patient_uid? }` — snake_case, matching
+ * the rest of this router. This is a LINK, not an enrolment: creating a new
+ * ABHA is an ABDM Aadhaar/mobile-OTP flow the platform does not implement (see
+ * the note on `abdmService.registerABHA`), so the patient app collects an ABHA
+ * the patient already has rather than demographics. The client previously
+ * POSTed `{mobile,name,yearOfBirth,gender,email}` here — an enrolment payload
+ * this endpoint has never accepted — and every call 400'd (audit follow-up
+ * P13).
+ *
+ * Responds with the resulting `{linked, abhaNumber, abhaAddress}` linkage, the
+ * same shape as `GET /abdm/my-abha`.
  */
 patientRouter.post('/register-abha', async (req, res, next) => {
   try {
-    const { abha_number, abha_address, patient_uid } = req.body;
+    const { abha_number, abha_address, patient_uid } = req.body || {};
 
     const role = req.user?.role;
     let targetUid = req.user?.uid;
@@ -340,15 +352,30 @@ patientRouter.post('/register-abha', async (req, res, next) => {
       return error(res, 'Patient UID is required', 400);
     }
 
-    if (!abha_number) {
+    // Treat whitespace-only as absent — otherwise it reaches the service and
+    // fails the format check with the less helpful "must be 14 digits".
+    if (typeof abha_number !== 'string' || !abha_number.trim()) {
       return error(res, 'ABHA number is required', 400);
     }
 
-    const result = await abdmService.registerABHA(targetUid, abha_number, abha_address, {
+    const linkage = await abdmService.registerABHA(targetUid, abha_number, abha_address, {
       tenantId: req.tenantId,
     });
 
-    return success(res, result, 'ABHA linked to patient successfully', 200);
+    // Binding a national health identifier to a patient record is a PHI write.
+    // Mirrors the logging on GET /abdm/my-abha.
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: role,
+      patientId: targetUid,
+      recordType: 'abha_linkage',
+      action: 'UPDATE',
+      ip: req.ip,
+      requestId: req.id,
+      tenantId: req.tenantId,
+    });
+
+    return success(res, linkage, 'ABHA linked to patient successfully', 200);
   } catch (err) {
     if (err.isOperational) {
       return relayAppError(res, err, 'Failed to register ABHA');

@@ -32,6 +32,8 @@ import * as downtimeWardPacks from '../../../scripts/openapi/schemas/downtimeWar
 import * as downtimeStaticMirror from '../../../scripts/openapi/schemas/downtimeStaticMirror.mjs';
 import * as continuityFacilityContextGrants from '../../../scripts/openapi/schemas/continuityFacilityContextGrants.mjs';
 import * as publicPaymentPage from '../../../scripts/openapi/schemas/publicPaymentPage.mjs';
+import * as firebaseAuth from '../../../scripts/openapi/schemas/firebaseAuth.mjs';
+import * as abdmAbhaRegistration from '../../../scripts/openapi/schemas/abdmAbhaRegistration.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -64,7 +66,9 @@ const MODULES = [
   downtimeWardPacks,
   downtimeStaticMirror,
   continuityFacilityContextGrants,
-  publicPaymentPage
+  publicPaymentPage,
+  firebaseAuth,
+  abdmAbhaRegistration
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
