@@ -32,12 +32,13 @@ function getTransporter() {
  * Gracefully returns if SMTP is not configured.
  * @param {Object} options
  * @param {string} options.to - Recipient email
+ * @param {string|string[]} [options.cc] - Carbon-copy recipients
  * @param {string} options.subject - Email subject
  * @param {string} [options.html] - HTML body
  * @param {string} [options.text] - Plain text body
  * @param {Array<Object>} [options.attachments] - nodemailer-style attachments
  */
-export async function sendEmail({ to, subject, html, text, attachments, receiptMode = false }) {
+export async function sendEmail({ to, cc, subject, html, text, attachments, receiptMode = false }) {
   const transport = getTransporter();
 
   if (!transport) {
@@ -50,7 +51,7 @@ export async function sendEmail({ to, subject, html, text, attachments, receiptM
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
 
   try {
-    const info = await transport.sendMail({ from, to, subject, html, text, attachments });
+    const info = await transport.sendMail({ from, to, cc, subject, html, text, attachments });
     logger.info(`📧 Email sent to ${to}: ${info.messageId}`);
     return info;
   } catch (err) {

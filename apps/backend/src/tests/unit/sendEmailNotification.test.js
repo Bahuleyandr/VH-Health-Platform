@@ -39,6 +39,7 @@ describe('sendEmail', () => {
 
     const result = await sendEmail({
       to: 'recipient@example.com',
+      cc: 'copy@example.com',
       subject: 'Report',
       text: 'body',
       attachments: [{ filename: 'report.pdf', content: Buffer.from('pdf-bytes'), contentType: 'application/pdf' }],
@@ -47,6 +48,7 @@ describe('sendEmail', () => {
     expect(result.messageId).toBe('provider-id-1');
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const sentArgs = sendMailMock.mock.calls[0][0];
+    expect(sentArgs.cc).toBe('copy@example.com');
     expect(sentArgs.attachments).toEqual([
       { filename: 'report.pdf', content: Buffer.from('pdf-bytes'), contentType: 'application/pdf' },
     ]);

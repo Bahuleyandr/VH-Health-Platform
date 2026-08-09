@@ -210,8 +210,13 @@ export const emailInvestigationReport = async (investigationId, emailOptions, _s
     receiptMode: true,
   });
 
-  if (result.outcome === 'rejected') {
-    throw new Error(`Failed to email investigation report: ${result.code}`);
+  const allRecipientsRejected = Array.isArray(result?.accepted)
+    && result.accepted.length === 0
+    && Array.isArray(result.rejected)
+    && result.rejected.length > 0;
+
+  if (!result?.messageId || result.outcome === 'rejected' || allRecipientsRejected) {
+    throw new Error(`Failed to email investigation report: ${result?.code || 'smtp_not_accepted'}`);
   }
 
   return { success: true, messageId: result.messageId };

@@ -172,6 +172,7 @@ wrapRoutesWithValidation(
 // This router is mounted before the global JWT middleware.
 router.use('/admin', jwtAuth, enforceFullScope);
 
+// Admin Routes for Firebase Management
 wrapAutoRBAC(
   router,
   'firebaseAdminRoutes',

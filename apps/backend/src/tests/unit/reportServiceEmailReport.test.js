@@ -70,4 +70,16 @@ describe('reportService.emailInvestigationReport', () => {
       emailInvestigationReport(42, { email: 'doc@example.com' }, 'sender-uid')
     ).rejects.toThrow();
   });
+
+  it('rejects when SMTP resolves but accepts none of the recipients', async () => {
+    sendEmailMock.mockResolvedValueOnce({
+      messageId: 'rejected-provider-id',
+      accepted: [],
+      rejected: ['doc@example.com'],
+    });
+
+    await expect(
+      emailInvestigationReport(42, { email: 'doc@example.com' }, 'sender-uid')
+    ).rejects.toThrow('smtp_not_accepted');
+  });
 });
