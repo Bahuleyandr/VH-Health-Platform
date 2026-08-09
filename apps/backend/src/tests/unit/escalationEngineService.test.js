@@ -266,15 +266,49 @@ describe('runEscalationSweep', () => {
     const res = await runEscalationSweep({ now: NOW });
 
     expect(res.markedOverdue).toBe(1);
-    // The overdue-marking UPDATE flips open/blocked tasks past due_at — but NOT
-    // in_progress (the acked state): flipping an acked task to the escalatable
-    // 'overdue' status would re-expose it to escalation (§4.5 ack stops clock).
+    // The overdue-marking UPDATE flips ONLY open tasks past due_at. Not
+    // in_progress (the acked state — re-flipping would re-expose acked work to
+    // escalation, §4.5), and not blocked: blocked→overdue is no TASK_TRANSITIONS
+    // edge, and overdue→completed is, so the flip would let blocked work be
+    // completed without ever unblocking. Blocked tasks still escalate via the
+    // candidate SQL's own status list.
     const updateSql = queryRawMock.mock.calls[1][0];
     expect(updateSql).toMatch(/UPDATE\s+tasks/i);
+    expect(updateSql).toMatch(/status = 'open'/);
     expect(updateSql).toMatch(/'overdue'/);
     expect(updateSql).toMatch(/due_at/i);
     expect(updateSql).not.toMatch(/'in_progress'/);
+    expect(updateSql).not.toMatch(/'blocked'/);
     expect(queryRawMock.mock.calls.some(([sql]) => /UPDATE\s+workflow_sla_instances/i.test(sql))).toBe(false);
+  });
+
+  it('skips a rule whose action_kind has no executor without consuming the tier', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }]) // q1 tenants
+      .mockResolvedValueOnce([]) // q2 overdue-marking
+      .mockResolvedValueOnce([rule({ action_kind: 'webhook' })]) // q3 active rules
+      .mockResolvedValueOnce([]); // q5 backfill
+
+    const res = await runEscalationSweep({ now: NOW });
+
+    expect(res.escalated).toBe(0);
+    expect(res.scanned).toBe(0);
+    // No candidate paging, no claim, and above all NO fired marker: the tier
+    // stays live instead of being silently swallowed by a no-op action.
+    expect(queryRawMock.mock.calls.some(([sql]) => /FROM tasks t\s/i.test(sql))).toBe(false);
+    expect(executeRawMock).not.toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('no executor'),
+      expect.objectContaining({ tenantId: TENANT, ruleId: 5, actionKind: 'webhook' }),
+    );
+  });
+
+  it('pins the executable action kinds to the CRUD activation gate', () => {
+    // taskService.test.js pins ENGINE_EXECUTABLE_ESCALATION_ACTIONS to the same
+    // list from the CRUD side; together the two assertions catch drift.
+    expect([...__testing__.ENGINE_SUPPORTED_ACTION_KINDS].sort()).toEqual(
+      ['auto_resolve', 'escalate_priority', 'notify', 'reassign'],
+    );
   });
 
   it('sla_breach tier-1 → escalate_priority + re-notify assignee + records escalations[tier:1]', async () => {

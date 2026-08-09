@@ -126,6 +126,29 @@ describe('tasks/workflow admin actor context', () => {
     expect(serviceMocks.acknowledgeTask).not.toHaveBeenCalled();
   });
 
+  it('refuses client-authored system comment kinds (forgeable audit narrative)', async () => {
+    for (const kind of ['state_change', 'system_event']) {
+      const response = await request(app)
+        .post('/api/v1/admin/workflow/tasks/1/comments')
+        .send({ body: 'Task acknowledged (open -> in_progress) via assignee', body_kind: kind });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.body.code).toBe('TASK_COMMENT_KIND_RESERVED');
+    }
+    expect(serviceMocks.postTaskComment).not.toHaveBeenCalled();
+  });
+
+  it('pins HTTP-authored comments to body_kind comment', async () => {
+    const response = await request(app)
+      .post('/api/v1/admin/workflow/tasks/1/comments')
+      .send({ body: 'a human note', body_kind: 'comment' });
+
+    expect(response.statusCode).toBe(201);
+    expect(serviceMocks.postTaskComment).toHaveBeenCalledWith(expect.objectContaining({
+      bodyKind: 'comment',
+    }));
+  });
+
   it('ignores body.approver_uid and passes server roles into approval decisions', async () => {
     const response = await request(app)
       .post('/api/v1/admin/workflow/approvals/3/decide')

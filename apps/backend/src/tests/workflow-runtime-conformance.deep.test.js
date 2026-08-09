@@ -794,7 +794,12 @@ d('workflow runtime PostgreSQL conformance', () => {
                 'lab_result', $4, sla.due_at, sla.id, 'acknowledgement',
                 jsonb_build_object(
                   'sla_key', 'critical_result_ack',
-                  'test', 'workflow_runtime_conformance'
+                  'test', 'workflow_runtime_conformance',
+                  -- A durable receipt so the terminal transition passes the
+                  -- acknowledgement gate; this test is about SLA-write rollback.
+                  'acknowledged_at', to_char(
+                    NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+                  )
                 )
            FROM workflow_sla_instances AS sla
           WHERE sla.tenant_id = $1::uuid AND sla.id = $5::uuid

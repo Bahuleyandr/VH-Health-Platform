@@ -557,14 +557,30 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(await countOpenTasksForResource('lab_result', R.ack, TENANT_DECOY)).toBe(1);
   });
 
-  it('FIX 2b — completing a task (terminal path) also stops the SLA clock', async () => {
+  it('FIX 2b — a terminal completion cannot bypass acknowledgement, and still stops the clock after it', async () => {
     const { taskId, slaInstanceId } = await seedBreachedCriticalTask(R.term);
 
     const before = await readSlaInstance(slaInstanceId);
     expect(before.completed_at).toBeNull();
 
-    // Resolve the result directly (not via ack) — the terminal transition must
-    // close the linked instance too (completeLinkedSla on transitionTask).
+    // Resolving the result directly (not via ack) may NOT close a
+    // critical-result acknowledgement clock: there would be zero receipt
+    // evidence that any human saw the result. The clock must stay live.
+    await expect(taskService.transitionTask({
+      tenantId: TENANT,
+      id: taskId,
+      nextStatus: 'completed',
+      actorUid: DOCTOR_UID,
+    })).rejects.toMatchObject({ code: 'TASK_ACKNOWLEDGEMENT_REQUIRED' });
+    const refused = await readSlaInstance(slaInstanceId);
+    expect(refused.completed_at).toBeNull();
+
+    // Acknowledge (the durable receipt), then complete — the terminal path
+    // must never leave a completed task with a live SLA clock behind it.
+    await taskService.acknowledgeTask({
+      tenantId: TENANT, id: taskId, actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'], actorPrimaryRole: 'DOCTOR', actorRawRole: 'DOCTOR',
+    });
     const done = await taskService.transitionTask({
       tenantId: TENANT,
       id: taskId,
@@ -576,7 +592,7 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     const after = await readSlaInstance(slaInstanceId);
     expect(['completed', 'breached']).toContain(after.status);
     expect(after.completed_at).not.toBeNull();
-    expect(after.metadata?.completed_via).toBe('task_completion');
+    expect(after.metadata?.completed_via).toBe('task_ack');
     expect(after.metadata?.completed_by).toBe(DOCTOR_UID);
   });
 
@@ -678,6 +694,16 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     expect(task.sla_completion_semantics).toBe('acknowledgement');
     expect(task.metadata.source).toBe('investigation');
 
+    // Acknowledge (the durable receipt), then resolve — a direct completion
+    // without the receipt is refused (see FIX 2b).
+    await taskService.acknowledgeTask({
+      tenantId: TENANT,
+      id: task.id,
+      actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    });
     await taskService.transitionTask({
       tenantId: TENANT,
       id: task.id,
@@ -702,8 +728,10 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
       task_status: 'completed',
       sla_status: 'completed',
     });
-    expect(directCompletion[0].task_completed_epoch_ms)
-      .toBe(directCompletion[0].sla_completed_epoch_ms);
+    // The clock stopped at the acknowledgement, which precedes (or equals) the
+    // terminal completion instant and beat the due time.
+    expect(directCompletion[0].sla_completed_epoch_ms)
+      .toBeLessThanOrEqual(directCompletion[0].task_completed_epoch_ms);
     expect(directCompletion[0].sla_completed_epoch_ms)
       .toBeLessThanOrEqual(directCompletion[0].sla_due_epoch_ms);
 
@@ -749,6 +777,14 @@ d('Critical-result escalation/SLA — audit C-3 (deep, real services + DB)', () 
     const rerunSla = await readSlaByKey('investigations', String(investigationId));
     expect(rerunSla).toMatchObject({ id: sla.id, status: 'active', completed_at: null });
 
+    await taskService.acknowledgeTask({
+      tenantId: TENANT,
+      id: rerunTasks[1].id,
+      actorUid: DOCTOR_UID,
+      actorRoles: ['DOCTOR'],
+      actorPrimaryRole: 'DOCTOR',
+      actorRawRole: 'DOCTOR',
+    });
     await taskService.transitionTask({
       tenantId: TENANT,
       id: rerunTasks[1].id,

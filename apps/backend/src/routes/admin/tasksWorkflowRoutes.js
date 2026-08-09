@@ -169,12 +169,23 @@ router.patch('/tasks/:id/assign', async (req, res, next) => {
 
 router.post('/tasks/:id/comments', async (req, res, next) => {
   try {
+    // 'state_change' / 'system_event' rows are the system-recorded audit
+    // narrative (acknowledgement receipts, workflow transitions) written by
+    // trusted service code. Letting an HTTP caller author them would make the
+    // task audit trail forgeable, so this surface only accepts 'comment'.
+    const requestedKind = req.body?.body_kind;
+    if (requestedKind != null && requestedKind !== 'comment') {
+      throw AppError.badRequest(
+        "body_kind must be 'comment' — state_change and system_event entries are system-recorded",
+        'TASK_COMMENT_KIND_RESERVED',
+      );
+    }
     const row = await postTaskComment({
       tenantId: req.tenantId,
       taskId: req.params.id,
       authorUid: req.user?.uid || null,
       body: req.body?.body,
-      bodyKind: req.body?.body_kind,
+      bodyKind: 'comment',
       metadata: req.body?.metadata,
     });
     return success(res, row, 'Comment posted', 201);

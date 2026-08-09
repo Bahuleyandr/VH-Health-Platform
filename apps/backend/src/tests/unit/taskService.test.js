@@ -9,12 +9,14 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const executeUnsafeMock = jest.fn();
 const lockPathwayRuntimeTxMock = jest.fn();
 const resolveCurrentHumanActorTxMock = jest.fn();
 const PATHWAY_TEST_CAPABILITY = Object.freeze({ kind: 'test_pathway_executor_capability' });
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryUnsafeMock,
+  $executeRawUnsafe: executeUnsafeMock,
   __tenantTransaction: true,
 };
 const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(__prismaDefaultMock));
@@ -74,6 +76,9 @@ const {
   upsertAutomationRule,
   upsertEscalationRule,
   upsertSlaDefinition,
+  ENGINE_EVALUATED_ESCALATION_SCOPES,
+  ENGINE_EVALUATED_ESCALATION_TRIGGERS,
+  ENGINE_EXECUTABLE_ESCALATION_ACTIONS,
   __testing__,
 } = await import('../../services/workflow/taskService.js');
 
@@ -105,6 +110,7 @@ const mortuarySlaRow = (overrides = {}) => ({
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  executeUnsafeMock.mockReset().mockResolvedValue(1);
   setTenantTxMock.mockClear();
   lockPathwayRuntimeTxMock.mockReset();
   resolveCurrentHumanActorTxMock.mockReset();
@@ -1923,6 +1929,44 @@ describe('transitionTask', () => {
     },
   );
 
+  it('refuses generic completion of an acknowledgement-tracked task with no durable receipt', async () => {
+    const task = {
+      id: 1,
+      status: 'open',
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: {},
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()]);
+
+    await expect(transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'TASK_ACKNOWLEDGEMENT_REQUIRED' });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE tasks/i.test(sql))).toBe(false);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE workflow_sla_instances/i.test(sql))).toBe(false);
+  });
+
+  it('allows completion of an acknowledgement-tracked task once the receipt is stamped', async () => {
+    const task = {
+      id: 1,
+      status: 'in_progress',
+      ...ACK_RESOURCE,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+      sla_completion_semantics: 'acknowledgement',
+      metadata: { acknowledged_at: '2026-07-19T03:00:00.000Z' },
+    };
+    queryUnsafeMock
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([ackSlaRow()])
+      .mockResolvedValueOnce([{ ...task, status: 'completed' }])
+      .mockResolvedValueOnce([{ id: DEFAULT_SLA_ID, status: 'completed' }]);
+
+    const row = await transitionTask({ tenantId: TENANT, id: 1, nextStatus: 'completed' });
+    expect(row.status).toBe('completed');
+  });
+
   it('rejects a generic transition when the typed SLA belongs to another source', async () => {
     queryUnsafeMock
       .mockResolvedValueOnce([{
@@ -1989,7 +2033,9 @@ describe('transitionTask', () => {
       ...ACK_RESOURCE,
       workflow_sla_instance_id: DEFAULT_SLA_ID,
       sla_completion_semantics: 'acknowledgement',
-      metadata: {},
+      // A durable receipt so completion passes the acknowledgement gate — this
+      // test is about SLA-write failure propagation, not the gate.
+      metadata: { acknowledged_at: '2026-07-19T03:00:00.000Z' },
     };
     queryUnsafeMock.mockResolvedValueOnce([task]);
     queryUnsafeMock.mockResolvedValueOnce([ackSlaRow()]);
@@ -2872,6 +2918,98 @@ describe('reassignTask + listTasks + postTaskComment', () => {
     expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([null, 'NURSING_STAFF']);
   });
 
+  it('rejects an unknown role string before touching the task', async () => {
+    await expect(reassignTask({
+      tenantId: TENANT,
+      id: 1,
+      assignedToRole: 'DEFINITELY_NOT_A_ROLE',
+    })).rejects.toMatchObject({ statusCode: 400, code: 'TASK_ASSIGNMENT_ROLE_UNKNOWN' });
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts human roster roles that are not present in the legacy role constants', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+
+    await reassignTask({
+      tenantId: TENANT,
+      id: 1,
+      assignedToRole: 'COMPLIANCE_OFFICER',
+    });
+
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([
+      null,
+      'COMPLIANCE_OFFICER',
+    ]);
+  });
+
+  it('keeps the established tenant administrator recovery queue assignable', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+
+    await reassignTask({
+      tenantId: TENANT,
+      id: 1,
+      assignedToRole: 'TENANT_ADMIN',
+    });
+
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([
+      null,
+      'TENANT_ADMIN',
+    ]);
+  });
+
+  it.each(['PATIENT', 'DEVICE_GATEWAY'])(
+    'rejects non-human role queue %s before touching the task',
+    async (assignedToRole) => {
+      await expect(reassignTask({
+        tenantId: TENANT,
+        id: 1,
+        assignedToRole,
+      })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'TASK_ASSIGNMENT_ROLE_UNKNOWN',
+      });
+
+      expect(queryUnsafeMock).not.toHaveBeenCalled();
+      expect(setTenantTxMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('canonicalizes role aliases so inbox queue matching stays exact', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+    await reassignTask({ tenantId: TENANT, id: 1, assignedToRole: 'nurse' });
+    expect(queryUnsafeMock.mock.calls[1].slice(1, 3)).toEqual([null, 'NURSING_STAFF']);
+  });
+
+  it('mirrors reassignment onto the linked, still-open SLA instance', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      workflow_run_id: null,
+      workflow_sla_instance_id: DEFAULT_SLA_ID,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, assigned_to_uid: USER }]);
+
+    await reassignTask({ tenantId: TENANT, id: 1, assignedToUid: USER });
+
+    const mirror = executeUnsafeMock.mock.calls
+      .find(([sql]) => /UPDATE workflow_sla_instances/i.test(sql));
+    expect(mirror).toBeTruthy();
+    expect(mirror[0]).toMatch(/assigned_user_uid = \$1::uuid/);
+    expect(mirror[0]).toMatch(/completed_at IS NULL/);
+    expect(mirror.slice(1)).toEqual([USER, null, DEFAULT_SLA_ID, TENANT]);
+  });
+
+  it('does not touch the SLA layer when the task has no linked instance', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+    await reassignTask({ tenantId: TENANT, id: 1, assignedToUid: USER });
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+  });
+
   it('allows a generic task to be explicitly unassigned', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, workflow_run_id: null }]);
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, assigned_to_uid: null, assigned_to_role: null }]);
@@ -3638,6 +3776,43 @@ describe('escalation / SLA / automation upserts', () => {
     expect(row.is_active).toBe(false);
     const sql = queryUnsafeMock.mock.calls[0][0];
     expect(sql).toMatch(/UPDATE escalation_rules/);
+  });
+
+  it.each([
+    ['scope', { scope: 'approval' }, 'ESCALATION_RULE_SCOPE_UNAVAILABLE'],
+    ['trigger', { triggerCondition: 'on_status_change' }, 'ESCALATION_RULE_TRIGGER_UNAVAILABLE'],
+    ['action', { actionKind: 'webhook' }, 'ESCALATION_RULE_ACTION_UNAVAILABLE'],
+  ])('refuses to activate a rule with an %s no engine evaluates', async (_label, extra, code) => {
+    await expect(upsertEscalationRule({
+      tenantId: TENANT,
+      displayName: 'X',
+      triggerCondition: 'sla_breach',
+      actionKind: 'notify',
+      ...extra,
+    })).rejects.toMatchObject({ statusCode: 400, code });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('still stores not-yet-evaluated config as an inactive draft', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 2, action_kind: 'webhook', is_active: false }]);
+    const row = await upsertEscalationRule({
+      tenantId: TENANT,
+      displayName: 'X',
+      scope: 'approval',
+      triggerCondition: 'on_status_change',
+      actionKind: 'webhook',
+      isActive: false,
+    });
+    expect(row.is_active).toBe(false);
+  });
+
+  it('pins the engine-evaluated escalation subsets to what the sweep implements', () => {
+    // escalationEngineService.test.js pins the identical action list from the
+    // engine side; together the two assertions fail CI if either module drifts.
+    expect(ENGINE_EVALUATED_ESCALATION_SCOPES).toEqual(['task']);
+    expect(ENGINE_EVALUATED_ESCALATION_TRIGGERS).toEqual(['sla_breach', 'pending_too_long']);
+    expect(ENGINE_EXECUTABLE_ESCALATION_ACTIONS)
+      .toEqual(['notify', 'reassign', 'escalate_priority', 'auto_resolve']);
   });
 
   it('upsertSlaDefinition rejects missing target_minutes', async () => {

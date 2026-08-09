@@ -22,10 +22,12 @@
 
 import { createHash } from 'node:crypto';
 
+import { getStaffRosterRoleCodes } from '../../config/rolePolicyGraph.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
+import { normalizeRole } from '../../utils/roles.js';
 import { isInpatientPendingResultPhysicianRole } from '../emr/inpatientPendingResultPolicy.js';
 import { isValidIdempotencyKey } from '../idempotency/idempotencyService.js';
 import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
@@ -82,6 +84,15 @@ export const APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'cancelled'
 export const ESCALATION_SCOPES = ['task', 'workflow_step', 'approval'];
 export const ESCALATION_TRIGGERS = ['sla_breach', 'no_progress_after', 'pending_too_long', 'on_status_change'];
 export const ESCALATION_ACTIONS = ['notify', 'reassign', 'escalate_priority', 'auto_resolve', 'webhook'];
+// The subset of the mig-118 enums the sweep engine actually evaluates and can
+// perform (escalationEngineService.js mirrors the action set — a unit test
+// pins the two lists together). An ACTIVE rule outside these subsets is silent
+// dead config: it stores fine but no code path will ever fire it, so
+// upsertEscalationRule refuses to activate one (inactive drafts still save,
+// preserving the "plug your own engine in later" storage contract).
+export const ENGINE_EVALUATED_ESCALATION_SCOPES = ['task'];
+export const ENGINE_EVALUATED_ESCALATION_TRIGGERS = ['sla_breach', 'pending_too_long'];
+export const ENGINE_EXECUTABLE_ESCALATION_ACTIONS = ['notify', 'reassign', 'escalate_priority', 'auto_resolve'];
 export const AUTOMATION_ACTIONS = ['create_task', 'start_workflow', 'create_approval', 'webhook', 'notify'];
 
 const DOMAIN_EVIDENCE_COMPLETION_AUTHORITY = Symbol('DOMAIN_EVIDENCE_COMPLETION_AUTHORITY');
@@ -1692,6 +1703,26 @@ export async function transitionTask({
   }
   if (
     cleanNext === 'completed'
+    && current.sla_completion_semantics === 'acknowledgement'
+    && current.workflow_sla_instance_id
+    && acknowledgementTransitionAuthority !== ACKNOWLEDGEMENT_TRANSITION_AUTHORITY
+    && !parseDurableTimestamp(current.metadata?.acknowledged_at)
+  ) {
+    // Completion closes the linked SLA (completeLinkedSla admits
+    // 'task_completion' for acknowledgement semantics), so a generic completed
+    // transition with no durable acknowledgement receipt behind it would stop
+    // a critical_result_ack / cold_chain_excursion_ack / referral_response
+    // clock with zero evidence anyone saw the result. The mig-581 boundary
+    // covers only lab-alert-bound tasks; this covers every other
+    // acknowledgement SLA. Acknowledge first (stamping
+    // metadata.acknowledged_at), or come through the acknowledgement workflow.
+    throw AppError.conflict(
+      'Acknowledgement-tracked tasks must be acknowledged before completion',
+      'TASK_ACKNOWLEDGEMENT_REQUIRED',
+    );
+  }
+  if (
+    cleanNext === 'completed'
     && current.sla_completion_semantics === 'domain_evidence'
     && domainEvidenceAuthority !== DOMAIN_EVIDENCE_COMPLETION_AUTHORITY
   ) {
@@ -2747,6 +2778,9 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
     id: taskId,
     nextStatus: 'completed',
     actorUid: supersessionActorUid,
+    // Supersession retires an obligation that was never acknowledged; the
+    // trusted-workflow capability stands in for the missing receipt.
+    acknowledgementTransitionAuthority: ACKNOWLEDGEMENT_TRANSITION_AUTHORITY,
     slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
     tx,
   });
@@ -5245,6 +5279,27 @@ export async function settleEdDestinationHandoffReviewTaskTx({
   return settled;
 }
 
+// Role codes a task may be (re)assigned to. Use the authoritative human staff
+// roster rather than the legacy ROLES constants: the latter omits valid queues
+// such as COMPLIANCE_OFFICER and includes non-human principals such as PATIENT
+// and DEVICE_GATEWAY. TENANT_ADMIN remains an explicit system recovery queue
+// used by the external integration recovery services.
+const ASSIGNABLE_TASK_ROLE_CODES = new Set([
+  ...getStaffRosterRoleCodes({ includeAdmin: true }),
+  'TENANT_ADMIN',
+]);
+
+function requireAssignableTaskRole(role) {
+  const canonical = normalizeRole(role);
+  if (!canonical || !ASSIGNABLE_TASK_ROLE_CODES.has(canonical)) {
+    throw AppError.badRequest(
+      'assigned_to_role must be a known role code',
+      'TASK_ASSIGNMENT_ROLE_UNKNOWN',
+    );
+  }
+  return canonical;
+}
+
 export async function reassignTask({
   tenantId = null, id, assignedToUid, assignedToRole,
   executorAuthority = null,
@@ -5261,6 +5316,10 @@ export async function reassignTask({
     );
   }
   const assignment = normalizeTaskAssignment({ assignedToUid, assignedToRole });
+  if (assignment.role) {
+    // Store the canonical uppercase code so queue-role matching stays exact.
+    assignment.role = requireAssignableTaskRole(assignment.role);
+  }
   const updates = [
     'assigned_to_uid = $1::uuid',
     'assigned_to_role = $2',
@@ -5296,6 +5355,27 @@ export async function reassignTask({
     ...params,
   );
   if (!rows[0]) throw AppError.notFound('Task not found');
+  // Mirror ownership onto the linked SLA instance so the mig-269 clock and the
+  // task never disagree about who is accountable. Terminal instances
+  // (completed_at set) are historical record and stay untouched.
+  if (current.workflow_sla_instance_id) {
+    await db.$executeRawUnsafe(
+      `UPDATE workflow_sla_instances
+          SET assigned_user_uid = $1::uuid,
+              assigned_role_codes = CASE
+                WHEN $2::text IS NULL THEN ARRAY[]::text[]
+                ELSE ARRAY[$2::text]
+              END,
+              updated_at = NOW()
+        WHERE id = $3::uuid
+          AND tenant_id = $4::uuid
+          AND completed_at IS NULL`,
+      assignment.uid,
+      assignment.role,
+      current.workflow_sla_instance_id,
+      tid,
+    );
+  }
   return rows[0];
 }
 
@@ -6012,10 +6092,33 @@ export async function listApprovals({
 }
 
 // ---------------------------------------------------------------------------
-// Escalation rules + SLA + automation rules (CRUD only — engine left to a
-// follow-up). These tables matter for hospitals that want to plug their
-// own rule engine in later.
+// Escalation rules + SLA + automation rules. Task-scope escalation rules are
+// evaluated by escalationEngineService (the ENGINE_EVALUATED_* /
+// ENGINE_EXECUTABLE_* subsets above); everything else remains CRUD-only
+// storage for hospitals that want to plug their own rule engine in later —
+// which is why such rules may be saved, but only inactive.
 // ---------------------------------------------------------------------------
+
+function assertEscalationRuleEvaluable({ scope, triggerCondition, actionKind }) {
+  if (!ENGINE_EVALUATED_ESCALATION_SCOPES.includes(scope)) {
+    throw AppError.badRequest(
+      `Active escalation rules must use scope: ${ENGINE_EVALUATED_ESCALATION_SCOPES.join(', ')} — no engine evaluates other scopes yet; save the rule inactive instead`,
+      'ESCALATION_RULE_SCOPE_UNAVAILABLE',
+    );
+  }
+  if (!ENGINE_EVALUATED_ESCALATION_TRIGGERS.includes(triggerCondition)) {
+    throw AppError.badRequest(
+      `Active escalation rules must use trigger_condition: ${ENGINE_EVALUATED_ESCALATION_TRIGGERS.join(', ')} — no engine evaluates other triggers yet; save the rule inactive instead`,
+      'ESCALATION_RULE_TRIGGER_UNAVAILABLE',
+    );
+  }
+  if (!ENGINE_EXECUTABLE_ESCALATION_ACTIONS.includes(actionKind)) {
+    throw AppError.badRequest(
+      `Active escalation rules must use action_kind: ${ENGINE_EXECUTABLE_ESCALATION_ACTIONS.join(', ')} — no executor exists for other actions yet; save the rule inactive instead`,
+      'ESCALATION_RULE_ACTION_UNAVAILABLE',
+    );
+  }
+}
 
 export async function upsertEscalationRule({
   tenantId = null,
@@ -6034,6 +6137,17 @@ export async function upsertEscalationRule({
   const tid = resolveTenantId({ tenantId });
   const cleanName = safeText(displayName, SHORT_MAX);
   if (!cleanName) throw AppError.badRequest('display_name is required');
+  const cleanScope = normalizeEnum(scope, ESCALATION_SCOPES, 'scope') || 'task';
+  const cleanTrigger = normalizeEnum(triggerCondition, ESCALATION_TRIGGERS, 'trigger_condition', { required: true });
+  const cleanAction = normalizeEnum(actionKind, ESCALATION_ACTIONS, 'action_kind', { required: true });
+  const cleanIsActive = normalizeBoolean(isActive, true);
+  if (cleanIsActive) {
+    assertEscalationRuleEvaluable({
+      scope: cleanScope,
+      triggerCondition: cleanTrigger,
+      actionKind: cleanAction,
+    });
+  }
 
   if (id) {
     const ruleId = normalizeId(id, 'escalation_rule id');
@@ -6048,13 +6162,13 @@ export async function upsertEscalationRule({
                  trigger_condition, trigger_window_minutes, action_kind, action_payload,
                  is_active, created_by, created_at, updated_at`,
       cleanName, safeText(description),
-      normalizeEnum(scope, ESCALATION_SCOPES, 'scope') || 'task',
+      cleanScope,
       JSON.stringify(normalizeJsonObject(matchFilter, 'match_filter')),
-      normalizeEnum(triggerCondition, ESCALATION_TRIGGERS, 'trigger_condition', { required: true }),
+      cleanTrigger,
       normalizeInt(triggerWindowMinutes, 'trigger_window_minutes', { min: 1, max: 1440 * 30 }),
-      normalizeEnum(actionKind, ESCALATION_ACTIONS, 'action_kind', { required: true }),
+      cleanAction,
       JSON.stringify(normalizeJsonObject(actionPayload, 'action_payload')),
-      normalizeBoolean(isActive, true),
+      cleanIsActive,
       ruleId, tid,
     );
     if (!rows[0]) throw AppError.notFound('Escalation rule not found');
@@ -6071,13 +6185,13 @@ export async function upsertEscalationRule({
                trigger_condition, trigger_window_minutes, action_kind, action_payload,
                is_active, created_by, created_at, updated_at`,
     tid, cleanName, safeText(description),
-    normalizeEnum(scope, ESCALATION_SCOPES, 'scope') || 'task',
+    cleanScope,
     JSON.stringify(normalizeJsonObject(matchFilter, 'match_filter')),
-    normalizeEnum(triggerCondition, ESCALATION_TRIGGERS, 'trigger_condition', { required: true }),
+    cleanTrigger,
     normalizeInt(triggerWindowMinutes, 'trigger_window_minutes', { min: 1, max: 1440 * 30 }),
-    normalizeEnum(actionKind, ESCALATION_ACTIONS, 'action_kind', { required: true }),
+    cleanAction,
     JSON.stringify(normalizeJsonObject(actionPayload, 'action_payload')),
-    normalizeBoolean(isActive, true),
+    cleanIsActive,
     maybeUuid(createdBy, 'created_by'),
   );
   return rows[0];

@@ -9,7 +9,11 @@
 // / breached mig-269 SLA instances and FIRES the configured actions.
 //
 // What it does, per sweep (design §4.3):
-//   (a) marks open/blocked tasks past due_at as 'overdue';
+//   (a) marks open tasks past due_at as 'overdue' — blocked tasks keep their
+//       status: blocked→overdue is not a TASK_TRANSITIONS edge, and because
+//       overdue→completed IS one, flipping would make blocked work directly
+//       completable without ever unblocking. Blocked tasks stay escalation-
+//       eligible via the candidate SQL's status list;
 //   (b) for each active escalation_rules row (scope='task'), finds matching
 //       tasks whose trigger holds and fires action_kind ONCE PER TIER;
 //   (c) backfill backstop: a breached critical_result_ack SLA instance with no
@@ -95,6 +99,18 @@ const RECIPIENT_FANOUT_CAP = clampFanoutCap(process.env.ESCALATION_RECIPIENT_FAN
 // tasks remain actionable there until their registered evidence completes the
 // linked SLA, so candidate SQL adds that one typed exception.
 const ESCALATABLE_STATUSES = ['open', 'overdue', 'blocked'];
+
+// Action kinds this engine can actually perform. The mig-118 CHECK (and the
+// CRUD enum) also allow 'webhook', but no executor exists for it; a rule whose
+// action cannot be performed must NOT consume its tier — recording the fired
+// marker while doing nothing would silently swallow the escalation. Such rules
+// are skipped loudly instead (upsertEscalationRule refuses to activate them).
+const ENGINE_SUPPORTED_ACTION_KINDS = new Set([
+  'notify',
+  'reassign',
+  'escalate_priority',
+  'auto_resolve',
+]);
 
 // The mig-269 rule_code that is the critical-result clock; also the sla_key the
 // producer stamps and the backfill backstop re-derives from.
@@ -926,11 +942,16 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     if (!tenantId) continue;
 
     try {
+      // Only 'open' flips to 'overdue'. 'blocked' is excluded on purpose: the
+      // task state machine has no blocked→overdue edge, and overdue allows a
+      // direct →completed that blocked forbids, so flipping would let blocked
+      // work be completed without ever unblocking. Blocked tasks past due are
+      // still escalated (the candidate SQL matches status 'blocked' directly).
       const overdue = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
         `UPDATE tasks
             SET status = 'overdue', updated_at = NOW()
           WHERE tenant_id = $1::uuid
-            AND status IN ('open', 'blocked')
+            AND status = 'open'
             AND due_at IS NOT NULL
             AND due_at < $2::timestamptz
           RETURNING id`,
@@ -962,6 +983,15 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     }
 
     for (const ruleRow of (Array.isArray(rules) ? rules : [])) {
+      if (!ENGINE_SUPPORTED_ACTION_KINDS.has(ruleRow.action_kind)) {
+        // No executor for this action. Skipping WITHOUT a fired marker keeps
+        // the tier live (it will be evaluated again once an executor exists or
+        // the rule is fixed) and keeps the misconfiguration visible each sweep.
+        logger.error('escalation sweep: rule action_kind has no executor — rule skipped, tier not consumed', {
+          tenantId, ruleId: ruleRow.id, actionKind: ruleRow.action_kind,
+        });
+        continue;
+      }
       let candidates = [];
       try {
         candidates = await setTenantTx(
@@ -1159,4 +1189,5 @@ export const __testing__ = {
   ROLE_FAMILY_FALLBACK,
   RECIPIENT_FANOUT_CAP,
   clampFanoutCap,
+  ENGINE_SUPPORTED_ACTION_KINDS,
 };
