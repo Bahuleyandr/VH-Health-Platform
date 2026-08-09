@@ -958,9 +958,11 @@ app.use('/api/v1/patient-access/break-glass', breakGlassRoutes);
 
 // ABDM patient-facing routes (JWT required — ABHA registration, consent management).
 // /status is excluded — admin/staff connectivity + aggregate-count dashboard,
-// no patient-identifying data returned (audit follow-up P14).
+// no patient-identifying data returned (audit follow-up P14). /register-abha
+// is also excluded here — PR #809 (audit follow-up P13) already logs that
+// write explicitly via a controller-level logPhiAccess() call, so a
+// route-level mount here would double-log every successful link.
 const ABDM_PHI_PATHS = [
-  '/api/v1/abdm/register-abha',
   '/api/v1/abdm/verify-abha',
   '/api/v1/abdm/patient-by-abha',
   '/api/v1/abdm/consent-requests',

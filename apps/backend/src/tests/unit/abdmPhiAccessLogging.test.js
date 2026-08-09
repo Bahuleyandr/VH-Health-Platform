@@ -3,11 +3,14 @@ import express from 'express';
 import request from 'supertest';
 
 // Regression coverage for audit follow-up P14: the ABDM patient-facing
-// surface (register-abha, verify-abha, patient-by-abha, consent-requests,
-// consents*) now sits behind phiAccessLoggerForPaths in app.js, matching the
-// platform-wide PHI-access-logging convention. /status stays excluded — it
-// is an admin/staff connectivity + aggregate-count dashboard with no
+// surface (verify-abha, patient-by-abha, consent-requests, consents*) now
+// sits behind phiAccessLoggerForPaths in app.js, matching the platform-wide
+// PHI-access-logging convention. /status stays excluded — it is an
+// admin/staff connectivity + aggregate-count dashboard with no
 // patient-identifying data, i.e. the "pure config/health" carve-out.
+// /register-abha is also excluded — PR #809 (audit follow-up P13) already
+// logs that write explicitly at the controller level, so a route-level
+// mount here would double-log every successful link.
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const ACTOR = '11111111-1111-4111-8111-111111111111';
@@ -41,8 +44,9 @@ const { patientRouter } = await import('../../routes/abdm/abdmRoutes.js');
 // Mirrors the ABDM_PHI_PATHS list mounted ahead of abdmPatientRoutes in
 // app.js (suffixes only — this app mounts the router at /abdm, not
 // /api/v1/abdm, matching abdmRoutesAppErrorPropagation.test.js).
+// register-abha is deliberately absent — PR #809 logs that write explicitly
+// at the controller level; a route-level mount would double-log it.
 const ABDM_PHI_PATHS = [
-  '/abdm/register-abha',
   '/abdm/verify-abha',
   '/abdm/patient-by-abha',
   '/abdm/consent-requests',
