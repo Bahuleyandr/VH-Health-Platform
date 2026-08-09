@@ -6,7 +6,7 @@
 // tables; successful writes emit through these helpers.
 
 import { randomUUID } from 'node:crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
@@ -809,47 +809,75 @@ export async function transitionEncounter(encounterId, nextStatus, input = {}, o
     ];
     const tenantFilter = tenantId ? ' AND tenant_id = $7::uuid' : '';
     if (tenantId) params.push(tenantId);
-    const rows = await db.$queryRawUnsafe(
-      `UPDATE patient_encounters
-          SET status = $2::text,
-              ${timestampColumn ? `${timestampColumn} = NOW(),` : ''}
-              ${actorColumn ? `${actorColumn} = $3::uuid,` : ''}
-              updated_by = $3::uuid,
-              updated_at = NOW(),
-              status_history = status_history || jsonb_build_array(jsonb_build_object(
-                'from_status', $4::text,
-                'to_status', $2::text,
-                'changed_at', NOW(),
-                'changed_by', $3::uuid,
-                'reason', $5::text,
-                'metadata', $6::jsonb
-              ))
-        WHERE id = $1::uuid${tenantFilter}
-        RETURNING *`,
-      ...params,
-    );
-    const updated = rows[0];
-    await recordCanonicalClinicalEvent({
-      tenantId: updated.tenant_id,
-      patientUid: updated.patient_uid,
-      encounterId: updated.id,
-      eventType: `encounter.${target}`,
-      eventStatus: target,
-      sourceTable: 'patient_encounters',
-      sourceId: updated.id,
-      resourceType: 'encounter',
-      resourceId: updated.id,
-      actorUid,
-      actorRole: input.actorRole || input.actor_role,
-      summary: `Encounter ${target}`,
-      payload: { from_status: current, to_status: target, metadata },
-      beforeState: { status: current },
-      afterState: { status: target },
-      timelineIdempotencyKey: `encounter:${updated.id}:${target}:${updated.updated_at?.toISOString?.() || Date.now()}`,
-      auditIdempotencyKey: `encounter-audit:${updated.id}:${target}:${updated.updated_at?.toISOString?.() || Date.now()}`,
-    }, { db });
-    return updated;
+    // The status UPDATE and the canonical timeline + audit emits must commit
+    // or roll back together, and the WHERE re-checks `status = $4` (the
+    // status the pre-check above validated) so a concurrent transition in the
+    // read-then-write gap surfaces as a conflict instead of being silently
+    // overwritten.
+    const applyTransition = async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE patient_encounters
+            SET status = $2::text,
+                ${timestampColumn ? `${timestampColumn} = NOW(),` : ''}
+                ${actorColumn ? `${actorColumn} = $3::uuid,` : ''}
+                updated_by = $3::uuid,
+                updated_at = NOW(),
+                status_history = status_history || jsonb_build_array(jsonb_build_object(
+                  'from_status', $4::text,
+                  'to_status', $2::text,
+                  'changed_at', NOW(),
+                  'changed_by', $3::uuid,
+                  'reason', $5::text,
+                  'metadata', $6::jsonb
+                ))
+          WHERE id = $1::uuid AND status = $4::text${tenantFilter}
+          RETURNING *`,
+        ...params,
+      );
+      const updated = rows[0];
+      if (!updated) {
+        // 0 rows back: the encounter left `current` between the pre-check
+        // read and this UPDATE (concurrent transition). Same conflict shape
+        // as the pre-check above.
+        throw AppError.conflict(
+          `Invalid encounter transition: ${current} -> ${target}`,
+          'INVALID_ENCOUNTER_TRANSITION',
+        );
+      }
+      await recordCanonicalClinicalEvent({
+        tenantId: updated.tenant_id,
+        patientUid: updated.patient_uid,
+        encounterId: updated.id,
+        eventType: `encounter.${target}`,
+        eventStatus: target,
+        sourceTable: 'patient_encounters',
+        sourceId: updated.id,
+        resourceType: 'encounter',
+        resourceId: updated.id,
+        actorUid,
+        actorRole: input.actorRole || input.actor_role,
+        summary: `Encounter ${target}`,
+        payload: { from_status: current, to_status: target, metadata },
+        beforeState: { status: current },
+        afterState: { status: target },
+        timelineIdempotencyKey: `encounter:${updated.id}:${target}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+        auditIdempotencyKey: `encounter-audit:${updated.id}:${target}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+      }, { db: tx });
+      return updated;
+    };
+    // A caller-supplied client owns its transaction boundary; otherwise open
+    // a tenant-scoped transaction. A bare prisma.$transaction callback does
+    // not install app.current_tenant_id, so it would make this PHI mutation
+    // atomic while silently bypassing the repository's RLS boundary.
+    return options.db
+      ? await applyTransition(db)
+      : await setTenantTx(requireTenantId(existing.tenant_id), applyTransition);
   } catch (err) {
+    // House-style narrow tolerance (see isSchemaMissing): only a
+    // genuinely-absent canonical table (SQLSTATE 42P01) is swallowed into a
+    // null return. Every other failure — the concurrent-transition conflict
+    // above and canonical emit failures included — rethrows, so routes
+    // surface it via next(err) instead of a silent 200.
     logCanonicalFailure('encounter transition', err);
     return null;
   }
