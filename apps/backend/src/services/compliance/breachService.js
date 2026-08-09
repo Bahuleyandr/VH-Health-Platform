@@ -15,7 +15,7 @@ import { requireTenantId } from '../tenant/tenantService.js';
 // off); crossTenant is the SUPER_ADMIN-only view and runs under the explicit
 // super-admin RLS bypass.
 
-const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
+export const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
 
 // Valid status transitions — each key lists the statuses it can move to
 const VALID_TRANSITIONS = {
@@ -30,9 +30,9 @@ const VALID_TRANSITIONS = {
  * Report a new data breach.
  * For high/critical severity, immediately queues admin notifications.
  */
-export async function reportBreach({ severity, description, affectedRecords, affectedPatientUids, reportedBy, tenantId }) {
-  if (!severity || !description) {
-    throw AppError.badRequest('severity and description are required');
+export async function reportBreach({ title, severity, description, affectedRecords, affectedPatientUids, phiInvolved, reportedBy, tenantId }) {
+  if (!title || !severity || !description) {
+    throw AppError.badRequest('title, severity and description are required');
   }
 
   if (!VALID_SEVERITIES.includes(severity)) {
@@ -43,16 +43,18 @@ export async function reportBreach({ severity, description, affectedRecords, aff
 
   const result = await prisma.$queryRawUnsafe(
     `INSERT INTO data_breaches
-      (tenant_id, severity, description, affected_records, affected_patient_uids, discovered_at, reported_by, status, created_at)
-     VALUES ($1::uuid, $2, $3, $4, $5, NOW(), $6, 'open', NOW())
-     RETURNING id, breach_id, severity, description, affected_records, affected_patient_uids,
-               discovered_at, reported_by, status, created_at`,
+      (tenant_id, title, severity, description, affected_records, affected_patient_uids, phi_involved, discovered_at, reported_by, status, created_at)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NOW(), $8, 'open', NOW())
+     RETURNING id, breach_id, title, severity, description, affected_records, affected_patient_uids,
+               phi_involved, discovered_at, reported_by, status, created_at`,
 
       tid,
+      title,
       severity,
       description,
       affectedRecords || 0,
       affectedPatientUids || [],
+      Boolean(phiInvolved),
       reportedBy || null,
 
   );
@@ -198,8 +200,8 @@ export async function getBreaches(filters = {}) {
     const listParams = [...params, listQuery.limit, listQuery.offset];
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, breach_id, severity, description, affected_records,
-              affected_patient_uids, discovered_at, reported_by, status,
+      `SELECT id, breach_id, title, severity, description, affected_records,
+              affected_patient_uids, phi_involved, discovered_at, reported_by, status,
               containment_actions, resolution_notes, resolved_at, created_at,
               regulator_notified_at, regulator_reference, regulator_jurisdiction,
               data_subjects_notified_at, data_subject_notification_count
@@ -227,8 +229,8 @@ export async function getBreachTimeline(breachId, { tenantId, crossTenant = fals
 
   const run = async () => {
     const breachResult = await prisma.$queryRawUnsafe(
-      `SELECT id, breach_id, severity, description, affected_records,
-              affected_patient_uids, discovered_at, reported_by, status,
+      `SELECT id, breach_id, title, severity, description, affected_records,
+              affected_patient_uids, phi_involved, discovered_at, reported_by, status,
               containment_actions, resolution_notes, resolved_at, created_at,
               regulator_notified_at, regulator_reference, regulator_jurisdiction,
               data_subjects_notified_at, data_subject_notification_count
