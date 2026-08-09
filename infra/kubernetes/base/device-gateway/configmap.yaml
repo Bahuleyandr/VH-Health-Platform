@@ -21,3 +21,8 @@ data:
   # enrollment input has been supplied and owner-cleared.
   DEVICE_GATEWAY_I09_ENROLLMENTS: "[]"
   DEVICE_GATEWAY_DRAIN_INTERVAL_MS: "5000"
+  # DEVICE_GATEWAY_COLD_CHAIN_PORT is intentionally unset. The cold-chain
+  # HTTP ingest listener is opt-in and only starts when this variable is
+  # explicitly set (e.g. "8088"). Enabling it also requires exposing the
+  # port in service.yaml and allowing it in networkpolicy.yaml, which
+  # currently expose only MLLP (2575) and metrics (9108).

@@ -777,7 +777,7 @@ export async function startGateway({
   listeners,
   runtime,
   metricsPort = 9108,
-  coldChainIngestPort = 8088,
+  coldChainIngestPort = null,
   socketIdleTimeoutMs = socketIdleTimeoutMsFromEnv(),
 }) {
   await runtime.initialize();
@@ -855,7 +855,7 @@ export async function startGateway({
     });
     guardServer(metricsServer, 'metrics');
     await listenServer(metricsServer, metricsPort);
-    coldChainServer = coldChainIngestPort !== null && coldChainIngestPort !== false
+    coldChainServer = Number.isFinite(coldChainIngestPort)
       ? guardServer(createColdChainServer(runtime), 'cold-chain')
       : null;
     if (coldChainServer) await listenServer(coldChainServer, coldChainIngestPort);
@@ -883,6 +883,21 @@ export function enrollmentConfigFromEnv() {
   const parsed = JSON.parse(process.env.DEVICE_GATEWAY_I09_ENROLLMENTS || '[]');
   if (!Array.isArray(parsed)) throw new Error('DEVICE_GATEWAY_I09_ENROLLMENTS must be an array');
   return parsed.map(validateEnrollment);
+}
+
+// The cold-chain HTTP listener is opt-in: it starts only when
+// DEVICE_GATEWAY_COLD_CHAIN_PORT is explicitly set. The production k8s
+// Service/NetworkPolicy expose only MLLP (2575) and metrics (9108), so a
+// default-on listener would be dead weight there and an unexpected open
+// port everywhere else.
+export function coldChainPortFromEnv(env = process.env) {
+  const raw = env.DEVICE_GATEWAY_COLD_CHAIN_PORT;
+  if (raw === undefined || String(raw).trim() === '') return null;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error('DEVICE_GATEWAY_COLD_CHAIN_PORT must be a TCP port number');
+  }
+  return port;
 }
 
 export function defaultSpoolDir() {

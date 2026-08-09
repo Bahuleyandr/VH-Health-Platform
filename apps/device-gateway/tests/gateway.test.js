@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { jest } from '@jest/globals';
-import { GatewayRuntime, startGateway } from '../src/gateway.js';
+import { coldChainPortFromEnv, GatewayRuntime, startGateway } from '../src/gateway.js';
 
 const message = (id = 'CTRL-1') => [
   `MSH|^~\\&|MON-ICU-01|ICU||VHHEALTH|20260707090000||ORU^R01|${id}|P|2.5`,
@@ -153,6 +153,54 @@ describe('GatewayRuntime', () => {
       await new Promise((resolve) => started?.coldChainServer?.close(resolve));
       await new Promise((resolve) => started?.metricsServer?.close(resolve));
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not start the cold-chain listener unless a port is explicitly configured', async () => {
+    const { dir, runtime } = await tempRuntime({});
+    let started;
+    try {
+      started = await startGateway({ listeners: [], runtime, metricsPort: 0 });
+      expect(started.coldChainServer).toBeNull();
+    } finally {
+      await new Promise((resolve) => started?.metricsServer?.close(resolve));
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('starts the cold-chain listener when an explicit port is configured', async () => {
+    const backend = { ingestColdChain: jest.fn(async () => ({ action: 'reading_recorded' })) };
+    const { dir, runtime } = await tempRuntime(backend);
+    let started;
+    try {
+      started = await startGateway({
+        listeners: [], runtime, metricsPort: 0, coldChainIngestPort: 0,
+      });
+      expect(started.coldChainServer).not.toBeNull();
+      expect(started.coldChainServer.listening).toBe(true);
+    } finally {
+      await new Promise((resolve) => started?.coldChainServer?.close(resolve));
+      await new Promise((resolve) => started?.metricsServer?.close(resolve));
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('coldChainPortFromEnv', () => {
+  it('returns null when DEVICE_GATEWAY_COLD_CHAIN_PORT is unset or blank', () => {
+    expect(coldChainPortFromEnv({})).toBeNull();
+    expect(coldChainPortFromEnv({ DEVICE_GATEWAY_COLD_CHAIN_PORT: '' })).toBeNull();
+    expect(coldChainPortFromEnv({ DEVICE_GATEWAY_COLD_CHAIN_PORT: '  ' })).toBeNull();
+  });
+
+  it('returns the numeric port when explicitly set', () => {
+    expect(coldChainPortFromEnv({ DEVICE_GATEWAY_COLD_CHAIN_PORT: '8088' })).toBe(8088);
+  });
+
+  it('rejects values that are not valid TCP ports', () => {
+    for (const bad of ['abc', '-1', '70000', '80.5']) {
+      expect(() => coldChainPortFromEnv({ DEVICE_GATEWAY_COLD_CHAIN_PORT: bad }))
+        .toThrow('DEVICE_GATEWAY_COLD_CHAIN_PORT must be a TCP port number');
     }
   });
 });
