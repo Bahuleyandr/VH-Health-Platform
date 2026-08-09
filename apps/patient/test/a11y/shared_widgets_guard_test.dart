@@ -71,34 +71,30 @@ void main() {
         });
       });
     }
-  }, skip: kBlockedOnPr780);
+  });
 
-  group(
-    'FeatureScreenScaffold pastel titles (fixed by PR #780)',
-    () {
-      // All pastel variants actually passed to the scaffold by feature screens.
-      // Raw, the pastels are ~1.2:1 against the light scaffold background —
-      // #780 derives a same-hue WCAG AA variant for the title/back icon.
-      FeatureScreenScaffold.featureColors.forEach((name, pastel) {
-        testWidgets('[light] "$name" title meets 4.5:1 on the scaffold '
-            'background', (tester) async {
-          final theme = themeCases.first.theme;
-          await pumpFeatureScaffold(
-            tester,
-            theme: theme,
-            title: name,
-            color: pastel,
-          );
-          final titleStyle = tester.widget<Text>(find.text(name)).style!;
-          expect(
-            wcagContrastRatio(titleStyle.color!, theme.scaffoldBackgroundColor),
-            greaterThanOrEqualTo(4.5),
-          );
-        });
+  group('FeatureScreenScaffold pastel titles (fixed by PR #780)', () {
+    // All pastel variants actually passed to the scaffold by feature screens.
+    // Raw, the pastels are ~1.2:1 against the light scaffold background —
+    // #780 derives a same-hue WCAG AA variant for the title/back icon.
+    FeatureScreenScaffold.featureColors.forEach((name, pastel) {
+      testWidgets('[light] "$name" title meets 4.5:1 on the scaffold '
+          'background', (tester) async {
+        final theme = themeCases.first.theme;
+        await pumpFeatureScaffold(
+          tester,
+          theme: theme,
+          title: name,
+          color: pastel,
+        );
+        final titleStyle = tester.widget<Text>(find.text(name)).style!;
+        expect(
+          wcagContrastRatio(titleStyle.color!, theme.scaffoldBackgroundColor),
+          greaterThanOrEqualTo(4.5),
+        );
       });
-    },
-    skip: kBlockedOnPr780,
-  );
+    });
+  });
 
   group('FeatureScreenScaffold pastel titles in dark mode (green on main)', () {
     // The raw pastels are all >= 8:1 on the dark background; this guard

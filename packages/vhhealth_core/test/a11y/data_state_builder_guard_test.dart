@@ -13,9 +13,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/theme/app_theme.dart';
 import 'package:vhhealth_core/widgets/data_state_builder.dart';
 
-/// PR 1 of the accessibility plan — DataStateBuilder semantics.
-const String kBlockedOnPr780 = 'Blocked on PR #780 — un-skip after merge';
-
 void main() {
   final themes = <String, ThemeData>{
     'light': AppTheme.getLightTheme(16),
@@ -87,50 +84,45 @@ void main() {
       });
     });
 
-    group(
-      '[$themeName] DataStateBuilder announcement guards (fixed by PR #780)',
-      () {
-        testWidgets('loading spinner carries a semantic label', (tester) async {
-          final handle = tester.ensureSemantics();
-          await pump(tester, theme: theme, isLoading: true);
-          await tester.pump();
+    group('[$themeName] DataStateBuilder announcement guards '
+        '(fixed by PR #780)', () {
+      testWidgets('loading spinner carries a semantic label', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester, theme: theme, isLoading: true);
+        await tester.pump();
 
-          // Audit blocker 1: an unlabeled spinner leaves TalkBack/VoiceOver
-          // users with no indication the screen is loading.
-          expect(find.bySemanticsLabel('Loading'), findsOneWidget);
-          expect(
-            tester
-                .widget<CircularProgressIndicator>(
-                  find.byType(CircularProgressIndicator),
-                )
-                .semanticsLabel,
-            isNotNull,
-          );
-          handle.dispose();
-        });
+        // Audit blocker 1: an unlabeled spinner leaves TalkBack/VoiceOver
+        // users with no indication the screen is loading.
+        expect(find.bySemanticsLabel('Loading'), findsOneWidget);
+        expect(
+          tester
+              .widget<CircularProgressIndicator>(
+                find.byType(CircularProgressIndicator),
+              )
+              .semanticsLabel,
+          isNotNull,
+        );
+        handle.dispose();
+      });
 
-        testWidgets('error state is announced via a live region', (
+      testWidgets('error state is announced via a live region', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(
           tester,
-        ) async {
-          final handle = tester.ensureSemantics();
-          await pump(
-            tester,
-            theme: theme,
-            isLoading: false,
-            error: 'Backend unavailable',
-          );
-          await tester.pump();
+          theme: theme,
+          isLoading: false,
+          error: 'Backend unavailable',
+        );
+        await tester.pump();
 
-          expect(
-            tester.getSemantics(
-              find.bySemanticsLabel(RegExp('Something went wrong')),
-            ),
-            isSemantics(isLiveRegion: true),
-          );
-          handle.dispose();
-        });
-      },
-      skip: kBlockedOnPr780,
-    );
+        expect(
+          tester.getSemantics(
+            find.bySemanticsLabel(RegExp('Something went wrong')),
+          ),
+          isSemantics(isLiveRegion: true),
+        );
+        handle.dispose();
+      });
+    });
   }
 }

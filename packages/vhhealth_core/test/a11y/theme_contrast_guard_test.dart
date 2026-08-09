@@ -16,9 +16,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/theme/app_theme.dart';
 
-/// PR 1 of the accessibility plan — error-colour + AppBar contrast fixes.
-const String kBlockedOnPr780 = 'Blocked on PR #780 — un-skip after merge';
-
 double _linearize(double channel) {
   return channel <= 0.03928
       ? channel / 12.92
@@ -140,7 +137,7 @@ void main() {
         greaterThanOrEqualTo(4.5),
       );
     });
-  }, skip: kBlockedOnPr780);
+  });
 
   group('dark AppBar guard (fixed by PR #780)', () {
     test('dark: AppBar title and icons meet contrast over the AppBar fill', () {
@@ -157,5 +154,5 @@ void main() {
         greaterThanOrEqualTo(3.0),
       );
     });
-  }, skip: kBlockedOnPr780);
+  });
 }

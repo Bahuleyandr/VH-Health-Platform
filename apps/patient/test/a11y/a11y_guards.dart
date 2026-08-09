@@ -27,10 +27,6 @@ import 'package:vhhealth_core/theme/app_theme.dart';
 // the `skip:` argument from the guard's group and it becomes active.
 // ---------------------------------------------------------------------------
 
-/// PR 1 — DataStateBuilder semantics, AppBar/error-colour contrast,
-/// FeatureScreenScaffold back-button label + pastel title contrast.
-const String kBlockedOnPr780 = 'Blocked on PR #780 — un-skip after merge';
-
 /// PR 2 — OTP field semantics, oneTimeCode/telephoneNumber autofill,
 /// OTP step announcements.
 const String kBlockedOnPr792 = 'Blocked on PR #792 — un-skip after merge';
