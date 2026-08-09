@@ -1,3 +1,5 @@
+import { PassThrough } from 'node:stream';
+
 import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
@@ -101,5 +103,79 @@ describe('investigation upload controller file authorization', () => {
 
     expect(res.status).toHaveBeenCalledWith(404);
     expect(getFileStreamMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('investigation download stream error handling', () => {
+  const boundFile = {
+    id: 8,
+    investigation_id: 42,
+    file_name: 'report.pdf',
+    file_path: '/tmp/report.pdf',
+    file_type: '.pdf',
+    file_size: 123n,
+    uploaded_by: PATIENT_UID,
+    created_at: new Date('2026-06-11T00:00:00Z'),
+  };
+
+  function makeStreamingRes() {
+    const res = makeRes();
+    res.headersSent = false;
+    res.destroy = jest.fn();
+    res.on = jest.fn(() => res);
+    res.write = jest.fn(() => true);
+    res.end = jest.fn(() => res);
+    res.emit = jest.fn();
+    res.once = jest.fn(() => res);
+    res.removeListener = jest.fn(() => res);
+    return res;
+  }
+
+  async function startDownload(res) {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 42 }]);
+    getFileByIdMock.mockResolvedValueOnce(boundFile);
+    const stream = new PassThrough();
+    getFileStreamMock.mockResolvedValueOnce({ stream, fileName: 'report.pdf', fileType: '.pdf' });
+    logAuditMock.mockResolvedValueOnce(undefined);
+
+    const req = makeReq({ id: '42', fileId: '8' });
+    await downloadFile(req, res);
+    return stream;
+  }
+
+  it('a stream error before headers are sent returns a 500 JSON error instead of crashing', async () => {
+    const res = makeStreamingRes();
+    const stream = await startDownload(res);
+
+    // Before the fix this emit was an unhandled 'error' event — a process-
+    // killing uncaught exception the controller's try/catch cannot see.
+    expect(() => stream.emit('error', new Error('R2 read failed mid-stream'))).not.toThrow();
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+    expect(res.destroy).not.toHaveBeenCalled();
+  });
+
+  it('a stream error after headers are sent destroys the response instead of double-sending', async () => {
+    const res = makeStreamingRes();
+    const stream = await startDownload(res);
+    res.headersSent = true;
+
+    expect(() => stream.emit('error', new Error('disk read failed mid-stream'))).not.toThrow();
+
+    expect(res.destroy).toHaveBeenCalled();
+    // No status/json after headers went out — only the 404-free happy path ran.
+    expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it('destroys the source stream when the client disconnects mid-download', async () => {
+    const res = makeStreamingRes();
+    const stream = await startDownload(res);
+
+    const closeHandler = res.on.mock.calls.find(([event]) => event === 'close')?.[1];
+    expect(typeof closeHandler).toBe('function');
+    closeHandler();
+
+    expect(stream.destroyed).toBe(true);
   });
 });
