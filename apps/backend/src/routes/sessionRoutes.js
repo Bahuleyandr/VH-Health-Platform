@@ -15,6 +15,17 @@ import { success, error } from '../utils/responseHelper.js';
 const router = Router();
 
 /**
+ * The caller's own token claims, as verified by jwtMiddleware. Threaded into
+ * the service so a session can be reported (and revoked) even on login paths
+ * that never claimed a `user_active_sessions` row — the admin paths mint
+ * tokens with generateToken() directly (audit P15).
+ */
+const callerToken = (req) => ({
+  jti: req.user?.jti ?? null,
+  expiresAt: req.user?.tokenExpiresAt ?? null,
+});
+
+/**
  * GET /sessions
  * List active sessions for the current user.
  */
@@ -23,7 +34,7 @@ router.get('/', async (req, res) => {
     const userId = req.user?.uid;
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
 
-    const sessions = await listActiveSessions(userId);
+    const sessions = await listActiveSessions(userId, callerToken(req));
     return success(res, sessions, 'Active sessions retrieved');
   } catch (err) {
     logger.error('List sessions error:', err);
@@ -43,7 +54,7 @@ router.delete('/:jti', async (req, res) => {
     if (!userId) return error(res, 'Authentication required', HTTP_STATUS.UNAUTHORIZED);
     if (!jti) return error(res, 'Session ID (jti) is required', HTTP_STATUS.BAD_REQUEST);
 
-    const result = await revokeSession(userId, jti);
+    const result = await revokeSession(userId, jti, callerToken(req));
     if (!result.success) {
       // A revocation store that refused the write is NOT a missing session —
       // reporting it as 404 (or worse, 200) tells the caller their token is

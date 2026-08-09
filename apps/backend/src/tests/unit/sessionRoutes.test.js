@@ -36,6 +36,7 @@ const { default: sessionRoutes } = await import('../../routes/sessionRoutes.js')
 const UID = '550e8400-e29b-41d4-a716-446655440001';
 const OTHER_UID = '550e8400-e29b-41d4-a716-446655440002';
 const JTI = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const TOKEN_EXPIRES_AT = '2026-08-09T12:00:00.000Z';
 
 // Reassigned per test so the same app can exercise authenticated and
 // unauthenticated branches. sessionRoutes reads req.user directly — it does
@@ -52,7 +53,7 @@ app.use((req, _res, next) => {
 app.use('/api/v1/sessions', sessionRoutes);
 
 beforeEach(() => {
-  currentUser = { uid: UID, role: 'PATIENT', jti: JTI };
+  currentUser = { uid: UID, role: 'PATIENT', jti: JTI, tokenExpiresAt: TOKEN_EXPIRES_AT };
   listActiveSessionsMock.mockReset();
   revokeSessionMock.mockReset();
   revokeAllOtherSessionsMock.mockReset();
@@ -68,8 +69,12 @@ describe('GET /api/v1/sessions', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(response.body.data).toEqual(sessions);
-    // The uid comes from the verified token, never from user input.
-    expect(listActiveSessionsMock).toHaveBeenCalledWith(UID);
+    // The uid comes from the verified token, never from user input, and the
+    // caller's own token claims ride along so its session is always reportable.
+    expect(listActiveSessionsMock).toHaveBeenCalledWith(UID, {
+      jti: JTI,
+      expiresAt: TOKEN_EXPIRES_AT,
+    });
   });
 
   it('rejects an unauthenticated caller', async () => {
@@ -83,6 +88,8 @@ describe('GET /api/v1/sessions', () => {
   });
 
   it('reports a listing failure as an error, not an empty session list', async () => {
+    // An empty list is a different CLAIM from a failed read — it says the
+    // caller has no sessions. The service throws so this cannot be conflated.
     listActiveSessionsMock.mockRejectedValue(new Error('db down'));
 
     const response = await request(app).get('/api/v1/sessions');
@@ -100,7 +107,10 @@ describe('DELETE /api/v1/sessions/:jti', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(revokeSessionMock).toHaveBeenCalledWith(UID, JTI);
+    expect(revokeSessionMock).toHaveBeenCalledWith(UID, JTI, {
+      jti: JTI,
+      expiresAt: TOKEN_EXPIRES_AT,
+    });
   });
 
   it('answers 503 — NOT 200 — when no revocation store accepted the write', async () => {
@@ -151,7 +161,7 @@ describe('DELETE /api/v1/sessions/:jti', () => {
       .delete(`/api/v1/sessions/${JTI}`)
       .send({ userId: OTHER_UID });
 
-    expect(revokeSessionMock).toHaveBeenCalledWith(UID, JTI);
+    expect(revokeSessionMock).toHaveBeenCalledWith(UID, JTI, expect.any(Object));
   });
 
   it('reports an unexpected service throw as an error', async () => {
