@@ -16,6 +16,26 @@ import 'package:vhhealth/features/abdm/screens/abdm_screen.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 void main() {
+  group('ABHA linkage response contract', () {
+    test('requires the authoritative linked field', () {
+      expect(
+        () => AbhaLinkage.fromMap({'abhaNumber': null, 'abhaAddress': null}),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects a verdict that disagrees with the linkage details', () {
+      expect(
+        () => AbhaLinkage.fromMap({
+          'linked': false,
+          'abhaNumber': '12345678901234',
+          'abhaAddress': null,
+        }),
+        throwsFormatException,
+      );
+    });
+  });
+
   testWidgets('shows a spinner while the linkage status is in flight', (
     tester,
   ) async {

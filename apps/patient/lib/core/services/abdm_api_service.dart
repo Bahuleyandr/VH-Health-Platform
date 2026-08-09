@@ -99,14 +99,29 @@ class AbhaLinkage {
 
   factory AbhaLinkage.fromMap(Map<String, dynamic> map) {
     String? clean(Object? value) {
-      final text = (value as String?)?.trim();
-      return (text == null || text.isEmpty) ? null : text;
+      if (value == null) return null;
+      if (value is! String) {
+        throw const FormatException('Invalid ABHA linkage response');
+      }
+      final text = value.trim();
+      return text.isEmpty ? null : text;
+    }
+
+    final linked = map['linked'];
+    if (linked is! bool) {
+      throw const FormatException('Invalid ABHA linkage response');
+    }
+
+    final abhaNumber = clean(map['abhaNumber']);
+    final abhaAddress = clean(map['abhaAddress']);
+    if (linked != (abhaNumber != null || abhaAddress != null)) {
+      throw const FormatException('Invalid ABHA linkage response');
     }
 
     return AbhaLinkage(
-      linked: map['linked'] == true,
-      abhaNumber: clean(map['abhaNumber']),
-      abhaAddress: clean(map['abhaAddress']),
+      linked: linked,
+      abhaNumber: abhaNumber,
+      abhaAddress: abhaAddress,
     );
   }
 }

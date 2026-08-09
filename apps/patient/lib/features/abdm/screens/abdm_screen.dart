@@ -102,6 +102,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
   // "not registered" prompt before the status is known.
   bool _loading = true;
   String? _loadError;
+  bool? _linked;
   String? _abhaNumber;
   String? _abhaAddress;
   bool _showRegistration = false;
@@ -126,6 +127,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
       final linkage = await (widget.loadLinkage ?? AbdmApiService.getMyAbha)();
       if (!mounted) return;
       setState(() {
+        _linked = linkage.linked;
         _abhaNumber = linkage.abhaNumber;
         _abhaAddress = linkage.abhaAddress;
       });
@@ -224,8 +226,9 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
       return _buildLinkForm(theme);
     }
 
-    // Already linked — show ABHA card (number, address, or both)
-    if (_abhaNumber != null || _abhaAddress != null) {
+    // The server's linkage verdict is authoritative. The response parser
+    // rejects a verdict that disagrees with the returned details.
+    if (_linked == true) {
       return _buildAbhaCard(theme);
     }
 
