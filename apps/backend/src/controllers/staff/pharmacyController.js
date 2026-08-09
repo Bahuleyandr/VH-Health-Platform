@@ -20,6 +20,7 @@ export const updatePharmacyOrder = async (req, res) => {
     const result = await pharmacyService.updatePharmacyOrderStatus({
       ...req.body,
       phone,
+      tenantId: req.tenantId,
       updatedBy: staffUid,
       updatedByName: staffName
     });

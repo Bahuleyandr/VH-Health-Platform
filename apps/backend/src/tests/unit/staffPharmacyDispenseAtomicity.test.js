@@ -58,6 +58,7 @@ function input(overrides = {}) {
     dispensed_medications: [{ name: 'Paracetamol 500mg', qty: 10 }],
     pharmacist_notes: 'Counselled patient',
     dispensed_at: null,
+    tenantId: TENANT_ID,
     updatedBy: STAFF_UID,
     updatedByName: 'Pharmacist One',
     ...overrides,
@@ -68,7 +69,7 @@ describe('staff pharmacy dispense canonical atomicity (BE-M6)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setTenantTx.mockImplementation(async (_tenantId, callback) => callback(tx));
-    prismaQuery.mockResolvedValue([{ tenant_id: TENANT_ID }]); // preflight + post-commit inserts
+    prismaQuery.mockResolvedValue([]); // post-commit inserts
     txQuery.mockResolvedValue([orderRow()]);
     emitPharmacyOrderEvent.mockResolvedValue({ id: 'canonical-1' });
   });
@@ -80,6 +81,7 @@ describe('staff pharmacy dispense canonical atomicity (BE-M6)', () => {
     const updateSql = txQuery.mock.calls[0][0];
     expect(updateSql).toContain('UPDATE pharmacy_orders');
     expect(updateSql).toContain('tenant_id = $10::uuid');
+    expect(txQuery.mock.calls[0].at(-1)).toBe(TENANT_ID);
     expect(emitPharmacyOrderEvent).toHaveBeenCalledWith(expect.objectContaining({
       db: tx,
       eventType: 'pharmacy.order_status_changed',
@@ -108,15 +110,11 @@ describe('staff pharmacy dispense canonical atomicity (BE-M6)', () => {
     await expect(updatePharmacyOrderStatus(input())).rejects.toThrow('canonical insert failed');
 
     expect(transactionRejected).toBe(true);
-    // Only the preflight tenant lookup ran on the base client — no
-    // notification / activity-log inserts after the failed transaction.
-    expect(prismaQuery).toHaveBeenCalledTimes(1);
-    expect(prismaQuery.mock.calls[0][0]).toContain('SELECT tenant_id');
+    expect(prismaQuery).not.toHaveBeenCalled();
   });
 
   it('does not 500 after commit when the notification insert fails (retry-safety)', async () => {
     prismaQuery
-      .mockResolvedValueOnce([{ tenant_id: TENANT_ID }]) // preflight
       .mockRejectedValueOnce(new Error('notifications insert failed')) // notification
       .mockResolvedValueOnce([]); // activity log
 
@@ -132,7 +130,6 @@ describe('staff pharmacy dispense canonical atomicity (BE-M6)', () => {
 
   it('does not 500 after commit when the activity-log insert fails', async () => {
     prismaQuery
-      .mockResolvedValueOnce([{ tenant_id: TENANT_ID }]) // preflight
       .mockResolvedValueOnce([]) // notification
       .mockRejectedValueOnce(new Error('activity log insert failed'));
 
@@ -146,12 +143,20 @@ describe('staff pharmacy dispense canonical atomicity (BE-M6)', () => {
     );
   });
 
-  it('throws ORDER_NOT_FOUND from the preflight without opening a transaction', async () => {
-    prismaQuery.mockResolvedValueOnce([]);
-
-    await expect(updatePharmacyOrderStatus(input())).rejects.toThrow('ORDER_NOT_FOUND');
+  it('requires the caller tenant before opening a transaction', async () => {
+    await expect(updatePharmacyOrderStatus(input({ tenantId: null }))).rejects.toThrow('TENANT_REQUIRED');
     expect(setTenantTx).not.toHaveBeenCalled();
-    expect(emitPharmacyOrderEvent).not.toHaveBeenCalled();
+    expect(prismaQuery).not.toHaveBeenCalled();
+  });
+
+  it('stamps the caller tenant on post-commit notification and activity rows', async () => {
+    await updatePharmacyOrderStatus(input());
+
+    expect(prismaQuery).toHaveBeenCalledTimes(2);
+    expect(prismaQuery.mock.calls[0][0]).toContain('tenant_id');
+    expect(prismaQuery.mock.calls[0].at(-1)).toBe(TENANT_ID);
+    expect(prismaQuery.mock.calls[1][0]).toContain('tenant_id');
+    expect(prismaQuery.mock.calls[1].at(-1)).toBe(TENANT_ID);
   });
 
   it('throws ORDER_NOT_FOUND when the guarded UPDATE matches no row, without emitting', async () => {

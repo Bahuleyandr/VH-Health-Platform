@@ -7,21 +7,10 @@ export const updatePharmacyOrderStatus = async (data) => {
   const {
     phone, order_id, status, notes,
     dispensed_medications, pharmacist_notes,
-    dispensed_at, updatedBy, updatedByName
+    dispensed_at, tenantId, updatedBy, updatedByName
   } = data;
 
-  // Phase 0 — pre-flight outside the transaction: resolve the order's tenant
-  // so the status write + canonical emit below can run under one
-  // tenant-scoped transaction (sibling pattern:
-  // controllers/pharmacy/pharmacyOrderController.js).
-  const preflight = await prisma.$queryRawUnsafe(
-    `SELECT tenant_id::text AS tenant_id FROM pharmacy_orders WHERE id = $1 AND phone = $2`,
-    order_id, phone
-  );
-  if (preflight.length === 0) {
-    throw new Error('ORDER_NOT_FOUND');
-  }
-  const tenantId = preflight[0].tenant_id;
+  if (!tenantId) throw new Error('TENANT_REQUIRED');
 
   // Phase 1 — the dispense bookkeeping UPDATE and the canonical
   // timeline/audit emit commit or roll back together (canonical clinical
@@ -88,14 +77,15 @@ export const updatePharmacyOrderStatus = async (data) => {
   try {
     await prisma.$queryRawUnsafe(
       `INSERT INTO notifications (
-        phone, title, body, type, related_id, created_at
-      ) VALUES ($1, $2, $3, $4, $5, NOW())`,
+        phone, title, body, type, related_id, tenant_id, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6::uuid, NOW())`,
 
         phone,
         `Pharmacy Order ${status.charAt(0).toUpperCase() + status.slice(1)}`,
         statusMessages[status] || `Your pharmacy order status has been updated to ${status}.`,
         'pharmacy_update',
-        order_id
+        order_id,
+        tenantId
 
     );
   } catch (notifyErr) {
@@ -107,8 +97,8 @@ export const updatePharmacyOrderStatus = async (data) => {
     await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_activity_logs (
         staff_uid, action, patient_phone, order_id,
-        old_status, new_status, notes, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        old_status, new_status, notes, tenant_id, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid, NOW())`,
 
         updatedBy,
         'ORDER_STATUS_UPDATED',
@@ -116,7 +106,8 @@ export const updatePharmacyOrderStatus = async (data) => {
         order_id,
         'previous_status',
         status,
-        notes
+        notes,
+        tenantId
 
     );
   } catch (activityErr) {
