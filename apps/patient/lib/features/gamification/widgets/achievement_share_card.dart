@@ -17,6 +17,7 @@ import 'dart:io' show File;
 
 import 'package:vhhealth/features/gamification/widgets/achievement_grid.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class AchievementShareCard extends StatefulWidget {
   final AchievementDef achievement;
@@ -63,10 +64,8 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
       if (kDebugMode) debugPrint('AchievementShareCard: share error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.gamificationCouldNotShare,
-            ),
+          LiveRegionSnackBar.build(
+            message: AppLocalizations.of(context)!.gamificationCouldNotShare,
           ),
         );
       }

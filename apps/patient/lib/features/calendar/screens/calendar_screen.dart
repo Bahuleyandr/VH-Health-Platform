@@ -6,6 +6,7 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -50,8 +51,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final theme = Theme.of(context);
       final loc = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(loc.calendarPermissionDenied),
+        LiveRegionSnackBar.build(
+          message: loc.calendarPermissionDenied,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -111,8 +112,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final theme = Theme.of(context);
       final loc = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(loc.calendarLoadFailed),
+        LiveRegionSnackBar.build(
+          message: loc.calendarLoadFailed,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),

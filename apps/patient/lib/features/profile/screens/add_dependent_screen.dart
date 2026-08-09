@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class AddDependentScreen extends StatefulWidget {
   const AddDependentScreen({super.key});
@@ -104,7 +105,7 @@ class _AddDependentScreenState extends State<AddDependentScreen> {
         provider.switchTo(dep);
       }
       messenger.showSnackBar(
-        SnackBar(content: Text(l.addDependentLinkedToast(dep.name))),
+        LiveRegionSnackBar.build(message: l.addDependentLinkedToast(dep.name)),
       );
       if (mounted) context.pop();
     } on DependentApiException catch (e) {

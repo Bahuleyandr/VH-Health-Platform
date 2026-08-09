@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/document_opener.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class PatientRecordExtractionSheet extends StatefulWidget {
   final Map<String, dynamic> record;
@@ -235,8 +236,8 @@ class _PatientRecordExtractionSheetState
       if (!mounted) return;
       if (response.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l.recordExtractionMessageSent),
+          LiveRegionSnackBar.build(
+            message: l.recordExtractionMessageSent,
             backgroundColor: Colors.green,
           ),
         );
@@ -248,8 +249,8 @@ class _PatientRecordExtractionSheetState
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l.recordExtractionMessageFailed),
+        LiveRegionSnackBar.build(
+          message: l.recordExtractionMessageFailed,
           backgroundColor: Colors.red,
         ),
       );

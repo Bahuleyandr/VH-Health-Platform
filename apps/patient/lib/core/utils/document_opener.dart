@@ -11,6 +11,7 @@ import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/utils/safe_filename.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class DocumentOpener {
   DocumentOpener._();
@@ -113,8 +114,8 @@ class DocumentOpener {
         );
         if (!launched && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppLocalizations.of(context)!.documentCouldNotOpen),
+            LiveRegionSnackBar.build(
+              message: AppLocalizations.of(context)!.documentCouldNotOpen,
             ),
           );
         }

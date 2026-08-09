@@ -13,6 +13,7 @@ import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/maternity/models/anc_timeline.dart';
 import 'package:vhhealth/features/maternity/services/maternity_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 abstract class AncSupplementReminderScheduler {
   Future<void> schedule(AncSupplement supplement);
@@ -208,13 +209,13 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
           : l.ancReminderOff;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showSnackBar(LiveRegionSnackBar.build(message: message));
     } catch (e) {
       if (kDebugMode) debugPrint('ANC supplement reminder toggle failed: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.ancReminderToggleFailed)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        LiveRegionSnackBar.build(message: l.ancReminderToggleFailed),
+      );
     } finally {
       if (mounted) {
         setState(() => _togglingSupplementIds.remove(supplement.id));

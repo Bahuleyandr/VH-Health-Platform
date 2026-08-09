@@ -116,8 +116,8 @@ class SettingsController {
     if (value && !biometricSupported) {
       if (context.mounted) {
         messenger.showSnackBar(
-          SnackBar(
-            content: Text(loc.settingsBiometricNotSupported),
+          LiveRegionSnackBar.build(
+            message: loc.settingsBiometricNotSupported,
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -135,8 +135,8 @@ class SettingsController {
       } catch (e) {
         if (context.mounted) {
           messenger.showSnackBar(
-            SnackBar(
-              content: Text('Authentication failed: $e'),
+            LiveRegionSnackBar.build(
+              message: 'Authentication failed: $e',
               backgroundColor: Theme.of(context).colorScheme.error,
             ),
           );

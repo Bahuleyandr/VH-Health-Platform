@@ -4,6 +4,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -444,7 +445,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
     final dosage = _dosageCtrl.text.trim();
     if (name.isEmpty || dosage.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.medicationReminderRequiredFields)),
+        LiveRegionSnackBar.build(message: l.medicationReminderRequiredFields),
       );
       return;
     }
@@ -473,17 +474,17 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
         Navigator.of(context).pop();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(resp.failureMessage(l.medicationReminderSaveFailed)),
+          LiveRegionSnackBar.build(
+            message: resp.failureMessage(l.medicationReminderSaveFailed),
           ),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('Error saving reminder: $e');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.medicationReminderSaveFailed)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.medicationReminderSaveFailed),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);

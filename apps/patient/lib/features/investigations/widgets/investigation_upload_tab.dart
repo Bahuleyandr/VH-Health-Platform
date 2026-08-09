@@ -15,6 +15,7 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class InvestigationUploadTab extends StatefulWidget {
   /// Invoked after a successful upload so the parent can refresh the
@@ -86,8 +87,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
 
     if (!await _ensurePickerPermissions()) {
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.pharmacyPermissionsRequired),
+        LiveRegionSnackBar.build(
+          message: l10n.pharmacyPermissionsRequired,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -107,10 +108,10 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
         if (sizeBytes > maxSizeBytes) {
           if (mounted) {
             messenger.showSnackBar(
-              SnackBar(
-                content: Text(
-                  AppLocalizations.of(context)!.investigationsFileTooLarge,
-                ),
+              LiveRegionSnackBar.build(
+                message: AppLocalizations.of(
+                  context,
+                )!.investigationsFileTooLarge,
                 backgroundColor: theme.colorScheme.error,
                 behavior: SnackBarBehavior.floating,
               ),
@@ -126,8 +127,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
     } catch (e) {
       debugPrint('Investigation file pick failed: $e');
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.pharmacyFilePickerError),
+        LiveRegionSnackBar.build(
+          message: l10n.pharmacyFilePickerError,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -142,8 +143,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
 
     if (!_formKey.currentState!.validate() || _file == null) {
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.investigationsFormAndFileRequired),
+        LiveRegionSnackBar.build(
+          message: l10n.investigationsFormAndFileRequired,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -176,8 +177,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
     } catch (e) {
       debugPrint('Investigation file upload failed: $e');
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.investigationsUploadFailed),
+        LiveRegionSnackBar.build(
+          message: l10n.investigationsUploadFailed,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -198,8 +199,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
 
       if (apiRes.isSuccess) {
         messenger.showSnackBar(
-          SnackBar(
-            content: Text(l10n.investigationsConfirmationNote),
+          LiveRegionSnackBar.build(
+            message: l10n.investigationsConfirmationNote,
             backgroundColor: theme.colorScheme.primary,
             behavior: SnackBarBehavior.floating,
           ),
@@ -215,8 +216,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
       } else {
         final msg = apiRes.failureMessage(l10n.investigationsFailed);
         messenger.showSnackBar(
-          SnackBar(
-            content: Text(msg),
+          LiveRegionSnackBar.build(
+            message: msg,
             backgroundColor: theme.colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -225,8 +226,8 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
     } catch (e) {
       debugPrint('Investigation submit failed: $e');
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.networkError),
+        LiveRegionSnackBar.build(
+          message: l10n.networkError,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),

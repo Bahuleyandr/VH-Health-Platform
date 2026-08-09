@@ -13,6 +13,7 @@ import 'package:vhhealth/features/departments/widgets/departments_empty_state.da
 import 'package:vhhealth/features/departments/widgets/doctor_card.dart';
 import 'package:vhhealth/features/departments/widgets/doctor_detail_sheet.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class DepartmentsScreen extends StatefulWidget {
   const DepartmentsScreen({super.key});
@@ -164,8 +165,8 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
 
   Future<void> _triggerSOS() async {
     _messenger.showSnackBar(
-      SnackBar(
-        content: Text(_loc.authSosTriggered),
+      LiveRegionSnackBar.build(
+        message: _loc.authSosTriggered,
         backgroundColor: _theme.colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),

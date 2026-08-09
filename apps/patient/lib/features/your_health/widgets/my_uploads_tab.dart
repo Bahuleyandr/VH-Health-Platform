@@ -8,6 +8,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/your_health/widgets/patient_record_extraction_sheet.dart';
 import 'package:vhhealth/features/your_health/widgets/record_card.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 MediaType? _mediaTypeForFileName(String? fileName) {
   final ext = fileName?.split('.').last.toLowerCase();
@@ -117,8 +118,8 @@ class MyUploadsTabState extends State<MyUploadsTab> {
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r['id'] == id));
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(l.recordsDeleted),
+            LiveRegionSnackBar.build(
+              message: l.recordsDeleted,
               backgroundColor: Colors.red,
             ),
           );
@@ -126,8 +127,8 @@ class MyUploadsTabState extends State<MyUploadsTab> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response.failureMessage('Failed to delete record')),
+            LiveRegionSnackBar.build(
+              message: response.failureMessage('Failed to delete record'),
               backgroundColor: Colors.red,
             ),
           );
@@ -136,7 +137,10 @@ class MyUploadsTabState extends State<MyUploadsTab> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          LiveRegionSnackBar.build(
+            message: 'Error: $e',
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -192,9 +196,9 @@ class MyUploadsTabState extends State<MyUploadsTab> {
           Future<void> upload() async {
             final lInner = AppLocalizations.of(ctx)!;
             if (pickedFilePath == null) {
-              ScaffoldMessenger.of(
-                ctx,
-              ).showSnackBar(SnackBar(content: Text(lInner.recordsPickFile)));
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                LiveRegionSnackBar.build(message: lInner.recordsPickFile),
+              );
               return;
             }
             setSheet(() => uploading = true);
@@ -226,8 +230,8 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(lInner.recordsUploaded),
+                    LiveRegionSnackBar.build(
+                      message: lInner.recordsUploaded,
                       backgroundColor: Colors.green,
                     ),
                   );
@@ -242,8 +246,8 @@ class MyUploadsTabState extends State<MyUploadsTab> {
             } catch (e) {
               if (ctx.mounted) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text('Upload failed: $e'),
+                  LiveRegionSnackBar.build(
+                    message: 'Upload failed: $e',
                     backgroundColor: Colors.red,
                   ),
                 );

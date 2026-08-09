@@ -9,6 +9,7 @@ import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/portal/models/discharge_summary.dart';
 import 'package:vhhealth/features/portal/services/discharge_summaries_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class DischargeSummariesScreen extends StatelessWidget {
   const DischargeSummariesScreen({super.key});
@@ -315,7 +316,7 @@ class _DischargeSummaryDetailScreenState
       debugPrint('Discharge summary PDF open failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(content: Text(l10n.dischargeSummaryPdfOpenFailed)),
+        LiveRegionSnackBar.build(message: l10n.dischargeSummaryPdfOpenFailed),
       );
     } finally {
       if (mounted) {

@@ -8,6 +8,7 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class PeriodTrackerScreen extends StatefulWidget {
   const PeriodTrackerScreen({super.key});
@@ -67,9 +68,9 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
     final l = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(l.periodTrackerSavedToast)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      LiveRegionSnackBar.build(message: l.periodTrackerSavedToast),
+    );
   }
 
   Future<void> _pickLastPeriodStart() async {

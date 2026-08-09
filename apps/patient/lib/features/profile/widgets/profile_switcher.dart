@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class ProfileSwitcher extends StatefulWidget {
   /// Padding applied around the chip (so callers can match the surrounding
@@ -271,14 +272,16 @@ class _ProfileSwitcherSheet extends StatelessWidget {
       if (context.mounted) {
         Navigator.of(context).pop();
         messenger.showSnackBar(
-          SnackBar(content: Text(l.profileSwitcherRemovedToast(dep.name))),
+          LiveRegionSnackBar.build(
+            message: l.profileSwitcherRemovedToast(dep.name),
+          ),
         );
       }
     } on DependentApiException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      messenger.showSnackBar(LiveRegionSnackBar.build(message: e.message));
     } catch (_) {
       messenger.showSnackBar(
-        SnackBar(content: Text(l.profileSwitcherRemoveFailed)),
+        LiveRegionSnackBar.build(message: l.profileSwitcherRemoveFailed),
       );
     }
   }

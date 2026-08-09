@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/abdm_api_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class AbdmScreen extends StatefulWidget {
   const AbdmScreen({super.key});
@@ -187,8 +188,8 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
 
   void _showSnackBar(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: isError ? Theme.of(context).colorScheme.error : null,
         behavior: SnackBarBehavior.floating,
       ),
@@ -555,8 +556,8 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
       await apiCall(consentId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Consent ${action.toLowerCase()}ed successfully'),
+          LiveRegionSnackBar.build(
+            message: 'Consent ${action.toLowerCase()}ed successfully',
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -565,8 +566,8 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
     } on AbdmException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
+          LiveRegionSnackBar.build(
+            message: e.message,
             backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),

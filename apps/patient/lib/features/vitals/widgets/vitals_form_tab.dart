@@ -8,6 +8,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class VitalsFormTab extends StatefulWidget {
   final VoidCallback onSubmitted;
@@ -73,7 +74,7 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text(l.vitalsAtLeastOne)));
+          ).showSnackBar(LiveRegionSnackBar.build(message: l.vitalsAtLeastOne));
         }
         return;
       }
@@ -105,9 +106,9 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
           ),
         );
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.vitalsRecordedSuccess)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.vitalsRecordedSuccess),
+        );
         _formKey.currentState!.reset();
         _systolicCtrl.clear();
         _diastolicCtrl.clear();
@@ -119,17 +120,17 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
         widget.onSubmitted();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.failureMessage(l.vitalsRecordFailed)),
+          LiveRegionSnackBar.build(
+            message: response.failureMessage(l.vitalsRecordFailed),
           ),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('VitalsFormTab: submit error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.vitalsRecordFailedRetry)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(message: l.vitalsRecordFailedRetry),
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);

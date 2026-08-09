@@ -13,6 +13,7 @@ import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/settings/models/record_access_grant.dart';
 import 'package:vhhealth/features/settings/services/record_access_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class RecordAccessScreen extends StatelessWidget {
   const RecordAccessScreen({
@@ -140,16 +141,16 @@ class _RecordAccessBodyState extends State<RecordAccessBody> {
         signaturePngBytes: request.signaturePngBytes,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.recordAccessGrantSuccess)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        LiveRegionSnackBar.build(message: l10n.recordAccessGrantSuccess),
+      );
       await _fetch();
     } catch (e) {
       debugPrint('Record access grant failed: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.recordAccessGrantFailed)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        LiveRegionSnackBar.build(message: l10n.recordAccessGrantFailed),
+      );
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -186,16 +187,16 @@ class _RecordAccessBodyState extends State<RecordAccessBody> {
         reason: l10n.recordAccessRevokedByPatient,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.recordAccessRevokeSuccess)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        LiveRegionSnackBar.build(message: l10n.recordAccessRevokeSuccess),
+      );
       await _fetch();
     } catch (e) {
       debugPrint('Record access revoke failed: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.recordAccessRevokeFailed)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        LiveRegionSnackBar.build(message: l10n.recordAccessRevokeFailed),
+      );
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -703,7 +704,7 @@ class _GrantAccessSheetState extends State<_GrantAccessSheet> {
     if (signaturePngBytes == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.recordAccessSignatureRequired)),
+        LiveRegionSnackBar.build(message: l10n.recordAccessSignatureRequired),
       );
       return;
     }

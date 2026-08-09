@@ -19,6 +19,7 @@ import 'package:vhhealth/features/investigations/widgets/booking_success_view.da
 import 'package:vhhealth/features/investigations/widgets/book_investigation_step_choose.dart';
 import 'package:vhhealth/features/investigations/widgets/book_investigation_step_collection.dart';
 import 'package:vhhealth/features/investigations/widgets/book_investigation_step_review.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class BookInvestigationScreen extends StatefulWidget {
   const BookInvestigationScreen({super.key});
@@ -268,8 +269,8 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   void _showError(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
+      LiveRegionSnackBar.build(
+        message: msg,
         backgroundColor: Colors.red.shade700,
         behavior: SnackBarBehavior.floating,
       ),

@@ -9,6 +9,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/document_opener.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 MediaType? _mediaTypeForFileName(String? fileName) {
   final ext = fileName?.split('.').last.toLowerCase();
@@ -151,9 +152,9 @@ class _RecordsScreenState extends State<RecordsScreen>
     final l = AppLocalizations.of(context)!;
     final url = record.fileUrl;
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.recordsDocumentUrlMissing)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        LiveRegionSnackBar.build(message: l.recordsDocumentUrlMissing),
+      );
       return;
     }
     await DocumentOpener.openFromUrl(
@@ -197,8 +198,8 @@ class _RecordsScreenState extends State<RecordsScreen>
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r.id == record.id));
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(l.recordsDeleted),
+            LiveRegionSnackBar.build(
+              message: l.recordsDeleted,
               backgroundColor: Colors.red,
             ),
           );
@@ -206,8 +207,8 @@ class _RecordsScreenState extends State<RecordsScreen>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response.failureMessage('Failed to delete record')),
+            LiveRegionSnackBar.build(
+              message: response.failureMessage('Failed to delete record'),
               backgroundColor: Colors.red,
             ),
           );
@@ -216,7 +217,10 @@ class _RecordsScreenState extends State<RecordsScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          LiveRegionSnackBar.build(
+            message: 'Error: $e',
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -253,9 +257,9 @@ class _RecordsScreenState extends State<RecordsScreen>
 
           Future<void> upload() async {
             if (pickedFilePath == null) {
-              ScaffoldMessenger.of(
-                ctx,
-              ).showSnackBar(SnackBar(content: Text(lInner.recordsPickFile)));
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                LiveRegionSnackBar.build(message: lInner.recordsPickFile),
+              );
               return;
             }
             setSheet(() => uploading = true);
@@ -286,8 +290,8 @@ class _RecordsScreenState extends State<RecordsScreen>
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(lInner.recordsUploaded),
+                    LiveRegionSnackBar.build(
+                      message: lInner.recordsUploaded,
                       backgroundColor: Colors.green,
                     ),
                   );
@@ -299,8 +303,8 @@ class _RecordsScreenState extends State<RecordsScreen>
             } catch (e) {
               if (ctx.mounted) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text('Upload failed: $e'),
+                  LiveRegionSnackBar.build(
+                    message: 'Upload failed: $e',
                     backgroundColor: Colors.red,
                   ),
                 );

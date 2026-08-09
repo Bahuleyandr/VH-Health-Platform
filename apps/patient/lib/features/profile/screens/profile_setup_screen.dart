@@ -13,6 +13,7 @@ import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   final String phone;
@@ -74,8 +75,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       debugPrint('Photo pick failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.filesPickerError),
+        LiveRegionSnackBar.build(
+          message: l10n.filesPickerError,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -114,10 +115,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       if (!mounted) return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          success ? l10n.profileSetupSaved : l10n.profileSetupSaveFailed,
-        ),
+      LiveRegionSnackBar.build(
+        message: success ? l10n.profileSetupSaved : l10n.profileSetupSaveFailed,
         backgroundColor: success
             ? theme.colorScheme.primary
             : theme.colorScheme.error,

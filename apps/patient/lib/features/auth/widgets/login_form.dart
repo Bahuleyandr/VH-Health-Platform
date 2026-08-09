@@ -21,6 +21,7 @@ import 'package:vhhealth/core/widgets/phone_input_field.dart';
 import 'package:vhhealth/core/widgets/terms_agreement_notice.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/features/auth/widgets/otp_widget.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class LoginForm extends StatefulWidget {
   final String? returnTo;
@@ -79,10 +80,10 @@ class _LoginFormState extends State<LoginForm> {
   void _showSnackBar(String message, Color bgColor) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
+      LiveRegionSnackBar.build(
+        message: message,
         backgroundColor: bgColor,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

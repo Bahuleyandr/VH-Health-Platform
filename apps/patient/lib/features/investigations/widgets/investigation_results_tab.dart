@@ -17,6 +17,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/features/investigations/widgets/result_gauge_widget.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class InvestigationResultsTab extends StatefulWidget {
   const InvestigationResultsTab({super.key});
@@ -188,8 +189,8 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
       debugPrint('Investigation file download failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.investigationsDownloadFailed),
+        LiveRegionSnackBar.build(
+          message: l10n.investigationsDownloadFailed,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),

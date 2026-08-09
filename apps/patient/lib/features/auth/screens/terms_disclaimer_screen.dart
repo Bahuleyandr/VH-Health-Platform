@@ -10,6 +10,7 @@ import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/generated/app_localizations_en.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class TermsDisclaimerScreen extends StatefulWidget {
   final String? section;
@@ -97,9 +98,9 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
     );
     if (!launched && mounted) {
       final l = AppLocalizations.of(context)!;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.commonCouldNotOpenLink)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        LiveRegionSnackBar.build(message: l.commonCouldNotOpenLink),
+      );
     }
   }
 

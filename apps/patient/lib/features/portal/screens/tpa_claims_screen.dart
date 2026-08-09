@@ -19,6 +19,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class TpaClaimsScreen extends StatefulWidget {
   const TpaClaimsScreen({super.key});
@@ -297,8 +298,8 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
       debugPrint('Claim document download failed: $e');
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(l.tpaClaimDocumentDownloadFailed),
+        LiveRegionSnackBar.build(
+          message: l.tpaClaimDocumentDownloadFailed,
           backgroundColor: theme.colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),

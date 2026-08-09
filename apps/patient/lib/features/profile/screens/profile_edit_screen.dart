@@ -12,6 +12,7 @@ import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/utils/log_sanitizer.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class ProfileEditScreen extends StatefulWidget {
   const ProfileEditScreen({super.key});
@@ -214,12 +215,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     }
 
     messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          success
-              ? l10n.profileUpdatedSuccessfully
-              : (errorMessage ?? l10n.networkError),
-        ),
+      LiveRegionSnackBar.build(
+        message: success
+            ? l10n.profileUpdatedSuccessfully
+            : (errorMessage ?? l10n.networkError),
         backgroundColor: success
             ? theme.colorScheme.primary
             : theme.colorScheme.error,
@@ -282,8 +281,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     messenger.showSnackBar(
-      SnackBar(
-        content: Text(l10n.authSosTriggered),
+      LiveRegionSnackBar.build(
+        message: l10n.authSosTriggered,
         backgroundColor: theme.colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),

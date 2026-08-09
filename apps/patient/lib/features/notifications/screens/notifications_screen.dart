@@ -10,6 +10,7 @@ import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -220,7 +221,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         setState(() => notifications.removeAt(index));
                         // ignore: use_build_context_synchronously
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(loc.notificationMarkedAsRead)),
+                          LiveRegionSnackBar.build(
+                            message: loc.notificationMarkedAsRead,
+                          ),
                         );
                       },
                       child: ListTile(
