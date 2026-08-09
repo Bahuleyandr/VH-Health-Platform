@@ -137,45 +137,42 @@ void main() {
     expect(receivedReason, 'Unlock to view your medical records');
   });
 
-  testWidgets(
-    'a recent unlock grants a sibling gate without re-prompting '
-    '(hub -> detail push must not double-prompt)',
-    (tester) async {
-      var checks = 0;
-      Future<bool> countingCheck(String _) async {
-        checks++;
-        return true;
-      }
+  testWidgets('a recent unlock grants a sibling gate without re-prompting '
+      '(hub -> detail push must not double-prompt)', (tester) async {
+    var checks = 0;
+    Future<bool> countingCheck(String _) async {
+      checks++;
+      return true;
+    }
 
-      await tester.pumpWidget(
-        _wrap(
-          BiometricGate(
-            key: const ValueKey('hub'),
-            authCheck: countingCheck,
-            builder: (_) => const Text('hub'),
-          ),
+    await tester.pumpWidget(
+      _wrap(
+        BiometricGate(
+          key: const ValueKey('hub'),
+          authCheck: countingCheck,
+          builder: (_) => const Text('hub'),
         ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('hub'), findsOneWidget);
-      expect(checks, 1);
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('hub'), findsOneWidget);
+    expect(checks, 1);
 
-      // A different key forces a fresh State (a real push builds a new gate).
-      await tester.pumpWidget(
-        _wrap(
-          BiometricGate(
-            key: const ValueKey('detail'),
-            authCheck: countingCheck,
-            builder: (_) => const Text('detail'),
-          ),
+    // A different key forces a fresh State (a real push builds a new gate).
+    await tester.pumpWidget(
+      _wrap(
+        BiometricGate(
+          key: const ValueKey('detail'),
+          authCheck: countingCheck,
+          builder: (_) => const Text('detail'),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('detail'), findsOneWidget);
-      expect(checks, 1, reason: 'grace window must suppress the second check');
-    },
-  );
+    expect(find.text('detail'), findsOneWidget);
+    expect(checks, 1, reason: 'grace window must suppress the second check');
+  });
 
   testWidgets('an expired grace window re-prompts', (tester) async {
     BiometricGate.unlockGraceWindow = Duration.zero;
