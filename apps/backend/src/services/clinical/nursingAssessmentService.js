@@ -9,7 +9,11 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
-import { calculateNEWS2, resolveSpo2ScaleForPatient } from './news2Service.js';
+import {
+  calculateNEWS2,
+  normalizeSpo2Scale,
+  resolveSpo2ScaleForPatient,
+} from './news2Service.js';
 
 const SCORING_VERSION = 'v1';
 
@@ -205,10 +209,18 @@ export async function recordAssessment({
   // the persisted row stays reproducible even if the flag later changes
   // (scoring_version discipline — rows must not silently re-grade).
   let effectiveInputs = inputs ?? {};
-  if (assessment_kind === 'news2'
-      && (effectiveInputs.spo2_scale === undefined || effectiveInputs.spo2_scale === null || effectiveInputs.spo2_scale === '')) {
-    const resolvedScale = await resolveSpo2ScaleForPatient(String(patient_uid));
-    effectiveInputs = { ...effectiveInputs, spo2_scale: resolvedScale };
+  if (assessment_kind === 'news2') {
+    const suppliedScale = effectiveInputs.spo2_scale;
+    if (suppliedScale === undefined || suppliedScale === null || suppliedScale === '') {
+      const resolvedScale = await resolveSpo2ScaleForPatient(String(patient_uid));
+      effectiveInputs = { ...effectiveInputs, spo2_scale: resolvedScale };
+    } else {
+      const normalizedScale = normalizeSpo2Scale(suppliedScale);
+      if (normalizedScale === null) {
+        throw AppError.badRequest('spo2_scale must be 1 or 2');
+      }
+      effectiveInputs = { ...effectiveInputs, spo2_scale: normalizedScale };
+    }
   }
 
   const result = score(assessment_kind, effectiveInputs);

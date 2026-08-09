@@ -29,7 +29,8 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 const { calculateNEWS2, normalizeSpo2Scale, resolveSpo2ScaleForPatient } =
   await import('../../services/clinical/news2Service.js');
-const { scoreNews2 } = await import('../../services/clinical/nursingAssessmentService.js');
+const { recordAssessment, scoreNews2 } =
+  await import('../../services/clinical/nursingAssessmentService.js');
 
 // Every other parameter dead-normal so the SpO2 sub-score is the only signal.
 const NORMAL = { respiration_rate: 16, temperature: 37, systolic_bp: 120, heart_rate: 72, consciousness: 'A' };
@@ -213,5 +214,20 @@ describe('nursingAssessmentService.scoreNews2 delegates to the unified scorer', 
     expect(scoreNews2({ rr: 22, spo2: 93, temp_c: 35.5, sbp: 120, hr: 72, consciousness: 'A' }).band).toBe('medium');
     // single red forces high even at aggregate 3
     expect(scoreNews2({ rr: 16, spo2: 98, temp_c: 37, sbp: 85, hr: 72, consciousness: 'A' }).band).toBe('high');
+  });
+});
+
+describe('nursingAssessmentService.recordAssessment scale validation', () => {
+  beforeEach(() => queryMock.mockReset());
+
+  test('rejects an invalid explicit scale before persistence', async () => {
+    await expect(recordAssessment({
+      tenantId: '22222222-2222-4222-8222-222222222222',
+      patient_uid: '11111111-1111-4111-8111-111111111111',
+      assessment_kind: 'news2',
+      inputs: { ...NORMAL, spo2_scale: 7 },
+      assessed_by: null,
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect(queryMock).not.toHaveBeenCalled();
   });
 });
