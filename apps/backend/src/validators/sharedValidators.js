@@ -153,6 +153,8 @@ function requiredArray(name, { min = 1 } = {}) {
  */
 export const vitalsValidator = [
   optionalUUID('patient_uid'),
+  optionalInt('patient_id', { min: 1 }),
+  optionalInt('visit_id', { min: 1 }),
   body().custom((value) => {
     if (!value?.patient_uid && !value?.patient_id) {
       throw new Error('patient_uid or patient_id is required');
@@ -240,7 +242,12 @@ export const invoiceValidator = [
 export const paymentValidator = [
   paramId('id'),
   requiredNumber('amount', { min: 0 }),
-  requiredEnum('payment_method', ['CASH', 'CARD', 'UPI', 'INSURANCE', 'CHEQUE']),
+  body('payment_method')
+    .exists({ checkFalsy: true }).withMessage('payment_method is required')
+    .isString().withMessage('payment_method must be a string')
+    .custom((value) => ['cash', 'card', 'upi', 'insurance', 'cheque'].includes(value.toLowerCase()))
+    .withMessage('payment_method must be one of: cash, card, upi, insurance, cheque')
+    .customSanitizer((value) => value.toLowerCase()),
   optionalString('transaction_ref', 100),
 ];
 

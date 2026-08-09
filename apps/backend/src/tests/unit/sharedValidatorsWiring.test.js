@@ -63,7 +63,8 @@ function appFor(chain, { withIdParam = false } = {}) {
 const CASES = [
   ['vitalsValidator', vitalsValidator, false,
     [{ patient_uid: UUID, heart_rate: 118, spo2: 94 }, { patient_id: 42 }],
-    [{}, { patient_uid: UUID, heart_rate: 'racing' }, { patient_uid: 'nope' }]],
+    [{}, { patient_uid: UUID, heart_rate: 'racing' }, { patient_uid: 'nope' },
+      { patient_id: '12abc' }, { patient_uid: UUID, visit_id: '7suffix' }]],
   ['marScheduleValidator', marScheduleValidator, false,
     [{ patient_uid: UUID }, { patient_uid: UUID, medications: [{ medication_name: 'Amoxicillin', dose: '500mg', route: 'oral', scheduled_time: '2026-08-10T08:00:00Z' }] }],
     [{ patient_uid: 'nope' }, { patient_uid: UUID, medications: 'paracetamol' }, { patient_uid: UUID, medications: ['paracetamol'] }]],
@@ -83,7 +84,8 @@ const CASES = [
       { patient_uid: UUID, type: 'consultation', items: [{}], total_amount: 100 },
       { patient_uid: UUID, items: [{}], subtotal: 1, total_amount: 1 }]],
   ['paymentValidator', paymentValidator, true,
-    [{ amount: 100, payment_method: 'CASH', transaction_ref: 'TXN-1' }],
+    [{ amount: 100, payment_method: 'CASH', transaction_ref: 'TXN-1' },
+      { amount: 100, payment_method: 'upi' }],
     [{ amount: 100, payment_method: 'BITCOIN' }, { payment_method: 'CASH' }]],
   ['insuranceClaimValidator', insuranceClaimValidator, false,
     [{ patient_uid: UUID, policy_number: 'POL-9', insurance_provider: 'Acme Health', claim_amount: 1200, invoice_id: '7' }],
@@ -127,11 +129,13 @@ const CASES = [
       { medication_name: 'Metformin', dosage: '500mg', frequency: 'BD', reminder_times: [800], start_date: '2026-08-10' },
       { medication_name: 'Metformin', dosage: '500mg', frequency: 'BD', reminder_times: ['08:00'] }]],
   ['breachReportValidator', breachReportValidator, false,
-    [{ description: 'Laptop stolen', severity: 'high', affected_records: 12, affected_patient_uids: [UUID] }],
-    [{ description: 'Laptop stolen', severity: 'HIGH' }, { severity: 'high' },
-      { description: 'Laptop stolen', severity: 'high', affected_records: 1.5 },
-      { description: 'Laptop stolen', severity: 'high', affected_patient_uids: 'all' },
-      { description: 'Laptop stolen', severity: 'high', affected_patient_uids: ['not-a-uuid'] }]],
+    [{ title: 'Unauthorised export', description: 'Laptop stolen', severity: 'high', affected_records: 12, affected_patient_uids: [UUID], phi_involved: true }],
+    [{ title: 'Unauthorised export', description: 'Laptop stolen', severity: 'HIGH' },
+      { title: 'Unauthorised export', severity: 'high' },
+      { title: 'Unauthorised export', description: 'Laptop stolen', severity: 'high', affected_records: 1.5 },
+      { title: 'Unauthorised export', description: 'Laptop stolen', severity: 'high', affected_patient_uids: 'all' },
+      { title: 'Unauthorised export', description: 'Laptop stolen', severity: 'high', affected_patient_uids: ['not-a-uuid'] },
+      { title: 'Unauthorised export', description: 'Laptop stolen', severity: 'high', phi_involved: 'false' }]],
   ['qualityIncidentValidator', qualityIncidentValidator, false,
     [{ description: 'Patient fall in ward B', incident_type: 'fall', severity: 'moderate', date_occurred: '2026-08-01', patient_uid: UUID }],
     [{ description: 'fall', incident_type: 'FALL', severity: 'moderate', date_occurred: '2026-08-01' },
@@ -177,6 +181,14 @@ describe('sharedValidators domain chains (behavior)', () => {
     });
     expect(vitals.statusCode).toBe(200);
     expect(vitals.body.body).toMatchObject({ heart_rate: 118, supplemental_o2: false });
+
+    const paymentApp = appFor(paymentValidator, { withIdParam: true });
+    const payment = await request(paymentApp).post('/t/7').send({
+      amount: '100.50',
+      payment_method: 'UPI',
+    });
+    expect(payment.statusCode).toBe(200);
+    expect(payment.body.body).toMatchObject({ amount: 100.5, payment_method: 'upi' });
 
     const invoiceApp = appFor(invoiceValidator);
     const invoice = await request(invoiceApp).post('/t').send({
