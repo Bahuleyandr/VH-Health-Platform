@@ -36,10 +36,11 @@
  *   is `/api-docs`, static assets are `/_next|/static|/assets`, and policy
  *   globs contain `*`. See RULE_EXCLUDED_PATTERNS.
  *
- * - Router mount bases (a path that is not itself an operation but is the
- *   segment-boundary prefix of real operations, e.g. `/api/v1/admin/analytics`)
- *   PASS by rule. Detecting them structurally is what keeps the allowlist
- *   reserved for genuine server-side runtime aliases.
+ * - Declaration-only router mount bases (a path that is not itself an
+ *   operation but is the segment-boundary prefix of real operations) pass by
+ *   rule. A known-method call to the same path fails: a mount is not an
+ *   operation. Rewrite-backed aliases are mapped to their canonical spec paths
+ *   and checked there; the allowlist is exact-path and method-scoped.
  *
  * - Matching is two-tier. Strict: a `{param}` in the client path may only match
  *   a `{...}` in the spec. Lenient: it may also match a literal segment. A path
@@ -224,7 +225,14 @@ export const ADMIN_REWRITES = new Map([
 
 /** Mirror of `toApiV1Endpoint(path)`; input may or may not carry /api/v1. */
 export function applyAdminRewrites(path) {
-  const stripped = path.startsWith('/api/v1') ? path.slice(7) || '/' : path;
+  // normalizeAdminEndpoint selects aliases from the path portion before it
+  // restores the query string. Do the same here; otherwise a real call such
+  // as `/admin/users?${params}` misses the exact rewrite and is checked against
+  // the wrong `/api/v1/admin/users` surface.
+  const operationPath = segmentsOf(path).join('/');
+  const stripped = operationPath.startsWith('/api/v1')
+    ? operationPath.slice(7) || '/'
+    : operationPath;
   const rewritten = ADMIN_REWRITES.get(stripped) ?? stripped;
   return rewritten.startsWith('/api/v1') ? rewritten : `/api/v1${rewritten}`;
 }
@@ -761,6 +769,13 @@ export function substituteEndpointRefs(value, endpointMap) {
   );
 }
 
+function resolveAdminFetchLiteral(value, endpointMap) {
+  return substituteEndpointRefs(value, endpointMap).replace(
+    /^\$\{\s*API_BASE_URL\s*\}/,
+    '',
+  );
+}
+
 /**
  * Admin extraction. Four complementary passes:
  *  1. First argument of a rewriting helper (catches bare `/admin/users`).
@@ -828,6 +843,55 @@ export function extractAdminPaths(source, { endpointMap = new Map() } = {}) {
     }
   }
 
+  // Direct browser/server fetch calls that concatenate API_BASE_URL are not
+  // routed through the helpers above. Bind their first argument to the same
+  // API_ENDPOINTS map and keep the call's real/default verb; checking only the
+  // exported endpoint literal would miss wrong-method production 404s.
+  const fetchFunctions = new Map([['fetch', null]]);
+  for (const pass of [
+    firstArgumentLiterals(
+      code,
+      calleeRegex(fetchFunctions),
+      literalByStart,
+      fetchFunctions,
+      'ts',
+    ),
+    firstArgumentLiterals(
+      code,
+      calleeRegex(fetchFunctions, { receivers: ['window'] }),
+      literalByStart,
+      fetchFunctions,
+      'ts',
+    ),
+  ]) {
+    for (const { literal, via, method } of pass.hits) {
+      if (seen.has(literal.start)) continue;
+      seen.add(literal.start);
+      found.push({
+        value: resolveAdminFetchLiteral(literal.value, endpointMap),
+        offset: literal.start,
+        via,
+        method,
+        rewrite: false,
+      });
+    }
+    for (const miss of pass.misses) {
+      const ref = ENDPOINT_REF_RE.exec(miss.text);
+      const resolved = ref && resolveEndpointRef(ref[1], endpointMap);
+      if (resolved) {
+        found.push({
+          value: resolved.path,
+          offset: miss.offset,
+          via: `${miss.via}(API_ENDPOINTS.${resolved.key})`,
+          method: miss.method,
+          rewrite: false,
+        });
+      } else {
+        unresolved += 1;
+      }
+    }
+  }
+
   // Anchored sweep: exported path consts, ApiData<> spec keys, and helpers this
   // list does not know about. The verb is not knowable here, so these are
   // checked for path existence only. Policy tables are skipped by rule.
@@ -868,6 +932,31 @@ export function substituteDartConstants(value, constants) {
 
 /** The raw-http shape: `'${ApiConfig.baseUrl}/suffix'`. */
 const API_CONFIG_BASE_RE = /^\$\{\s*ApiConfig\.baseUrl\s*\}/;
+
+function inferDartHttpMethod(code, literal) {
+  const before = code.slice(Math.max(0, literal.start - 240), literal.start);
+  const direct = /\b(?:http|[A-Za-z_$][\w$]*[Cc]lient)\s*\.\s*(get|post|put|patch|delete|head)\s*\(\s*(?:Uri\.parse\s*\(\s*)?$/i.exec(
+    before,
+  );
+  if (direct) return direct[1].toUpperCase();
+
+  const assignment = /\b(?:final|const|var)\s+(?:Uri\s+)?([A-Za-z_$][\w$]*)\s*=\s*Uri\.parse\s*\(\s*$/.exec(
+    before,
+  );
+  if (!assignment) return null;
+
+  const escaped = assignment[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const call = new RegExp(
+    `\\b(?:http|[A-Za-z_$][\\w$]*[Cc]lient)\\s*\\.\\s*` +
+      `(get|post|put|patch|delete|head)\\s*\\(\\s*${escaped}\\b`,
+    'gi',
+  );
+  const methods = new Set();
+  const after = code.slice(literal.end);
+  let match;
+  while ((match = call.exec(after)) !== null) methods.add(match[1].toUpperCase());
+  return methods.size === 1 ? [...methods][0] : null;
+}
 
 /**
  * Dart extraction, anchored on the call site.
@@ -948,7 +1037,7 @@ export function extractDartPaths(source) {
       value: substituteDartConstants(literal.value.replace(API_CONFIG_BASE_RE, ''), constants),
       offset: literal.start,
       via: 'ApiConfig.baseUrl',
-      method: null,
+      method: inferDartHttpMethod(code, literal),
       rewrite: false,
     });
   }
@@ -1024,6 +1113,38 @@ export function resolveRuntimePath(value, kind, rewrite) {
   const path = stripProxyPrefix(value);
   if (kind === 'admin' && rewrite) return applyAdminRewrites(path);
   return path.startsWith('/api/v1') ? path : `/api/v1${path}`;
+}
+
+/** Map rewrite-backed runtime aliases onto the canonical OpenAPI operation. */
+export function canonicalizeRuntimeAlias(path, method) {
+  const operationPath = segmentsOf(path).join('/');
+  for (const prefix of ['/api/v1/emr/mar', '/api/v1/nursing/mar']) {
+    if (operationPath === prefix || operationPath.startsWith(`${prefix}/`)) {
+      return `/api/v1/clinical/mar${operationPath.slice(prefix.length)}`;
+    }
+  }
+
+  const admissions = '/api/v1/admissions';
+  if (operationPath === admissions) {
+    if (method === 'GET') return `${admissions}/admissions`;
+    if (method === 'POST') return `${admissions}/admit`;
+    return operationPath;
+  }
+  if (operationPath === `${admissions}/stats`) return `${admissions}/admissions/stats`;
+  if (operationPath === `${admissions}/advise`) return `${admissions}/admissions/advise`;
+  if (operationPath.startsWith(`${admissions}/patient/`)) {
+    return `${admissions}/admissions${operationPath.slice(admissions.length)}`;
+  }
+
+  const admissionId = operationPath.slice(admissions.length + 1);
+  if (
+    operationPath.startsWith(`${admissions}/`) &&
+    !admissionId.includes('/') &&
+    /^(?:\d+|:[^/]+|\{[^/]+\}|\$[A-Za-z_$][\w$.]*|\$\{.+\})$/.test(admissionId)
+  ) {
+    return `${admissions}/admission/${admissionId}`;
+  }
+  return operationPath;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -1103,14 +1224,12 @@ export function isMountBase(path, index) {
   return !index.exact.has(path) && index.prefixes.has(path);
 }
 
-export function matchesAllowlist(path, allowlist) {
+export function matchesAllowlist(path, allowlist, method = null) {
+  if (!method) return null;
   for (const entry of allowlist) {
-    if (entry.path.endsWith('/**')) {
-      const base = entry.path.slice(0, -3);
-      if (path === base || path.startsWith(`${base}/`)) return entry;
-    } else if (entry.path === path) {
-      return entry;
-    }
+    if (entry.path !== path) continue;
+    if (!entry.methods.includes(method)) continue;
+    return entry;
   }
   return null;
 }
@@ -1188,9 +1307,17 @@ export function loadAllowlist(root = repoRoot) {
   if (!existsSync(file)) return [];
   const entries = JSON.parse(readFileSync(file, 'utf8')).entries || [];
   for (const entry of entries) {
-    if (!entry.path || !entry.comment) {
+    if (
+      !entry.path ||
+      entry.path.includes('*') ||
+      !entry.comment ||
+      !Array.isArray(entry.methods) ||
+      entry.methods.length === 0 ||
+      entry.methods.some((method) => !HTTP_METHODS.includes(String(method).toLowerCase()))
+    ) {
       throw new Error(
-        `${ALLOWLIST_PATH}: every entry needs both "path" and "comment" — got ${JSON.stringify(entry)}`,
+        `${ALLOWLIST_PATH}: every entry needs an exact "path", a non-empty "methods" array, ` +
+          `and a "comment" — got ${JSON.stringify(entry)}`,
       );
     }
   }
@@ -1248,7 +1375,10 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
           stats.ruleExcluded += 1;
           continue;
         }
-        const runtimePath = resolveRuntimePath(hit.value, source.kind, hit.rewrite);
+        const runtimePath = canonicalizeRuntimeAlias(
+          resolveRuntimePath(hit.value, source.kind, hit.rewrite),
+          hit.method,
+        );
         const { path, candidates, interpolated, unresolvedPrefix } =
           normalizeClientPath(runtimePath);
 
@@ -1279,7 +1409,7 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
         let methodMiss = null;
         let outcome = null;
         for (const candidate of candidates) {
-          if (matchesAllowlist(candidate, allow)) {
+          if (matchesAllowlist(candidate, allow, hit.method)) {
             outcome = 'allowlisted';
             break;
           }
@@ -1296,7 +1426,11 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
             methodMiss ??= { candidate, servedMethods };
             continue;
           }
-          if (isMountBase(candidate, specIndex)) {
+          // A declaration-only literal may name a router mount. An extracted
+          // call with a known verb is an operation, though: accepting its URL
+          // merely because longer routes share the prefix would hide the same
+          // production 404 this gate exists to prevent.
+          if (!hit.method && isMountBase(candidate, specIndex)) {
             outcome = 'mountBases';
             break;
           }

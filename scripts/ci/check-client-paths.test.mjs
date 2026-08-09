@@ -3,7 +3,8 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
@@ -11,6 +12,7 @@ import {
   analyze,
   applyAdminRewrites,
   buildSpecIndex,
+  canonicalizeRuntimeAlias,
   collectDartPathConstants,
   extractAdminPaths,
   extractDartPaths,
@@ -107,6 +109,7 @@ describe('admin runtime rewrite mirror', () => {
   test('applies the alias rewrites, prefixed or not', () => {
     assert.equal(applyAdminRewrites('/admin/users'), '/api/v1/users');
     assert.equal(applyAdminRewrites('/api/v1/admin/users'), '/api/v1/users');
+    assert.equal(applyAdminRewrites('/admin/users?${params}'), '/api/v1/users');
     assert.equal(applyAdminRewrites('/appointments'), '/api/v1/appointments/list');
     assert.equal(applyAdminRewrites('/notifications/stats'), '/api/v1/notifications/admin/overview');
   });
@@ -227,6 +230,25 @@ describe('admin extraction', () => {
     assert.equal(found[0].value, '/api/v1/admin/sos/alerts?limit=${n}');
   });
 
+  test('binds a direct API_BASE_URL fetch to its endpoint and method', () => {
+    const { found } = extractAdminPaths(
+      'fetch(`${API_BASE_URL}${API_ENDPOINTS.auth.adminManagement}`, { method: "POST" });',
+      { endpointMap },
+    );
+    assert.deepEqual(
+      found.map((f) => [f.method, f.value, f.rewrite]),
+      [['POST', '/api/v1/auth/admin/list', false]],
+    );
+  });
+
+  test('extracts a window.fetch literal with the default GET verb', () => {
+    const { found } = extractAdminPaths('window.fetch("/api/proxy/api/v1/health/health-check");');
+    assert.deepEqual(
+      found.map((f) => [f.method, f.value]),
+      [['GET', '/api/proxy/api/v1/health/health-check']],
+    );
+  });
+
   test('counts a genuinely opaque argument instead of guessing', () => {
     const { found, dynamicCallSites } = extractAdminPaths('fetchAdminAPI(path, init);');
     assert.equal(found.length, 0);
@@ -315,6 +337,16 @@ describe('dart extraction', () => {
       "final uri = Uri.parse('\${ApiConfig.baseUrl}/health/app-version');",
     );
     assert.deepEqual(found.map((f) => f.value), ['/health/app-version']);
+  });
+
+  test('infers the verb when a raw package:http call consumes a URI variable', () => {
+    const { found } = extractDartPaths(`
+      final url = Uri.parse('\${ApiConfig.baseUrl}/auth/dev/patient-login');
+      final response = await http.post(url, body: '{}');
+    `);
+    assert.deepEqual(found.map((f) => [f.method, f.value]), [
+      ['POST', '/auth/dev/patient-login'],
+    ]);
   });
 
   test('reads the named path argument of sendPreparedMutation', () => {
@@ -411,23 +443,37 @@ describe('spec matching', () => {
     assert.equal(matchesLeniently('/api/v1/admin/{param}/revenue', index), true);
     assert.equal(matchesLeniently('/api/v1/admin/{param}/nope', index), false);
   });
+
+  test('maps runtime aliases to their canonical spec operations', () => {
+    assert.equal(
+      canonicalizeRuntimeAlias('/api/v1/emr/mar/17/administer', 'POST'),
+      '/api/v1/clinical/mar/17/administer',
+    );
+    assert.equal(
+      canonicalizeRuntimeAlias('/api/v1/admissions', 'POST'),
+      '/api/v1/admissions/admit',
+    );
+    assert.equal(
+      canonicalizeRuntimeAlias('/api/v1/admissions/42', 'GET'),
+      '/api/v1/admissions/admission/42',
+    );
+    assert.equal(
+      canonicalizeRuntimeAlias('/api/v1/admissions/lookup', 'GET'),
+      '/api/v1/admissions/lookup',
+    );
+  });
 });
 
 describe('allowlist', () => {
   const entries = [
-    { path: '/api/v1/emr/mar/**', comment: 'alias' },
-    { path: '/api/v1/admissions/stats', comment: 'alias' },
+    { path: '/api/v1/auth/dev/patient-login', methods: ['POST'], comment: 'conditional route' },
   ];
 
-  test('matches a /** subtree and its base', () => {
-    assert.ok(matchesAllowlist('/api/v1/emr/mar/due', entries));
-    assert.ok(matchesAllowlist('/api/v1/emr/mar', entries));
-    assert.equal(matchesAllowlist('/api/v1/emr/marx', entries), null);
-  });
-
-  test('matches an exact entry only', () => {
-    assert.ok(matchesAllowlist('/api/v1/admissions/stats', entries));
-    assert.equal(matchesAllowlist('/api/v1/admissions/stats/extra', entries), null);
+  test('matches only the exact path and an allowed method', () => {
+    assert.ok(matchesAllowlist('/api/v1/auth/dev/patient-login', entries, 'POST'));
+    assert.equal(matchesAllowlist('/api/v1/auth/dev/patient-login', entries, 'GET'), null);
+    assert.equal(matchesAllowlist('/api/v1/auth/dev/patient-login', entries), null);
+    assert.equal(matchesAllowlist('/api/v1/auth/dev/other', entries, 'POST'), null);
   });
 
   test('the shipped allowlist parses and every entry carries a comment', () => {
@@ -435,6 +481,8 @@ describe('allowlist', () => {
     assert.ok(shipped.length > 0);
     for (const entry of shipped) {
       assert.ok(entry.path.startsWith('/api/v1/'), `${entry.path} should be a resolved API path`);
+      assert.ok(!entry.path.includes('*'), `${entry.path} must be exact`);
+      assert.ok(entry.methods.length > 0, `${entry.path} needs served methods`);
       assert.ok(entry.comment.length > 40, `${entry.path} needs a real justification`);
     }
   });
@@ -465,6 +513,27 @@ describe('end-to-end classification', () => {
       assert.ok(['path', 'method'].includes(f.reason));
       assert.ok(f.resolved.startsWith('/api/v1'));
     }
+  });
+
+  test('a known-method call cannot pass merely because it names a mount base', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'client-path-contract-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const client = join(root, 'client');
+    mkdirSync(client);
+    writeFileSync(
+      join(client, 'calls.ts'),
+      `fetchAdminAPI('/admin/analytics');\nconst declared = '/api/v1/admin/analytics';\n`,
+    );
+    const result = analyze({
+      root,
+      sources: [{ id: 'fixture', kind: 'admin', root: 'client', extensions: ['.ts'] }],
+      index: buildSpecIndex({ '/api/v1/admin/analytics/revenue': { get: {} } }),
+      allowlist: [],
+    });
+    assert.equal(result.findings.length, 1);
+    assert.equal(result.findings[0].method, 'GET');
+    assert.equal(result.findings[0].resolved, '/api/v1/admin/analytics');
+    assert.equal(result.stats.mountBases, 1);
   });
 
   test('an empty source set yields no findings', () => {

@@ -72,10 +72,13 @@ Three things about it are load-bearing:
 
 Non-API strings are excluded by rule, not by allowlist: Next.js local routes
 live under `/api/<not v1>`, plus `/ws`, `/api-docs`, static assets, page routes,
-and policy globs. Router mount bases pass by rule. `client-path-allowlist.json`
-is reserved for paths the backend genuinely serves but that are absent from the
-spec — runtime alias mounts and the flag-gated dev-auth router — and every entry
-must name the mount that serves it.
+and policy globs. Declaration-only router mount bases pass by rule, but an
+actual call with a known method must resolve to an operation. Rewrite-backed
+runtime aliases are mapped to their canonical spec operations so their exact
+path and method are still checked. `client-path-allowlist.json` is reserved for
+exact, method-scoped operations the backend genuinely serves but the spec omits
+(currently the flag-gated dev-auth route), and every entry must name the mount
+that serves it.
 
 Provider wrappers:
 
