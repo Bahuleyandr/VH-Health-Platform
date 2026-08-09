@@ -412,6 +412,17 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
   test('unexpected (non-AppError) gateway failure is 503-retryable and releases the claim', async () => {
     const controlId = 'GWCM3-CTL-RETRYABLE';
 
+    // The sample itself is PLAUSIBLE (hr 82 passes the C-M4 plausibility gate
+    // in utils/clinical/vitalPlausibility.js, which 400s impossible values
+    // BEFORE persistence — the previous hr 99999 numeric-overflow injection
+    // now dies there as a deliberate AppError, not an unexpected failure; see
+    // the next test for that contract). Instead the unexpected server-side
+    // failure is injected INSIDE the vitals transaction: a temporary trigger
+    // on the insert target raises a raw Postgres exception AFTER the
+    // control-id claim insert (recordVitals runs beforeWrite → claim →
+    // INSERT INTO vitals_chart in one tx), i.e. a non-AppError failure
+    // mid-transaction. The gateway must get a 5xx so its spool retains the
+    // sample instead of dead-lettering it.
     await prisma.$executeRawUnsafe(
       `CREATE FUNCTION test_device_vitals_retryable_failure()
        RETURNS trigger LANGUAGE plpgsql AS $$
