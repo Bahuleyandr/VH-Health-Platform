@@ -32,6 +32,20 @@ const fhirPatterns = [
   /^apps\/backend\/src\/services\/fhir\//,
   /^scripts\/ci\/fhir\.mjs$/,
 ];
+// The client/server path contract spans every client tree AND the generated
+// spec that defines what the server serves, so either side must be able to
+// select it. Deliberately NOT part of the `known` calculation below: these
+// paths keep whatever full-run behaviour they already had, and this only ever
+// ADDS the contracts stage. Mirrors the path filter in ci-client-contract.yml.
+const contractsPatterns = [
+  /^apps\/admin\/src\//,
+  /^apps\/patient\/lib\//,
+  /^apps\/staff\/lib\//,
+  /^packages\/vhhealth_core\/lib\//,
+  /^apps\/device-gateway\/src\//,
+  /^apps\/backend\/src\/docs\/openapi\.json$/,
+  /^apps\/backend\/src\/app\.js$/,
+];
 const infraPatterns = [
   /^infra\/kubernetes\//,
   /^docs\/CNPG_POSTGRES_18_QUALIFICATION\.md$/,
@@ -129,6 +143,7 @@ export function stagesForChangedFiles(files, stageOrder) {
   let unknownRiskyFile = false;
 
   for (const file of files) {
+    if (matchesAny(file, contractsPatterns)) selected.add('contracts');
     if (matchesAny(file, backendPatterns)) selected.add('backend');
     if (matchesAny(file, adminPatterns)) selected.add('admin');
     if (matchesAny(file, flutterPatterns)) selected.add('flutter');

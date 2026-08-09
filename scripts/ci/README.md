@@ -18,6 +18,10 @@ Stages:
 
 - `security`: whitespace check, service-account secret scan, gitleaks worktree
   and commit-range scans.
+- `contracts`: cross-stack contract checks that belong to no single app. Today
+  that is `check-client-paths.mjs`, which asserts every API path the clients
+  call resolves to an operation the backend actually serves. Dependency-free and
+  a couple of seconds, so it runs before the multi-minute stages.
 - `backend`: backend audit/lint/OpenAPI/DB guardrails/Jest via `npm run ci`.
 - `fhir`: FHIR R4 sample validation, with golden samples treated as strict.
 - `admin`: admin audit/lint/type-check/test/build/Clinical AI bundle check.
@@ -28,6 +32,53 @@ Stages:
   `infra/kubernetes/apps/kustomization.yaml` digest is the all-zeros
   placeholder; no-op off-main).
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
+
+## Client API path contract
+
+`check-client-paths.mjs` closes the direction the OpenAPI pipeline never
+covered. `generate-openapi.mjs` boots the live app, so the spec is a faithful
+census of what the server serves — but nothing asserted that clients only call
+paths in it. The 2026-08-09 audit found nine admin-portal calls to operations
+present in neither the spec nor Express; they 404 in production, and one was
+pinned by a jest test asserting the same wrong path.
+
+```powershell
+node scripts/ci/check-client-paths.mjs            # gate
+node scripts/ci/check-client-paths.mjs --verbose  # + per-source breakdown
+node scripts/ci/check-client-paths.mjs --json     # machine-readable
+node --test scripts/ci/check-client-paths.test.mjs
+```
+
+It extracts literal paths from `apps/admin/src`, `apps/{patient,staff}/lib`,
+`packages/vhhealth_core/lib`, and `apps/device-gateway/src`, resolves them the
+way each runtime does, and set-differences them against
+`apps/backend/src/docs/openapi.json`.
+
+Three things about it are load-bearing:
+
+- **It is method-aware.** Three of the audit's nine call a path that exists in
+  the spec but only for a different verb. Express 404s an unserved method
+  exactly as it 404s an unknown path, so a path-only gate waves them through —
+  as the pre-existing `api-config-spec-subset.test.ts` does.
+- **Each client stack resolves paths differently.** Admin sends a path that
+  `toApiV1Endpoint` rewrites and then prefixes (`/admin/users` is served as
+  `/api/v1/users`); the mirror of that rewrite table is pinned against
+  `apps/admin/src/lib/api/core.ts` by a test, so the two cannot drift silently.
+  Dart sends a bare suffix, because `ApiConfig.baseUrl` already ends in
+  `/api/v1`.
+- **Dart extraction is anchored on the call site, never on literal shape.**
+  GoRouter route names are syntactically identical to API suffixes, so a
+  shape-based scan would report navigation as broken API calls.
+
+Non-API strings are excluded by rule, not by allowlist: Next.js local routes
+live under `/api/<not v1>`, plus `/ws`, `/api-docs`, static assets, page routes,
+and policy globs. Declaration-only router mount bases pass by rule, but an
+actual call with a known method must resolve to an operation. Rewrite-backed
+runtime aliases are mapped to their canonical spec operations so their exact
+path and method are still checked. `client-path-allowlist.json` is reserved for
+exact, method-scoped operations the backend genuinely serves but the spec omits
+(currently the flag-gated dev-auth route), and every entry must name the mount
+that serves it.
 
 Provider wrappers:
 

@@ -78,6 +78,14 @@ pre-push:
           echo "lefthook pre-push: no backend route changes — skipping openapi drift"
         fi
 
+    client-api-paths:
+      run: |
+        if git diff --name-only @{u}..HEAD 2>/dev/null | grep -qE '^(apps/admin/src/|apps/(patient|staff)/lib/|packages/vhhealth_core/lib/|apps/device-gateway/src/|apps/backend/src/(docs/openapi\.json|app\.js)|scripts/ci/(check-client-paths|client-path-allowlist))'; then
+          node scripts/ci/check-client-paths.mjs
+        else
+          echo "lefthook pre-push: no client or spec changes — skipping client API path gate"
+        fi
+
     openapi-core-sync:
       run: |
         if git diff --name-only @{u}..HEAD 2>/dev/null | grep -qE '^(apps/backend/src/docs/openapi\.json|packages/vhhealth_core/swagger/)'; then

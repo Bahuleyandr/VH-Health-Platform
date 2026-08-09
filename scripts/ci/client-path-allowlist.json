@@ -1,0 +1,11 @@
+{
+  "//": "Exact operations the backend genuinely SERVES but that are absent from the generated OpenAPI spec. Every entry needs a path, served methods, and a comment naming the mount. Wildcards are forbidden: rewrite-backed aliases are checked against their canonical spec operations instead of being silenced here. This file is NOT for hiding a 404.",
+  "entries": [
+    {
+      "path": "/api/v1/auth/dev/patient-login",
+      "methods": ["POST"],
+      "comment": "Development-only patient login, mounted by a conditional dynamic import that runs ONLY when ENABLE_DEV_AUTH=true. The spec generator boots the app without that flag, so this exact POST is legitimately absent from the spec while still being served wherever it is enabled.",
+      "evidence": "apps/backend/src/routes/auth/index.js:77-79, apps/backend/src/routes/auth/devAuthRoutes.js:59"
+    }
+  ]
+}
