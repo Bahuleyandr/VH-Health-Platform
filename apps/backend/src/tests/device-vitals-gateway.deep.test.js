@@ -96,6 +96,12 @@ async function cleanup() {
     `DROP FUNCTION IF EXISTS test_device_vitals_concurrent_hold()`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DROP TRIGGER IF EXISTS test_device_vitals_retryable_boom ON vitals_chart`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DROP FUNCTION IF EXISTS test_device_vitals_retryable_boom()`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DROP TRIGGER IF EXISTS test_device_vitals_postcommit_failure ON clinical_alerts`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -406,12 +412,44 @@ d('Device-gateway vitals ingest — control-id lifecycle + timestamps (deep)', (
   test('unexpected (non-AppError) gateway failure is 503-retryable and releases the claim', async () => {
     const controlId = 'GWCM3-CTL-RETRYABLE';
 
-    // heart_rate is numeric(6,2) — an out-of-range value blows up INSIDE the
-    // vitals transaction (after the claim insert), i.e. a server-side,
-    // non-AppError failure. The gateway must get a 5xx so its spool retains
-    // the sample instead of dead-lettering it.
-    await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '99999' })))
-      .rejects.toMatchObject({ code: 'DEVICE_VITALS_INGEST_RETRYABLE', statusCode: 503 });
+    // This case needs a server-side, non-AppError failure INSIDE the vitals
+    // transaction (after the claim insert). It used to rig that with
+    // hr:'99999' overflowing numeric(6,2) — but C-M4 (5a72d8ddc) added hard
+    // plausibility bounds that now reject impossible vitals with an AppError
+    // 400 BEFORE the insert, so no value can both pass validation and
+    // overflow. Rig the crash value-independently instead: a trigger that
+    // raises a non-AppError failure for this patient's insert. The gateway
+    // must get a 5xx so its spool retains the sample instead of
+    // dead-lettering it.
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION test_device_vitals_retryable_boom()
+       RETURNS trigger LANGUAGE plpgsql AS $fn$
+       BEGIN
+         IF NEW.patient_uid = 'cafe0c53-0000-4000-8000-0000000000b8'::uuid THEN
+           RAISE EXCEPTION 'rigged server-side failure (test)'
+             USING ERRCODE = 'XX000';
+         END IF;
+         RETURN NEW;
+       END
+       $fn$`,
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER test_device_vitals_retryable_boom
+       BEFORE INSERT ON vitals_chart
+       FOR EACH ROW EXECUTE FUNCTION test_device_vitals_retryable_boom()`,
+    );
+
+    try {
+      await expect(ingest(oru({ uid: PATIENT_RETRYABLE, control: controlId, hr: '99' })))
+        .rejects.toMatchObject({ code: 'DEVICE_VITALS_INGEST_RETRYABLE', statusCode: 503 });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS test_device_vitals_retryable_boom ON vitals_chart`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS test_device_vitals_retryable_boom()`,
+      );
+    }
 
     // The claim rolled back with the transaction — nothing consumed.
     expect(await controlIdRows(controlId)).toHaveLength(0);
