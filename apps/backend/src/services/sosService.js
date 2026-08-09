@@ -4,6 +4,7 @@
 import { SOS_SEVERITY } from '../config/sosConfig.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { AppError } from '../utils/AppError.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 import * as locationService from './locationService.js';
 import * as notificationService from './notification/notificationService.js';
@@ -173,4 +174,101 @@ export const getMedicalInfo = async (uid) => {
   `;
   if (rows.length === 0) return null;
   return rows[0];
+};
+
+/* ------------------------- admin emergency actions ------------------------- */
+// Shared by both admin surfaces: /api/v1/sos/admin/* (sosController) and the
+// admin console at /api/v1/admin/sos/* (routes/admin/dashboardController). The
+// console used to carry its own log-only stubs that returned success while
+// writing nothing (audit F1); there is now one implementation.
+
+/**
+ * Notify every reachable staff member in one tenant of an emergency broadcast.
+ * @returns {Promise<{notified: number}>} count of notification rows written.
+ */
+export const broadcastEmergencyAlert = async ({ tenantId, title, message, severity = 'HIGH' }) => {
+  if (!title || !message) {
+    throw AppError.badRequest('Title and message are required', 'SOS_BROADCAST_INCOMPLETE');
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO notifications (tenant_id, uid, phone, title, body, type, data, created_at, updated_at)
+     SELECT tenant_id, uid, phone, $1, $2, 'SOS_BROADCAST', $3::jsonb, NOW(), NOW()
+       FROM users
+      WHERE role <> 'PATIENT'
+        AND is_active = true
+        AND NULLIF(BTRIM(phone), '') IS NOT NULL
+        AND tenant_id = $4::uuid
+     RETURNING id`,
+    // notifications.phone is NOT NULL, so a single phone-less staff row aborts the
+    // whole INSERT…SELECT and nobody is notified — skip them instead. Users with
+    // no role at all are also skipped: an unclassified identity is not staff.
+    title, message, JSON.stringify({ severity }), tenantId,
+  );
+
+  if (rows.length === 0) {
+    // A fan-out that reaches nobody looks identical to a successful one at the
+    // API boundary, so it has to be loud here.
+    logger.warn('SOS broadcast reached zero staff', { tenantId, severity });
+  }
+  return { notified: rows.length };
+};
+
+/**
+ * Raise an alert one step up the severity ladder, within one tenant.
+ * @returns {Promise<{id: number, severity: string, previousSeverity: string}>}
+ */
+export const escalateAlert = async ({ tenantId, alertId, actorUid = null, reason = null }) => {
+  const id = Number.parseInt(alertId, 10);
+  if (!Number.isInteger(id) || id < 1) {
+    throw AppError.badRequest('Valid alert ID required', 'SOS_ALERT_ID_INVALID');
+  }
+
+  // Lock, decide, and update in one statement. A separate SELECT followed by
+  // UPDATE lets concurrent admins read the same severity and both report the
+  // same escalation as successful. The row lock makes concurrent requests
+  // advance the ladder in order.
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH current AS MATERIALIZED (
+       SELECT id, UPPER(COALESCE(severity, '')) AS previous_severity
+         FROM sos_alerts
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        FOR UPDATE
+     ), updated AS (
+       UPDATE sos_alerts AS sa
+          SET severity = CASE current.previous_severity
+            WHEN 'LOW' THEN 'MEDIUM'
+            WHEN 'MEDIUM' THEN 'HIGH'
+            WHEN 'HIGH' THEN 'CRITICAL'
+          END,
+              updated_at = NOW()
+         FROM current
+        WHERE sa.id = current.id
+          AND sa.tenant_id = $2::uuid
+          AND current.previous_severity IN ('LOW', 'MEDIUM', 'HIGH')
+       RETURNING sa.id, sa.severity
+     )
+     SELECT current.id,
+            current.previous_severity,
+            updated.severity
+       FROM current
+       LEFT JOIN updated ON updated.id = current.id`,
+    id, tenantId,
+  );
+  if (rows.length === 0) throw AppError.notFound('Alert not found', 'SOS_ALERT_NOT_FOUND');
+
+  const previousSeverity = String(rows[0].previous_severity || '').toUpperCase();
+  const severity = rows[0].severity == null ? null : String(rows[0].severity).toUpperCase();
+  if (!severity) {
+    throw AppError.badRequest(
+      `Alert cannot be escalated from severity ${previousSeverity || 'UNKNOWN'}`,
+      'SOS_ALERT_AT_MAX_SEVERITY',
+    );
+  }
+
+  // sos_alerts has no escalation-reason column; the log sink is the only audit
+  // trail this action has, so record who escalated what and why.
+  logger.warn('SOS alert escalated', { alertId: id, tenantId, previousSeverity, severity, actorUid, reason });
+  return { id: rows[0].id, severity, previousSeverity };
 };

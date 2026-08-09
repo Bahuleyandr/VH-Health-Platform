@@ -78,9 +78,9 @@ export { getAttendanceAnalytics, getAttendanceAnomalies, getLateArrivals, getEar
 // SOS/Emergency
 import {
   getSosAnalytics, getSosAlerts, getEmergencyServices, getSosPerformanceReport,
-  updateSosConfig, broadcastEmergencyAlert, escalateAlert,
+  broadcastEmergencyAlert, escalateAlert,
 } from "./sos";
-export { getSosAnalytics, getSosAlerts, getEmergencyServices, getSosPerformanceReport, updateSosConfig, broadcastEmergencyAlert, escalateAlert };
+export { getSosAnalytics, getSosAlerts, getEmergencyServices, getSosPerformanceReport, broadcastEmergencyAlert, escalateAlert };
 
 // Uploads
 import {

@@ -57389,26 +57389,6 @@
         }
       }
     },
-    "/api/v1/admin/sos/update-config": {
-      "post": {
-        "operationId": "post_api_v1_admin_sos_update_config",
-        "tags": [
-          "sos"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/admin/staff/attendance/absent-report": {
       "get": {
         "operationId": "get_api_v1_admin_staff_attendance_absent_report",
@@ -120657,26 +120637,6 @@
     "/api/v1/sos/admin/performance-report": {
       "get": {
         "operationId": "get_api_v1_sos_admin_performance_report",
-        "tags": [
-          "sos"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/sos/admin/update-config": {
-      "post": {
-        "operationId": "post_api_v1_sos_admin_update_config",
         "tags": [
           "sos"
         ],

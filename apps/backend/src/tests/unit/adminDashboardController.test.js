@@ -16,8 +16,9 @@ const SERVICE_NAMES = [
   'getSystemHealth', 'refreshDashboardCache', 'generateDashboardReport',
   'getAttendanceAnalytics', 'getAttendanceAnomalies', 'getLateArrivals',
   'getEarlyDepartures', 'getAbsentReport', 'getSosAnalytics', 'getAllAlerts',
-  'getEmergencyServices', 'getPerformanceReport', 'updateSystemConfig',
-  'broadcastEmergencyAlert', 'escalateAlert', 'getUploadSummary',
+  // The SOS mutators moved to services/sosService.js and updateSystemConfig was
+  // deleted outright (audit F1), so this barrel no longer supplies them.
+  'getEmergencyServices', 'getPerformanceReport', 'getUploadSummary',
   'listQuarantinedFiles', 'getHipaaAuditReport', 'rescanFile',
   'cleanupExpiredFiles', 'bulkUpdateHipaaProtection', 'purgeQuarantinedFiles',
 ];

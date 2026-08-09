@@ -43,8 +43,10 @@ wrapAutoRBAC(router, 'adminSosRoutes', {
     ['/admin/emergency-services', sosController.getEmergencyServices],
     ['/admin/performance-report', sosValidators.getPerformanceReport, sosController.getPerformanceReport]
   ],
+  // No /admin/update-config: nothing in the platform reads a SOS system config,
+  // and neither implementation ever persisted one — the endpoint only logged the
+  // body and reported success (audit F1).
   post: [
-    ['/admin/update-config', sosValidators.updateConfig, sosController.updateSystemConfig],
     ['/admin/broadcast-alert', sosValidators.broadcastAlert, sosController.broadcastEmergencyAlert],
     ['/admin/escalate/:alertId', sosValidators.escalateAlert, sosController.escalateAlert]
   ]

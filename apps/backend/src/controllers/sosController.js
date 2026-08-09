@@ -409,42 +409,17 @@ export const getPerformanceReport = async (req, res) => {
   }
 };
 
-export const updateSystemConfig = async (req, res) => {
+export const broadcastEmergencyAlert = async (req, res) => {
   try {
     if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
-    const config = req.body;
-    logger.info('SOS system config updated:', JSON.stringify(config));
-    // Config persistence would require a system_config table — log for now
-    success(res, { accepted: config }, 'System config updated');
+    const { title, message, severity = 'HIGH' } = req.body || {};
+    const result = await sosService.broadcastEmergencyAlert({
+      tenantId: tenantOf(req), title, message, severity,
+    });
+    success(res, result, `Broadcast sent to ${result.notified} staff`);
   } catch (err) {
-    logger.error('Update System Config Error:', err);
-    error(res, 'Failed to update config', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-export const broadcastEmergencyAlert = async (req, res) => {
-  try {
-    if (!isAdmin(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
-
-    const { title, message: body, severity = 'HIGH' } = req.body;
-    if (!title || !body) return error(res, 'Title and message are required', HTTP_STATUS.BAD_REQUEST);
-
-    // Insert notification for all active staff
-    const result = await prisma.$queryRawUnsafe(`
-      INSERT INTO notifications (tenant_id, uid, phone, title, body, type, data, created_at, updated_at)
-      SELECT tenant_id, uid, phone, $1, $2, 'SOS_BROADCAST',
-             $3::jsonb, NOW(), NOW()
-      FROM users
-      WHERE role != 'PATIENT'
-        AND is_active = true
-        AND tenant_id = $4::uuid
-      RETURNING id
-    `, title, body, JSON.stringify({ severity }), tenantOf(req));
-    success(res, { notified: result.length }, `Broadcast sent to ${result.length} staff`);
-  } catch (err) {
-    logger.error('Broadcast Alert Error:', err);
-    error(res, 'Failed to broadcast alert', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to broadcast alert');
   }
 };
 
@@ -452,34 +427,14 @@ export const escalateAlert = async (req, res) => {
   try {
     if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
-    const { alertId } = req.params;
-    const ESCALATION = { 'LOW': 'MEDIUM', 'MEDIUM': 'HIGH', 'HIGH': 'CRITICAL' };
-
-    const current = await prisma.$queryRawUnsafe(`
-      SELECT sa.id, sa.severity
-      FROM sos_alerts sa
-      ${SOS_USER_JOIN}
-      WHERE sa.id = $1::int
-        AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
-    `, parseInt(alertId, 10), tenantOf(req));
-    if (current.length === 0) return error(res, 'Alert not found', HTTP_STATUS.NOT_FOUND);
-
-    const newSeverity = ESCALATION[current[0].severity];
-    if (!newSeverity) return error(res, 'Alert is already at CRITICAL severity', HTTP_STATUS.BAD_REQUEST);
-
-    const rows = await prisma.$queryRawUnsafe(`
-      UPDATE sos_alerts SET severity = $3, updated_at = NOW()
-      WHERE id = $1::int
-        AND EXISTS (
-          SELECT 1 FROM users u
-           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
-             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
-        )
-      RETURNING id, severity
-    `, parseInt(alertId, 10), tenantOf(req), newSeverity);
-    success(res, rows[0], `Alert escalated to ${newSeverity}`);
+    const result = await sosService.escalateAlert({
+      tenantId: tenantOf(req),
+      alertId: req.params.alertId,
+      actorUid: req.user?.uid ?? null,
+      reason: req.body?.reason ?? req.body?.escalationReason ?? null,
+    });
+    success(res, result, `Alert escalated to ${result.severity}`);
   } catch (err) {
-    logger.error('Escalate Alert Error:', err);
-    error(res, 'Failed to escalate alert', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to escalate alert');
   }
 };

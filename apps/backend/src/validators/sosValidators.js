@@ -85,11 +85,6 @@ export const getPerformanceReport = [
 ];
 
 // Admin: Update system config
-export const updateConfig = [
-  body('escalationThreshold').optional().isInt({ min: 1, max: 60 }).withMessage('Escalation threshold must be between 1 and 60 minutes'),
-  body('defaultResponder').optional().isString().withMessage('Default responder must be a string')
-];
-
 // Admin: Broadcast alert
 export const broadcastAlert = [
   body('title').notEmpty().withMessage('Title is required'),

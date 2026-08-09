@@ -3,23 +3,34 @@
 // SOS / emergency dashboard. Reads the four admin SOS endpoints:
 //   - getSosAnalytics       → totals + severity breakdown + 7-day trend
 //   - getSosPerformanceReport → acknowledgement + resolution timings
-//   - getEmergencyServices  → configured external services (police, ambulance)
+//   - getEmergencyServices  → hospitals reachable for emergency referral
 //   - listSosAlerts         → most recent alerts for the on-call view
 //
 // Raw JSON dumps were the placeholder while the backend surface settled. This
 // page now renders tiles + small tables and exposes the broadcast action at
 // the bottom; any unexpected response shape falls back to "—".
+//
+// Until audit F1 was fixed every panel here was blank or zero for a structural
+// reason, not a quiet hospital: the backend queries behind all four endpoints
+// referenced columns and tables the schema does not have, and the broadcast
+// button reported success without writing anything.
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { adminService } from "@/services/admin.service";
 
+// No testAlerts: sos_alerts has no way to mark an alert as a test, so the
+// console cannot report a count for it (audit F1).
 type Analytics = {
   totalAlerts?: number;
   activeAlerts?: number;
   resolvedAlerts?: number;
-  testAlerts?: number;
-  severityCounts?: { high?: number; medium?: number; low?: number };
+  severityCounts?: {
+    critical?: number;
+    high?: number;
+    medium?: number;
+    low?: number;
+  };
   last24Hours?: number;
   last7Days?: { date: string; count: number }[];
 };
@@ -134,8 +145,18 @@ export default function SosPage() {
     if (!msg.trim()) return;
     setBroadcasting(true);
     try {
-      await adminService.broadcastSosAlert({ message: msg.trim() });
-      setBroadcastMsg("Broadcast sent.");
+      const response = await adminService.broadcastSosAlert({
+        message: msg.trim(),
+      });
+      const notified = response.data?.notified;
+      if (!Number.isInteger(notified) || notified < 0) {
+        throw new Error("Recipient count was missing from the response");
+      }
+      setBroadcastMsg(
+        notified === 0
+          ? "Broadcast reached no staff. Verify active staff phone numbers before retrying."
+          : `Broadcast sent to ${notified} staff member${notified === 1 ? "" : "s"}.`,
+      );
       setMsg("");
       await refresh();
     } catch (e) {
@@ -186,6 +207,11 @@ export default function SosPage() {
       <div className="rounded-xl border border-border bg-card p-4">
         <h2 className="mb-3 font-semibold text-white">Severity breakdown</h2>
         <div className="flex gap-2 text-xs">
+          <SeverityPill
+            label="Critical"
+            value={severity.critical ?? 0}
+            tone="red"
+          />
           <SeverityPill label="High" value={severity.high ?? 0} tone="red" />
           <SeverityPill
             label="Medium"
@@ -193,11 +219,6 @@ export default function SosPage() {
             tone="amber"
           />
           <SeverityPill label="Low" value={severity.low ?? 0} tone="emerald" />
-          <SeverityPill
-            label="Test alerts"
-            value={analytics?.testAlerts ?? 0}
-            tone="muted"
-          />
         </div>
       </div>
 
