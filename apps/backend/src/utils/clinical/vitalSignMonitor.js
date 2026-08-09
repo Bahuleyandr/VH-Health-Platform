@@ -185,7 +185,7 @@ export function normalizeTemperatureC(value, unit) {
  * Call this after any vital sign is recorded.
  * @param {number} patientId - Patient DB ID
  * @param {Object} vitals - { heart_rate, systolic_bp, diastolic_bp, temperature, oxygen_saturation, ... }
- * @param {Object} context - { recordedBy, requestId }
+ * @param {Object} context - { recordedBy, requestId, tenantId? }
  * @returns {Array} alerts - Array of generated alerts
  */
 export async function checkVitalAnomalies(patientId, vitals, context = {}) {
@@ -321,7 +321,11 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
     // pregnancy mirror already resolved the uid — because we still need the
     // tenant_id (the pregnancy lookup above selects uid only).
     let criticalPatientUid = null;
-    let criticalPatientTenantId = null;
+    // Callers that already resolved the patient tenant can scope WARNING-only
+    // alert batches directly. Without this, the lookup below never runs for a
+    // non-CRITICAL pregnancy BP alert and requireTenantId(null) fails after the
+    // ANC visit has already committed.
+    let criticalPatientTenantId = context.tenantId || null;
     if (hasCritical) {
       try {
         const r = await prisma.$queryRawUnsafe(
@@ -331,7 +335,7 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         // Prefer the freshly-resolved uid; fall back to the pregnancy lookup
         // (same patient) so behaviour is unchanged when the row is missing.
         criticalPatientUid = r[0]?.uid ?? pregnancyCdsPatientUid;
-        criticalPatientTenantId = r[0]?.tenant_id ?? null;
+        criticalPatientTenantId = criticalPatientTenantId ?? r[0]?.tenant_id ?? null;
       } catch (err) {
         logger.warn(`vitalSignMonitor: patient uid/tenant lookup failed for results-inbox task: ${err.message}`);
         // Still allow the task to be created against the pregnancy-resolved uid

@@ -870,7 +870,10 @@ export async function runAncPreeclampsiaPostCommitCheck({
 
   // ── Phase B — run the check; a throw is an alert-persistence failure ──
   try {
-    const alerts = await checkFn(patientId, vitalsForCheck, { recordedBy: recorderId });
+    const alerts = await checkFn(patientId, vitalsForCheck, {
+      recordedBy: recorderId,
+      tenantId,
+    });
     return { alerts: alerts || [], checkFailed: false };
   } catch (err) {
     logger.error(
@@ -2062,13 +2065,13 @@ export async function admitToLabor({
       Number(pregnancy.id),
       admission_id ? Number(admission_id) : null,
       admission_reason || null,
-      gestational_age_weeks ? Number(gestational_age_weeks) : null,
+      gestational_age_weeks != null && gestational_age_weeks !== '' ? Number(gestational_age_weeks) : null,
       membrane_status || null,
       membranes_ruptured_at || null,
-      cervix_dilation_cm ? Number(cervix_dilation_cm) : null,
-      cervix_effacement_pct ? Number(cervix_effacement_pct) : null,
+      cervix_dilation_cm != null && cervix_dilation_cm !== '' ? Number(cervix_dilation_cm) : null,
+      cervix_effacement_pct != null && cervix_effacement_pct !== '' ? Number(cervix_effacement_pct) : null,
       station || null, presentation || null,
-      fetal_heart_rate_bpm ? Number(fetal_heart_rate_bpm) : null,
+      fetal_heart_rate_bpm != null && fetal_heart_rate_bpm !== '' ? Number(fetal_heart_rate_bpm) : null,
       contractions_per_10min ? Number(contractions_per_10min) : null,
       labor_started_at || null,
       attending_obstetrician ? String(attending_obstetrician) : null,
@@ -2164,8 +2167,41 @@ export function computePartographAlerts({ activePhaseStartedAt, recordedAt, dila
   const expectedAtAction = 4 + Math.max(0, hoursElapsed - 4) * 1.0;
   return {
     on_alert_line: dilationCm < expectedAtAlert,
-    on_action_line: dilationCm < expectedAtAction,
+    // The action line starts four hours to the right of the alert line. It
+    // does not exist during the first four hours of documented active labour;
+    // treating its pre-start projection as 4 cm raises false emergency alerts.
+    on_action_line: hoursElapsed >= 4 && dilationCm < expectedAtAction,
   };
+}
+
+async function resolvePartographActivePhaseStart({ tenantId, labor, recordedAt, dilationCm }) {
+  const candidates = [];
+  const admissionDilation = Number(labor.cervix_dilation_cm);
+  if (Number.isFinite(admissionDilation) && admissionDilation >= 4 && labor.admitted_at) {
+    candidates.push(labor.admitted_at);
+  }
+
+  const priorRows = await prisma.$queryRawUnsafe(
+    `SELECT recorded_at
+       FROM maternity_partograph_entries
+      WHERE tenant_id = $1::uuid
+        AND labor_admission_id = $2::int
+        AND cervix_dilation_cm >= 4
+      ORDER BY recorded_at ASC
+      LIMIT 1`,
+    tenantId,
+    Number(labor.id),
+  );
+  if (priorRows[0]?.recorded_at) candidates.push(priorRows[0].recorded_at);
+  if (Number.isFinite(Number(dilationCm)) && Number(dilationCm) >= 4) {
+    candidates.push(recordedAt);
+  }
+
+  const valid = candidates
+    .map((value) => ({ value, time: new Date(value).getTime() }))
+    .filter(({ time }) => Number.isFinite(time))
+    .sort((a, b) => a.time - b.time);
+  return valid[0]?.value ?? null;
 }
 
 export async function recordPartographEntry({
@@ -2192,11 +2228,17 @@ export async function recordPartographEntry({
   const labor = await getLaborAdmission({ tenantId: tid, id: labor_admission_id });
   const pregnancy = await assertPregnancyInTenant(tid, labor.pregnancy_id);
 
-  // Active phase starts when dilation first reaches 4cm. We use the
-  // labor_started_at as an approximation; if not set, fall back to
-  // admitted_at.
-  const activePhaseStart = labor.labor_started_at || labor.admitted_at;
   const recAt = recorded_at || new Date().toISOString();
+  // Action-line timing starts at the first DOCUMENTED dilation of at least
+  // 4 cm. `labor_started_at` is contraction onset, not active-phase onset;
+  // using it can make the very first 3-5 cm partograph entry look many hours
+  // overdue and trigger a false emergency escalation.
+  const activePhaseStart = await resolvePartographActivePhaseStart({
+    tenantId: tid,
+    labor,
+    recordedAt: recAt,
+    dilationCm: cervix_dilation_cm,
+  });
   const { on_alert_line, on_action_line } = computePartographAlerts({
     activePhaseStartedAt: activePhaseStart,
     recordedAt: recAt,
@@ -2407,7 +2449,9 @@ export async function raisePartographEscalationSideEffects({
          VALUES ($1::int, 'PARTOGRAPH_ESCALATION', $2, $3::numeric, 'CRITICAL', $4, $5::int, NOW())`,
         patientIntId,
         escalationReason === 'fetal_decel' ? 'fetal_decel' : 'partograph_action_line',
-        entry.fetal_heart_rate_bpm ?? entry.cervix_dilation_cm ?? null,
+        escalationReason === 'fetal_decel'
+          ? entry.fetal_heart_rate_bpm ?? null
+          : entry.cervix_dilation_cm ?? null,
         message,
         recorderIntId,
       );

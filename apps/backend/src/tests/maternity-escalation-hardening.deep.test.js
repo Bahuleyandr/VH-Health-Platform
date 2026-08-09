@@ -253,6 +253,23 @@ d('BE-H2 — ANC pre-eclampsia alert-persistence failure is surfaced, never swal
     });
   });
 
+  test('labor admission preserves clinically valid zero dilation and effacement', async () => {
+    const patient = await seedPatient();
+    const pregnancy = await seedPregnancy(patient.uid);
+
+    const labor = await admitToLabor({
+      tenantId: TENANT,
+      pregnancy_id: pregnancy.id,
+      cervix_dilation_cm: 0,
+      cervix_effacement_pct: 0,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    });
+
+    expect(Number(labor.cervix_dilation_cm)).toBe(0);
+    expect(labor.cervix_effacement_pct).toBe(0);
+  });
+
   test('partograph ACTION-line entry escalates: canonical pair + CRITICAL alert + outbox row (and a normal entry does not)', async () => {
     const patient = await seedPatient();
     const pregnancy = await seedPregnancy(patient.uid);
@@ -261,12 +278,16 @@ d('BE-H2 — ANC pre-eclampsia alert-persistence failure is surfaced, never swal
       tenantId: TENANT,
       pregnancy_id: pregnancy.id,
       admission_reason: 'labour pains',
-      cervix_dilation_cm: 3,
+      cervix_dilation_cm: 4,
       fetal_heart_rate_bpm: 140,
-      labor_started_at: twelveHoursAgo,
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
     });
+    await prisma.$executeRawUnsafe(
+      `UPDATE maternity_labor_admissions SET admitted_at = $1::timestamptz WHERE id = $2::int`,
+      twelveHoursAgo,
+      Number(labor.id),
+    );
 
     // 12h into active phase at 5cm -> below the action line (WHO trigger).
     const escalated = await recordPartographEntry({
@@ -363,11 +384,15 @@ d('BE-H2 — ANC pre-eclampsia alert-persistence failure is surfaced, never swal
     const labor = await admitToLabor({
       tenantId: TENANT,
       pregnancy_id: pregnancy.id,
-      cervix_dilation_cm: 3,
-      labor_started_at: twelveHoursAgo,
+      cervix_dilation_cm: 4,
       actor_uid: ACTOR_UID,
       actor_role: 'NURSING_STAFF',
     });
+    await prisma.$executeRawUnsafe(
+      `UPDATE maternity_labor_admissions SET admitted_at = $1::timestamptz WHERE id = $2::int`,
+      twelveHoursAgo,
+      Number(labor.id),
+    );
     const removeTrigger = await installFailureTrigger({
       table: 'clinical_timeline_events',
       operation: 'INSERT',

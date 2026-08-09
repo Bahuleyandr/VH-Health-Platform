@@ -162,18 +162,27 @@ export async function enrollPatient({ tenantId = null, patientUid, admissionId =
 
 async function resolveEnrollment({ tenantId, patientUid, enrollmentId }) {
   if (enrollmentId) {
+    const parsedEnrollmentId = Number(enrollmentId);
+    if (!Number.isInteger(parsedEnrollmentId) || parsedEnrollmentId <= 0) return null;
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, tenant_id, patient_uid, status, care_manager_uid FROM virtual_ward_enrollments
-       WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-      Number.parseInt(enrollmentId, 10),
-      tenantId
+       WHERE id = $1
+         AND tenant_id = $2::uuid
+         AND patient_uid = $3::uuid
+         AND status IN ('active', 'escalated')
+       LIMIT 1`,
+      parsedEnrollmentId,
+      tenantId,
+      patientUid,
     );
     return rows[0] || null;
   }
   if (patientUid) {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, tenant_id, patient_uid, status, care_manager_uid FROM virtual_ward_enrollments
-       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'active'
+       WHERE tenant_id = $1::uuid
+         AND patient_uid = $2::uuid
+         AND status IN ('active', 'escalated')
        ORDER BY start_date DESC LIMIT 1`,
       tenantId,
       patientUid
@@ -363,13 +372,16 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
         if (triage.band === 'red') {
           // No .catch(() => {}) — the enrollment flip is part of the atomic
           // escalation, not a discardable side note.
-          await tx.$queryRawUnsafe(
+          const enrollmentUpdates = await tx.$executeRawUnsafe(
             `UPDATE virtual_ward_enrollments
              SET status = 'escalated', updated_at = NOW()
              WHERE id = $1 AND tenant_id = $2::uuid`,
             enrollment.id,
             tenantId
           );
+          if (enrollmentUpdates !== 1) {
+            throw new Error(`eligible virtual-ward enrollment disappeared during escalation: ${enrollment.id}`);
+          }
 
           // Durable care-team alert, in the SAME transaction: the escalation
           // must never be only a DB row nobody is told about. The outbox
@@ -412,11 +424,10 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
       );
     }
   } else {
-    // Green — stable, no action needed. Persistence stays best-effort (a
-    // stable patient's check-in should not error the app over a transient
-    // fault), but a failure is no longer a silent warn: it writes a
-    // clinical_audit_events 'failed' row (post-commit policy: 42P01 -> warn,
-    // other faults -> ERROR log) and the response carries check_in_id null.
+    // Green — stable, no escalation is needed, but the check-in remains a
+    // clinical record. A failed write must be reported honestly so the patient
+    // can retry; returning 201 with `persisted:false` still makes ordinary API
+    // clients display a false success and silently loses longitudinal evidence.
     try {
       const row = await setTenantTx(tenantId, (tx) => persistCheckInTx(tx));
       checkInId = row.id;
@@ -446,17 +457,17 @@ export async function submitCheckIn({ req, enrollmentId = null, patientUid = nul
           // a failure trail, not an insert-once lifecycle event.
           idempotencyKey: `virtual_ward_enrollments:${enrollment.id}:check_in_persist_failed:${Date.now()}`,
         }));
+      if (err instanceof AppError) throw err;
+      throw AppError.internal(
+        'Check-in could not be recorded — please retry.',
+        'VIRTUAL_WARD_CHECKIN_PERSIST_FAILED',
+      );
     }
   }
 
   return {
     check_in_id: checkInId,
-    // Explicit persist indicator (PR #788 review nit): a green-band
-    // best-effort failure still returns 201, so clients need a first-class
-    // flag — not just a null id — to distinguish "recorded" from "accepted
-    // but not persisted". Non-green paths throw instead, so this is only
-    // ever false for green.
-    persisted: checkInId != null,
+    persisted: true,
     enrollment_id: enrollment.id,
     patient_uid: effectivePatientUid,
     triage_score: triage.score,

@@ -157,6 +157,7 @@ async function cleanup() {
 
 d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () => {
   const patientIds = {};
+  const enrollmentIds = {};
 
   beforeAll(async () => {
     await cleanup();
@@ -165,10 +166,10 @@ d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () 
     patientIds.amber = await seedUser(AMBER_PATIENT_UID, 'PATIENT', 'VW-ESC Amber Patient');
     patientIds.green = await seedUser(GREEN_PATIENT_UID, 'PATIENT', 'VW-ESC Green Patient');
     patientIds.fail = await seedUser(FAIL_PATIENT_UID, 'PATIENT', 'VW-ESC Fail Patient');
-    await seedEnrollment(RED_PATIENT_UID);
-    await seedEnrollment(AMBER_PATIENT_UID);
-    await seedEnrollment(GREEN_PATIENT_UID);
-    await seedEnrollment(FAIL_PATIENT_UID);
+    enrollmentIds.red = await seedEnrollment(RED_PATIENT_UID);
+    enrollmentIds.amber = await seedEnrollment(AMBER_PATIENT_UID);
+    enrollmentIds.green = await seedEnrollment(GREEN_PATIENT_UID);
+    enrollmentIds.fail = await seedEnrollment(FAIL_PATIENT_UID);
   }, 30_000);
 
   afterEach(async () => {
@@ -292,6 +293,37 @@ d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () 
     expect(outboxRows).toHaveLength(0);
   }, 30_000);
 
+  test('an escalated enrollment continues accepting follow-up check-ins', async () => {
+    const res = await client('PATIENT', RED_PATIENT_UID, patientIds.red).post(CHECK_IN, {
+      patient_uid: RED_PATIENT_UID,
+      enrollment_id: enrollmentIds.red,
+      vitals: { heart_rate: 72 },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.data.persisted).toBe(true);
+    expect(res.body.data.enrollment_id).toBe(enrollmentIds.red);
+  }, 30_000);
+
+  test('an enrollment id cannot be paired with a different patient', async () => {
+    const beforeRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM virtual_ward_check_ins WHERE patient_uid = $1::uuid`,
+      RED_PATIENT_UID,
+    );
+    const res = await client('PATIENT', RED_PATIENT_UID, patientIds.red).post(CHECK_IN, {
+      patient_uid: RED_PATIENT_UID,
+      enrollment_id: enrollmentIds.amber,
+      symptoms: { chest_pain: true },
+    });
+
+    expect(res.statusCode).toBe(404);
+    const afterRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM virtual_ward_check_ins WHERE patient_uid = $1::uuid`,
+      RED_PATIENT_UID,
+    );
+    expect(afterRows[0].count).toBe(beforeRows[0].count);
+  }, 30_000);
+
   test('non-green persist failure: error response, full rollback, nothing silently dropped', async () => {
     const removeTrigger = await installFailureTrigger({
       table: 'virtual_ward_check_ins',
@@ -358,5 +390,31 @@ d('BE-H3 — virtual-ward red-band check-ins persist + escalate atomically', () 
       TENANT, GREEN_PATIENT_UID,
     );
     expect(enrollment[0].status).toBe('active');
+  }, 30_000);
+
+  test('green persist failure is reported as an error instead of a false 201', async () => {
+    const beforeRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM virtual_ward_check_ins WHERE patient_uid = $1::uuid`,
+      GREEN_PATIENT_UID,
+    );
+    const removeTrigger = await installFailureTrigger({
+      table: 'virtual_ward_check_ins',
+      operation: 'INSERT',
+      condition: `NEW.patient_uid = '${GREEN_PATIENT_UID}'::uuid`,
+    });
+
+    const res = await client('PATIENT', GREEN_PATIENT_UID, patientIds.green).post(CHECK_IN, {
+      patient_uid: GREEN_PATIENT_UID,
+      vitals: { heart_rate: 72 },
+    });
+    await removeTrigger();
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body.success).toBe(false);
+    const afterRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM virtual_ward_check_ins WHERE patient_uid = $1::uuid`,
+      GREEN_PATIENT_UID,
+    );
+    expect(afterRows[0].count).toBe(beforeRows[0].count);
   }, 30_000);
 });

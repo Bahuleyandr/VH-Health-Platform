@@ -71,7 +71,7 @@ describe('runAncPreeclampsiaPostCommitCheck (BE-H2)', () => {
     expect(deps.checkVitalAnomalies).toHaveBeenCalledWith(
       77,
       { systolic_bp: 142, diastolic_bp: 92 },
-      { recordedBy: 88 },
+      { recordedBy: 88, tenantId: TENANT },
     );
     expect(deps.notificationOutbox.queue).not.toHaveBeenCalled();
     expect(deps.recordClinicalAuditEvent).not.toHaveBeenCalled();
