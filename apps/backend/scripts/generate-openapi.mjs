@@ -41,6 +41,7 @@ import * as downtimeWardPacks from './openapi/schemas/downtimeWardPacks.mjs';
 import * as downtimeStaticMirror from './openapi/schemas/downtimeStaticMirror.mjs';
 import * as continuityFacilityContextGrants from './openapi/schemas/continuityFacilityContextGrants.mjs';
 import * as publicPaymentPage from './openapi/schemas/publicPaymentPage.mjs';
+import * as firebaseAuth from './openapi/schemas/firebaseAuth.mjs';
 
 const SCHEMA_MODULES = [
   money,
@@ -70,7 +71,8 @@ const SCHEMA_MODULES = [
   downtimeWardPacks,
   downtimeStaticMirror,
   continuityFacilityContextGrants,
-  publicPaymentPage
+  publicPaymentPage,
+  firebaseAuth
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

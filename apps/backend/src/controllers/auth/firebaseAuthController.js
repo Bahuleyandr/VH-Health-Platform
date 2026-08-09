@@ -97,6 +97,25 @@ export const revokeSession = async (req, res) => {
   }
 };
 
+// Revoke MY Firebase session (self-service logout)
+export const revokeMySession = async (req, res) => {
+  try {
+    // Identity comes from the verified JWT only. Deliberately does NOT read
+    // req.body — a caller-supplied firebaseUid here would reintroduce the IDOR
+    // that keeps the sibling /revoke-session route ADMIN-only.
+    const result = await firebaseAuthService.revokeOwnFirebaseSession(req.user?.uid);
+
+    success(
+      res,
+      result,
+      result.revoked ? 'Firebase session revoked successfully' : 'No Firebase session to revoke'
+    );
+  } catch (err) {
+    logger.error('Self Session Revocation Error:', err);
+    error(res, 'Failed to revoke session', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // Verify token status
 export const verifyToken = async (req, res) => {
   try {

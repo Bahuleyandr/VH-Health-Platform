@@ -38,4 +38,20 @@ void main() {
       );
     },
   );
+
+  // Logout's server-side Firebase revocation is remote-state, not a high-risk
+  // clinical write. The allowlist matches this path by exact string, so a
+  // rename that misses it silently downgrades logout to highRisk — pin it.
+  test(
+    'classifies the self-service Firebase session revoke as remote-state',
+    () {
+      expect(
+        PatientMutationPolicy.classify(
+          'POST',
+          '/auth/firebase/revoke-my-session',
+        ),
+        PatientMutationCategory.remoteState,
+      );
+    },
+  );
 }
