@@ -13,9 +13,9 @@
 //   * 'enforce' — run the engine for real (403 on a genuine deny).
 //
 // Platform-owner decision (2026-06-14): the DEFAULT is 'shadow', overriding the
-// design doc's default-off note. Shadow is non-breaking (it can neither block
-// nor 500 a PHI route — the guard wraps it in fail-open try/catch) while giving
-// us full would-be-denial telemetry per tenant before anyone flips 'enforce'.
+// design doc's default-off note. Shadow is non-blocking for valid
+// configuration while giving us full would-be-denial telemetry per tenant
+// before anyone flips 'enforce'. Resolution failures return a real error.
 //
 // Where the flag is stored: the existing `tenants.settings` JSONB column
 // (tenantService.getTenantById already selects it and caches the row for 60s).
@@ -57,9 +57,8 @@ export function normalizeEnforcementMode(value) {
 }
 
 /**
- * The deployment-wide override from the environment, if set to a valid mode.
- * Used as the fallback when a tenant has not set its own mode. Returns null
- * when unset or invalid (so the caller falls through to the literal default).
+ * Normalize the deployment-wide override. The resolver separately
+ * distinguishes an absent variable from an explicitly invalid value.
  */
 export function envEnforcementMode() {
   return normalizeEnforcementMode(process.env.CARE_TEAM_ENFORCEMENT_MODE);
@@ -76,9 +75,16 @@ export function envEnforcementMode() {
  * @returns {Promise<'off'|'shadow'|'enforce'>}
  */
 export async function resolveEnforcementModeForTenant(tenantId) {
-  const fallback = envEnforcementMode() || DEFAULT_ENFORCEMENT_MODE;
   const id = requireTenantId(tenantId);
   try {
+    const envValue = process.env.CARE_TEAM_ENFORCEMENT_MODE;
+    const fallback = envValue === undefined
+      ? DEFAULT_ENFORCEMENT_MODE
+      : normalizeEnforcementMode(envValue);
+    if (!fallback) {
+      throw AppError.internal('Care-team enforcement mode is unavailable', 'CARE_TEAM_MODE_UNAVAILABLE');
+    }
+
     const tenant = await getTenantById(id);
     if (!tenant) {
       throw AppError.internal('Care-team enforcement mode is unavailable', 'CARE_TEAM_MODE_UNAVAILABLE');
@@ -94,11 +100,16 @@ export async function resolveEnforcementModeForTenant(tenantId) {
         throw AppError.internal('Care-team enforcement mode is unavailable', 'CARE_TEAM_MODE_UNAVAILABLE');
       }
     }
-    const raw = parsed && typeof parsed === 'object'
-      ? parsed[ENFORCEMENT_MODE_SETTINGS_KEY]
-      : null;
-    const tenantMode = normalizeEnforcementMode(raw);
-    return tenantMode || fallback;
+    const hasTenantSetting = parsed
+      && typeof parsed === 'object'
+      && Object.prototype.hasOwnProperty.call(parsed, ENFORCEMENT_MODE_SETTINGS_KEY);
+    if (!hasTenantSetting) return fallback;
+
+    const tenantMode = normalizeEnforcementMode(parsed[ENFORCEMENT_MODE_SETTINGS_KEY]);
+    if (!tenantMode) {
+      throw AppError.internal('Care-team enforcement mode is unavailable', 'CARE_TEAM_MODE_UNAVAILABLE');
+    }
+    return tenantMode;
   } catch (err) {
     logger.error('care-team enforcement mode resolution failed closed', {
       tenantId: id,

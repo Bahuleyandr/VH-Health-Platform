@@ -20,7 +20,6 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -187,8 +186,9 @@ export async function scoreDeterioration({ patientUid, admissionId = null, tenan
   if (!vitalsSeries.length) {
     return {
       patient_uid: patientUid,
-      score: 0,
-      band: 'stable',
+      status: 'insufficient_data',
+      score: null,
+      band: null,
       contributors: { reason: 'no_vitals_in_last_4h' },
       recommendations: [{
         severity: 'medium',
@@ -219,38 +219,32 @@ export async function scoreDeterioration({ patientUid, admissionId = null, tenan
   };
   const recs = recommendations(band, contributors);
 
-  let snapshotId = null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO clinical_ai_deterioration_snapshots
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_deterioration_snapshots
          (tenant_id, patient_uid, admission_id, score, band, news2_component,
           trend_component, lab_component, contributors, recommendations,
           vitals_sample_count, scored_at)
        VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, NOW())
        RETURNING id`,
-      tid,
-      patientUid,
-      admissionId ? Number.parseInt(admissionId, 10) : null,
-      score,
-      band,
-      newsComp,
-      trendComp,
-      labComp.score,
-      JSON.stringify(contributors),
-      JSON.stringify(recs),
-      vitalsSeries.length
-    );
-    snapshotId = rows[0]?.id || null;
-  } catch (err) {
-    if (!/does not exist|relation/i.test(String(err?.message || ''))) {
-      logger.warn('Deterioration snapshot persist failed', { error: err.message });
-    }
-  }
+    tid,
+    patientUid,
+    admissionId ? Number.parseInt(admissionId, 10) : null,
+    score,
+    band,
+    newsComp,
+    trendComp,
+    labComp.score,
+    JSON.stringify(contributors),
+    JSON.stringify(recs),
+    vitalsSeries.length
+  );
+  const snapshotId = rows[0]?.id || null;
 
   return {
     snapshot_id: snapshotId,
     patient_uid: patientUid,
     admission_id: admissionId || null,
+    status: 'available',
     score,
     band,
     contributors,
@@ -264,9 +258,8 @@ export async function scoreDeterioration({ patientUid, admissionId = null, tenan
 export async function listDeteriorationSnapshots({ tenantId = null, band = null, limit = 50 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT DISTINCT ON (patient_uid)
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT DISTINCT ON (patient_uid)
               id, patient_uid, admission_id, score, band, news2_component,
               trend_component, lab_component, contributors, recommendations,
               vitals_sample_count, scored_at
@@ -275,19 +268,13 @@ export async function listDeteriorationSnapshots({ tenantId = null, band = null,
          AND ($2::text IS NULL OR band = $2)
        ORDER BY patient_uid, scored_at DESC
        LIMIT $3`,
-      tid,
-      band,
-      safeLimit
-    );
-    const bandOrder = { critical: 0, concerning: 1, watch: 2, stable: 3 };
-    const sorted = rows.sort((a, b) => (bandOrder[a.band] ?? 4) - (bandOrder[b.band] ?? 4));
-    return { snapshots: sorted, count: sorted.length };
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) {
-      return { snapshots: [], count: 0 };
-    }
-    throw err;
-  }
+    tid,
+    band,
+    safeLimit
+  );
+  const bandOrder = { critical: 0, concerning: 1, watch: 2, stable: 3 };
+  const sorted = rows.sort((a, b) => (bandOrder[a.band] ?? 4) - (bandOrder[b.band] ?? 4));
+  return { snapshots: sorted, count: sorted.length };
 }
 
 export default {

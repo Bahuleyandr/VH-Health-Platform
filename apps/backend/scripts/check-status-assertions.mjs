@@ -13,7 +13,8 @@
 //
 // What is flagged: any array literal containing BOTH a 5xx status (500-599)
 // and a non-5xx status, or BOTH a 2xx status and 401/403, asserted via
-// `.toContain(<expression>)`.
+// `.toContain(<expression>)`. The AST pass also detects split forms such as
+// `if (res.status !== 200) expect([403, 404]).toContain(res.status)`.
 // `.not.toContain(...)` is the inverse (good) pattern and is skipped. An
 // all-5xx set (e.g. [500, 503]) is not mixing and is allowed.
 //
@@ -31,7 +32,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { classifyStatusSet } from './lib/statusAssertionPolicy.mjs';
+import { findMixedStatusAssertions } from './lib/statusAssertionAst.mjs';
 
 function walk(dir, acc = []) {
   for (const name of readdirSync(dir)) {
@@ -47,38 +48,26 @@ function walk(dir, acc = []) {
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const files = walk(join(scriptDir, '..', 'src'));
 
-// expect([ ... ]).toContain(<expression>)
-// The array body may span lines. `.not.toContain` is skipped by construction
-// (the pattern requires `)` directly followed by `.toContain`).
-const ASSERT_RE =
-  /expect\(\s*\[([^\]]*)\]\s*\)\s*\.toContain\(\s*[^)]*\)/g;
-
 let offenders = 0;
 let exemptions = 0;
 for (const file of files) {
   const src = readFileSync(file, 'utf8');
-  let m;
-  while ((m = ASSERT_RE.exec(src))) {
-    const codes = m[1]
-      .split(',')
-      .map((s) => Number.parseInt(s.trim(), 10))
-      .filter((n) => Number.isFinite(n));
-    if (codes.length === 0) continue;
-    const { mixesServerFailure, mixesAuthOutcome } = classifyStatusSet(codes);
-    if (!(mixesServerFailure || mixesAuthOutcome)) continue;
-
-    const lineNumber = src.slice(0, m.index).split('\n').length;
-    const lines = src.split('\n');
-    const assertLine = lines[lineNumber - 1] ?? '';
-    const prevLine = lines[lineNumber - 2] ?? '';
-    const marker = /\/\/\s*ban-exempt:\s*(\S.*)/;
-    if (marker.test(assertLine) || marker.test(prevLine)) {
+  let findings;
+  try {
+    findings = findMixedStatusAssertions(src);
+  } catch (err) {
+    console.error(`✗ ${file}:1 — status assertion AST parse failed: ${err.message}`);
+    offenders++;
+    continue;
+  }
+  for (const finding of findings) {
+    if (finding.exempt) {
       exemptions++;
       continue;
     }
     console.error(
-      `✗ ${file}:${lineNumber} — status set [${codes.join(', ')}] ` +
-        (mixesServerFailure
+      `✗ ${file}:${finding.line} — status set [${finding.codes.join(', ')}] ` +
+        (finding.mixesServerFailure
           ? 'mixes 5xx with non-5xx; '
           : 'mixes success with an authentication/authorization failure; ') +
         'a test that tolerates this failure cannot protect the contract. Assert the exact status ' +

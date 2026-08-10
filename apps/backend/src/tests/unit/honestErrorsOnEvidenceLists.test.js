@@ -7,10 +7,7 @@
 // pinned by this suite:
 //
 //   * a real database error returns a real 5xx error envelope;
-//   * ONLY a verified missing-table condition for the exact optional relation
-//     (SQLSTATE 42P01 outside production, per schemaMissingGuard) returns the
-//     honest empty result — and then with an explicit `meta.table_missing`
-//     caveat, never a silent empty list;
+//   * baseline-required evidence tables fail loudly even for SQLSTATE 42P01;
 //   * message-text matching ("does not exist") is NOT enough to soften a
 //     failure into an empty success.
 
@@ -130,16 +127,14 @@ describe('GET /gdpr/erasure-log', () => {
     expect(response.body.success).toBe(false);
   });
 
-  it('an exact missing gdpr_erasure_log returns an explicit non-production caveat', async () => {
+  it('an exact missing gdpr_erasure_log is a 500 because the evidence table is baseline-required', async () => {
     queryRawUnsafe.mockRejectedValueOnce(missingTableError('gdpr_erasure_log'));
 
     const response = await request(app).get('/api/v1/gdpr/erasure-log');
 
-    expect(response.statusCode).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(response.body.data).toEqual([]);
-    expect(response.body.meta).toEqual({ table_missing: true });
-    expect(response.body.message).toMatch(/does not exist yet/);
+    expect(response.statusCode).toBe(500);
+    expect(response.body.success).toBe(false);
+    expect(response.body.data).toBeUndefined();
   });
 
   it('a 42P01 for another relation fails loudly', async () => {
@@ -176,15 +171,14 @@ describe('GET /devices/admin/list', () => {
     expect(response.body.data).toBeUndefined();
   });
 
-  it('an exact missing user_devices table returns an explicit non-production caveat', async () => {
+  it('an exact missing user_devices table is a 500 because the table is baseline-required', async () => {
     queryRawUnsafe.mockRejectedValueOnce(missingTableError('user_devices'));
 
     const response = await request(app).get('/api/v1/devices/admin/list');
 
-    expect(response.statusCode).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(response.body.data).toEqual([]);
-    expect(response.body.meta).toEqual({ table_missing: true });
+    expect(response.statusCode).toBe(500);
+    expect(response.body.success).toBe(false);
+    expect(response.body.data).toBeUndefined();
   });
 
   it('a 42P01 for the joined users relation fails loudly', async () => {

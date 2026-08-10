@@ -5,7 +5,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { notificationService } from '../../services/notification/notificationService.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export const notificationController = {
@@ -68,7 +68,6 @@ export const notificationController = {
       return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
-    let userNotFound = false;
     try {
       const listQuery = parseListQuery(req.query, {
         defaultLimit: 20,
@@ -97,23 +96,12 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in getMine:', err.message);
       if (err.message.includes('User not found')) {
-        userNotFound = true;
-      } else if (err.message.includes('Access denied')) {
-        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
-      } else {
-        return error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+        return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
       }
-    }
-
-    if (userNotFound) {
-      return success(res, {
-        notifications: [],
-        count: 0,
-        unread_count: 0,
-        pagination: buildPagination(0, 1, 20),
-        requestedBy: req.user?.uid,
-        accessLevel: req.user?.role?.toUpperCase(),
-      }, 'Notifications fetched successfully');
+      if (err.message.includes('Access denied')) {
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
+      }
+      return error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 

@@ -109,6 +109,7 @@ const { getOnboardingStatus } = await import('../../controllers/staff/staffAdmin
 const { advancedStaffSearch } = await import('../../controllers/staff/staffAdminOperationsController.js');
 const {
   getAllAdvances,
+  getComplianceCalendar,
   getPayslipDetail,
   getPayrollRunDetail,
   getStaffSalaryConfig,
@@ -231,7 +232,7 @@ describe('staff operational endpoint drift guards', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('returns a clean no-data tax summary when no issued payslips exist', async () => {
+  it('returns 404 when no issued payslips exist instead of a synthetic zero summary', async () => {
     queryRawUnsafe.mockResolvedValueOnce([]);
     generateAnnualTaxSummary.mockRejectedValueOnce(new Error('No payslips found for this financial year'));
 
@@ -241,13 +242,21 @@ describe('staff operational endpoint drift guards', () => {
     await getMyTaxSummary(req, res);
 
     expect(generateAnnualTaxSummary).toHaveBeenCalledWith(staffUid, '2025-26');
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json.mock.calls[0][0].data).toMatchObject({
-      staff_uid: staffUid,
-      financial_year: '2025-26',
-      months_included: 0,
-      status: 'unavailable',
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json.mock.calls[0][0]).toMatchObject({
+      success: false,
+      message: 'No issued payslips found for this financial year',
     });
+  });
+
+  it('does not mark payroll compliance deadlines pending when the evidence query fails', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(new Error('payroll run store unavailable'));
+    const res = makeRes();
+
+    await getComplianceCalendar({}, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ success: false });
   });
 
   it('maps attendance anomalies to existing CTE columns', async () => {

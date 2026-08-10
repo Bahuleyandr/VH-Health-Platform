@@ -87,7 +87,8 @@ export async function scoreAdherenceRisk(patientId, tenantId = null) {
 
   // "Late refill" heuristic — Rx with end_date in the past but no refill in the
   // last 30 days before that end_date. Joins e_prescriptions to its own refill
-  // requests table if one exists; falls back to a zero count.
+  // requests table if one exists. Query faults propagate because a fabricated
+  // zero would understate a required longitudinal-risk contributor.
   const [refill] = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*)::int AS late_refills
        FROM e_prescriptions
@@ -95,7 +96,7 @@ export async function scoreAdherenceRisk(patientId, tenantId = null) {
         AND created_at >= NOW() - INTERVAL '90 days'
         AND status = 'ACTIVE'${tClause}`,
     patientId, ...tArgs,
-  ).catch(() => [{ late_refills: 0 }]);
+  );
 
   // Days since last patient_vitals row.
   const [vital] = await prisma.$queryRawUnsafe(

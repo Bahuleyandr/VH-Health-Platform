@@ -119,16 +119,16 @@ test.each([
   expect(res.json.mock.calls[0][0]).toMatchObject({ success: false });
 });
 
-test('a clean missing notification user remains an explicit no-data success', async () => {
+test('a missing notification user is not presented as an empty inbox', async () => {
   getMyNotifications.mockRejectedValueOnce(new Error('User not found'));
   const res = makeRes();
 
   await notificationController.getMine({ query: {}, user: { uid: 'u1', role: 'PATIENT' } }, res);
 
-  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.status).toHaveBeenCalledWith(404);
   expect(res.json.mock.calls[0][0]).toMatchObject({
-    success: true,
-    data: { notifications: [], count: 0, unread_count: 0 },
+    success: false,
+    message: 'User not found',
   });
 });
 

@@ -72,9 +72,34 @@ describe('ledgerAuthoritativeMode.resolveLedgerModeForTenant', () => {
     });
   });
 
-  it('ignores an invalid per-tenant value and falls back to default', async () => {
+  it('fails closed when an explicit per-tenant value is invalid', async () => {
     getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: { ledger_authoritative_mode: 'banana' } });
-    await expect(resolveLedgerModeForTenant(TENANT)).resolves.toBe('shadow');
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
+  });
+
+  it('does not confuse a present null tenant value with an absent setting', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: { ledger_authoritative_mode: null } });
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
+  });
+
+  it('fails closed when an explicit environment value is invalid', async () => {
+    process.env.LEDGER_AUTHORITATIVE_MODE = 'banana';
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: {} });
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
+  });
+
+  it('does not confuse an explicitly empty environment value with an absent variable', async () => {
+    process.env.LEDGER_AUTHORITATIVE_MODE = '';
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: {} });
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
   });
 
   it('uses the LEDGER_AUTHORITATIVE_MODE env var as the fallback when no tenant setting', async () => {

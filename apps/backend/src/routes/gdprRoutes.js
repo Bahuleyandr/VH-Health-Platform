@@ -8,7 +8,6 @@ import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
 import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
 import { executeErasure, checkLegalHold } from '../services/gdpr/dataErasureService.js';
-import { isOptionalTableMissing } from '../services/security/schemaMissingGuard.js';
 import { success, error, relayAppError } from '../utils/responseHelper.js';
 
 const router = Router();
@@ -65,15 +64,13 @@ router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
  * Admin only.
  */
 router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
-  let logs;
-  let erasureLogTableMissing = false;
   try {
     const { default: prisma } = await import('../lib/prisma.js');
     const tenantId = deriveTenantIdFromRequest(req);
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
-    logs = await prisma.$queryRawUnsafe(
+    const logs = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone_hash, requested_by, reason, tables_processed,
               completed_at, duration_ms, created_at
        FROM gdpr_erasure_log
@@ -87,32 +84,11 @@ router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) =
        LIMIT $1 OFFSET $2`,
       limit, offset, tenantId
     );
-
+    return success(res, logs, 'Erasure log retrieved');
   } catch (err) {
-    // This log is DPDP/GDPR compliance evidence. A database fault must never
-    // be presented as "no erasures happened" — only a verified missing-table
-    // condition for this exact optional table (SQLSTATE 42P01 outside
-    // production) may return an empty result, and then only with an explicit
-    // caveat the caller can see.
-    if (isOptionalTableMissing(err, 'gdpr_erasure_log')) {
-      logger.warn('GDPR erasure log table missing (42P01) — returning explicit empty result');
-      erasureLogTableMissing = true;
-    } else {
-      logger.error('GDPR erasure log error:', err);
-      return relayAppError(res, err, 'Failed to retrieve erasure log');
-    }
+    logger.error('GDPR erasure log error:', err);
+    return relayAppError(res, err, 'Failed to retrieve erasure log');
   }
-
-  if (erasureLogTableMissing) {
-    return success(
-      res,
-      [],
-      'Erasure log table does not exist yet — no erasure evidence has been recorded',
-      HTTP_STATUS.OK,
-      { table_missing: true },
-    );
-  }
-  return success(res, logs, 'Erasure log retrieved');
 });
 
 export default router;

@@ -41,7 +41,7 @@ export function normalizeLedgerMode(value) {
   return VALID_MODES.has(text) ? text : null;
 }
 
-/** Deployment-wide override from the environment, if set to a valid mode; else null. */
+/** Normalize the deployment-wide override; the resolver rejects explicit invalid values. */
 export function envLedgerMode() {
   return normalizeLedgerMode(process.env.LEDGER_AUTHORITATIVE_MODE);
 }
@@ -55,9 +55,16 @@ export function envLedgerMode() {
  * @returns {Promise<'off'|'shadow'|'enforce'>}
  */
 export async function resolveLedgerModeForTenant(tenantId) {
-  const fallback = envLedgerMode() || DEFAULT_LEDGER_MODE;
   const id = requireTenantId(tenantId);
   try {
+    const envValue = process.env.LEDGER_AUTHORITATIVE_MODE;
+    const fallback = envValue === undefined
+      ? DEFAULT_LEDGER_MODE
+      : normalizeLedgerMode(envValue);
+    if (!fallback) {
+      throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
+    }
+
     const tenant = await getTenantById(id);
     if (!tenant) {
       throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
@@ -70,8 +77,16 @@ export async function resolveLedgerModeForTenant(tenantId) {
         throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
       }
     }
-    const raw = parsed && typeof parsed === 'object' ? parsed[LEDGER_MODE_SETTINGS_KEY] : null;
-    return normalizeLedgerMode(raw) || fallback;
+    const hasTenantSetting = parsed
+      && typeof parsed === 'object'
+      && Object.prototype.hasOwnProperty.call(parsed, LEDGER_MODE_SETTINGS_KEY);
+    if (!hasTenantSetting) return fallback;
+
+    const tenantMode = normalizeLedgerMode(parsed[LEDGER_MODE_SETTINGS_KEY]);
+    if (!tenantMode) {
+      throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
+    }
+    return tenantMode;
   } catch (err) {
     logger.error('ledger authoritative mode resolution failed closed', {
       tenantId: id, error: err?.message,

@@ -19,8 +19,8 @@
  * Design invariants:
  *   - Decision-support only. Never auto-actions, never writes orders.
  *   - Tenant-scoped: filters every query on req.tenantId.
- *   - Safe on missing data: unavailable signals contribute 0 points with
- *     a contributor flag so clinicians know the score is partial.
+ *   - Cleanly absent records contribute 0 points. Required-component faults
+ *     reject instead of synthesizing an authoritative low-risk band.
  *   - ABDM enrichment is opt-in per consent — service reads existing
  *     consent and attempts a fetch only when patient has active consent;
  *     never waits on ABDM for the risk card to render.
@@ -86,7 +86,7 @@ async function scoreReadmissionRisk({ tenantId, patientUid }) {
        AND discharged_at >= NOW() - INTERVAL '180 days'
        AND admitted_at IS NOT NULL`,
     patientUid
-  ).catch(() => [{ cnt: 0, avg_los: null, last_discharge: null }]);
+  );
 
   let score = 0;
   if (priorAdmissions.cnt >= 3) {
@@ -128,7 +128,7 @@ async function scoreComorbidities({ tenantId, patientUid }) {
        AND icd10_code IS NOT NULL
      ORDER BY icd10_code`,
     patientUid
-  ).catch(() => []);
+  );
 
   for (const diagnosis of diagnoses) {
     const code = String(diagnosis.icd10_code || '').toUpperCase();
@@ -160,6 +160,8 @@ async function fetchAbdmEnrichment(patientUid) {
     abdm_last_delivery_at: null,
     local_patient_consents: 0,
     enrichment_available: false,
+    enrichment_complete: true,
+    unavailable_components: [],
     reason: 'no_data',
   };
 
@@ -170,10 +172,11 @@ async function fetchAbdmEnrichment(patientUid) {
        WHERE patient_uid = $1::uuid
          AND status = 'ACTIVE'`,
       patientUid
-    ).catch(() => [{ active: 0 }]);
+    );
     enrichment.abdm_active_consents = Number(abdmConsentRow?.active || 0);
   } catch (err) {
     logger.debug('ABDM consent lookup failed', { error: err.message });
+    enrichment.unavailable_components.push('abdm_consents');
   }
 
   try {
@@ -184,11 +187,12 @@ async function fetchAbdmEnrichment(patientUid) {
        WHERE patient_uid = $1::uuid
          AND status = 'DELIVERED'`,
       patientUid
-    ).catch(() => [{ delivered: 0, last_delivered: null }]);
+    );
     enrichment.abdm_delivered_requests = Number(abdmRequestRow?.delivered || 0);
     enrichment.abdm_last_delivery_at = abdmRequestRow?.last_delivered || null;
   } catch (err) {
     logger.debug('ABDM delivered-request lookup failed', { error: err.message });
+    enrichment.unavailable_components.push('abdm_data_requests');
   }
 
   try {
@@ -199,15 +203,21 @@ async function fetchAbdmEnrichment(patientUid) {
          AND status = 'active'
          AND consent_type IN ('abdm', 'treatment')`,
       patientUid
-    ).catch(() => [{ active: 0 }]);
+    );
     enrichment.local_patient_consents = Number(patientConsentRow?.active || 0);
   } catch (err) {
     logger.debug('Patient consent lookup failed', { error: err.message });
+    enrichment.unavailable_components.push('patient_consents');
   }
 
   const hasAbdmSignal = enrichment.abdm_active_consents > 0 || enrichment.abdm_delivered_requests > 0;
   enrichment.enrichment_available = hasAbdmSignal || enrichment.local_patient_consents > 0;
-  if (enrichment.abdm_delivered_requests > 0) {
+  enrichment.enrichment_complete = enrichment.unavailable_components.length === 0;
+  if (!enrichment.enrichment_complete) {
+    enrichment.reason = enrichment.enrichment_available
+      ? 'enrichment_partial'
+      : 'enrichment_unavailable';
+  } else if (enrichment.abdm_delivered_requests > 0) {
     enrichment.reason = 'abdm_records_available';
   } else if (enrichment.abdm_active_consents > 0) {
     enrichment.reason = 'abdm_consent_active_no_records_yet';
@@ -270,9 +280,9 @@ function buildRecommendations({ overall, adherence, readmission, comorbidity, ab
 }
 
 /**
- * Score an admission's longitudinal risk and persist a snapshot. Safe on
- * missing data — partial signals are exposed so clinicians can judge
- * whether the card is load-bearing for their decision.
+ * Score an admission's longitudinal risk and persist a snapshot. Cleanly
+ * absent records score zero; faults in required inputs reject so a clinician
+ * never receives an authoritative low band from fabricated contributors.
  */
 export async function scoreLongitudinalRisk({ admissionId, req = null } = {}) {
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
@@ -290,13 +300,14 @@ export async function scoreLongitudinalRisk({ admissionId, req = null } = {}) {
   if (!admission.patient_uid) throw AppError.badRequest('Admission has no patient linked');
 
   // 1. Adherence (existing service).
-  let adherence = null;
-  try {
-    adherence = await scoreAdherenceRisk(admission.patient_id, tenantId); // CAN-037: tenant-scope
-  } catch (err) {
-    logger.debug('Adherence scoring failed; proceeding without it', { error: err.message });
+  const adherence = await scoreAdherenceRisk(admission.patient_id, tenantId); // CAN-037: tenant-scope
+  const adherenceScore = Number(adherence?.score);
+  if (!Number.isFinite(adherenceScore)) {
+    throw AppError.internal(
+      'Longitudinal risk input is unavailable',
+      'LONGITUDINAL_RISK_INPUT_UNAVAILABLE',
+    );
   }
-  const adherenceScore = adherence ? Number(adherence.score || 0) : 0;
 
   // 2. Readmission risk (admission history).
   const readmission = await scoreReadmissionRisk({ tenantId, patientUid: admission.patient_uid });
@@ -341,39 +352,32 @@ export async function scoreLongitudinalRisk({ admissionId, req = null } = {}) {
     abdm,
   });
 
-  let snapshotId = null;
-  try {
-    const saved = await prisma.$queryRawUnsafe(
-      `INSERT INTO clinical_longitudinal_risk
+  const saved = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_longitudinal_risk
          (tenant_id, patient_uid, admission_id, overall_score, band,
           adherence_score, adherence_source, readmission_score, comorbidity_score,
           abdm_enrichment, contributors, recommendations, metadata, created_at)
        VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9,
                $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, NOW())
        RETURNING id`,
-      tenantId,
-      admission.patient_uid,
-      admission.id,
-      overallScore,
-      overallBand,
-      adherenceScore,
-      adherence?.source || 'unavailable',
-      readmission.score,
-      comorbidity.score,
-      JSON.stringify(abdm),
-      JSON.stringify(contributors),
-      JSON.stringify(recommendations),
-      JSON.stringify({
-        module_key: 'abdm_longitudinal_risk',
-        requested_by: req?.user?.uid || null,
-      })
-    );
-    snapshotId = saved[0]?.id || null;
-  } catch (err) {
-    if (!/does not exist|relation/i.test(String(err?.message || ''))) {
-      logger.warn('Longitudinal risk snapshot insert failed', { error: err.message });
-    }
-  }
+    tenantId,
+    admission.patient_uid,
+    admission.id,
+    overallScore,
+    overallBand,
+    adherenceScore,
+    adherence?.source || 'unavailable',
+    readmission.score,
+    comorbidity.score,
+    JSON.stringify(abdm),
+    JSON.stringify(contributors),
+    JSON.stringify(recommendations),
+    JSON.stringify({
+      module_key: 'abdm_longitudinal_risk',
+      requested_by: req?.user?.uid || null,
+    })
+  );
+  const snapshotId = saved[0]?.id || null;
 
   return {
     snapshot_id: snapshotId,
@@ -412,7 +416,7 @@ export async function getLatestRisk({ admissionId, tenantId = null } = {}) {
      LIMIT 1`,
     tid,
     Number.parseInt(admissionId, 10)
-  ).catch(() => []);
+  );
   return rows[0] || null;
 }
 

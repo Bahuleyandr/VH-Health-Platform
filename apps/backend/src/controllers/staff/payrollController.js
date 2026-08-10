@@ -1144,36 +1144,15 @@ export const getMyTaxSummary = async (req, res) => {
     `, staffUid, financialYear);
 
     if (summary.length === 0) {
-      let generated;
-      let noIssuedPayslips = false;
       try {
-        generated = await generateAnnualTaxSummary(staffUid, financialYear);
+        const generated = await generateAnnualTaxSummary(staffUid, financialYear);
+        return success(res, generated, 'Annual tax summary generated');
       } catch (generationErr) {
         if (/No payslips found/i.test(String(generationErr?.message || ''))) {
-          noIssuedPayslips = true;
-        } else {
-          throw generationErr;
+          return error(res, 'No issued payslips found for this financial year', HTTP_STATUS.NOT_FOUND);
         }
+        throw generationErr;
       }
-      if (noIssuedPayslips) {
-        return success(res, {
-          staff_uid: staffUid,
-          financial_year: financialYear,
-          total_income: 0,
-          total_gross: 0,
-          total_tds: 0,
-          total_pf: 0,
-          total_esi: 0,
-          total_deductions: 0,
-          total_net: 0,
-          taxable_income: 0,
-          tax_payable: 0,
-          months_included: 0,
-          status: 'unavailable',
-          pdf_url: null,
-        }, 'No issued payslips found for this financial year');
-      }
-      return success(res, generated, 'Annual tax summary generated');
     }
 
     let pdfUrl = null;
@@ -2064,7 +2043,7 @@ export const getComplianceCalendar = async (req, res) => {
     ];
     const activeTds = tdsQuarterDue.find(q=>q.months.includes(month));
     const ecrs = await prisma.$queryRawUnsafe(
-      `SELECT month,year FROM payroll_runs WHERE status IN ('approved','locked') AND year=$1`, year).catch(() => []);
+      `SELECT month,year FROM payroll_runs WHERE status IN ('approved','locked') AND year=$1`, year);
     const ecrGenerated = ecrs.map(r=>`${r.year}-${String(r.month).padStart(2,'0')}`);
     const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const deadlines = [
