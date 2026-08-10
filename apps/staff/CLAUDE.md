@@ -96,7 +96,6 @@ lib/
 | Payroll self-service | `/staff/hr/payroll/my-payslips`, `/staff/hr/payroll/queries`, `/staff/hr/payroll/investment-declarations`, `/staff/hr/payroll/tax-summary` | GET, POST |
 | Upload investigation | `/staff/medical/investigations` | POST |
 | Upload consultation | `/staff/medical/consultations` | POST |
-| Update pharmacy order | `/staff/pharmacy/orders` | POST |
 | MAR/BCMA administration | `/staff/mar/*` | GET, POST |
 | CPOE orders (structured) | `/staff/orders/*` | GET, POST |
 | IPD/admission management | `/staff/admissions/*`, `/staff/ipd/*` | GET, POST, PUT |
