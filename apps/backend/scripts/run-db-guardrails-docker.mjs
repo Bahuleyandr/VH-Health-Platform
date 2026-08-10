@@ -13,6 +13,16 @@ const portStart = Number(process.env.VH_DB_GUARDRAILS_PORT || 55433);
 const isWindows = process.platform === 'win32';
 const runTests = process.argv.includes('--with-tests') ||
   process.env.VH_DB_GUARDRAILS_RUN_TESTS === 'true';
+// --with-coverage runs the B3.2 coverage gate (run-coverage-jest.mjs) against
+// the disposable container. The composite `ci` npm script uses this instead of
+// a standalone `npm run test:coverage` because two curated coverage suites
+// (jwtMiddleware.test.js, billingV2FrontOfficeAudit.test.js) hit the live DB;
+// before ci:backend:docker brings this container up, DATABASE_URL is only the
+// canonical-CI placeholder with nothing listening, so the prisma circuit
+// breaker opens and those suites fail with 503s (PR #836 canonical-CI run
+// 31383277246).
+const runCoverage = process.argv.includes('--with-coverage') ||
+  process.env.VH_DB_GUARDRAILS_RUN_COVERAGE === 'true';
 const maxBuffer = 64 * 1024 * 1024;
 
 function resolvePublishedDockerHost() {
@@ -219,6 +229,10 @@ try {
   runNodeScript('seed-comprehensive-test-data.mjs', [], { env });
   runNodeScript('check-db-contracts.mjs', ['--require-seeded'], { env });
   runNodeScript('ci-schema-drift.mjs', [], { env });
+  if (runCoverage) {
+    console.log('Running B3.2 coverage gate against disposable Postgres.');
+    runNodeScript('run-coverage-jest.mjs', [], { env });
+  }
   if (runTests) {
     console.log('Running backend Jest tests against disposable Postgres.');
     runNodeScript('run-ci-jest.mjs', [], { env });
