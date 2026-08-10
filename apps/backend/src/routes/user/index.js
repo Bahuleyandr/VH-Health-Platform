@@ -29,17 +29,19 @@ wrapAutoRBAC(router, 'userSelfRoutes', {
   ]
 });
 
+// Lookup routes - accessible to staff. Mounted BEFORE the directory router:
+// userRoutes' GET /:identifier would otherwise capture "lookup" as an
+// identifier, making GET /users/lookup unreachable (uuid-cast 500).
+wrapAutoRBAC(router, 'lookupRoutes', {
+  use: [
+    ['/lookup', lookupRoutes]
+  ]
+});
+
 // User directory routes (list/get/search/role/department) — staff/admin only.
 wrapAutoRBAC(router, 'userRoutes', {
   use: [
     ['/', userRoutes]
-  ]
-});
-
-// Lookup routes - accessible to staff
-wrapAutoRBAC(router, 'lookupRoutes', {
-  use: [
-    ['/lookup', lookupRoutes]
   ]
 });
 
