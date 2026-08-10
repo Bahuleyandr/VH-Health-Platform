@@ -18,6 +18,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: prismaMock,
   isTenantTransactionClient: () => true,
+  // Never exercised here, but the module graph reaches clinicalAlertFanout.js
+  // (appointmentWorkflowController -> maternityService), whose top-level
+  // `import { setTenant }` link-errors at suite load if the mock omits it.
+  setTenant: jest.fn(),
   setTenantTx: setTenantTxMock,
 }));
 
