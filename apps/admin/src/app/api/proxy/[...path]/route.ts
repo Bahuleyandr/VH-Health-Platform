@@ -2,6 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { API_BASE_URL } from "@/lib/api-config";
 import { getVerifiedTokenRole, isSuperAdminRole } from "@/lib/serverTokenRole";
+import {
+  requiredProxyPermission,
+  checkProxyPermission,
+} from "@/lib/proxyPermissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -229,6 +233,25 @@ async function handleProxy(req: NextRequest) {
       { message: "Invalid path" },
       { status: 400 },
     );
+  }
+
+  // ADM-1: per-admin permission flags are enforced HERE, not just in the nav.
+  // A scoped-down ADMIN (admins.permissions) must not retain full role-rank
+  // API access through the proxy. See src/lib/proxyPermissions.ts.
+  const requiredPermission = requiredProxyPermission(candidate);
+  if (requiredPermission) {
+    const verifiedRole = await getVerifiedTokenRole(token);
+    const verdict = await checkProxyPermission(
+      token,
+      verifiedRole,
+      requiredPermission,
+    );
+    if (!verdict.allowed) {
+      return NextResponse.json(
+        { message: verdict.message ?? "Forbidden" },
+        { status: 403 },
+      );
+    }
   }
 
   const method = req.method;
