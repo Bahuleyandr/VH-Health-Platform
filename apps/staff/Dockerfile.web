@@ -119,8 +119,10 @@ COPY --from=flutter-build /workspace/apps/staff/build/web /web
 # ---- Stage 3: nginx runner ------------------------------------------
 FROM ${NGINX_IMAGE} AS runner
 
-# Drop the default landing-page config + content; replace with our own.
-RUN rm -f /etc/nginx/conf.d/default.conf \
+# Apply Alpine security fixes from the pinned release branch, then drop the
+# default landing-page config + content and replace it with our own.
+RUN apk upgrade --no-cache \
+    && rm -f /etc/nginx/conf.d/default.conf \
     && rm -rf /usr/share/nginx/html/*
 
 COPY apps/staff/nginx-staff-web.conf /etc/nginx/conf.d/default.conf

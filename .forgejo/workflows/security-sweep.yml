@@ -137,6 +137,8 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.70.0/contrib/install.sh \
             | sh -s -- -b /tmp/vh-security-tools v0.70.0
           /tmp/vh-security-tools/trivy fs \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
             --scanners vuln,secret \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
@@ -161,6 +163,8 @@ jobs:
         run: |
           set -euo pipefail
           /tmp/vh-security-tools/trivy fs \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
             --scanners misconfig \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \

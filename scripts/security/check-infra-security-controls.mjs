@@ -17,6 +17,7 @@ const backendApp = read('apps/backend/src/app.js');
 const backendAllowlist = read('apps/backend/src/middleware/ipAllowlistMiddleware.js');
 const backendDockerfile = read('apps/backend/Dockerfile');
 const backendPackage = JSON.parse(read('apps/backend/package.json'));
+const backendCi = read('scripts/ci/backend.mjs');
 const backendMinimatchPatch = read('apps/backend/scripts/patch-minimatch-compat.mjs');
 const adminMiddleware = read('apps/admin/src/middleware.ts');
 const adminDockerfile = read('apps/admin/Dockerfile');
@@ -28,6 +29,7 @@ const mcpK8s = read('infra/mcp/vh-mcp-postgres/k8s.yaml');
 const forgejoReleaseImages = read('.forgejo/workflows/release-images.yml');
 const forgejoDalekDeploy = read('.forgejo/workflows/deploy-dalekdefender.yml');
 const forgejoContainerSupplyChain = read('.forgejo/workflows/container-supply-chain.yml');
+const forgejoSecuritySweep = read('.forgejo/workflows/security-sweep.yml');
 const forgejoCosignPublicKey = read('infra/forgejo/signing/cosign.pub');
 const githubReleaseImages = read('.github/workflows/release-images.yml');
 const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
@@ -106,10 +108,13 @@ check('release workflows keep backend base image overrides digest-pinned', () =>
   return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(combined);
 });
 
-check('backend image generation stays within the Forgejo runner memory budget', () =>
+check('backend generation stays within the Forgejo runner memory budget', () =>
   backendDockerfile.includes(
     'RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate',
-  ));
+  ) && backendCi.includes("NODE_OPTIONS: '--max-old-space-size=4096'"));
+
+check('staff web runtime applies Alpine security updates', () =>
+  staffWebDockerfile.includes('RUN apk upgrade --no-cache'));
 
 check('Forgejo admin image builds provide the backend named context', () =>
   forgejoContainerSupplyChain.includes(
@@ -125,6 +130,7 @@ check('Forgejo image scans use resilient official Trivy DB fallbacks', () => {
     forgejoContainerSupplyChain,
     forgejoDalekDeploy,
     forgejoReleaseImages,
+    forgejoSecuritySweep,
   ];
   return workflows.every(
     (workflow) =>
