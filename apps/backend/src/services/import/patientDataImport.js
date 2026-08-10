@@ -336,7 +336,7 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
   const value = fhirObservation.valueQuantity?.value ?? fhirObservation.valueString;
   const recordedAt = fhirObservation.effectiveDateTime || new Date().toISOString();
 
-  if (value === null) return;
+  if (value === null || value === undefined) return;
 
   // Map LOINC to vitals_chart columns
   const columnMap = {
@@ -355,34 +355,51 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
     return;
   }
 
-  // Dedup: check for a vitals record within same minute
+  // Audit 2026-08-10 R8 — imports must NEVER rewrite charted data in place.
+  // The old path did a source-blind ±1-minute dedupe and then UPDATEd the
+  // matched row (typically a staff-charted one), with no timeline/audit
+  // trail, and its INSERT branch omitted source so imports masqueraded as
+  // staff-charted. Dedupe is now idempotency-only: skip when a prior
+  // 'fhir'-sourced row already carries this vital in the ±1-minute window
+  // (a re-import of the same bundle); anything else — including a
+  // staff-charted near-duplicate — gets its own new sourced row.
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM vitals_chart
      WHERE patient_uid = $1::uuid
        AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+       AND source = 'fhir'
+       AND ${column} IS NOT NULL
        AND recorded_at BETWEEN $2::timestamp - INTERVAL '1 minute' AND $2::timestamp + INTERVAL '1 minute'
      LIMIT 1`,
     patientUid, recordedAt, tenantId
   );
 
   if (existing.length) {
-    // Update existing record with the new vital value
-    await prisma.$queryRawUnsafe(
-      `UPDATE vitals_chart
-          SET ${column} = $1
-        WHERE id = $2::int
-          AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
-      value, existing[0].id, tenantId
-    );
+    logger.info(`Skipped duplicate FHIR ${column} observation for patient ${patientUid} (re-import within dedupe window)`);
     return;
   }
 
-  // Create new vitals record
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO vitals_chart (tenant_id, patient_uid, ${column}, recorded_at, recorded_by, created_at)
-     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $5, NOW())`,
-    tenantId, patientUid, value, recordedAt, importedBy
-  );
+  // Route through the real vitals write path: plausibility gates, canonical
+  // timeline + audit events in the same transaction, NEWS2 scoring/escalation
+  // and anomaly detection all apply, and the row carries source 'fhir'
+  // (recorded_at backdating is exempt for fhir ingest — imported observation
+  // timestamps are legitimately old).
+  const payload = {
+    patient_uid: patientUid,
+    [column]: typeof value === 'number' ? value : Number(value),
+    recorded_at: recordedAt,
+    recorded_by: importedBy,
+    source: 'fhir',
+    ...(tenantId ? { tenant_id: tenantId } : {}),
+  };
+  // Temperature unit contract: canonical storage is Celsius; a Fahrenheit
+  // valueQuantity must say so or it would be read as °C.
+  if (column === 'temperature') {
+    const unit = String(fhirObservation.valueQuantity?.unit || fhirObservation.valueQuantity?.code || '').replace(/[[\]]/g, '');
+    if (/^deg ?f$|^f$|fahrenheit/i.test(unit)) payload.temperature_unit = 'F';
+  }
+  const { recordVitals } = await import('../emr/vitalsChartService.js');
+  await recordVitals(payload);
 }
 
 // =============================================================================
