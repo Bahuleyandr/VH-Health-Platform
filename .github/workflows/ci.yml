@@ -2,22 +2,27 @@ name: Canonical CI
 
 # WS3 B3.5 CI consolidation (2026-06-13):
 # This workflow runs the repo-owned local CI script (scripts/ci/run.mjs) on
-# FEATURE BRANCH pushes only. Its primary value is fast, changed-file-aware
-# feedback during development before a PR is opened.
+# feature-branch pushes and merge-queue test commits. Its single stable job
+# name is the required main-branch protection check. Feature branches remain
+# changed-file-aware; merge-queue commits deliberately run the full gate.
 #
-# PRs to main are gated by the per-stack GHA-native workflows (ci-backend.yml,
-# ci-flutter.yml, ci-admin.yml, etc.) which run the canonical reusable job
-# definitions and are more precisely scoped. Running this workflow on
-# pull_request: too would create duplicate status checks for the same PR.
+# The per-stack GHA-native workflows (ci-backend.yml, ci-flutter.yml,
+# ci-admin.yml, etc.) still provide precise PR diagnostics. Requiring those
+# path-filtered checks directly would strand unrelated PRs in an "Expected"
+# state, so branch protection requires only this aggregate gate. Do not add a
+# pull_request trigger here: internal PR heads already run on push, and doing
+# both would duplicate the longest CI lane for the same commit.
 #
-# If this local-runner output diverges from the per-stack workflows, treat the
-# per-stack GHA workflows as authoritative for merge blocking.
+# A failure in either this gate or a relevant per-stack workflow remains a
+# human-review stop until the disagreement is understood and fixed.
 
 on:
   push:
     branches:
       - '**'
       - '!main'   # main is covered by ci-backend/ci-flutter/ci-admin path filters
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
@@ -29,7 +34,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Repo-owned CI runner (feature branches)
+    name: Merge Gate
     runs-on: ubuntu-latest
     # Raised 90 -> 150 (2026-08-02): on branches touching every stack the full
     # sweep (Flutter workspace + backend canonical) legitimately runs 75-90+
@@ -69,5 +74,5 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Run canonical CI
+      - name: Run merge gate
         run: node scripts/ci/run.mjs --install --changed-on-branch-push
