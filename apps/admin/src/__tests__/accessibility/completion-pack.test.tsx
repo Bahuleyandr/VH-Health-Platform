@@ -1,10 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode, SVGProps } from "react";
 import DashboardLayout from "@/app/(with-auth)/dashboard/layout";
 import { AnnouncementBanner } from "@/app/(with-auth)/dashboard/notifications/components/AnnouncementBannerManager";
+import { fetchAdminAPI } from "@/lib/api";
 
 const logout = jest.fn();
 let pathname = "/dashboard";
+
+jest.mock("@/lib/api", () => ({
+  fetchAdminAPI: jest.fn().mockResolvedValue({ banner: null }),
+}));
+
+const fetchAdminAPIMock = fetchAdminAPI as jest.Mock;
 
 jest.mock("next/navigation", () => ({
   usePathname: () => pathname,
@@ -62,8 +70,15 @@ jest.mock("@/components/icons", () => ({
   MenuIcon: (props: SVGProps<SVGSVGElement>) => <svg {...props} />,
 }));
 
+function withQueryClient(node: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
+}
+
 function renderLayout(children: ReactNode = <h2>Care dashboard</h2>) {
-  return render(<DashboardLayout>{children}</DashboardLayout>);
+  return render(withQueryClient(<DashboardLayout>{children}</DashboardLayout>));
 }
 
 describe("NL12-S6 admin accessibility completion pack", () => {
@@ -101,17 +116,18 @@ describe("NL12-S6 admin accessibility completion pack", () => {
   });
 
   it("announces critical dashboard announcements as assertive live regions", async () => {
-    localStorage.setItem(
-      "vhhealth-announcement-banner",
-      JSON.stringify({
+    // The banner is server-persisted (ADM-2) — the display component reads it
+    // from the backend, not localStorage.
+    fetchAdminAPIMock.mockResolvedValueOnce({
+      banner: {
         text: "Oxygen manifold drill at 10:00",
         type: "critical",
         enabled: true,
-        updatedAt: "2026-07-09T08:00:00.000Z",
-      }),
-    );
+        updated_at: "2026-07-09T08:00:00.000Z",
+      },
+    });
 
-    render(<AnnouncementBanner />);
+    render(withQueryClient(<AnnouncementBanner />));
 
     const alert = await screen.findByRole("alert", {
       name: "critical announcement",
