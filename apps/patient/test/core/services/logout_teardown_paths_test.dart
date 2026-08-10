@@ -224,6 +224,110 @@ void main() {
   );
 
   testWidgets(
+    'path 1: manual logout shows a blocking progress indicator until the '
+    'teardown finishes, then dismisses it before landing on /login',
+    (tester) async {
+      final calls = <String>[];
+      final gate = Completer<void>();
+      LogoutService.debugSetDependencies(
+        _recordingDependencies(calls, signOutGate: gate),
+      );
+
+      final router = _testRouter(home: const Scaffold(body: LogoutButton()));
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(ListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Logout'));
+      await tester.pump();
+      await tester.pump();
+
+      // Teardown is still running (held open at its final step): the
+      // blocking progress dialog must be up so a slow network reads as
+      // "signing out" instead of a frozen app the user force-kills —
+      // force-killing here is what used to skip the local PHI wipe.
+      expect(find.text('Signing out…'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Signing out…'), findsNothing);
+      expect(calls, fullTeardown);
+      expect(find.text('login-screen'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'path 1: failed server revocation warning survives auth redirect disposal',
+    (tester) async {
+      final calls = <String>[];
+      final signOutGate = Completer<void>();
+      final atLogin = ValueNotifier<bool>(false);
+      addTearDown(atLogin.dispose);
+      LogoutService.debugSetDependencies(
+        _recordingDependencies(
+          calls,
+          firebaseSessionRevoked: false,
+          signOutGate: signOutGate,
+          onSignOutFirebase: () => atLogin.value = true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ValueListenableBuilder<bool>(
+            valueListenable: atLogin,
+            builder: (context, isAtLogin, child) => Scaffold(
+              body: isAtLogin
+                  ? const Text('login-screen')
+                  : const LogoutButton(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(ListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Logout'));
+      await tester.pump();
+      await tester.pump();
+
+      // Firebase sign-out has already redirected and disposed the route that
+      // owned LogoutButton, while LogoutService is still awaiting its final
+      // step. The warning must not depend on that dead BuildContext.
+      expect(find.text('login-screen'), findsOneWidget);
+      expect(find.byType(LogoutButton), findsNothing);
+
+      signOutGate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(calls, fullTeardown);
+      expect(
+        find.text(
+          'Signed out on this device. We could not reach the server, so '
+          'other devices may stay signed in until you retry.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pump(const Duration(seconds: 7));
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
     'path 5: failed backend login during OTP sign-in runs the full shared teardown',
     (tester) async {
       final calls = <String>[];
@@ -322,7 +426,10 @@ GoRouter _testRouter({required Widget home}) {
 
 LogoutServiceDependencies _recordingDependencies(
   List<String> calls, {
+  bool firebaseSessionRevoked = true,
+  bool vhSessionRevoked = true,
   Completer<void>? signOutGate,
+  VoidCallback? onSignOutFirebase,
 }) {
   LogoutStep step(String name) =>
       () => calls.add(name);
@@ -330,12 +437,12 @@ LogoutServiceDependencies _recordingDependencies(
   return LogoutServiceDependencies(
     revokeFirebaseSession: () {
       calls.add('firebase-server-revoke');
-      return true;
+      return firebaseSessionRevoked;
     },
     unregisterDevice: step('device-unregister'),
     revokeVhSession: () {
       calls.add('vh-server-revoke');
-      return true;
+      return vhSessionRevoked;
     },
     disconnectWebSocket: step('websocket'),
     disconnectRealtime: step('realtime'),
@@ -351,6 +458,7 @@ LogoutServiceDependencies _recordingDependencies(
     clearUserProvider: step('user-provider'),
     signOutFirebase: () async {
       calls.add('firebase-signout');
+      onSignOutFirebase?.call();
       await signOutGate?.future;
     },
   );

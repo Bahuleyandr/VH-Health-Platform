@@ -755,4 +755,177 @@ void main() {
       expect(observed, 'caller-key-123');
     });
   });
+
+  group('VHHttpClient — retryTransientFailures: false (teardown calls)', () {
+    test(
+      'a teardown 401 cannot refresh or rewrite credentials when disabled',
+      () async {
+        await AuthService.setJwt('old-access');
+
+        var logoutCalls = 0;
+        var refreshCalls = 0;
+        var sessionExpiryCallbacks = 0;
+        VHHttpClient.onSessionExpired = (_) => sessionExpiryCallbacks++;
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            if (req.url.toString() == _refreshUrl) {
+              refreshCalls++;
+              return http.Response(
+                jsonEncode({
+                  'success': true,
+                  'data': {'accessToken': 'late-access'},
+                }),
+                200,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            logoutCalls++;
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'expired'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+
+        final resp = await VHHttpClient.post(
+          '/auth/logout',
+          body: const {},
+          retryTransientFailures: false,
+          refreshOnUnauthorized: false,
+        );
+
+        expect(resp.isUnauthorized, isTrue);
+        expect(logoutCalls, 1);
+        expect(refreshCalls, 0);
+        expect(await AuthService.getJwt(), 'old-access');
+        expect(sessionExpiryCallbacks, 1);
+      },
+    );
+
+    test('the default POST policy still refreshes and retries a 401', () async {
+      await AuthService.setJwt('old-access');
+
+      var logoutCalls = 0;
+      var refreshCalls = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          if (req.url.toString() == _refreshUrl) {
+            refreshCalls++;
+            return http.Response(
+              jsonEncode({
+                'success': true,
+                'data': {'accessToken': 'new-access'},
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          logoutCalls++;
+          if (logoutCalls == 1) {
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'expired'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post('/auth/logout', body: const {});
+
+      expect(resp.isSuccess, isTrue);
+      expect(logoutCalls, 2);
+      expect(refreshCalls, 1);
+      expect(await AuthService.getJwt(), 'new-access');
+    });
+
+    test('a 5xx is NOT retried when transient retries are disabled', () async {
+      await AuthService.setJwt('access');
+
+      var postCount = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          postCount++;
+          return http.Response(
+            jsonEncode({'success': false, 'message': 'down'}),
+            503,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post(
+        '/auth/logout',
+        body: const {},
+        retryTransientFailures: false,
+      );
+
+      expect(resp.isSuccess, isFalse);
+      expect(
+        postCount,
+        1,
+        reason:
+            'logout-style teardown calls must be single-shot — the standard '
+            '3-attempt backoff holds the local PHI wipe hostage',
+      );
+    });
+
+    test(
+      'a network error surfaces immediately instead of backing off',
+      () async {
+        await AuthService.setJwt('access');
+
+        var postCount = 0;
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            postCount++;
+            throw http.ClientException('connection refused');
+          }),
+        );
+
+        await expectLater(
+          VHHttpClient.post(
+            '/auth/logout',
+            body: const {},
+            retryTransientFailures: false,
+          ),
+          throwsA(isA<http.ClientException>()),
+        );
+        expect(postCount, 1);
+      },
+    );
+
+    test('the default policy still retries a 5xx (unchanged)', () async {
+      await AuthService.setJwt('access');
+
+      var postCount = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          postCount++;
+          if (postCount == 1) {
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'flaky'}),
+              500,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post('/x', body: {'a': 1});
+      expect(resp.isSuccess, isTrue);
+      expect(postCount, 2);
+    });
+  });
 }

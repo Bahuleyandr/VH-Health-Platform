@@ -1985,6 +1985,10 @@
   "@logoutConfirmBody": {
     "description": "Dialog body to confirm logout"
   },
+  "logoutProgressMessage": "Signing out…",
+  "@logoutProgressMessage": {
+    "description": "Blocking progress dialog shown while logout teardown runs"
+  },
   "aboutHospitalName": "Venkataeswara Hospitals",
   "@aboutHospitalName": {
     "description": "Hospital name heading on About Us"

@@ -2032,6 +2032,9 @@ class AppLocalizationsTe extends AppLocalizations {
       'మీరు ఖచ్చితంగా లాగ్ అవుట్ చేయాలనుకుంటున్నారా?';
 
   @override
+  String get logoutProgressMessage => 'Signing out…';
+
+  @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
 
   @override

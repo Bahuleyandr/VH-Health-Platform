@@ -10,6 +10,8 @@
 // gate disabled -> allow; sensor unavailable / error / cancelled -> DENY,
 // showing a locked pane with a retry button instead of the PHI.
 
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/biometric_gate_service.dart';
@@ -73,6 +75,16 @@ class BiometricGate extends StatefulWidget {
   static Future<bool>? _inFlightCheck;
   static String? _inFlightCheckScope;
   static int _unlockGeneration = 0;
+  static int _promptsInFlight = 0;
+
+  /// True while any gate is awaiting its auth check — i.e. while the OS
+  /// biometric prompt may be on screen. The prompt itself pushes the app to
+  /// [AppLifecycleState.inactive], which must not be treated as the user
+  /// backgrounding the app (see [didChangeAppLifecycleState]): clearing the
+  /// unlock state mid-prompt bumps [_unlockGeneration], which discards the
+  /// grant the prompt is about to return and wedges the gate in a
+  /// prompt → inactive → cleared → re-prompt loop.
+  static bool get _promptInFlight => _promptsInFlight > 0;
 
   /// Clears every in-memory biometric grant for this process.
   static void clearUnlockState() {
@@ -84,7 +96,13 @@ class BiometricGate extends StatefulWidget {
   }
 
   @visibleForTesting
-  static void debugResetUnlockState() => clearUnlockState();
+  static void debugResetUnlockState() {
+    clearUnlockState();
+    // Test isolation only: a production clear must NOT zero the prompt
+    // counter — an OS prompt may genuinely still be on screen, and its
+    // paired decrement runs in _runCoordinatedCheck's finally.
+    _promptsInFlight = 0;
+  }
 
   @override
   State<BiometricGate> createState() => _BiometricGateState();
@@ -96,6 +114,7 @@ class _BiometricGateState extends State<BiometricGate>
     with WidgetsBindingObserver {
   _GateState _state = _GateState.checking;
   bool _checkOnResume = false;
+  bool _checkInFlight = false;
 
   @override
   void initState() {
@@ -118,58 +137,95 @@ class _BiometricGateState extends State<BiometricGate>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.inactive:
+        // The OS biometric prompt itself raises `inactive` (an overlay takes
+        // focus; the app is still visible). Re-arming on that transition
+        // discards the very grant the prompt is producing and can loop the
+        // gate — so while a check is in flight, `inactive` is ignored. True
+        // backgrounding during a prompt still reaches `hidden`/`paused`
+        // below, which always re-arm.
+        if (BiometricGate._promptInFlight) return;
+        _clearGrantAndRearm();
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
-        if (_state == _GateState.granted) {
-          BiometricGate.clearUnlockState();
-          _checkOnResume = true;
-          setState(() => _state = _GateState.checking);
-        }
+        _clearGrantAndRearm();
       case AppLifecycleState.resumed:
-        if (_checkOnResume) {
+        if (_checkOnResume && !_checkInFlight) {
           _checkOnResume = false;
           _runCheck();
         }
     }
   }
 
+  void _clearGrantAndRearm() {
+    if (_state == _GateState.granted || _checkInFlight) {
+      BiometricGate.clearUnlockState();
+      _checkOnResume = true;
+      if (_state != _GateState.checking) {
+        setState(() => _state = _GateState.checking);
+      }
+    }
+  }
+
   Future<void> _runCheck() async {
-    final graceScope = await _activeGraceScope();
-    if (!mounted) return;
+    if (_checkInFlight) return;
+    _checkInFlight = true;
     final generation = BiometricGate._unlockGeneration;
-    final last = BiometricGate._lastUnlockAt;
-    final elapsed = last == null ? null : DateTime.now().difference(last);
-    if (graceScope != null &&
-        BiometricGate._lastUnlockScope == graceScope &&
-        elapsed != null &&
-        !elapsed.isNegative &&
-        elapsed < BiometricGate.unlockGraceWindow) {
-      widget.onGranted?.call();
-      setState(() => _state = _GateState.granted);
-      return;
-    }
-    setState(() => _state = _GateState.checking);
-    final reason =
-        widget.reason ?? AppLocalizations.of(context)!.biometricGateReason;
-    final check =
-        widget.authCheck ??
-        BiometricGate.debugDefaultAuthCheckOverride ??
-        BiometricGateService.requireAuth;
-    bool granted;
+    var rerunAfterInvalidation = false;
     try {
-      granted = await _runCoordinatedCheck(check, reason, graceScope);
-    } catch (_) {
-      granted = false; // fail closed, mirroring the service (M11)
+      final graceScope = await _activeGraceScope();
+      if (!mounted) return;
+      if (generation != BiometricGate._unlockGeneration) {
+        rerunAfterInvalidation =
+            _checkOnResume &&
+            WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+        return;
+      }
+      final last = BiometricGate._lastUnlockAt;
+      final elapsed = last == null ? null : DateTime.now().difference(last);
+      if (graceScope != null &&
+          BiometricGate._lastUnlockScope == graceScope &&
+          elapsed != null &&
+          !elapsed.isNegative &&
+          elapsed < BiometricGate.unlockGraceWindow) {
+        widget.onGranted?.call();
+        setState(() => _state = _GateState.granted);
+        return;
+      }
+      setState(() => _state = _GateState.checking);
+      final reason =
+          widget.reason ?? AppLocalizations.of(context)!.biometricGateReason;
+      final check =
+          widget.authCheck ??
+          BiometricGate.debugDefaultAuthCheckOverride ??
+          BiometricGateService.requireAuth;
+      bool granted;
+      try {
+        granted = await _runCoordinatedCheck(check, reason, graceScope);
+      } catch (_) {
+        granted = false; // fail closed, mirroring the service (M11)
+      }
+      if (!mounted) return;
+      if (generation != BiometricGate._unlockGeneration) {
+        granted = false;
+        rerunAfterInvalidation =
+            _checkOnResume &&
+            WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+        if (rerunAfterInvalidation) return;
+      }
+      if (granted && graceScope != null) {
+        BiometricGate._lastUnlockAt = DateTime.now();
+        BiometricGate._lastUnlockScope = graceScope;
+      }
+      if (granted) widget.onGranted?.call();
+      setState(() => _state = granted ? _GateState.granted : _GateState.denied);
+    } finally {
+      _checkInFlight = false;
+      if (rerunAfterInvalidation && mounted) {
+        _checkOnResume = false;
+        unawaited(_runCheck());
+      }
     }
-    if (!mounted) return;
-    if (generation != BiometricGate._unlockGeneration) granted = false;
-    if (granted && graceScope != null) {
-      BiometricGate._lastUnlockAt = DateTime.now();
-      BiometricGate._lastUnlockScope = graceScope;
-    }
-    if (granted) widget.onGranted?.call();
-    setState(() => _state = granted ? _GateState.granted : _GateState.denied);
   }
 
   Future<String?> _activeGraceScope() async {
@@ -203,6 +259,7 @@ class _BiometricGateState extends State<BiometricGate>
       return active;
     }
 
+    BiometricGate._promptsInFlight++;
     final pending = Future<bool>.sync(() => check(reason));
     if (graceScope != null) {
       BiometricGate._inFlightCheck = pending;
@@ -211,6 +268,9 @@ class _BiometricGateState extends State<BiometricGate>
     try {
       return await pending;
     } finally {
+      if (BiometricGate._promptsInFlight > 0) {
+        BiometricGate._promptsInFlight--;
+      }
       if (identical(BiometricGate._inFlightCheck, pending)) {
         BiometricGate._inFlightCheck = null;
         BiometricGate._inFlightCheckScope = null;

@@ -2000,6 +2000,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logoutConfirmBody => 'Are you sure you want to logout?';
 
   @override
+  String get logoutProgressMessage => 'Signing out…';
+
+  @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
 
   @override

@@ -183,37 +183,43 @@ class AppRouter {
       // which conflated Firebase OTP state with backend session state. A
       // Firebase signOut (token expiry, debug-only dev login that bypasses
       // Firebase, etc.) would bounce a perfectly authenticated user back
-      // to /login. We now consider either signal sufficient: Firebase
-      // user OR a JWT in secure storage.
+      // to /login. For route PROTECTION either signal is sufficient:
+      // Firebase user OR a backend session. For the /login auto-redirect
+      // below, only the backend session counts (see that branch).
       final currentUser = FirebaseAuth.instance.currentUser;
-      bool isLoggedIn = currentUser != null;
-      // Fast path: UserProvider is hydrated by the splash screen and the
-      // login flows, and cleared by every logout / 401 path, so a non-empty
-      // phone is a reliable in-memory "we have a session" signal. It spares
-      // the keystore-backed storage read below on every navigation of a
-      // dev-login or Firebase-token-expired session (where currentUser is
-      // null but the JWT is still valid).
-      if (!isLoggedIn && (userProvider?.phone.isNotEmpty ?? false)) {
-        isLoggedIn = userProvider?.phone != 'guest';
-      }
-      // Cold-start / partial-storage backstop: when neither in-memory signal
-      // said yes, confirm against the JWT in secure storage.
-      if (!isLoggedIn) {
-        try {
-          final jwt = await VHSecureStorage.instance.read(key: 'jwt');
-          // Don't treat any non-empty secure-storage value as an
-          // authenticated session — require a JWT-shaped string.
-          isLoggedIn = _hasValidJwtShape(jwt);
-        } catch (_) {
-          // Storage read failure → fall through to Firebase-only signal.
-        }
-      }
+      final providerPhone = userProvider?.phone ?? '';
+      final isGuestSession = providerPhone == 'guest';
+      // Backend-session signal. Fast path: UserProvider is hydrated by the
+      // splash screen and the login flows, and cleared by every logout / 401
+      // path, so a non-empty phone is a reliable in-memory "we have a
+      // backend session" signal. It spares the keystore-backed storage read
+      // below on most navigations.
+      bool hasBackendSession = !isGuestSession && providerPhone.isNotEmpty;
+      bool isLoggedIn = currentUser != null || hasBackendSession;
       final location = state.matchedLocation;
-      final isGuestSession = userProvider?.phone == 'guest';
 
       // Skip redirect on splash screen to let it handle navigation
       if (location == '/') {
         return null;
+      }
+
+      // Secure-storage backstop for the backend-session signal. Two cases
+      // need the read:
+      //  * neither in-memory signal said yes (cold start, partial storage,
+      //    Firebase-token-expired or dev-login sessions);
+      //  * we are on /login with ONLY the Firebase signal — the post-OTP
+      //    auto-redirect must gate on backend-login completion, so confirm
+      //    whether the JWT actually exists yet.
+      if (!hasBackendSession && (!isLoggedIn || location == '/login')) {
+        try {
+          final jwt = await VHSecureStorage.instance.read(key: 'jwt');
+          // Don't treat any non-empty secure-storage value as an
+          // authenticated session — require a JWT-shaped string.
+          hasBackendSession = _hasValidJwtShape(jwt);
+          isLoggedIn = isLoggedIn || hasBackendSession;
+        } catch (_) {
+          // Storage read failure → fall through to Firebase-only signal.
+        }
       }
 
       final isAuthRoute =
@@ -249,8 +255,19 @@ class AppRouter {
               ).toString();
       }
 
-      // If logged in and on login, ensure identity is hydrated, then go home.
-      if (isLoggedIn && location == '/login') {
+      // If the backend session is live and we're on /login, ensure identity
+      // is hydrated, then go home.
+      //
+      // This branch deliberately gates on hasBackendSession, NOT isLoggedIn
+      // (R16 OTP redirect race): Firebase's signInWithCredential succeeds —
+      // and fires the refreshListenable — BEFORE the OTP flow's backend
+      // login exchange has stored a JWT. Auto-redirecting on the Firebase
+      // signal alone unmounted LoginForm mid-exchange, which killed its own
+      // post-login navigation (profile-setup for new users, returnTo for
+      // existing ones) and landed the user in the app without a backend
+      // session. While only Firebase says yes, stay on /login and let the
+      // OTP flow finish the exchange and navigate itself.
+      if (hasBackendSession && location == '/login') {
         // Start idle timer now that we know the user is authenticated
         if (sessionProvider != null) {
           sessionProvider.startTracking();

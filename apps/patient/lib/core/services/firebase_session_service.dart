@@ -26,9 +26,23 @@ class FirebaseSessionService {
   /// Deliberately sends no body: the backend derives the Firebase UID from the
   /// JWT. The sibling `/auth/firebase/revoke-session` takes a UID in the body
   /// and is ADMIN-only force-logout — calling it from here 403s.
-  static Future<bool> revokeSession() async {
+  ///
+  /// [timeout] / [retryTransientFailures] let the logout teardown run this
+  /// as one short attempt instead of the default 15s x 3-retry policy.
+  /// [refreshOnUnauthorized] must be false for logout so an abandoned 401
+  /// cannot refresh credentials after the local wipe.
+  static Future<bool> revokeSession({
+    Duration? timeout,
+    bool retryTransientFailures = true,
+    bool refreshOnUnauthorized = true,
+  }) async {
     try {
-      final response = await ApiClient.post('/auth/firebase/revoke-my-session');
+      final response = await ApiClient.post(
+        '/auth/firebase/revoke-my-session',
+        timeout: timeout,
+        retryTransientFailures: retryTransientFailures,
+        refreshOnUnauthorized: refreshOnUnauthorized,
+      );
       if (!response.isSuccess) {
         // A non-2xx never throws (ApiResponse.parse just sets isSuccess), so
         // without this the whole revocation could fail with no trace at all.

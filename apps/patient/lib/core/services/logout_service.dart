@@ -31,6 +31,29 @@ class LogoutService {
       LogoutServiceDependencies.defaults();
   static Future<LogoutOutcome>? _logoutInFlight;
 
+  /// Hard per-call ceiling on the three pre-wipe server revocations.
+  ///
+  /// Logout is a teardown path: it must never hold the user behind the
+  /// standard transport policy (15s timeout x 3 attempts per call — up to
+  /// ~144s across the three calls). A user who force-kills the app during
+  /// that hang skips the local PHI wipe below entirely, which is the worse
+  /// outcome — so each revocation gets one short attempt (see
+  /// [_networkCallTimeout]) and this outer deadline abandons it regardless
+  /// of what the transport is doing. Mutable so tests can shrink it.
+  @visibleForTesting
+  static Duration networkStepTimeout = const Duration(seconds: 6);
+
+  /// Per-attempt HTTP timeout for logout's own network calls. Paired with
+  /// `retryTransientFailures: false` so one dead request fails once, fast.
+  static const Duration _networkCallTimeout = Duration(seconds: 4);
+
+  /// Awaits a server revocation step but never longer than
+  /// [networkStepTimeout]. Rethrows so each call site keeps its own
+  /// step-specific logging.
+  static Future<T> _boundedNetworkStep<T>(FutureOr<T> Function() step) {
+    return Future<T>.sync(step).timeout(networkStepTimeout);
+  }
+
   @visibleForTesting
   static void debugSetDependencies(LogoutServiceDependencies dependencies) {
     _dependencies = dependencies;
@@ -72,7 +95,7 @@ class LogoutService {
     //    refreshable server credentials could remain usable.
     var firebaseSessionRevoked = false;
     try {
-      firebaseSessionRevoked = await Future<bool>.sync(
+      firebaseSessionRevoked = await _boundedNetworkStep(
         _dependencies.revokeFirebaseSession,
       );
     } catch (e) {
@@ -86,7 +109,7 @@ class LogoutService {
     // 401s, which is why the client-side FCM token delete further down is the
     // authoritative kill for pushes.
     try {
-      await Future<void>.sync(_dependencies.unregisterDevice);
+      await _boundedNetworkStep(_dependencies.unregisterDevice);
     } catch (e) {
       debugPrint('LogoutService: device unregister failed: $e');
     }
@@ -97,7 +120,9 @@ class LogoutService {
     // Always attempt the VH revoke even when the Firebase call fails.
     var vhSessionRevoked = false;
     try {
-      vhSessionRevoked = await Future<bool>.sync(_dependencies.revokeVhSession);
+      vhSessionRevoked = await _boundedNetworkStep(
+        _dependencies.revokeVhSession,
+      );
     } catch (e) {
       debugPrint('LogoutService: VH server session revoke failed: $e');
     }
@@ -249,7 +274,13 @@ class LogoutService {
   /// patient outage gate blocks the mutation before it is sent.
   static Future<bool> _revokeVhSession() async {
     try {
-      final response = await ApiClient.post('/auth/logout', body: const {});
+      final response = await ApiClient.post(
+        '/auth/logout',
+        body: const {},
+        timeout: _networkCallTimeout,
+        retryTransientFailures: false,
+        refreshOnUnauthorized: false,
+      );
       return response.isSuccess;
     } catch (e) {
       debugPrint('LogoutService: /auth/logout failed: $e');
@@ -262,7 +293,12 @@ class LogoutService {
   static Future<void> _unregisterDevice() async {
     final phone = await _storage.read(key: 'user_phone') ?? '';
     if (phone.isEmpty || phone == 'guest') return;
-    await DeviceService.unregisterDevice(phone);
+    await DeviceService.unregisterDevice(
+      phone,
+      timeout: _networkCallTimeout,
+      retryTransientFailures: false,
+      refreshOnUnauthorized: false,
+    );
   }
 }
 
@@ -308,7 +344,13 @@ class LogoutServiceDependencies {
 
   factory LogoutServiceDependencies.defaults() {
     return LogoutServiceDependencies(
-      revokeFirebaseSession: FirebaseSessionService.revokeSession,
+      // Logout-specific transport policy: one short attempt per call (see
+      // LogoutService._networkCallTimeout) instead of 15s x 3 retries.
+      revokeFirebaseSession: () => FirebaseSessionService.revokeSession(
+        timeout: LogoutService._networkCallTimeout,
+        retryTransientFailures: false,
+        refreshOnUnauthorized: false,
+      ),
       unregisterDevice: LogoutService._unregisterDevice,
       revokeVhSession: LogoutService._revokeVhSession,
       disconnectWebSocket: WebSocketService.instance.disconnect,
