@@ -13,6 +13,7 @@ const mockValidationResult = jest.fn(() => ({
 const mockAuthenticateStaff = jest.fn();
 const mockAuthenticateStaffWithPin = jest.fn();
 const mockRefreshStaffSession = jest.fn();
+const mockRevokeAllSessions = jest.fn();
 
 const mockAuthenticateWithFirebase = jest.fn();
 const mockVerifyTokenStatus = jest.fn();
@@ -63,6 +64,7 @@ jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
     authenticateStaff: mockAuthenticateStaff,
     authenticateStaffWithPin: mockAuthenticateStaffWithPin,
     refreshStaffSession: mockRefreshStaffSession,
+    revokeAllSessions: mockRevokeAllSessions,
   },
 }));
 
@@ -77,6 +79,8 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
+  generateRefreshToken: jest.fn(),
+  issueAccessTokenAndClaimSession: jest.fn(),
   resolveTenantIdForUid: jest.fn(),
 }));
 
@@ -252,6 +256,24 @@ describe('auth response contracts', () => {
       expect(res.body).toEqual({
         success: false,
         message: 'Invalid username or password',
+      });
+    });
+  });
+
+  describe('admin force logout', () => {
+    it('routes the integer users.id through StaffAuthService.revokeAllSessions', async () => {
+      mockRevokeAllSessions.mockResolvedValue({ revokedCount: 3 });
+      const { req, res } = makeHttp();
+      req.params = { userId: '42' };
+      req.user = { uid: 'admin-uid' };
+
+      await adminAuthController.revokeAllSessions(req, res);
+
+      expect(mockRevokeAllSessions).toHaveBeenCalledWith(42);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toMatchObject({
+        success: true,
+        data: { revokedCount: 3 },
       });
     });
   });

@@ -168,7 +168,15 @@ morgan.token('url', morganSafeUrlToken);
 // which no other route contains ('/payment-links/', '/payroll/' do not match).
 function morganSkipSensitivePath(req) {
   const raw = req.originalUrl || req.url || '';
-  return raw.includes('/pay/');
+  let pathname;
+  try {
+    pathname = raw.startsWith('/')
+      ? new URL(`http://localhost${raw}`).pathname
+      : new URL(raw).pathname;
+  } catch {
+    pathname = raw.split('?')[0];
+  }
+  return pathname.startsWith('/pay/');
 }
 
 // Preconfigured morgan middleware. `combined` now resolves `:url` through the

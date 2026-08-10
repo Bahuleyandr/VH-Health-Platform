@@ -42,7 +42,8 @@ export async function GET(request: Request) {
     const data = await upstream.json().catch(() => ({}));
     const payload = data?.data ?? data;
     const token = payload?.token;
-    if (!upstream.ok || !token) {
+    const refreshToken = payload?.refreshToken;
+    if (!upstream.ok || !token || !refreshToken) {
       const response = NextResponse.redirect(new URL("/login?sso=failed", request.url));
       clearHandoff(response, request);
       return response;
@@ -55,6 +56,13 @@ export async function GET(request: Request) {
       sameSite: "strict",
       path: "/",
       maxAge: 60 * 60 * 4,
+    });
+    response.cookies.set("refresh_token", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/api/refresh",
+      maxAge: 60 * 60 * 24 * 30,
     });
     clearHandoff(response, request);
     return response;

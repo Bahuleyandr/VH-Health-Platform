@@ -141,7 +141,7 @@ export default async function jwtMiddleware(req, res, next) {
     // Check if all user tokens were revoked (force-logout)
     const uid = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
     if (uid && decoded.iat) {
-      const revoked = await isUserTokensRevoked(String(uid), decoded.iat);
+      const revoked = await isUserTokensRevoked(String(uid), decoded.iat, decoded.token_epoch);
       if (revoked) {
         logger.warn(`JWT denied: all tokens revoked for user ${uid}`);
         return res.status(401).json({

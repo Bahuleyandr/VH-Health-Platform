@@ -62,12 +62,19 @@ describe('loginSessionHelper.generateRefreshToken', () => {
   });
 
   it('omits id and phone when they are not supplied (admin-shape payload)', async () => {
-    const token = await generateRefreshToken({ uid: 'admin-uuid', role: 'ADMIN' });
+    const token = await generateRefreshToken({
+      uid: 'admin-uuid',
+      role: 'ADMIN',
+      realm: 'admin',
+      mfa: true,
+    });
     const payload = decode(token);
 
     expect(payload.type).toBe('refresh');
     expect(payload.sub).toBe('admin-uuid');
     expect(payload.role).toBe('ADMIN');
+    expect(payload.realm).toBe('admin');
+    expect(payload.mfa).toBe(true);
     expect(payload.id).toBeUndefined();
     expect(payload.phone).toBeUndefined();
   });

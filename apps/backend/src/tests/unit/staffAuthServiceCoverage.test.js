@@ -944,7 +944,12 @@ describe('listStaffDevices', () => {
 // =====================================================================
 describe('admin methods', () => {
   it('adminForceLogout deletes sessions and logs activity', async () => {
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
     const out = await StaffAuthService.adminForceLogout(42, 'compromised', 'admin-uid', REQ);
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      requireEvidence: true,
+      reason: 'admin_force_logout',
+    });
     expect(out).toEqual({ success: true, message: 'Staff member logged out from all devices' });
   });
 
@@ -955,6 +960,7 @@ describe('admin methods', () => {
   });
 
   it('adminForceLogout surfaces DB errors (catch path)', async () => {
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
     mockPrisma.$executeRawUnsafe.mockRejectedValueOnce(new Error('db down'));
     await expect(StaffAuthService.adminForceLogout(42, 'r', 'admin-uid', REQ)).rejects.toThrow('db down');
   });
@@ -1018,9 +1024,14 @@ describe('createSession', () => {
 // revokeAllSessions
 // =====================================================================
 describe('revokeAllSessions', () => {
-  it('deletes all sessions and returns the revoked count', async () => {
+  it('durably revokes the identity before deleting all staff sessions', async () => {
+    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
     mockPrisma.$executeRawUnsafe.mockResolvedValueOnce(3);
     const out = await StaffAuthService.revokeAllSessions(42);
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      requireEvidence: true,
+      reason: 'admin_force_logout',
+    });
     expect(out).toEqual({ revokedCount: 3 });
   });
 });

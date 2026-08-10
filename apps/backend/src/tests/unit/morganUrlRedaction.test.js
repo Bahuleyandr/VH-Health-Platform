@@ -39,6 +39,13 @@ describe('morgan access-log URL redaction', () => {
     expect(logger.morganSafeUrlToken({ url: '/api/v1/users/me' }, {})).toBe('/api/v1/users/me');
   });
 
+  it('skips only the pathname-anchored public payment route, never a query-string decoy', () => {
+    expect(logger.morganSkipSensitivePath({ originalUrl: '/pay/opaque-link-token?view=1' })).toBe(true);
+    expect(logger.morganSkipSensitivePath({ originalUrl: '/api/v1/users?next=/pay/opaque-link-token' })).toBe(false);
+    expect(logger.morganSkipSensitivePath({ originalUrl: '/api/v1/pay/opaque-link-token' })).toBe(false);
+    expect(logger.morganSkipSensitivePath({ originalUrl: '//example.test/pay/opaque-link-token' })).toBe(false);
+  });
+
   it('produces an access-log line through the morgan middleware without leaking the secret', (done) => {
     // Drive a fake request/response through the configured morgan middleware
     // and capture what gets written to the winston http stream.

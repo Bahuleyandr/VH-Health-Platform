@@ -8,8 +8,11 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AuthService } from '../../services/auth/authService.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
-import { resolveTenantIdForUid } from '../../services/auth/loginSessionHelper.js';
-import { generateToken } from '../../utils/auth/tokenHelpers.js';
+import {
+  generateRefreshToken,
+  issueAccessTokenAndClaimSession,
+  resolveTenantIdForUid,
+} from '../../services/auth/loginSessionHelper.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   generateTotpSetup,
@@ -550,29 +553,35 @@ export const mfaSetupConfirm = async (req, res) => {
     });
     if (!admin) return error(res, 'Admin not found after enrollment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
 
-    const token = generateToken({
+    const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      userUid: admin.uid,
+      tokenPayload: {
+        uid: admin.uid,
+        role: String(admin.role).toUpperCase(),
+        email: admin.email ?? undefined,
+        sub: admin.uid,
+        iss: 'vh-health-backend',
+        aud: 'vh-health-admin',
+        tenant_id: await resolveTenantIdForUid(admin.uid),
+        // Only these paths prove possession of the admin's second factor.
+        mfa: true,
+      },
+      expiresIn: SECURITY_CONFIG.jwt.adminExpiry,
+      deviceType: 'web',
+      req,
+    });
+    const refreshToken = await generateRefreshToken({
       uid: admin.uid,
       role: String(admin.role).toUpperCase(),
-      email: admin.email ?? undefined,
-      sub: admin.uid,
-      iss: 'vh-health-backend',
-      aud: 'vh-health-admin',
-      // W4 C5: stamp the admin's tenant via the raw-SQL resolver. (admins.tenant_id
-      // exists in the DB from mig 334 but is not in the Prisma `admins` model's
-      // selectable fields — the resolver reads the column directly. DEFAULT for
-      // platform SUPER_ADMINs, who override per-request.)
-      tenant_id: await resolveTenantIdForUid(admin.uid),
-      // 2FA step-up claim — minted only after the admin proves possession of their
-      // TOTP factor (first-time enrollment confirm or login challenge-verify), so
-      // these are the only paths entitled to mark the session as 2FA-verified.
-      // requireSuperAdminStepUp gates SUPER_ADMIN on sensitive namespaces on this
-      // claim (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
+      tokenEpoch,
+      realm: 'admin',
       mfa: true,
-    }, SECURITY_CONFIG.jwt.adminExpiry);
+    });
 
     logger.info('Admin MFA enrolled via first-time setup', { adminId });
     return success(res, {
       token,
+      refreshToken,
       admin: {
         uid: admin.uid,
         username: admin.username,
@@ -678,29 +687,34 @@ export const mfaVerifyChallenge = async (req, res) => {
       challengeToken
     );
 
-    const token = generateToken({
+    const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      userUid: admin.uid,
+      tokenPayload: {
+        uid: admin.uid,
+        role: String(admin.role).toUpperCase(),
+        email: admin.email ?? undefined,
+        sub: admin.uid,
+        iss: 'vh-health-backend',
+        aud: 'vh-health-admin',
+        tenant_id: await resolveTenantIdForUid(admin.uid),
+        mfa: true,
+      },
+      expiresIn: SECURITY_CONFIG.jwt.adminExpiry,
+      deviceType: 'web',
+      req,
+    });
+    const refreshToken = await generateRefreshToken({
       uid: admin.uid,
       role: String(admin.role).toUpperCase(),
-      email: admin.email ?? undefined,
-      sub: admin.uid,
-      iss: 'vh-health-backend',
-      aud: 'vh-health-admin',
-      // W4 C5: stamp the admin's tenant via the raw-SQL resolver. (admins.tenant_id
-      // exists in the DB from mig 334 but is not in the Prisma `admins` model's
-      // selectable fields — the resolver reads the column directly. DEFAULT for
-      // platform SUPER_ADMINs, who override per-request.)
-      tenant_id: await resolveTenantIdForUid(admin.uid),
-      // 2FA step-up claim — minted only after the admin proves possession of their
-      // TOTP factor (first-time enrollment confirm or login challenge-verify), so
-      // these are the only paths entitled to mark the session as 2FA-verified.
-      // requireSuperAdminStepUp gates SUPER_ADMIN on sensitive namespaces on this
-      // claim (audit 2026-06-18 — SUPER_ADMIN un-scoped bypass).
+      tokenEpoch,
+      realm: 'admin',
       mfa: true,
-    }, SECURITY_CONFIG.jwt.adminExpiry);
+    });
 
     logger.info('Admin MFA challenge verified', { adminId, viaBackup: !!useBackupCode });
     return success(res, {
       token,
+      refreshToken,
       admin: {
         uid: admin.uid,
         username: admin.username,

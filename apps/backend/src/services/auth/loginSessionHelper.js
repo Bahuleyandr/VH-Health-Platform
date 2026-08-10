@@ -105,9 +105,11 @@ export async function resolveTenantIdForUid(uid) {
  * @param {string} [identity.phone] - E.164 phone, when known.
  * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
  * @param {number} [identity.tokenEpoch] - pre-resolved current epoch (skips the DB read).
+ * @param {string} [identity.realm] - identity store owning the subject (`user` or `admin`).
+ * @param {boolean} [identity.mfa] - whether the admin session completed MFA step-up.
  * @returns {Promise<string>} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
  */
-export async function generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch }) {
+export async function generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa }) {
   const epoch = tokenEpoch ?? await getCurrentTokenEpoch(uid);
   return generateToken(
     {
@@ -117,6 +119,8 @@ export async function generateRefreshToken({ uid, id, phone, role, stableDeviceI
       role,
       type: 'refresh',
       token_epoch: epoch,
+      ...(realm ? { realm } : {}),
+      ...(mfa === true ? { mfa: true } : {}),
       ...(stableDeviceId ? { stableDeviceId } : {}),
     },
     SECURITY_CONFIG.jwt.refreshExpiry,
@@ -134,10 +138,13 @@ export async function generateRefreshToken({ uid, id, phone, role, stableDeviceI
  *                                     present, so old (unupdated) clients that don't send it get tokens
  *                                     without the claim — the requireDeviceType gate then forces re-login.
  * @param {Object} [args.req] - Express request, used for ip + user-agent.
+ * @param {number} [args.tokenEpoch] - Pre-resolved current identity epoch. When omitted it is read
+ *   from the durable store immediately before signing.
  * @param {boolean} [args.pushRevoked=true] - Forward to {@link claimUserSession}. Pass `false` when
  *   minting a refreshed access token: the prior jti must still be blacklisted, but no
  *   `session:revoked` event should fire (the device is itself, just rotated).
- * @returns {Promise<{ accessToken: string, jti: string }>} The signed token and its jti.
+ * @returns {Promise<{ accessToken: string, jti: string, tokenEpoch: number }>} The signed token,
+ *   its jti, and the epoch snapshot used for signing.
  */
 export async function issueAccessTokenAndClaimSession({
   userUid,
@@ -147,6 +154,7 @@ export async function issueAccessTokenAndClaimSession({
   stableDeviceId,
   req,
   pushRevoked = true,
+  tokenEpoch,
 }) {
   if (!userUid) throw new Error('issueAccessTokenAndClaimSession: userUid is required');
   if (!tokenPayload) throw new Error('issueAccessTokenAndClaimSession: tokenPayload is required');
@@ -160,12 +168,14 @@ export async function issueAccessTokenAndClaimSession({
   const tenantId = tokenPayload.tenant_id
     ?? tokenPayload.tenantId
     ?? await resolveTenantIdForUid(userUid);
+  const epoch = tokenEpoch ?? await getCurrentTokenEpoch(userUid);
 
   const jti = crypto.randomUUID();
   const accessToken = generateToken(
     {
       ...tokenPayload,
       tenant_id: tenantId,
+      token_epoch: epoch,
       jti,
       ...(deviceType ? { deviceType } : {}),
       ...(stableDeviceId ? { stableDeviceId } : {}),
@@ -190,5 +200,5 @@ export async function issueAccessTokenAndClaimSession({
     tenantId, // M8: stamp the bearer's resolved tenant on the session row
   });
 
-  return { accessToken, jti };
+  return { accessToken, jti, tokenEpoch: epoch };
 }

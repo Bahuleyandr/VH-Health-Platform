@@ -163,7 +163,7 @@ async function authenticateAndRegister(ws, token) {
 
   // Check if all user tokens were revoked (force-logout)
   if (decoded.iat) {
-    const revoked = await isUserTokensRevoked(String(userId), decoded.iat);
+    const revoked = await isUserTokensRevoked(String(userId), decoded.iat, decoded.token_epoch);
     if (revoked) {
       ws.close(4001, 'All sessions revoked');
       return;
@@ -446,10 +446,11 @@ export function sendToUser(userId, event, data, opts = {}) {
  */
 export function pushSessionRevoked(userId, data = {}) {
   const uid = String(userId);
-  const published = fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
-  if (!published) {
-    deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
-  }
+  // Close this process's sockets synchronously. Redis publish acknowledgement
+  // is asynchronous, so its immediate boolean cannot prove remote delivery or
+  // safely decide whether local fallback is necessary.
+  deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
+  fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
 }
 
 /**

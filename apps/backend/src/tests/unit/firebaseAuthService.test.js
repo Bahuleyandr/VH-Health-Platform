@@ -9,6 +9,7 @@ const verifyIdTokenMock = jest.fn();
 const issueAccessTokenAndClaimSessionMock = jest.fn();
 const generateRefreshTokenMock = jest.fn();
 const ensureHospitalNumberMock = jest.fn();
+const revokeAllUserTokensMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
@@ -49,6 +50,10 @@ jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', (
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: issueAccessTokenAndClaimSessionMock,
   generateRefreshToken: generateRefreshTokenMock
+}));
+
+jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  revokeAllUserTokens: revokeAllUserTokensMock
 }));
 
 const { authenticateWithFirebase } = await import('../../services/auth/firebaseAuthService.js');
@@ -98,7 +103,7 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       { deviceType: 'mobile' }
     );
 
-    expect(verifyIdTokenMock).toHaveBeenCalledWith('firebase-id-token');
+    expect(verifyIdTokenMock).toHaveBeenCalledWith('firebase-id-token', true);
     expect(issueAccessTokenAndClaimSessionMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userUid: insertedUser.uid,
@@ -330,6 +335,21 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       // No VH credential of any kind may be minted for the stale session.
       expect(issueAccessTokenAndClaimSessionMock).not.toHaveBeenCalled();
       expect(generateRefreshTokenMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses a bumped identity when Firebase omits auth_time', async () => {
+      verifyIdTokenMock.mockResolvedValue({
+        uid: 'firebase-uid-123',
+        phone_number: '+91 98765 43210'
+      });
+      prismaMock.$queryRawUnsafe.mockResolvedValueOnce([
+        { ...baseUser, token_epoch: 2, token_epoch_bumped_at: new Date('2026-08-10T12:00:00.000Z') }
+      ]);
+
+      await expect(
+        authenticateWithFirebase('firebase-id-token', null, req, { deviceType: 'mobile' })
+      ).rejects.toMatchObject({ code: 'FIREBASE_REAUTH_REQUIRED' });
+      expect(issueAccessTokenAndClaimSessionMock).not.toHaveBeenCalled();
     });
 
     it('accepts an ID token whose auth_time is AFTER the bump (fresh OTP re-login)', async () => {

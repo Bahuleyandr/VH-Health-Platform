@@ -946,6 +946,51 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
     expect(res.user).toMatchObject({ uid: 'u1', id: 7, role: 'PATIENT' });
   });
 
+  it('rotates an admin-realm refresh token against admins and preserves admin claims', async () => {
+    const adminUid = '550e8400-e29b-41d4-a716-446655440001';
+    mockVerifyToken.mockReturnValue({
+      sub: adminUid,
+      jti: 'admin-refresh-jti',
+      exp: 9999999999,
+      type: 'refresh',
+      realm: 'admin',
+      role: 'ADMIN',
+      token_epoch: 0,
+      deviceType: 'web',
+    });
+    mockPrisma.admins.findUnique.mockResolvedValue({
+      uid: adminUid,
+      tenant_id: '00000000-0000-4000-8000-000000000001',
+      username: 'root',
+      email: 'root@example.com',
+      name: 'Root Admin',
+      role: 'ADMIN',
+      status: 'active',
+      is_active: true,
+    });
+
+    const res = await AuthService.refreshToken('admin-refresh', { ip: '1.1.1.1' });
+
+    expect(mockPrisma.users.findUnique).not.toHaveBeenCalled();
+    expect(mockIssueSession).toHaveBeenCalledWith(expect.objectContaining({
+      userUid: adminUid,
+      expiresIn: '4h',
+      tokenEpoch: 0,
+      tokenPayload: expect.objectContaining({
+        aud: 'vh-health-admin',
+        iss: 'vh-health-backend',
+        role: 'ADMIN',
+      }),
+    }));
+    expect(mockGenerateRefreshToken).toHaveBeenCalledWith(expect.objectContaining({
+      uid: adminUid,
+      realm: 'admin',
+      tokenEpoch: 0,
+    }));
+    expect(res.admin).toMatchObject({ uid: adminUid, username: 'root', role: 'ADMIN' });
+    expect(res.user).toBeUndefined();
+  });
+
   it('does not blacklist when the refresh token has no jti/exp', async () => {
     mockVerifyToken.mockReturnValue({ uid: 'u1', type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 7, phone: '+91', name: 'A', role: 'PATIENT' });
@@ -965,6 +1010,7 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
   it('throws when the user no longer exists', async () => {
     mockVerifyToken.mockReturnValue({ uid: 'gone', jti: 'j', exp: 9999999999, type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue(null);
+    mockPrisma.admins.findUnique.mockResolvedValue(null);
     await expect(AuthService.refreshToken('tok')).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
   });
 });

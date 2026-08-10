@@ -1188,7 +1188,7 @@ export async function completeStaffOidcCallback({ req, providerKey, code, state,
     statePayload.deviceId,
     { platform: statePayload.deviceType || deviceTypeFrom(req) },
   );
-  const { accessToken } = await issueAccessTokenAndClaimSession({
+  const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
     userUid: staff.uid,
     tokenPayload: {
       id: staff.id,
@@ -1201,7 +1201,7 @@ export async function completeStaffOidcCallback({ req, providerKey, code, state,
     stableDeviceId,
     req,
   });
-  const refreshToken = await StaffAuthService.generateRefreshToken(staff, stableDeviceId);
+  const refreshToken = await StaffAuthService.generateRefreshToken(staff, stableDeviceId, tokenEpoch);
   await createStaffSsoRefreshSession({
     tenantId: statePayload.tenantId,
     staff,

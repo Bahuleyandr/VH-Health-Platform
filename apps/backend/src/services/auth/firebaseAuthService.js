@@ -11,6 +11,7 @@ import { OTPService } from '../otpService.js';
 import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
 import { DEFAULT_TENANT_ID, resolveTenantForRequest } from '../tenant/tenantService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSessionHelper.js';
+import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 
 // Local pg-shape shim: returns the raw `rows` array directly for any
 // query that produces rows (SELECT / WITH / `… RETURNING …`), so call
@@ -50,7 +51,7 @@ async function attachHospitalNumber(user) {
 // Authenticate with Firebase ID token
 export const authenticateWithFirebase = async (idToken, deviceInfo, req, { deviceType } = {}) => {
   // Verify Firebase ID token
-  const decodedToken = await admin.auth().verifyIdToken(idToken);
+  const decodedToken = await admin.auth().verifyIdToken(idToken, true);
 
   const firebasePhone = decodedToken.phone_number;
   if (!firebasePhone) {
@@ -78,7 +79,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
             gender, email_verified, is_active, status, merged_into_uid,
             COALESCE(is_deleted, false) AS is_deleted,
             deleted_at, last_sign_in_at AS last_login,
-            token_epoch_bumped_at
+            token_epoch, token_epoch_bumped_at
        FROM users
       WHERE tenant_id = $1::uuid
         AND (phone = $2 OR firebase_uid = $3)
@@ -100,7 +101,8 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid,
                 gender, email_verified, is_active, status,
                 COALESCE(is_deleted, false) AS is_deleted,
-                deleted_at, last_sign_in_at AS last_login`,
+                deleted_at, last_sign_in_at AS last_login,
+                token_epoch, token_epoch_bumped_at`,
       [
         tenantId,
         phone,
@@ -142,17 +144,19 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     // so an ID token whose auth_time predates the identity's last epoch bump
     // (token_epoch_bumped_at, written by revokeAllUserTokens) is a PRE-logout
     // authentication and is refused — the user must redo OTP, which produces a
-    // fresh auth_time. 5s grace absorbs sub-second clock skew between Firebase
-    // and Postgres; a genuinely retained session is minutes-to-days older.
+    // fresh auth_time. Missing or same/older auth_time fails closed once an
+    // epoch bump exists; there is no post-revocation grace interval.
     const epochBumpedAtMs = user.token_epoch_bumped_at
       ? new Date(user.token_epoch_bumped_at).getTime()
       : null;
     const authTimeMs = Number(decodedToken.auth_time) * 1000;
     if (
-      epochBumpedAtMs != null
-      && Number.isFinite(epochBumpedAtMs)
-      && Number.isFinite(authTimeMs)
-      && authTimeMs + 5000 < epochBumpedAtMs
+      user.token_epoch_bumped_at
+      && (
+        !Number.isFinite(epochBumpedAtMs)
+        || !Number.isFinite(authTimeMs)
+        || authTimeMs <= epochBumpedAtMs
+      )
     ) {
       await logFirebaseAuth(phone, AUTH_ACTIONS.FIREBASE_LOGIN, false, 'stale_firebase_session_post_revocation', req);
       const error = new Error('This sign-in session was ended. Please verify your phone number again.');
@@ -176,6 +180,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     logger.info(`🔥 Existing Firebase user logged in: ${maskPhoneForLog(phone)}`);
   }
   user = await attachHospitalNumber(user);
+  const tokenEpoch = Number.isFinite(Number(user.token_epoch)) ? Number(user.token_epoch) : 0;
 
   // Generate our JWT token + register it as this user's single active session.
   // Any previously-active patient access token for this user is blacklisted
@@ -190,7 +195,8 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       firebaseUid: firebaseUid
     },
     deviceType,
-    req
+    req,
+    tokenEpoch,
   });
 
   // C-9 companion (audit 2026-06-18): mint a SEPARATE type:'refresh' token for
@@ -201,7 +207,9 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     uid: user.uid,
     id: user.id,
     phone: user.phone,
-    role: user.role
+    role: user.role,
+    tokenEpoch,
+    realm: 'user',
   });
 
   // Store device info if provided
@@ -305,7 +313,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
   }
 
   // Verify Firebase ID token
-  const decodedToken = await admin.auth().verifyIdToken(idToken);
+  const decodedToken = await admin.auth().verifyIdToken(idToken, true);
   const firebaseUid = decodedToken.uid;
   const normalizedPhone = normalizePhone(phone);
 
@@ -343,7 +351,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
   ]);
 
   // Generate new token with Firebase UID + register as the single active session.
-  const { accessToken } = await issueAccessTokenAndClaimSession({
+  const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
     userUid: user.uid,
     tokenPayload: {
       uid: user.uid,
@@ -362,7 +370,9 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     uid: user.uid,
     id: user.id,
     phone: user.phone,
-    role: user.role
+    role: user.role,
+    tokenEpoch,
+    realm: 'user',
   });
 
   logger.info(`🔗 Firebase account linked to existing user: ${maskPhoneForLog(normalizedPhone)}`);
@@ -420,14 +430,29 @@ export const updateFcmToken = async (phone, fcmToken, deviceId, req = null) => {
 };
 
 // Revoke Firebase session
-export const revokeFirebaseSession = async firebaseUid => {
+export const revokeFirebaseSession = async (firebaseUid, { localUserUid, reason = 'firebase_force_revoke' } = {}) => {
   if (!firebaseUid) {
     const error = new Error('Firebase UID is required');
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw error;
   }
 
-  // Revoke Firebase tokens
+  let userUid = localUserUid ? String(localUserUid) : null;
+  if (!userUid) {
+    const rows = await query(
+      'SELECT uid FROM users WHERE firebase_uid = $1 LIMIT 1',
+      [firebaseUid]
+    );
+    userUid = rows[0]?.uid ? String(rows[0].uid) : null;
+  }
+
+  // Revoke local access/refresh tokens and close local WebSockets through the
+  // durable chokepoint before reporting the Firebase revocation complete.
+  if (userUid) {
+    await revokeAllUserTokens(userUid, { requireEvidence: true, reason });
+  }
+
+  // Revoke Firebase refresh and ID-token sessions.
   await admin.auth().revokeRefreshTokens(firebaseUid);
 
   // Log the revocation
@@ -441,6 +466,7 @@ export const revokeFirebaseSession = async firebaseUid => {
 
   return {
     firebaseUid,
+    localSessionsRevoked: Boolean(userUid),
     revokedAt: new Date().toISOString()
   };
 };
@@ -483,7 +509,10 @@ export const revokeOwnFirebaseSession = async userUid => {
     return { revoked: false, reason: 'NO_FIREBASE_SESSION' };
   }
 
-  const result = await revokeFirebaseSession(firebaseUid);
+  const result = await revokeFirebaseSession(firebaseUid, {
+    localUserUid: String(userUid),
+    reason: 'firebase_self_revoke',
+  });
 
   return { revoked: true, ...result };
 };
@@ -645,7 +674,7 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
   const user = insertResult[0];
 
   // Generate token + register as the user's single active session.
-  const { accessToken: token } = await issueAccessTokenAndClaimSession({
+  const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
     userUid: user.uid,
     tokenPayload: {
       uid: user.uid,
@@ -663,7 +692,9 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
     uid: user.uid,
     id: user.id,
     phone: user.phone,
-    role: user.role
+    role: user.role,
+    tokenEpoch,
+    realm: 'user',
   });
 
   return {

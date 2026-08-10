@@ -76,6 +76,37 @@ describe('tokenBlacklist revoke-all fallback', () => {
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
+  it('rejects an access token minted under an older durable identity epoch', async () => {
+    cacheGetMock.mockResolvedValueOnce(null);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(isUserTokensRevoked(UUID_USER, 2000, 4)).resolves.toBe(true);
+
+    const [sql, marker, issuedAt, uid, hasTokenEpoch, tokenEpoch] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/SELECT token_epoch FROM users/);
+    expect(sql).toMatch(/SELECT token_epoch FROM admins/);
+    expect(marker).toBe(`user:${UUID_USER}`);
+    expect(issuedAt).toBe(2000);
+    expect(uid).toBe(UUID_USER);
+    expect(hasTokenEpoch).toBe(true);
+    expect(tokenEpoch).toBe(4);
+  });
+
+  it('does not let a same-second watermark revoke a token stamped with the current epoch', async () => {
+    cacheGetMock.mockResolvedValueOnce({ revokedAt: 2000.75 });
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(isUserTokensRevoked(UUID_USER, 2000, 5)).resolves.toBe(false);
+
+    const [sql, marker, issuedAt, uid, hasTokenEpoch, tokenEpoch] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/\$4::boolean = FALSE/);
+    expect(marker).toBe(`user:${UUID_USER}`);
+    expect(issuedAt).toBe(2000);
+    expect(uid).toBe(UUID_USER);
+    expect(hasTokenEpoch).toBe(true);
+    expect(tokenEpoch).toBe(5);
+  });
+
   it('R12: a Redis clean miss is never a negative answer — DB failure fails CLOSED', async () => {
     cacheGetMock.mockResolvedValueOnce(null); // clean miss (evictable under allkeys-lru)
     queryRawUnsafeMock.mockRejectedValueOnce(new Error('database unavailable'));
@@ -87,11 +118,17 @@ describe('tokenBlacklist revoke-all fallback', () => {
 
   it('refreshes the persistent revoke-all watermark on repeated revokes', async () => {
     cacheSetMock.mockResolvedValueOnce(true);
-    queryRawUnsafeMock.mockResolvedValueOnce([]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000 }]);
 
     const evidence = await revokeAllUserTokens('42');
 
     expect(queryRawUnsafeMock.mock.calls[0][0]).toMatch(/created_at\s*=\s*EXCLUDED\.created_at/);
+    expect(queryRawUnsafeMock.mock.invocationCallOrder[0]).toBeLessThan(cacheSetMock.mock.invocationCallOrder[0]);
+    expect(cacheSetMock).toHaveBeenCalledWith(
+      expect.stringContaining('user:42'),
+      { revokedAt: 2000 },
+      expect.any(Number),
+    );
     expect(evidence).toMatchObject({
       redis: { persisted: true },
       database: { persisted: true },
@@ -114,7 +151,7 @@ describe('tokenBlacklist revoke-all fallback', () => {
 
   it('R1: bumps the identity token_epoch atomically with the watermark for uuid identities', async () => {
     cacheSetMock.mockResolvedValueOnce(true);
-    queryRawUnsafeMock.mockResolvedValueOnce([{ marker_rows: 1, epoch_rows: 1 }]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000, epoch_rows: 1 }]);
 
     await revokeAllUserTokens(UUID_USER, { reason: 'logout' });
 
@@ -125,12 +162,13 @@ describe('tokenBlacklist revoke-all fallback', () => {
     expect(sql).toMatch(/UPDATE admins/);
     expect(sql).toMatch(/INSERT INTO invalidated_tokens/);
     expect(params[0]).toBe(`user:${UUID_USER}`);
-    expect(params[3]).toBe(UUID_USER);
+    expect(params[1]).toBe('logout');
+    expect(params[2]).toBe(UUID_USER);
   });
 
   it('R14: pushes session:revoked to the identity WebSockets after a durable revoke-all', async () => {
     cacheSetMock.mockResolvedValueOnce(true);
-    queryRawUnsafeMock.mockResolvedValueOnce([{ marker_rows: 1, epoch_rows: 1 }]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000, epoch_rows: 1 }]);
 
     await revokeAllUserTokens(UUID_USER, { reason: 'scim_deprovision' });
 
@@ -142,7 +180,7 @@ describe('tokenBlacklist revoke-all fallback', () => {
 
   it('legacy non-uuid identities keep watermark-only semantics (no ::uuid cast in SQL)', async () => {
     cacheSetMock.mockResolvedValueOnce(true);
-    queryRawUnsafeMock.mockResolvedValueOnce([]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000 }]);
 
     await revokeAllUserTokens('42');
 

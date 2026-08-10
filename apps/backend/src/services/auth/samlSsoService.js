@@ -1133,7 +1133,7 @@ async function completeAdminSamlAcs({ validation, req }) {
   });
 
   const tenantIdForToken = tenant.isPlatform ? undefined : tenantId;
-  const { accessToken: token } = await issueAccessTokenAndClaimSession({
+  const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
     userUid: admin.uid,
     tokenPayload: {
       uid: admin.uid,
@@ -1148,7 +1148,12 @@ async function completeAdminSamlAcs({ validation, req }) {
     deviceType: validation.relayState?.deviceType || 'web',
     req,
   });
-  const refreshToken = await generateRefreshToken({ uid: admin.uid, role: mappedRole });
+  const refreshToken = await generateRefreshToken({
+    uid: admin.uid,
+    role: mappedRole,
+    tokenEpoch,
+    realm: 'admin',
+  });
   return {
     token,
     refreshToken,
@@ -1272,7 +1277,7 @@ async function completeStaffSamlAcs({ validation, req }) {
     validation.relayState?.deviceId,
     { platform: validation.relayState?.deviceType || deviceTypeFrom(req, 'mobile') },
   );
-  const { accessToken } = await issueAccessTokenAndClaimSession({
+  const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
     userUid: staff.uid,
     tokenPayload: {
       id: staff.id,
@@ -1285,7 +1290,7 @@ async function completeStaffSamlAcs({ validation, req }) {
     stableDeviceId,
     req,
   });
-  const refreshToken = await StaffAuthService.generateRefreshToken(staff, stableDeviceId);
+  const refreshToken = await StaffAuthService.generateRefreshToken(staff, stableDeviceId, tokenEpoch);
   await createStaffSsoRefreshSession({
     tenantId,
     staff,
