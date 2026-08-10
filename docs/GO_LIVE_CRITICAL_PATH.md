@@ -8,7 +8,7 @@
 
 - **Single-tenant.** The backend runs with `ALLOW_DEFAULT_TENANT=true`; multi-tenant isolation is NOT yet active (it's code-complete — Phase F below).
 - **Care-team access = shadow.** The ABAC guards are shipped but default to `shadow` mode (log-only). The `CAN-011` shadow→enforce flip is **telemetry-gated** — the sole remaining *security* go-live item, and an operator/observability decision, not code. See [`CARETEAM_ABAC_DESIGN.md`](CARETEAM_ABAC_DESIGN.md).
-- **Deploy = GitOps.** A plain `main` push does NOT deploy. Go-live = build/tag container images → bump the digest pins in `infra/kubernetes/overlays/prod/kustomization.yaml` → ArgoCD syncs. See [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md).
+- **Deploy = GitOps.** A plain `main` push does NOT deploy. Go-live = build/tag container images → bump the digest pins in `infra/kubernetes/apps/kustomization.yaml` (via `scripts/update-prod-digests.mjs`) → an operator manually syncs the `vhhealth-apps` ArgoCD Application (no auto-sync). See [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md).
 
 ## The sequence
 
