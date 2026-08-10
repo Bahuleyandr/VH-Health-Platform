@@ -14,6 +14,12 @@ import logger from '../logging/logger.js';
 
 const BLACKLIST_PREFIX = 'blacklist:';
 
+// The epoch columns live on the identity tables and are keyed by uuid uid.
+// Legacy revoke keys can be non-uuid (int id / phone fallbacks in old tokens);
+// those identities keep watermark-only semantics — the epoch machinery is
+// simply skipped for them rather than failing the whole revocation.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Thrown when NO revocation store could answer (Redis unavailable AND DB
  * errored). Audit finding M2 (2026-06-10): these checks previously returned
@@ -99,10 +105,15 @@ export async function blacklistToken(jti, expiresAt, reason = 'logout', { requir
     logger.warn('Token blacklist DB write failed:', err.message);
   }
 
-  if (!redisPersisted && !databasePersisted) {
+  // R12: Postgres is the AUTHORITATIVE revocation store — the committed Redis
+  // manifest runs allkeys-lru, so a Redis-only blacklist entry can be evicted
+  // and the "successful" logout silently un-revoked. When the caller requires
+  // evidence, only a durable (DB) write counts as success; Redis remains a
+  // best-effort fast-path cache on top of it.
+  if (!databasePersisted) {
     throw new RevocationWriteUnavailableError(
-      'No token revocation store accepted the blacklist entry',
-      { redis: redisError, database: databaseError },
+      'Durable revocation store (database) did not accept the blacklist entry',
+      { redis: redisError, database: databaseError, redisPersisted },
     );
   }
 
@@ -159,107 +170,262 @@ export async function isTokenBlacklisted(jti) {
 }
 
 /**
- * Blacklist ALL tokens for a user by storing a "revoke-all" timestamp.
- * Any token issued before this timestamp is considered invalid.
+ * Blacklist ALL tokens for a user by storing a "revoke-all" timestamp, and bump
+ * the identity's token-generation epoch (R1 issuance-time gate).
+ *
+ * The single DB statement atomically:
+ *   1. upserts the durable `user:<uid>` revoke-all watermark row (consulted by
+ *      isUserTokensRevoked at verify time), and
+ *   2. increments users/admins.token_epoch + stamps token_epoch_bumped_at, so
+ *      refresh tokens minted under the previous epoch (and Firebase sessions
+ *      whose auth_time predates the bump) are refused at ISSUANCE time.
+ *
+ * R12: the DB write is REQUIRED — a revoke-all with no durable evidence throws
+ * (the committed Redis manifest is allkeys-lru, so a Redis-only marker can
+ * evaporate). Redis stays as the fast-path positive cache. The `requireEvidence`
+ * option is retained for signature compatibility but is now always effectively
+ * true for the durable side.
+ *
+ * R14: on success, a `session:revoked` event is pushed (best-effort) to every
+ * open WebSocket of the user across all processes; wsServer closes those
+ * sockets server-side after delivery.
+ *
  * @param {string} userId - User ID whose tokens to revoke
+ * @param {{requireEvidence?: boolean, reason?: string}} [opts]
  */
-export async function revokeAllUserTokens(userId, { requireEvidence = false } = {}) {
+export async function revokeAllUserTokens(userId, { requireEvidence = false, reason = 'revoke_all' } = {}) {
   if (!userId) return null;
-  const now = Math.floor(Date.now() / 1000);
   const ttl = 30 * 24 * 60 * 60; // 30 days (max token lifetime)
-  let redisError = null;
-  let redisPersisted = false;
-  try {
-    redisPersisted = await cacheSet(
-      `${BLACKLIST_PREFIX}user:${userId}`,
-      { revokedAt: now },
-      ttl,
-    ) === true;
-  } catch (err) {
-    redisError = err;
-    logger.warn('Revoke-all Redis write failed:', err.message);
-  }
   let databaseError = null;
   let databasePersisted = false;
+  let revokedAt = null;
+  const isUuidIdentity = UUID_RE.test(String(userId));
   try {
-    await prisma.$queryRawUnsafe(`
-      INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
-      VALUES ($1, NOW() + INTERVAL '30 days', $2, to_timestamp($3))
-      ON CONFLICT (jti) DO UPDATE SET
-        expires_at = EXCLUDED.expires_at,
-        reason = EXCLUDED.reason,
-        created_at = EXCLUDED.created_at
-    `, `user:${userId}`, 'revoke_all_user_tokens', now);
+    if (isUuidIdentity) {
+      // Watermark + epoch bump in ONE statement (data-modifying CTEs are
+      // atomic): the durable revocation evidence and the issuance-time gate
+      // can never diverge. The uid lives in exactly one of users/admins, so
+      // the two bump CTEs together touch at most one row.
+      const rows = await prisma.$queryRawUnsafe(`
+        WITH marker AS (
+          INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+          VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
+          ON CONFLICT (jti) DO UPDATE SET
+            expires_at = EXCLUDED.expires_at,
+            reason = EXCLUDED.reason,
+            created_at = EXCLUDED.created_at
+          RETURNING created_at
+        ), bump_users AS (
+          UPDATE users
+             SET token_epoch = token_epoch + 1,
+                 token_epoch_bumped_at = NOW()
+           WHERE uid = $3::uuid
+          RETURNING uid
+        ), bump_admins AS (
+          UPDATE admins
+             SET token_epoch = token_epoch + 1,
+                 token_epoch_bumped_at = NOW()
+           WHERE uid = $3::uuid
+          RETURNING uid
+        )
+        SELECT (SELECT EXTRACT(EPOCH FROM created_at)::double precision FROM marker) AS revoked_at,
+               (SELECT COUNT(*) FROM bump_users)::int + (SELECT COUNT(*) FROM bump_admins)::int AS epoch_rows
+      `, `user:${userId}`, reason, String(userId));
+      revokedAt = Number(rows[0]?.revoked_at);
+    } else {
+      const rows = await prisma.$queryRawUnsafe(`
+        INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+        VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
+        ON CONFLICT (jti) DO UPDATE SET
+          expires_at = EXCLUDED.expires_at,
+          reason = EXCLUDED.reason,
+          created_at = EXCLUDED.created_at
+        RETURNING EXTRACT(EPOCH FROM created_at)::double precision AS revoked_at
+      `, `user:${userId}`, reason);
+      revokedAt = Number(rows[0]?.revoked_at);
+    }
+    if (!Number.isFinite(revokedAt)) {
+      throw new Error('Durable revoke-all marker did not return a timestamp');
+    }
     databasePersisted = true;
   } catch (err) {
     databaseError = err;
     logger.warn('Revoke-all DB write failed:', err.message);
   }
-  if (requireEvidence && !redisPersisted && !databasePersisted) {
+  // R12: the durable (DB) write is authoritative and REQUIRED. A Redis-only
+  // marker is not acceptable evidence — allkeys-lru can evict it, silently
+  // resurrecting every "revoked" token.
+  if (!databasePersisted) {
     throw new RevocationWriteUnavailableError(
-      'No token revocation store accepted the revoke-all marker',
-      { redis: redisError, database: databaseError },
+      'Durable revocation store (database) did not accept the revoke-all marker',
+      { database: databaseError, requireEvidence },
     );
   }
+
+  // Cache only the timestamp committed by Postgres. Writing Redis first with a
+  // process-clock timestamp can temporarily accept a concurrently minted token
+  // whose iat lands after that stale watermark but before the durable bump.
+  let redisPersisted = false;
+  try {
+    redisPersisted = await cacheSet(
+      `${BLACKLIST_PREFIX}user:${userId}`,
+      { revokedAt },
+      ttl,
+    ) === true;
+  } catch (err) {
+    logger.warn('Revoke-all Redis write failed:', err.message);
+  }
+
+  // R14: close the revoked identity's live WebSockets. Best-effort — the
+  // revocation itself is already durable; a WS hiccup must not undo it.
+  // Dynamic import avoids a static tokenBlacklist ↔ wsServer cycle.
+  try {
+    const { pushSessionRevoked } = await import('./websocket/wsServer.js');
+    pushSessionRevoked(String(userId), {
+      reason,
+      at: new Date(revokedAt * 1000).toISOString(),
+    });
+  } catch (err) {
+    logger.warn('Revoke-all session:revoked push failed:', err.message);
+  }
+
   return Object.freeze({
-    revoked_at: new Date(now * 1000).toISOString(),
+    revoked_at: new Date(revokedAt * 1000).toISOString(),
     redis: Object.freeze({ persisted: redisPersisted }),
     database: Object.freeze({ persisted: databasePersisted }),
   });
 }
 
 /**
+ * Current token-generation epoch for an identity (users OR admins realm).
+ *
+ * Read DIRECTLY from the durable store — deliberately uncached, because a
+ * stale (lower) epoch would let a revoked refresh token pass the issuance
+ * gate. Called only on token-mint paths (login / refresh), never per-request.
+ *
+ * @param {string} userId - users.uid / admins.uid
+ * @returns {Promise<number>} current epoch (0 = never revoked / legacy id)
+ * @throws {RevocationCheckUnavailableError} when the durable store cannot
+ *   answer — issuance must FAIL CLOSED rather than mint under a guessed epoch.
+ */
+export async function getCurrentTokenEpoch(userId) {
+  if (!userId || !UUID_RE.test(String(userId))) return 0;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(MAX(identity.token_epoch), 0)::int AS token_epoch
+         FROM (
+           SELECT token_epoch FROM users WHERE uid = $1::uuid
+           UNION ALL
+           SELECT token_epoch FROM admins WHERE uid = $1::uuid
+         ) AS identity`,
+      String(userId),
+    );
+    if (rows.length === 0) return 0;
+    const epoch = Number(rows[0].token_epoch);
+    return Number.isFinite(epoch) ? epoch : 0;
+  } catch (err) {
+    logger.error('Token epoch lookup failed — failing CLOSED', {
+      error: err?.message,
+      code: err?.code,
+    });
+    throw new RevocationCheckUnavailableError(
+      'Token epoch store unreachable (database failed)',
+      err,
+    );
+  }
+}
+
+/**
  * Check if all tokens for a user were revoked at or after the token was issued.
  * @param {string} userId
  * @param {number} tokenIssuedAt - Token iat claim (Unix timestamp)
+ * @param {number} [tokenEpoch] - Epoch stamped on the token; absent on legacy tokens.
  * @returns {Promise<boolean>} - true if token should be rejected
  */
-export async function isUserTokensRevoked(userId, tokenIssuedAt) {
+export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
   if (!userId) return false;
 
-  let redisAnswered = false;
+  const isUuidIdentity = UUID_RE.test(String(userId));
+  const hasTokenEpoch = tokenEpoch !== undefined
+    && tokenEpoch !== null
+    && Number.isFinite(Number(tokenEpoch));
+
+  // Redis is a POSITIVE cache only (same contract as isTokenBlacklisted): a
+  // hit proves revocation, but a clean miss is NOT proof of absence — the
+  // committed Redis manifest runs allkeys-lru, so the marker can be evicted
+  // while the durable invalidated_tokens row still stands (R12). Epoch-stamped
+  // UUID tokens deliberately skip this timestamp shortcut: a fresh token can
+  // share its integer-second iat with the revoke marker, while its matching
+  // durable epoch proves it was minted after that revocation.
   try {
     const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
-    redisAnswered = isRedisConnected();
-    if (result && result.revokedAt && result.revokedAt >= tokenIssuedAt) {
+    if ((!isUuidIdentity || !hasTokenEpoch)
+      && result
+      && result.revokedAt
+      && result.revokedAt >= tokenIssuedAt) {
       return true;
     }
   } catch {
-    redisAnswered = false; // fall through to DB
+    // Redis failed — the durable store below is authoritative anyway.
   }
 
   try {
     const issuedAt = Number.isFinite(Number(tokenIssuedAt)) ? Number(tokenIssuedAt) : 0;
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT 1
-         FROM invalidated_tokens
-        WHERE jti = $1
-          AND expires_at > NOW()
-          AND created_at >= to_timestamp($2)
-        LIMIT 1`,
-      `user:${userId}`,
-      issuedAt,
-    );
+    const mintedEpoch = hasTokenEpoch ? Number(tokenEpoch) : 0;
+    const result = isUuidIdentity
+      ? await prisma.$queryRawUnsafe(
+          `SELECT 1
+             WHERE (
+               $4::boolean = FALSE
+               AND EXISTS (
+               SELECT 1
+                 FROM invalidated_tokens
+                WHERE jti = $1
+                  AND expires_at > NOW()
+                  AND created_at >= to_timestamp($2)
+               )
+             )
+                OR COALESCE((
+                  SELECT MAX(identity.token_epoch)
+                    FROM (
+                      SELECT token_epoch FROM users WHERE uid = $3::uuid
+                      UNION ALL
+                      SELECT token_epoch FROM admins WHERE uid = $3::uuid
+                    ) AS identity
+                ), 0) > $5
+             LIMIT 1`,
+          `user:${userId}`,
+          issuedAt,
+          String(userId),
+          hasTokenEpoch,
+          mintedEpoch,
+        )
+      : await prisma.$queryRawUnsafe(
+          `SELECT 1
+             FROM invalidated_tokens
+            WHERE jti = $1
+              AND expires_at > NOW()
+              AND created_at >= to_timestamp($2)
+            LIMIT 1`,
+          `user:${userId}`,
+          issuedAt,
+        );
     if (result.length > 0) {
       return true;
     }
   } catch (err) {
-    // A clean Redis miss is authoritative (revoke-all always writes Redis
-    // with a 30-day TTL ≥ max token lifetime); a DB error alone is then
-    // tolerable. But if NEITHER store answered, fail CLOSED (audit M2).
-    if (!redisAnswered) {
-      logger.error('Revoke-all check failed (both Redis and DB) — failing CLOSED', {
-        error: err?.message,
-        code: err?.code,
-      });
-      throw new RevocationCheckUnavailableError(
-        'User token-revocation store unreachable (Redis and DB both failed)',
-        err,
-      );
-    }
-    logger.warn('Revoke-all DB check failed; trusting clean Redis answer', {
+    // FAIL CLOSED (audit M2 + R12): the durable store is the authority; a
+    // Redis clean miss is never acceptable as a negative answer (allkeys-lru
+    // eviction), so a DB failure means we cannot prove the token wasn't
+    // revoked. Callers turn this into a 503.
+    logger.error('Revoke-all durable check failed — failing CLOSED', {
       error: err?.message,
+      code: err?.code,
     });
+    throw new RevocationCheckUnavailableError(
+      'User token-revocation durable store unreachable',
+      err,
+    );
   }
 
   return false;

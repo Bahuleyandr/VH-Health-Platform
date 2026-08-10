@@ -10,6 +10,7 @@ import React, {
   useCallback,
 } from "react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 import {
   adminLogin,
   staffLogin,
@@ -256,10 +257,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       setError(null);
-      await adminLogout(); // clears local storage inside
+      // Clears local storage + cookie inside, and reports whether the BACKEND
+      // acknowledged the server-side sign-out. A backend failure means the
+      // server-side session token may still be alive (the backend fails logout
+      // closed when its revocation store is down) — say so honestly instead of
+      // pretending the sign-out completed.
+      const result = await adminLogout();
+      if (!result.serverSignOutOk) {
+        toast.error(
+          "Signed out on this device, but the server-side sign-out failed. " +
+            "Your session may still be active on the server — please retry " +
+            "signing in and out, or contact an administrator.",
+          { duration: 10000 },
+        );
+      }
     } catch (e) {
+      // Unexpected client-side failure (adminLogout itself no longer throws
+      // for backend errors). Still ensure local state is gone, and be honest
+      // that the server side was not confirmed.
       console.warn("Logout error:", e);
       clearAuthData();
+      toast.error(
+        "Signed out on this device, but the server-side sign-out could not be confirmed.",
+        { duration: 10000 },
+      );
     } finally {
       // The httpOnly auth_token cookie is cleared server-side by the backend logout endpoint.
       // No client-side document.cookie manipulation needed or safe here.

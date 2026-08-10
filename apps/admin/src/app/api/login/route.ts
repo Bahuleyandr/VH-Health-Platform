@@ -106,15 +106,16 @@ async function proxyLogin(
       data?.data?.accessToken ??
       data?.token ??
       data?.accessToken;
+    const refreshToken = data?.data?.refreshToken ?? data?.refreshToken;
 
-    if (!token) {
+    if (!token || !refreshToken) {
       return NextResponse.json(
-        { message: "No token in server response", success: false },
+        { message: "Incomplete session credentials in server response", success: false },
         { status: 502 },
       );
     }
 
-    return setTokenCookie(token, data);
+    return setTokenCookies(token, refreshToken, data);
   } catch {
     return NextResponse.json(
       { message: "Login service unavailable", success: false },
@@ -148,8 +149,9 @@ function stripTokens(responseBody: unknown): unknown {
   return top;
 }
 
-function setTokenCookie(
+function setTokenCookies(
   token: string,
+  refreshToken: string,
   responseBody: unknown,
 ): NextResponse {
   // The token is the credential and it now lives only in the httpOnly cookie
@@ -163,6 +165,13 @@ function setTokenCookie(
     sameSite: "strict",
     path: "/",
     maxAge: 60 * 60 * 4, // 4 hours — matches backend admin JWT expiry
+  });
+  response.cookies.set("refresh_token", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/api/refresh",
+    maxAge: 60 * 60 * 24 * 30,
   });
 
   return response;

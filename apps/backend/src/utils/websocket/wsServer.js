@@ -163,7 +163,7 @@ async function authenticateAndRegister(ws, token) {
 
   // Check if all user tokens were revoked (force-logout)
   if (decoded.iat) {
-    const revoked = await isUserTokensRevoked(String(userId), decoded.iat);
+    const revoked = await isUserTokensRevoked(String(userId), decoded.iat, decoded.token_epoch);
     if (revoked) {
       ws.close(4001, 'All sessions revoked');
       return;
@@ -424,6 +424,33 @@ export function sendToUser(userId, event, data, opts = {}) {
     recordWsBroadcastDropped('fanout_local_fallback');
     deliverUserLocal(String(userId), event, data, tenantId);
   }
+}
+
+/**
+ * Push `session:revoked` to every open socket of a user, across EVERY process,
+ * and close those sockets server-side (deliverUserLocal's revocation branch).
+ *
+ * Called by the revocation chokepoint (tokenBlacklist.revokeAllUserTokens) so
+ * logout, force-revoke-all, and SCIM deprovisioning all tear down live sockets
+ * — previously only the env-gated single-session replacement path emitted this
+ * event, so a "revoked" session's socket kept delivering realtime data (R14).
+ *
+ * Deliberately UNSCOPED by tenant (explicit null, bypassing the ambient
+ * request tenant context): a revocation must reach every socket the identity
+ * holds regardless of the caller's tenant stamp — mirroring the deliberately
+ * unscoped SCIM session-kill queries. uid is globally unique, so this cannot
+ * leak across identities.
+ *
+ * @param {string} userId
+ * @param {object} [data] - payload delivered with the event (e.g. { reason }).
+ */
+export function pushSessionRevoked(userId, data = {}) {
+  const uid = String(userId);
+  // Close this process's sockets synchronously. Redis publish acknowledgement
+  // is asynchronous, so its immediate boolean cannot prove remote delivery or
+  // safely decide whether local fallback is necessary.
+  deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
+  fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
 }
 
 /**

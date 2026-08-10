@@ -319,16 +319,40 @@ export async function getAdminProfile(): Promise<AdminUser> {
   return admin;
 }
 
-export async function adminLogout(): Promise<void> {
+/**
+ * Result of a logout attempt. Local state (profile cache + httpOnly cookie)
+ * is ALWAYS cleared, but the backend revocation call can genuinely fail —
+ * e.g. a 500 when the durable revocation store is down — in which case the
+ * server-side session token may still be alive. Callers must surface that
+ * honestly instead of telling the admin they are fully signed out.
+ */
+export interface AdminLogoutResult {
+  /** True when the backend acknowledged the server-side sign-out (2xx). */
+  serverSignOutOk: boolean;
+  /** Human-readable failure detail when serverSignOutOk is false. */
+  serverSignOutError?: string;
+}
+
+export async function adminLogout(): Promise<AdminLogoutResult> {
+  let serverSignOutOk = true;
+  let serverSignOutError: string | undefined;
   try {
     await postJSON(API_ENDPOINTS.auth.admin.logout);
   } catch (err) {
-    console.warn("Logout API error:", err);
+    // Do NOT swallow this into an unconditional "signed out" — the backend
+    // fails logout closed when its durable revocation store is unavailable,
+    // meaning the server-side session may still be usable. We still clear
+    // local state below (this browser forgets the session either way), but
+    // the caller must tell the admin the server-side sign-out failed.
+    serverSignOutOk = false;
+    serverSignOutError = err instanceof Error ? err.message : String(err);
+    console.warn("Backend logout failed — server-side session may still be active:", err);
   } finally {
     // Clear httpOnly cookie via logout route
     await fetch("/api/logout", { method: "POST" }).catch(() => {});
     clearAuthData();
   }
+  return { serverSignOutOk, serverSignOutError };
 }
 
 /**

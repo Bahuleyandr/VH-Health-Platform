@@ -33,8 +33,8 @@ function decode(token) {
 }
 
 describe('loginSessionHelper.generateRefreshToken', () => {
-  it('mints a token carrying type:refresh with the full identity claims', () => {
-    const token = generateRefreshToken({
+  it('mints a token carrying type:refresh with the full identity claims', async () => {
+    const token = await generateRefreshToken({
       uid: 'user-uuid-1',
       id: 42,
       phone: '+919876543210',
@@ -50,21 +50,31 @@ describe('loginSessionHelper.generateRefreshToken', () => {
     expect(payload.role).toBe('PATIENT');
     // Every minted token is revocable.
     expect(typeof payload.jti).toBe('string');
+    // R1: the mint-time token generation is stamped so the refresh endpoints
+    // can refuse tokens minted under an older epoch at issuance time.
+    expect(payload.token_epoch).toBe(0);
   });
 
-  it('uses the long refresh expiry (30 days), not the short access TTL', () => {
-    const token = generateRefreshToken({ uid: 'u', id: 1, phone: '+91', role: 'PATIENT' });
+  it('uses the long refresh expiry (30 days), not the short access TTL', async () => {
+    const token = await generateRefreshToken({ uid: 'u', id: 1, phone: '+91', role: 'PATIENT' });
     const { iat, exp } = decode(token);
     expect(exp - iat).toBe(30 * 24 * 60 * 60);
   });
 
-  it('omits id and phone when they are not supplied (admin-shape payload)', () => {
-    const token = generateRefreshToken({ uid: 'admin-uuid', role: 'ADMIN' });
+  it('omits id and phone when they are not supplied (admin-shape payload)', async () => {
+    const token = await generateRefreshToken({
+      uid: 'admin-uuid',
+      role: 'ADMIN',
+      realm: 'admin',
+      mfa: true,
+    });
     const payload = decode(token);
 
     expect(payload.type).toBe('refresh');
     expect(payload.sub).toBe('admin-uuid');
     expect(payload.role).toBe('ADMIN');
+    expect(payload.realm).toBe('admin');
+    expect(payload.mfa).toBe(true);
     expect(payload.id).toBeUndefined();
     expect(payload.phone).toBeUndefined();
   });

@@ -52,6 +52,7 @@ describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => 
     const { accessToken } = await issueAccessTokenAndClaimSession({
       userUid: 'a1111111-1111-4111-8111-111111111111',
       tokenPayload: { uid: 'a1111111-1111-4111-8111-111111111111', role: 'DOCTOR' },
+      tokenEpoch: 0,
     });
     const payload = decodePayload(accessToken);
     expect(payload.tenant_id).toBe(SEEDED_TENANT);
@@ -63,6 +64,7 @@ describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => 
     const { accessToken } = await issueAccessTokenAndClaimSession({
       userUid: 'a2222222-2222-4222-8222-222222222222',
       tokenPayload: { uid: 'a2222222-2222-4222-8222-222222222222', role: 'NURSING_STAFF' },
+      tokenEpoch: 0,
     });
     const payload = decodePayload(accessToken);
     expect(payload.tenant_id).toBe(DEFAULT_TENANT);
@@ -73,6 +75,7 @@ describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => 
     const { accessToken } = await issueAccessTokenAndClaimSession({
       userUid: 'a3333333-3333-4333-8333-333333333333',
       tokenPayload: { uid: 'a3333333-3333-4333-8333-333333333333', role: 'PATIENT' },
+      tokenEpoch: 0,
     });
     expect(decodePayload(accessToken).tenant_id).toBe(DEFAULT_TENANT);
   });
@@ -89,6 +92,7 @@ describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => 
         role: 'ADMIN',
         tenant_id: '22222222-2222-4222-8222-222222222222',
       },
+      tokenEpoch: 0,
     });
     expect(decodePayload(accessToken).tenant_id).toBe('22222222-2222-4222-8222-222222222222');
     // Lookup should NOT have happened because the payload already had it.
@@ -101,11 +105,25 @@ describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => 
     await issueAccessTokenAndClaimSession({
       userUid: uid,
       tokenPayload: { uid, role: 'DOCTOR' },
+      tokenEpoch: 0,
     });
     await issueAccessTokenAndClaimSession({
       userUid: uid,
       tokenPayload: { uid, role: 'DOCTOR' },
+      tokenEpoch: 0,
     });
     expect(mockQueryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('stamps the supplied epoch snapshot on the access token and returns it to the paired minter', async () => {
+    const uid = 'a6666666-6666-4666-8666-666666666666';
+    const result = await issueAccessTokenAndClaimSession({
+      userUid: uid,
+      tokenPayload: { uid, role: 'PATIENT', tenant_id: SEEDED_TENANT },
+      tokenEpoch: 7,
+    });
+
+    expect(decodePayload(result.accessToken).token_epoch).toBe(7);
+    expect(result.tokenEpoch).toBe(7);
   });
 });

@@ -412,6 +412,8 @@ model admins {
   is_break_glass_account Boolean   @default(false)
   break_glass_name       String?   @db.VarChar(160)
   break_glass_reason     String?
+  token_epoch            Int       @default(0)
+  token_epoch_bumped_at  DateTime? @db.Timestamptz(6)
   tenants                tenants?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admins_tenant")
 
   @@unique([tenant_id, username], map: "uniq_admins_tenant_username", where: raw("(tenant_id IS NOT NULL)"))
@@ -11432,6 +11434,8 @@ model users {
   merged_into_uid                                                                                                                  String?                                                @db.Uuid
   merged_at                                                                                                                        DateTime?                                              @db.Timestamptz(6)
   news2_spo2_scale                                                                                                                 Int                                                    @default(1) @db.SmallInt
+  token_epoch                                                                                                                      Int                                                    @default(0)
+  token_epoch_bumped_at                                                                                                            DateTime?                                              @db.Timestamptz(6)
   abdm_consents                                                                                                                    abdm_consents[]
   abdm_data_requests                                                                                                               abdm_data_requests[]                                   @relation("abdm_data_requests_patient")
   abdm_data_requests_recovery_owner                                                                                                abdm_data_requests[]                                   @relation("abdm_data_requests_recovery_owner")

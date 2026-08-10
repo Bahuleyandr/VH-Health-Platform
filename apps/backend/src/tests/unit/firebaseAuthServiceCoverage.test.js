@@ -86,6 +86,11 @@ jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   generateRefreshToken: generateRefreshTokenMock,
 }));
 
+const revokeAllUserTokensMock = jest.fn();
+jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  revokeAllUserTokens: revokeAllUserTokensMock,
+}));
+
 const verifyOTPMock = jest.fn();
 jest.unstable_mockModule('../../services/otpService.js', () => ({
   OTPService: {
@@ -128,6 +133,7 @@ beforeEach(() => {
   issueAccessTokenAndClaimSessionMock.mockResolvedValue({ accessToken: 'vh-jwt' });
   generateRefreshTokenMock.mockReturnValue('vh-refresh');
   ensureHospitalNumberMock.mockResolvedValue('VH-000777');
+  revokeAllUserTokensMock.mockResolvedValue({ database: { persisted: true } });
   prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
 });
 
@@ -627,9 +633,14 @@ describe('revokeFirebaseSession', () => {
 
   it('revokes Firebase tokens, records the revocation, and returns metadata', async () => {
     revokeRefreshTokensMock.mockResolvedValue(undefined);
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ uid: 'user-revoke-1' }]);
 
     const result = await revokeFirebaseSession('fb-revoke-1');
 
+    expect(revokeAllUserTokensMock).toHaveBeenCalledWith('user-revoke-1', {
+      requireEvidence: true,
+      reason: 'firebase_force_revoke',
+    });
     expect(revokeRefreshTokensMock).toHaveBeenCalledWith('fb-revoke-1');
     const upd = prismaMock.$executeRawUnsafe.mock.calls.find((c) =>
       /UPDATE users SET firebase_tokens_revoked_at = NOW\(\)/i.test(c[0]),
@@ -637,6 +648,7 @@ describe('revokeFirebaseSession', () => {
     expect(upd).toBeTruthy();
     expect(upd[1]).toBe('fb-revoke-1');
     expect(result.firebaseUid).toBe('fb-revoke-1');
+    expect(result.localSessionsRevoked).toBe(true);
     expect(typeof result.revokedAt).toBe('string');
   });
 });
@@ -661,6 +673,10 @@ describe('revokeOwnFirebaseSession', () => {
     expect(lookup[1]).toBe('550e8400-e29b-41d4-a716-446655440001');
 
     expect(revokeRefreshTokensMock).toHaveBeenCalledWith('fb-owned-by-caller');
+    expect(revokeAllUserTokensMock).toHaveBeenCalledWith(
+      '550e8400-e29b-41d4-a716-446655440001',
+      { requireEvidence: true, reason: 'firebase_self_revoke' },
+    );
     expect(result.revoked).toBe(true);
     expect(result.firebaseUid).toBe('fb-owned-by-caller');
   });

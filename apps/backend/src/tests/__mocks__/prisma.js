@@ -14,5 +14,11 @@ const mockPrisma = {
   password_reset_otps: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   user_sessions: { count: jest.fn() },
   $transaction: jest.fn(),
+  // Raw escape hatches used by shared auth plumbing (token-epoch reads,
+  // totp_challenges insert, active-session upserts). Default to "no rows" /
+  // "1 row affected" so service flows that merely pass through them keep
+  // working; tests that care about a specific raw call re-mock these.
+  $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+  $executeRawUnsafe: jest.fn().mockResolvedValue(1),
 };
 export default mockPrisma;

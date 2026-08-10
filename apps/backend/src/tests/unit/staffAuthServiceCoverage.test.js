@@ -53,6 +53,7 @@ const mockIsTokenBlacklisted = jest.fn();
 const mockBlacklistToken = jest.fn();
 const mockRevokeAllUserTokens = jest.fn();
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   isTokenBlacklisted: mockIsTokenBlacklisted,
   // staffAuthService.logoutStaff revokes the presented access token's jti, and
   // the all-device branch additionally revokes every token for the identity.
@@ -881,6 +882,7 @@ describe('logoutStaff', () => {
     expect(out).toMatchObject({ allDevices: true, accessTokenRevoked: true });
     expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
       requireEvidence: true,
+      reason: 'logout',
     });
   });
 
@@ -942,7 +944,12 @@ describe('listStaffDevices', () => {
 // =====================================================================
 describe('admin methods', () => {
   it('adminForceLogout deletes sessions and logs activity', async () => {
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
     const out = await StaffAuthService.adminForceLogout(42, 'compromised', 'admin-uid', REQ);
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      requireEvidence: true,
+      reason: 'admin_force_logout',
+    });
     expect(out).toEqual({ success: true, message: 'Staff member logged out from all devices' });
   });
 
@@ -953,6 +960,7 @@ describe('admin methods', () => {
   });
 
   it('adminForceLogout surfaces DB errors (catch path)', async () => {
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
     mockPrisma.$executeRawUnsafe.mockRejectedValueOnce(new Error('db down'));
     await expect(StaffAuthService.adminForceLogout(42, 'r', 'admin-uid', REQ)).rejects.toThrow('db down');
   });
@@ -976,10 +984,10 @@ describe('token generators', () => {
     );
   });
 
-  it('generateRefreshToken stamps type:refresh + 30d', () => {
-    StaffAuthService.generateRefreshToken({ id: 42, uid: 'u', role: 'DOCTOR' });
+  it('generateRefreshToken stamps type:refresh + 30d + the mint-time token_epoch (R1)', async () => {
+    await StaffAuthService.generateRefreshToken({ id: 42, uid: 'u', role: 'DOCTOR' });
     expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'refresh' }), '30d'
+      expect.objectContaining({ type: 'refresh', token_epoch: 0 }), '30d'
     );
   });
 
@@ -1016,9 +1024,14 @@ describe('createSession', () => {
 // revokeAllSessions
 // =====================================================================
 describe('revokeAllSessions', () => {
-  it('deletes all sessions and returns the revoked count', async () => {
+  it('durably revokes the identity before deleting all staff sessions', async () => {
+    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
     mockPrisma.$executeRawUnsafe.mockResolvedValueOnce(3);
     const out = await StaffAuthService.revokeAllSessions(42);
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      requireEvidence: true,
+      reason: 'admin_force_logout',
+    });
     expect(out).toEqual({ revokedCount: 3 });
   });
 });

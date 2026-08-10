@@ -645,7 +645,7 @@ describe('SCIM 2.0 provisioning service', () => {
     expect(result.resource.active).toBe(false);
     expect(findStaffByUid(STAFF_UID).user).toMatchObject({ is_active: false, status: 'inactive' });
     expect(findStaffByUid(STAFF_UID).staff).toMatchObject({ is_active: false, archived: true });
-    expect(revokeAllUserTokens).toHaveBeenCalledWith(STAFF_UID);
+    expect(revokeAllUserTokens).toHaveBeenCalledWith(STAFF_UID, { reason: 'scim_deprovision' });
     expect(scenario.activeSessions).toBe(0);
     expect(scenario.staffAuthSessions).toBe(0);
     expect(scenario.staffDevices).toBe(0);

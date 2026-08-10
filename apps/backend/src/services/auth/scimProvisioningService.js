@@ -687,7 +687,13 @@ export async function deactivateScimIdentityTx(tx, {
       staffId,
     );
   }
-  const tokens = revokeTokens ? await revokeAllUserTokens(uid) : null;
+  // revokeAllUserTokens bumps the identity's token_epoch (R1: refresh tokens
+  // and retained Firebase sessions from before the deprovision are refused at
+  // issuance) and pushes `session:revoked` to the identity's live WebSockets
+  // (R14) — deliberately unscoped by tenant, matching the kill queries above.
+  const tokens = revokeTokens
+    ? await revokeAllUserTokens(uid, { reason: 'scim_deprovision' })
+    : null;
   if (realm === 'staff') {
     await tx.$executeRawUnsafe(
       `UPDATE users
@@ -741,7 +747,7 @@ export async function deactivateScimIdentityTx(tx, {
 }
 
 export async function revokeScimIdentityTokens({ uid }) {
-  return revokeAllUserTokens(uid, { requireEvidence: true });
+  return revokeAllUserTokens(uid, { requireEvidence: true, reason: 'scim_deprovision' });
 }
 
 async function upsertStaff(context, payload, { id = null, method = 'post', req = null } = {}) {

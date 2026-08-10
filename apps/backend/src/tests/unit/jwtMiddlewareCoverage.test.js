@@ -118,13 +118,13 @@ describe('jwtMiddleware — revocation control flow', () => {
   });
 
   it('rejects when all user tokens were revoked (force-logout) with 401', async () => {
-    verifyTokenMock.mockReturnValue({ uid: UID, role: 'PATIENT', jti: 'ok-jti', iat: 1000 });
+    verifyTokenMock.mockReturnValue({ uid: UID, role: 'PATIENT', jti: 'ok-jti', iat: 1000, token_epoch: 7 });
     isUserTokensRevokedMock.mockResolvedValue(true);
     const req = makeReq(); const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(res.statusCode).toBe(401);
     expect(res.body.code).toBe('TOKEN_REVOKED');
-    expect(isUserTokensRevokedMock).toHaveBeenCalledWith(String(UID), 1000);
+    expect(isUserTokensRevokedMock).toHaveBeenCalledWith(String(UID), 1000, 7);
   });
 
   it('fails closed with 503 when the revocation store is unreachable', async () => {

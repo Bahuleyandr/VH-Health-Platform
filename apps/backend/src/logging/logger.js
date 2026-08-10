@@ -159,9 +159,35 @@ function morganSafeUrlToken(req) {
 // `combined`) emits the redacted URL.
 morgan.token('url', morganSafeUrlToken);
 
+// '/pay/' is the public bill-payment landing page. Its URL path carries the
+// payment link_token, which IS the bearer credential for that link — the same
+// reason auditLog.js SKIP_PATHS excludes it and paymentLinkService never logs
+// it. The morgan-token redaction above scrubs QUERY params only, so the
+// path-segment token would still land in the HTTP access log; skip the request
+// outright. Matching mirrors auditLog.js: '/pay/' with the trailing slash,
+// which no other route contains ('/payment-links/', '/payroll/' do not match).
+function morganSkipSensitivePath(req) {
+  const raw = req.originalUrl || req.url || '';
+  let pathname;
+  try {
+    pathname = raw.startsWith('/')
+      ? new URL(`http://localhost${raw}`).pathname
+      : new URL(raw).pathname;
+  } catch {
+    pathname = raw.split('?')[0];
+  }
+  return pathname.startsWith('/pay/');
+}
+
 // Preconfigured morgan middleware. `combined` now resolves `:url` through the
 // redacting token above.
-logger.morganMiddleware = morgan('combined', { stream: logger.stream });
+logger.morganMiddleware = morgan('combined', {
+  stream: logger.stream,
+  skip: morganSkipSensitivePath,
+});
+
+// Exposed for unit tests (mirrors morganSafeUrlToken below).
+logger.morganSkipSensitivePath = morganSkipSensitivePath;
 
 // Exposed for unit tests / reuse (audit regression guard).
 logger.morganSafeUrlToken = morganSafeUrlToken;

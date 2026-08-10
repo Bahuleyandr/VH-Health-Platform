@@ -76,9 +76,10 @@ export async function POST(request: Request) {
     }
 
     const token = data?.data?.token ?? data?.token;
-    if (!token) {
+    const refreshToken = data?.data?.refreshToken ?? data?.refreshToken;
+    if (!token || !refreshToken) {
       return NextResponse.json(
-        { message: "No token in MFA response", success: false },
+        { message: "Incomplete session credentials in MFA response", success: false },
         { status: 502 },
       );
     }
@@ -92,6 +93,13 @@ export async function POST(request: Request) {
       sameSite: "strict",
       path: "/",
       maxAge: 60 * 60 * 4,
+    });
+    response.cookies.set("refresh_token", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/api/refresh",
+      maxAge: 60 * 60 * 24 * 30,
     });
     return response;
   } catch {

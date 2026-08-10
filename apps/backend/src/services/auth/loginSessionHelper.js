@@ -16,6 +16,7 @@ import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateToken } from '../../utils/jwtUtils.js';
+import { getCurrentTokenEpoch } from '../../utils/tokenBlacklist.js';
 import { claimUserSession } from './userActiveSession.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -89,14 +90,27 @@ export async function resolveTenantIdForUid(uid) {
  * (auto-stamped by generateToken) so it can be revoked on rotation / logout.
  * `id` and `phone` are included only when supplied (admin tokens carry neither).
  *
+ * R1 (issuance-time revocation gate): every refresh token is stamped with the
+ * identity's CURRENT `token_epoch` at mint time. Logout / revoke-all / SCIM
+ * deprovision bump the epoch (tokenBlacklist.revokeAllUserTokens), and the
+ * refresh endpoints refuse any refresh token whose stamped epoch is older than
+ * the identity's current one — so a refresh token retained across logout can
+ * never be rotated into a fresh session. The epoch is read directly from the
+ * durable store (never cached) and the read FAILS CLOSED; pass `tokenEpoch`
+ * when the caller already resolved it in the same flow.
+ *
  * @param {Object} identity
  * @param {string} identity.uid - users.uid (becomes the `sub` claim).
  * @param {number|string} [identity.id] - DB integer id, when known.
  * @param {string} [identity.phone] - E.164 phone, when known.
  * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
- * @returns {string} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
+ * @param {number} [identity.tokenEpoch] - pre-resolved current epoch (skips the DB read).
+ * @param {string} [identity.realm] - identity store owning the subject (`user` or `admin`).
+ * @param {boolean} [identity.mfa] - whether the admin session completed MFA step-up.
+ * @returns {Promise<string>} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
  */
-export function generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
+export async function generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa }) {
+  const epoch = tokenEpoch ?? await getCurrentTokenEpoch(uid);
   return generateToken(
     {
       uid,
@@ -104,6 +118,9 @@ export function generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
       ...(phone ? { phone } : {}),
       role,
       type: 'refresh',
+      token_epoch: epoch,
+      ...(realm ? { realm } : {}),
+      ...(mfa === true ? { mfa: true } : {}),
       ...(stableDeviceId ? { stableDeviceId } : {}),
     },
     SECURITY_CONFIG.jwt.refreshExpiry,
@@ -121,10 +138,13 @@ export function generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
  *                                     present, so old (unupdated) clients that don't send it get tokens
  *                                     without the claim — the requireDeviceType gate then forces re-login.
  * @param {Object} [args.req] - Express request, used for ip + user-agent.
+ * @param {number} [args.tokenEpoch] - Pre-resolved current identity epoch. When omitted it is read
+ *   from the durable store immediately before signing.
  * @param {boolean} [args.pushRevoked=true] - Forward to {@link claimUserSession}. Pass `false` when
  *   minting a refreshed access token: the prior jti must still be blacklisted, but no
  *   `session:revoked` event should fire (the device is itself, just rotated).
- * @returns {Promise<{ accessToken: string, jti: string }>} The signed token and its jti.
+ * @returns {Promise<{ accessToken: string, jti: string, tokenEpoch: number }>} The signed token,
+ *   its jti, and the epoch snapshot used for signing.
  */
 export async function issueAccessTokenAndClaimSession({
   userUid,
@@ -134,6 +154,7 @@ export async function issueAccessTokenAndClaimSession({
   stableDeviceId,
   req,
   pushRevoked = true,
+  tokenEpoch,
 }) {
   if (!userUid) throw new Error('issueAccessTokenAndClaimSession: userUid is required');
   if (!tokenPayload) throw new Error('issueAccessTokenAndClaimSession: tokenPayload is required');
@@ -147,12 +168,14 @@ export async function issueAccessTokenAndClaimSession({
   const tenantId = tokenPayload.tenant_id
     ?? tokenPayload.tenantId
     ?? await resolveTenantIdForUid(userUid);
+  const epoch = tokenEpoch ?? await getCurrentTokenEpoch(userUid);
 
   const jti = crypto.randomUUID();
   const accessToken = generateToken(
     {
       ...tokenPayload,
       tenant_id: tenantId,
+      token_epoch: epoch,
       jti,
       ...(deviceType ? { deviceType } : {}),
       ...(stableDeviceId ? { stableDeviceId } : {}),
@@ -177,5 +200,5 @@ export async function issueAccessTokenAndClaimSession({
     tenantId, // M8: stamp the bearer's resolved tenant on the session row
   });
 
-  return { accessToken, jti };
+  return { accessToken, jti, tokenEpoch: epoch };
 }

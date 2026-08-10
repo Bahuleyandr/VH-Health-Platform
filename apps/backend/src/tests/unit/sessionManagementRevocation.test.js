@@ -219,7 +219,7 @@ describe('revokeSession', () => {
     expect(result.code).toBe(SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE);
   });
 
-  it('succeeds on the Redis fast path alone when the DB write fails', async () => {
+  it('fails closed when the DB write fails, even if Redis accepted it', async () => {
     cacheSetMock.mockResolvedValue(true);
     queryRawUnsafeMock.mockImplementation(async (sql) => {
       if (isRegistrySelect(sql)) return [registryRow()];
@@ -228,8 +228,12 @@ describe('revokeSession', () => {
 
     const result = await revokeSession(UID, JTI, {});
 
-    // One store is enough to make the revocation real, so this is honest.
-    expect(result.success).toBe(true);
+    // R12: Postgres is the AUTHORITATIVE revocation store. The committed Redis
+    // manifest runs allkeys-lru, so a Redis-only blacklist entry can be evicted
+    // and the "successful" revocation silently un-revoked. A revocation with no
+    // durable evidence must therefore report failure, not success.
+    expect(result.success).toBe(false);
+    expect(result.code).toBe(SESSION_REVOKE_FAILURE.STORE_UNAVAILABLE);
   });
 });
 

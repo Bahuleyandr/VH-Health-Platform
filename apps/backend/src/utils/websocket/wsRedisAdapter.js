@@ -179,7 +179,12 @@ export function createWsFanout() {
   function publishUser(userId, event, data, tenantId) {
     if (!enabled || !pub) return false;
     try {
-      pub.publish(USER_PREFIX + String(userId), JSON.stringify({ event, data, tenantId }));
+      const pending = pub.publish(USER_PREFIX + String(userId), JSON.stringify({ event, data, tenantId }));
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch((err) => {
+          logger.error('WS fan-out publishUser failed after dispatch:', err?.message || err);
+        });
+      }
       return true;
     } catch (err) {
       logger.error('WS fan-out publishUser failed — falling back to local:', err?.message || err);

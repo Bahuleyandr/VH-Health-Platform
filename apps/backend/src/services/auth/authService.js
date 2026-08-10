@@ -14,7 +14,7 @@ import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isLegacyPhoneAuthAllowed } from '../../utils/authCompatibilityGates.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import { blacklistToken, getCurrentTokenEpoch, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken, resolveTenantIdForUid } from './loginSessionHelper.js';
@@ -157,7 +157,7 @@ export class AuthService {
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
       };
-      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
         userUid: String(tokenPayload.uid),
         tokenPayload,
         req,
@@ -166,11 +166,13 @@ export class AuthService {
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token so the
       // access token is never the refresh credential.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: user.uid,
         id: user.id,
         phone: user.phone,
         role: user.role,
+        tokenEpoch,
+        realm: 'user',
       });
 
       return {
@@ -210,7 +212,7 @@ export class AuthService {
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
       };
-      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
         userUid: String(tokenPayload.uid),
         tokenPayload,
         req,
@@ -218,11 +220,13 @@ export class AuthService {
       });
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: user.uid,
         id: user.id,
         phone: user.phone,
         role: user.role,
+        tokenEpoch,
+        realm: 'user',
       });
 
       return {
@@ -408,7 +412,7 @@ export class AuthService {
       // this admin. Any previously-active admin session is blacklisted and a
       // `session:revoked` event is pushed to that admin's WS sockets — so a
       // second browser tab / device is bounced to login.
-      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
         userUid: admin.uid,
         tokenPayload: {
           uid: admin.uid,
@@ -427,9 +431,11 @@ export class AuthService {
       // previously got no refresh token, so the short-lived admin access token
       // was being replayed at /refresh-token. The refresh endpoint now only
       // accepts type:'refresh' tokens.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: admin.uid,
         role: String(admin.role).toUpperCase(),
+        tokenEpoch,
+        realm: 'admin',
       });
 
       return {
@@ -997,9 +1003,10 @@ export class AuthService {
   // session. Delegates to the SHARED loginSessionHelper.generateRefreshToken so
   // every realm — patient OTP, admin, and the Firebase patient path — mints
   // through one source of truth (no duplicated `type:'refresh'` / expiry logic
-  // that could drift). See audit 2026-06-18 C-9.
-  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
-    return generateRefreshToken({ uid, id, phone, role, stableDeviceId });
+  // that could drift). See audit 2026-06-18 C-9. Async since the R1 epoch
+  // stamp: the helper reads the identity's current token_epoch at mint time.
+  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa }) {
+    return generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa });
   }
 
   static async refreshToken(token, req) {
@@ -1031,7 +1038,8 @@ export class AuthService {
       // jwtMiddleware does, or the lookup runs against `undefined` and every
       // real refresh 401s with "user not found" (i.e. refresh never works).
       const subjectUid = decoded.uid ?? decoded.sub;
-      const user = subjectUid
+      const explicitAdminRealm = decoded.realm === 'admin';
+      const user = subjectUid && !explicitAdminRealm
         ? await prisma.users.findUnique({
             where: { uid: subjectUid },
             select: {
@@ -1044,7 +1052,45 @@ export class AuthService {
             },
           })
         : null;
-      if (!user) throw AppError.unauthorized('User not found', 'TOKEN_INVALID');
+      const admin = subjectUid && (explicitAdminRealm || !user)
+        ? await prisma.admins.findUnique({
+            where: { uid: subjectUid },
+            select: {
+              uid: true,
+              tenant_id: true,
+              username: true,
+              email: true,
+              name: true,
+              role: true,
+              status: true,
+              is_active: true,
+            },
+          })
+        : null;
+      const identity = admin || user;
+      if (!identity) throw AppError.unauthorized('User not found', 'TOKEN_INVALID');
+      if (admin && (!admin.is_active || String(admin.status || '').toLowerCase() !== 'active')) {
+        throw AppError.unauthorized('Account is deactivated', 'TOKEN_INVALID');
+      }
+
+      // R1 — ISSUANCE-TIME revocation gate. The jti blacklist above only
+      // catches the specific rotated/blacklisted token; a refresh token
+      // retained across logout has a clean jti, and the re-minted pair's
+      // iat=now would post-date the revoke-all watermark, laundering the
+      // revocation. Instead: every refresh token is stamped with the
+      // token_epoch it was minted under, logout/revoke-all/SCIM deprovision
+      // bump the identity's epoch, and a refresh token from an older epoch is
+      // refused here — BEFORE any new credential is minted. Legacy tokens
+      // (pre-epoch, no claim) count as epoch 0: nothing changes for identities
+      // never revoked, and the first revoke-all retires them all.
+      const currentEpoch = await getCurrentTokenEpoch(String(identity.uid));
+      const mintedEpoch = Number.isFinite(Number(decoded.token_epoch))
+        ? Number(decoded.token_epoch)
+        : 0;
+      if (mintedEpoch < currentEpoch) {
+        throw AppError.tokenRevoked();
+      }
+
       const stableDeviceId = decoded.stableDeviceId
         ? String(decoded.stableDeviceId).toLowerCase()
         : null;
@@ -1095,40 +1141,68 @@ export class AuthService {
       // `pushRevoked: false` because this is the same logical session — the
       // device must NOT receive its own session:revoked event.
       const { accessToken: newToken } = await issueAccessTokenAndClaimSession({
-        userUid: user.uid,
-        tokenPayload: {
-          uid: user.uid,
-          id: user.id,
-          phone: user.phone,
-          role: user.role,
-        },
+        userUid: identity.uid,
+        tokenPayload: admin
+          ? {
+              uid: admin.uid,
+              role: String(admin.role).toUpperCase(),
+              email: admin.email ?? undefined,
+              sub: admin.uid,
+              iss: 'vh-health-backend',
+              aud: 'vh-health-admin',
+              ...(decoded.mfa === true ? { mfa: true } : {}),
+              ...(admin.tenant_id ? { tenant_id: admin.tenant_id } : {}),
+            }
+          : {
+              uid: user.uid,
+              id: user.id,
+              phone: user.phone,
+              role: user.role,
+            },
+        expiresIn: admin ? SECURITY_CONFIG.jwt.adminExpiry : undefined,
         deviceType: decoded.deviceType,
         stableDeviceId,
         req,
         pushRevoked: false,
+        tokenEpoch: currentEpoch,
       });
 
       // Issue a fresh refresh token too (rotation) so the client always holds
       // a current refresh credential and the old one is dead.
-      const newRefreshToken = this._generateRefreshToken({
-        uid: user.uid,
-        id: user.id,
-        phone: user.phone,
-        role: user.role,
+      const newRefreshToken = await this._generateRefreshToken({
+        uid: identity.uid,
+        id: user?.id,
+        phone: user?.phone,
+        role: identity.role,
         stableDeviceId,
+        // Same epoch we just gated on — avoids a second durable-store read.
+        tokenEpoch: currentEpoch,
+        realm: admin ? 'admin' : 'user',
+        mfa: admin && decoded.mfa === true,
       });
 
-      return {
+      const result = {
         token: newToken,
         refreshToken: newRefreshToken,
-        user: {
+      };
+      if (admin) {
+        result.admin = {
+          uid: admin.uid,
+          username: admin.username,
+          email: admin.email,
+          name: admin.name,
+          role: admin.role,
+        };
+      } else {
+        result.user = {
           uid: user.uid,
           id: user.id,
           phone: user.phone,
           name: user.name,
           role: user.role,
-        },
-      };
+        };
+      }
+      return result;
     } catch (error) {
       logger.error('Refresh token error:', error);
       throw error;
@@ -1161,9 +1235,15 @@ export class AuthService {
     // identity so both credentials (and any other active session) are cut
     // off. NOTE: this makes logout end all of the user's sessions; a
     // per-device model would require a session-family id on both tokens.
+    // R1: revokeAllUserTokens also bumps the identity's token_epoch, so the
+    // sibling refresh token (and any other pre-logout refresh credential) is
+    // refused at the refresh endpoint's issuance-time gate — and a retained
+    // Firebase session (auth_time predating the bump) can no longer silently
+    // re-login. R14: it also pushes `session:revoked` to the user's live
+    // WebSockets, which wsServer closes server-side.
     const revokeKey = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
     if (revokeKey != null) {
-      await revokeAllUserTokens(String(revokeKey), { requireEvidence: true });
+      await revokeAllUserTokens(String(revokeKey), { requireEvidence: true, reason: 'logout' });
     }
 
     // Audit trail is best-effort — a logging hiccup must not undo (or mask)
@@ -1486,7 +1566,7 @@ export class AuthService {
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
       };
-      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
         userUid: String(tokenPayload.uid),
         tokenPayload,
         req,
@@ -1497,11 +1577,13 @@ export class AuthService {
       // previously got no refresh token, so the access token was being used as
       // the refresh credential at /refresh-token. The refresh endpoint now
       // only accepts type:'refresh' tokens.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: user.uid,
         id: user.id,
         phone: user.phone,
         role: user.role,
+        tokenEpoch,
+        realm: 'user',
       });
 
       return {

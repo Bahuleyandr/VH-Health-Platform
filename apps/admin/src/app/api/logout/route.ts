@@ -20,6 +20,13 @@ export async function POST(request: Request) {
     path: "/",
     maxAge: 0, // Expire immediately
   });
+  response.cookies.set("refresh_token", "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/api/refresh",
+    maxAge: 0,
+  });
 
   return response;
 }
