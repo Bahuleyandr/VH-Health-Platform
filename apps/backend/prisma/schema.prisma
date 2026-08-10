@@ -7156,27 +7156,35 @@ model nabh_indicator_snapshots {
 }
 
 model news2_scores {
-  id                Int      @id @default(autoincrement())
-  patient_uid       String   @db.Uuid
-  respiration_rate  Decimal? @db.Decimal(6, 2)
-  spo2              Decimal? @db.Decimal(6, 2)
-  spo2_scale        Int      @default(1)
-  supplemental_o2   Boolean  @default(false)
-  temperature       Decimal? @db.Decimal(5, 2)
-  systolic_bp       Decimal? @db.Decimal(6, 2)
-  heart_rate        Decimal? @db.Decimal(6, 2)
-  consciousness     String?  @db.VarChar(10)
-  total_score       Int      @default(0)
-  clinical_risk     String?  @db.VarChar(50)
-  escalation_action String?
-  recorded_by       String?  @db.Uuid
-  recorded_at       DateTime @default(now()) @db.Timestamptz(6)
-  created_at        DateTime @default(now()) @db.Timestamptz(6)
-  tenant_id         String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_news2_scores_tenant")
+  id                 Int            @id @default(autoincrement())
+  patient_uid        String         @db.Uuid
+  respiration_rate   Decimal?       @db.Decimal(6, 2)
+  spo2               Decimal?       @db.Decimal(6, 2)
+  spo2_scale         Int            @default(1)
+  supplemental_o2    Boolean        @default(false)
+  temperature        Decimal?       @db.Decimal(5, 2)
+  systolic_bp        Decimal?       @db.Decimal(6, 2)
+  heart_rate         Decimal?       @db.Decimal(6, 2)
+  consciousness      String?        @db.VarChar(10)
+  total_score        Int            @default(0)
+  clinical_risk      String?        @db.VarChar(50)
+  escalation_action  String?
+  recorded_by        String?        @db.Uuid
+  recorded_at        DateTime       @default(now()) @db.Timestamptz(6)
+  created_at         DateTime       @default(now()) @db.Timestamptz(6)
+  tenant_id          String         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  vitals_chart_id    Int?
+  superseded_by_id   Int?
+  partial_score      Boolean        @default(false)
+  missing_params     String[]
+  news2_scores       news2_scores?  @relation("news2_scoresTonews2_scores", fields: [superseded_by_id], references: [id], onUpdate: NoAction, map: "fk_news2_scores_superseded_by")
+  other_news2_scores news2_scores[] @relation("news2_scoresTonews2_scores")
+  tenants            tenants        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_news2_scores_tenant")
+  vitals_chart       vitals_chart?  @relation(fields: [vitals_chart_id], references: [id], onUpdate: NoAction, map: "fk_news2_scores_vitals_chart")
 
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_news2_scores_patient_recorded")
   @@index([tenant_id], map: "idx_news2_scores_tenant_id")
+  @@index([vitals_chart_id], map: "idx_news2_scores_vitals_chart", where: raw("(vitals_chart_id IS NOT NULL)"))
 }
 
 model notification_delivery_log {
@@ -11935,6 +11943,7 @@ model vitals_chart {
   recovery_interface_family    String?                        @db.VarChar(8)
   ed_encounter_evidence        ed_encounter_evidence[]
   icu_device_observation_links icu_device_observation_links[]
+  news2_scores                 news2_scores[]
   resuscitation_device_links   resuscitation_device_links[]
   resuscitation_events         resuscitation_events[]
   pathway_projector_inbox      pathway_projector_inbox?       @relation(fields: [tenant_id, recovery_inbox_id, recovery_interface_family], references: [tenant_id, inbox_id, interface_family], onDelete: NoAction, onUpdate: NoAction, map: "fk_vitals_chart_recovery_inbox")
@@ -15147,6 +15156,8 @@ model nursing_assessments {
   tenant_id              String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   created_at             DateTime  @default(now()) @db.Timestamptz(6)
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  partial_score          Boolean   @default(false)
+  missing_params         String[]
 
   @@index([assessment_kind, assessed_at(sort: Desc)], map: "idx_nursing_assessments_kind")
   @@index([patient_uid, assessed_at(sort: Desc)], map: "idx_nursing_assessments_patient")
