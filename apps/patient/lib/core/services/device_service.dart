@@ -102,10 +102,13 @@ class DeviceService {
   ///
   /// [timeout] / [retryTransientFailures] let the logout teardown run this
   /// as one short attempt instead of the default 15s x 3-retry policy.
+  /// [refreshOnUnauthorized] must be false for logout so an abandoned 401
+  /// cannot refresh credentials after the local wipe.
   static Future<bool> unregisterDevice(
     String phone, {
     Duration? timeout,
     bool retryTransientFailures = true,
+    bool refreshOnUnauthorized = true,
   }) async {
     try {
       final deviceId = await _getDeviceId();
@@ -114,6 +117,7 @@ class DeviceService {
         body: {'phone': phone, 'deviceId': deviceId},
         timeout: timeout,
         retryTransientFailures: retryTransientFailures,
+        refreshOnUnauthorized: refreshOnUnauthorized,
       );
       return response.isSuccess;
     } catch (e) {

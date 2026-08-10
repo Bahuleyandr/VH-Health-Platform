@@ -351,6 +351,55 @@ void main() {
     },
   );
 
+  testWidgets(
+    'backgrounding a lone in-flight prompt invalidates its result and waits '
+    'to re-prompt in the foreground',
+    (tester) async {
+      final prompts = <Completer<bool>>[];
+      Future<bool> pendingCheck(String _) {
+        final prompt = Completer<bool>();
+        prompts.add(prompt);
+        return prompt.future;
+      }
+
+      await tester.pumpWidget(
+        _wrap(
+          BiometricGate(
+            authCheck: pendingCheck,
+            graceScopeKey: 'patient-a',
+            builder: (_) => const Text('phi-content'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(prompts, hasLength(1));
+      expect(find.text('phi-content'), findsNothing);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      // Do not start a second local_auth operation while the persisted first
+      // operation is still unwinding after resume.
+      expect(prompts, hasLength(1));
+
+      prompts.single.complete(true);
+      await tester.pump();
+      await tester.pump();
+
+      // The pre-background success is stale: it must not expose PHI. A fresh
+      // foreground prompt is now required.
+      expect(find.text('phi-content'), findsNothing);
+      expect(prompts, hasLength(2));
+
+      prompts.last.complete(true);
+      await tester.pumpAndSettle();
+      expect(find.text('phi-content'), findsOneWidget);
+    },
+  );
+
   testWidgets('true backgrounding during an in-flight prompt still re-locks', (
     tester,
   ) async {

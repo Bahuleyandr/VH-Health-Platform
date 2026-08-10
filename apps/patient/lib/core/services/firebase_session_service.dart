@@ -29,15 +29,19 @@ class FirebaseSessionService {
   ///
   /// [timeout] / [retryTransientFailures] let the logout teardown run this
   /// as one short attempt instead of the default 15s x 3-retry policy.
+  /// [refreshOnUnauthorized] must be false for logout so an abandoned 401
+  /// cannot refresh credentials after the local wipe.
   static Future<bool> revokeSession({
     Duration? timeout,
     bool retryTransientFailures = true,
+    bool refreshOnUnauthorized = true,
   }) async {
     try {
       final response = await ApiClient.post(
         '/auth/firebase/revoke-my-session',
         timeout: timeout,
         retryTransientFailures: retryTransientFailures,
+        refreshOnUnauthorized: refreshOnUnauthorized,
       );
       if (!response.isSuccess) {
         // A non-2xx never throws (ApiResponse.parse just sets isSuccess), so

@@ -191,7 +191,12 @@ class VHHttpClient {
   /// (timeouts / connection errors / 5xx — see [_sendWithRetry]). Leave it
   /// true for normal calls; teardown paths (logout) set it false so a dead
   /// network fails the call after one short attempt instead of holding the
-  /// user behind minutes of backoff. The 401-refresh retry is unaffected.
+  /// user behind minutes of backoff.
+  ///
+  /// [refreshOnUnauthorized] controls the independent 401-refresh path. Keep
+  /// it true for normal authenticated calls. Logout teardown sets it false so
+  /// a request abandoned by its outer deadline cannot finish refreshing and
+  /// write a new credential after local secure storage has been wiped.
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
@@ -201,6 +206,7 @@ class VHHttpClient {
     String? continuityFacilityId,
     String? continuityFacilityContext,
     bool retryTransientFailures = true,
+    bool refreshOnUnauthorized = true,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
@@ -224,7 +230,10 @@ class VHHttpClient {
     );
     final parsed = ApiResponse.fromHttp(response);
 
-    if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
+    if (auth &&
+        refreshOnUnauthorized &&
+        parsed.isUnauthorized &&
+        await _handleUnauthorized(parsed)) {
       final retryHeaders = await _headers(
         auth: true,
         json: true,

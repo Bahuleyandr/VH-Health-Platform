@@ -279,6 +279,7 @@ class LogoutService {
         body: const {},
         timeout: _networkCallTimeout,
         retryTransientFailures: false,
+        refreshOnUnauthorized: false,
       );
       return response.isSuccess;
     } catch (e) {
@@ -296,6 +297,7 @@ class LogoutService {
       phone,
       timeout: _networkCallTimeout,
       retryTransientFailures: false,
+      refreshOnUnauthorized: false,
     );
   }
 }
@@ -347,6 +349,7 @@ class LogoutServiceDependencies {
       revokeFirebaseSession: () => FirebaseSessionService.revokeSession(
         timeout: LogoutService._networkCallTimeout,
         retryTransientFailures: false,
+        refreshOnUnauthorized: false,
       ),
       unregisterDevice: LogoutService._unregisterDevice,
       revokeVhSession: LogoutService._revokeVhSession,

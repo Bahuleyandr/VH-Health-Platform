@@ -63,8 +63,11 @@ class LogoutButton extends StatelessWidget {
     // force-kills the app mid-logout skips the local PHI wipe entirely.
     var progressDismissed = false;
     // Captured now: the button's own context may be unmounted by the time
-    // the dialog must come down (the router redirect can navigate first).
+    // the dialog must come down or a revocation warning must be shown (the
+    // Firebase auth-state redirect can navigate first). Both states live at
+    // the MaterialApp level and survive disposal of the initiating route.
     final rootNavigator = Navigator.of(context, rootNavigator: true);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     void dismissProgress() {
       if (!progressDismissed && rootNavigator.mounted) {
         rootNavigator.pop();
@@ -120,8 +123,8 @@ class LogoutButton extends StatelessWidget {
 
       // Local sign-out succeeded either way, but if the backend never revoked
       // the token we must not let the user believe every device is signed out.
-      if (!outcome.serverSessionRevoked && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (!outcome.serverSessionRevoked && scaffoldMessenger.mounted) {
+        scaffoldMessenger.showSnackBar(
           const SnackBar(
             content: Text(
               'Signed out on this device. We could not reach the server, so '

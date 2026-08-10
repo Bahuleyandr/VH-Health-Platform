@@ -51,6 +51,7 @@ class ApiClient {
     Duration? timeout,
     String? idempotencyKey,
     bool retryTransientFailures = true,
+    bool refreshOnUnauthorized = true,
   }) => _mutate(
     'POST',
     path,
@@ -60,6 +61,7 @@ class ApiClient {
       timeout: timeout,
       idempotencyKey: idempotencyKey,
       retryTransientFailures: retryTransientFailures,
+      refreshOnUnauthorized: refreshOnUnauthorized,
     ),
   );
 
