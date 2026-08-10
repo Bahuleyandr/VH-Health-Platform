@@ -179,7 +179,10 @@ d('patient account deletion', () => {
       `user:${patient.uid}`
     );
     expect(revokeRows).toHaveLength(1);
-    expect(['account_deleted', 'revoke_all_user_tokens']).toContain(revokeRows[0].reason);
+    // revokeAllUserTokens writes its default reason since the durable-store
+    // revocation rework (db78cc56): the account-deletion path passes no
+    // per-call reason, so the marker row carries 'revoke_all'.
+    expect(revokeRows[0].reason).toBe('revoke_all');
 
     const deviceRows = await prisma.$queryRawUnsafe(
       `SELECT fcm_token FROM user_devices WHERE user_uid = $1::uuid`,
