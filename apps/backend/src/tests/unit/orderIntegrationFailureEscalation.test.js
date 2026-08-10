@@ -186,7 +186,7 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
     });
 
     expect(result).toEqual({ alertQueued: true, auditRecorded: false });
-    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(1);
+    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(RECIPIENTS.length);
   });
 
   test('both channels failing still resolves (logger.error last resort), never throws', async () => {
