@@ -652,20 +652,35 @@ async function _callOpenAICompatible({ userMessage, history }) {
   const headers = { 'Content-Type': 'application/json' };
   if (API_KEY) headers['Authorization'] = `Bearer ${API_KEY}`;
 
-  const resp = await fetch(`${BASE_URL.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      max_tokens: 800,
-      temperature: 0.2,
-      // Ask for JSON mode where the server supports it. Servers that don't
-      // know the field just ignore it — the system prompt still enforces JSON.
-      response_format: { type: 'json_object' },
-      stream: false,
-    }),
-  });
+  let resp;
+  try {
+    resp = await fetch(`${BASE_URL.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
+        max_tokens: 800,
+        temperature: 0.2,
+        // Ask for JSON mode where the server supports it. Servers that don't
+        // know the field just ignore it — the system prompt still enforces JSON.
+        response_format: { type: 'json_object' },
+        stream: false,
+      }),
+      // Same bounded request timeout as the Anthropic path (TIMEOUT_MS via
+      // anthropicMessagesClient) — a hung upstream must not hold the request
+      // open indefinitely.
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (fetchErr) {
+    const reason = fetchErr?.name === 'TimeoutError'
+      ? `timed out after ${TIMEOUT_MS}ms`
+      : String(fetchErr?.message || fetchErr);
+    logger.error(`Triage (openai-compat) error: ${reason}`);
+    const err = new Error('Triage service upstream error');
+    err.statusCode = 502;
+    throw err;
+  }
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
