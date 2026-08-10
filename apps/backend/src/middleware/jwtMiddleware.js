@@ -257,6 +257,19 @@ export default async function jwtMiddleware(req, res, next) {
   const deviceType = decoded.deviceType ?? null;
   const stableDeviceId = decoded.stableDeviceId ?? null;
 
+  // Issuance-time epoch stamped on the bearer at mint (R1, migration 650).
+  // Surfaced so downstream token-minting routes (e.g. POST /realtime/ticket)
+  // can stamp derived short-lived tokens with the SAME epoch as the bearer
+  // that requested them — a derived token minted without the claim would be
+  // treated as epoch-0 "legacy" by the fail-closed revocation gate and
+  // refused once the identity's epoch is ever bumped. `null` = legacy bearer
+  // without the claim (pre-#833); consumers fall back to the durable store.
+  const tokenEpoch = decoded.token_epoch !== undefined
+    && decoded.token_epoch !== null
+    && Number.isFinite(Number(decoded.token_epoch))
+    ? Number(decoded.token_epoch)
+    : null;
+
   // 2FA step-up claim — stamped only by the admin MFA challenge-verify path
   // (mfaVerifyChallenge). Carried through so `requireSuperAdminStepUp` can scope
   // the SUPER_ADMIN bypass to 2FA-verified sessions on sensitive namespaces
@@ -281,6 +294,7 @@ export default async function jwtMiddleware(req, res, next) {
       : null,
     mfa,
     jti: decoded.jti ?? null,
+    token_epoch: tokenEpoch,
   };
 
   logger.info(`JWT OK: uid=${req.user.uid} role=${req.user.role} scope=${scope}`);
