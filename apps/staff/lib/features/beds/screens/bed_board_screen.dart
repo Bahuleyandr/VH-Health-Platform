@@ -14,6 +14,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/patient_search_action.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -463,6 +464,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       ),
       body: Column(
         children: [
+          const RealtimeStatusBanner(margin: EdgeInsets.fromLTRB(12, 8, 12, 0)),
           // Persistent legend — used to be tucked inside `_buildWardList()`
           // so it disappeared as soon as the user drilled into a ward, which
           // was the moment its dots actually started showing up on cards.

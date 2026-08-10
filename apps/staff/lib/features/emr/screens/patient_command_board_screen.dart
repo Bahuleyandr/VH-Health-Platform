@@ -6,6 +6,7 @@ import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/icu_chart_depth_panel.dart';
 import '../widgets/nicu_picu_chart_panel.dart';
@@ -825,40 +826,49 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _ErrorView(message: _error!, onRetry: _load)
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 96),
-                children: [
-                  _buildHeader(theme),
-                  if (_hasFocusedPatient) ...[
-                    const SizedBox(height: 12),
-                    _FocusedPatientBanner(
-                      patientLabel: _focusedPatientLabel,
-                      actionLabel: _text(widget.initialAction).isEmpty
-                          ? null
-                          : _text(widget.initialAction).replaceAll('_', ' '),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  _buildFilters(theme),
-                  const SizedBox(height: 12),
-                  if (_visibleRows.isEmpty)
-                    _EmptyBoard(filter: _filter)
-                  else
-                    ..._visibleRows.map((row) => _buildRowCard(theme, row)),
-                  if (_hasMoreRows) ...[
-                    const SizedBox(height: 8),
-                    _buildLoadMoreButton(theme),
-                  ],
-                ],
-              ),
-            ),
+      body: Column(
+        children: [
+          const RealtimeStatusBanner(margin: EdgeInsets.fromLTRB(14, 8, 14, 0)),
+          Expanded(child: _buildBody(theme)),
+        ],
+      ),
     );
+  }
+
+  Widget _buildBody(ThemeData theme) {
+    return _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+        ? _ErrorView(message: _error!, onRetry: _load)
+        : RefreshIndicator(
+            onRefresh: _load,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 96),
+              children: [
+                _buildHeader(theme),
+                if (_hasFocusedPatient) ...[
+                  const SizedBox(height: 12),
+                  _FocusedPatientBanner(
+                    patientLabel: _focusedPatientLabel,
+                    actionLabel: _text(widget.initialAction).isEmpty
+                        ? null
+                        : _text(widget.initialAction).replaceAll('_', ' '),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                _buildFilters(theme),
+                const SizedBox(height: 12),
+                if (_visibleRows.isEmpty)
+                  _EmptyBoard(filter: _filter)
+                else
+                  ..._visibleRows.map((row) => _buildRowCard(theme, row)),
+                if (_hasMoreRows) ...[
+                  const SizedBox(height: 8),
+                  _buildLoadMoreButton(theme),
+                ],
+              ],
+            ),
+          );
   }
 
   Widget _buildHeader(ThemeData theme) {
