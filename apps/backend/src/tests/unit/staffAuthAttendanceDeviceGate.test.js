@@ -46,6 +46,7 @@ jest.unstable_mockModule('../../middleware/jwtMiddleware.js', () => ({
     };
     next();
   },
+  enforceFullScope: (_req, _res, next) => next(),
 }));
 
 jest.unstable_mockModule('../../controllers/auth/staffAuthController.js', () => ({
