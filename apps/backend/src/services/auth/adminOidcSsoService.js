@@ -1059,7 +1059,7 @@ export async function completeAdminOidcCallback({ req, providerKey, code, state 
     deviceType: statePayload.deviceType || 'web',
     req,
   });
-  const refreshToken = generateRefreshToken({ uid: admin.uid, role: mappedRole });
+  const refreshToken = await generateRefreshToken({ uid: admin.uid, role: mappedRole });
   const response = {
     token,
     refreshToken,

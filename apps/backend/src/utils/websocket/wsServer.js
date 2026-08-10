@@ -427,6 +427,32 @@ export function sendToUser(userId, event, data, opts = {}) {
 }
 
 /**
+ * Push `session:revoked` to every open socket of a user, across EVERY process,
+ * and close those sockets server-side (deliverUserLocal's revocation branch).
+ *
+ * Called by the revocation chokepoint (tokenBlacklist.revokeAllUserTokens) so
+ * logout, force-revoke-all, and SCIM deprovisioning all tear down live sockets
+ * — previously only the env-gated single-session replacement path emitted this
+ * event, so a "revoked" session's socket kept delivering realtime data (R14).
+ *
+ * Deliberately UNSCOPED by tenant (explicit null, bypassing the ambient
+ * request tenant context): a revocation must reach every socket the identity
+ * holds regardless of the caller's tenant stamp — mirroring the deliberately
+ * unscoped SCIM session-kill queries. uid is globally unique, so this cannot
+ * leak across identities.
+ *
+ * @param {string} userId
+ * @param {object} [data] - payload delivered with the event (e.g. { reason }).
+ */
+export function pushSessionRevoked(userId, data = {}) {
+  const uid = String(userId);
+  const published = fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
+  if (!published) {
+    deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
+  }
+}
+
+/**
  * Get count of connected clients.
  */
 export function getConnectedCount() {

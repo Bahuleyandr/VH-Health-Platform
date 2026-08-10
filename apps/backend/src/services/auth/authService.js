@@ -14,7 +14,7 @@ import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isLegacyPhoneAuthAllowed } from '../../utils/authCompatibilityGates.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import { blacklistToken, getCurrentTokenEpoch, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken, resolveTenantIdForUid } from './loginSessionHelper.js';
@@ -166,7 +166,7 @@ export class AuthService {
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token so the
       // access token is never the refresh credential.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: user.uid,
         id: user.id,
         phone: user.phone,
@@ -218,7 +218,7 @@ export class AuthService {
       });
 
       // C-9 (audit 2026-06-18): issue a separate type:'refresh' token.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: user.uid,
         id: user.id,
         phone: user.phone,
@@ -427,7 +427,7 @@ export class AuthService {
       // previously got no refresh token, so the short-lived admin access token
       // was being replayed at /refresh-token. The refresh endpoint now only
       // accepts type:'refresh' tokens.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: admin.uid,
         role: String(admin.role).toUpperCase(),
       });
@@ -997,9 +997,10 @@ export class AuthService {
   // session. Delegates to the SHARED loginSessionHelper.generateRefreshToken so
   // every realm — patient OTP, admin, and the Firebase patient path — mints
   // through one source of truth (no duplicated `type:'refresh'` / expiry logic
-  // that could drift). See audit 2026-06-18 C-9.
-  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
-    return generateRefreshToken({ uid, id, phone, role, stableDeviceId });
+  // that could drift). See audit 2026-06-18 C-9. Async since the R1 epoch
+  // stamp: the helper reads the identity's current token_epoch at mint time.
+  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch }) {
+    return generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch });
   }
 
   static async refreshToken(token, req) {
@@ -1045,6 +1046,25 @@ export class AuthService {
           })
         : null;
       if (!user) throw AppError.unauthorized('User not found', 'TOKEN_INVALID');
+
+      // R1 — ISSUANCE-TIME revocation gate. The jti blacklist above only
+      // catches the specific rotated/blacklisted token; a refresh token
+      // retained across logout has a clean jti, and the re-minted pair's
+      // iat=now would post-date the revoke-all watermark, laundering the
+      // revocation. Instead: every refresh token is stamped with the
+      // token_epoch it was minted under, logout/revoke-all/SCIM deprovision
+      // bump the identity's epoch, and a refresh token from an older epoch is
+      // refused here — BEFORE any new credential is minted. Legacy tokens
+      // (pre-epoch, no claim) count as epoch 0: nothing changes for identities
+      // never revoked, and the first revoke-all retires them all.
+      const currentEpoch = await getCurrentTokenEpoch(String(user.uid));
+      const mintedEpoch = Number.isFinite(Number(decoded.token_epoch))
+        ? Number(decoded.token_epoch)
+        : 0;
+      if (mintedEpoch < currentEpoch) {
+        throw AppError.tokenRevoked();
+      }
+
       const stableDeviceId = decoded.stableDeviceId
         ? String(decoded.stableDeviceId).toLowerCase()
         : null;
@@ -1110,12 +1130,14 @@ export class AuthService {
 
       // Issue a fresh refresh token too (rotation) so the client always holds
       // a current refresh credential and the old one is dead.
-      const newRefreshToken = this._generateRefreshToken({
+      const newRefreshToken = await this._generateRefreshToken({
         uid: user.uid,
         id: user.id,
         phone: user.phone,
         role: user.role,
         stableDeviceId,
+        // Same epoch we just gated on — avoids a second durable-store read.
+        tokenEpoch: currentEpoch,
       });
 
       return {
@@ -1161,9 +1183,15 @@ export class AuthService {
     // identity so both credentials (and any other active session) are cut
     // off. NOTE: this makes logout end all of the user's sessions; a
     // per-device model would require a session-family id on both tokens.
+    // R1: revokeAllUserTokens also bumps the identity's token_epoch, so the
+    // sibling refresh token (and any other pre-logout refresh credential) is
+    // refused at the refresh endpoint's issuance-time gate — and a retained
+    // Firebase session (auth_time predating the bump) can no longer silently
+    // re-login. R14: it also pushes `session:revoked` to the user's live
+    // WebSockets, which wsServer closes server-side.
     const revokeKey = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
     if (revokeKey != null) {
-      await revokeAllUserTokens(String(revokeKey), { requireEvidence: true });
+      await revokeAllUserTokens(String(revokeKey), { requireEvidence: true, reason: 'logout' });
     }
 
     // Audit trail is best-effort — a logging hiccup must not undo (or mask)
@@ -1497,7 +1525,7 @@ export class AuthService {
       // previously got no refresh token, so the access token was being used as
       // the refresh credential at /refresh-token. The refresh endpoint now
       // only accepts type:'refresh' tokens.
-      const refreshToken = this._generateRefreshToken({
+      const refreshToken = await this._generateRefreshToken({
         uid: user.uid,
         id: user.id,
         phone: user.phone,

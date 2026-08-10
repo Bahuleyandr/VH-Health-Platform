@@ -1201,7 +1201,7 @@ export async function completeStaffOidcCallback({ req, providerKey, code, state,
     stableDeviceId,
     req,
   });
-  const refreshToken = StaffAuthService.generateRefreshToken(staff, stableDeviceId);
+  const refreshToken = await StaffAuthService.generateRefreshToken(staff, stableDeviceId);
   await createStaffSsoRefreshSession({
     tenantId: statePayload.tenantId,
     staff,

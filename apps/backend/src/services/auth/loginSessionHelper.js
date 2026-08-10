@@ -16,6 +16,7 @@ import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateToken } from '../../utils/jwtUtils.js';
+import { getCurrentTokenEpoch } from '../../utils/tokenBlacklist.js';
 import { claimUserSession } from './userActiveSession.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -89,14 +90,25 @@ export async function resolveTenantIdForUid(uid) {
  * (auto-stamped by generateToken) so it can be revoked on rotation / logout.
  * `id` and `phone` are included only when supplied (admin tokens carry neither).
  *
+ * R1 (issuance-time revocation gate): every refresh token is stamped with the
+ * identity's CURRENT `token_epoch` at mint time. Logout / revoke-all / SCIM
+ * deprovision bump the epoch (tokenBlacklist.revokeAllUserTokens), and the
+ * refresh endpoints refuse any refresh token whose stamped epoch is older than
+ * the identity's current one — so a refresh token retained across logout can
+ * never be rotated into a fresh session. The epoch is read directly from the
+ * durable store (never cached) and the read FAILS CLOSED; pass `tokenEpoch`
+ * when the caller already resolved it in the same flow.
+ *
  * @param {Object} identity
  * @param {string} identity.uid - users.uid (becomes the `sub` claim).
  * @param {number|string} [identity.id] - DB integer id, when known.
  * @param {string} [identity.phone] - E.164 phone, when known.
  * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
- * @returns {string} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
+ * @param {number} [identity.tokenEpoch] - pre-resolved current epoch (skips the DB read).
+ * @returns {Promise<string>} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
  */
-export function generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
+export async function generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch }) {
+  const epoch = tokenEpoch ?? await getCurrentTokenEpoch(uid);
   return generateToken(
     {
       uid,
@@ -104,6 +116,7 @@ export function generateRefreshToken({ uid, id, phone, role, stableDeviceId }) {
       ...(phone ? { phone } : {}),
       role,
       type: 'refresh',
+      token_epoch: epoch,
       ...(stableDeviceId ? { stableDeviceId } : {}),
     },
     SECURITY_CONFIG.jwt.refreshExpiry,

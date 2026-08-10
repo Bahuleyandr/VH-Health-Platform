@@ -77,7 +77,8 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     `SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid,
             gender, email_verified, is_active, status, merged_into_uid,
             COALESCE(is_deleted, false) AS is_deleted,
-            deleted_at, last_sign_in_at AS last_login
+            deleted_at, last_sign_in_at AS last_login,
+            token_epoch_bumped_at
        FROM users
       WHERE tenant_id = $1::uuid
         AND (phone = $2 OR firebase_uid = $3)
@@ -132,6 +133,34 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       throw error;
     }
 
+    // R1 — retire the Firebase re-login laundering path. A device that keeps
+    // its Firebase session across a logout / revoke-all can refresh Firebase
+    // ID tokens indefinitely, and re-presenting one here used to mint fresh VH
+    // tokens whose iat=now sailed past the revoke-all watermark. The epoch
+    // machinery closes it at ISSUANCE: `auth_time` is when the user actually
+    // completed phone OTP with Firebase (it survives Firebase token refreshes),
+    // so an ID token whose auth_time predates the identity's last epoch bump
+    // (token_epoch_bumped_at, written by revokeAllUserTokens) is a PRE-logout
+    // authentication and is refused — the user must redo OTP, which produces a
+    // fresh auth_time. 5s grace absorbs sub-second clock skew between Firebase
+    // and Postgres; a genuinely retained session is minutes-to-days older.
+    const epochBumpedAtMs = user.token_epoch_bumped_at
+      ? new Date(user.token_epoch_bumped_at).getTime()
+      : null;
+    const authTimeMs = Number(decodedToken.auth_time) * 1000;
+    if (
+      epochBumpedAtMs != null
+      && Number.isFinite(epochBumpedAtMs)
+      && Number.isFinite(authTimeMs)
+      && authTimeMs + 5000 < epochBumpedAtMs
+    ) {
+      await logFirebaseAuth(phone, AUTH_ACTIONS.FIREBASE_LOGIN, false, 'stale_firebase_session_post_revocation', req);
+      const error = new Error('This sign-in session was ended. Please verify your phone number again.');
+      error.statusCode = HTTP_STATUS.UNAUTHORIZED;
+      error.code = 'FIREBASE_REAUTH_REQUIRED';
+      throw error;
+    }
+
     // Update Firebase UID if missing
     if (!user.firebase_uid) {
       await query(
@@ -168,7 +197,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   // the primary patient login path. Without it the client holds only the short
   // access token and its old bearer-rotation now 401s at /refresh-token (which
   // accepts type:'refresh' only) — forcing a re-login every hour.
-  const refreshToken = generateRefreshToken({
+  const refreshToken = await generateRefreshToken({
     uid: user.uid,
     id: user.id,
     phone: user.phone,
@@ -329,7 +358,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
 
   // C-9 companion (audit 2026-06-18): a separate type:'refresh' token, so an
   // account-link login can refresh through /refresh-token like every other path.
-  const refreshToken = generateRefreshToken({
+  const refreshToken = await generateRefreshToken({
     uid: user.uid,
     id: user.id,
     phone: user.phone,
@@ -630,7 +659,7 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
 
   // C-9 companion (audit 2026-06-18): a separate type:'refresh' token so the
   // legacy register path is refreshable through /refresh-token too.
-  const refreshToken = generateRefreshToken({
+  const refreshToken = await generateRefreshToken({
     uid: user.uid,
     id: user.id,
     phone: user.phone,

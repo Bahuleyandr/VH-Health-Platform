@@ -37,7 +37,9 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
 const mockIsTokenBlacklisted = jest.fn();
 const mockBlacklistToken = jest.fn();
 const mockRevokeAllUserTokens = jest.fn();
+const mockGetCurrentTokenEpoch = jest.fn();
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  getCurrentTokenEpoch: mockGetCurrentTokenEpoch,
   isTokenBlacklisted: mockIsTokenBlacklisted,
   // staffAuthService.logoutStaff revokes the presented access token's jti, and
   // the all-device branch additionally revokes every token for the identity.
@@ -83,6 +85,7 @@ const SESSION_ROW = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockIssueAccess.mockResolvedValue({ accessToken: 'fresh-access-token' });
+  mockGetCurrentTokenEpoch.mockResolvedValue(0);
   // Default: the session lookup + last_activity update succeed.
   mockPrisma.$queryRawUnsafe.mockResolvedValue([SESSION_ROW]);
   mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
@@ -169,6 +172,55 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
     // refresh rotation must not push a self-revoke event
     expect(mockIssueAccess.mock.calls[0][0]).toEqual(
       expect.objectContaining({ pushRevoked: false, userUid: 'staff-uuid-1' })
+    );
+    expect(result.accessToken).toBe('fresh-access-token');
+  });
+
+  it('R1: rejects a refresh token minted under an OLDER token_epoch (retained across logout/revoke-all)', async () => {
+    mockVerifyToken.mockReturnValue({
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'clean-jti',
+      token_epoch: 0, // minted before the revoke-all bumped the epoch
+      stableDeviceId: INSTALLATION_ID,
+    });
+    mockIsTokenBlacklisted.mockResolvedValue(false);
+    mockGetCurrentTokenEpoch.mockResolvedValue(1);
+
+    await expect(
+      StaffAuthService.refreshStaffSession(
+        'a-retained-refresh-token',
+        null,
+        INSTALLATION_ID,
+        REQ,
+      ),
+    ).rejects.toThrow('Token has been revoked');
+
+    expect(mockGetCurrentTokenEpoch).toHaveBeenCalledWith('staff-uuid-1');
+    // Refused at ISSUANCE — nothing minted, even though the session row survived.
+    expect(mockIssueAccess).not.toHaveBeenCalled();
+  });
+
+  it('R1: a legacy refresh token (no epoch claim) still works while the identity was never revoked', async () => {
+    mockVerifyToken.mockReturnValue({
+      uid: 'staff-uuid-1',
+      id: 42,
+      role: 'DOCTOR',
+      type: 'refresh',
+      jti: 'good-jti',
+      // no token_epoch claim — minted before this feature shipped
+      stableDeviceId: INSTALLATION_ID,
+    });
+    mockIsTokenBlacklisted.mockResolvedValue(false);
+    mockGetCurrentTokenEpoch.mockResolvedValue(0);
+
+    const result = await StaffAuthService.refreshStaffSession(
+      'a-legacy-refresh-token',
+      null,
+      INSTALLATION_ID,
+      REQ,
     );
     expect(result.accessToken).toBe('fresh-access-token');
   });

@@ -123,6 +123,7 @@ const mockBlacklistToken = jest.fn().mockResolvedValue(undefined);
 const mockIsTokenBlacklisted = jest.fn().mockResolvedValue(false);
 const mockRevokeAllUserTokens = jest.fn().mockResolvedValue(undefined);
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   blacklistToken: mockBlacklistToken,
   isTokenBlacklisted: mockIsTokenBlacklisted,
   revokeAllUserTokens: mockRevokeAllUserTokens,

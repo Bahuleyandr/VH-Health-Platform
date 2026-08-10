@@ -282,6 +282,98 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     expect(generateRefreshTokenMock).not.toHaveBeenCalled();
   });
 
+  // R1 — retained-Firebase-session laundering. After logout/revoke-all bumps
+  // the identity's token_epoch (stamping token_epoch_bumped_at), a Firebase ID
+  // token whose auth_time predates the bump is a PRE-revocation authentication
+  // and must NOT mint fresh VH tokens — otherwise a device that kept its
+  // Firebase session silently resurrects access the revocation was supposed
+  // to end. A fresh OTP produces a new auth_time and passes.
+  describe('R1: Firebase re-login under an old epoch is refused', () => {
+    const baseUser = {
+      id: 7,
+      uid: '33333333-3333-4333-8333-333333333333',
+      tenant_id: DEFAULT_TENANT,
+      name: 'Existing',
+      phone: '+919876543210',
+      email: 'e@example.com',
+      role: 'PATIENT',
+      firebase_uid: 'firebase-uid-123',
+      gender: 'OTHER',
+      email_verified: true,
+      is_active: true,
+      last_login: new Date('2026-06-08T00:00:00.000Z')
+    };
+    const req = {
+      headers: { 'user-agent': 'jest' },
+      connection: { remoteAddress: '127.0.0.1' }
+    };
+
+    it('refuses an ID token whose auth_time predates token_epoch_bumped_at', async () => {
+      const bumpedAt = new Date('2026-08-10T12:00:00.000Z');
+      // Firebase authentication (the OTP) happened an hour BEFORE the revoke-all.
+      verifyIdTokenMock.mockResolvedValue({
+        uid: 'firebase-uid-123',
+        phone_number: '+91 98765 43210',
+        auth_time: Math.floor(new Date('2026-08-10T11:00:00.000Z').getTime() / 1000)
+      });
+      prismaMock.$queryRawUnsafe.mockResolvedValueOnce([
+        { ...baseUser, token_epoch_bumped_at: bumpedAt }
+      ]);
+
+      await expect(
+        authenticateWithFirebase('firebase-id-token', null, req, { deviceType: 'mobile' })
+      ).rejects.toMatchObject({
+        statusCode: 401,
+        code: 'FIREBASE_REAUTH_REQUIRED'
+      });
+
+      // No VH credential of any kind may be minted for the stale session.
+      expect(issueAccessTokenAndClaimSessionMock).not.toHaveBeenCalled();
+      expect(generateRefreshTokenMock).not.toHaveBeenCalled();
+    });
+
+    it('accepts an ID token whose auth_time is AFTER the bump (fresh OTP re-login)', async () => {
+      const bumpedAt = new Date('2026-08-10T12:00:00.000Z');
+      verifyIdTokenMock.mockResolvedValue({
+        uid: 'firebase-uid-123',
+        phone_number: '+91 98765 43210',
+        auth_time: Math.floor(new Date('2026-08-10T12:05:00.000Z').getTime() / 1000)
+      });
+      prismaMock.$queryRawUnsafe
+        .mockResolvedValueOnce([{ ...baseUser, token_epoch_bumped_at: bumpedAt }]);
+
+      const result = await authenticateWithFirebase(
+        'firebase-id-token', null, req, { deviceType: 'mobile' }
+      );
+
+      expect(result.accessToken).toBe('vh-jwt-token');
+      expect(issueAccessTokenAndClaimSessionMock).toHaveBeenCalled();
+    });
+
+    it('accepts a never-revoked identity (token_epoch_bumped_at null) regardless of auth_time', async () => {
+      verifyIdTokenMock.mockResolvedValue({
+        uid: 'firebase-uid-123',
+        phone_number: '+91 98765 43210',
+        auth_time: Math.floor(new Date('2026-01-01T00:00:00.000Z').getTime() / 1000)
+      });
+      prismaMock.$queryRawUnsafe
+        .mockResolvedValueOnce([{ ...baseUser, token_epoch_bumped_at: null }]);
+
+      const result = await authenticateWithFirebase(
+        'firebase-id-token', null, req, { deviceType: 'mobile' }
+      );
+
+      expect(result.accessToken).toBe('vh-jwt-token');
+    });
+
+    it('the user lookup SELECT carries token_epoch_bumped_at so the gate has its input', async () => {
+      prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ ...baseUser, token_epoch_bumped_at: null }]);
+      await authenticateWithFirebase('firebase-id-token', null, req, { deviceType: 'mobile' });
+      const [lookupSql] = prismaMock.$queryRawUnsafe.mock.calls[0];
+      expect(lookupSql).toMatch(/token_epoch_bumped_at/);
+    });
+  });
+
   it('SEC-5/W4: honours the per-tenant subdomain (SaaS path)', async () => {
     const SAAS_TENANT = '55555555-5555-4555-8555-555555555555';
     const req = {

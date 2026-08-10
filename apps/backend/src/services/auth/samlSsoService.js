@@ -1148,7 +1148,7 @@ async function completeAdminSamlAcs({ validation, req }) {
     deviceType: validation.relayState?.deviceType || 'web',
     req,
   });
-  const refreshToken = generateRefreshToken({ uid: admin.uid, role: mappedRole });
+  const refreshToken = await generateRefreshToken({ uid: admin.uid, role: mappedRole });
   return {
     token,
     refreshToken,
@@ -1285,7 +1285,7 @@ async function completeStaffSamlAcs({ validation, req }) {
     stableDeviceId,
     req,
   });
-  const refreshToken = StaffAuthService.generateRefreshToken(staff, stableDeviceId);
+  const refreshToken = await StaffAuthService.generateRefreshToken(staff, stableDeviceId);
   await createStaffSsoRefreshSession({
     tenantId,
     staff,
