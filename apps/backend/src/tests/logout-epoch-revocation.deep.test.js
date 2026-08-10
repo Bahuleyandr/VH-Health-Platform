@@ -70,14 +70,22 @@ async function cleanupPatient(uid) {
  * the /realtime/ticket payload: NO int `id` claim, so the WS server registers
  * the socket under the uid (generateToken maps uid → sub; wsServer resolves
  * decoded.uid || decoded.id || decoded.sub).
+ *
+ * Stamped with the identity's CURRENT token_epoch, exactly like production
+ * mints (issueAccessTokenAndClaimSession). This matters mid-suite: once an
+ * earlier test bumps the epoch, an epoch-LESS token is treated as minted at
+ * epoch 0 and is (correctly) refused at the WS handshake — the fail-closed
+ * legacy-token contract from the issuance-gate work, not a bug.
  */
-function accessTokenFor(user) {
+async function accessTokenFor(user) {
+  const epoch = await getCurrentTokenEpoch(String(user.uid));
   return generateToken(
     {
       uid: user.uid,
       phone: user.phone,
       role: 'PATIENT',
       tenant_id: DEFAULT_TENANT,
+      token_epoch: epoch,
     },
     '1h',
   );
@@ -202,7 +210,7 @@ describe('R14 — logout and revoke-all close the revoked session WebSockets', (
   }
 
   it('logout pushes session:revoked and the server closes the socket (4001)', async () => {
-    const token = accessTokenFor(user);
+    const token = await accessTokenFor(user);
     const { ws, frames } = await connect(token);
     const closePromise = waitForClose(ws);
 
@@ -216,11 +224,13 @@ describe('R14 — logout and revoke-all close the revoked session WebSockets', (
   });
 
   it('force revoke-all pushes session:revoked and closes the socket too', async () => {
-    // Fresh socket for the same user. The token's iat must post-date the
-    // previous test's revoke-all watermark, or the WS handshake itself is
-    // (correctly) refused — wait out the 1-second iat granularity.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    const token = accessTokenFor(user);
+    // Fresh socket for the same user. The previous test's logout bumped the
+    // identity's epoch, so this token MUST carry the current epoch (as any
+    // real re-login token would) or the handshake is (correctly) refused
+    // with 4001 before 'connected' ever fires. accessTokenFor reads the
+    // current epoch, so no iat-granularity sleep is needed — the epoch
+    // comparison, not the revoke-all timestamp, decides admission.
+    const token = await accessTokenFor(user);
     const { ws, frames } = await connect(token);
     const closePromise = waitForClose(ws);
 
@@ -248,7 +258,7 @@ describe('R12 — logout fails closed (non-2xx) when the durable DB write fails'
   });
 
   it('returns 500 (not fake success) when Postgres rejects the revocation write', async () => {
-    const token = accessTokenFor(user);
+    const token = await accessTokenFor(user);
     // Simulate the durable store being down for the revocation write. Plain
     // method swap (not jest.spyOn) — the prisma client extension proxy does
     // not expose spy-able descriptors under ESM jest.
@@ -272,7 +282,7 @@ describe('R12 — logout fails closed (non-2xx) when the durable DB write fails'
   });
 
   it('control: with the durable store healthy the same logout succeeds (2xx)', async () => {
-    const token = accessTokenFor(user);
+    const token = await accessTokenFor(user);
     const res = await request(app)
       .post('/api/v1/auth/logout')
       .set('X-Forwarded-For', '203.0.113.78')
