@@ -6,6 +6,7 @@ import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrappe
 import logger from '../../logging/logger.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import adminNotificationRoutes from './adminNotificationRoutes.js';
+import announcementBannerRoutes from './announcementBannerRoutes.js';
 import notificationRoutes from './notificationRoutes.js';
 import { error } from '../../utils/responseHelper.js';
 
@@ -80,6 +81,12 @@ wrapAutoRBAC(router, 'ALL', {
     ['/:id', notificationRoutes]
   ]
 });
+
+// Hospital-wide announcement banner (ADM-2): persisted per-tenant so every
+// portal user sees the same banner. GET is open to any authenticated user
+// (the dashboard chrome renders it); PUT is ADMIN-gated inside the router.
+// Registered before the legacy numeric /:phone catch below.
+router.use('/announcement-banner', announcementBannerRoutes);
 
 // Legacy phone-number routes (GET /:phone, PATCH /:phone/mark-all-read) were
 // removed — PII-in-URL is unsafe. The gatekeeper above forwards only the

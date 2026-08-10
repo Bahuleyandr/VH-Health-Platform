@@ -1735,6 +1735,104 @@
           }
         }
       },
+      "AnnouncementBanner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "type",
+          "enabled"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Sanitized banner text; empty when no banner is configured."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical",
+              "success"
+            ],
+            "description": "Visual style of the banner."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the banner is currently shown to portal users."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the banner was last saved; used for per-user dismissal."
+          }
+        }
+      },
+      "AnnouncementBannerPayload": {
+        "type": "object",
+        "required": [
+          "banner"
+        ],
+        "properties": {
+          "banner": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AnnouncementBanner"
+              }
+            ]
+          }
+        }
+      },
+      "AnnouncementBannerResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AnnouncementBannerPayload"
+          }
+        }
+      },
+      "AnnouncementBannerUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "type",
+          "enabled"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical",
+              "success"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "AnnualReviewItem": {
         "type": "object",
         "additionalProperties": false,
@@ -104904,6 +105002,56 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/announcement-banner": {
+      "get": {
+        "operationId": "get_api_v1_notifications_announcement_banner",
+        "tags": [
+          "notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementBannerResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Returns the tenant-wide announcement banner shown across the admin portal dashboard, or a null banner when none is configured. Readable by any authenticated portal user."
+      },
+      "put": {
+        "operationId": "put_api_v1_notifications_announcement_banner",
+        "tags": [
+          "notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementBannerResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Saves the tenant-wide announcement banner (ADMIN or SUPER_ADMIN only). The text is sanitized and capped at 300 characters; saving with enabled=false or empty text hides the banner for all portal users. The change is audit-logged.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementBannerUpdateRequest"
               }
             }
           }
