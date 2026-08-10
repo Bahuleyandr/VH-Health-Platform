@@ -1,9 +1,20 @@
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/core/models/care_pathway_work_models.dart';
 import 'package:vhhealth_staff/features/emr/screens/patient_command_board_screen.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
   group('patient command board scope presentation', () {
+    test('labels the last successful HTTP snapshot refresh', () {
+      final strings = AppStrings.forLocale(const Locale('en'));
+
+      expect(
+        patientCommandBoardFreshnessLabel(strings, '09:42'),
+        'Snapshot refreshed at 09:42',
+      );
+    });
+
     test('labels consultant own-patient scope and capped loaded rows', () {
       final board = {
         'scope': {

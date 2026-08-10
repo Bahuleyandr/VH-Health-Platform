@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
@@ -36,6 +37,13 @@ class _WardModeScreenState extends State<WardModeScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
         children: [
+          // R15: surface degraded realtime and a denied Code Blue channel —
+          // both were previously invisible (Crashlytics-only) on the ward.
+          const RealtimeStatusBanner(
+            watchChannels: {'staff:code-blue'},
+            deniedMessageKey: 's4.lib.realtime_status.code_blue_denied',
+            margin: EdgeInsets.only(bottom: 14),
+          ),
           _buildHeader(),
           const SizedBox(height: 14),
           LayoutBuilder(

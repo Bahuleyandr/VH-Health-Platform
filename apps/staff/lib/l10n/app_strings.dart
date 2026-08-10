@@ -9553,7 +9553,16 @@ class AppStrings {
       'role.feature.messaging': "Messages",
       'role.feature.nursing_notes': "Nursing Notes",
       'role.feature.nursing_roster': "Nursing Roster",
+      'role.feature.calculators': "Clinical Calculators",
+      'role.feature.maternity': "Maternity & Labour",
       'role.feature.oncology': "Oncology",
+      'role.feature.radiation_oncology': "Radiation Oncology",
+      's4.lib.realtime_status.stale':
+          "Live updates paused — data may be out of date. Reconnecting…",
+      's4.lib.realtime_status.code_blue_denied':
+          "Code Blue alerts are blocked for this session — emergency alerts will not reach this device. Follow overhead announcements and report to IT.",
+      's4.lib.realtime_status.beds_denied':
+          "Live bed updates are blocked for this session — bed availability may be out of date. Refresh manually and report to IT.",
       'role.feature.op_ai_assist': "OP AI Assist",
       'role.feature.op_doctor_workspace': "OP Workspace",
       'role.feature.op_nursing_dashboard': "OP Nursing",
@@ -9735,6 +9744,8 @@ class AppStrings {
           "Showing first {loaded} of {total} patients in your current scope.",
       's4.dynamic.patient_command_board.loaded_current':
           "Showing {loaded} of {total} patients in your current scope.",
+      's4.dynamic.patient_command_board.last_refreshed':
+          "Snapshot refreshed at {time}",
       's4.dynamic.patient_command_board.load_next_patients':
           "Load next {count} patients",
       's4.dynamic.patient_command_board.hospital_id': "Hospital ID {id}",
@@ -15903,7 +15914,16 @@ class AppStrings {
       'role.feature.messaging': "संदेशों",
       'role.feature.nursing_notes': "नर्सिंग नोट्स",
       'role.feature.nursing_roster': "नर्सिंग रोस्टर",
+      'role.feature.calculators': "क्लिनिकल कैलकुलेटर",
+      'role.feature.maternity': "प्रसूति एवं प्रसव",
       'role.feature.oncology': "ऑन्कोलॉजी",
+      'role.feature.radiation_oncology': "विकिरण ऑन्कोलॉजी",
+      's4.lib.realtime_status.stale':
+          "लाइव अपडेट रुके हुए हैं — डेटा पुराना हो सकता है। पुनः कनेक्ट हो रहा है…",
+      's4.lib.realtime_status.code_blue_denied':
+          "इस सत्र में कोड ब्लू अलर्ट अवरुद्ध हैं — आपातकालीन अलर्ट इस डिवाइस पर नहीं पहुंचेंगे। ओवरहेड घोषणाओं का पालन करें और IT को सूचित करें।",
+      's4.lib.realtime_status.beds_denied':
+          "इस सत्र में लाइव बेड अपडेट अवरुद्ध हैं — बेड की उपलब्धता पुरानी हो सकती है। मैन्युअल रूप से रीफ़्रेश करें और IT को सूचित करें।",
       'role.feature.op_ai_assist': "ओपी एआई सहायता",
       'role.feature.op_doctor_workspace': "ओपी कार्यक्षेत्र",
       'role.feature.op_nursing_dashboard': "ओपी नर्सिंग",
@@ -16083,6 +16103,8 @@ class AppStrings {
           "वर्तमान दायरे में {total} में से पहले {loaded} रोगी दिखा रहे हैं.",
       's4.dynamic.patient_command_board.loaded_current':
           "वर्तमान दायरे में {total} में से {loaded} रोगी दिखा रहे हैं.",
+      's4.dynamic.patient_command_board.last_refreshed':
+          "स्नैपशॉट {time} पर रीफ़्रेश हुआ",
       's4.dynamic.patient_command_board.load_next_patients':
           "अगले {count} रोगी लोड करें",
       's4.dynamic.patient_command_board.hospital_id': "अस्पताल ID {id}",
@@ -22947,7 +22969,16 @@ class AppStrings {
       'role.feature.messaging': "செய்திகள்",
       'role.feature.nursing_notes': "நர்சிங் குறிப்புகள்",
       'role.feature.nursing_roster': "நர்சிங் பட்டியல்",
+      'role.feature.calculators': "மருத்துவ கால்குலேட்டர்கள்",
+      'role.feature.maternity': "மகப்பேறு & பிரசவம்",
       'role.feature.oncology': "ஆன்காலஜி",
+      'role.feature.radiation_oncology': "கதிர்வீச்சு புற்றுநோயியல்",
+      's4.lib.realtime_status.stale':
+          "நேரடி புதுப்பிப்புகள் நிறுத்தப்பட்டுள்ளன — தரவு பழையதாக இருக்கலாம். மீண்டும் இணைக்கிறது…",
+      's4.lib.realtime_status.code_blue_denied':
+          "இந்த அமர்வில் கோட் ப்ளூ எச்சரிக்கைகள் தடுக்கப்பட்டுள்ளன — அவசர எச்சரிக்கைகள் இந்த சாதனத்திற்கு வராது. ஒலிபெருக்கி அறிவிப்புகளைப் பின்பற்றி IT-க்கு தெரிவிக்கவும்.",
+      's4.lib.realtime_status.beds_denied':
+          "இந்த அமர்வில் நேரடி படுக்கைப் புதுப்பிப்புகள் தடுக்கப்பட்டுள்ளன — படுக்கை கிடைப்புநிலை பழையதாக இருக்கலாம். கைமுறையாகப் புதுப்பித்து IT-க்கு தெரிவிக்கவும்.",
       'role.feature.op_ai_assist': "OP AI உதவி",
       'role.feature.op_doctor_workspace': "OP பணியிடம்",
       'role.feature.op_nursing_dashboard': "OP நர்சிங்",
@@ -23137,6 +23168,8 @@ class AppStrings {
           "தற்போதைய வரம்பில் {total} நோயாளிகளில் முதல் {loaded} ஐ காட்டுகிறது.",
       's4.dynamic.patient_command_board.loaded_current':
           "தற்போதைய வரம்பில் {total} நோயாளிகளில் {loaded} ஐ காட்டுகிறது.",
+      's4.dynamic.patient_command_board.last_refreshed':
+          "ஸ்னாப்ஷாட் {time} மணிக்கு புதுப்பிக்கப்பட்டது",
       's4.dynamic.patient_command_board.load_next_patients':
           "அடுத்த {count} நோயாளிகளை ஏற்றவும்",
       's4.dynamic.patient_command_board.hospital_id': "மருத்துவமனை ID {id}",
@@ -29884,7 +29917,16 @@ class AppStrings {
       'role.feature.messaging': "సందేశాలు",
       'role.feature.nursing_notes': "నర్సింగ్ నోట్స్",
       'role.feature.nursing_roster': "నర్సింగ్ రోస్టర్",
+      'role.feature.calculators': "క్లినికల్ కాలిక్యులేటర్లు",
+      'role.feature.maternity': "ప్రసూతి & ప్రసవం",
       'role.feature.oncology': "ఆంకాలజీ",
+      'role.feature.radiation_oncology': "రేడియేషన్ ఆంకాలజీ",
+      's4.lib.realtime_status.stale':
+          "లైవ్ అప్‌డేట్‌లు ఆగిపోయాయి — డేటా పాతదిగా ఉండవచ్చు. మళ్లీ కనెక్ట్ అవుతోంది…",
+      's4.lib.realtime_status.code_blue_denied':
+          "ఈ సెషన్‌లో కోడ్ బ్లూ హెచ్చరికలు నిరోధించబడ్డాయి — అత్యవసర హెచ్చరికలు ఈ పరికరానికి రావు. ఓవర్‌హెడ్ ప్రకటనలను అనుసరించి IT కి తెలియజేయండి.",
+      's4.lib.realtime_status.beds_denied':
+          "ఈ సెషన్‌లో లైవ్ బెడ్ అప్‌డేట్‌లు నిరోధించబడ్డాయి — బెడ్ లభ్యత పాతదై ఉండవచ్చు. మాన్యువల్‌గా రిఫ్రెష్ చేసి IT కి తెలియజేయండి.",
       'role.feature.op_ai_assist': "OP AI సహాయం",
       'role.feature.op_doctor_workspace': "OP కార్యస్థలం",
       'role.feature.op_nursing_dashboard': "OP నర్సింగ్",
@@ -30071,6 +30113,8 @@ class AppStrings {
           "ప్రస్తుత పరిధిలో {total} రోగులలో మొదటి {loaded} చూపిస్తోంది.",
       's4.dynamic.patient_command_board.loaded_current':
           "ప్రస్తుత పరిధిలో {total} రోగులలో {loaded} చూపిస్తోంది.",
+      's4.dynamic.patient_command_board.last_refreshed':
+          "స్నాప్‌షాట్ {time}కు రిఫ్రెష్ అయింది",
       's4.dynamic.patient_command_board.load_next_patients':
           "తర్వాతి {count} రోగులను లోడ్ చేయండి",
       's4.dynamic.patient_command_board.hospital_id': "ఆసుపత్రి ID {id}",
@@ -30733,7 +30777,18 @@ class AppStrings {
       'logout.review_offline_work': 'ഓഫ്‌ലൈൻ ജോലി അവലോകനം ചെയ്യുക',
       'session_revocation.preserved_items':
           'പിന്നീട് റീകൺസൈൽ ചെയ്യുന്നതിനായി {count} പരിഹരിക്കാത്ത ഓഫ്‌ലൈൻ ക്ലിനിക്കൽ ഇനങ്ങൾ ഈ ഉപകരണത്തിൽ എൻക്രിപ്റ്റ് ചെയ്ത നിലയിൽ തുടരുന്നു.',
+      'role.feature.calculators': 'ക്ലിനിക്കൽ കാൽക്കുലേറ്ററുകൾ',
+      'role.feature.maternity': 'പ്രസവചികിത്സ & പ്രസവം',
       'role.feature.oncology': 'ഓങ്കോളജി',
+      'role.feature.radiation_oncology': 'റേഡിയേഷൻ ഓങ്കോളജി',
+      's4.lib.realtime_status.stale':
+          'തത്സമയ അപ്ഡേറ്റുകൾ താൽക്കാലികമായി നിർത്തി — ഡാറ്റ പഴയതാകാം. വീണ്ടും കണക്റ്റുചെയ്യുന്നു…',
+      's4.lib.realtime_status.code_blue_denied':
+          'ഈ സെഷനിൽ കോഡ് ബ്ലൂ അലേർട്ടുകൾ തടഞ്ഞിരിക്കുന്നു — അടിയന്തര അലേർട്ടുകൾ ഈ ഉപകരണത്തിൽ എത്തില്ല. ഓവർഹെഡ് അറിയിപ്പുകൾ പിന്തുടരുക, IT-യെ അറിയിക്കുക.',
+      's4.lib.realtime_status.beds_denied':
+          'ഈ സെഷനിൽ തത്സമയ ബെഡ് അപ്ഡേറ്റുകൾ തടഞ്ഞിരിക്കുന്നു — ബെഡ് ലഭ്യത പഴയതാകാം. സ്വയം പുതുക്കി IT-യെ അറിയിക്കുക.',
+      's4.dynamic.patient_command_board.last_refreshed':
+          'സ്നാപ്ഷോട്ട് {time}-ന് പുതുക്കി',
       'role.feature.ophthalmology': 'കണ്ണ് ചികിത്സ',
       'role.display.physiotherapist': 'ഫിസിയോതെറാപ്പിസ്റ്റ്',
       'role.feature.physiotherapy': 'ഫിസിയോതെറാപ്പി',

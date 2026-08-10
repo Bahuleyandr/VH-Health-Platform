@@ -69,6 +69,8 @@ void main() {
         StaffRole.fromString('PURCHASE_INCHARGE'),
         StaffRole.storesPurchaseIncharge,
       );
+      expect(StaffRole.fromString('ICU_STAFF'), StaffRole.ipStaffNurse);
+      expect(StaffRole.fromString('ICU_INCHARGE'), StaffRole.ipIncharge);
     });
 
     test('unknown role falls back to general (never null / throw)', () {
@@ -444,6 +446,96 @@ void main() {
       },
     );
 
+    test(
+      'maternity + calculators mirror the backend ip_flow clinical gate',
+      () {
+        // Backend mounts: /api/v1/maternity and /api/v1/productivity both
+        // gate on the ip_flow capability group, which does NOT include
+        // MEDICAL_SUPERINTENDENT, CNO, OP/OT/cath-lab nurses, or the
+        // admission-desk roles — those must not get a tile that 403s.
+        for (final role in [
+          StaffRole.doctor,
+          StaffRole.dutyDoctor,
+          StaffRole.nurse,
+          StaffRole.ipStaffNurse,
+          StaffRole.nursingIncharge,
+          StaffRole.ipIncharge,
+          StaffRole.admin,
+          StaffRole.superAdmin,
+        ]) {
+          expect(RoleFeatures.hasMaternity(role), isTrue, reason: '$role');
+          expect(
+            RoleFeatures.hasClinicalCalculators(role),
+            isTrue,
+            reason: '$role',
+          );
+        }
+        for (final role in [
+          StaffRole.medicalSuperintendent,
+          StaffRole.nursingSuperintendent,
+          StaffRole.opStaffNurse,
+          StaffRole.opIncharge,
+          StaffRole.otNurse,
+          StaffRole.cathLabStaff,
+          StaffRole.anaesthetist,
+          StaffRole.admissionOfficer,
+          StaffRole.ipdCounsellor,
+          StaffRole.receptionist,
+          StaffRole.general,
+        ]) {
+          expect(RoleFeatures.hasMaternity(role), isFalse, reason: '$role');
+          expect(
+            RoleFeatures.hasClinicalCalculators(role),
+            isFalse,
+            reason: '$role',
+          );
+        }
+
+        final maternityTile = RoleFeatures.getFeaturesForRole(
+          StaffRole.nurse,
+        ).singleWhere((f) => f.id == 'maternity');
+        expect(maternityTile.route, '/maternity');
+        expect(strings.lookup(maternityTile.titleKey), 'Maternity & Labour');
+        final calculatorsTile = RoleFeatures.getFeaturesForRole(
+          StaffRole.doctor,
+        ).singleWhere((f) => f.id == 'calculators');
+        expect(calculatorsTile.route, '/calculators');
+        expect(
+          strings.lookup(calculatorsTile.titleKey),
+          'Clinical Calculators',
+        );
+
+        for (final rawRole in ['ICU_STAFF', 'ICU_INCHARGE']) {
+          final role = StaffRole.fromString(rawRole);
+          final ids = RoleFeatures.getFeaturesForRole(
+            role,
+          ).map((feature) => feature.id).toSet();
+          expect(RoleFeatures.hasMaternity(role), isTrue, reason: rawRole);
+          expect(
+            RoleFeatures.hasClinicalCalculators(role),
+            isTrue,
+            reason: rawRole,
+          );
+          expect(ids, containsAll(['maternity', 'calculators']));
+        }
+      },
+    );
+
+    test('radiation oncology follows the oncology clinical-staff gate', () {
+      for (final role in StaffRole.values) {
+        expect(
+          RoleFeatures.hasRadiationOncology(role),
+          RoleFeatures.hasOncology(role),
+          reason: '$role radiation oncology gate diverged from oncology',
+        );
+      }
+      final tile = RoleFeatures.getFeaturesForRole(
+        StaffRole.medicalSuperintendent,
+      ).singleWhere((f) => f.id == 'radiation_oncology');
+      expect(tile.route, '/radiation-oncology');
+      expect(strings.lookup(tile.titleKey), 'Radiation Oncology');
+    });
+
     test('legacy appointment queue is consolidated into front office', () {
       for (final role in StaffRole.values) {
         final ids = RoleFeatures.getFeaturesForRole(
@@ -539,6 +631,21 @@ void main() {
           ids.contains('dental_charting'),
           RoleFeatures.hasDentalCharting(role),
           reason: '$role dental charting visibility drifted',
+        );
+        expect(
+          ids.contains('maternity'),
+          RoleFeatures.hasMaternity(role),
+          reason: '$role maternity visibility drifted',
+        );
+        expect(
+          ids.contains('calculators'),
+          RoleFeatures.hasClinicalCalculators(role),
+          reason: '$role clinical calculators visibility drifted',
+        );
+        expect(
+          ids.contains('radiation_oncology'),
+          RoleFeatures.hasRadiationOncology(role),
+          reason: '$role radiation oncology visibility drifted',
         );
         expect(
           ids.contains('audit_logs'),

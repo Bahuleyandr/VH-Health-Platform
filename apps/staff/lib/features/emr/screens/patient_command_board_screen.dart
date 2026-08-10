@@ -23,6 +23,16 @@ String patientCommandBoardTaskOwnerLabel(CarePathwayTaskItem task) {
 }
 
 @visibleForTesting
+String patientCommandBoardFreshnessLabel(
+  AppStrings strings,
+  String formattedTime,
+) {
+  return strings.format('s4.dynamic.patient_command_board.last_refreshed', {
+    'time': formattedTime,
+  });
+}
+
+@visibleForTesting
 String patientCommandBoardScopeLabel(Map<String, dynamic> board) {
   final scope = _patientCommandBoardRoleScope(board);
   final type = _patientCommandBoardText(scope['type']);
@@ -233,6 +243,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   Map<String, dynamic> _board = const {};
   List<Map<String, dynamic>> _rows = const [];
   bool _initialActionConsumed = false;
+  DateTime? _lastRefreshedAt;
 
   bool get _hasFocusedPatient =>
       _text(widget.initialPatientUid).isNotEmpty ||
@@ -373,6 +384,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       setState(() {
         _rows = rows;
         _board = board;
+        _lastRefreshedAt = DateTime.now();
       });
       _maybeOpenInitialAction();
     } catch (e) {
@@ -825,40 +837,97 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _ErrorView(message: _error!, onRetry: _load)
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 96),
-                children: [
-                  _buildHeader(theme),
-                  if (_hasFocusedPatient) ...[
-                    const SizedBox(height: 12),
-                    _FocusedPatientBanner(
-                      patientLabel: _focusedPatientLabel,
-                      actionLabel: _text(widget.initialAction).isEmpty
-                          ? null
-                          : _text(widget.initialAction).replaceAll('_', ' '),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  _buildFilters(theme),
-                  const SizedBox(height: 12),
-                  if (_visibleRows.isEmpty)
-                    _EmptyBoard(filter: _filter)
-                  else
-                    ..._visibleRows.map((row) => _buildRowCard(theme, row)),
-                  if (_hasMoreRows) ...[
-                    const SizedBox(height: 8),
-                    _buildLoadMoreButton(theme),
-                  ],
-                ],
-              ),
-            ),
+      body: Column(
+        children: [
+          if (_lastRefreshedAt case final refreshedAt?)
+            _buildFreshnessIndicator(refreshedAt),
+          Expanded(child: _buildBody(theme)),
+        ],
+      ),
     );
+  }
+
+  Widget _buildFreshnessIndicator(DateTime refreshedAt) {
+    final theme = Theme.of(context);
+    final formattedTime = MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(TimeOfDay.fromDateTime(refreshedAt));
+    final label = patientCommandBoardFreshnessLabel(
+      AppStrings.of(context),
+      formattedTime,
+    );
+    return Semantics(
+      container: true,
+      label: label,
+      child: ExcludeSemantics(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.schedule_outlined,
+                size: 18,
+                color: AppTheme.primaryBlue,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.primaryBlue,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(ThemeData theme) {
+    return _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+        ? _ErrorView(message: _error!, onRetry: _load)
+        : RefreshIndicator(
+            onRefresh: _load,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 96),
+              children: [
+                _buildHeader(theme),
+                if (_hasFocusedPatient) ...[
+                  const SizedBox(height: 12),
+                  _FocusedPatientBanner(
+                    patientLabel: _focusedPatientLabel,
+                    actionLabel: _text(widget.initialAction).isEmpty
+                        ? null
+                        : _text(widget.initialAction).replaceAll('_', ' '),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                _buildFilters(theme),
+                const SizedBox(height: 12),
+                if (_visibleRows.isEmpty)
+                  _EmptyBoard(filter: _filter)
+                else
+                  ..._visibleRows.map((row) => _buildRowCard(theme, row)),
+                if (_hasMoreRows) ...[
+                  const SizedBox(height: 8),
+                  _buildLoadMoreButton(theme),
+                ],
+              ],
+            ),
+          );
   }
 
   Widget _buildHeader(ThemeData theme) {

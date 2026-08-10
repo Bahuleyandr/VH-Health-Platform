@@ -544,6 +544,55 @@ void main() {
     },
   );
 
+  test(
+    'patient command board reports HTTP snapshot freshness, not socket health',
+    () {
+      final source = File(
+        'lib/features/emr/screens/patient_command_board_screen.dart',
+      ).readAsStringSync();
+
+      expect(source, isNot(contains('RealtimeStatusBanner')));
+      expect(source, contains('_lastRefreshedAt = DateTime.now();'));
+
+      for (final locale in AppStrings.supportedLocales) {
+        final copy = AppStrings.forLocale(locale).format(
+          's4.dynamic.patient_command_board.last_refreshed',
+          {'time': '09:42'},
+        );
+        expect(copy, contains('09:42'), reason: locale.languageCode);
+        expect(
+          copy,
+          isNot('s4.dynamic.patient_command_board.last_refreshed'),
+          reason: locale.languageCode,
+        );
+      }
+    },
+  );
+
+  test('bed board surfaces denial of its realtime refresh channel', () {
+    final source = File(
+      'lib/features/beds/screens/bed_board_screen.dart',
+    ).readAsStringSync();
+
+    expect(source, contains("_bedBoardRealtimeChannels = {'staff:beds'}"));
+    expect(source, contains('watchChannels: _bedBoardRealtimeChannels'));
+    expect(
+      source,
+      contains('deniedMessageKey: _bedBoardRealtimeDeniedMessageKey'),
+    );
+
+    for (final locale in AppStrings.supportedLocales) {
+      final copy = AppStrings.forLocale(
+        locale,
+      ).lookup('s4.lib.realtime_status.beds_denied');
+      expect(
+        copy,
+        isNot('s4.lib.realtime_status.beds_denied'),
+        reason: locale.languageCode,
+      );
+    }
+  });
+
   test('S4 scan screen copy stores keys with required locale entries', () {
     final files = [
       File('lib/features/bloodbank/screens/transfusion_scan_screen.dart'),

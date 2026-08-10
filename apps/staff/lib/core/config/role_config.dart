@@ -109,6 +109,7 @@ enum StaffRole {
     }
     if (const {
       'ICU_NURSE',
+      'ICU_STAFF',
       'IP_NURSE',
       'IP_STAFF',
       'IPD_NURSE',
@@ -118,6 +119,7 @@ enum StaffRole {
       return StaffRole.ipStaffNurse;
     }
     if (const {
+      'ICU_INCHARGE',
       'IPD_INCHARGE',
       'IP_NURSING_INCHARGE',
       'WARD_NURSING_INCHARGE',
@@ -802,6 +804,27 @@ class RoleFeatures {
     route: '/transplant',
     color: Color(0xFF00695C),
   );
+  static const DashboardFeature _maternity = DashboardFeature(
+    id: 'maternity',
+    titleKey: 'role.feature.maternity',
+    icon: Icons.pregnant_woman,
+    route: '/maternity',
+    color: Color(0xFFAD1457),
+  );
+  static const DashboardFeature _calculators = DashboardFeature(
+    id: 'calculators',
+    titleKey: 'role.feature.calculators',
+    icon: Icons.calculate_outlined,
+    route: '/calculators',
+    color: Color(0xFF5E35B1),
+  );
+  static const DashboardFeature _radiationOncology = DashboardFeature(
+    id: 'radiation_oncology',
+    titleKey: 'role.feature.radiation_oncology',
+    icon: Icons.radar_outlined,
+    route: '/radiation-oncology',
+    color: Color(0xFF455A64),
+  );
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
@@ -817,12 +840,15 @@ class RoleFeatures {
         _clinicalInbox,
         _clinicalAiReviewQueue,
         _opAiAssist,
+        _calculators,
         _ophthalmology,
         _transplantProgram,
         _oncology,
+        _radiationOncology,
         _strokePathway,
         _patientRecords,
         _patientCommandBoard,
+        _maternity,
         _referrals,
         _cathLab,
         _bedBoard,
@@ -861,6 +887,7 @@ class RoleFeatures {
         _dutyPreference,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _calculators,
         _edTraumaWorkbench,
         _patientRecords,
         _pharmacyOrders,
@@ -872,8 +899,10 @@ class RoleFeatures {
         _strokePathway,
         _ophthalmology,
         _oncology,
+        _radiationOncology,
         if (role == StaffRole.nurse) _cathLab,
         _patientCommandBoard,
+        _maternity,
         _referrals,
         _bedBoard,
         _wardMode,
@@ -895,12 +924,15 @@ class RoleFeatures {
         _opNursingRoster,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _calculators,
         _edTraumaWorkbench,
         _patientRecords,
         _nursingNotes,
         _handover,
         _oncology,
+        _radiationOncology,
         _patientCommandBoard,
+        _maternity,
         _referrals,
         _bedBoard,
         _wardMode,
@@ -925,6 +957,7 @@ class RoleFeatures {
         _nursingNotes,
         _handover,
         _oncology,
+        _radiationOncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -950,6 +983,7 @@ class RoleFeatures {
         _appointments,
         _ophthalmology,
         _oncology,
+        _radiationOncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -975,6 +1009,7 @@ class RoleFeatures {
         _appointments,
         _ophthalmology,
         _oncology,
+        _radiationOncology,
         _patientRecords,
         _pharmacyOrders,
         _nursingNotes,
@@ -1058,6 +1093,7 @@ class RoleFeatures {
         _transplantProgram,
         _radiology,
         _strokePathway,
+        _radiationOncology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
@@ -1086,6 +1122,7 @@ class RoleFeatures {
         _dentalCharting,
         _clinicalInbox,
         _clinicalAiReviewQueue,
+        _calculators,
         _patientRecords,
         _prescriptions,
         _pharmacyOrders,
@@ -1099,7 +1136,9 @@ class RoleFeatures {
         _transplantProgram,
         _radiology,
         _strokePathway,
+        _radiationOncology,
         _patientCommandBoard,
+        _maternity,
         _referrals,
         _bedBoard,
         _wardMode,
@@ -2343,6 +2382,34 @@ class RoleFeatures {
       _ => false,
     };
   }
+
+  /// Clinical membership of the backend `ip_flow` capability group, minus the
+  /// non-clinical admission-desk roles it also carries. `/api/v1/maternity`
+  /// and `/api/v1/productivity` both gate on that group, so tiles guarded by
+  /// this never 403 at the backend.
+  static bool _hasIpFlowClinicalAccess(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge => true,
+      _ => false,
+    };
+  }
+
+  static bool hasMaternity(StaffRole role) => _hasIpFlowClinicalAccess(role);
+
+  static bool hasClinicalCalculators(StaffRole role) =>
+      _hasIpFlowClinicalAccess(role);
+
+  /// Read-only radiation-oncology coordination board. The backend mount is
+  /// the broad clinical-staff set, so mirroring [hasOncology] keeps the tile
+  /// on oncology-adjacent roles without exceeding the backend gate.
+  static bool hasRadiationOncology(StaffRole role) => hasOncology(role);
 
   static bool hasClinicalInbox(StaffRole role) {
     return switch (role) {
