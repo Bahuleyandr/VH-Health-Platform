@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { BackendClient } from '../src/backendClient.js';
+import { BackendClient, backendTimeoutMsFromEnv, DEFAULT_BACKEND_TIMEOUT_MS } from '../src/backendClient.js';
 
 describe('BackendClient', () => {
   it('sends bearer token and API key headers', async () => {
@@ -106,5 +106,73 @@ describe('BackendClient', () => {
     expect(fetchImpl.mock.calls[1][1].headers).toMatchObject({
       authorization: 'Bearer new-jwt', 'x-api-key': 'new-key',
     });
+  });
+
+  it('passes an abort signal to every backend request', async () => {
+    const fetchImpl = jest.fn(async () => ({ ok: true, json: async () => ({ success: true, data: {} }) }));
+    const client = new BackendClient({ baseUrl: 'http://backend', fetchImpl });
+    await client.resolveDevice({});
+    await client.ingest({});
+    await client.readI09ResumeState({ gatewayRegistryId: 1, deviceRegistryId: 2 });
+    await client.ingestI09Recovery({});
+    await client.ingestColdChain({}, { deviceToken: 't' });
+    for (const call of fetchImpl.mock.calls) {
+      expect(call[1].signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it('times out a hung backend call with retriable ETIMEDOUT and no status (GW-3)', async () => {
+    // A timeout must never carry a 4xx-shaped status: the legacy drain
+    // dead-letters 4xx, so a timeout with a status would silently discard
+    // spooled vitals. Statusless ETIMEDOUT is classified backend_timeout ->
+    // retry/spool.
+    const fetchImpl = jest.fn((url, { signal }) => new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason));
+    }));
+    const client = new BackendClient({ baseUrl: 'http://backend', fetchImpl, timeoutMs: 25 });
+    const err = await client.ingest({ message: 'x' }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'ETIMEDOUT' });
+    expect('status' in err).toBe(false);
+    await expect(client.resolveDevice({})).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+    await expect(client.ingestColdChain({}, { deviceToken: 't' })).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+  });
+
+  it('normalizes undici connect/headers/body timeout codes to ETIMEDOUT', async () => {
+    for (const code of ['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']) {
+      const fetchImpl = jest.fn(async () => {
+        throw Object.assign(new TypeError('fetch failed'), { code });
+      });
+      const client = new BackendClient({ baseUrl: 'http://backend', fetchImpl });
+      await expect(client.ingest({})).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+    }
+  });
+
+  it('does not mask non-timeout network failures', async () => {
+    const fetchImpl = jest.fn(async () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    });
+    const client = new BackendClient({ baseUrl: 'http://backend', fetchImpl });
+    await expect(client.ingest({})).rejects.toMatchObject({
+      name: 'TypeError',
+      cause: { code: 'ECONNREFUSED' },
+    });
+  });
+});
+
+describe('backendTimeoutMsFromEnv', () => {
+  it('defaults when unset or blank', () => {
+    expect(backendTimeoutMsFromEnv({})).toBe(DEFAULT_BACKEND_TIMEOUT_MS);
+    expect(backendTimeoutMsFromEnv({ DEVICE_GATEWAY_BACKEND_TIMEOUT_MS: ' ' })).toBe(DEFAULT_BACKEND_TIMEOUT_MS);
+  });
+
+  it('reads a positive integer', () => {
+    expect(backendTimeoutMsFromEnv({ DEVICE_GATEWAY_BACKEND_TIMEOUT_MS: '3000' })).toBe(3000);
+  });
+
+  it('rejects non-positive or non-numeric values', () => {
+    for (const bad of ['0', '-1', 'soon', '1.5']) {
+      expect(() => backendTimeoutMsFromEnv({ DEVICE_GATEWAY_BACKEND_TIMEOUT_MS: bad }))
+        .toThrow(/positive integer/);
+    }
   });
 });
