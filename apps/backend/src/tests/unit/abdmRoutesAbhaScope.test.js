@@ -10,11 +10,21 @@ const registerABHAMock = jest.fn(async () => ({
   linked: true,
   abhaNumber: '12-3456-7890-12',
   abhaAddress: null,
+  verification_status: 'pending',
+  abha_verified_at: null,
+}));
+const verifyLinkedAbhaMock = jest.fn(async () => ({
+  linked: true,
+  abhaNumber: '12-3456-7890-12',
+  abhaAddress: null,
+  verification_status: 'verified',
+  abha_verified_at: '2026-08-10T00:00:00.000Z',
 }));
 
 jest.unstable_mockModule('../../services/abdm/abdmService.js', () => ({
   default: {
     registerABHA: registerABHAMock,
+    verifyLinkedAbha: verifyLinkedAbhaMock,
     getPatientByABHA: jest.fn(),
     getAdminStatus: jest.fn(),
     listConsentRequests: jest.fn(),
@@ -73,9 +83,60 @@ describe('ABDM ABHA route scope', () => {
       .send({ patient_uid: OTHER, abha_number: '12-3456-7890-12', abha_address: 'patient@abdm' });
 
     expect(res.status).toBe(200);
-    expect(registerABHAMock).toHaveBeenCalledWith(OTHER, '12-3456-7890-12', 'patient@abdm', {
-      tenantId: TENANT,
-    });
+    expect(registerABHAMock).toHaveBeenCalledWith(
+      OTHER, '12-3456-7890-12', 'patient@abdm',
+      expect.objectContaining({ tenantId: TENANT, actorUid: ACTOR, actorRole: 'ADMIN' }),
+    );
+  });
+
+  it('blocks broad staff from verifying ABHA for another patient UID', async () => {
+    const res = await request(buildApp('DOCTOR'))
+      .post('/abdm/my-abha/verify')
+      .send({ patient_uid: OTHER });
+
+    expect(res.status).toBe(403);
+    expect(verifyLinkedAbhaMock).not.toHaveBeenCalled();
+  });
+
+  it('passes tenant-scoped target UID for admin ABHA verification', async () => {
+    const res = await request(buildApp('ADMIN'))
+      .post('/abdm/my-abha/verify')
+      .send({ patient_uid: OTHER });
+
+    expect(res.status).toBe(200);
+    expect(verifyLinkedAbhaMock).toHaveBeenCalledWith(
+      OTHER,
+      expect.objectContaining({ tenantId: TENANT, actorUid: ACTOR, actorRole: 'ADMIN' }),
+    );
+  });
+
+  it('verifies for self from the JWT when no patient_uid is supplied', async () => {
+    const res = await request(buildApp('PATIENT'))
+      .post('/abdm/my-abha/verify')
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(verifyLinkedAbhaMock).toHaveBeenCalledWith(
+      ACTOR,
+      expect.objectContaining({ tenantId: TENANT, actorUid: ACTOR, actorRole: 'PATIENT' }),
+    );
+    expect(res.body.data.verification_status).toBe('verified');
+  });
+
+  it('records the verification write to the PHI access log', async () => {
+    await request(buildApp('PATIENT'))
+      .post('/abdm/my-abha/verify')
+      .send({});
+
+    expect(logPhiAccessMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: ACTOR,
+        patientId: ACTOR,
+        recordType: 'abha_linkage',
+        action: 'UPDATE',
+        tenantId: TENANT,
+      }),
+    );
   });
 });
 
@@ -89,9 +150,10 @@ describe('ABDM register-abha request contract', () => {
       .send({ abha_number: '12-3456-7890-12' });
 
     expect(res.status).toBe(200);
-    expect(registerABHAMock).toHaveBeenCalledWith(ACTOR, '12-3456-7890-12', undefined, {
-      tenantId: TENANT,
-    });
+    expect(registerABHAMock).toHaveBeenCalledWith(
+      ACTOR, '12-3456-7890-12', undefined,
+      expect.objectContaining({ tenantId: TENANT, actorUid: ACTOR }),
+    );
   });
 
   it('returns the linkage shape rather than the patient row', async () => {
@@ -103,6 +165,8 @@ describe('ABDM register-abha request contract', () => {
       linked: true,
       abhaNumber: '12-3456-7890-12',
       abhaAddress: null,
+      verification_status: 'pending',
+      abha_verified_at: null,
     });
     // The user row carries name/phone/tenant_id the caller never asked for.
     expect(res.body.data).not.toHaveProperty('phone');

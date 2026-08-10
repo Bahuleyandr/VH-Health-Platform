@@ -59,9 +59,13 @@ async function cleanup() {
 d('Patient-scoped ABHA status endpoint (audit F12)', () => {
   beforeAll(async () => {
     await cleanup();
+    // Verified linkage fixture (migration 653): a plain insert defaults to
+    // 'pending'; this row represents a gateway-verified link so the verified
+    // duplicate-rejection test below exercises the reshaped partial index.
     await prisma.$queryRawUnsafe(
-      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, abha_number, abha_address, updated_at)
-       VALUES ($1::uuid, $2::uuid, $3, 'F12 Linked Patient', 'PATIENT', true, $4, $5, NOW())`,
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, abha_number, abha_address,
+                          abha_verification_status, abha_verified_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'F12 Linked Patient', 'PATIENT', true, $4, $5, 'verified', NOW(), NOW())`,
       LINKED_UID, TENANT_ID, LINKED_PHONE, ABHA_NUMBER, ABHA_ADDRESS,
     );
     await prisma.$queryRawUnsafe(
@@ -94,6 +98,8 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
       linked: true,
       abhaNumber: ABHA_NUMBER,
       abhaAddress: ABHA_ADDRESS,
+      verification_status: 'verified',
+      abha_verified_at: expect.any(String),
     });
   });
 
@@ -105,6 +111,8 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
       linked: false,
       abhaNumber: null,
       abhaAddress: null,
+      verification_status: null,
+      abha_verified_at: null,
     });
   });
 
@@ -131,13 +139,16 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
     expect(linkRes.statusCode).toBe(200);
 
     // ABDM_ENABLED is unset here, so no gateway call happens — this is the
-    // credential-less path the deployment actually runs today.
+    // credential-less path the deployment actually runs today. Migration 653:
+    // a link minted without a gateway check is PENDING, never verified.
     const statusRes = await patientClient(LINK_TARGET_UID);
     expect(statusRes.statusCode).toBe(200);
     expect(statusRes.body.data).toEqual({
       linked: true,
       abhaNumber: '55-5566-6677-7788',
       abhaAddress: 'newlink@abdm',
+      verification_status: 'pending',
+      abha_verified_at: null,
     });
   });
 
@@ -153,22 +164,43 @@ d('Patient-scoped ABHA status endpoint (audit F12)', () => {
     expect(res.body.code).toBe('INVALID_ABHA_FORMAT');
   });
 
-  test('the database rejects a concurrent-equivalent ABHA spelling in the same tenant', async () => {
+  test('a PENDING claim of an equivalent spelling is allowed, but a VERIFIED one is rejected (migration 653)', async () => {
+    // Pending claim: LINKED_UID holds this number VERIFIED, yet another patient
+    // may still claim it pending — the unique slot belongs to verified links
+    // only, so an unverified claim can never lock out the rightful holder.
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET abha_number = $1 WHERE uid = $2::uuid AND tenant_id = $3::uuid`,
+      '12-3456-7890-1234',
+      DUPLICATE_TARGET_UID,
+      TENANT_ID,
+    );
+    const pendingRows = await prisma.$queryRawUnsafe(
+      'SELECT abha_number, abha_verification_status FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid',
+      DUPLICATE_TARGET_UID,
+      TENANT_ID,
+    );
+    expect(pendingRows[0]).toEqual({
+      abha_number: '12-3456-7890-1234',
+      abha_verification_status: 'pending',
+    });
+
+    // Promoting that duplicate claim to VERIFIED hits the canonical unique
+    // backstop — only one verified holder per canonical number per tenant.
     await expect(
       prisma.$executeRawUnsafe(
-        `UPDATE users SET abha_number = $1 WHERE uid = $2::uuid AND tenant_id = $3::uuid`,
-        '12-3456-7890-1234',
+        `UPDATE users SET abha_verification_status = 'verified', abha_verified_at = NOW()
+          WHERE uid = $1::uuid AND tenant_id = $2::uuid`,
         DUPLICATE_TARGET_UID,
         TENANT_ID,
       ),
     ).rejects.toThrow(/uniq_users_tenant_abha_number_canonical|duplicate key/i);
 
-    const rows = await prisma.$queryRawUnsafe(
-      'SELECT abha_number FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid',
+    // Put the fixture back so no other test becomes order-dependent.
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET abha_number = NULL WHERE uid = $1::uuid AND tenant_id = $2::uuid`,
       DUPLICATE_TARGET_UID,
       TENANT_ID,
     );
-    expect(rows[0].abha_number).toBeNull();
   });
 
   test('an anonymous caller is rejected', async () => {

@@ -117,30 +117,33 @@ d('ABDM inbound tenant binding (C-4)', () => {
        ON CONFLICT (id) DO NOTHING`,
       TENANT_B, TENANT_C,
     );
+    // Fixtures are inserted VERIFIED (migration 653): inbound callback
+    // resolution now binds to gateway-verified links only, and this suite
+    // exercises the tenant binding of resolvable links.
     // Patient B in tenant B holds the UNIQUE ABHA.
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, is_active, updated_at)
-       VALUES ($1::uuid, $2::uuid, $3, 'ABDM Patient B', 'PATIENT', $4, true, NOW())`,
+      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, abha_verification_status, abha_verified_at, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'ABDM Patient B', 'PATIENT', $4, 'verified', NOW(), true, NOW())`,
       PATIENT_B, TENANT_B, PHONE_B, ABHA_UNIQUE,
     );
     // Patient C in tenant C holds the DUPLICATE ABHA.
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, is_active, updated_at)
-       VALUES ($1::uuid, $2::uuid, $3, 'ABDM Patient C', 'PATIENT', $4, true, NOW())`,
+      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, abha_verification_status, abha_verified_at, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'ABDM Patient C', 'PATIENT', $4, 'verified', NOW(), true, NOW())`,
       PATIENT_C, TENANT_C, PHONE_C, ABHA_DUP,
     );
     // A second patient (in tenant B) ALSO holds the DUPLICATE ABHA, so ABHA_DUP
     // resolves across BOTH tenant B and tenant C → ambiguous match.
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, is_active, updated_at)
-       VALUES (gen_random_uuid(), $1::uuid, $2, 'ABDM Patient B2', 'PATIENT', $3, true, NOW())`,
+      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, abha_verification_status, abha_verified_at, is_active, updated_at)
+       VALUES (gen_random_uuid(), $1::uuid, $2, 'ABDM Patient B2', 'PATIENT', $3, 'verified', NOW(), true, NOW())`,
       TENANT_B, '+919000010b02', ABHA_DUP,
     );
     // Patient D lives in the platform DEFAULT tenant — the only population the
     // legacy default-secret (non-strict) callback path may still serve.
     await prisma.$executeRawUnsafe(
-      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, is_active, updated_at)
-       VALUES ($1::uuid, $2::uuid, $3, 'ABDM Patient D', 'PATIENT', $4, true, NOW())`,
+      `INSERT INTO users (uid, tenant_id, phone, name, role, abha_number, abha_verification_status, abha_verified_at, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, 'ABDM Patient D', 'PATIENT', $4, 'verified', NOW(), true, NOW())`,
       PATIENT_D, DEFAULT_TENANT_ID, PHONE_D, ABHA_DEFAULT,
     );
     // A prescription for patient B, explicitly IN TENANT B (a plain insert would

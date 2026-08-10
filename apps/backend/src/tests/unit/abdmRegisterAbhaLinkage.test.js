@@ -11,6 +11,7 @@ import { jest } from '@jest/globals';
 const prismaQuery = jest.fn();
 const setTenantMock = jest.fn();
 const verifyABHA = jest.fn();
+const recordClinicalAuditEventMock = jest.fn();
 
 jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
   ABDM_CONFIG: {
@@ -20,9 +21,14 @@ jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
     PURPOSES: ['CAREMGT'],
   },
 }));
+const __prismaMock = { $queryRawUnsafe: prismaQuery };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: prismaQuery },
+  default: __prismaMock,
   setTenant: setTenantMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaMock),
+}));
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordClinicalAuditEvent: recordClinicalAuditEventMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -58,6 +64,8 @@ function stubQueries({ patient = [{ uid: PATIENT_UID }], duplicate = [], updated
       phone: '+919000000001',
       abha_number: '12-3456-7890-1234',
       abha_address: null,
+      abha_verification_status: 'pending',
+      abha_verified_at: null,
       updated_at: new Date(),
     }]);
 }
@@ -78,9 +86,58 @@ describe('registerABHA — ABHA number', () => {
       linked: true,
       abhaNumber: '12-3456-7890-1234',
       abhaAddress: null,
+      verification_status: 'pending',
+      abha_verified_at: null,
     });
     // Not the raw user row — name/phone/tenant_id must not reach the client.
     expect(result).not.toHaveProperty('phone');
+  });
+
+  it('mints a PENDING link while ABDM is disabled and records the audit row in the tx', async () => {
+    stubQueries();
+
+    await abdmService.registerABHA(
+      PATIENT_UID, '12-3456-7890-1234', null, { tenantId: TENANT_ID },
+    );
+
+    // The UPDATE stamps the verification status explicitly (never 'verified'
+    // without a gateway check).
+    const [updateSql, ...updateArgs] = prismaQuery.mock.calls[2];
+    expect(updateSql).toContain('abha_verification_status = $3');
+    expect(updateArgs[2]).toBe('pending');
+    // Canonical audit row (ABHA_LINKED) written via the same-transaction helper.
+    expect(recordClinicalAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ABHA_LINKED',
+        patientUid: PATIENT_UID,
+        tenantId: TENANT_ID,
+        metadata: expect.objectContaining({
+          verification_status: 'pending',
+          gateway_verification_ran: false,
+          actor: 'self',
+        }),
+      }),
+      expect.objectContaining({ db: expect.anything() }),
+    );
+  });
+
+  it('records the admin actor when an admin links on behalf of a patient', async () => {
+    stubQueries();
+    const ADMIN_UID = 'ab100000-0000-4000-8000-0000000000ad';
+
+    await abdmService.registerABHA(
+      PATIENT_UID, '12-3456-7890-1234', null,
+      { tenantId: TENANT_ID, actorUid: ADMIN_UID, actorRole: 'ADMIN' },
+    );
+
+    expect(recordClinicalAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUid: ADMIN_UID,
+        actorRole: 'ADMIN',
+        metadata: expect.objectContaining({ actor: 'admin_patient_uid' }),
+      }),
+      expect.anything(),
+    );
   });
 
   it('rejects a number that is not 14 digits', async () => {
@@ -118,12 +175,25 @@ describe('registerABHA — ABHA number', () => {
     expect(storedNumber).toBe('12-3456-7890-1234');
   });
 
-  it('refuses a number already linked to another patient', async () => {
+  it('refuses a number already VERIFIED-linked to another patient', async () => {
     stubQueries({ duplicate: [{ uid: 'someone-else' }] });
 
     await expect(
       abdmService.registerABHA(PATIENT_UID, '12-3456-7890-1234', null, { tenantId: TENANT_ID }),
     ).rejects.toMatchObject({ code: 'ABHA_ALREADY_LINKED', statusCode: 409 });
+  });
+
+  it('only a VERIFIED link blocks — the duplicate probe excludes pending claims', async () => {
+    stubQueries();
+
+    await abdmService.registerABHA(
+      PATIENT_UID, '12-3456-7890-1234', null, { tenantId: TENANT_ID },
+    );
+
+    // Migration 653: a pending (unverified) claim by another patient must not
+    // consume the number — otherwise a squatter locks out the rightful owner.
+    const [duplicateSql] = prismaQuery.mock.calls[1];
+    expect(duplicateSql).toContain("abha_verification_status = 'verified'");
   });
 
   it('maps the database uniqueness backstop race to the same 409 contract', async () => {
@@ -221,6 +291,43 @@ describe('registerABHA — gateway verification', () => {
 
     // ABDM_CONFIG.enabled is false in this suite: linkage must still work, which
     // is what makes the patient-facing link flow honest before certification.
+    expect(verifyABHA).not.toHaveBeenCalled();
+  });
+});
+
+describe('verifyLinkedAbha — ABDM disabled', () => {
+  it('fails closed with 503 and no gateway bypass while ABDM is disabled', async () => {
+    prismaQuery.mockReset();
+    prismaQuery.mockResolvedValueOnce([{
+      uid: PATIENT_UID,
+      abha_number: '12-3456-7890-1234',
+      abha_address: null,
+      abha_verification_status: 'pending',
+      abha_verified_at: null,
+    }]);
+
+    await expect(
+      abdmService.verifyLinkedAbha(PATIENT_UID, { tenantId: TENANT_ID }),
+    ).rejects.toMatchObject({ code: 'ABDM_NOT_ENABLED', statusCode: 503 });
+    expect(verifyABHA).not.toHaveBeenCalled();
+    // No promotion UPDATE ran.
+    expect(prismaQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('still answers the idempotent no-op for an already-verified link while disabled', async () => {
+    prismaQuery.mockReset();
+    const verifiedAt = new Date('2026-08-01T00:00:00Z');
+    prismaQuery.mockResolvedValueOnce([{
+      uid: PATIENT_UID,
+      abha_number: '12-3456-7890-1234',
+      abha_address: null,
+      abha_verification_status: 'verified',
+      abha_verified_at: verifiedAt,
+    }]);
+
+    const result = await abdmService.verifyLinkedAbha(PATIENT_UID, { tenantId: TENANT_ID });
+
+    expect(result.verification_status).toBe('verified');
     expect(verifyABHA).not.toHaveBeenCalled();
   });
 });

@@ -48,6 +48,7 @@ jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn(), $executeRawUnsafe: jest.fn() },
   setTenant: jest.fn(),
+  setTenantTx: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/abdm/abdmCrypto.js', () => ({
   encryptFhirBundle: jest.fn(),
