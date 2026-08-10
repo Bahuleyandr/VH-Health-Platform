@@ -497,7 +497,8 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
             temperature, systolic_bp, heart_rate, consciousness,
-            total_score, clinical_risk, escalation_action, recorded_by, recorded_at
+            total_score, clinical_risk, escalation_action, recorded_by, recorded_at,
+            vitals_chart_id, superseded_by_id, partial_score, missing_params
      FROM news2_scores
      WHERE patient_uid = $1
      ORDER BY recorded_at DESC
