@@ -81,13 +81,13 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
     expect(queueOptions).toEqual({ strict: true });
     expect(notification).toMatchObject({
       type: 'push',
-      recipientId: RECIPIENTS[0].id,
+      recipientId: RECIPIENTS[0].uid,
       recipientPhone: RECIPIENTS[0].phone,
       tenantId: TENANT,
       channel: 'clinical_alert',
     });
     expect(deps.notificationOutbox.queue.mock.calls[1][0]).toMatchObject({
-      recipientId: RECIPIENTS[1].id,
+      recipientId: RECIPIENTS[1].uid,
     });
     for (const [queued] of deps.notificationOutbox.queue.mock.calls) {
       expect(queued.recipientId).not.toBeNull();

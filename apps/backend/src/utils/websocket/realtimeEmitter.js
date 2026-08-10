@@ -4,8 +4,9 @@
 // with the channel naming convention from channelAuth.js. Controllers/services
 // should import from here, not from wsServer directly.
 
-import prisma from '../../lib/prisma.js';
+import { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { ALL_STAFF_ROLES, ROLES } from '../roleHelpers.js';
 import { sendPushNotification } from '../notifications/sendPushNotification.js';
 import { broadcast, sendToUser } from './wsServer.js';
 
@@ -35,7 +36,13 @@ export function emitVitalAnomaly(alert) {
  * deep-link, but WS delivery is never the source of truth — dashboards
  * hydrate persisted events via GET /api/v1/resuscitation/events/recent.
  */
-export function emitCodeBlue({ patientId, bedNumber, ward, triggeredBy, reason, eventId = null }) {
+const CODE_BLUE_FCM_ROLES = [...new Set([...ALL_STAFF_ROLES, ROLES.ADMIN, 'SUPER_ADMIN'])];
+
+export function emitCodeBlue({ tenantId, patientId, bedNumber, ward, triggeredBy, reason, eventId = null }) {
+  if (!tenantId) {
+    logger.warn('emitCodeBlue skipped: tenantId is required');
+    return;
+  }
   const payload = {
     kind: 'code-blue',
     patientId: String(patientId),
@@ -47,14 +54,14 @@ export function emitCodeBlue({ patientId, bedNumber, ward, triggeredBy, reason, 
     at: new Date().toISOString(),
   };
   try {
-    broadcast('staff:code-blue', payload);
+    broadcast('staff:code-blue', payload, { tenantId });
   } catch (err) {
     logger.warn('emitCodeBlue WS failed:', err.message);
   }
   // Fan out a high-priority FCM data message to active staff devices so the
   // staff app wakes from background and shows a full-screen alert. Best-effort
   // — failures must never block WS delivery.
-  _fanOutCodeBlueFcm(payload).catch((err) =>
+  _fanOutCodeBlueFcm(payload, tenantId).catch((err) =>
     logger.warn('emitCodeBlue FCM fan-out failed:', err.message),
   );
 }
@@ -86,12 +93,38 @@ export function emitCodeStemi({ kind = 'activation-updated', tenantId, activatio
   }
 }
 
-async function _fanOutCodeBlueFcm(payload) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT device_token FROM staff_devices
-      WHERE is_active = true AND device_token IS NOT NULL`,
+async function _fanOutCodeBlueFcm(payload, tenantId) {
+  if (!tenantId) throw new Error('Code Blue FCM fan-out requires tenantId');
+  const rows = await setTenant(
+    tenantId,
+    tx => tx.$queryRawUnsafe(
+      `SELECT DISTINCT token
+         FROM (
+           SELECT u.device_token AS token
+             FROM users u
+            WHERE u.tenant_id = $1::uuid
+              AND u.is_active = TRUE
+              AND u.role = ANY($2::text[])
+              AND u.device_token IS NOT NULL
+           UNION
+           SELECT ud.fcm_token AS token
+             FROM user_devices ud
+             JOIN users u
+               ON u.tenant_id = ud.tenant_id
+              AND u.uid = ud.user_uid
+            WHERE ud.tenant_id = $1::uuid
+              AND u.is_active = TRUE
+              AND u.role = ANY($2::text[])
+              AND ud.fcm_token IS NOT NULL
+         ) AS eligible_tokens
+        WHERE BTRIM(token) <> ''
+        ORDER BY token`,
+      tenantId,
+      CODE_BLUE_FCM_ROLES,
+    ),
+    { readOnly: true },
   );
-  const tokens = rows.map((r) => r.device_token).filter(Boolean);
+  const tokens = rows.map((r) => r.token).filter(Boolean);
   if (tokens.length === 0) return;
 
   const bodyParts = [];

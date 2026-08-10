@@ -100,7 +100,7 @@ describe('runAncPreeclampsiaPostCommitCheck (BE-H2)', () => {
     const [notification, options] = deps.notificationOutbox.queue.mock.calls[0];
     expect(options).toEqual({ strict: true });
     expect(notification).toMatchObject({
-      recipientId: RECIPIENTS[0].id,
+      recipientId: RECIPIENTS[0].uid,
       recipientPhone: RECIPIENTS[0].phone,
       tenantId: TENANT,
       channel: 'clinical_alert',

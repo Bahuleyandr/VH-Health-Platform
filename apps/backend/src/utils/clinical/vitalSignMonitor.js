@@ -461,6 +461,7 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
           );
         }
         emitCodeBlue({
+          tenantId: alertPatientTenantId,
           patientId: alert.patient_id,
           bedNumber: resusEvent?.bed_snapshot || null,
           ward: resusEvent?.ward_snapshot || null,

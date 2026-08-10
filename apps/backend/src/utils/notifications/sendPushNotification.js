@@ -107,7 +107,7 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
 
       // Clean up invalid tokens from the database
       if (invalidTokens.length > 0) {
-        logger.warn(`Removing ${invalidTokens.length} invalid device tokens`);
+        logger.warn(`Removing ${invalidTokens.length} invalid FCM tokens`);
         setImmediate(async () => {
           try {
             const tenants = await prisma.$queryRawUnsafe(
@@ -119,14 +119,6 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
                     SET fcm_token = NULL
                   WHERE tenant_id = $1::uuid
                     AND fcm_token = ANY($2)`,
-                id,
-                invalidTokens
-              );
-              await tx.$queryRawUnsafe(
-                `UPDATE staff_devices
-                    SET is_active = false, device_token = NULL
-                  WHERE tenant_id = $1::uuid
-                    AND device_token = ANY($2)`,
                 id,
                 invalidTokens
               );

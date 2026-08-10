@@ -167,11 +167,11 @@ d('BE-H1 — MAR scheduling failure on a committed medication order escalates du
     // DUTY_DOCTOR preferred, doctor-tier family fallback — both subsets of
     // DOCTOR_TIERS).
     const doctorRows = await prisma.$queryRawUnsafe(
-      `SELECT id FROM users
+      `SELECT uid FROM users
         WHERE tenant_id = $1::uuid AND is_active = TRUE AND role = ANY($2::text[])`,
       TENANT, DOCTOR_TIERS,
     );
-    const doctorIds = new Set(doctorRows.map((row) => String(row.id)));
+    const doctorIds = new Set(doctorRows.map((row) => String(row.uid)));
     expect(recipientIds.every((id) => doctorIds.has(String(id)))).toBe(true);
 
     // The failure really did leave zero scheduled doses for this order.
