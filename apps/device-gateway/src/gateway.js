@@ -181,6 +181,7 @@ export class GatewayRuntime {
     this.controlIdTtlMs = controlIdTtlMs;
     this.maxControlIds = maxControlIds;
     this.legacySpools = new Map();
+    this.legacyAcceptQueues = new Map();
     this.controlIds = new Map();
     this.enrollments = enrollments.map(validateEnrollment);
     this.clockEvidenceProvider = clockEvidenceProvider;
@@ -317,6 +318,22 @@ export class GatewayRuntime {
       this.controlIds.delete(oldest);
     }
     this.controlIds.set(`${source}:${controlId}`, now + this.controlIdTtlMs);
+  }
+
+  async serializeLegacyAccept(source, operation) {
+    const previous = this.legacyAcceptQueues.get(source) || Promise.resolve();
+    let release;
+    const current = new Promise((resolve) => { release = resolve; });
+    this.legacyAcceptQueues.set(source, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.legacyAcceptQueues.get(source) === current) {
+        this.legacyAcceptQueues.delete(source);
+      }
+    }
   }
 
   async acceptFrame({ listener, sourceIp, message, channel = '' }) {
@@ -484,19 +501,21 @@ export class GatewayRuntime {
       });
     }
     const deviceKey = resolution?.device?.device_code || source;
-    if (this.hasControlId(deviceKey, meta.controlId)) return { duplicate: true };
-    // Persist first, then consume the control ID. If the append throws, the
-    // ID stays unconsumed so the device's retransmit is accepted and spooled
-    // instead of being swallowed as a duplicate of nothing.
-    const entry = await this.legacySpool(source).append({
-      message: messageText(message),
-      device_code: deviceKey,
-      patient_uid: resolution?.patient_uid || null,
-      channel,
-      control_id: meta.controlId,
+    return this.serializeLegacyAccept(source, async () => {
+      if (this.hasControlId(deviceKey, meta.controlId)) return { duplicate: true };
+      // Persist first, then consume the control ID. The per-source queue keeps
+      // this check/append/mark sequence atomic across concurrent sockets. If
+      // the append throws, the ID stays unconsumed so a retransmit is accepted.
+      const entry = await this.legacySpool(source).append({
+        message: messageText(message),
+        device_code: deviceKey,
+        patient_uid: resolution?.patient_uid || null,
+        channel,
+        control_id: meta.controlId,
+      });
+      this.markControlId(deviceKey, meta.controlId);
+      return { duplicate: false, entry };
     });
-    this.markControlId(deviceKey, meta.controlId);
-    return { duplicate: false, entry };
   }
 
   async drainLegacySource(source) {
@@ -946,7 +965,15 @@ export async function startGateway({
         socket.on('close', () => {
           mllpConnectionsActive.dec(labels);
           openSockets.delete(socket);
-          socketWork.delete(socket);
+          // A peer can disconnect while acceptFrame is still fsyncing its
+          // durable spool entry. Keep that promise visible to shutdown until
+          // it settles; deleting it here lets SIGTERM exit mid-persist.
+          const work = socketWork.get(socket);
+          if (work) {
+            work.finally(() => {
+              if (socketWork.get(socket) === work) socketWork.delete(socket);
+            });
+          }
         });
       });
       guardServer(server, `mllp:${listener.name}`);

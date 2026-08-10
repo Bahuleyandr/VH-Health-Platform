@@ -179,4 +179,41 @@ describe('graceful shutdown (GW-5)', () => {
       await closeGateway(started);
     }
   });
+
+  it('keeps disconnected socket work tracked until the durable frame path settles', async () => {
+    let releaseFrame;
+    let signalFrameStarted;
+    const frameStarted = new Promise((resolve) => { signalFrameStarted = resolve; });
+    const frameReleased = new Promise((resolve) => { releaseFrame = resolve; });
+    const acceptFrame = jest.fn(async ({ message }) => {
+      signalFrameStarted();
+      await frameReleased;
+      const id = String(message).match(/ORU\^R01\|([^|]+)\|/)[1];
+      return { ack: `MSA|AA|${id}`, ackCode: 'AA' };
+    });
+    const { started, port } = await startTestGateway(stubRuntime({ acceptFrame }));
+    const client = net.connect(port, '127.0.0.1');
+    try {
+      await new Promise((resolve) => client.once('connect', resolve));
+      client.write(frameMessage(HL7('CTRL-DISCONNECT')));
+      await frameStarted;
+      client.destroy();
+      await new Promise((resolve) => client.once('close', resolve));
+      await sleep(20);
+
+      let shutdownSettled = false;
+      const shutdown = started.shutdown({ drainTimeoutMs: 5000 })
+        .then(() => { shutdownSettled = true; });
+      await sleep(50);
+      expect(shutdownSettled).toBe(false);
+
+      releaseFrame();
+      await shutdown;
+      expect(acceptFrame).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseFrame?.();
+      client.destroy();
+      await closeGateway(started);
+    }
+  });
 });

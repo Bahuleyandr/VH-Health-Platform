@@ -61,6 +61,41 @@ describe('legacy persist-then-ACK ordering (GW-1)', () => {
     }
   });
 
+  it('serializes concurrent copies of one legacy control ID across sockets', async () => {
+    const backend = okBackend();
+    const { dir, runtime } = await tempRuntime(backend);
+    try {
+      const spool = runtime.legacySpool('MON-ICU-01');
+      const originalAppend = spool.append.bind(spool);
+      let signalFirstAppend;
+      let releaseFirstAppend;
+      const firstAppendStarted = new Promise((resolve) => { signalFirstAppend = resolve; });
+      const firstAppendReleased = new Promise((resolve) => { releaseFirstAppend = resolve; });
+      let appendCalls = 0;
+      spool.append = async (entry) => {
+        appendCalls += 1;
+        if (appendCalls === 1) {
+          signalFirstAppend();
+          await firstAppendReleased;
+        }
+        return originalAppend(entry);
+      };
+
+      const first = runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-RACE') });
+      await firstAppendStarted;
+      const second = runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-RACE') });
+      await sleep(20);
+      releaseFirstAppend();
+
+      const results = await Promise.all([first, second]);
+      expect(results.map((result) => result.duplicate).sort()).toEqual([false, true]);
+      expect(appendCalls).toBe(1);
+      expect(await spool.entries()).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('does not consume the control ID on a spool-full AR refusal', async () => {
     const backend = okBackend();
     const { dir, runtime } = await tempRuntime(backend, { maxSpoolBytes: 10 });
