@@ -6,12 +6,9 @@ name: Canonical CI
 # name is the required main-branch protection check. Feature branches remain
 # changed-file-aware; merge-queue commits deliberately run the full gate.
 #
-# The per-stack GHA-native workflows (ci-backend.yml, ci-flutter.yml,
-# ci-admin.yml, etc.) still provide precise PR diagnostics. Requiring those
-# path-filtered checks directly would strand unrelated PRs in an "Expected"
-# state, so branch protection requires only this aggregate gate. Do not add a
-# pull_request trigger here: internal PR heads already run on push, and doing
-# both would duplicate the longest CI lane for the same commit.
+# The backend shard and FHIR jobs also run for every PR so their stable contexts
+# can be required independently. This aggregate gate remains branch-diff-aware
+# and covers every stack selected by the complete branch delta.
 #
 # A failure in either this gate or a relevant per-stack workflow remains a
 # human-review stop until the disagreement is understood and fixed.
@@ -27,10 +24,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: canonical-ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   ci:
@@ -73,6 +66,9 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      - name: Install Semgrep
+        run: python -m pip install --quiet semgrep
 
       - name: Run merge gate
         run: node scripts/ci/run.mjs --install --changed-on-branch-push

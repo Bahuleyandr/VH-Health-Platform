@@ -113,6 +113,30 @@ async function ensureGitleaks() {
  * gracefully — install semgrep to get full coverage:
  *   pip install semgrep
  */
+function isCiEnvironment(env) {
+  return (
+    env.GITHUB_ACTIONS === 'true' ||
+    env.FORGEJO_ACTIONS === 'true' ||
+    /^(1|true)$/i.test(env.CI || '')
+  );
+}
+
+export function requireSemgrepAvailability(
+  available,
+  { env = process.env, log = console.log } = {},
+) {
+  if (available) return true;
+  if (isCiEnvironment(env)) {
+    throw new Error('Semgrep is required in CI but was not found on PATH');
+  }
+  log(
+    'semgrep not found — skipping focused SAST scan (not installed).\n' +
+      'Install with: pip install semgrep\n' +
+      'Then run: semgrep scan --config .semgrep.yml --sarif --output output/security/semgrep-focused.sarif',
+  );
+  return false;
+}
+
 function runSemgrepFocused() {
   // Discover semgrep: prefer a venv the CI workflow may have installed,
   // then fall back to PATH.
@@ -122,12 +146,7 @@ function runSemgrepFocused() {
   ];
   const semgrepBin = candidates.find((bin) => checkCommand(bin, ['--version']));
   if (!semgrepBin) {
-    console.log(
-      'semgrep not found — skipping focused SAST scan (not installed).\n' +
-      'Install with: pip install semgrep\n' +
-      'Then run: semgrep scan --config .semgrep.yml --sarif --output output/security/semgrep-focused.sarif',
-    );
-    return false;
+    return requireSemgrepAvailability(false);
   }
 
   mkdirSync(join(repoRoot, 'output', 'security'), { recursive: true });
