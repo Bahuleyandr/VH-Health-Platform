@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
@@ -62,6 +65,18 @@ class LogoutService {
       debugPrint('LogoutService: Firebase server session revoke failed: $e');
     }
 
+    // Unregister this device server-side so the backend stops targeting its
+    // FCM token. Must run before the VH revoke below (it authenticates with
+    // the same VH token /auth/logout invalidates) and is best-effort: on the
+    // session-revocation path the JTI is already blacklisted and this call
+    // 401s, which is why the client-side FCM token delete further down is the
+    // authoritative kill for pushes.
+    try {
+      await Future<void>.sync(_dependencies.unregisterDevice);
+    } catch (e) {
+      debugPrint('LogoutService: device unregister failed: $e');
+    }
+
     // Revoke Firebase first: both requests authenticate with the current VH
     // token, and /auth/logout invalidates that token. Reversing this order can
     // make the Firebase revocation fail with 401 even when the network is fine.
@@ -89,9 +104,18 @@ class LogoutService {
       debugPrint('LogoutService: RealtimeClient disconnect failed: $e');
     }
 
-    // 2. Cancel all local notifications
+    // 2. Kill the FCM registration, then cancel all local notifications.
+    //    Deleting the token client-side invalidates it with FCM itself, so
+    //    pushes stop even when the server-side unregister above could not run
+    //    (revoked session, offline). The next login mints a fresh token via
+    //    PushNotificationService.syncForSignedInUser.
     try {
       await Future<void>.sync(_dependencies.clearPushSignedInUser);
+      await Future<void>.sync(_dependencies.deleteFcmToken);
+    } catch (e) {
+      debugPrint('LogoutService: FCM token delete failed: $e');
+    }
+    try {
       await Future<void>.sync(_dependencies.cancelNotifications);
     } catch (e) {
       debugPrint('LogoutService: notification cancel failed: $e');
@@ -142,8 +166,17 @@ class LogoutService {
       debugPrint('LogoutService: cycle data clear failed: $e');
     }
 
-    // 8. Clear in-memory user identity. UserProvider is the single source
-    //    of truth; its backing storage keys were wiped in step 3 above.
+    // 8. Clear in-memory per-account state. The dependents roster is PHI and
+    //    its active selection feeds the X-Acting-As-Uid header on every
+    //    authenticated request — a survivor here shows the prior guardian's
+    //    dependents to the next account and 403s the new session with a stale
+    //    acting-as uid. UserProvider is the identity source of truth; its
+    //    backing storage keys were wiped in step 3 above.
+    try {
+      await Future<void>.sync(_dependencies.clearDependentsProvider);
+    } catch (e) {
+      debugPrint('LogoutService: dependents provider clear failed: $e');
+    }
     try {
       await Future<void>.sync(_dependencies.clearUserProvider);
     } catch (e) {
@@ -176,6 +209,21 @@ class LogoutService {
     );
   }
 
+  /// Shared handler for definitive session death (the 401-after-failed-refresh
+  /// logout path). Wired to [ApiClient.onSessionExpired] in main();
+  /// [redirectToLogin] is injected so this service stays router-free.
+  static void handleSessionExpired({required VoidCallback redirectToLogin}) {
+    if (UserProvider.instance?.isGuest ?? false) {
+      return;
+    }
+    // Full teardown on definitive session death (fired only after a refresh
+    // attempt fails): disconnect the realtime + WebSocket PHI channels and
+    // wipe caches, then redirect. Previously only UserProvider was cleared,
+    // leaving the realtime channels live for the prior user.
+    unawaited(logout());
+    redirectToLogin();
+  }
+
   /// Ends the VH session server-side. Returns false — never throws — when the
   /// call could not be delivered or the backend refused it, including when the
   /// patient outage gate blocks the mutation before it is sent.
@@ -187,6 +235,14 @@ class LogoutService {
       debugPrint('LogoutService: /auth/logout failed: $e');
       return false;
     }
+  }
+
+  /// Deactivates this device's registration server-side so the backend stops
+  /// sending pushes to it. Best-effort by design (see the call site).
+  static Future<void> _unregisterDevice() async {
+    final phone = await _storage.read(key: 'user_phone') ?? '';
+    if (phone.isEmpty || phone == 'guest') return;
+    await DeviceService.unregisterDevice(phone);
   }
 }
 
@@ -213,16 +269,19 @@ typedef LogoutRevokeStep = FutureOr<bool> Function();
 class LogoutServiceDependencies {
   const LogoutServiceDependencies({
     required this.revokeFirebaseSession,
+    required this.unregisterDevice,
     required this.revokeVhSession,
     required this.disconnectWebSocket,
     required this.disconnectRealtime,
     required this.clearPushSignedInUser,
+    required this.deleteFcmToken,
     required this.cancelNotifications,
     required this.clearSecureStorage,
     required this.clearApiCache,
     required this.clearDownloadedFileCache,
     required this.purgeDocumentStaging,
     required this.clearCycleTracker,
+    required this.clearDependentsProvider,
     required this.clearUserProvider,
     required this.signOutFirebase,
   });
@@ -230,6 +289,7 @@ class LogoutServiceDependencies {
   factory LogoutServiceDependencies.defaults() {
     return LogoutServiceDependencies(
       revokeFirebaseSession: FirebaseSessionService.revokeSession,
+      unregisterDevice: LogoutService._unregisterDevice,
       revokeVhSession: LogoutService._revokeVhSession,
       disconnectWebSocket: WebSocketService.instance.disconnect,
       disconnectRealtime: RealtimeClient.instance.disconnect,
@@ -240,28 +300,35 @@ class LogoutServiceDependencies {
       clearDownloadedFileCache: CacheFileUtils.clearCache,
       purgeDocumentStaging: DocStaging.purge,
       clearCycleTracker: CycleTrackerStore.clearAll,
+      clearDependentsProvider: () {
+        DependentsProvider.instance?.clear();
+      },
       clearUserProvider: () async {
         final provider = UserProvider.instance;
         if (provider != null) await provider.clear();
       },
-      // Closure (not a tear-off) so FirebaseAuth.instance is only touched
+      // Closures (not tear-offs) so the Firebase singletons are only touched
       // when logout actually runs — pure-Dart tests construct these defaults
       // without a Firebase app.
+      deleteFcmToken: () => FirebaseMessaging.instance.deleteToken(),
       signOutFirebase: () => FirebaseAuth.instance.signOut(),
     );
   }
 
   final LogoutRevokeStep revokeFirebaseSession;
+  final LogoutStep unregisterDevice;
   final LogoutRevokeStep revokeVhSession;
   final LogoutStep disconnectWebSocket;
   final LogoutStep disconnectRealtime;
   final LogoutStep clearPushSignedInUser;
+  final LogoutStep deleteFcmToken;
   final LogoutStep cancelNotifications;
   final LogoutStep clearSecureStorage;
   final LogoutStep clearApiCache;
   final LogoutStep clearDownloadedFileCache;
   final LogoutStep purgeDocumentStaging;
   final LogoutStep clearCycleTracker;
+  final LogoutStep clearDependentsProvider;
   final LogoutStep clearUserProvider;
   final LogoutStep signOutFirebase;
 }

@@ -1,13 +1,19 @@
 // lib/core/navigation/app_router.dart
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
+import 'package:vhhealth_core/services/realtime_provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/navigation/go_router_refresh_stream.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/widgets/biometric_gate.dart';
 
 // Import all your screens
 import 'package:vhhealth/features/chatbot/screens/symptom_checker_screen.dart';
@@ -76,6 +82,37 @@ class AppRouter {
     if (jwt == null || jwt.isEmpty) return false;
     final parts = jwt.split('.');
     return parts.length == 3 && parts.every((part) => part.isNotEmpty);
+  }
+
+  /// The realtime fabric is connected at cold start (main.dart) and torn down
+  /// by every logout path, but an in-process re-login never re-ran connect —
+  /// so the `session:revoked` "logged in elsewhere" kick was dead after the
+  /// first logout. Re-arm both realtime clients whenever an authenticated
+  /// navigation finds them fully disconnected (idempotent: no-ops while
+  /// connected or mid-reconnect, and both clients skip connecting without a
+  /// JWT).
+  static void _ensureRealtimeConnected(BuildContext context) {
+    if (RealtimeClient.instance.connectionState ==
+        RealtimeConnectionState.disconnected) {
+      try {
+        unawaited(context.read<RealtimeProvider>().ensureConnected());
+      } catch (_) {
+        // Provider not mounted (tests) — fall back to the client directly.
+        unawaited(RealtimeClient.instance.connect());
+      }
+    }
+    if (!WebSocketService.instance.isConnected) {
+      unawaited(WebSocketService.instance.connect());
+    }
+  }
+
+  /// Wraps a route's screen in the patient's optional biometric lock
+  /// (FL-H1 / PAT-7). No-op when the Settings toggle is off; when on, the
+  /// PHI subtree is not built (and its fetches never run) until the OS
+  /// biometric prompt grants access. BiometricGate's grace window keeps
+  /// hub → detail navigation to a single prompt.
+  static Widget _biometricGated(Widget Function(BuildContext) builder) {
+    return BiometricGate(builder: builder);
   }
 
   static String? _safeReturnTo(String? raw) {
@@ -219,6 +256,11 @@ class AppRouter {
           sessionProvider.startTracking();
         }
 
+        // Re-arm realtime for this (possibly in-process re-)login.
+        if (!isGuestSession && context.mounted) {
+          _ensureRealtimeConnected(context);
+        }
+
         // Hydrate UserProvider from storage in case this route was reached
         // without passing through the splash screen (which normally does it).
         if (userProvider != null && userProvider.phone.isEmpty) {
@@ -232,6 +274,12 @@ class AppRouter {
       if (isLoggedIn && !isAuthRoute) {
         if (sessionProvider != null && !sessionProvider.isSessionExpired) {
           sessionProvider.recordActivity();
+        }
+        // Covers logins that navigate straight to a protected route without
+        // a Firebase auth-state change re-running the /login branch above
+        // (dev login, profile-setup completion).
+        if (!isGuestSession && context.mounted) {
+          _ensureRealtimeConnected(context);
         }
       }
 
@@ -390,7 +438,8 @@ class AppRouter {
       // Patient self-service portal (Sprint 10)
       GoRoute(
         path: '/portal/bills',
-        builder: (context, state) => const BillsScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const BillsScreen()),
       ),
       GoRoute(
         path: '/portal/bills/:id',
@@ -398,13 +447,16 @@ class AppRouter {
           final id = int.tryParse(state.pathParameters['id'] ?? '');
           return id == null ? '/portal/bills' : null;
         },
-        builder: (context, state) => BillDetailScreen(
-          invoiceId: int.tryParse(state.pathParameters['id']!)!,
+        builder: (context, state) => _biometricGated(
+          (_) => BillDetailScreen(
+            invoiceId: int.tryParse(state.pathParameters['id']!)!,
+          ),
         ),
       ),
       GoRoute(
         path: '/portal/lab-results',
-        builder: (context, state) => const LabResultsScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const LabResultsScreen()),
       ),
       GoRoute(
         path: '/portal/lab-results/:id',
@@ -418,21 +470,26 @@ class AppRouter {
           final args = extra is LabResultDetailRouteArgs ? extra : null;
           final repository = args?.repository;
           if (repository != null) {
-            return LabResultDetailScreen(
-              resultId: id,
-              initialResult: args?.initialResult,
-              repository: repository,
+            return _biometricGated(
+              (_) => LabResultDetailScreen(
+                resultId: id,
+                initialResult: args?.initialResult,
+                repository: repository,
+              ),
             );
           }
-          return LabResultDetailScreen(
-            resultId: id,
-            initialResult: args?.initialResult,
+          return _biometricGated(
+            (_) => LabResultDetailScreen(
+              resultId: id,
+              initialResult: args?.initialResult,
+            ),
           );
         },
       ),
       GoRoute(
         path: '/portal/diagnostic-results',
-        builder: (context, state) => const StructuredDiagnosticResultsScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const StructuredDiagnosticResultsScreen()),
       ),
       GoRoute(
         path: '/portal/diagnostic-results/:id',
@@ -452,29 +509,36 @@ class AppRouter {
               : null;
           final repository = args?.repository;
           if (repository != null) {
-            return StructuredDiagnosticResultDetailScreen(
-              resultId: id,
-              initialResult: args?.initialResult,
-              repository: repository,
+            return _biometricGated(
+              (_) => StructuredDiagnosticResultDetailScreen(
+                resultId: id,
+                initialResult: args?.initialResult,
+                repository: repository,
+              ),
             );
           }
-          return StructuredDiagnosticResultDetailScreen(
-            resultId: id,
-            initialResult: args?.initialResult,
+          return _biometricGated(
+            (_) => StructuredDiagnosticResultDetailScreen(
+              resultId: id,
+              initialResult: args?.initialResult,
+            ),
           );
         },
       ),
       GoRoute(
         path: '/portal/referrals',
-        builder: (context, state) => const PatientReferralsScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const PatientReferralsScreen()),
       ),
       GoRoute(
         path: '/portal/lab-orders',
-        builder: (context, state) => const LabOrdersScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const LabOrdersScreen()),
       ),
       GoRoute(
         path: '/portal/discharge-summaries',
-        builder: (context, state) => const DischargeSummariesScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const DischargeSummariesScreen()),
       ),
       GoRoute(
         path: '/portal/discharge-summaries/:id',
@@ -485,22 +549,26 @@ class AppRouter {
         builder: (context, state) {
           final extra = state.extra;
           final args = extra is DischargeSummaryDetailRouteArgs ? extra : null;
-          return DischargeSummaryDetailRouteScreen(
-            summaryId: int.tryParse(state.pathParameters['id']!)!,
-            initialSummary: args?.initialSummary,
-            repository:
-                args?.repository ?? const ApiDischargeSummariesRepository(),
-            pdfOpener: args?.pdfOpener ?? openDischargeSummaryPdf,
+          return _biometricGated(
+            (_) => DischargeSummaryDetailRouteScreen(
+              summaryId: int.tryParse(state.pathParameters['id']!)!,
+              initialSummary: args?.initialSummary,
+              repository:
+                  args?.repository ?? const ApiDischargeSummariesRepository(),
+              pdfOpener: args?.pdfOpener ?? openDischargeSummaryPdf,
+            ),
           );
         },
       ),
       GoRoute(
         path: '/portal/maternity/timeline',
-        builder: (context, state) => const AncTimelineScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const AncTimelineScreen()),
       ),
       GoRoute(
         path: '/portal/tpa/claims',
-        builder: (context, state) => const TpaClaimsScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const TpaClaimsScreen()),
       ),
       GoRoute(
         path: '/portal/tpa/claims/:id',
@@ -508,13 +576,16 @@ class AppRouter {
           final id = int.tryParse(state.pathParameters['id'] ?? '');
           return id == null ? '/portal/tpa/claims' : null;
         },
-        builder: (context, state) => TpaClaimDetailScreen(
-          claimId: int.tryParse(state.pathParameters['id']!)!,
+        builder: (context, state) => _biometricGated(
+          (_) => TpaClaimDetailScreen(
+            claimId: int.tryParse(state.pathParameters['id']!)!,
+          ),
         ),
       ),
       GoRoute(
         path: '/portal/messages',
-        builder: (context, state) => const MessagesScreen(),
+        builder: (context, state) =>
+            _biometricGated((_) => const MessagesScreen()),
       ),
       GoRoute(
         path: '/portal/messages/:id',
@@ -522,8 +593,10 @@ class AppRouter {
           final id = int.tryParse(state.pathParameters['id'] ?? '');
           return id == null ? '/portal/messages' : null;
         },
-        builder: (context, state) => MessageThreadScreen(
-          threadId: int.tryParse(state.pathParameters['id']!)!,
+        builder: (context, state) => _biometricGated(
+          (_) => MessageThreadScreen(
+            threadId: int.tryParse(state.pathParameters['id']!)!,
+          ),
         ),
       ),
       GoRoute(
@@ -538,15 +611,19 @@ class AppRouter {
           final args = extra is PatientExplainerDetailRouteArgs ? extra : null;
           final repository = args?.repository;
           if (repository != null) {
-            return PatientExplainerDetailScreen(
-              reviewId: id,
-              initialExplainer: args?.initialExplainer,
-              repository: repository,
+            return _biometricGated(
+              (_) => PatientExplainerDetailScreen(
+                reviewId: id,
+                initialExplainer: args?.initialExplainer,
+                repository: repository,
+              ),
             );
           }
-          return PatientExplainerDetailScreen(
-            reviewId: id,
-            initialExplainer: args?.initialExplainer,
+          return _biometricGated(
+            (_) => PatientExplainerDetailScreen(
+              reviewId: id,
+              initialExplainer: args?.initialExplainer,
+            ),
           );
         },
       ),
@@ -562,15 +639,19 @@ class AppRouter {
           final args = extra is ConsultationNoteDetailRouteArgs ? extra : null;
           final repository = args?.repository;
           if (repository != null) {
-            return ConsultationNoteDetailScreen(
-              noteId: id,
-              initialNote: args?.initialNote,
-              repository: repository,
+            return _biometricGated(
+              (_) => ConsultationNoteDetailScreen(
+                noteId: id,
+                initialNote: args?.initialNote,
+                repository: repository,
+              ),
             );
           }
-          return ConsultationNoteDetailScreen(
-            noteId: id,
-            initialNote: args?.initialNote,
+          return _biometricGated(
+            (_) => ConsultationNoteDetailScreen(
+              noteId: id,
+              initialNote: args?.initialNote,
+            ),
           );
         },
       ),

@@ -182,17 +182,13 @@ Future<void> main() async {
         FlutterError.onError = _recordFlutterFrameworkError;
       }
 
-      // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
+      // Wire 401 handler: when any API call returns Unauthorized, redirect to
+      // login. The teardown lives in LogoutService.handleSessionExpired so the
+      // 401 logout path is testable alongside the other five.
       ApiClient.onSessionExpired = (message) {
-        if (UserProvider.instance?.isGuest ?? false) {
-          return;
-        }
-        // Full teardown on definitive session death (fired only after a refresh
-        // attempt fails): disconnect the realtime + WebSocket PHI channels and
-        // wipe caches, then redirect. Previously only UserProvider was cleared,
-        // leaving the realtime channels live for the prior user.
-        unawaited(LogoutService.logout());
-        AppRouter.router.go('/login');
+        LogoutService.handleSessionExpired(
+          redirectToLogin: () => AppRouter.router.go('/login'),
+        );
       };
 
       // Local notifications: initialize the scheduler, then sync medication

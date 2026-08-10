@@ -169,19 +169,31 @@ class ApiCacheManager {
         .replaceFirst(RegExp(r'^_'), '');
   }
 
-  static String _keyForPath(String path) {
+  static String _keyForPath(String path, {CacheProfileScope? profile}) {
     final base = _baseKeyForPath(path);
-    final actingAs = VHHttpClient.actingAsUidProvider?.call();
+    final actingAs = profile != null
+        ? profile.uid
+        : VHHttpClient.actingAsUidProvider?.call();
     if (actingAs == null || actingAs.isEmpty) return base;
     final safeUid = actingAs.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '');
     return 'as_${safeUid}__$base';
   }
 
   /// Save JSON data to cache for a given API path.
-  static Future<DateTime?> save(String path, dynamic data) async {
+  ///
+  /// Pass [profile] (captured via [CacheProfileScope.current] when the
+  /// request STARTED) for responses saved after an await: without it the
+  /// acting-as namespace is resolved at save time, so a profile switch while
+  /// the request was in flight would file profile A's PHI under profile B's
+  /// namespace and serve it back there.
+  static Future<DateTime?> save(
+    String path,
+    dynamic data, {
+    CacheProfileScope? profile,
+  }) async {
     try {
       final dir = await _getCacheDir();
-      final fileKey = _keyForPath(path);
+      final fileKey = _keyForPath(path, profile: profile);
       final file = File('$dir/$fileKey.json');
       final cachedAt = DateTime.now();
       final envelope = {'cachedAt': cachedAt.toIso8601String(), 'data': data};
@@ -200,10 +212,16 @@ class ApiCacheManager {
 
   /// Load cached data for a given API path.
   /// Returns null if no cache exists.
-  static Future<CachedData?> load(String path) async {
+  ///
+  /// [profile] pins the acting-as namespace to a request-time snapshot —
+  /// see [save].
+  static Future<CachedData?> load(
+    String path, {
+    CacheProfileScope? profile,
+  }) async {
     try {
       final dir = await _getCacheDir();
-      final key = _keyForPath(path);
+      final key = _keyForPath(path, profile: profile);
       final file = File('$dir/$key.json');
       if (!await file.exists()) return null;
 
@@ -306,6 +324,23 @@ class ApiCacheManager {
       }
     }
   }
+}
+
+/// Snapshot of the acting-as cache namespace, captured when a request starts.
+///
+/// [ApiCacheManager] keys are namespaced by the active acting-as profile.
+/// Resolving that namespace lazily at save time is a race: a guardian can
+/// switch profiles while a fetch is in flight, re-homing the response under
+/// the wrong profile's namespace. Capture the scope once at request time and
+/// pass it to every load/save belonging to that request.
+class CacheProfileScope {
+  const CacheProfileScope.uid(this.uid);
+
+  /// Resolve the currently-active acting-as uid, now.
+  CacheProfileScope.current() : uid = VHHttpClient.actingAsUidProvider?.call();
+
+  /// Null means the guardian's own (un-prefixed) namespace.
+  final String? uid;
 }
 
 /// Cached data with timestamp.

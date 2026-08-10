@@ -1,10 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
-import 'package:vhhealth/core/providers/dependents_provider.dart';
-import 'package:vhhealth/core/providers/user_provider.dart';
-import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
@@ -61,34 +56,15 @@ class LogoutButton extends StatelessWidget {
     if (confirm != true || !context.mounted) return;
 
     try {
-      // Unregister the device before clearing storage. LogoutService owns both
-      // server-session revocations so every logout path observes one combined
-      // result and preserves the required Firebase-before-VH ordering.
-      final storage = VHSecureStorage.instance;
-      final phone = await storage.read(key: 'user_phone') ?? '';
-      try {
-        await DeviceService.unregisterDevice(phone);
-      } catch (e) {
-        debugPrint('Logout cleanup: $e');
-      }
-
-      // Identity + dependents are per-account state — drop them so the next
-      // sign-in doesn't briefly flash the previous guardian's name/roster.
-      if (context.mounted) {
-        try {
-          context.read<DependentsProvider>().clear();
-          await context.read<UserProvider>().clear();
-        } catch (_) {
-          // Provider not in this subtree — ignore.
-        }
-      }
-
-      // Centralised teardown: disconnects the realtime + WebSocket PHI channels
-      // (previously MISSING from this button path), cancels local
+      // Centralised teardown: unregisters this device + deletes its FCM token,
+      // disconnects the realtime + WebSocket PHI channels, cancels local
       // notifications, revokes the VH JWT server-side, wipes secure storage +
       // API cache + downloaded-file cache (raw PHI) + plaintext cycle data,
-      // and signs out of Firebase as its final step. Single source of truth so
-      // a new teardown step added to logout can't be missed here.
+      // clears the identity + dependents providers, and signs out of Firebase
+      // as its final step. Single source of truth so a new teardown step added
+      // to logout can't be missed here — the device unregister and provider
+      // clears this button used to do itself now live inside the service so
+      // the automatic logout paths get them too.
       final outcome = await LogoutService.logout();
 
       if (context.mounted) {

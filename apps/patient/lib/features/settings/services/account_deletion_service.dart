@@ -15,9 +15,14 @@ class AccountDeletionException implements Exception {
 
 class AccountDeletionService {
   AccountDeletionService({FirebaseAuth? firebaseAuth})
-    : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance;
+    : _firebaseAuthOverride = firebaseAuth;
 
-  final FirebaseAuth _firebaseAuth;
+  final FirebaseAuth? _firebaseAuthOverride;
+
+  // Resolved lazily so constructing the service (or a test fake subclass)
+  // never touches FirebaseAuth.instance, which throws without a Firebase app.
+  FirebaseAuth get _firebaseAuth =>
+      _firebaseAuthOverride ?? FirebaseAuth.instance;
 
   Future<void> sendFreshOtp({
     required String phoneNumber,

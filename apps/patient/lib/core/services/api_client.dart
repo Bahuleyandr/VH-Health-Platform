@@ -152,6 +152,11 @@ class ApiClient {
     final cacheKey = queryParameters != null && queryParameters.isNotEmpty
         ? '${path}_${queryParameters.entries.map((e) => '${e.key}=${e.value}').join('_')}'
         : path;
+    // Pin the acting-as cache namespace to this request. The saves below run
+    // after awaits; resolving the namespace there instead would let a
+    // mid-flight profile switch file this profile's PHI under the other
+    // profile's cache.
+    final profile = CacheProfileScope.current();
 
     final controller = PatientOutageController.instance;
     if (controller.status == PatientOutageStatus.signedOut) {
@@ -170,7 +175,7 @@ class ApiClient {
       );
     }
 
-    final cached = await ApiCacheManager.load(cacheKey);
+    final cached = await ApiCacheManager.load(cacheKey, profile: profile);
 
     if (!ConnectivityService.isOnline ||
         controller.isOutage ||
@@ -208,7 +213,11 @@ class ApiClient {
           get(path, queryParameters: queryParameters, timeout: timeout)
               .then((response) async {
                 if (response.isSuccess) {
-                  await ApiCacheManager.save(cacheKey, response.data);
+                  await ApiCacheManager.save(
+                    cacheKey,
+                    response.data,
+                    profile: profile,
+                  );
                 }
                 return response;
               })
@@ -245,7 +254,11 @@ class ApiClient {
         timeout: timeout,
       );
       if (response.isSuccess) {
-        final savedAt = await ApiCacheManager.save(cacheKey, response.data);
+        final savedAt = await ApiCacheManager.save(
+          cacheKey,
+          response.data,
+          profile: profile,
+        );
         return CachedApiResponse(
           response: response,
           fromCache: false,

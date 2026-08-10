@@ -15,18 +15,23 @@ void main() {
 
       expect(calls, [
         // Both server revocations run first, with Firebase before VH because
-        // the VH logout invalidates the bearer token used by both calls.
+        // the VH logout invalidates the bearer token used by both calls; the
+        // device unregister also authenticates with that token so it must
+        // run before the VH revoke too.
         'firebase-server-revoke',
+        'device-unregister',
         'vh-server-revoke',
         'websocket',
         'realtime',
         'push-user',
+        'fcm-token',
         'notifications',
         'secure-storage',
         'api-cache',
         'file-cache',
         'doc-staging',
         'cycle-tracker',
+        'dependents',
         'user-provider',
         // Firebase sign-out MUST come last: it is what fires the router's
         // auth-state refreshListenable, and by then every other logged-in
@@ -184,6 +189,7 @@ LogoutServiceDependencies _dependencies(
       }
       return firebaseRevokeResult;
     },
+    unregisterDevice: step('device-unregister'),
     revokeVhSession: () {
       calls.add('vh-server-revoke');
       if (throwOn == 'vh-server-revoke') {
@@ -194,12 +200,14 @@ LogoutServiceDependencies _dependencies(
     disconnectWebSocket: step('websocket'),
     disconnectRealtime: step('realtime'),
     clearPushSignedInUser: step('push-user'),
+    deleteFcmToken: step('fcm-token'),
     cancelNotifications: step('notifications'),
     clearSecureStorage: step('secure-storage'),
     clearApiCache: step('api-cache'),
     clearDownloadedFileCache: step('file-cache'),
     purgeDocumentStaging: step('doc-staging'),
     clearCycleTracker: step('cycle-tracker'),
+    clearDependentsProvider: step('dependents'),
     clearUserProvider: step('user-provider'),
     signOutFirebase: step('firebase-signout'),
   );
