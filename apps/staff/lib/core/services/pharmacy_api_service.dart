@@ -212,21 +212,6 @@ class PharmacyApiService {
     });
   }
 
-  /// POST /staff/pharmacy/orders (legacy)
-  static Future<Map<String, dynamic>> updatePharmacyOrder({
-    required String phone,
-    required String orderId,
-    required String status,
-    String? notes,
-  }) async {
-    return _post('/staff/pharmacy/orders', {
-      'phone': phone,
-      'orderId': orderId,
-      'status': status,
-      'notes': ?notes,
-    });
-  }
-
   /// GET /pharmacy-orders/orders/queue — pharmacy order queue
   static Future<List<dynamic>> getPharmacyOrderQueue({String? status}) async {
     final resp = await _get(

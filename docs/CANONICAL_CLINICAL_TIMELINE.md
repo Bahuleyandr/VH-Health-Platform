@@ -169,6 +169,13 @@ Sites audited insert-once on 2026-07-14 (post-#589 adjacent-site audit):
 | `maternity/immunisationService.markScheduleUpToDate` | `clinical_notes:<review.id>:immunisation_review` | Note is born signed; `immunisation_review` is not an editable note type in `clinicalNotesService` (rejected before the admin override — pinned by `src/tests/unit/clinicalNotesUpdate.test.js`), addenda create new rows, repeat reviews insert new rows. |
 | `maternityService.recordPostnatalVisit` (maternal pair) | `maternity_postnatal_visits:<id>:mother:recorded` | Visits are point-in-time rows: POST + GET routes only, no UPDATE/DELETE path in product code. The `mother`/`infant` scope qualifiers keep the B-i dual pairs of a `'both'` visit (D7, signed 2026-07-15) on distinct per-subject keys against one detail row. |
 | `maternityService.recordPostnatalVisit` (infant pair) | `maternity_postnatal_visits:<id>:infant:recorded` | Same insert-once argument as the maternal pair; subject is the newborn's own E-3-validated identity. |
+| `icuService.createAdmission` | `icu_admissions:<id>:icu.admission_created` | Emit runs once in the tx that mints the admission id; no product path re-creates an admission row. |
+| `icuService.dischargeAdmission` | `icu_admissions:<id>:icu.discharged` | active→closed is one-way: the state guard 409s any repeat discharge, so the emit runs at most once per admission (death uses the same key family with event type `icu.death_recorded`). |
+
+ICU code-status (DNR) flips are amendable and use the fingerprint + `:tx:`
+pattern (`icu_admissions:<id>:code_status:<status>:tx:<xid8>`) with an
+effective-state no-op guard under `FOR UPDATE`, plus an append-only
+`icu_code_status_history` row per flip (migration 648).
 
 Families already on the fingerprint + `:tx:` pattern (PR #589): ANC visits,
 maternity supplements, supplement reminder preferences, fetal-kick logs,

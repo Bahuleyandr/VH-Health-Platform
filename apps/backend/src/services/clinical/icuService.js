@@ -11,6 +11,14 @@ import { scheduleMedications } from './marService.js';
 import { closeIcuDeviceAssociationsForAdmission } from './icuChartingService.js';
 import { gcsTotal, netBalance, camPositive, bundleComplete, bundlePct } from './icuComputations.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+} from './canonicalClinicalPlatformService.js';
+import {
+  assertIcuFlowsheetPlausibility,
+  assertIcuAssessmentPlausibility,
+} from '../../utils/clinical/icuPlausibility.js';
 
 function tenantOr(t) {
   return requireTenantId(t);
@@ -36,9 +44,62 @@ async function assertIcuAdmissionInTenant(tenantId, icuAdmissionId) {
 // ADMISSIONS
 // ════════════════════════════════════════════════════════════════════
 
-export async function createAdmission({ tenantId, ...body }) {
+const VALID_CODE_STATUSES = ['full_code', 'dni', 'dnr', 'dnr_dni', 'comfort_only'];
+
+// Canonical lifecycle emit — every ICU lifecycle write (admit, code-status
+// flip, discharge/death) persists the detail row plus one
+// clinical_timeline_events row and one clinical_audit_events row in the SAME
+// transaction (docs/CANONICAL_CLINICAL_TIMELINE.md; re-review CLIN-3).
+// recordCanonicalClinicalEvent with { db: tx } + a patientUid requires both
+// halves and throws (rolling the tx back) if either write fails.
+async function emitIcuLifecycleEvent(tx, {
+  tenantId,
+  admissionId,
+  patientUid,
+  eventType,
+  eventStatus,
+  actorUid = null,
+  actorRole = null,
+  summary,
+  payload = {},
+  beforeState = null,
+  afterState = null,
+  timelineKey,
+  auditKey
+}) {
+  return recordCanonicalClinicalEvent(
+    {
+      tenantId,
+      patientUid,
+      eventType,
+      eventStatus,
+      sourceTable: 'icu_admissions',
+      sourceId: String(admissionId),
+      resourceType: 'icu_admission',
+      resourceId: String(admissionId),
+      actorUid,
+      actorRole,
+      summary,
+      payload,
+      beforeState,
+      afterState,
+      tags: ['icu'],
+      timelineIdempotencyKey: timelineKey,
+      auditIdempotencyKey: auditKey
+    },
+    { db: tx }
+  );
+}
+
+export async function createAdmission({ tenantId, actorUid = null, actorRole = null, ...body }) {
   if (!body.patient_uid) throw AppError.badRequest('patient_uid required');
   if (!body.unit_code) throw AppError.badRequest('unit_code required');
+  const codeStatus = body.code_status ?? 'full_code';
+  if (!VALID_CODE_STATUSES.includes(codeStatus)) {
+    throw AppError.badRequest('invalid code_status');
+  }
+  const codeStatusWasExplicit = body.code_status !== undefined && body.code_status !== null;
+  const codeStatusActor = codeStatusWasExplicit ? actorUid : null;
 
   // E-4 — uuid columns (patient_uid, admitting_doctor_uid,
   // code_status_set_by, tenant_id) need explicit ::uuid casts. node-pg
@@ -57,39 +118,86 @@ export async function createAdmission({ tenantId, ...body }) {
        monitoring_interval_minutes, npo_from, fasting_until, pre_op_status,
        er_visit_id)
     VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10,
-            $11, $12, $13, COALESCE($14, 'full_code'), $15, $16::uuid, $17::uuid,
+            $11, $12, $13, $14, $15, $16::uuid, $17::uuid,
             $18, $19::timestamptz, $20::timestamptz, $21, $22)
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(
-    sql,
-    body.patient_uid,
-    body.admission_id || null,
-    body.unit_code,
-    body.bed_no || null,
-    body.admitting_doctor_uid || null,
-    body.admitting_doctor_name || null,
-    body.primary_diagnosis || null,
-    body.reason_for_icu || null,
-    body.apache_ii_score || null,
-    body.apache_ii_score ? new Date() : null,
-    body.sofa_score || null,
-    body.predicted_mortality_pct || null,
-    body.expected_los_days || null,
-    body.code_status || null,
-    body.code_status ? new Date() : null,
-    body.code_status_set_by || null,
-    tenantOr(tenantId),
-    // E-4 ICU monitoring + fasting fields (migration 184).
-    body.monitoring_interval_minutes ?? 60,
-    body.npo_from || null,
-    body.fasting_until || null,
-    body.pre_op_status || null,
-    // Stage 5 — nullable link back to the ER visit this ICU admission
-    // was admitted from (migration 224). Set by createAdmissionFromEr;
-    // null for direct ICU admits.
-    body.er_visit_id ? parseInt(body.er_visit_id, 10) : null
-  );
-  return unwrap(rows);
+  const tenant = tenantOr(tenantId);
+  return setTenantTx(tenant, async tx => {
+    const rows = await tx.$queryRawUnsafe(
+      sql,
+      body.patient_uid,
+      body.admission_id || null,
+      body.unit_code,
+      body.bed_no || null,
+      body.admitting_doctor_uid || null,
+      body.admitting_doctor_name || null,
+      body.primary_diagnosis || null,
+      body.reason_for_icu || null,
+      body.apache_ii_score || null,
+      body.apache_ii_score ? new Date() : null,
+      body.sofa_score || null,
+      body.predicted_mortality_pct || null,
+      body.expected_los_days || null,
+      codeStatus,
+      codeStatusWasExplicit ? new Date() : null,
+      codeStatusActor,
+      tenant,
+      // E-4 ICU monitoring + fasting fields (migration 184).
+      body.monitoring_interval_minutes ?? 60,
+      body.npo_from || null,
+      body.fasting_until || null,
+      body.pre_op_status || null,
+      // Stage 5 — nullable link back to the ER visit this ICU admission
+      // was admitted from (migration 224). Set by createAdmissionFromEr;
+      // null for direct ICU admits.
+      body.er_visit_id ? parseInt(body.er_visit_id, 10) : null
+    );
+    const row = unwrap(rows);
+    // Anchor the initial order for admissions created after migration 648.
+    // The migration backfills pre-existing admissions, but without this row a
+    // new admission's first history entry would only appear after a later
+    // flip, leaving the initial code-status order absent from its dedicated
+    // append-only ledger. The authenticated actor is authoritative; a request
+    // body cannot attribute the order to another user.
+    await tx.$queryRawUnsafe(
+      `INSERT INTO icu_code_status_history
+         (tenant_id, icu_admission_id, patient_uid, previous_code_status,
+          new_code_status, changed_by, changed_at)
+       VALUES ($1::uuid, $2, $3::uuid, NULL, $4, $5::uuid,
+               COALESCE($6::timestamptz, $7::timestamptz, NOW()))`,
+      tenant,
+      row.id,
+      row.patient_uid,
+      row.code_status,
+      row.code_status_set_by || null,
+      row.code_status_set_at || null,
+      row.admitted_at || null
+    );
+    // Insert-once fixed key: the emit runs exactly once, in the tx that
+    // mints the admission id.
+    await emitIcuLifecycleEvent(tx, {
+      tenantId: tenant,
+      admissionId: row.id,
+      patientUid: row.patient_uid,
+      eventType: 'icu.admission_created',
+      eventStatus: row.status,
+      actorUid: actorUid || body.admitting_doctor_uid || null,
+      actorRole,
+      summary: `Admitted to ICU ${row.unit_code}${row.bed_no ? ` bed ${row.bed_no}` : ''}`,
+      payload: {
+        icu_admission_id: row.id,
+        unit_code: row.unit_code,
+        bed_no: row.bed_no || null,
+        reason_for_icu: row.reason_for_icu || null,
+        code_status: row.code_status || null,
+        er_visit_id: row.er_visit_id || null
+      },
+      afterState: { status: row.status, code_status: row.code_status },
+      timelineKey: `icu_admissions:${row.id}:icu.admission_created`,
+      auditKey: `icu_admissions:${row.id}:audit:icu.admission_created`
+    });
+    return row;
+  });
 }
 
 export async function listAdmissions({ tenantId, status, unit_code, limit = 100 }) {
@@ -177,26 +285,87 @@ export async function updateMonitoringInterval({ tenantId, id, monitoring_interv
   return withNextVitalsDue(row);
 }
 
-export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set_by }) {
-  if (!['full_code', 'dni', 'dnr', 'dnr_dni', 'comfort_only'].includes(code_status)) {
+export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set_by, actorRole = null }) {
+  if (!VALID_CODE_STATUSES.includes(code_status)) {
     throw AppError.badRequest('invalid code_status');
   }
-  const sql = `
-    UPDATE icu_admissions
-    SET code_status = $1, code_status_set_at = NOW(), code_status_set_by = $2,
-        updated_at = NOW()
-    WHERE id = $3 AND tenant_id = $4::uuid
-    RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(
-    sql,
-    code_status,
-    set_by || null,
-    parseInt(id, 10),
-    tenantOr(tenantId)
-  );
-  const row = unwrap(rows);
-  if (!row) throw AppError.notFound('ICU admission not found');
-  return row;
+  const admissionId = parseInt(id, 10);
+  if (!Number.isInteger(admissionId)) throw AppError.badRequest('icu admission id must be numeric');
+  const tenant = tenantOr(tenantId);
+  return setTenantTx(tenant, async tx => {
+    const currentRows = await tx.$queryRawUnsafe(
+      `SELECT id, patient_uid, code_status FROM icu_admissions
+        WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
+      admissionId,
+      tenant
+    );
+    const current = unwrap(currentRows);
+    if (!current) throw AppError.notFound('ICU admission not found');
+
+    // Effective-state no-op guard under the FOR UPDATE lock: an exact retry
+    // returns before any write, so no duplicate history row or canonical
+    // revision is minted (docs/CANONICAL_CLINICAL_TIMELINE.md).
+    if (current.code_status === code_status) {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT * FROM icu_admissions WHERE id = $1 AND tenant_id = $2::uuid`,
+        admissionId,
+        tenant
+      );
+      return unwrap(rows);
+    }
+
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE icu_admissions
+       SET code_status = $1, code_status_set_at = NOW(), code_status_set_by = $2,
+           updated_at = NOW()
+       WHERE id = $3 AND tenant_id = $4::uuid
+       RETURNING *`,
+      code_status,
+      set_by || null,
+      admissionId,
+      tenant
+    );
+    const row = unwrap(rows);
+
+    // Append-only code-status history (migration 648) — DNR/code-status flips
+    // were previously overwritten in place with no trace of the prior order.
+    await tx.$queryRawUnsafe(
+      `INSERT INTO icu_code_status_history
+         (tenant_id, icu_admission_id, patient_uid, previous_code_status, new_code_status, changed_by)
+       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6::uuid)`,
+      tenant,
+      admissionId,
+      row.patient_uid,
+      current.code_status || null,
+      code_status,
+      set_by || null
+    );
+
+    // Code status is amendable (a DNR can be reversed and re-ordered), so the
+    // canonical key needs the tx-revision suffix — a fixed key would silently
+    // absorb the third revision of an A->B->A sequence.
+    const revision = await currentCanonicalTransactionRevision(tx);
+    await emitIcuLifecycleEvent(tx, {
+      tenantId: tenant,
+      admissionId,
+      patientUid: row.patient_uid,
+      eventType: 'icu.code_status_changed',
+      eventStatus: code_status,
+      actorUid: set_by || null,
+      actorRole,
+      summary: `ICU code status changed from ${current.code_status || 'unset'} to ${code_status}`,
+      payload: {
+        icu_admission_id: admissionId,
+        previous_code_status: current.code_status || null,
+        code_status
+      },
+      beforeState: { code_status: current.code_status || null },
+      afterState: { code_status },
+      timelineKey: `icu_admissions:${admissionId}:code_status:${code_status}:tx:${revision}`,
+      auditKey: `icu_admissions:${admissionId}:audit:code_status:${code_status}:tx:${revision}`
+    });
+    return row;
+  });
 }
 
 // Update the pre-op / fasting fields on a live ICU admission. NPO orders
@@ -247,14 +416,44 @@ export async function updateAdmissionFasting({
   return withNextVitalsDue(row);
 }
 
+const VALID_DISCHARGE_DISPOSITIONS = ['ward', 'step_down', 'home', 'expired', 'transferred_out'];
+
 export async function dischargeAdmission({
   tenantId,
   id,
   disposition,
   outcome_notes,
-  actorUid = null
+  actorUid = null,
+  actorRole = null
 }) {
-  return setTenantTx(tenantOr(tenantId), async tx => {
+  if (!VALID_DISCHARGE_DISPOSITIONS.includes(disposition)) {
+    throw AppError.badRequest(
+      `disposition must be one of ${VALID_DISCHARGE_DISPOSITIONS.join(', ')}`
+    );
+  }
+  const admissionId = parseInt(id, 10);
+  if (!Number.isInteger(admissionId)) throw AppError.badRequest('icu admission id must be numeric');
+  const tenant = tenantOr(tenantId);
+  return setTenantTx(tenant, async tx => {
+    // State guard (re-review CLIN-4): only an active admission can be
+    // discharged. Previously a repeat discharge silently re-stamped
+    // discharged_at / disposition on an already-closed admission.
+    const currentRows = await tx.$queryRawUnsafe(
+      `SELECT id, status, patient_uid FROM icu_admissions
+        WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
+      admissionId,
+      tenant
+    );
+    const current = unwrap(currentRows);
+    if (!current) throw AppError.notFound('ICU admission not found');
+    if (current.status !== 'active') {
+      throw AppError.conflict(
+        `ICU admission is already ${current.status} — only an active admission can be discharged`,
+        'ICU_ADMISSION_NOT_ACTIVE',
+        { status: current.status }
+      );
+    }
+
     const sql = `
       UPDATE icu_admissions
       SET status = CASE WHEN $1 = 'expired' THEN 'expired'
@@ -264,14 +463,14 @@ export async function dischargeAdmission({
           discharge_disposition = $1,
           outcome_notes = $2,
           updated_at = NOW()
-      WHERE id = $3 AND tenant_id = $4::uuid
+      WHERE id = $3 AND tenant_id = $4::uuid AND status = 'active'
       RETURNING *`;
     const rows = await tx.$queryRawUnsafe(
       sql,
       disposition,
       outcome_notes || null,
-      parseInt(id, 10),
-      tenantOr(tenantId)
+      admissionId,
+      tenant
     );
     const row = unwrap(rows);
     if (!row) throw AppError.notFound('ICU admission not found');
@@ -282,6 +481,31 @@ export async function dischargeAdmission({
       actorUid,
       reason: disposition === 'transferred_out' ? 'transfer' : 'discharge',
       stoppedAt: row.discharged_at
+    });
+    // Insert-once fixed key: the active->closed transition is one-way (the
+    // state guard above blocks re-discharge), so this emit runs at most once
+    // per admission. An ICU death is a distinct timeline event type.
+    await emitIcuLifecycleEvent(tx, {
+      tenantId: tenant,
+      admissionId,
+      patientUid: row.patient_uid,
+      eventType: disposition === 'expired' ? 'icu.death_recorded' : 'icu.discharged',
+      eventStatus: row.status,
+      actorUid,
+      actorRole,
+      summary: disposition === 'expired'
+        ? `Patient expired in ICU ${row.unit_code}`
+        : `Discharged from ICU ${row.unit_code} (${disposition})`,
+      payload: {
+        icu_admission_id: admissionId,
+        unit_code: row.unit_code,
+        discharge_disposition: disposition,
+        outcome_notes: outcome_notes || null
+      },
+      beforeState: { status: 'active' },
+      afterState: { status: row.status, discharge_disposition: disposition },
+      timelineKey: `icu_admissions:${admissionId}:icu.discharged`,
+      auditKey: `icu_admissions:${admissionId}:audit:icu.discharged`
     });
     return row;
   });
@@ -398,6 +622,11 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
 export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
   if (!icu_admission_id) throw AppError.badRequest('icu_admission_id required');
   const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
+
+  // Hard plausibility gate (re-review H1): vitals, vent settings, drip rates,
+  // I/O volumes, and recorded_at are bounded before anything persists.
+  // Migration 648's CHECK constraints are the DB backstop for the same bounds.
+  assertIcuFlowsheetPlausibility(body);
 
   const computed = {
     gcs_total: gcsTotal(body.gcs_eye, body.gcs_verbal, body.gcs_motor),
@@ -524,12 +753,14 @@ export async function recordAssessment({ tenantId, icu_admission_id, assessment_
     throw AppError.badRequest('invalid assessment_kind');
   }
 
+  // Hard plausibility gate (re-review H1): RASS -5..4, SOFA sub-scores 0-4,
+  // CPOT domains 0-2, recorded_at sanity window. Migration 648 mirrors these
+  // as CHECK constraints.
+  assertIcuAssessmentPlausibility(body);
+
   // RASS validation
   if (assessment_kind === 'rass') {
     if (body.rass_score == null) throw AppError.badRequest('rass_score required');
-    if (body.rass_score < -5 || body.rass_score > 4) {
-      throw AppError.badRequest('rass_score must be in [-5, 4]');
-    }
   }
 
   // CAM-ICU computed

@@ -51,7 +51,12 @@ router.post(
   requireStaffOrAdmin,
   wrap(async req => {
     const tenantId = tenantOf(req);
-    const row = await icu.createAdmission({ tenantId, ...req.body });
+    const row = await icu.createAdmission({
+      ...req.body,
+      tenantId,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role
+    });
     emitIcuBoardEvent('admitted', { admissionId: row?.id, status: row?.status, tenantId });
     return row;
   })
@@ -71,7 +76,9 @@ router.post(
     const row = await icu.createAdmissionFromEr({
       ...req.body,
       tenantId,
-      emergencyVisitId: req.params.emergencyVisitId
+      emergencyVisitId: req.params.emergencyVisitId,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('admitted', { admissionId: row?.id, status: row?.status, tenantId });
     return row;
@@ -106,7 +113,8 @@ router.patch(
       tenantId,
       id: req.params.id,
       code_status: req.body.code_status,
-      set_by: req.user?.uid
+      set_by: req.user?.uid,
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('code-status', {
       admissionId: Number(req.params.id),
@@ -159,7 +167,8 @@ router.post(
       id: req.params.id,
       disposition: req.body.disposition,
       outcome_notes: req.body.outcome_notes,
-      actorUid: req.user?.uid
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role
     });
     emitIcuBoardEvent('discharged', {
       admissionId: Number(req.params.id),

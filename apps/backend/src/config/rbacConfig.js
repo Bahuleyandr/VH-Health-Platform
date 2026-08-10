@@ -125,7 +125,6 @@ const rbacConfig = {
   // Pharmacy staff/admin lifecycle actions
   pharmacyLifecycleRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, ADMIN],
   pharmacyStaffOrderRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, ADMIN],
-  staffPharmacyRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, ADMIN],
   pharmacyStaffMedicationRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE, ADMIN],
   pharmacyAdminMedicationRoutes: [PHARMACY_INCHARGE, ADMIN],
   pharmacyStaffInventoryRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, STORES_PURCHASE_INCHARGE, ADMIN],

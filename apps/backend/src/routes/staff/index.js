@@ -4,7 +4,6 @@ import express from 'express';
 import multer from 'multer';
 import attendanceRoutes from './attendanceRoutes.js';
 import hrRoutes from './hrRoutes.js';
-import pharmacyRoutes from './pharmacyRoutes.js';
 import phoneRoutes from './phoneRoutes.js';
 import rosterBoardRoutes from './rosterBoardRoutes.js';
 import staffCarePlanRoutes from './staffCarePlanRoutes.js';
@@ -96,7 +95,10 @@ router.use('/', phoneRoutes);           // Staff phone home + query workflow
 router.use('/', staffRoutes);           // Staff management
 router.use('/attendance', attendanceRoutes);  // Attendance operations
 router.use('/hr', hrRoutes);            // HR management
-router.use('/pharmacy', pharmacyRoutes); // Pharmacy order updates
+// The legacy /staff/pharmacy mount (POST /orders) was deleted 2026-08-10:
+// it bypassed the BCMA pharmacist-verification gate + ORDER_STATUS state
+// machine and had no working client. Staff pharmacy work goes through
+// /api/v1/pharmacy/orders/* (migration 649 backstops the state machine).
 router.use('/roster-board', rosterBoardRoutes); // Central shift roster board
 router.use('/', staffCarePlanRoutes); // Staff-scoped care-plan patient surface
 router.use('/admin', staffAdminRoutes);  // Staff admin operations
