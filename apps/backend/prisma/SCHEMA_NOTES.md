@@ -106,6 +106,21 @@ _Keyed by Prisma model name. `__top_level__` holds comments outside any model._
 > is a self-reference (users → users) with ON DELETE SET NULL —
 > deleting a guardian leaves the dependent row intact, just unlinked.
 
+> ABHA verification gate (migration 653). abha_verification_status
+> ('pending' | 'verified', CHECK chk_users_abha_verification_status) +
+> abha_verified_at record whether the linked ABHA number was confirmed
+> with the ABDM gateway. 'verified' is minted only by a successful
+> gateway check (registerABHA with ABDM enabled, or
+> POST /abdm/my-abha/verify); ABDM-disabled linking and the
+> ABDM_ABHA_ALLOW_UNVERIFIED override mint 'pending'. The expression
+> index uniq_users_tenant_abha_number_canonical (migration 647, not
+> introspectable by `prisma db pull` so absent from schema.prisma) was
+> re-created in 653 with its predicate extended to
+> `AND abha_verification_status = 'verified'` — pending claims do not
+> consume the tenant-unique slot, so an unverified squat cannot lock
+> out the rightful ABHA holder. Inbound ABDM callback resolution and
+> the staff patient-by-abha lookup resolve verified links only.
+
 ## model:wards
 
 > Attendant-pass color + screening level snapshot for the IPD support
