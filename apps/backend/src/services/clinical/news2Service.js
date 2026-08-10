@@ -284,21 +284,22 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
 
 /**
  * Mark every LIVE NEWS2 score derived from a given vitals_chart row as
- * superseded by a replacement score (migration 652 — corrections re-score by
- * appending a new row, never editing the old one; the chain keeps the stale
- * reassuring score visible-but-superseded). Runs on the caller's tx so the
- * supersede stamps atomically with the replacement insert.
+ * superseded. A replacement id records the append-only successor; null is
+ * valid when a correction removed the final scorable parameter and therefore
+ * produced no replacement score. Runs on the caller's tx so retirement is
+ * atomic with the correction and optional replacement insert.
  */
 export async function supersedeNews2ForVitalsRow(vitalsChartId, replacementScoreId, { db } = {}) {
-  if (!vitalsChartId || !replacementScoreId) return 0;
+  if (!vitalsChartId) return 0;
   const client = db || prisma;
   return client.$executeRawUnsafe(
     `UPDATE news2_scores
-        SET superseded_by_id = $1::int
+        SET superseded_by_id = $1::int,
+            superseded_at = NOW()
       WHERE vitals_chart_id = $2::int
-        AND id <> $1::int
-        AND superseded_by_id IS NULL`,
-    Number(replacementScoreId),
+        AND ($1::int IS NULL OR id <> $1::int)
+        AND superseded_at IS NULL`,
+    replacementScoreId == null ? null : Number(replacementScoreId),
     Number(vitalsChartId),
   );
 }
@@ -498,7 +499,8 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
     `SELECT id, patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
             temperature, systolic_bp, heart_rate, consciousness,
             total_score, clinical_risk, escalation_action, recorded_by, recorded_at,
-            vitals_chart_id, superseded_by_id, partial_score, missing_params
+            vitals_chart_id, superseded_by_id, superseded_at,
+            partial_score, missing_params
      FROM news2_scores
      WHERE patient_uid = $1
      ORDER BY recorded_at DESC
@@ -507,7 +509,7 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
   );
 
   // Build trend from last 10 scores (oldest to newest)
-  const recentScores = rows.slice(0, 10).reverse();
+  const recentScores = rows.filter((row) => row.superseded_at == null).slice(0, 10).reverse();
   let trend = 'stable';
   if (recentScores.length >= 2) {
     const latest = recentScores[recentScores.length - 1].total_score;

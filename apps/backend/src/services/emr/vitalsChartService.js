@@ -1048,9 +1048,14 @@ export async function correctVitals(vitalsId, data) {
         consciousness: row.consciousness,
         supplemental_o2: row.supplemental_o2 || false,
       }, corrected_by, { db: tx, spo2Scale, vitalsChartId: row.id });
-      if (persisted) {
-        await news2Service.supersedeNews2ForVitalsRow(row.id, persisted.record.id, { db: tx });
-      }
+      // Always retire the score derived from the pre-correction values. If
+      // the correction removed the final scorable parameter, persistNews2
+      // correctly returns null, but the old score must not remain live.
+      await news2Service.supersedeNews2ForVitalsRow(
+        row.id,
+        persisted?.record.id ?? null,
+        { db: tx },
+      );
     }
 
     return { updated: row, news2Persisted: persisted };

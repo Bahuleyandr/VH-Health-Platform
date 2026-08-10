@@ -312,6 +312,7 @@ export async function getIcuChartView({ tenantId, icuAdmissionId, hours = 24, at
            FROM news2_scores
           WHERE tenant_id = $1::uuid
             AND patient_uid = $2::uuid
+            AND superseded_at IS NULL
             AND recorded_at BETWEEN $3::timestamptz AND $4::timestamptz
           ORDER BY recorded_at DESC`,
           tenant,

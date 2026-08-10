@@ -303,7 +303,7 @@ async function getTimelineDiagnoses(patientUid, dateFrom, dateTo, tenantId = nul
 }
 
 async function getTimelineNews2(patientUid, dateFrom, dateTo, tenantId = null) {
-  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
+  const where = withTenantScope({ patient_uid: patientUid, superseded_at: null }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.recorded_at = dateFilter;
 

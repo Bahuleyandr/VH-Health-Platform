@@ -337,6 +337,13 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
   const recordedAt = fhirObservation.effectiveDateTime || new Date().toISOString();
 
   if (value === null || value === undefined) return;
+  if (typeof value === 'string' && value.trim() === '') {
+    throw AppError.badRequest('FHIR Observation value must not be empty');
+  }
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue)) {
+    throw AppError.badRequest('FHIR Observation value must be a finite number');
+  }
 
   // Map LOINC to vitals_chart columns
   const columnMap = {
@@ -360,22 +367,48 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
   // matched row (typically a staff-charted one), with no timeline/audit
   // trail, and its INSERT branch omitted source so imports masqueraded as
   // staff-charted. Dedupe is now idempotency-only: skip when a prior
-  // 'fhir'-sourced row already carries this vital in the ±1-minute window
-  // (a re-import of the same bundle); anything else — including a
-  // staff-charted near-duplicate — gets its own new sourced row.
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM vitals_chart
-     WHERE patient_uid = $1::uuid
-       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
-       AND source = 'fhir'
-       AND ${column} IS NOT NULL
-       AND recorded_at BETWEEN $2::timestamp - INTERVAL '1 minute' AND $2::timestamp + INTERVAL '1 minute'
-     LIMIT 1`,
-    patientUid, recordedAt, tenantId
+  // 'fhir'-sourced row already carries the exact observation fingerprint;
+  // anything else — including a staff-charted near-duplicate — gets its own
+  // new sourced row. The
+  // idempotency key includes the exact observation identity and value; a
+  // time-window-only check would discard two distinct readings taken within
+  // the same minute. When no stable source timestamp/id exists we deliberately
+  // skip dedupe rather than risk losing a real clinical observation.
+  const sourceTimestamp = fhirObservation.effectiveDateTime
+    || fhirObservation.issued
+    || fhirObservation.meta?.lastUpdated
+    || null;
+  const hasStableIdentity = Boolean(
+    sourceTimestamp
+    || fhirObservation.id
+    || (Array.isArray(fhirObservation.identifier) && fhirObservation.identifier.length > 0),
   );
+  const sourceDevice = hasStableIdentity
+    ? `fhir:${crypto.createHash('sha256').update(JSON.stringify({
+        resourceId: fhirObservation.id || null,
+        identifiers: fhirObservation.identifier || null,
+        patientUid,
+        loincCode,
+        sourceTimestamp,
+        value: numericValue,
+        unit: fhirObservation.valueQuantity?.unit || fhirObservation.valueQuantity?.code || null,
+      })).digest('hex')}`
+    : null;
+
+  const existing = sourceDevice
+    ? await prisma.$queryRawUnsafe(
+        `SELECT id FROM vitals_chart
+         WHERE patient_uid = $1::uuid
+           AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+           AND source = 'fhir'
+           AND source_device = $2
+         LIMIT 1`,
+        patientUid, sourceDevice, tenantId,
+      )
+    : [];
 
   if (existing.length) {
-    logger.info(`Skipped duplicate FHIR ${column} observation for patient ${patientUid} (re-import within dedupe window)`);
+    logger.info(`Skipped duplicate FHIR ${column} observation for patient ${patientUid} (matching source fingerprint)`);
     return;
   }
 
@@ -386,10 +419,11 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
   // timestamps are legitimately old).
   const payload = {
     patient_uid: patientUid,
-    [column]: typeof value === 'number' ? value : Number(value),
+    [column]: numericValue,
     recorded_at: recordedAt,
     recorded_by: importedBy,
     source: 'fhir',
+    source_device: sourceDevice,
     ...(tenantId ? { tenant_id: tenantId } : {}),
   };
   // Temperature unit contract: canonical storage is Celsius; a Fahrenheit

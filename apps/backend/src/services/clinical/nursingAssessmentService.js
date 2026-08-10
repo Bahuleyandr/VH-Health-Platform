@@ -360,7 +360,7 @@ export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }
   return prisma.$queryRawUnsafe(
     `SELECT id, assessment_kind, assessed_at, assessed_by_name,
             total_score, band, scoring_version, recommended_actions,
-            inputs, notes, next_assessment_due_at
+            inputs, notes, next_assessment_due_at, partial_score, missing_params
        FROM nursing_assessments
       WHERE ${where}
       ORDER BY assessed_at DESC
@@ -372,7 +372,7 @@ export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }
 export async function listOverdueOrHighRisk({ tenantId, limit = 100 }) {
   return prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, admission_id, assessment_kind, total_score,
-            band, assessed_at, next_assessment_due_at,
+            band, assessed_at, next_assessment_due_at, partial_score, missing_params,
             CASE
               WHEN next_assessment_due_at IS NULL THEN 0
               ELSE EXTRACT(EPOCH FROM (NOW() - next_assessment_due_at)) / 60

@@ -184,7 +184,7 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     expect(checkVitalAnomaliesMock).not.toHaveBeenCalled();
   });
 
-  it('no supersede/escalation when the corrected row has no scorable NEWS2 parameter', async () => {
+  it('retires the stale score when the corrected row has no scorable NEWS2 parameter', async () => {
     resetAll();
     persistNews2Mock.mockResolvedValue(null);
 
@@ -195,7 +195,7 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     });
 
     expect(persistNews2Mock).toHaveBeenCalledTimes(1);
-    expect(supersedeMock).not.toHaveBeenCalled();
+    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, null, { db: __txClient });
     expect(escalateNews2Mock).not.toHaveBeenCalled();
     // Anomaly re-check still runs — it is not gated on NEWS2 scorability.
     expect(checkVitalAnomaliesMock).toHaveBeenCalledTimes(1);

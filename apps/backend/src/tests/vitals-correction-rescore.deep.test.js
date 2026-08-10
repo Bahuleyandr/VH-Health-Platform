@@ -182,4 +182,30 @@ d('R5/R4 — plausibility floors + correction re-score (real Postgres)', () => {
     );
     expect(audit).toHaveLength(1);
   });
+
+  it('R4: clearing the final scorable input retires the stale score without fabricating a zero', async () => {
+    const recorded = await recordVitals({
+      patient_uid: PATIENT,
+      recorded_by: NURSE,
+      spo2: 98,
+    });
+    const vitalsId = recorded.vitals.id;
+    const originalScoreId = recorded.news2.id;
+
+    await correctVitals(vitalsId, {
+      corrected_by: NURSE,
+      tenantId: TENANT,
+      spo2: null,
+    });
+
+    const scores = await query(
+      `SELECT id, superseded_by_id, superseded_at
+         FROM news2_scores WHERE vitals_chart_id = $1::int ORDER BY id`,
+      vitalsId,
+    );
+    expect(scores).toHaveLength(1);
+    expect(scores[0].id).toBe(originalScoreId);
+    expect(scores[0].superseded_by_id).toBeNull();
+    expect(scores[0].superseded_at).not.toBeNull();
+  });
 });

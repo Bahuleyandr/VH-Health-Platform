@@ -158,4 +158,59 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].source).toBe('fhir');
   });
+
+  it('keeps distinct FHIR readings inside one minute while deduping an exact replay', async () => {
+    const firstAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    const secondAt = new Date(firstAt.getTime() + 20 * 1000);
+
+    const first = await importFhirBundle(
+      heartRateBundle(firstAt.toISOString(), 84),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+    const secondBundle = heartRateBundle(secondAt.toISOString(), 85);
+    const second = await importFhirBundle(secondBundle, IMPORTER, { tenantId: TENANT });
+    expect(first.errors).toEqual([]);
+    expect(second.errors).toEqual([]);
+
+    const rows = await query(
+      `SELECT heart_rate, source_device
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid
+          AND recorded_at IN ($2::timestamptz, $3::timestamptz)
+        ORDER BY recorded_at`,
+      PATIENT,
+      firstAt.toISOString(),
+      secondAt.toISOString(),
+    );
+    expect(rows.map((row) => Number(row.heart_rate))).toEqual([84, 85]);
+    expect(rows.every((row) => String(row.source_device).startsWith('fhir:'))).toBe(true);
+
+    await importFhirBundle(secondBundle, IMPORTER, { tenantId: TENANT });
+    const replayRows = await query(
+      `SELECT id FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      secondAt.toISOString(),
+    );
+    expect(replayRows).toHaveLength(1);
+  });
+
+  it('rejects an empty FHIR vital instead of coercing it to a critical zero', async () => {
+    const bundle = heartRateBundle(new Date().toISOString(), 72);
+    delete bundle.entry[0].resource.valueQuantity;
+    bundle.entry[0].resource.valueString = '   ';
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result.imported).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toMatch(/must not be empty/);
+
+    const rows = await query(
+      `SELECT id FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND heart_rate = 0`,
+      PATIENT,
+    );
+    expect(rows).toHaveLength(0);
+  });
 });
