@@ -126165,26 +126165,6 @@
         ]
       }
     },
-    "/api/v1/staff/pharmacy/orders": {
-      "post": {
-        "operationId": "post_api_v1_staff_pharmacy_orders",
-        "tags": [
-          "pharmacy"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/staff/phone/home": {
       "get": {
         "operationId": "get_api_v1_staff_phone_home",
