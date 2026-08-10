@@ -7,8 +7,8 @@
 //   1. Both stores erroring ⇒ RevocationCheckUnavailableError (deny), not
 //      silent acceptance.
 //   2. A working store still answers normally (legitimate path intact).
-//   3. A clean Redis miss remains authoritative for revoke-all when only
-//      the DB errors (availability preserved when safe).
+//   3. A clean Redis miss still requires the authoritative DB check; if that
+//      check fails, revoke-all also fails closed.
 
 import { jest } from '@jest/globals';
 
@@ -110,12 +110,14 @@ describe('M2 — isUserTokensRevoked fails closed', () => {
     );
   });
 
-  test('clean Redis miss + DB error ⇒ false (Redis answer is authoritative)', async () => {
+  test('clean Redis miss + DB error ⇒ throws RevocationCheckUnavailableError', async () => {
     redisMock.cacheGet.mockResolvedValue(null);
     redisMock.isRedisConnected.mockReturnValue(true);
     prismaMock.$queryRawUnsafe.mockRejectedValue(new Error('db blip'));
 
-    await expect(isUserTokensRevoked('user-1', 1000)).resolves.toBe(false);
+    await expect(isUserTokensRevoked('user-1', 1000)).rejects.toBeInstanceOf(
+      RevocationCheckUnavailableError,
+    );
   });
 
   test('legitimate path: Redis revoked-after-iat ⇒ true', async () => {
