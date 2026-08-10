@@ -19,9 +19,13 @@
 
 import fs from "fs";
 import path from "path";
-import { NAV_ITEMS, NAV_EXCLUDED_PAGES, type NavItem } from "@/lib/navConfig";
 import {
-  ROLE_RANK,
+  isNavItemVisible,
+  NAV_ITEMS,
+  NAV_EXCLUDED_PAGES,
+  type NavItem,
+} from "@/lib/navConfig";
+import {
   policyForPath,
   roleSatisfiesPolicy,
 } from "@/lib/routePolicy";
@@ -108,26 +112,44 @@ describe("R10 — every dashboard page is reachable from the nav", () => {
 });
 
 describe("R10 — nav gating is at least as strict as ROUTE_POLICY", () => {
-  // Portal-tier probes: usePermissions normalizes every staff-tier role to
-  // one of these before the nav filter runs, plus the IT roles which pass
-  // through unchanged (relevant only to allowedRoles entries).
+  // Portal-tier probes exercise rank-based visibility. Explicit allowlists
+  // are checked separately with the canonical raw role identity.
   const PROBE_ROLES = ["STAFF", "DOCTOR", "HR", "ADMIN", "IT_ADMIN"] as const;
 
   function navShows(item: NavItem, role: string): boolean {
-    // Mirror of the visibility filter in dashboard/layout.tsx (SUPER_ADMIN
-    // short-circuit omitted — SUPER_ADMIN passes every route policy anyway).
-    if (item.allowedRoles) return item.allowedRoles.includes(role);
-    const roleOk = !item.requiredRole || role === item.requiredRole;
-    const minRoleOk =
-      !item.minRole || (ROLE_RANK[role] ?? -1) >= ROLE_RANK[item.minRole];
-    // Permission flags are per-account, not per-role; a permission-gated item
-    // can be visible to any tier that holds the flag, so treat it as visible
-    // for the strictness comparison (the route policy must still allow it for
-    // the tiers the flags model targets — ADMIN).
-    const perms = item.requiredPermissions ?? [];
-    const permsVisible = perms.length === 0 || role === "ADMIN";
-    return roleOk && minRoleOk && permsVisible;
+    return isNavItemVisible(item, {
+      rawRole: role,
+      role,
+      isSuperAdmin: false,
+      // Permission flags are per-account, not per-role. Model an ADMIN probe
+      // as holding them so route-policy strictness is still compared.
+      hasAllPermissions: () => role === "ADMIN",
+    });
   }
+
+  test("explicit allowlists use the canonical role, not the normalized tier", () => {
+    const item = NAV_ITEMS.find((candidate) => candidate.href === "/dashboard/order-set-studio");
+    expect(item).toBeDefined();
+
+    for (const rawRole of ["QUALITY_OFFICER", "PHARMACY_INCHARGE"]) {
+      expect(
+        isNavItemVisible(item!, {
+          rawRole,
+          role: "STAFF",
+          isSuperAdmin: false,
+          hasAllPermissions: () => false,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      isNavItemVisible(item!, {
+        rawRole: "STAFF",
+        role: "STAFF",
+        isSuperAdmin: false,
+        hasAllPermissions: () => false,
+      }),
+    ).toBe(false);
+  });
 
   test.each(NAV_ITEMS.map((i) => [i.href, i] as const))(
     "%s never shows to a role the middleware would bounce",

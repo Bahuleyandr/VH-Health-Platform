@@ -18,9 +18,9 @@ const DOCTOR_DOMAIN_ROLES = new Set([
 const ADMIN_DOMAIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 const IT_DOMAIN_ROLES = new Set(['IT', 'IT_ADMIN', 'IT_STAFF', 'SYSTEM_ADMIN']);
 
-function normalizePortalRole(role: AdminRole | null): AdminRole | null {
+function normalizePortalRole(role: string | null): AdminRole | null {
   if (!role) return null;
-  if (ADMIN_DOMAIN_ROLES.has(role) || IT_DOMAIN_ROLES.has(role)) return role;
+  if (ADMIN_DOMAIN_ROLES.has(role) || IT_DOMAIN_ROLES.has(role)) return role as AdminRole;
   if (HR_DOMAIN_ROLES.has(role)) return 'HR';
   if (DOCTOR_DOMAIN_ROLES.has(role)) return 'DOCTOR';
   if (role === 'HR' || role === 'DOCTOR' || role === 'STAFF') return role;
@@ -39,6 +39,7 @@ export interface UsePermissionsOptions {
 
 export interface UsePermissionsResult {
   user: AdminUser | null;
+  rawRole: string | null;
   role: AdminRole | null;
   permissions: string[];
 
@@ -67,7 +68,7 @@ export interface UsePermissionsResult {
 export function usePermissions(options?: UsePermissionsOptions): UsePermissionsResult {
   const { user, loading } = useAuth();
 
-  const rawRole = (user?.role as AdminRole | undefined) ?? null;
+  const rawRole = user?.role ? String(user.role).trim().toUpperCase() : null;
   const role = normalizePortalRole(rawRole);
 
   const permissions = useMemo<string[]>(
@@ -128,6 +129,7 @@ export function usePermissions(options?: UsePermissionsOptions): UsePermissionsR
 
   return {
     user: user ?? null,
+    rawRole,
     role,
     permissions,
     isSuperAdmin,

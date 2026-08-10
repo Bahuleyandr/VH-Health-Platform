@@ -24,6 +24,7 @@ const mockedUsePermissions = usePermissions as jest.MockedFunction<typeof usePer
 function mockPermissions(overrides: Partial<ReturnType<typeof usePermissions>>) {
   mockedUsePermissions.mockReturnValue({
     user: null,
+    rawRole: null,
     role: null,
     permissions: [],
     isSuperAdmin: false,

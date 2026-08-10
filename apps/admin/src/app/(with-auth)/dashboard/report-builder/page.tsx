@@ -29,7 +29,7 @@ interface ReportTypeConfig {
   label: string;
   endpoint: string;
   responseKey: string;
-  /** Cap for the `limit` query param (server-side validators reject more). */
+  /** Page size requested from the endpoint; enforced validators may cap it. */
   maxRows: number;
   /** Whether the endpoint accepts startDate/endDate query filters. */
   supportsDateRange: boolean;
@@ -47,13 +47,13 @@ interface ColumnDef {
  * Report type configurations
  * ======================================================================== */
 
-const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
+export const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
   users: {
     label: "Users",
     endpoint: "/admin/users",
     responseKey: "users",
-    maxRows: 500,
-    supportsDateRange: true,
+    maxRows: 100,
+    supportsDateRange: false,
     columns: [
       { key: "id", label: "ID", defaultSelected: true },
       { key: "name", label: "Name", defaultSelected: true },
@@ -72,8 +72,8 @@ const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
     label: "Appointments",
     endpoint: "/appointments/list",
     responseKey: "appointments",
-    maxRows: 500,
-    supportsDateRange: true,
+    maxRows: 100,
+    supportsDateRange: false,
     columns: [
       { key: "id", label: "ID", defaultSelected: true },
       { key: "patient_name", label: "Patient Name", defaultSelected: true },
@@ -93,7 +93,7 @@ const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
     endpoint: "/pharmacy/admin/orders",
     responseKey: "orders",
     maxRows: 500,
-    supportsDateRange: true,
+    supportsDateRange: false,
     columns: [
       { key: "id", label: "Order ID", defaultSelected: true },
       { key: "patient_name", label: "Patient Name", defaultSelected: true },
@@ -143,6 +143,32 @@ const REPORT_TYPE_OPTIONS: { value: ReportType; label: string }[] = [
   { value: "pharmacy", label: "Pharmacy Orders" },
   { value: "investigations", label: "Investigations" },
 ];
+
+export function buildReportQueryParams(
+  config: ReportTypeConfig,
+  dateFrom: string,
+  dateTo: string,
+): string {
+  const params = new URLSearchParams();
+  if (config.supportsDateRange) {
+    if (dateFrom) params.set("startDate", dateFrom);
+    if (dateTo) params.set("endDate", dateTo);
+  }
+  params.set("limit", String(config.maxRows));
+  return params.toString();
+}
+
+export function buildReportFilename(
+  reportType: ReportType,
+  config: ReportTypeConfig,
+  dateFrom: string,
+  dateTo: string,
+): string {
+  const scope = config.supportsDateRange
+    ? `${dateFrom}-to-${dateTo}`
+    : `latest-${config.maxRows}`;
+  return `${reportType}-report-${scope}.csv`;
+}
 
 /* ========================================================================
  * Helpers
@@ -213,15 +239,10 @@ export default function ReportBuilderPage() {
   }, []);
 
   // Build query params for the API call
-  const queryParams = useMemo(() => {
-    const params = new URLSearchParams();
-    if (config.supportsDateRange) {
-      if (dateFrom) params.set("startDate", dateFrom);
-      if (dateTo) params.set("endDate", dateTo);
-    }
-    params.set("limit", String(config.maxRows));
-    return params.toString();
-  }, [dateFrom, dateTo, config]);
+  const queryParams = useMemo(
+    () => buildReportQueryParams(config, dateFrom, dateTo),
+    [dateFrom, dateTo, config],
+  );
 
   // TanStack Query — only runs when generateKey is set (user clicks Generate)
   const {
@@ -279,7 +300,7 @@ export default function ReportBuilderPage() {
         accessor: (row) => cellValue(row, c.key),
       }),
     );
-    const filename = `${reportType}-report-${dateFrom}-to-${dateTo}.csv`;
+    const filename = buildReportFilename(reportType, config, dateFrom, dateTo);
     exportToCsv({ filename, columns: csvColumns, rows: reportData });
     toast.success(`Exported ${reportData.length} rows to ${filename}`);
   };
@@ -502,7 +523,9 @@ export default function ReportBuilderPage() {
               <FileTextIcon className="h-10 w-10 mb-3 opacity-40" />
               <p className="text-sm">No data found for the selected filters.</p>
               <p className="text-xs mt-1">
-                Try adjusting the date range or report type.
+                {config.supportsDateRange
+                  ? "Try adjusting the date range or report type."
+                  : "Try another report type or generate again later."}
               </p>
             </div>
           ) : (

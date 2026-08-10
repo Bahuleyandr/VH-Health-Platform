@@ -12,6 +12,7 @@
 import {
   extractSqlState,
   isGovernanceSchemaMissing,
+  isOptionalTableMissing,
 } from '../../services/security/schemaMissingGuard.js';
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
@@ -79,6 +80,51 @@ describe('M3 — schemaMissingGuard', () => {
     test('even a verified 42P01 ⇒ false in production', () => {
       process.env.NODE_ENV = 'production';
       expect(isGovernanceSchemaMissing({ code: '42P01' })).toBe(false);
+    });
+  });
+
+  describe('isOptionalTableMissing', () => {
+    beforeEach(() => {
+      process.env.NODE_ENV = 'test';
+    });
+
+    test('accepts only the exact named optional relation', () => {
+      const target = Object.assign(
+        new Error('relation "gdpr_erasure_log" does not exist'),
+        { meta: { code: '42P01' } },
+      );
+      const qualifiedTarget = Object.assign(
+        new Error('relation "public.gdpr_erasure_log" does not exist'),
+        { meta: { code: '42P01' } },
+      );
+      const unrelated = Object.assign(
+        new Error('relation "users" does not exist'),
+        { meta: { code: '42P01' } },
+      );
+
+      expect(isOptionalTableMissing(target, 'gdpr_erasure_log')).toBe(true);
+      expect(isOptionalTableMissing(qualifiedTarget, 'gdpr_erasure_log')).toBe(true);
+      expect(isOptionalTableMissing(unrelated, 'gdpr_erasure_log')).toBe(false);
+    });
+
+    test('requires both SQLSTATE 42P01 and a parseable relation identity', () => {
+      expect(
+        isOptionalTableMissing(
+          new Error('relation "user_devices" does not exist'),
+          'user_devices',
+        ),
+      ).toBe(false);
+      expect(isOptionalTableMissing({ meta: { code: '42P01' } }, 'user_devices')).toBe(false);
+    });
+
+    test('fails closed in production even for the exact optional relation', () => {
+      process.env.NODE_ENV = 'production';
+      const target = Object.assign(
+        new Error('relation "user_devices" does not exist'),
+        { meta: { code: '42P01' } },
+      );
+
+      expect(isOptionalTableMissing(target, 'user_devices')).toBe(false);
     });
   });
 });

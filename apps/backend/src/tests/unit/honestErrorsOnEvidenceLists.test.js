@@ -7,8 +7,8 @@
 // pinned by this suite:
 //
 //   * a real database error returns a real 5xx error envelope;
-//   * ONLY a verified missing-table condition (SQLSTATE 42P01 on a proper
-//     error-code field, per schemaMissingGuard.extractSqlState) returns the
+//   * ONLY a verified missing-table condition for the exact optional relation
+//     (SQLSTATE 42P01 outside production, per schemaMissingGuard) returns the
 //     honest empty result — and then with an explicit `meta.table_missing`
 //     caveat, never a silent empty list;
 //   * message-text matching ("does not exist") is NOT enough to soften a
@@ -86,8 +86,8 @@ app.use((req, _res, next) => {
 app.use('/api/v1/gdpr', gdprRoutes);
 app.use('/api/v1/devices', deviceRoutes);
 
-function missingTableError() {
-  const err = new Error('relation "some_table" does not exist');
+function missingTableError(tableName) {
+  const err = new Error(`relation "${tableName}" does not exist`);
   err.meta = { code: '42P01' };
   return err;
 }
@@ -130,8 +130,8 @@ describe('GET /gdpr/erasure-log', () => {
     expect(response.body.success).toBe(false);
   });
 
-  it('a verified 42P01 returns the honest empty result with an explicit caveat', async () => {
-    queryRawUnsafe.mockRejectedValueOnce(missingTableError());
+  it('an exact missing gdpr_erasure_log returns an explicit non-production caveat', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(missingTableError('gdpr_erasure_log'));
 
     const response = await request(app).get('/api/v1/gdpr/erasure-log');
 
@@ -140,6 +140,16 @@ describe('GET /gdpr/erasure-log', () => {
     expect(response.body.data).toEqual([]);
     expect(response.body.meta).toEqual({ table_missing: true });
     expect(response.body.message).toMatch(/does not exist yet/);
+  });
+
+  it('a 42P01 for another relation fails loudly', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(missingTableError('users'));
+
+    const response = await request(app).get('/api/v1/gdpr/erasure-log');
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body.success).toBe(false);
+    expect(response.body.data).toBeUndefined();
   });
 });
 
@@ -166,8 +176,8 @@ describe('GET /devices/admin/list', () => {
     expect(response.body.data).toBeUndefined();
   });
 
-  it('a verified 42P01 returns the honest empty result with an explicit caveat', async () => {
-    queryRawUnsafe.mockRejectedValueOnce(missingTableError());
+  it('an exact missing user_devices table returns an explicit non-production caveat', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(missingTableError('user_devices'));
 
     const response = await request(app).get('/api/v1/devices/admin/list');
 
@@ -175,6 +185,16 @@ describe('GET /devices/admin/list', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.data).toEqual([]);
     expect(response.body.meta).toEqual({ table_missing: true });
+  });
+
+  it('a 42P01 for the joined users relation fails loudly', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(missingTableError('users'));
+
+    const response = await request(app).get('/api/v1/devices/admin/list');
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body.success).toBe(false);
+    expect(response.body.data).toBeUndefined();
   });
 
   it('still refuses non-admin users', async () => {

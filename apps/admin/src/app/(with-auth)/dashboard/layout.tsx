@@ -15,8 +15,11 @@ import { useIdleTimeout } from '@/hooks/useIdleTimeout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTenant } from '@/contexts/TenantContext';
 import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
-import { ROLE_RANK } from '@/lib/routePolicy';
-import { NAV_SECTIONS, type NavItem, type NavSection } from '@/lib/navConfig';
+import {
+  isNavItemVisible,
+  NAV_SECTIONS,
+  type NavSection,
+} from '@/lib/navConfig';
 import styles from './Dashboard.module.css';
 
 function isItemActive(pathname: string, href: string) {
@@ -28,7 +31,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const { role, isSuperAdmin, hasAllPermissions } = usePermissions();
+  const { rawRole, role, isSuperAdmin, hasAllPermissions } = usePermissions();
   const { logout } = useAuth();
 
   // W5 S2: brand the chrome from the tenant's settings.branding; fall back to
@@ -44,22 +47,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useIdleTimeout(30 * 60 * 1000);
 
   const visibleSections = useMemo<NavSection[]>(() => {
-    const itemVisible = (item: NavItem) => {
-      if (isSuperAdmin) return true;
-      // An explicit role allowlist replaces the tier checks (mirrors
-      // ROUTE_POLICY `roles` entries, e.g. the clinical-AI control plane).
-      if (item.allowedRoles) return item.allowedRoles.includes(role ?? '');
-      const roleOk = !item.requiredRole || role === item.requiredRole;
-      const minRoleOk = !item.minRole || (ROLE_RANK[role ?? ''] ?? -1) >= ROLE_RANK[item.minRole];
-      const perms = item.requiredPermissions ?? [];
-      const permsOk = perms.length === 0 || hasAllPermissions(perms);
-      return roleOk && minRoleOk && permsOk;
-    };
     return NAV_SECTIONS.map((section) => ({
       ...section,
-      items: section.items.filter(itemVisible),
+      items: section.items.filter((item) =>
+        isNavItemVisible(item, {
+          rawRole,
+          role,
+          isSuperAdmin,
+          hasAllPermissions,
+        }),
+      ),
     })).filter((section) => section.items.length > 0);
-  }, [role, isSuperAdmin, hasAllPermissions]);
+  }, [rawRole, role, isSuperAdmin, hasAllPermissions]);
 
   useEffect(() => {
     setIsSidebarOpen(false);

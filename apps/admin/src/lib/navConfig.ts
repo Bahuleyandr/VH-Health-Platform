@@ -25,6 +25,7 @@
 import {
   CLINICAL_AI_CONTROL_ROLES,
   ORDER_SET_STUDIO_ROLES,
+  ROLE_RANK,
 } from '@/lib/routePolicy';
 
 export type NavItem = {
@@ -42,6 +43,27 @@ export type NavItem = {
    */
   allowedRoles?: string[];
 };
+
+export type NavVisibilityContext = {
+  rawRole: string | null;
+  role: string | null;
+  isSuperAdmin: boolean;
+  hasAllPermissions: (permissions: string[]) => boolean;
+};
+
+export function isNavItemVisible(item: NavItem, context: NavVisibilityContext): boolean {
+  if (context.isSuperAdmin) return true;
+  if (item.allowedRoles) return item.allowedRoles.includes(context.rawRole ?? '');
+
+  const roleOk = !item.requiredRole || context.role === item.requiredRole;
+  const minRoleOk =
+    !item.minRole ||
+    (ROLE_RANK[context.role ?? ''] ?? -1) >= ROLE_RANK[item.minRole];
+  const permissions = item.requiredPermissions ?? [];
+  const permissionsOk =
+    permissions.length === 0 || context.hasAllPermissions(permissions);
+  return roleOk && minRoleOk && permissionsOk;
+}
 
 export type NavSection = {
   title: string;

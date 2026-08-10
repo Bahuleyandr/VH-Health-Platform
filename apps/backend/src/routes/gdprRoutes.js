@@ -8,7 +8,7 @@ import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
 import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
 import { executeErasure, checkLegalHold } from '../services/gdpr/dataErasureService.js';
-import { extractSqlState } from '../services/security/schemaMissingGuard.js';
+import { isOptionalTableMissing } from '../services/security/schemaMissingGuard.js';
 import { success, error, relayAppError } from '../utils/responseHelper.js';
 
 const router = Router();
@@ -90,9 +90,10 @@ router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) =
   } catch (err) {
     // This log is DPDP/GDPR compliance evidence. A database fault must never
     // be presented as "no erasures happened" — only a verified missing-table
-    // condition (SQLSTATE 42P01, pre-migration deployment) may return an empty
-    // result, and then only with an explicit caveat the caller can see.
-    if (extractSqlState(err) === '42P01') {
+    // condition for this exact optional table (SQLSTATE 42P01 outside
+    // production) may return an empty result, and then only with an explicit
+    // caveat the caller can see.
+    if (isOptionalTableMissing(err, 'gdpr_erasure_log')) {
       logger.warn('GDPR erasure log table missing (42P01) — returning explicit empty result');
       return success(
         res,
