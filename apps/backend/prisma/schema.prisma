@@ -5650,6 +5650,58 @@ model feedback {
   @@index([tenant_id], map: "idx_feedback_tenant_id")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model fhir_vital_observation_receipts {
+  tenant_id                            String                                @db.Uuid
+  resource_fingerprint                 String                                @db.VarChar(69)
+  patient_uid                          String                                @db.Uuid
+  resource_id                          String?                               @db.VarChar(255)
+  observed_at                          DateTime                              @db.Timestamptz(6)
+  loinc_codes                          String[]
+  imported_at                          DateTime                              @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  patient                              users                                 @relation("fhir_vital_observation_receipt_patient", fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_receipt_patient")
+  tenants                              tenants                               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_receipt_tenant")
+  fhir_vital_observation_set_resources fhir_vital_observation_set_resources?
+
+  @@id([tenant_id, resource_fingerprint])
+  @@unique([tenant_id, patient_uid, resource_id], map: "ux_fhir_vital_observation_receipt_logical_resource")
+  @@index([tenant_id, patient_uid, observed_at(sort: Desc)], map: "idx_fhir_vital_observation_receipts_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model fhir_vital_observation_sets {
+  tenant_id                            String                                 @db.Uuid
+  set_fingerprint                      String                                 @db.VarChar(73)
+  patient_uid                          String                                 @db.Uuid
+  observed_at                          DateTime                               @db.Timestamptz(6)
+  imported_by                          String                                 @db.Uuid
+  vitals_chart_id                      Int?
+  created_at                           DateTime                               @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  fhir_vital_observation_set_resources fhir_vital_observation_set_resources[]
+  importer                             users                                  @relation("fhir_vital_observation_set_importer", fields: [tenant_id, imported_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_set_importer")
+  patient                              users                                  @relation("fhir_vital_observation_set_patient", fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_set_patient")
+  tenants                              tenants                                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_set_tenant")
+  vitals_chart                         vitals_chart?                          @relation(fields: [vitals_chart_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_set_vitals")
+
+  @@id([tenant_id, set_fingerprint])
+  @@unique([tenant_id, vitals_chart_id], map: "ux_fhir_vital_observation_set_vitals")
+  @@index([tenant_id, patient_uid, observed_at(sort: Desc)], map: "idx_fhir_vital_observation_sets_patient")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model fhir_vital_observation_set_resources {
+  tenant_id            String                          @db.Uuid
+  set_fingerprint      String                          @db.VarChar(73)
+  resource_fingerprint String                          @db.VarChar(69)
+  receipt              fhir_vital_observation_receipts @relation(fields: [tenant_id, resource_fingerprint], references: [tenant_id, resource_fingerprint], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_set_resource_receipt")
+  set                  fhir_vital_observation_sets     @relation(fields: [tenant_id, set_fingerprint], references: [tenant_id, set_fingerprint], onDelete: Cascade, onUpdate: NoAction, map: "fk_fhir_vital_observation_set_resource_set")
+
+  @@id([tenant_id, set_fingerprint, resource_fingerprint])
+  @@unique([tenant_id, resource_fingerprint], map: "ux_fhir_vital_observation_resource_owner")
+}
+
 model file_access_logs {
   id          Int      @id @default(autoincrement())
   file_id     Int?
@@ -10593,6 +10645,8 @@ model tenants {
   feedback                                             feedback[]
   feedback_nps_responses                               feedback_nps_responses[]
   feedback_nps_rollups                                 feedback_nps_rollups[]
+  fhir_vital_observation_receipts                      fhir_vital_observation_receipts[]
+  fhir_vital_observation_sets                          fhir_vital_observation_sets[]
   file_access_logs                                     file_access_logs[]
   file_deletion_log                                    file_deletion_log[]
   file_metadata                                        file_metadata[]
@@ -11599,6 +11653,9 @@ model users {
   external_recovery_operability_actions                                                                                            external_recovery_operability_actions[]
   family_members                                                                                                                   family_members[]
   feedback_nps_responses                                                                                                           feedback_nps_responses[]
+  fhir_vital_observation_receipts                                                                                                  fhir_vital_observation_receipts[]                      @relation("fhir_vital_observation_receipt_patient")
+  fhir_vital_observation_sets_as_importer                                                                                          fhir_vital_observation_sets[]                          @relation("fhir_vital_observation_set_importer")
+  fhir_vital_observation_sets_as_patient                                                                                           fhir_vital_observation_sets[]                          @relation("fhir_vital_observation_set_patient")
   full_final_settlements                                                                                                           full_final_settlements[]
   geofence_breaches_geofence_breaches_staff_idTousers                                                                              geofence_breaches[]                                    @relation("geofence_breaches_staff_idTousers")
   geofence_breaches_geofence_breaches_staff_uidTousers                                                                             geofence_breaches[]                                    @relation("geofence_breaches_staff_uidTousers")
@@ -11950,6 +12007,7 @@ model vitals_chart {
   recovery_inbox_id            String?                        @db.Uuid
   recovery_interface_family    String?                        @db.VarChar(8)
   ed_encounter_evidence        ed_encounter_evidence[]
+  fhir_vital_observation_sets  fhir_vital_observation_sets[]
   icu_device_observation_links icu_device_observation_links[]
   news2_scores                 news2_scores[]
   resuscitation_device_links   resuscitation_device_links[]
