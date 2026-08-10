@@ -16,6 +16,10 @@ on:
       - 'packages/vhhealth_core/lib/services/clinical_continuity_action_gate.dart'
       - 'packages/vhhealth_core/lib/services/clinical_continuity_verifier.dart'
       - 'packages/vhhealth_core/lib/services/offline_action_ids.dart'
+      # CORE-1: the Dart client's spec copy must never drift from the backend
+      # canonical — check-core-spec-sync.mjs runs in this workflow, so a direct
+      # edit to the copy must also fire it.
+      - 'packages/vhhealth_core/swagger/openapi.json'
       - '.github/workflows/ci-backend.yml'
       - '.github/workflows/_reusable-backend-lint-test.yml'
       - '.github/workflows/_reusable-backend-fhir.yml'
@@ -34,6 +38,10 @@ on:
       - 'packages/vhhealth_core/lib/services/clinical_continuity_action_gate.dart'
       - 'packages/vhhealth_core/lib/services/clinical_continuity_verifier.dart'
       - 'packages/vhhealth_core/lib/services/offline_action_ids.dart'
+      # CORE-1: the Dart client's spec copy must never drift from the backend
+      # canonical — check-core-spec-sync.mjs runs in this workflow, so a direct
+      # edit to the copy must also fire it.
+      - 'packages/vhhealth_core/swagger/openapi.json'
       - '.github/workflows/ci-backend.yml'
       - '.github/workflows/_reusable-backend-lint-test.yml'
       - '.github/workflows/_reusable-backend-fhir.yml'
