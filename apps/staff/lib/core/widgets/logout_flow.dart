@@ -25,6 +25,14 @@ void stopStaffRealtimePollers(BuildContext context) {
   } catch (_) {}
 }
 
+T? _readProvider<T>(BuildContext context) {
+  try {
+    return context.read<T>();
+  } catch (_) {
+    return null;
+  }
+}
+
 typedef StaffLogoutOperation = Future<StaffLogoutResult> Function();
 typedef StaffSyncStatusOpener = Future<void> Function(BuildContext context);
 typedef ForcedSessionCleanup = Future<int> Function();
@@ -100,7 +108,15 @@ class LogoutFlow {
     );
     if (confirmed != true || !context.mounted) return false;
 
+    final timeoutProvider = _readProvider<SessionTimeoutProvider>(context);
+    final messageProvider = _readProvider<MessageUnreadProvider>(context);
+    final clinicalProvider = _readProvider<ClinicalInboxProvider>(context);
     final result = await (logoutOperation ?? AuthService.logout)();
+    if (result.isSignedOut) {
+      timeoutProvider?.stopTracking();
+      messageProvider?.stop();
+      clinicalProvider?.stop();
+    }
     if (!context.mounted) return result.isSignedOut;
 
     if (result.isBlocked) {
@@ -128,12 +144,6 @@ class LogoutFlow {
       return false;
     }
 
-    context.read<SessionTimeoutProvider>().stopTracking();
-    // The WebSocket itself is torn down inside AuthService.logout's local
-    // cleanup; also stop the poll-timer providers that would otherwise keep
-    // firing (and surfacing message content) on the login screen.
-    stopStaffRealtimePollers(context);
-    if (!context.mounted) return true;
     final messenger = result.serverRevocationFailed
         ? ScaffoldMessenger.maybeOf(context)
         : null;

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_staff/core/providers/message_unread_provider.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth_staff/core/services/auth_service.dart';
 import 'package:vhhealth_staff/core/widgets/logout_flow.dart';
@@ -194,6 +195,63 @@ void main() {
     expect(timeout.isTracking, isFalse);
     expect(find.text('Login destination'), findsOneWidget);
   });
+
+  testWidgets(
+    'successful logout clears captured providers after host disposal',
+    (tester) async {
+      final releaseLogout = Completer<void>();
+      final timeout = SessionTimeoutProvider(
+        timeoutDuration: const Duration(hours: 1),
+      )..startTracking();
+      final messages = MessageUnreadProvider()..setUnreadCountFromServer(5);
+      addTearDown(timeout.dispose);
+      addTearDown(messages.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<SessionTimeoutProvider>.value(
+              value: timeout,
+            ),
+            ChangeNotifierProvider<MessageUnreadProvider>.value(
+              value: messages,
+            ),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => unawaited(
+                    LogoutFlow.start(
+                      context,
+                      confirmationTitle: 'Confirm',
+                      confirmationBody: 'Confirm body',
+                      logoutOperation: () async {
+                        await releaseLogout.future;
+                        return const StaffLogoutResult.signedOut();
+                      },
+                    ),
+                  ),
+                  child: const Text('Start logout'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Start logout'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Logout'));
+      await tester.pump();
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      releaseLogout.complete();
+      await tester.pump();
+
+      expect(timeout.isTracking, isFalse);
+      expect(messages.unreadCount, 0);
+    },
+  );
 }
 
 Widget _logoutHost({

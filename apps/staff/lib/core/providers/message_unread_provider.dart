@@ -8,6 +8,8 @@ import 'package:vhhealth_core/vhhealth_core.dart';
 import '../services/messaging_api_service.dart';
 import '../services/staff_local_notifications.dart';
 
+typedef MessageUnreadLoader = Future<Map<String, dynamic>> Function();
+
 class StaffMessageAlert {
   final String messageId;
   final String title;
@@ -43,11 +45,17 @@ class StaffMessageAlert {
 }
 
 class MessageUnreadProvider extends ChangeNotifier {
+  MessageUnreadProvider({MessageUnreadLoader? loadUnreadCount})
+    : _loadUnreadCount = loadUnreadCount ?? MessagingApiService.unreadCount;
+
+  final MessageUnreadLoader _loadUnreadCount;
   int _unreadCount = 0;
   int _alertSerial = 0;
   bool _started = false;
   bool _refreshing = false;
   bool _refreshPending = false;
+  int _sessionGeneration = 0;
+  int? _refreshGeneration;
   StaffMessageAlert? _latestAlert;
   StreamSubscription<RealtimeEvent>? _messageSub;
   Timer? _pollTimer;
@@ -60,6 +68,7 @@ class MessageUnreadProvider extends ChangeNotifier {
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    _sessionGeneration += 1;
     _messageSub = RealtimeClient.instance
         .events('staff:message', broadcastChannel: false)
         .listen(_handleRealtimeMessage);
@@ -75,38 +84,49 @@ class MessageUnreadProvider extends ChangeNotifier {
   /// screen of a shared ward device. [start] may be called again after the
   /// next login.
   void stop() {
-    if (!_started) return;
+    _sessionGeneration += 1;
     _started = false;
     _messageSub?.cancel();
     _messageSub = null;
     _pollTimer?.cancel();
     _pollTimer = null;
     _seenMessageKeys.clear();
+    _refreshing = false;
+    _refreshPending = false;
+    _refreshGeneration = null;
     _unreadCount = 0;
     _latestAlert = null;
     notifyListeners();
   }
 
   Future<void> refresh() async {
-    if (_refreshing) {
+    final generation = _sessionGeneration;
+    if (_refreshing && _refreshGeneration == generation) {
       _refreshPending = true;
       return;
     }
 
     do {
+      if (generation != _sessionGeneration) return;
       _refreshing = true;
+      _refreshGeneration = generation;
       _refreshPending = false;
       try {
-        final result = await MessagingApiService.unreadCount();
+        final result = await _loadUnreadCount();
+        if (generation != _sessionGeneration) return;
         setUnreadCountFromServer(
           _intValue(result['unread_count'] ?? result['count']),
         );
       } catch (e) {
+        if (generation != _sessionGeneration) return;
         if (kDebugMode) debugPrint('Message unread refresh failed: $e');
       } finally {
-        _refreshing = false;
+        if (_refreshGeneration == generation) {
+          _refreshing = false;
+          _refreshGeneration = null;
+        }
       }
-    } while (_refreshPending);
+    } while (_refreshPending && generation == _sessionGeneration);
   }
 
   void setUnreadCountFromServer(int count) {
@@ -138,6 +158,7 @@ class MessageUnreadProvider extends ChangeNotifier {
   }
 
   void _handleRealtimeMessage(RealtimeEvent event) {
+    if (!_started) return;
     final alert = StaffMessageAlert.fromRealtime(event.data);
     final key = alert.messageId.isNotEmpty
         ? alert.messageId

@@ -109,6 +109,54 @@ void main() {
     },
   );
 
+  test(
+    'stop prevents an in-flight refresh from restoring signed-out data',
+    () async {
+      final requestStarted = Completer<void>();
+      final response = Completer<Map<String, dynamic>>();
+      final provider = MessageUnreadProvider(
+        loadUnreadCount: () {
+          requestStarted.complete();
+          return response.future;
+        },
+      );
+
+      final refresh = provider.refresh();
+      await requestStarted.future;
+      provider.stop();
+      response.complete({'unread_count': 7});
+      await refresh;
+
+      expect(provider.unreadCount, 0);
+    },
+  );
+
+  test('a stale refresh cannot overwrite the next signed-in session', () async {
+    final firstResponse = Completer<Map<String, dynamic>>();
+    final secondResponse = Completer<Map<String, dynamic>>();
+    var requestCount = 0;
+    final provider = MessageUnreadProvider(
+      loadUnreadCount: () {
+        requestCount += 1;
+        return requestCount == 1 ? firstResponse.future : secondResponse.future;
+      },
+    );
+
+    final firstStart = provider.start();
+    await Future<void>.delayed(Duration.zero);
+    provider.stop();
+    final secondStart = provider.start();
+    await Future<void>.delayed(Duration.zero);
+
+    secondResponse.complete({'unread_count': 2});
+    await secondStart;
+    firstResponse.complete({'unread_count': 9});
+    await firstStart;
+
+    expect(provider.unreadCount, 2);
+    provider.stop();
+  });
+
   test('stop() clears cached alert state and allows a later restart', () async {
     VHHttpClient.setClientForTesting(
       MockClient((req) async {
