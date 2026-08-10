@@ -43,6 +43,15 @@ describe('W4 C5 — login tokens carry the right tenant_id', () => {
   }, 30000);
 
   afterAll(async () => {
+    // Both logins above claim a user_active_sessions row stamped with
+    // TENANT_A (claimUserSession is awaited inside the login call, so the
+    // rows are deterministically present by now). Delete them first or the
+    // tenant DELETE below is silently blocked by fk_user_active_sessions_tenant,
+    // leaking the tenant row + both session rows into later suites' DB state.
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM user_active_sessions WHERE user_uid IN ($1::uuid, $2::uuid)`,
+      ADMIN_UID, PATIENT_UID,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM admins WHERE uid = $1::uuid`, ADMIN_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_A).catch(() => {});
