@@ -7,6 +7,18 @@
 // persists the presented token's jti to the revocation store, and that the same
 // token is then rejected at jwtAuth (TOKEN_REVOKED) on a protected admin route.
 //
+// HERMETIC identity (2026-08-10): logout → revokeAllUserTokens durably bumps
+// the identity's token_epoch (migration 650) and upserts a 30-day
+// `user:<uid>` revoke-all watermark. Doing that to the SHARED seeded harness
+// admin (550e8400-…, hard-coded in testClient.js and used by every admin-role
+// suite) permanently invalidates the epoch-less tokens all LATER suites in the
+// same DB mint for it — isUserTokensRevoked treats a missing token_epoch claim
+// as epoch 0, so once the DB epoch is ≥1 every testClient admin token gets
+// 401 TOKEN_REVOKED regardless of iat. That is exactly the cross-suite
+// pollution that turned main's backend CI shards red. This suite therefore
+// creates its own throwaway ADMIN identity and restores every piece of durable
+// state in afterAll (which runs even when the test body throws).
+//
 // DB-backed (invalidated_tokens fallback) — self-skips when no test DB is set.
 
 import request from 'supertest';
@@ -19,7 +31,7 @@ import { generateTestToken, API_KEY } from './testClient.js';
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
-const ADMIN_UID = '550e8400-e29b-41d4-a716-446655440000';
+const ADMIN_PHONE = '+919899044001';
 const authHeaders = (token) => ({ 'x-api-key': API_KEY, Authorization: `Bearer ${token}` });
 
 // blacklistToken persists to invalidated_tokens via setImmediate (fire-and-
@@ -39,10 +51,40 @@ async function waitForBlacklistRow(jti, tries = 30) {
 
 d('Admin logout revokes the presented JWT (#2)', () => {
   const jti = `a2-admin-logout-${Date.now()}`;
+  let adminUid;
+
+  beforeAll(async () => {
+    // Own throwaway ADMIN identity — mirrors the migration-082 seeded harness
+    // user's shape, but with a fresh uid so the epoch bump and revoke-all
+    // watermark this suite provokes can never leak into other suites' tokens.
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (phone, name, role, is_active, registered_at, updated_at)
+       VALUES ($1, 'A2 Admin Logout Revocation Fixture', 'ADMIN', true, NOW(), NOW())
+       RETURNING uid`,
+      ADMIN_PHONE,
+    );
+    adminUid = rows[0].uid;
+  });
 
   afterAll(async () => {
+    // Restore ALL durable state (afterAll runs even when the test throws):
+    // the presented token's jti row, the `user:<uid>` revoke-all watermark
+    // written by revokeAllUserTokens, the best-effort logout audit row, and
+    // the throwaway identity itself (taking its bumped token_epoch with it).
     try {
-      await prisma.$queryRawUnsafe('DELETE FROM invalidated_tokens WHERE jti = $1', jti);
+      await prisma.$executeRawUnsafe(
+        'DELETE FROM invalidated_tokens WHERE jti = $1 OR jti = $2',
+        jti,
+        `user:${adminUid}`,
+      );
+      await prisma.$executeRawUnsafe(
+        'DELETE FROM auth_logs WHERE user_id = $1',
+        String(adminUid),
+      );
+      await prisma.$executeRawUnsafe(
+        'DELETE FROM users WHERE uid = $1::uuid',
+        adminUid,
+      );
     } catch {
       /* best-effort cleanup */
     }
@@ -50,7 +92,7 @@ d('Admin logout revokes the presented JWT (#2)', () => {
   });
 
   test('POST /auth/admin/logout exists, blacklists the jti, and the token is then rejected', async () => {
-    const token = generateTestToken('ADMIN', { uid: ADMIN_UID, jti });
+    const token = generateTestToken('ADMIN', { uid: adminUid, jti });
 
     // (1) The admin logout route now exists (previously 404'd) and succeeds.
     const logoutRes = await request(app)
@@ -71,5 +113,20 @@ d('Admin logout revokes the presented JWT (#2)', () => {
       .set(authHeaders(token));
     expect(reuseRes.statusCode).toBe(401);
     expect(reuseRes.body.code).toBe('TOKEN_REVOKED');
+
+    // (4) Hermeticity proof: the R1 epoch bump landed on THIS identity —
+    // the revoke-all machinery ran — and only on it. The shared seeded
+    // harness admin's epoch is untouched, so later suites' tokens stay valid.
+    const own = await prisma.$queryRawUnsafe(
+      'SELECT token_epoch FROM users WHERE uid = $1::uuid',
+      adminUid,
+    );
+    expect(Number(own[0].token_epoch)).toBeGreaterThanOrEqual(1);
+    const seeded = await prisma.$queryRawUnsafe(
+      "SELECT token_epoch FROM users WHERE uid = '550e8400-e29b-41d4-a716-446655440000'::uuid",
+    );
+    if (seeded.length > 0) {
+      expect(Number(seeded[0].token_epoch)).toBe(0);
+    }
   });
 });
