@@ -6,7 +6,8 @@
 // full role rank, so a scoped-down ADMIN kept full API access. This module is
 // the server-side enforcement point: it maps permission-gated backend path
 // prefixes to the flag they require and resolves the caller's flags from the
-// backend profile endpoint (short-TTL cache keyed by bearer token).
+// backend profile endpoint. Concurrent requests are coalesced by a token hash,
+// but completed decisions are not cached so revocation applies immediately.
 //
 // Semantics (mirrors the nav in dashboard/layout.tsx + usePermissions):
 //   - SUPER_ADMIN (or a '*' permission) always passes.
@@ -19,29 +20,86 @@
 // Server-only: imported by the /api/proxy route handler (node runtime).
 
 import { API_BASE_URL } from "@/lib/api-config";
+import { createHash } from "node:crypto";
+
 
 interface PermissionGate {
   permission: string;
   /** Proxy path prefixes in candidate form ("api/v1/..."), segment-bounded. */
   prefixes: string[];
+  /** Restrict a gate to specific HTTP methods. Omitted means every method. */
+  methods?: string[];
 }
 
 // Keep in sync with the nav requiredPermissions in dashboard/layout.tsx and
 // PERMISSION_CATEGORIES in admin-management/components/permissionsConfig.ts.
 const PERMISSION_GATES: PermissionGate[] = [
-  { permission: "userManagement", prefixes: ["api/v1/users"] },
-  { permission: "doctorManagement", prefixes: ["api/v1/doctors"] },
-  { permission: "departmentManagement", prefixes: ["api/v1/departments"] },
-  { permission: "appointmentManagement", prefixes: ["api/v1/appointments"] },
+  {
+    permission: "userManagement",
+    prefixes: [
+      "api/v1/users",
+      "api/v1/admin/users",
+      "api/v1/admin/staff/attendance",
+      "api/v1/staff/admin/attendance",
+      "api/v1/attendance/admin",
+      "api/v1/consent",
+      "api/v1/feedback",
+      "api/v1/quality/nps",
+      "api/v1/rbac/admin/toggle-user-status",
+    ],
+  },
+  {
+    permission: "doctorManagement",
+    prefixes: ["api/v1/doctors", "api/v1/admin/doctors"],
+  },
+  {
+    permission: "departmentManagement",
+    prefixes: [
+      "api/v1/departments",
+      "api/v1/admin/departments",
+      "api/v1/beds",
+      "api/v1/wards",
+    ],
+  },
+  {
+    permission: "appointmentManagement",
+    prefixes: [
+      "api/v1/appointments",
+      "api/v1/admin/appointments",
+      "api/v1/prescriptions/all",
+    ],
+  },
   {
     permission: "pharmacyAdminRoutes",
-    prefixes: ["api/v1/pharmacy", "api/v1/pharmacy-orders"],
+    prefixes: [
+      "api/v1/pharmacy",
+      "api/v1/pharmacy-orders",
+      "api/v1/admin/pharmacy",
+    ],
   },
   {
     permission: "notificationManagement",
-    prefixes: ["api/v1/notifications/admin"],
+    prefixes: [
+      "api/v1/notifications/admin",
+      "api/v1/notifications/stats",
+      "api/v1/notifications/scheduled",
+      "api/v1/notifications/emergency",
+      "api/v1/admin/notifications",
+    ],
   },
-  { permission: "viewAuditLogs", prefixes: ["api/v1/logs"] },
+  {
+    permission: "notificationManagement",
+    prefixes: ["api/v1/notifications/announcement-banner"],
+    methods: ["PUT"],
+  },
+  {
+    permission: "viewAuditLogs",
+    prefixes: [
+      "api/v1/logs",
+      "api/v1/admin/analytics",
+      "api/v1/investigations/admin",
+    ],
+  },
   {
     // The admin-account lifecycle endpoints under api/v1/auth/admin/.
     // (login/profile/logout/MFA stay ungated — every session needs those.)
@@ -52,6 +110,7 @@ const PERMISSION_GATES: PermissionGate[] = [
       "api/v1/auth/admin/deactivate",
       "api/v1/auth/admin/reactivate",
       "api/v1/auth/admin/update-permissions",
+      "api/v1/rbac/admin/audit-log",
     ],
   },
 ];
@@ -75,9 +134,14 @@ function matchesPrefix(candidate: string, prefix: string): boolean {
  * The permission flag a proxied path requires, or null when ungated.
  * `candidate` is the normalized proxy path ("api/v1/...", no leading slash).
  */
-export function requiredProxyPermission(candidate: string): string | null {
+export function requiredProxyPermission(
+  candidate: string,
+  method = "GET",
+): string | null {
   if (SELF_SERVICE_EXEMPT.some((re) => re.test(candidate))) return null;
+  const normalizedMethod = method.toUpperCase();
   for (const gate of PERMISSION_GATES) {
+    if (gate.methods && !gate.methods.includes(normalizedMethod)) continue;
     if (gate.prefixes.some((prefix) => matchesPrefix(candidate, prefix))) {
       return gate.permission;
     }
@@ -85,53 +149,52 @@ export function requiredProxyPermission(candidate: string): string | null {
   return null;
 }
 
-// ── Permission resolution (backend profile, short-TTL per-token cache) ──────
+// ── Permission resolution (live backend profile, concurrent coalescing) ─────
 
-const PERMISSION_CACHE_TTL_MS = 60_000;
-const PERMISSION_CACHE_MAX = 500;
-
-const permissionCache = new Map<
-  string,
-  { permissions: string[]; expires: number }
->();
+// Do not retain completed authorization decisions: permission revocation must
+// take effect on the next request. The map only coalesces simultaneous calls
+// from one page render and is cleared as soon as that lookup settles.
+const permissionRequests = new Map<string, Promise<string[] | null>>();
 
 export function __resetPermissionCacheForTests(): void {
-  permissionCache.clear();
+  permissionRequests.clear();
 }
 
 async function fetchAdminPermissions(token: string): Promise<string[] | null> {
-  const cached = permissionCache.get(token);
-  if (cached && cached.expires > Date.now()) return cached.permissions;
+  const cacheKey = createHash("sha256").update(token).digest("hex");
+  const pending = permissionRequests.get(cacheKey);
+  if (pending) return pending;
 
-  const base = API_BASE_URL.replace(/\/+$/, "");
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    "x-forwarded-proto": "https",
-  };
-  const serverApiKey = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
-  if (serverApiKey) headers["x-api-key"] = serverApiKey;
-
-  try {
-    const res = await fetch(`${base}/api/v1/auth/admin/profile`, { headers });
-    if (!res.ok) return null;
-    const body = (await res.json()) as {
-      data?: { admin?: { permissions?: unknown } };
+  const request = (async () => {
+    const base = API_BASE_URL.replace(/\/+$/, "");
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "x-forwarded-proto": "https",
     };
-    const raw = body?.data?.admin?.permissions;
-    const permissions = Array.isArray(raw)
-      ? raw.filter((p): p is string => typeof p === "string")
-      : [];
-    if (permissionCache.size >= PERMISSION_CACHE_MAX) {
-      const oldest = permissionCache.keys().next().value;
-      if (oldest !== undefined) permissionCache.delete(oldest);
+    const serverApiKey = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
+    if (serverApiKey) headers["x-api-key"] = serverApiKey;
+
+    try {
+      const res = await fetch(`${base}/api/v1/auth/admin/profile`, { headers });
+      if (!res.ok) return null;
+      const body = (await res.json()) as {
+        data?: { admin?: { permissions?: unknown } };
+      };
+      const raw = body?.data?.admin?.permissions;
+      const permissions = Array.isArray(raw)
+        ? raw.filter((p): p is string => typeof p === "string")
+        : [];
+      return permissions;
+    } catch {
+      return null;
     }
-    permissionCache.set(token, {
-      permissions,
-      expires: Date.now() + PERMISSION_CACHE_TTL_MS,
-    });
-    return permissions;
-  } catch {
-    return null;
+  })();
+
+  permissionRequests.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    permissionRequests.delete(cacheKey);
   }
 }
 

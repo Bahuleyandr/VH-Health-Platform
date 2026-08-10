@@ -11,6 +11,7 @@ import request from 'supertest';
 
 const queryUnsafeMock = jest.fn();
 const executeUnsafeMock = jest.fn();
+const findAdminMock = jest.fn();
 const logAuditMock = jest.fn();
 const requireRoleCalls = [];
 
@@ -18,6 +19,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryUnsafeMock,
     $executeRawUnsafe: executeUnsafeMock,
+    admins: { findUnique: findAdminMock },
   },
 }));
 
@@ -59,11 +61,24 @@ function makeApp({ tenantId = TENANT, role = 'ADMIN' } = {}) {
 beforeEach(() => {
   queryUnsafeMock.mockReset();
   executeUnsafeMock.mockReset();
+  findAdminMock.mockReset();
+  findAdminMock.mockResolvedValue({
+    permissions: ['notificationManagement'],
+    is_active: true,
+    status: 'active',
+    tenant_id: TENANT,
+  });
   logAuditMock.mockReset();
   logAuditMock.mockResolvedValue(undefined);
 });
 
 describe('GET /announcement-banner', () => {
+  it('rejects authenticated principals outside the admin portal roles', async () => {
+    const res = await request(makeApp({ role: 'PATIENT' })).get('/announcement-banner');
+    expect(res.status).toBe(403);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
   it('returns the normalized tenant banner', async () => {
     queryUnsafeMock.mockResolvedValueOnce([
       {
@@ -128,6 +143,33 @@ describe('PUT /announcement-banner', () => {
       .send({ text: 'x', type: 'info', enabled: true });
     expect(res.status).toBe(403);
     expect(executeUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a scoped ADMIN without notificationManagement', async () => {
+    findAdminMock.mockResolvedValueOnce({
+      permissions: [],
+      is_active: true,
+      status: 'active',
+      tenant_id: TENANT,
+    });
+
+    const res = await request(makeApp())
+      .put('/announcement-banner')
+      .send({ text: 'x', type: 'info', enabled: true });
+
+    expect(res.status).toBe(403);
+    expect(executeUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('lets SUPER_ADMIN bypass account-level permission flags', async () => {
+    executeUnsafeMock.mockResolvedValueOnce(1);
+
+    const res = await request(makeApp({ role: 'SUPER_ADMIN' }))
+      .put('/announcement-banner')
+      .send({ text: 'x', type: 'info', enabled: true });
+
+    expect(res.status).toBe(200);
+    expect(findAdminMock).not.toHaveBeenCalled();
   });
 
   it('sanitizes markup, caps length, persists, and audits', async () => {

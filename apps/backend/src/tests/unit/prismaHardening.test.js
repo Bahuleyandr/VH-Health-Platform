@@ -289,8 +289,8 @@ describe('src/lib/prisma.js hardening', () => {
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
     });
 
-    it.each(['23503', '23514'])(
-      'does not count deterministic Postgres %s integrity rejections as infrastructure failures',
+    it.each(['22P02', '23503', '23514'])(
+      'does not count deterministic Postgres %s rejections as infrastructure failures',
       async (code) => {
         const prisma = prismaModule.default;
         const primaryStub = await getPrimaryStub(prismaModule);

@@ -7,8 +7,8 @@
 // the tenant sees the same banner.
 //
 // Mounted at /api/v1/notifications/announcement-banner (see ./index.js):
-//   GET / — any authenticated portal user (the dashboard chrome renders it)
-//   PUT / — ADMIN | SUPER_ADMIN only (managed from the Notifications page)
+//   GET / — ADMIN | SUPER_ADMIN (the admin dashboard chrome renders it)
+//   PUT / — notificationManagement ADMIN | SUPER_ADMIN
 //
 // Not a clinical write — no canonical timeline pair; the PUT is audited via
 // logAudit like the other admin notification actions.
@@ -25,6 +25,40 @@ const router = express.Router();
 const BANNER_TYPES = ['info', 'warning', 'critical', 'success'];
 const BANNER_TEXT_MAX = 300;
 
+function requireAdminPermission(permission) {
+  return async (req, res, next) => {
+    try {
+      const role = String(req.user?.rawRole || req.user?.role || '').toUpperCase();
+      if (role === 'SUPER_ADMIN') return next();
+      if (!req.tenantId) return next();
+
+      const admin = await prisma.admins.findUnique({
+        where: { uid: String(req.user?.uid || req.user?.id || '') },
+        select: {
+          permissions: true,
+          is_active: true,
+          status: true,
+          tenant_id: true,
+        },
+      });
+      const tenantMatches = admin?.tenant_id == null
+        || String(admin.tenant_id) === String(req.tenantId);
+      const permissions = Array.isArray(admin?.permissions) ? admin.permissions : [];
+      if (
+        admin?.is_active === true
+        && admin?.status === 'active'
+        && tenantMatches
+        && (permissions.includes('*') || permissions.includes(permission))
+      ) {
+        return next();
+      }
+      return error(res, `Forbidden: missing ${permission} permission`, 403);
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
+
 function normalizeBanner(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const text = typeof raw.text === 'string' ? raw.text : '';
@@ -37,7 +71,7 @@ function normalizeBanner(raw) {
   };
 }
 
-router.get('/', async (req, res) => {
+router.get('/', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const tenantId = req.tenantId;
     if (!tenantId) {
@@ -58,7 +92,11 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+router.put(
+  '/',
+  requireRole('ADMIN', 'SUPER_ADMIN'),
+  requireAdminPermission('notificationManagement'),
+  async (req, res) => {
   try {
     const tenantId = req.tenantId;
     if (!tenantId) {
@@ -107,6 +145,7 @@ router.put('/', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
     logger.error('Announcement banner save error:', err);
     return error(res, 'Failed to save announcement banner', 500);
   }
-});
+  }
+);
 
 export default router;

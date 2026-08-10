@@ -14,6 +14,7 @@ import {
 import { DEFAULT_TENANT_ID, resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { uploadFileToR2, getSignedFileUrl, getFileFromR2, deleteObject } from '../../utils/r2Storage.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
@@ -909,8 +910,8 @@ export const getAllDocumentsAdmin = async (req, res) => {
     if (from_date) { params.push(from_date); where += ` AND DATE(ad.created_at) >= $${params.length}`; }
     if (to_date) { params.push(to_date); where += ` AND DATE(ad.created_at) <= $${params.length}`; }
 
-    params.push(Math.min(Math.max(parseInt(limit) || 50, 1), 200));
-    params.push(Math.max(parseInt(offset) || 0, 0));
+    params.push(boundedInteger(limit, { fallback: 50, min: 1, max: 200 }));
+    params.push(boundedInteger(offset, { fallback: 0, max: 10_000 }));
 
     const result = await prisma.$queryRawUnsafe(`
       SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name,

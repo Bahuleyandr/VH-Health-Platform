@@ -7,6 +7,7 @@ process.env.NEXT_PUBLIC_ALLOWED_ORIGIN = "https://admin.vhhealth.app";
 
 type Handler = (req: NextRequest) => Promise<Response>;
 let GET: Handler;
+let PUT: Handler;
 let resetCache: () => void;
 let fetchMock: jest.SpyInstance;
 
@@ -44,6 +45,7 @@ function upstreamResponse(): Response {
 beforeAll(async () => {
   const route = await import("@/app/api/proxy/[...path]/route");
   GET = route.GET as Handler;
+  PUT = route.PUT as Handler;
   const perms = await import("@/lib/proxyPermissions");
   resetCache = perms.__resetPermissionCacheForTests;
 });
@@ -64,10 +66,15 @@ afterEach(() => {
   resetCache();
 });
 
-function request(path: string, token: string) {
+function request(path: string, token: string, method = "GET") {
   return new NextRequest(`http://localhost:3001/api/proxy/api/v1/${path}`, {
-    method: "GET",
-    headers: { cookie: `auth_token=${token}` },
+    method,
+    headers: {
+      cookie: `auth_token=${token}`,
+      ...(method === "GET"
+        ? {}
+        : { origin: "https://admin.vhhealth.app" }),
+    },
   });
 }
 
@@ -87,6 +94,43 @@ describe("proxy per-admin permission enforcement", () => {
       message: "Forbidden: missing userManagement permission",
     });
     expect(proxiedCalls()).toHaveLength(0);
+  });
+
+  it.each([
+    ["admin/users?limit=10", "userManagement"],
+    ["admin/doctors", "doctorManagement"],
+    ["beds/occupancy", "departmentManagement"],
+    ["admin/analytics/dashboard", "viewAuditLogs"],
+    ["rbac/admin/audit-log", "adminManagement"],
+  ])(
+    "covers the management endpoint %s used by permission-gated screens",
+    async (path, permission) => {
+      mockBackend([]);
+      const res = await GET(request(path, tokenWithRole("ADMIN")));
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        message: `Forbidden: missing ${permission} permission`,
+      });
+      expect(proxiedCalls()).toHaveLength(0);
+    },
+  );
+
+  it("gates announcement-banner writes but leaves its dashboard read open", async () => {
+    mockBackend([]);
+    const token = tokenWithRole("ADMIN");
+
+    const read = await GET(request("notifications/announcement-banner", token));
+    const write = await PUT(
+      request("notifications/announcement-banner", token, "PUT"),
+    );
+
+    expect(read.status).toBe(200);
+    expect(write.status).toBe(403);
+    expect(await write.json()).toEqual({
+      message: "Forbidden: missing notificationManagement permission",
+    });
+    expect(proxiedCalls()).toHaveLength(1);
   });
 
   it("forwards an ADMIN holding the required flag", async () => {
@@ -164,12 +208,30 @@ describe("proxy per-admin permission enforcement", () => {
     });
   });
 
-  it("caches the profile lookup per token", async () => {
+  it("rechecks completed profile lookups so revocation is immediate", async () => {
     mockBackend(["userManagement"]);
     const token = tokenWithRole("ADMIN");
     await GET(request("users", token));
     await GET(request("users", token));
 
+    const profileCalls = fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes("/api/v1/auth/admin/profile"));
+    expect(profileCalls).toHaveLength(2);
+    expect(proxiedCalls()).toHaveLength(2);
+  });
+
+  it("coalesces concurrent profile lookups for one bearer", async () => {
+    mockBackend(["userManagement"]);
+    const token = tokenWithRole("ADMIN");
+
+    const [first, second] = await Promise.all([
+      GET(request("users", token)),
+      GET(request("admin/users", token)),
+    ]);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
     const profileCalls = fetchMock.mock.calls
       .map((c) => String(c[0]))
       .filter((u) => u.includes("/api/v1/auth/admin/profile"));

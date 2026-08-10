@@ -6,6 +6,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 
 const VALID_SPECIMEN = [
   'blood', 'urine', 'sputum', 'pus', 'csf', 'stool',
@@ -224,7 +225,7 @@ export async function listOrders({
     params.push(String(patient_uid));
     conds.push(`patient_uid = $${params.length}::uuid`);
   }
-  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
+  params.push(boundedInteger(limit, { fallback: 100, min: 1, max: 200 }));
   return prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, specimen_type, specimen_site, test_kind,
             status, growth_status, ordered_by_name, finalised_at, created_at
@@ -247,7 +248,7 @@ export async function antibiogram90d({ tenantId, organism, antibiotic, limit = 2
     params.push(String(antibiotic));
     conds.push(`antibiotic_name ILIKE '%' || $${params.length} || '%'`);
   }
-  params.push(Math.min(Math.max(Number(limit) || 200, 1), 500));
+  params.push(boundedInteger(limit, { fallback: 200, min: 1, max: 500 }));
   return prisma.$queryRawUnsafe(
     `SELECT organism_name, antibiotic_code, antibiotic_name,
             total_tested, susceptible_count, susceptible_pct
@@ -271,6 +272,6 @@ export async function listResistantIsolates({ tenantId, limit = 50 }) {
         AND o.created_at > NOW() - INTERVAL '30 days'
       ORDER BY o.created_at DESC
       LIMIT $2::int`,
-    tenantId, Math.min(Math.max(Number(limit) || 50, 1), 200),
+    tenantId, boundedInteger(limit, { fallback: 50, min: 1, max: 200 }),
   );
 }

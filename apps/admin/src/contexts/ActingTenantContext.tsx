@@ -7,8 +7,8 @@
 // rejects them), so this is inert for them.
 'use client';
 
-import { createContext, useContext } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createContext, useContext } from 'react';
 
 export interface ActingTenant {
   id: string;
@@ -44,7 +44,11 @@ async function postActing(input: ActAsInput): Promise<ActingTenant | null> {
 }
 
 async function clearActing(): Promise<void> {
-  await fetch('/api/act-as', { method: 'DELETE' });
+  const res = await fetch('/api/act-as', { method: 'DELETE' });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(data.message || 'Failed to stop acting as tenant');
+  }
 }
 
 interface ActingTenantValue {
@@ -70,14 +74,24 @@ export function ActingTenantProvider({ children }: { children: React.ReactNode }
     retry: false,
   });
 
-  const invalidateAll = () => {
-    qc.invalidateQueries({ queryKey: ['acting-tenant'] });
-    // Every tenant-scoped query must refetch under the new acting tenant.
-    qc.invalidateQueries();
+  const applyActingTenant = (actingTenant: ActingTenant | null) => {
+    // The mutation response and cookie transition are one operation. Publish
+    // that scope before invalidating tenant data so no refetch can be stored
+    // under the previous tenant's query key.
+    qc.setQueryData(['acting-tenant'], actingTenant);
+    qc.invalidateQueries({
+      predicate: (query) => query.queryKey[0] !== 'acting-tenant',
+    });
   };
 
-  const setMut = useMutation({ mutationFn: postActing, onSuccess: invalidateAll });
-  const clearMut = useMutation({ mutationFn: clearActing, onSuccess: invalidateAll });
+  const setMut = useMutation({
+    mutationFn: postActing,
+    onSuccess: applyActingTenant,
+  });
+  const clearMut = useMutation({
+    mutationFn: clearActing,
+    onSuccess: () => applyActingTenant(null),
+  });
 
   const value: ActingTenantValue = {
     actingTenant: data ?? null,

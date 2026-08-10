@@ -6,10 +6,11 @@
 // limit/offset shift to $2/$3) so an admin only sees its own tenant's activity.
 // Defense-in-depth alongside RLS.
 import { tableExists, safeQuery } from './common.js';
+import { boundedInteger } from '../../../utils/pagination.js';
 
 export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
-  const safeOffset = Math.max(Number(offset) || 0, 0);
+  const safeLimit = boundedInteger(limit, { fallback: 50, min: 1, max: 200 });
+  const safeOffset = boundedInteger(offset, { fallback: 0, max: 10_000 });
   const sources = [];
 
   if (await tableExists('appointments')) {

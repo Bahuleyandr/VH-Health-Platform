@@ -10,6 +10,7 @@ import { createHash } from 'crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import {
   currentCanonicalTransactionRevision,
   recordCanonicalClinicalEvent,
@@ -1834,7 +1835,7 @@ export async function listForPatient({ tenantId, patient_uid, limit = 50 }) {
       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
       ORDER BY created_at DESC
       LIMIT $3::int`,
-    tenantId, String(patient_uid), Math.min(Math.max(Number(limit) || 50, 1), 200),
+    tenantId, String(patient_uid), boundedInteger(limit, { fallback: 50, min: 1, max: 200 }),
   );
 }
 
@@ -1846,6 +1847,6 @@ export async function listPending({ tenantId, limit = 100 }) {
       WHERE tenant_id = $1::uuid AND status IN ('draft', 'ready_for_signoff')
       ORDER BY updated_at DESC
       LIMIT $2::int`,
-    tenantId, Math.min(Math.max(Number(limit) || 100, 1), 200),
+    tenantId, boundedInteger(limit, { fallback: 100, min: 1, max: 200 }),
   );
 }

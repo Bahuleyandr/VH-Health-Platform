@@ -7,6 +7,7 @@
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import {
@@ -317,7 +318,7 @@ export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }
     params.push(kind);
     where += ` AND assessment_kind = $${params.length}`;
   }
-  params.push(Math.min(Math.max(Number(limit) || 50, 1), 200));
+  params.push(boundedInteger(limit, { fallback: 50, min: 1, max: 200 }));
   return prisma.$queryRawUnsafe(
     `SELECT id, assessment_kind, assessed_at, assessed_by_name,
             total_score, band, scoring_version, recommended_actions,
@@ -364,6 +365,6 @@ export async function listOverdueOrHighRisk({ tenantId, limit = 100 }) {
         END,
         next_assessment_due_at NULLS LAST
       LIMIT $2::int`,
-    tenantId, Math.min(Math.max(Number(limit) || 100, 1), 200),
+    tenantId, boundedInteger(limit, { fallback: 100, min: 1, max: 200 }),
   );
 }

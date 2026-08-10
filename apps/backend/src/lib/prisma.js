@@ -106,6 +106,7 @@ const BREAKER_IGNORED_PG_ERROR_CODES = new Set([
   // Deterministic integrity rejections prove the database is reachable and
   // enforcing its contract. Counting user/data conflicts as infrastructure
   // failures lets five bad writes brown out every tenant on the client.
+  '22P02', // invalid_text_representation (deterministic caller/query input)
   '23000', // integrity_constraint_violation
   '23502', // not_null_violation
   '23503', // foreign_key_violation

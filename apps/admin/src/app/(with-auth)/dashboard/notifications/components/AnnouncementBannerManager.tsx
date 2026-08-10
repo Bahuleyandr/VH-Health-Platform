@@ -7,12 +7,14 @@
 // same banner. Only the per-user dismissal state stays in localStorage.
 "use client";
 
-import { useState, useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTenant } from "@/contexts/TenantContext";
 import { fetchAdminAPI } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 
 const DISMISS_KEY = "vhhealth-announcement-banner-dismissed";
-const BANNER_QUERY_KEY = ["announcement-banner"];
 const BANNER_ENDPOINT = "/notifications/announcement-banner";
 
 interface BannerData {
@@ -37,8 +39,16 @@ function fetchBanner() {
   return fetchAdminAPI<BannerPayload>(BANNER_ENDPOINT);
 }
 
+function bannerQueryKey(tenantId: string | null | undefined) {
+  return ["announcement-banner", tenantId ?? "default"] as const;
+}
+
 export function AnnouncementBannerManager() {
   const queryClient = useQueryClient();
+  const { actingTenant } = useActingTenant();
+  const { tenant } = useTenant();
+  const tenantScope = actingTenant?.id ?? tenant?.id ?? "default";
+  const queryKey = bannerQueryKey(tenantScope);
   const [text, setText] = useState("");
   const [type, setType] = useState<BannerData["type"]>("info");
   const [enabled, setEnabled] = useState(false);
@@ -46,9 +56,19 @@ export function AnnouncementBannerManager() {
   const [hydrated, setHydrated] = useState(false);
 
   const { data } = useQuery({
-    queryKey: BANNER_QUERY_KEY,
+    queryKey,
     queryFn: fetchBanner,
   });
+
+  // Acting-tenant changes can happen without unmounting this editor. Clear
+  // the previous tenant's draft before hydrating the newly scoped query so it
+  // cannot be copied into the next tenant by a subsequent Save.
+  useEffect(() => {
+    setHydrated(false);
+    setText("");
+    setType("info");
+    setEnabled(false);
+  }, [tenantScope]);
 
   // Hydrate the form once from the server copy.
   useEffect(() => {
@@ -69,7 +89,7 @@ export function AnnouncementBannerManager() {
         body: banner,
       }),
     onSuccess: (payload) => {
-      queryClient.setQueryData(BANNER_QUERY_KEY, payload);
+      queryClient.setQueryData(queryKey, payload);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     },
@@ -105,6 +125,7 @@ export function AnnouncementBannerManager() {
         <label className="flex items-center gap-3">
           <input
             type="checkbox"
+            aria-label="Enable banner"
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
             className="h-4 w-4 rounded border-input"
@@ -114,10 +135,15 @@ export function AnnouncementBannerManager() {
 
         {/* Text */}
         <div>
-          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">
+          <label
+            htmlFor="announcement-banner-text"
+            className="block text-sm font-medium text-foreground dark:text-foreground mb-1"
+          >
             Banner Text
           </label>
           <input
+            id="announcement-banner-text"
+            aria-label="Banner Text"
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -129,9 +155,9 @@ export function AnnouncementBannerManager() {
 
         {/* Type */}
         <div>
-          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">
+          <p className="block text-sm font-medium text-foreground dark:text-foreground mb-1">
             Style
-          </label>
+          </p>
           <div className="flex gap-2">
             {(["info", "warning", "critical", "success"] as const).map((t) => (
               <button
@@ -212,21 +238,28 @@ export function AnnouncementBannerManager() {
 export function AnnouncementBanner() {
   const [dismissed, setDismissed] = useState(false);
   const [dismissedAt, setDismissedAt] = useState<string | null>(null);
+  const { user } = useAuth();
+  const { actingTenant } = useActingTenant();
+  const { tenant } = useTenant();
+  const tenantScope = actingTenant?.id ?? tenant?.id ?? "default";
+  const queryKey = bannerQueryKey(tenantScope);
+  const dismissalKey = `${DISMISS_KEY}:${tenantScope}:${user?.uid ?? "unknown"}`;
 
   const { data } = useQuery({
-    queryKey: BANNER_QUERY_KEY,
+    queryKey,
     queryFn: fetchBanner,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
+    setDismissed(false);
     try {
-      setDismissedAt(localStorage.getItem(DISMISS_KEY));
+      setDismissedAt(localStorage.getItem(dismissalKey));
     } catch {
-      /* ignore */
+      setDismissedAt(null);
     }
-  }, []);
+  }, [dismissalKey]);
 
   const banner = data?.banner ?? null;
   if (!banner || !banner.enabled || !banner.text || dismissed) return null;
@@ -251,7 +284,7 @@ export function AnnouncementBanner() {
           setDismissed(true);
           try {
             localStorage.setItem(
-              DISMISS_KEY,
+              dismissalKey,
               banner.updated_at ?? new Date().toISOString(),
             );
           } catch {

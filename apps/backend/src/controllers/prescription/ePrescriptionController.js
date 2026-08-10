@@ -18,6 +18,7 @@ import { maybePropagateAncSupplements } from '../../services/maternity/maternity
 import { createPrescriptionReminders } from '../../services/patient/medicationReminderService.js';
 import { createFollowUp } from '../../services/carePlan/carePlanService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import {
   formatTemperatureForDisplay,
@@ -2213,10 +2214,10 @@ export const getAllPrescriptions = async (req, res) => {
       where += ` AND ep.status = $${params.length}`;
     }
 
-    const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
-    const safePage = Math.max(parseInt(page) || 1, 1);
+    const safeLimit = boundedInteger(limit, { fallback: 50, min: 1, max: 200 });
+    const safePage = boundedInteger(page, { fallback: 1, min: 1, max: 201 });
     params.push(safeLimit);
-    params.push((safePage - 1) * safeLimit);
+    params.push(Math.min((safePage - 1) * safeLimit, 10_000));
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,

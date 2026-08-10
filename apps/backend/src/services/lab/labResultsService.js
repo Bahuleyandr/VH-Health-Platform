@@ -17,6 +17,7 @@ import {
   isAdmin,
 } from '../../utils/roleHelpers.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
 // A CRITICAL lab result, its alert, exact acknowledgement task/SLA, and
@@ -1963,7 +1964,7 @@ export async function listPendingSignOff({ tenantId, limit = 100 }) {
         AND status IN ('preliminary', 'final')
       ORDER BY is_critical DESC, received_at ASC
       LIMIT $2::int`,
-    tenantId, Math.max(1, Math.min(500, Number(limit) || 100)),
+    tenantId, boundedInteger(limit, { fallback: 100, min: 1, max: 500 }),
   );
 }
 
@@ -2660,7 +2661,7 @@ export async function listOpenCriticalAlerts({ tenantId, limit = 50 }) {
         AND superseded_at IS NULL
       ORDER BY fired_at DESC, id DESC
       LIMIT $2::int`,
-    tenantId, Math.max(1, Math.min(500, Number(limit) || 50)),
+    tenantId, boundedInteger(limit, { fallback: 50, min: 1, max: 500 }),
   );
 }
 
@@ -3240,7 +3241,7 @@ export async function getResultsForPatient({
       WHERE ${filters.join(' AND ')}
       ORDER BY received_at DESC
       LIMIT $3::int`,
-    tenantId, patientUids, Math.max(1, Math.min(500, Number(limit) || 200)),
+    tenantId, patientUids, boundedInteger(limit, { fallback: 200, min: 1, max: 500 }),
   );
   return rows.map((r) => ({
     ...r,
@@ -3267,7 +3268,7 @@ export async function getResultsForPatient({
  * Finding: 2026-05-12-inpatient-admission-lab-tech-48e85048.
  */
 export async function listIpdLabWorklist({ tenantId, limit = 100 } = {}) {
-  const lim = Math.max(1, Math.min(500, Number(limit) || 100));
+  const lim = boundedInteger(limit, { fallback: 100, min: 1, max: 500 });
   return prisma.$queryRawUnsafe(
     `SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
             i.requested_at, i.created_at,
@@ -3321,7 +3322,7 @@ export async function listLabWorklist({
   priority,
   source,
 } = {}) {
-  const lim = Math.max(1, Math.min(500, Number(limit) || 100));
+  const lim = boundedInteger(limit, { fallback: 100, min: 1, max: 500 });
   const params = [tenantId];
   // Lab worklist is lab-only — radiology orders belong on the radiology
   // worklist, and surfacing them here forces lab techs to triage work

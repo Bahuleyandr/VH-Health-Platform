@@ -15,6 +15,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import {
   postInvoiceIssueEntry, postPaymentEntry,
   postAdvanceCollectEntry, postAdvanceSettleEntry, postPaymentReversalEntry,
@@ -1352,9 +1353,9 @@ export async function listInvoices({
   if (date_from) { params.push(date_from); where.push(`COALESCE(issued_at, created_at) >= $${params.length}::timestamptz`); }
   if (date_to) { params.push(date_to); where.push(`COALESCE(issued_at, created_at) <= $${params.length}::timestamptz`); }
 
-  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 200);
-  const safePage = Math.max(Number(page) || 1, 1);
-  const offset = (safePage - 1) * safeLimit;
+  const safeLimit = boundedInteger(limit, { fallback: 20, min: 1, max: 200 });
+  const safePage = boundedInteger(page, { fallback: 1, min: 1, max: 501 });
+  const offset = Math.min((safePage - 1) * safeLimit, 10_000);
   const sql = `SELECT id, invoice_number, patient_uid, patient_name, invoice_type,
                       total_amount, amount_paid, amount_due, status, admission_id,
                       tenant_id, issued_at, created_at
@@ -1364,7 +1365,7 @@ export async function listInvoices({
                  LIMIT $${params.length + 1}::int OFFSET $${params.length + 2}::int`;
   const rows = await prisma.$queryRawUnsafe(sql, ...params, safeLimit, offset);
 
-  return Promise.all(rows.map(async (row) => {
+  const enrichRow = async (row) => {
     if (!row.admission_id) return { ...row, tpa_utilisation: null };
     try {
       const cap = await resolveAdmissionTpaCap(row.admission_id, row.tenant_id);
@@ -1395,7 +1396,14 @@ export async function listInvoices({
       });
       return { ...row, tpa_utilisation: null };
     }
-  }));
+  };
+
+  const enriched = [];
+  for (let index = 0; index < rows.length; index += 8) {
+    const batch = await Promise.all(rows.slice(index, index + 8).map(enrichRow));
+    enriched.push(...batch);
+  }
+  return enriched;
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -2621,7 +2629,7 @@ export async function outstandingBills({ days_old, department, limit = 100 } = {
     where.push(`COALESCE(issued_at, created_at) <= NOW() - ($${params.length}::int || ' days')::interval`);
   }
   if (department) { params.push(department); where.push(`department = $${params.length}`); }
-  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
+  params.push(boundedInteger(limit, { fallback: 100, min: 1, max: 200 }));
   return prisma.$queryRawUnsafe(
     `SELECT id, invoice_number, patient_uid, patient_name, patient_phone,
             department, total_amount, amount_paid, amount_due,
