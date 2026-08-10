@@ -2000,8 +2000,11 @@ export const schemas = {
   },
 
   // ---- News2Summary ------------------------------------------------------
-  // POST /vitals `news2` sub-object (news2Service RETURNING, lines 203-204).
+  // POST /vitals `news2` sub-object (news2Service persistNews2 RETURNING).
   // clinical_risk == risk_level (snake_case enum). STRICT.
+  // Migration 652 re-score support: vitals_chart_id links the score to its
+  // source vitals row, partial_score/missing_params mark genuine partial
+  // scores (all nullable — pre-652 rows and standalone scores).
   News2Summary: {
     type: 'object',
     additionalProperties: false,
@@ -2012,6 +2015,9 @@ export const schemas = {
       total_score: { type: 'integer' },
       clinical_risk: { type: 'string', enum: NEWS2_CLINICAL_RISK },
       risk_level: { type: 'string', enum: NEWS2_CLINICAL_RISK },
+      vitals_chart_id: { type: 'integer', nullable: true },
+      partial_score: { type: 'boolean', nullable: true },
+      missing_params: { type: 'array', items: { type: 'string' }, nullable: true },
       recorded_by: { type: 'string', format: 'uuid', nullable: true },
       recorded_at: { type: 'string', format: 'date-time', nullable: true },
       created_at: { type: 'string', format: 'date-time', nullable: true },
