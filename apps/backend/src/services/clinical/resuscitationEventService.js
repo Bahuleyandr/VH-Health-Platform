@@ -349,6 +349,7 @@ async function resolveLocationSnapshot(tx, tenantId, patientUid) {
 async function notifyCodeBlue(event) {
   try {
     emitCodeBlue({
+      tenantId: event.tenant_id,
       patientId: event.patient_display_id ?? event.patient_uid,
       bedNumber: event.bed_snapshot,
       ward: event.ward_snapshot,

@@ -30,8 +30,9 @@ function normalizeTenantId(value) {
 
 /**
  * Resolve a recipient_id (stored as text — may be an integer users.id or a
- * uuid uid) to its known FCM/device tokens across the three device homes:
- * users.device_token, user_devices.fcm_token, staff_devices.device_token.
+ * uuid uid) to its known FCM tokens in users.device_token and
+ * user_devices.fcm_token. staff_devices.device_token is a device-trust
+ * credential and must never enter a push-provider path.
  * Returns a de-duplicated, non-empty token array (may be empty).
  */
 export async function resolveRecipientTokens(recipientId, explicitTenantId = null) {
@@ -73,23 +74,6 @@ export async function resolveRecipientTokens(recipientId, explicitTenantId = nul
     for (const r of udRows) if (r.t) tokens.add(r.t);
   } catch (err) {
     logger.warn('outbox-drain: user_devices token lookup failed:', err.message);
-  }
-  // staff_devices keys on an integer staff_id — only probe when numeric.
-  if (/^\d+$/.test(idText)) {
-    try {
-      const sdRows = await scopedQuery(
-        `SELECT device_token AS t FROM staff_devices
-          WHERE tenant_id = $1::uuid
-            AND device_token IS NOT NULL
-            AND is_active = true
-            AND staff_id = $2::int`,
-        tenantId,
-        idText,
-      );
-      for (const r of sdRows) if (r.t) tokens.add(r.t);
-    } catch (err) {
-      logger.warn('outbox-drain: staff_devices token lookup failed:', err.message);
-    }
   }
   return [...tokens];
 }

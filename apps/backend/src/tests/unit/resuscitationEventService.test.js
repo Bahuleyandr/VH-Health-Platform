@@ -155,6 +155,7 @@ describe('resuscitationEventService', () => {
     // notification-only WS push carries the durable event id
     expect(emitCodeBlueMock).toHaveBeenCalledTimes(1);
     expect(emitCodeBlueMock.mock.calls[0][0]).toMatchObject({
+      tenantId: TENANT,
       eventId: 9,
       ward: 'ICU-A',
       bedNumber: 'B12',

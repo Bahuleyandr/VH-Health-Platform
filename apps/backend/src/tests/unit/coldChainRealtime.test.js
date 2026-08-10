@@ -13,6 +13,7 @@ jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', ()
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: jest.fn() },
+  setTenant: jest.fn(),
 }));
 
 const { authorizeChannel, CHANNEL_CATALOG } = await import('../../utils/websocket/channelAuth.js');
