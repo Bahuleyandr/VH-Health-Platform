@@ -80,7 +80,14 @@ describe('ABDM tenant authorization', () => {
     ]);
 
     expect(queryRawUnsafeMock.mock.calls[2][0]).toContain('WHERE uid = $4::uuid AND tenant_id = $5::uuid');
-    expect(queryRawUnsafeMock.mock.calls[2].slice(1)).toEqual(['12-3456-7890-1234', 'patient@abdm', 'pending', PATIENT, TENANT]);
+    expect(queryRawUnsafeMock.mock.calls[2].slice(1)).toEqual([
+      '12-3456-7890-1234',
+      'patient@abdm',
+      'pending',
+      PATIENT,
+      TENANT,
+      false,
+    ]);
   });
 
   it('tenant-scopes ABHA lookup and admin status aggregates', async () => {
