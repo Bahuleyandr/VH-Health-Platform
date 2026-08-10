@@ -9888,6 +9888,8 @@ class AppStrings {
           "Attachment sent; scan status: {status}",
       's4.dynamic.messaging.download_failed': "Download failed: {error}",
       's4.dynamic.messaging.saved_to_path': "Saved to {path}",
+      's4.lib.messaging.download_started':
+          "Download started - check your browser downloads",
       's4.dynamic.pharmacy.cancel_order_confirm': "Cancel order {orderNumber}?",
       's4.dynamic.pharmacy.batch': "Batch {batch}",
       's4.dynamic.pharmacy.confirm_delivered':
@@ -16234,6 +16236,8 @@ class AppStrings {
           "अटैचमेंट भेजा गया; स्कैन स्थिति: {status}",
       's4.dynamic.messaging.download_failed': "डाउनलोड विफल हुआ: {error}",
       's4.dynamic.messaging.saved_to_path': "{path} में सहेजा गया",
+      's4.lib.messaging.download_started':
+          "डाउनलोड शुरू हुआ - अपने ब्राउज़र डाउनलोड देखें",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "ऑर्डर रद्द करें {orderNumber}?",
       // REVIEW: S4 Pharmacy dynamic machine translations - preserve placeholders.
@@ -23295,6 +23299,8 @@ class AppStrings {
       's4.dynamic.messaging.download_failed':
           "பதிவிறக்கம் தோல்வியடைந்தது: {error}",
       's4.dynamic.messaging.saved_to_path': "{path} இல் சேமிக்கப்பட்டது",
+      's4.lib.messaging.download_started':
+          "பதிவிறக்கம் தொடங்கியது - உங்கள் உலாவி பதிவிறக்கங்களைப் பார்க்கவும்",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "{orderNumber} ஆர்டரை ரத்துசெய்யவா?",
       // REVIEW: S4 Pharmacy dynamic machine translations - preserve placeholders.
@@ -30223,6 +30229,8 @@ class AppStrings {
           "అటాచ్‌మెంట్ పంపబడింది; స్కాన్ స్థితి: {status}",
       's4.dynamic.messaging.download_failed': "డౌన్‌లోడ్ విఫలమైంది: {error}",
       's4.dynamic.messaging.saved_to_path': "{path}కి సేవ్ చేయబడింది",
+      's4.lib.messaging.download_started':
+          "డౌన్‌లోడ్ ప్రారంభమైంది - మీ బ్రౌజర్ డౌన్‌లోడ్‌లను చూడండి",
       's4.dynamic.pharmacy.cancel_order_confirm':
           "ఆర్డర్ {orderNumber}ని రద్దు చేయాలా?",
       // REVIEW: S4 Pharmacy dynamic machine translations - preserve placeholders.
