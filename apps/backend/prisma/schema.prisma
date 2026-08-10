@@ -7177,7 +7177,7 @@ model news2_scores {
   tenant_id          String         @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   vitals_chart_id    Int?
   superseded_by_id   Int?
-  superseded_at      DateTime?       @db.Timestamptz(6)
+  superseded_at      DateTime?      @db.Timestamptz(6)
   partial_score      Boolean        @default(false)
   missing_params     String[]
   news2_scores       news2_scores?  @relation("news2_scoresTonews2_scores", fields: [superseded_by_id], references: [id], onUpdate: NoAction, map: "fk_news2_scores_superseded_by")
