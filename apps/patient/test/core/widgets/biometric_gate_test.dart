@@ -282,6 +282,127 @@ void main() {
     expect(find.text('second'), findsNothing);
   });
 
+  testWidgets(
+    'the inactive state raised by an in-flight prompt neither clears a '
+    'sibling grant nor discards the pending grant (no false-lock loop)',
+    (tester) async {
+      // The OS biometric prompt itself pushes the app to `inactive`. Before
+      // the prompt-in-flight guard, that transition made every granted gate
+      // clear the shared unlock state and bump the unlock generation, which
+      // discarded the very grant the prompt was about to return — wedging
+      // the gate in a prompt -> inactive -> cleared -> re-prompt loop.
+      final pendingCheck = Completer<bool>();
+      Widget stack({required bool withDetail}) {
+        return _wrap(
+          Column(
+            children: [
+              SizedBox(
+                height: 200,
+                child: BiometricGate(
+                  key: const ValueKey('hub'),
+                  authCheck: (_) async => true,
+                  graceScopeKey: 'patient-a',
+                  builder: (_) => const Text('hub-phi'),
+                ),
+              ),
+              if (withDetail)
+                SizedBox(
+                  height: 200,
+                  child: BiometricGate(
+                    key: const ValueKey('detail'),
+                    authCheck: (_) => pendingCheck.future,
+                    // A different scope so the hub's grace window cannot
+                    // satisfy this gate — it must run its own prompt.
+                    graceScopeKey: 'patient-a-detail',
+                    builder: (_) => const Text('detail-phi'),
+                  ),
+                ),
+            ],
+          ),
+        );
+      }
+
+      await tester.pumpWidget(stack(withDetail: false));
+      await tester.pumpAndSettle();
+      expect(find.text('hub-phi'), findsOneWidget);
+
+      // Mount the second gate; its check (the "OS prompt") stays pending.
+      await tester.pumpWidget(stack(withDetail: true));
+      await tester.pump();
+      expect(find.text('detail-phi'), findsNothing);
+
+      // The prompt overlay takes focus -> the app reports `inactive`.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+
+      // The already-granted sibling must NOT re-lock off the prompt's own
+      // lifecycle noise.
+      expect(find.text('hub-phi'), findsOneWidget);
+
+      // And when the user passes the prompt, the grant must stick instead of
+      // being discarded by a generation bump.
+      pendingCheck.complete(true);
+      await tester.pumpAndSettle();
+      expect(find.text('detail-phi'), findsOneWidget);
+      expect(find.text('hub-phi'), findsOneWidget);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+    },
+  );
+
+  testWidgets('true backgrounding during an in-flight prompt still re-locks', (
+    tester,
+  ) async {
+    final pendingCheck = Completer<bool>();
+    await tester.pumpWidget(
+      _wrap(
+        Column(
+          children: [
+            SizedBox(
+              height: 200,
+              child: BiometricGate(
+                key: const ValueKey('hub'),
+                authCheck: (_) async => true,
+                graceScopeKey: 'patient-a',
+                builder: (_) => const Text('hub-phi'),
+              ),
+            ),
+            SizedBox(
+              height: 200,
+              child: BiometricGate(
+                key: const ValueKey('detail'),
+                authCheck: (_) => pendingCheck.future,
+                graceScopeKey: 'patient-a-detail',
+                builder: (_) => const Text('detail-phi'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    // Bounded pumps — the detail gate's pending check keeps its indeterminate
+    // spinner animating, so pumpAndSettle would time out.
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('hub-phi'), findsOneWidget);
+
+    // `paused` (not `inactive`) means the app genuinely left the foreground,
+    // prompt or no prompt — the grant must clear.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+
+    expect(find.text('hub-phi'), findsNothing);
+
+    // Restore the lifecycle for the following tests. The pending check is
+    // deliberately never completed (its counter is reset by setUp); bounded
+    // pumps because its spinner never settles.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('hub-phi'), findsOneWidget);
+  });
+
   testWidgets('backgrounding clears the grant and re-checks on resume', (
     tester,
   ) async {
