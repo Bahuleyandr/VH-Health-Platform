@@ -850,6 +850,15 @@ class AppStrings {
   String get vitalsPatientIdHint => _t('vitals.patient_id_hint');
   String get vitalsPatientIdRequired => _t('vitals.patient_id_required');
   String get vitalsPatientIdInvalid => _t('vitals.patient_id_invalid');
+  String get vitalsScanWristbandButton => _t('vitals.scan.button');
+  String get vitalsScanSubtitle => _t('vitals.scan.subtitle');
+  String get vitalsScanVerifyButton => _t('vitals.scan.verify_button');
+  String get vitalsScanChangePatient => _t('vitals.scan.change_patient');
+  String get vitalsScanNoMatch => _t('vitals.scan.no_match');
+  String get vitalsScanResolveFailed => _t('vitals.scan.resolve_failed');
+  String get vitalsScanConfirmRequired => _t('vitals.scan.confirm_required');
+  String get vitalsScanCameraError => _t('vitals.scan.camera_error');
+  String get vitalsScanVerifiedLabel => _t('vitals.scan.verified_label');
   String get vitalsBpHeader => _t('vitals.bp_header');
   String get vitalsBpSystolic => _t('vitals.bp_systolic');
   String get vitalsBpSystolicHint => _t('vitals.bp_systolic_hint');
@@ -4518,6 +4527,19 @@ class AppStrings {
       'vitals.patient_id_hint': 'Enter patient ID',
       'vitals.patient_id_required': 'Patient ID is required',
       'vitals.patient_id_invalid': 'Enter a valid number',
+      'vitals.scan.button': 'Scan patient wristband',
+      'vitals.scan.subtitle':
+          'Point the camera at the QR code on the patient wristband.',
+      'vitals.scan.verify_button': 'Verify patient',
+      'vitals.scan.change_patient': 'Change patient',
+      'vitals.scan.no_match': 'No patient matches that identifier',
+      'vitals.scan.resolve_failed':
+          'Could not verify the patient. Check the connection and try again.',
+      'vitals.scan.confirm_required':
+          'Scan the wristband or verify the patient before saving',
+      'vitals.scan.camera_error':
+          'Camera scanner unavailable - enter and verify the patient ID instead',
+      'vitals.scan.verified_label': 'Patient verified',
       'vitals.bp_header': 'Blood Pressure',
       'vitals.bp_systolic': 'Systolic',
       'vitals.bp_systolic_hint': 'e.g. 120',
@@ -10971,6 +10993,18 @@ class AppStrings {
       'vitals.patient_id_hint': 'मरीज़ ID दर्ज करें',
       'vitals.patient_id_required': 'मरीज़ ID आवश्यक है',
       'vitals.patient_id_invalid': 'वैध संख्या दर्ज करें',
+      'vitals.scan.button': 'मरीज़ का रिस्टबैंड स्कैन करें',
+      'vitals.scan.subtitle': 'मरीज़ के रिस्टबैंड पर QR कोड पर कैमरा लगाएँ।',
+      'vitals.scan.verify_button': 'मरीज़ सत्यापित करें',
+      'vitals.scan.change_patient': 'मरीज़ बदलें',
+      'vitals.scan.no_match': 'उस पहचानकर्ता से कोई मरीज़ मेल नहीं खाता',
+      'vitals.scan.resolve_failed':
+          'मरीज़ सत्यापित नहीं हो सका। कनेक्शन जाँचें और फिर से कोशिश करें।',
+      'vitals.scan.confirm_required':
+          'सहेजने से पहले रिस्टबैंड स्कैन करें या मरीज़ सत्यापित करें',
+      'vitals.scan.camera_error':
+          'कैमरा स्कैनर उपलब्ध नहीं — मरीज़ ID दर्ज कर सत्यापित करें',
+      'vitals.scan.verified_label': 'मरीज़ सत्यापित',
       'vitals.bp_header': 'रक्तचाप',
       'vitals.bp_systolic': 'सिस्टोलिक',
       'vitals.bp_systolic_hint': 'जैसे 120',
@@ -17348,6 +17382,20 @@ class AppStrings {
       'vitals.patient_id_hint': 'நோயாளி ID உள்ளிடவும்',
       'vitals.patient_id_required': 'நோயாளி ID தேவை',
       'vitals.patient_id_invalid': 'சரியான எண்ணை உள்ளிடவும்',
+      'vitals.scan.button': 'நோயாளியின் கைப்பட்டையை ஸ்கேன் செய்யவும்',
+      'vitals.scan.subtitle':
+          'நோயாளியின் கைப்பட்டையில் உள்ள QR குறியீட்டில் கேமராவைக் காட்டவும்.',
+      'vitals.scan.verify_button': 'நோயாளியை சரிபார்க்கவும்',
+      'vitals.scan.change_patient': 'நோயாளியை மாற்றவும்',
+      'vitals.scan.no_match':
+          'அந்த அடையாளத்துடன் எந்த நோயாளியும் பொருந்தவில்லை',
+      'vitals.scan.resolve_failed':
+          'நோயாளியை சரிபார்க்க முடியவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.',
+      'vitals.scan.confirm_required':
+          'சேமிக்கும் முன் கைப்பட்டையை ஸ்கேன் செய்யவும் அல்லது நோயாளியை சரிபார்க்கவும்',
+      'vitals.scan.camera_error':
+          'கேமரா ஸ்கேனர் கிடைக்கவில்லை — நோயாளி ID ஐ உள்ளிட்டு சரிபார்க்கவும்',
+      'vitals.scan.verified_label': 'நோயாளி சரிபார்க்கப்பட்டது',
       'vitals.bp_header': 'இரத்த அழுத்தம்',
       'vitals.bp_systolic': 'சிஸ்டாலிக்',
       'vitals.bp_systolic_hint': 'எ.கா. 120',
@@ -24377,6 +24425,19 @@ class AppStrings {
       'vitals.patient_id_hint': 'రోగి ID నమోదు చేయండి',
       'vitals.patient_id_required': 'రోగి ID అవసరం',
       'vitals.patient_id_invalid': 'చెల్లుబాటు అయ్యే సంఖ్యను నమోదు చేయండి',
+      'vitals.scan.button': 'రోగి చేతిపట్టీని స్కాన్ చేయండి',
+      'vitals.scan.subtitle':
+          'రోగి చేతిపట్టీపై ఉన్న QR కోడ్ వైపు కెమెరాను చూపండి.',
+      'vitals.scan.verify_button': 'రోగిని ధృవీకరించండి',
+      'vitals.scan.change_patient': 'రోగిని మార్చండి',
+      'vitals.scan.no_match': 'ఆ గుర్తింపుతో ఏ రోగి సరిపోలలేదు',
+      'vitals.scan.resolve_failed':
+          'రోగిని ధృవీకరించలేకపోయాం. కనెక్షన్ తనిఖీ చేసి మళ్లీ ప్రయత్నించండి.',
+      'vitals.scan.confirm_required':
+          'సేవ్ చేసే ముందు చేతిపట్టీని స్కాన్ చేయండి లేదా రోగిని ధృవీకరించండి',
+      'vitals.scan.camera_error':
+          'కెమెరా స్కానర్ అందుబాటులో లేదు — రోగి ID నమోదు చేసి ధృవీకరించండి',
+      'vitals.scan.verified_label': 'రోగి ధృవీకరించబడింది',
       'vitals.bp_header': 'రక్తపోటు',
       'vitals.bp_systolic': 'సిస్టోలిక్',
       'vitals.bp_systolic_hint': 'ఉదా. 120',
@@ -31324,6 +31385,20 @@ class AppStrings {
       'vitals.patient_id_hint': 'രോഗി ഐഡി നൽകുക',
       'vitals.patient_id_required': 'രോഗി ഐഡി നിർബന്ധമാണ്',
       'vitals.patient_id_invalid': 'ശരിയായ നമ്പർ നൽകുക',
+      'vitals.scan.button': 'രോഗിയുടെ റിസ്റ്റ്ബാൻഡ് സ്കാൻ ചെയ്യുക',
+      'vitals.scan.subtitle':
+          'രോഗിയുടെ റിസ്റ്റ്ബാൻഡിലെ QR കോഡിലേക്ക് ക്യാമറ ചൂണ്ടുക.',
+      'vitals.scan.verify_button': 'രോഗിയെ സ്ഥിരീകരിക്കുക',
+      'vitals.scan.change_patient': 'രോഗിയെ മാറ്റുക',
+      'vitals.scan.no_match':
+          'ആ ഐഡന്റിഫയറുമായി ഒരു രോഗിയും പൊരുത്തപ്പെടുന്നില്ല',
+      'vitals.scan.resolve_failed':
+          'രോഗിയെ സ്ഥിരീകരിക്കാനായില്ല. കണക്ഷൻ പരിശോധിച്ച് വീണ്ടും ശ്രമിക്കുക.',
+      'vitals.scan.confirm_required':
+          'സേവ് ചെയ്യുന്നതിന് മുമ്പ് റിസ്റ്റ്ബാൻഡ് സ്കാൻ ചെയ്യുക അല്ലെങ്കിൽ രോഗിയെ സ്ഥിരീകരിക്കുക',
+      'vitals.scan.camera_error':
+          'ക്യാമറ സ്കാനർ ലഭ്യമല്ല — രോഗിയുടെ ID നൽകി സ്ഥിരീകരിക്കുക',
+      'vitals.scan.verified_label': 'രോഗി സ്ഥിരീകരിച്ചു',
       'vitals.bp_header': 'രക്തസമ്മർദ്ദം',
       'vitals.bp_systolic': 'സിസ്റ്റോളിക്',
       'vitals.bp_systolic_hint': 'ഉദാ. 120',

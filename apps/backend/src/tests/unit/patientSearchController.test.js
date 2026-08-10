@@ -125,6 +125,57 @@ describe('patientSearchController search', () => {
     expect(tenantId).toBe(TENANT_ID);
     expect(limit).toBe(12);
   });
+
+  it('resolves a wristband UUID query by exact uid, tenant-scoped (STF-4)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 51,
+      uid: PATIENT_UID,
+      name: 'Codex Test Patient',
+      phone: '+919876543210',
+      gender: 'female',
+      abha_address: null,
+      profile_picture: null,
+      hospital_number: 'VH-000051',
+      age: 36,
+    }]);
+
+    const res = makeRes();
+    await searchPatients(makeReq({
+      query: { q: PATIENT_UID.toUpperCase() },
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      data: {
+        count: 1,
+        patients: [{ id: 51, uid: PATIENT_UID, name: 'Codex Test Patient' }],
+      },
+    });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    const [sql, uidParam, tenantParam] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toContain('u.uid = $1::uuid');
+    expect(sql).toContain('u.tenant_id = $2::uuid');
+    expect(sql).toContain("u.role = 'PATIENT'");
+    expect(uidParam).toBe(PATIENT_UID);
+    expect(tenantParam).toBe(TENANT_ID);
+  });
+
+  it('a UUID query for another tenant/unknown uid returns an empty result', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    const res = makeRes();
+    await searchPatients(makeReq({
+      query: { q: '99999999-9999-4999-8999-999999999999' },
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      data: { patients: [], count: 0 },
+    });
+  });
 });
 
 describe('patientSearchController front-office mutations', () => {
