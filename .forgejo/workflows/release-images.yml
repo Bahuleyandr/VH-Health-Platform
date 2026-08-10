@@ -206,12 +206,14 @@ jobs:
           fi
 
           build_args=()
+          build_context_args=()
           secret_args=()
           case "${{ matrix.app }}" in
             backend)
               build_args+=(--build-arg "NODE_IMAGE=mirror.gcr.io/library/node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66")
               ;;
             admin)
+              build_context_args+=(--build-context "backend=apps/backend")
               build_args+=(
                 --build-arg "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.vhhealth.app}"
                 --build-arg "NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-VH Health Admin}"
@@ -248,6 +250,7 @@ jobs:
             --metadata-file "output/release-images/${{ matrix.app }}/build-metadata.json" \
             --push \
             "${tag_args[@]}" \
+            "${build_context_args[@]}" \
             "${build_args[@]}" \
             "${secret_args[@]}" \
             -f "${{ matrix.dockerfile }}" \
@@ -273,6 +276,7 @@ jobs:
         run: |
           /tmp/vh-release-tools/trivy image \
             --platform linux/amd64 \
+            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --scanners vuln \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \

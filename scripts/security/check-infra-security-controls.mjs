@@ -28,6 +28,7 @@ const mcpK8s = read('infra/mcp/vh-mcp-postgres/k8s.yaml');
 const forgejoReleaseImages = read('.forgejo/workflows/release-images.yml');
 const forgejoDalekDeploy = read('.forgejo/workflows/deploy-dalekdefender.yml');
 const forgejoContainerSupplyChain = read('.forgejo/workflows/container-supply-chain.yml');
+const forgejoCosignPublicKey = read('infra/forgejo/signing/cosign.pub');
 const githubReleaseImages = read('.github/workflows/release-images.yml');
 const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
 
@@ -104,6 +105,41 @@ check('release workflows keep backend base image overrides digest-pinned', () =>
   const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
   return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(combined);
 });
+
+check('backend image generation stays within the Forgejo runner memory budget', () =>
+  backendDockerfile.includes(
+    'RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate',
+  ));
+
+check('Forgejo admin image builds provide the backend named context', () =>
+  forgejoContainerSupplyChain.includes(
+    "build_contexts: '--build-context backend=apps/backend'",
+  ) &&
+  forgejoDalekDeploy.includes('--build-context backend=apps/backend') &&
+  forgejoReleaseImages.includes(
+    'build_context_args+=(--build-context "backend=apps/backend")',
+  ));
+
+check('Forgejo image scans bypass the unreliable Trivy DB mirror', () => {
+  const workflows = [
+    forgejoContainerSupplyChain,
+    forgejoDalekDeploy,
+    forgejoReleaseImages,
+  ];
+  return workflows.every((workflow) =>
+    workflow.includes('--db-repository ghcr.io/aquasecurity/trivy-db:2'),
+  );
+});
+
+check('Forgejo Dalekdefender transport fails closed as a clean skip', () =>
+  forgejoDalekDeploy.includes(
+    'forgejo-deploy-preflight.mjs --mode dalek-deploy --allow-skip',
+  ));
+
+check('Forgejo signing public key is retained for admission verification', () =>
+  /^-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+\n-----END PUBLIC KEY-----\n$/.test(
+    forgejoCosignPublicKey,
+  ));
 
 check('MCP bridge rejects query-string tokens', () =>
   !mcpIndex.includes('req.query.token') &&

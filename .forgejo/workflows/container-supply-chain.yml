@@ -39,16 +39,19 @@ jobs:
             image: vhhealth-backend
             context: apps/backend
             dockerfile: apps/backend/Dockerfile
+            build_contexts: ''
             build_args: '--build-arg NODE_IMAGE=mirror.gcr.io/library/node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66'
           - app: admin
             image: vhhealth-admin
             context: apps/admin
             dockerfile: apps/admin/Dockerfile
+            build_contexts: '--build-context backend=apps/backend'
             build_args: '--build-arg NEXT_PUBLIC_API_URL=https://api.vhhealth.app --build-arg NEXT_PUBLIC_APP_NAME=VHHealthAdmin --build-arg NEXT_PUBLIC_ALLOWED_ORIGIN=https://admin.vhhealth.app --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=ci --build-arg NEXT_PUBLIC_SENTRY_RELEASE=${{ github.sha }} --build-arg SENTRY_UPLOAD_SOURCE_MAPS=false'
           - app: staff-web
             image: vhhealth-staff-web
             context: .
             dockerfile: apps/staff/Dockerfile.web
+            build_contexts: ''
             build_args: '--build-arg VH_BASE_URL=https://api.vhhealth.app/api/v1 --build-arg APP_NAME=VHHealthStaff --build-arg SENTRY_ENVIRONMENT=ci --build-arg SENTRY_RELEASE=${{ github.sha }}'
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
@@ -64,6 +67,7 @@ jobs:
           --pull
           -t local/${{ matrix.image }}:${{ github.sha }}
           -f ${{ matrix.dockerfile }}
+          ${{ matrix.build_contexts }}
           ${{ matrix.build_args }}
           ${{ matrix.context }}
 
@@ -107,6 +111,7 @@ jobs:
         run: |
           /tmp/vh-scanners/trivy image \
             --input /tmp/${{ matrix.app }}-image.tar \
+            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --scanners vuln,secret \
             --skip-version-check \
             --severity CRITICAL,HIGH \
@@ -120,6 +125,7 @@ jobs:
         run: |
           /tmp/vh-scanners/trivy image \
             --input /tmp/${{ matrix.app }}-image.tar \
+            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --scanners misconfig \
             --skip-version-check \
             --severity CRITICAL,HIGH \

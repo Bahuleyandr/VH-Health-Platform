@@ -123,13 +123,17 @@ Forgejo CD surfaces:
 
 Forgejo CD prerequisite checks live in
 `scripts/ci/forgejo-deploy-preflight.mjs` so local operators and workflows use
-the same secret contract. The deploy path is intentionally strict: image
-release and Dalekdefender deploy require registry auth plus
-`COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, and `COSIGN_PUBLIC_KEY`; the remote
-pin step additionally requires `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, and
-`DALEKDEFENDER_SSH_KEY`. Post-deploy smoke can still be configured as a
-soft-skip gate with `--allow-skip`, but a first-class Forgejo deployment should
-set `VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN`.
+the same secret contract. The image path is intentionally strict: image release
+and Dalekdefender deploy require registry auth plus `COSIGN_PRIVATE_KEY`,
+`COSIGN_PASSWORD`, and `COSIGN_PUBLIC_KEY`. The remote pin step runs only when
+`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, and `DALEKDEFENDER_SSH_KEY` are all
+configured. Missing transport credentials make that pin step a warning-backed
+clean skip; they never bypass image build, scan, signing, or verification.
+The corresponding non-secret Forgejo verification key is retained at
+`infra/forgejo/signing/cosign.pub` for the Kyverno admission-key ceremony.
+Post-deploy smoke can also be configured as a soft-skip gate with
+`--allow-skip`, but a first-class Forgejo deployment should set
+`VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN`.
 
 Branch-push optimization:
 
