@@ -235,7 +235,7 @@ export default async function jwtMiddleware(req, res, next) {
   // — historically it was silently widened to full access here. Reject it at
   // this single JWT chokepoint so the guard holds uniformly across every REST
   // surface, including routers that mount jwtAuth locally WITHOUT
-  // `enforceFullScope` (staff auth, HL7 generate, health, infrastructure). WS
+  // `enforceFullScope` (HL7 generate, health, infrastructure). WS
   // tickets are passed in `?token=` query params that proxies/referrers log, so
   // leakage is realistic and the blast radius (full REST access for 60s) is high.
   if (scope === 'ws') {
