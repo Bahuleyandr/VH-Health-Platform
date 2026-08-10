@@ -4,8 +4,9 @@
 import crypto from 'crypto';
 
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
-import prisma, { setTenant } from '../../lib/prisma.js';
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { AppError } from '../../utils/AppError.js';
 import { maskEmail, maskGeneric } from '../../utils/piiMask.js';
 import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
@@ -358,13 +359,25 @@ class ABDMService {
    * Works with ABDM credentials unset: gateway verification is applied only
    * when `ABDM_CONFIG.enabled`, and fails closed when it is.
    *
+   * Every link carries a verification status (migration 653): 'verified' only
+   * when the ABDM gateway confirmed the number (in this call or on an existing
+   * verified link for the same number), otherwise 'pending'. A pending link
+   * keeps the number on the account for display but does not own the
+   * tenant-scoped canonical unique slot and never resolves in
+   * ABDM flows — that closes the squat where any authenticated patient could
+   * permanently claim someone else's ABHA while ABDM is disabled.
+   *
    * @param {string} patientUid - Patient's UUID
    * @param {string} abhaNumber - 14-digit ABHA number (hyphens permitted)
    * @param {string} abhaAddress - ABHA address (user@abdm), optional
-   * @returns {{linked: boolean, abhaNumber: string|null, abhaAddress: string|null}}
+   * @returns {{linked: boolean, abhaNumber: string|null, abhaAddress: string|null,
+   *   verification_status: string, abha_verified_at: (Date|null)}}
    *   The resulting linkage, in the same shape as `getMyAbhaLinkage`.
    */
-  async registerABHA(patientUid, abhaNumber, abhaAddress, { tenantId = null } = {}) {
+  async registerABHA(patientUid, abhaNumber, abhaAddress, {
+    tenantId = null, actorUid = null, actorRole = null, requestId = null,
+    ip = null, userAgent = null,
+  } = {}) {
     const tid = requireTenantId(tenantId);
     if (!patientUid) {
       throw AppError.badRequest('Patient UID is required', 'MISSING_PATIENT_UID');
@@ -383,7 +396,9 @@ class ABDMService {
 
     // Check patient exists
     const patientResult = await prisma.$queryRawUnsafe(
-      `SELECT uid, name, phone, tenant_id FROM users
+      `SELECT uid, name, phone, tenant_id, abha_number,
+              abha_verification_status, abha_verified_at
+       FROM users
        WHERE uid = $1::uuid
          AND tenant_id = $2::uuid
          AND role = 'PATIENT'
@@ -394,15 +409,24 @@ class ABDMService {
     if (patientResult.length === 0) {
       throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
     }
+    const currentLink = patientResult[0];
+    const currentCleanAbha = currentLink.abha_number
+      ? String(currentLink.abha_number).trim().replace(/-/g, '')
+      : null;
+    const preserveVerifiedLink = currentLink.abha_verification_status === 'verified'
+      && currentCleanAbha === cleanAbha;
 
-    // Check ABHA not already linked to another patient. Legacy rows may use
-    // either plain digits or canonical 2-4-4-4 spelling, so compare both; an
-    // IN over the two literals still uses idx_users_abha_number. New writes are
-    // canonicalized below.
+    // Check ABHA not already VERIFIED-linked to another patient. Legacy rows
+    // may use either plain digits or canonical 2-4-4-4 spelling, so compare
+    // both; an IN over the two literals still uses idx_users_abha_number. New
+    // writes are canonicalized below. Pending claims by other users do NOT
+    // block — an unverified claim must never lock out the rightful owner
+    // (migration 653); only the first VERIFIED link owns the number.
     const existingAbha = await prisma.$queryRawUnsafe(
       `SELECT uid FROM users
        WHERE tenant_id = $1::uuid
          AND abha_number IN ($2, $3)
+         AND abha_verification_status = 'verified'
          AND uid != $4::uuid
        LIMIT 1`,
       tid, cleanAbha, hyphenateAbhaNumber(cleanAbha), patientUid
@@ -412,9 +436,13 @@ class ABDMService {
     }
 
     // Verify ABHA with ABDM gateway (if enabled)
-    if (ABDM_CONFIG.enabled) {
+    let gatewayVerified = preserveVerifiedLink;
+    let gatewayVerificationRan = false;
+    if (!preserveVerifiedLink && ABDM_CONFIG.enabled) {
       try {
+        gatewayVerificationRan = true;
         await abdmGateway.verifyABHA(normalizedAbha);
+        gatewayVerified = true;
       } catch (err) {
         logger.warn('ABDM ABHA verification failed', {
           abhaNumber: maskGeneric(normalizedAbha),
@@ -437,16 +465,58 @@ class ABDMService {
       }
     }
 
-    // Update patient with ABHA details
+    // A new number is 'verified' only after a successful gateway check in this
+    // call. Re-linking the same already-verified number preserves that proof;
+    // an ABDM outage or disabled deployment must never downgrade it to pending
+    // and release its tenant-unique ownership slot.
+    const verificationStatus = gatewayVerified ? 'verified' : 'pending';
+
+    // Update patient with ABHA details + same-transaction audit row. ABHA
+    // linking is identity, not clinical care: audit row yes, no
+    // clinical_timeline_events row (same split as the account-deletion
+    // tombstone in userService).
     let result;
     try {
-      result = await prisma.$queryRawUnsafe(
-        `UPDATE users
-         SET abha_number = $1, abha_address = $2, updated_at = NOW()
-         WHERE uid = $3::uuid AND tenant_id = $4::uuid
-         RETURNING uid, tenant_id, name, phone, abha_number, abha_address, updated_at`,
-        normalizedAbha, normalizedAddress, patientUid, tid
-      );
+      result = await setTenantTx(tid, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE users
+           SET abha_number = $1, abha_address = $2,
+               abha_verification_status = $3::text,
+               abha_verified_at = CASE
+                 WHEN $3::text = 'verified' AND $6::boolean
+                   THEN COALESCE(abha_verified_at, NOW())
+                 WHEN $3::text = 'verified' THEN NOW()
+                 ELSE NULL
+               END,
+               updated_at = NOW()
+           WHERE uid = $4::uuid AND tenant_id = $5::uuid
+           RETURNING uid, tenant_id, name, phone, abha_number, abha_address,
+                     abha_verification_status, abha_verified_at, updated_at`,
+          normalizedAbha, normalizedAddress, verificationStatus, patientUid, tid,
+          preserveVerifiedLink
+        );
+        await recordClinicalAuditEvent({
+          tenantId: tid,
+          patientUid,
+          action: 'ABHA_LINKED',
+          actionStatus: 'success',
+          actorUid: actorUid || patientUid,
+          actorRole,
+          resourceType: 'ABHA_LINKAGE',
+          resourceTable: 'users',
+          resourceId: String(patientUid),
+          requestId,
+          ipAddress: ip,
+          userAgent,
+          metadata: {
+            verification_status: verificationStatus,
+            gateway_verification_ran: gatewayVerificationRan,
+            actor: actorUid && String(actorUid) !== String(patientUid) ? 'admin_patient_uid' : 'self',
+          },
+          idempotencyKey: `abha-link:${patientUid}:${cleanAbha}:${verificationStatus}`,
+        }, { db: tx });
+        return rows;
+      });
     } catch (err) {
       if (isCanonicalAbhaUniqueViolation(err)) {
         throw AppError.conflict(
@@ -468,11 +538,178 @@ class ABDMService {
     // Return the linkage, not the user row: the row carries name/phone/tenant
     // the caller did not ask for, and this shape matches getMyAbhaLinkage so a
     // client can render the linked state straight from either response.
+    // `linked` deliberately keeps its pre-653 meaning ("a number is on file")
+    // so existing mobile clients don't break; verification_status is additive.
     const row = result[0] || {};
     return {
       linked: true,
       abhaNumber: row.abha_number ?? normalizedAbha,
       abhaAddress: row.abha_address ?? normalizedAddress,
+      verification_status: row.abha_verification_status ?? verificationStatus,
+      abha_verified_at: row.abha_verified_at ?? null,
+    };
+  }
+
+  /**
+   * Verify the ABHA number ALREADY LINKED (pending) on a patient account
+   * against the ABDM gateway and promote the link to 'verified'.
+   *
+   * Fail-closed: requires ABDM enabled (503, mirroring /verify-abha) with no
+   * ABDM_ABHA_ALLOW_UNVERIFIED bypass — an unverified claim can only become
+   * verified through the gateway. If another patient verified the same
+   * canonical number first, the partial unique index (migration 653) rejects
+   * the promotion and the caller gets the same 409 ABHA_ALREADY_LINKED as a
+   * duplicate link attempt; the losing claim stays pending.
+   *
+   * @param {string} patientUid - Target patient's UUID
+   * @returns {{linked: boolean, abhaNumber: string|null, abhaAddress: string|null,
+   *   verification_status: string, abha_verified_at: (Date|null)}}
+   *   The resulting linkage, in the same shape as `getMyAbhaLinkage`.
+   */
+  async verifyLinkedAbha(patientUid, {
+    tenantId = null, actorUid = null, actorRole = null, requestId = null,
+    ip = null, userAgent = null,
+  } = {}) {
+    const tid = requireTenantId(tenantId);
+    if (!patientUid) {
+      throw AppError.badRequest('Patient UID is required', 'MISSING_PATIENT_UID');
+    }
+
+    const patientResult = await prisma.$queryRawUnsafe(
+      `SELECT uid, abha_number, abha_address, abha_verification_status, abha_verified_at
+       FROM users
+       WHERE uid = $1::uuid
+         AND tenant_id = $2::uuid
+         AND role = 'PATIENT'
+         AND is_active = true
+       LIMIT 1`,
+      patientUid, tid
+    );
+    if (patientResult.length === 0) {
+      throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
+    }
+    const patient = patientResult[0];
+    if (!patient.abha_number) {
+      throw AppError.notFound('No ABHA number is linked to this account', 'ABHA_NOT_LINKED');
+    }
+    if (patient.abha_verification_status === 'verified') {
+      // Idempotent no-op: the link is already verified.
+      return {
+        linked: true,
+        abhaNumber: patient.abha_number,
+        abhaAddress: patient.abha_address || null,
+        verification_status: 'verified',
+        abha_verified_at: patient.abha_verified_at || null,
+      };
+    }
+
+    if (!ABDM_CONFIG.enabled) {
+      throw new AppError('ABDM integration is not enabled', 503, 'ABDM_NOT_ENABLED');
+    }
+
+    const cleanAbha = String(patient.abha_number).trim().replace(/-/g, '');
+    const normalizedAbha = /^\d{14}$/.test(cleanAbha)
+      ? hyphenateAbhaNumber(cleanAbha)
+      : patient.abha_number;
+    try {
+      await abdmGateway.verifyABHA(normalizedAbha);
+    } catch (err) {
+      logger.warn('ABDM linked-ABHA verification failed', {
+        patientUid,
+        abhaNumber: maskGeneric(normalizedAbha),
+        error: err.message,
+      });
+      // 4xx, not 503: the link exists and simply stays pending; the caller can
+      // retry once the gateway recognizes the number.
+      throw new AppError(
+        'ABHA could not be verified with the ABDM gateway; the link stays pending',
+        400,
+        'ABHA_VERIFICATION_FAILED',
+      );
+    }
+
+    let result;
+    try {
+      result = await setTenantTx(tid, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `UPDATE users
+           SET abha_verification_status = 'verified',
+               abha_verified_at = NOW(),
+               updated_at = NOW()
+           WHERE uid = $1::uuid AND tenant_id = $2::uuid
+             AND abha_verification_status = 'pending'
+             AND regexp_replace(abha_number, '-', '', 'g') = $3
+           RETURNING uid, abha_number, abha_address, abha_verification_status, abha_verified_at`,
+          patientUid, tid, cleanAbha
+        );
+        if (rows.length === 0) {
+          const currentRows = await tx.$queryRawUnsafe(
+            `SELECT uid, abha_number, abha_address,
+                    abha_verification_status, abha_verified_at
+             FROM users
+             WHERE uid = $1::uuid AND tenant_id = $2::uuid
+             LIMIT 1
+             FOR UPDATE`,
+            patientUid, tid
+          );
+          const current = currentRows[0];
+          const currentCanonical = current?.abha_number
+            ? String(current.abha_number).trim().replace(/-/g, '')
+            : null;
+          if (current?.abha_verification_status === 'verified'
+            && currentCanonical === cleanAbha) {
+            return currentRows;
+          }
+          throw AppError.conflict(
+            'The linked ABHA changed while verification was in progress; retry with the current link',
+            'ABHA_LINK_CHANGED',
+          );
+        }
+        await recordClinicalAuditEvent({
+          tenantId: tid,
+          patientUid,
+          action: 'ABHA_VERIFIED',
+          actionStatus: 'success',
+          actorUid: actorUid || patientUid,
+          actorRole,
+          resourceType: 'ABHA_LINKAGE',
+          resourceTable: 'users',
+          resourceId: String(patientUid),
+          requestId,
+          ipAddress: ip,
+          userAgent,
+          metadata: {
+            verification_status: 'verified',
+            gateway_verification_ran: true,
+            actor: actorUid && String(actorUid) !== String(patientUid) ? 'admin_patient_uid' : 'self',
+          },
+          idempotencyKey: `abha-verify:${patientUid}:${cleanAbha}`,
+        }, { db: tx });
+        return rows;
+      });
+    } catch (err) {
+      if (isCanonicalAbhaUniqueViolation(err)) {
+        // Another patient verified the same canonical number first.
+        throw AppError.conflict(
+          'This ABHA number is already linked to another patient',
+          'ABHA_ALREADY_LINKED',
+        );
+      }
+      throw err;
+    }
+
+    logger.info('ABHA link verified', {
+      patientUid,
+      abhaNumber: maskGeneric(normalizedAbha),
+    });
+
+    const row = result[0] || {};
+    return {
+      linked: true,
+      abhaNumber: row.abha_number ?? patient.abha_number,
+      abhaAddress: row.abha_address ?? patient.abha_address ?? null,
+      verification_status: row.abha_verification_status ?? 'verified',
+      abha_verified_at: row.abha_verified_at ?? null,
     };
   }
 
@@ -499,7 +736,7 @@ class ABDMService {
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT uid, abha_number, abha_address
+      `SELECT uid, abha_number, abha_address, abha_verification_status, abha_verified_at
        FROM users
        WHERE uid = $1::uuid
          AND tenant_id = $2::uuid
@@ -516,10 +753,15 @@ class ABDMService {
     const abhaNumber = result[0].abha_number || null;
     const abhaAddress = result[0].abha_address || null;
 
+    // `linked` keeps its original meaning ("a number/address is on file") so
+    // existing clients don't break; verification_status/abha_verified_at are
+    // additive (migration 653) and null while no number is linked.
     return {
       linked: Boolean(abhaNumber || abhaAddress),
       abhaNumber,
       abhaAddress,
+      verification_status: abhaNumber ? result[0].abha_verification_status : null,
+      abha_verified_at: abhaNumber ? (result[0].abha_verified_at || null) : null,
     };
   }
 
@@ -539,11 +781,14 @@ class ABDMService {
     }
     const canonicalAbha = hyphenateAbhaNumber(cleanAbha);
 
+    // Verified links only (migration 653): a pending claim is not identity
+    // evidence, so staff/admin lookup must not resolve it.
     const result = await prisma.$queryRawUnsafe(
       `SELECT uid, tenant_id, name, phone, email, gender, birthday, abha_number, abha_address, registered_at
        FROM users
        WHERE tenant_id = $1::uuid
          AND abha_number IN ($2, $3)
+         AND abha_verification_status = 'verified'
          AND is_active = true
          AND role = 'PATIENT'`,
       tid, cleanAbha, canonicalAbha
@@ -595,9 +840,14 @@ class ABDMService {
       throw AppError.badRequest('Invalid ABHA number format. Must be 14 digits.', 'INVALID_ABHA_FORMAT');
     }
     const canonicalAbha = hyphenateAbhaNumber(cleanAbha);
+    // Verified links only (migration 653): an inbound consent/data callback
+    // must never bind to a pending (unverified) claim — otherwise a squatter
+    // becomes the data subject for the rightful holder's consents.
     const rows = await prisma.$queryRawUnsafe(
       `SELECT uid, tenant_id FROM users
-       WHERE abha_number IN ($1, $2) AND is_active = true AND role = 'PATIENT'`,
+       WHERE abha_number IN ($1, $2)
+         AND abha_verification_status = 'verified'
+         AND is_active = true AND role = 'PATIENT'`,
       cleanAbha,
       canonicalAbha,
     );

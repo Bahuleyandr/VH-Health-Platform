@@ -11445,6 +11445,8 @@ model users {
   news2_spo2_scale                                                                                                                 Int                                                    @default(1) @db.SmallInt
   token_epoch                                                                                                                      Int                                                    @default(0)
   token_epoch_bumped_at                                                                                                            DateTime?                                              @db.Timestamptz(6)
+  abha_verification_status                                                                                                         String                                                 @default("pending") @db.VarChar(16)
+  abha_verified_at                                                                                                                 DateTime?                                              @db.Timestamptz(6)
   abdm_consents                                                                                                                    abdm_consents[]
   abdm_data_requests                                                                                                               abdm_data_requests[]                                   @relation("abdm_data_requests_patient")
   abdm_data_requests_recovery_owner                                                                                                abdm_data_requests[]                                   @relation("abdm_data_requests_recovery_owner")

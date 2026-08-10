@@ -12,7 +12,7 @@ export const schemas = {
   AbhaLinkage: {
     type: 'object',
     additionalProperties: false,
-    required: ['linked', 'abhaNumber', 'abhaAddress'],
+    required: ['linked', 'abhaNumber', 'abhaAddress', 'verification_status', 'abha_verified_at'],
     properties: {
       linked: {
         type: 'boolean',
@@ -30,6 +30,26 @@ export const schemas = {
         type: 'string',
         nullable: true,
         description: 'ABHA address (user@abdm), or null when not linked.',
+      },
+      verification_status: {
+        type: 'string',
+        nullable: true,
+        enum: ['pending', 'verified', null],
+        description:
+          'Verification state of the linked ABHA number (migration 653). `pending` means the '
+          + 'number is on file but has not been confirmed with the ABDM gateway — it displays '
+          + 'to the patient but does not resolve in ABDM flows (inbound consent callbacks, '
+          + 'staff lookup) and does not own the tenant-unique slot. `verified` means the ABDM '
+          + 'gateway confirmed the number. Null when no ABHA number is linked. `linked` keeps '
+          + 'its original meaning (a number/address is on file) for compatibility.',
+      },
+      abha_verified_at: {
+        type: 'string',
+        format: 'date-time',
+        nullable: true,
+        description:
+          'When the linked ABHA number was verified with the ABDM gateway, or null while '
+          + 'pending or unlinked.',
       },
     },
   },

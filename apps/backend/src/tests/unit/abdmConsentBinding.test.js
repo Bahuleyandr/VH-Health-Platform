@@ -21,9 +21,11 @@ jest.unstable_mockModule('../../config/abdmConfig.js', () => ({
     PURPOSES: ['CAREMGT', 'PUBHLTH'],
   },
 }));
+const __prismaMock = { $queryRawUnsafe: prismaQuery };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: prismaQuery },
+  default: __prismaMock,
   setTenant: setTenantMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaMock),
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {

@@ -28,6 +28,10 @@ jest.unstable_mockModule('../../services/abdm/abdmGateway.js', () => ({ default:
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
+const recordClinicalAuditEvent = jest.fn();
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordClinicalAuditEvent,
+}));
 
 const { default: abdmService } = await import('../../services/abdm/abdmService.js');
 
@@ -52,5 +56,226 @@ describe('ABHA fail-closed on gateway verification error (CAN-025)', () => {
     expect(verifyABHA).toHaveBeenCalledTimes(1);
     // The UPDATE (a 3rd query) must NOT have run.
     expect(queryRawUnsafe).toHaveBeenCalledTimes(2);
+  });
+
+  it('mints a VERIFIED link when the gateway verification succeeds', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PUID, name: 'P', phone: '+919000025001', tenant_id: TID }]) // patient lookup
+      .mockResolvedValueOnce([]) // existing-abha check
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: 'p@abdm',
+        abha_verification_status: 'verified',
+        abha_verified_at: new Date('2026-08-10T00:00:00Z'),
+      }]); // UPDATE
+    verifyABHA.mockResolvedValueOnce({ verified: true });
+
+    const result = await abdmService.registerABHA(PUID, '12345678901234', 'p@abdm', { tenantId: TID });
+
+    expect(result.verification_status).toBe('verified');
+    // The UPDATE stamps 'verified' + verified_at only on this gateway-success path.
+    const updateArgs = queryRawUnsafe.mock.calls[2];
+    expect(updateArgs[3]).toBe('verified');
+    expect(recordClinicalAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ABHA_LINKED',
+        metadata: expect.objectContaining({
+          verification_status: 'verified',
+          gateway_verification_ran: true,
+        }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('the ABDM_ABHA_ALLOW_UNVERIFIED override links but mints PENDING, never verified', async () => {
+    process.env.ABDM_ABHA_ALLOW_UNVERIFIED = 'true';
+    queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PUID, name: 'P', phone: '+919000025001', tenant_id: TID }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: 'p@abdm',
+        abha_verification_status: 'pending',
+        abha_verified_at: null,
+      }]);
+    verifyABHA.mockRejectedValueOnce(new Error('gateway down'));
+
+    const result = await abdmService.registerABHA(PUID, '12345678901234', 'p@abdm', { tenantId: TID });
+
+    expect(result.verification_status).toBe('pending');
+    const updateArgs = queryRawUnsafe.mock.calls[2];
+    expect(updateArgs[3]).toBe('pending');
+  });
+});
+
+describe('verifyLinkedAbha — promotion of a pending link (migration 653)', () => {
+  beforeEach(() => {
+    queryRawUnsafe.mockReset();
+    verifyABHA.mockReset();
+    recordClinicalAuditEvent.mockReset();
+  });
+
+  it('promotes a pending link to verified and writes the ABHA_VERIFIED audit row in the tx', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: 'p@abdm',
+        abha_verification_status: 'pending',
+        abha_verified_at: null,
+      }]) // patient lookup
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: 'p@abdm',
+        abha_verification_status: 'verified',
+        abha_verified_at: new Date('2026-08-10T00:00:00Z'),
+      }]); // promotion UPDATE
+    verifyABHA.mockResolvedValueOnce({ verified: true });
+
+    const result = await abdmService.verifyLinkedAbha(PUID, { tenantId: TID });
+
+    expect(result.verification_status).toBe('verified');
+    expect(verifyABHA).toHaveBeenCalledWith('12-3456-7890-1234');
+    expect(queryRawUnsafe.mock.calls[1][0]).toContain("abha_verification_status = 'pending'");
+    expect(queryRawUnsafe.mock.calls[1][0]).toContain("regexp_replace(abha_number, '-', '', 'g') = $3");
+    expect(recordClinicalAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ABHA_VERIFIED',
+        patientUid: PUID,
+        tenantId: TID,
+      }),
+      expect.objectContaining({ db: expect.anything() }),
+    );
+  });
+
+  it('is an idempotent no-op when the link is already verified', async () => {
+    const verifiedAt = new Date('2026-08-01T00:00:00Z');
+    queryRawUnsafe.mockResolvedValueOnce([{
+      uid: PUID,
+      abha_number: '12-3456-7890-1234',
+      abha_address: null,
+      abha_verification_status: 'verified',
+      abha_verified_at: verifiedAt,
+    }]);
+
+    const result = await abdmService.verifyLinkedAbha(PUID, { tenantId: TID });
+
+    expect(result).toEqual({
+      linked: true,
+      abhaNumber: '12-3456-7890-1234',
+      abhaAddress: null,
+      verification_status: 'verified',
+      abha_verified_at: verifiedAt,
+    });
+    expect(verifyABHA).not.toHaveBeenCalled();
+    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it('404s when no ABHA number is on file', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{
+      uid: PUID,
+      abha_number: null,
+      abha_address: null,
+      abha_verification_status: 'pending',
+      abha_verified_at: null,
+    }]);
+
+    await expect(abdmService.verifyLinkedAbha(PUID, { tenantId: TID }))
+      .rejects.toMatchObject({ code: 'ABHA_NOT_LINKED', statusCode: 404 });
+    expect(verifyABHA).not.toHaveBeenCalled();
+  });
+
+  it('leaves the link pending (4xx) when the gateway does not verify the number', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{
+      uid: PUID,
+      abha_number: '12-3456-7890-1234',
+      abha_address: null,
+      abha_verification_status: 'pending',
+      abha_verified_at: null,
+    }]);
+    verifyABHA.mockRejectedValueOnce(new Error('not found'));
+
+    await expect(abdmService.verifyLinkedAbha(PUID, { tenantId: TID }))
+      .rejects.toMatchObject({ code: 'ABHA_VERIFICATION_FAILED', statusCode: 400 });
+    // Only the lookup ran — no promotion UPDATE.
+    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a lost verify race (another user verified the same number) to 409 ABHA_ALREADY_LINKED', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: null,
+        abha_verification_status: 'pending',
+        abha_verified_at: null,
+      }])
+      .mockRejectedValueOnce({
+        meta: {
+          code: '23505',
+          message: 'duplicate key value violates unique constraint "uniq_users_tenant_abha_number_canonical"',
+        },
+      });
+    verifyABHA.mockResolvedValueOnce({ verified: true });
+
+    await expect(abdmService.verifyLinkedAbha(PUID, { tenantId: TID }))
+      .rejects.toMatchObject({ code: 'ABHA_ALREADY_LINKED', statusCode: 409 });
+  });
+
+  it('does not verify a replacement number linked while the gateway check was in flight', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: null,
+        abha_verification_status: 'pending',
+        abha_verified_at: null,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '98-7654-3210-9876',
+        abha_address: null,
+        abha_verification_status: 'pending',
+        abha_verified_at: null,
+      }]);
+    verifyABHA.mockResolvedValueOnce({ verified: true });
+
+    await expect(abdmService.verifyLinkedAbha(PUID, { tenantId: TID }))
+      .rejects.toMatchObject({ code: 'ABHA_LINK_CHANGED', statusCode: 409 });
+    expect(recordClinicalAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it('treats a concurrent verification of the same link as an idempotent success', async () => {
+    const verifiedAt = new Date('2026-08-10T00:00:00Z');
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: null,
+        abha_verification_status: 'pending',
+        abha_verified_at: null,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        uid: PUID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: null,
+        abha_verification_status: 'verified',
+        abha_verified_at: verifiedAt,
+      }]);
+    verifyABHA.mockResolvedValueOnce({ verified: true });
+
+    await expect(abdmService.verifyLinkedAbha(PUID, { tenantId: TID }))
+      .resolves.toMatchObject({
+        abhaNumber: '12-3456-7890-1234',
+        verification_status: 'verified',
+        abha_verified_at: verifiedAt,
+      });
+    expect(recordClinicalAuditEvent).not.toHaveBeenCalled();
   });
 });

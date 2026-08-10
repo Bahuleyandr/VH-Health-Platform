@@ -360,6 +360,11 @@ patientRouter.post('/register-abha', async (req, res, next) => {
 
     const linkage = await abdmService.registerABHA(targetUid, abha_number, abha_address, {
       tenantId: req.tenantId,
+      actorUid: req.user?.uid,
+      actorRole: role,
+      requestId: req.id,
+      ip: req.ip,
+      userAgent: req.get?.('user-agent') || null,
     });
 
     // Binding a national health identifier to a patient record is a PHI write.
@@ -453,6 +458,64 @@ patientRouter.get('/my-abha', async (req, res, next) => {
       return relayAppError(res, err, 'Failed to get ABHA linkage');
     }
     logger.error('Failed to get ABHA linkage', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * POST /abdm/my-abha/verify
+ * Verify the ABHA number already linked (pending) on the account against the
+ * ABDM gateway and promote it to 'verified' (migration 653).
+ *
+ * Auth mirrors POST /register-abha: the target defaults to the caller's own
+ * uid; ADMIN/SUPER_ADMIN may pass `patient_uid` to verify on behalf of a
+ * patient. Fail-closed: 503 while ABDM is disabled, like /verify-abha — a
+ * pending link can only be promoted through a real gateway check.
+ */
+patientRouter.post('/my-abha/verify', async (req, res, next) => {
+  try {
+    const { patient_uid } = req.body || {};
+
+    const role = req.user?.role;
+    let targetUid = req.user?.uid;
+    if (patient_uid && canManageAnyAbha(role)) {
+      targetUid = patient_uid;
+    } else if (patient_uid && patient_uid !== req.user?.uid) {
+      return error(res, 'You can only verify ABHA for yourself', 403);
+    }
+
+    if (!targetUid) {
+      return error(res, 'Patient UID is required', 400);
+    }
+
+    const linkage = await abdmService.verifyLinkedAbha(targetUid, {
+      tenantId: req.tenantId,
+      actorUid: req.user?.uid,
+      actorRole: role,
+      requestId: req.id,
+      ip: req.ip,
+      userAgent: req.get?.('user-agent') || null,
+    });
+
+    // Promoting a national health identifier binding is a PHI write; mirrors
+    // the logging on POST /register-abha.
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: role,
+      patientId: targetUid,
+      recordType: 'abha_linkage',
+      action: 'UPDATE',
+      ip: req.ip,
+      requestId: req.id,
+      tenantId: req.tenantId,
+    });
+
+    return success(res, linkage, 'ABHA link verified', 200);
+  } catch (err) {
+    if (err.isOperational) {
+      return relayAppError(res, err, 'Failed to verify linked ABHA');
+    }
+    logger.error('Failed to verify linked ABHA', { error: err.message });
     next(err);
   }
 });
