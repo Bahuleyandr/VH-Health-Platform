@@ -179,10 +179,12 @@ wrapAutoRBAC(
       [
         '/my-devices',
         async (req, res) => {
+          let targetUser;
+          let devices;
           try {
-            const targetUser = await resolveDeviceTargetUser(req, req.query.phone);
+            targetUser = await resolveDeviceTargetUser(req, req.query.phone);
 
-            const devices = await prisma.$queryRawUnsafe(
+            devices = await prisma.$queryRawUnsafe(
               `SELECT 
                 device_id, device_name, platform, app_version, os_version,
                 last_active, created_at, fcm_token,
@@ -198,46 +200,26 @@ wrapAutoRBAC(
               targetUser.uid,
               targetUser.tenantId,
             );
-
-            // Redact FCM tokens unless admin
-            const devicesData = devices.map(device => ({
-              ...device,
-              fcm_token: isAdminDeviceUser(req.user) ? device.fcm_token :
-                        (device.fcm_token ? device.fcm_token.substring(0, 10) + '...[REDACTED]' : null)
-            }));
-
-            success(res, {
-              devices: devicesData,
-              totalDevices: devices.length,
-              activeDevices: devices.filter(d => d.status === 'active').length,
-              inactiveDevices: devices.filter(d => d.status === 'inactive').length,
-              dormantDevices: devices.filter(d => d.status === 'dormant').length,
-              requestedBy: req.user?.name
-            }, 'User devices retrieved successfully');
-
           } catch (err) {
             if (err.statusCode) return sendDeviceTargetError(res, err);
-            if (isOptionalTableMissing(err, 'user_devices')) {
-              logger.warn('User device list: user_devices table missing (42P01) — returning explicit empty result');
-              return success(
-                res,
-                {
-                  devices: [],
-                  totalDevices: 0,
-                  activeDevices: 0,
-                  inactiveDevices: 0,
-                  dormantDevices: 0,
-                  note: 'Device table does not exist yet — no devices have been recorded',
-                  requestedBy: req.user?.name,
-                },
-                'Device table does not exist yet — no devices have been recorded',
-                HTTP_STATUS.OK,
-                { table_missing: true },
-              );
-            }
             logger.error('Get User Devices Error:', err);
             return error(res, 'Failed to retrieve user devices', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
+
+          const devicesData = devices.map(device => ({
+            ...device,
+            fcm_token: isAdminDeviceUser(req.user) ? device.fcm_token :
+                      (device.fcm_token ? device.fcm_token.substring(0, 10) + '...[REDACTED]' : null)
+          }));
+
+          return success(res, {
+            devices: devicesData,
+            totalDevices: devices.length,
+            activeDevices: devices.filter(d => d.status === 'active').length,
+            inactiveDevices: devices.filter(d => d.status === 'inactive').length,
+            dormantDevices: devices.filter(d => d.status === 'dormant').length,
+            requestedBy: req.user?.name
+          }, 'User devices retrieved successfully');
         }
       ],
 
@@ -245,6 +227,8 @@ wrapAutoRBAC(
       [
         '/admin/list',
         async (req, res) => {
+          let devices;
+          let deviceTableMissing = false;
           try {
             if (!isAdminDeviceUser(req.user)) {
               return error(res, 'Admin access required to view all devices', HTTP_STATUS.FORBIDDEN);
@@ -267,7 +251,7 @@ wrapAutoRBAC(
               `;
             }
 
-            const devices = await prisma.$queryRawUnsafe(
+            devices = await prisma.$queryRawUnsafe(
               `SELECT
                 ud.id,
                 ud.device_id,
@@ -302,7 +286,6 @@ wrapAutoRBAC(
               tenantOf(req),
             );
 
-            success(res, devices, 'Devices retrieved successfully');
           } catch (err) {
             if (err.statusCode) return sendDeviceTargetError(res, err);
             // A real database fault must surface as an error, not an empty
@@ -312,17 +295,23 @@ wrapAutoRBAC(
             // with an explicit caveat in the response.
             if (isOptionalTableMissing(err, 'user_devices')) {
               logger.warn('Admin device list: user_devices table missing (42P01) — returning explicit empty result');
-              return success(
-                res,
-                [],
-                'Device table does not exist yet — no devices have been recorded',
-                HTTP_STATUS.OK,
-                { table_missing: true },
-              );
+              deviceTableMissing = true;
+            } else {
+              logger.error('Admin Device List Error:', err);
+              return error(res, 'Failed to retrieve devices', HTTP_STATUS.INTERNAL_SERVER_ERROR);
             }
-            logger.error('Admin Device List Error:', err);
-            error(res, 'Failed to retrieve devices', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
+
+          if (deviceTableMissing) {
+            return success(
+              res,
+              [],
+              'Device table does not exist yet — no devices have been recorded',
+              HTTP_STATUS.OK,
+              { table_missing: true },
+            );
+          }
+          return success(res, devices, 'Devices retrieved successfully');
         }
       ],
 

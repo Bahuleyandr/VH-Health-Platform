@@ -36,30 +36,7 @@ export const doctorStatsController = {
       }, 'Doctor statistics retrieved successfully');
     } catch (err) {
       logger.error('Error fetching doctor stats:', err);
-      
-      // Return empty stats as fallback
-      success(res, {
-        doctor_id: req.params.id,
-        statistics: {
-          appointments_last_n_months: {
-            total_appointments: 0,
-            completed_appointments: 0,
-            scheduled_appointments: 0,
-            cancelled_appointments: 0
-          },
-          patient_statistics: {
-            unique_patients: 0,
-            total_consultations: 0
-          },
-          revenue_last_n_months: {
-            estimated_revenue: 0,
-            consultation_fee: 0
-          }
-        },
-        period: `Last ${req.query.months || 6} months`,
-        note: 'Statistics unavailable - related tables may not exist',
-        requestedBy: req.user?.name
-      }, 'Doctor statistics retrieved (empty - tables may not exist)');
+      error(res, 'Failed to retrieve doctor statistics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 

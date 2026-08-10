@@ -7,6 +7,7 @@ import sonarjs from 'eslint-plugin-sonarjs';
 import globals from 'globals';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import noSuccessInCatch from './scripts/eslint-rules/no-success-in-catch.mjs';
 
 // --- Setup for the compatibility tool ---
 const __filename = fileURLToPath(import.meta.url);
@@ -49,6 +50,11 @@ export default [
     plugins: {
       sonarjs,
       import: importPlugin,
+      vhhealth: {
+        rules: {
+          'no-success-in-catch': noSuccessInCatch,
+        },
+      },
     },
     settings: {
       // `eslint-import-resolver-node` (the only resolver eslint-plugin-import
@@ -76,6 +82,7 @@ export default [
       // Block new console.* in production code. `logger.*` is the structured path.
       // Scripts + bin/www.js are exempted via the overrides below.
       'no-console': ['error', { allow: ['warn', 'error'] }],
+      'vhhealth/no-success-in-catch': 'error',
       // Flag `prisma.$queryRawUnsafe(sql, [array])` — the drift bug that was
       // silently broken across ~70 sites. Raw Prisma methods need spread args.
       'no-restricted-syntax': [

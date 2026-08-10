@@ -118,9 +118,7 @@ export class DoctorStatsService {
           FROM patient_feedback
           WHERE doctor_id = $1
             AND created_at >= CURRENT_DATE - make_interval(months => $2::int)
-        `, doctorId, safeMonths).catch(() => ({
-          rows: [{ avg_rating: null, total_reviews: 0, positive_reviews: 0 }]
-        }))
+        `, doctorId, safeMonths)
       ]);
 
       return {

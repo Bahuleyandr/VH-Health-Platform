@@ -144,25 +144,12 @@ export const getHealthStatus = async (req, res) => {
     success(res, healthData, 'Firebase authentication service healthy');
   } catch (err) {
     logger.error('Firebase Health Check Error:', err);
-
-    // Fallback response
-    success(
-      res,
-      {
+    error(res, 'Firebase authentication service unavailable', HTTP_STATUS.SERVICE_UNAVAILABLE, {
+      topLevel: {
         status: 'degraded',
         firebaseConnection: 'unavailable',
-        statistics: {
-          firebase_users: 0,
-          active_firebase_users_24h: 0,
-          completed_profiles: 0,
-          total_users: 0
-        },
-        deviceStatistics: [],
-        note: 'Firebase connection failed or database tables may not exist',
-        timestamp: new Date().toISOString()
       },
-      'Firebase service status retrieved (degraded)'
-    );
+    });
   }
 };
 

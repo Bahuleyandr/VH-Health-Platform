@@ -179,7 +179,7 @@ describe('Phase-3 SUPER_ADMIN x-tenant-id override audit', () => {
       .set('x-tenant-override-reason', 'a doctor cannot grant themself this');
     // Non-SUPER_ADMIN — the override is ignored, request behaves
     // normally for whatever the route's RBAC allows.
-    expect([200, 304, 403]).toContain(res.statusCode);
+    expect([200, 304]).toContain(res.statusCode);
     await new Promise((r) => setImmediate(r));
     const after = await countOverrideAuditRows(DOCTOR_UID);
     expect(after).toBe(before);

@@ -393,13 +393,6 @@ export const getMyBookings = async (req, res) => {
 
     success(res, combined, 'My bookings fetched', HTTP_STATUS.OK, { limit, offset });
   } catch (e) {
-    // Vestigial fallback from before migration 098 created
-    // investigation_bookings — kept as defensive code in case a fresh DB
-    // somehow lands without the migration applied. Should never trigger
-    // on a properly-migrated cluster.
-    if (e?.meta?.code === '42P01') {
-      return success(res, [], 'My bookings fetched', HTTP_STATUS.OK, { limit: 0, offset: 0 });
-    }
     logger.error('getMyBookings error:', e);
     error(res, 'Failed to fetch bookings', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

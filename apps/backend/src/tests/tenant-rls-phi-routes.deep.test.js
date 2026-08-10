@@ -358,8 +358,10 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       .get(`/api/v1/records/health-records/${encodeURIComponent(PHONE_A)}`)
       .set('X-API-Key', API_KEY)
       .set('Authorization', `Bearer ${adminTokenB()}`);
-    // 403 or 200 with empty records — either is correct isolation.
-    expect([200, 403, 404]).toContain(res.status);
+    // A route may hide the cross-tenant subject (403/404) or return an empty
+    // tenant-scoped collection, but valid credentials must never become 401.
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
     if (res.status === 200) {
       const records = res.body?.data?.records ?? [];
       // Must not contain any actual PHI record content from tenant-A.
@@ -372,7 +374,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       .get(`/api/v1/records/health-records/${encodeURIComponent(PHONE_B)}`)
       .set('X-API-Key', API_KEY)
       .set('Authorization', `Bearer ${adminTokenA()}`);
-    expect([200, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
     if (res.status === 200) {
       const records = res.body?.data?.records ?? [];
       expect(Array.isArray(records) ? records : []).toHaveLength(0);
@@ -393,7 +396,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       const json = JSON.stringify(items);
       expect(json).not.toContain('b141-rls-suite prescription A');
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   it('prescriptions: tenant-A admin cannot see tenant-B prescriptions in /prescriptions/all', async () => {
@@ -406,7 +410,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       const json = JSON.stringify(items);
       expect(json).not.toContain('b141-rls-suite prescription B');
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   // CONTROL: both prescription rows exist in different tenants.
@@ -438,7 +443,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       expect(json).not.toContain('CBC-B141-A');
       expect(json).not.toContain('b141-rls-suite investigation A');
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   it('investigations: tenant-A admin cannot see tenant-B investigations', async () => {
@@ -453,7 +459,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       expect(json).not.toContain('CBC-B141-B');
       expect(json).not.toContain('b141-rls-suite investigation B');
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   // CONTROL: both investigation rows exist in different tenants.
@@ -482,7 +489,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       expect(json).not.toContain('b141-rls-suite-ward-A');
     }
     // 403/404 also accepted — RLS hides the row, controller returns notFound.
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   it('admissions: tenant-A admin cannot see tenant-B patient admissions', async () => {
@@ -494,7 +502,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       const json = JSON.stringify(res.body?.data ?? res.body ?? {});
       expect(json).not.toContain('b141-rls-suite-ward-B');
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   // CONTROL: both admission rows exist in different tenants.
@@ -525,7 +534,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       // The array must be empty — no cross-tenant invoices.
       expect(Array.isArray(invoices) ? invoices : []).toHaveLength(0);
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   it('billing: tenant-A admin cannot read tenant-B patient invoices', async () => {
@@ -539,7 +549,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       expect(json).not.toContain('b141-rls-suite invoice B');
       expect(Array.isArray(invoices) ? invoices : []).toHaveLength(0);
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   // CONTROL: tenant-A admin sees their own invoices (non-vacuous).
@@ -576,7 +587,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       expect(json).not.toContain('b141-rls-suite claim A');
       expect(json).not.toContain(PUID_A);
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   it('insurance: tenant-A admin cannot see tenant-B TPA claims', async () => {
@@ -589,7 +601,8 @@ d('Tenant RLS — cross-tenant PHI route gate (B1.4 comprehensive)', () => {
       expect(json).not.toContain('b141-rls-suite claim B');
       expect(json).not.toContain(PUID_B);
     }
-    expect([200, 401, 403, 404]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    if (res.status !== 200) expect([403, 404]).toContain(res.status);
   });
 
   // CONTROL: both TPA claim rows exist in different tenants.

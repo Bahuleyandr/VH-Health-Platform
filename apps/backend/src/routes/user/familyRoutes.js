@@ -25,12 +25,6 @@ router.get('/', async (req, res) => {
 
     return success(res, rows, 'Family members retrieved');
   } catch (err) {
-    // family_members table is part of an unfinished feature — return
-    // empty so the Family screen renders. Adds will fail until the
-    // table exists, but the screen should at least load.
-    if (err?.meta?.code === '42P01') {
-      return success(res, [], 'Family members retrieved');
-    }
     logger.error('Get family members error:', err);
     return error(res, 'Failed to retrieve family members', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

@@ -65,13 +65,15 @@ router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
  * Admin only.
  */
 router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
+  let logs;
+  let erasureLogTableMissing = false;
   try {
     const { default: prisma } = await import('../lib/prisma.js');
     const tenantId = deriveTenantIdFromRequest(req);
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
-    const logs = await prisma.$queryRawUnsafe(
+    logs = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone_hash, requested_by, reason, tables_processed,
               completed_at, duration_ms, created_at
        FROM gdpr_erasure_log
@@ -86,7 +88,6 @@ router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) =
       limit, offset, tenantId
     );
 
-    return success(res, logs, 'Erasure log retrieved');
   } catch (err) {
     // This log is DPDP/GDPR compliance evidence. A database fault must never
     // be presented as "no erasures happened" — only a verified missing-table
@@ -95,17 +96,23 @@ router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) =
     // caveat the caller can see.
     if (isOptionalTableMissing(err, 'gdpr_erasure_log')) {
       logger.warn('GDPR erasure log table missing (42P01) — returning explicit empty result');
-      return success(
-        res,
-        [],
-        'Erasure log table does not exist yet — no erasure evidence has been recorded',
-        HTTP_STATUS.OK,
-        { table_missing: true },
-      );
+      erasureLogTableMissing = true;
+    } else {
+      logger.error('GDPR erasure log error:', err);
+      return relayAppError(res, err, 'Failed to retrieve erasure log');
     }
-    logger.error('GDPR erasure log error:', err);
-    return relayAppError(res, err, 'Failed to retrieve erasure log');
   }
+
+  if (erasureLogTableMissing) {
+    return success(
+      res,
+      [],
+      'Erasure log table does not exist yet — no erasure evidence has been recorded',
+      HTTP_STATUS.OK,
+      { table_missing: true },
+    );
+  }
+  return success(res, logs, 'Erasure log retrieved');
 });
 
 export default router;

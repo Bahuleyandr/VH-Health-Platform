@@ -88,33 +88,7 @@ class DepartmentStatsService {
       };
     } catch (error) {
       logger.error('Database error in getDepartmentStats:', error);
-
-      return {
-        department: id,
-        statistics: {
-          doctors: {
-            total_doctors: 0,
-            available_doctors: 0,
-            avg_experience: 0,
-            avg_consultation_fee: 0,
-            specialization_count: 0
-          },
-          appointments_last_30_days: {
-            total_appointments: 0,
-            completed_appointments: 0,
-            scheduled_appointments: 0,
-            cancelled_appointments: 0,
-            unique_patients: 0,
-            completion_rate: 0
-          },
-          medical_records_last_30_days: {
-            total_records: 0,
-            unique_patients: 0
-          }
-        },
-        period: 'Last 30 days',
-        note: 'Statistics unavailable - related tables may not exist'
-      };
+      throw error;
     }
   }
 

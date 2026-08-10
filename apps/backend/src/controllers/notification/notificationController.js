@@ -55,12 +55,7 @@ export const notificationController = {
       if (err.message.includes('Access denied')) {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
-      // Graceful fallback
-      success(res, {
-        notifications: [],
-        message: 'Notification system temporarily unavailable',
-        requestedBy: req.user?.uid
-      }, 'Notification service status');
+      error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 
@@ -73,6 +68,7 @@ export const notificationController = {
       return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
     }
 
+    let userNotFound = false;
     try {
       const listQuery = parseListQuery(req.query, {
         defaultLimit: 20,
@@ -101,19 +97,23 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in getMine:', err.message);
       if (err.message.includes('User not found')) {
-        return success(res, {
-          notifications: [],
-          count: 0,
-          unread_count: 0,
-          pagination: buildPagination(0, 1, 20),
-          requestedBy: req.user?.uid,
-          accessLevel: req.user?.role?.toUpperCase(),
-        }, 'Notifications fetched successfully');
-      }
-      if (err.message.includes('Access denied')) {
+        userNotFound = true;
+      } else if (err.message.includes('Access denied')) {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
+      } else {
+        return error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
       }
-      error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+
+    if (userNotFound) {
+      return success(res, {
+        notifications: [],
+        count: 0,
+        unread_count: 0,
+        pagination: buildPagination(0, 1, 20),
+        requestedBy: req.user?.uid,
+        accessLevel: req.user?.role?.toUpperCase(),
+      }, 'Notifications fetched successfully');
     }
   },
 
@@ -214,13 +214,7 @@ export const notificationController = {
       }, 'Notifications retrieved successfully');
     } catch (err) {
       logger.error('Error in getList:', err.message);
-      // Graceful fallback
-      success(res, {
-        notifications: [],
-        pagination: buildPagination(0, 1, 20),
-        message: 'Notification system temporarily unavailable',
-        requestedBy: req.user?.uid
-      }, 'Notification service status');
+      error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 
@@ -500,17 +494,7 @@ export const notificationController = {
       }, 'Notification statistics retrieved successfully');
     } catch (err) {
       logger.error('Error in getStats:', err.message);
-      // Graceful fallback
-      success(res, {
-        statistics: {
-          totals: { total_notifications: 0, unread_notifications: 0, read_notifications: 0 },
-          by_type: [],
-          by_priority: [],
-          daily_activity: []
-        },
-        message: 'Notification statistics temporarily unavailable',
-        generatedBy: req.user?.uid
-      }, 'Notification statistics service status');
+      error(res, 'Failed to retrieve notification statistics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 

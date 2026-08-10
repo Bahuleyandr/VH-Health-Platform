@@ -24,12 +24,12 @@
 //   2. CARE_TEAM_ENFORCEMENT_MODE env var (deployment-wide override / pin).
 //   3. DEFAULT_ENFORCEMENT_MODE ('shadow').
 //
-// This resolver MUST be fail-safe: any lookup error resolves to the default
-// mode (shadow) rather than throwing — a tenant-settings hiccup must never turn
-// into a 500 on a PHI route. The guard additionally fails OPEN, so even a
-// resolver that (impossibly) threw could not block a request.
+// A tenant with no explicit setting uses shadow. A failed lookup is different:
+// the effective posture is unknown and may be enforce, so the resolver throws
+// and the guard returns a real 500 instead of silently weakening access control.
 
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { getTenantById, requireTenantId } from '../tenant/tenantService.js';
 
 export const CARE_TEAM_ENFORCEMENT_MODES = Object.freeze({
@@ -68,7 +68,9 @@ export function envEnforcementMode() {
 /**
  * Resolve the effective enforcement mode for a tenant id.
  *
- * Fail-safe: returns DEFAULT_ENFORCEMENT_MODE on any error or missing tenant.
+ * A missing setting uses the documented shadow default. A lookup failure or
+ * missing tenant fails closed because the resolver cannot know whether that
+ * tenant explicitly selected enforce mode.
  *
  * @param {string|null|undefined} tenantId
  * @returns {Promise<'off'|'shadow'|'enforce'>}
@@ -78,6 +80,9 @@ export async function resolveEnforcementModeForTenant(tenantId) {
   const id = requireTenantId(tenantId);
   try {
     const tenant = await getTenantById(id);
+    if (!tenant) {
+      throw AppError.internal('Care-team enforcement mode is unavailable', 'CARE_TEAM_MODE_UNAVAILABLE');
+    }
     const settings = tenant?.settings;
     // settings is a JSONB column — Prisma surfaces it as an object, but be
     // tolerant of a string (older rows / raw drivers) by parsing defensively.
@@ -86,7 +91,7 @@ export async function resolveEnforcementModeForTenant(tenantId) {
       try {
         parsed = JSON.parse(settings);
       } catch {
-        parsed = null;
+        throw AppError.internal('Care-team enforcement mode is unavailable', 'CARE_TEAM_MODE_UNAVAILABLE');
       }
     }
     const raw = parsed && typeof parsed === 'object'
@@ -95,14 +100,12 @@ export async function resolveEnforcementModeForTenant(tenantId) {
     const tenantMode = normalizeEnforcementMode(raw);
     return tenantMode || fallback;
   } catch (err) {
-    // Never let a tenant-settings lookup failure influence PHI availability —
-    // resolve to the (non-breaking) default and log at debug.
-    logger.debug('care-team enforcement mode resolve fell back to default', {
+    logger.error('care-team enforcement mode resolution failed closed', {
       tenantId: id,
-      mode: fallback,
       error: err?.message,
     });
-    return fallback;
+    if (err instanceof AppError && err.code === 'CARE_TEAM_MODE_UNAVAILABLE') throw err;
+    throw AppError.internal('Care-team enforcement mode is unavailable', 'CARE_TEAM_MODE_UNAVAILABLE');
   }
 }
 

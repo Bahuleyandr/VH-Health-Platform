@@ -115,31 +115,26 @@ function trendComponent(vitalsSeries) {
 async function labComponent(patientUid) {
   // Recent abnormal labs add a moderate push. We inspect structured_results
   // if investigations carries them; otherwise fall back to priority=urgent.
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT status, priority, result_summary
-       FROM investigations
-       WHERE patient_uid = $1::uuid
-         AND requested_at >= NOW() - INTERVAL '24 hours'
-       ORDER BY requested_at DESC
-       LIMIT 20`,
-      patientUid
-    );
-    let score = 0;
-    for (const row of rows) {
-      const priority = String(row.priority || '').toLowerCase();
-      const status = String(row.status || '').toLowerCase();
-      if (priority === 'urgent') score += 10;
-      if (status === 'critical') score += 20;
-      if (/lactate|acidosis|hypotension|hyperkalem|creatinine/i.test(String(row.result_summary || ''))) {
-        score += 15;
-      }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT status, priority, result_summary
+     FROM investigations
+     WHERE patient_uid = $1::uuid
+       AND requested_at >= NOW() - INTERVAL '24 hours'
+     ORDER BY requested_at DESC
+     LIMIT 20`,
+    patientUid
+  );
+  let score = 0;
+  for (const row of rows) {
+    const priority = String(row.priority || '').toLowerCase();
+    const status = String(row.status || '').toLowerCase();
+    if (priority === 'urgent') score += 10;
+    if (status === 'critical') score += 20;
+    if (/lactate|acidosis|hypotension|hyperkalem|creatinine/i.test(String(row.result_summary || ''))) {
+      score += 15;
     }
-    return { score: clamp(score), abnormal_signals: rows.length };
-  } catch (err) {
-    logger.debug('Lab component lookup failed', { error: err.message });
-    return { score: 0, abnormal_signals: 0 };
   }
+  return { score: clamp(score), abnormal_signals: rows.length };
 }
 
 function recommendations(band, contributors) {
@@ -187,7 +182,7 @@ export async function scoreDeterioration({ patientUid, admissionId = null, tenan
        AND recorded_at >= NOW() - INTERVAL '4 hours'
      ORDER BY recorded_at ASC`,
     patientUid
-  ).catch(() => []);
+  );
 
   if (!vitalsSeries.length) {
     return {

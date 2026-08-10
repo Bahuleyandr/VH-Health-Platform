@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/check-status-assertions.mjs
 //
-// Ban "success-or-500" style status assertions in test files.
+// Ban status assertions that accept both success and a serious failure.
 //
 // Pattern: `expect([200, 500]).toContain(res.statusCode)` — an accepted-status
 // array that mixes a 5xx code with any non-5xx code. Such an assertion can
@@ -12,7 +12,8 @@
 // CLAUDE.md, Phase 0.5): "Tests assert exactly, never [200, 500]".
 //
 // What is flagged: any array literal containing BOTH a 5xx status (500-599)
-// and a non-5xx status, asserted via `.toContain(<expression>)`.
+// and a non-5xx status, or BOTH a 2xx status and 401/403, asserted via
+// `.toContain(<expression>)`.
 // `.not.toContain(...)` is the inverse (good) pattern and is skipped. An
 // all-5xx set (e.g. [500, 503]) is not mixing and is allowed.
 //
@@ -30,6 +31,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { classifyStatusSet } from './lib/statusAssertionPolicy.mjs';
 
 function walk(dir, acc = []) {
   for (const name of readdirSync(dir)) {
@@ -62,9 +64,8 @@ for (const file of files) {
       .map((s) => Number.parseInt(s.trim(), 10))
       .filter((n) => Number.isFinite(n));
     if (codes.length === 0) continue;
-    const has5xx = codes.some((c) => c >= 500 && c < 600);
-    const hasNon5xx = codes.some((c) => c < 500 || c >= 600);
-    if (!(has5xx && hasNon5xx)) continue;
+    const { mixesServerFailure, mixesAuthOutcome } = classifyStatusSet(codes);
+    if (!(mixesServerFailure || mixesAuthOutcome)) continue;
 
     const lineNumber = src.slice(0, m.index).split('\n').length;
     const lines = src.split('\n');
@@ -76,8 +77,11 @@ for (const file of files) {
       continue;
     }
     console.error(
-      `✗ ${file}:${lineNumber} — status set [${codes.join(', ')}] mixes 5xx with non-5xx; ` +
-        'a test that tolerates a server error can never fail on one. Assert the exact status ' +
+      `✗ ${file}:${lineNumber} — status set [${codes.join(', ')}] ` +
+        (mixesServerFailure
+          ? 'mixes 5xx with non-5xx; '
+          : 'mixes success with an authentication/authorization failure; ') +
+        'a test that tolerates this failure cannot protect the contract. Assert the exact status ' +
         '(seed the data the route needs), or mark a deliberate contract with `// ban-exempt: <reason>`.'
     );
     offenders++;
@@ -86,12 +90,12 @@ for (const file of files) {
 
 if (offenders > 0) {
   console.error(
-    `\nFAIL: ${offenders} success-or-5xx status assertion(s) in test files.` +
+    `\nFAIL: ${offenders} mixed success/failure status assertion(s) in test files.` +
       (exemptions > 0 ? ` (${exemptions} ban-exempt assertion(s) skipped.)` : '')
   );
   process.exit(1);
 }
 console.log(
-  `✓ 0 success-or-5xx status assertions across ${files.length} test files.` +
+  `✓ 0 mixed success/failure status assertions across ${files.length} test files.` +
     (exemptions > 0 ? ` (${exemptions} ban-exempt assertion(s) allowed.)` : '')
 );

@@ -1,7 +1,8 @@
 import logger from '../../logging/logger.js';
+import { HTTP_STATUS } from '../../config/responseCodes.js';
 import * as analyticsService from '../../services/investigation/analyticsService.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { success } from '../../utils/responseHelper.js';
+import { success, error } from '../../utils/responseHelper.js';
 
 // Get investigation statistics
 export const getInvestigationStatistics = async (req, res) => {
@@ -22,17 +23,6 @@ export const getInvestigationStatistics = async (req, res) => {
 
   } catch (err) {
     logger.error('Get Statistics Error:', err);
-    
-    // Graceful fallback
-    success(res, {
-      statistics: {
-        totals: { total_investigations: 0, pending: 0, completed: 0, cancelled: 0 },
-        by_type: [],
-        by_status: [],
-        daily_activity: []
-      },
-      message: 'Investigation statistics temporarily unavailable',
-      generatedBy: req.user?.uid
-    }, 'Investigation statistics service status');
+    error(res, 'Failed to retrieve investigation statistics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

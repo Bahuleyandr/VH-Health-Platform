@@ -87,6 +87,13 @@ describe('careTeamEnforcement.resolveEnforcementModeForTenant', () => {
     await expect(resolveEnforcementModeForTenant(TENANT)).resolves.toBe('enforce');
   });
 
+  it('fails closed when stored settings JSON cannot be parsed', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: '{not-json' });
+    await expect(resolveEnforcementModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'CARE_TEAM_MODE_UNAVAILABLE',
+    });
+  });
+
   it('ignores an invalid per-tenant value and falls back to default', async () => {
     getTenantByIdMock.mockResolvedValueOnce({
       id: TENANT,
@@ -110,14 +117,18 @@ describe('careTeamEnforcement.resolveEnforcementModeForTenant', () => {
     await expect(resolveEnforcementModeForTenant(TENANT)).resolves.toBe('enforce');
   });
 
-  it('FAIL-SAFE: resolves to the default (shadow) when the tenant lookup throws', async () => {
+  it('fails closed when the tenant lookup throws instead of downgrading enforce to shadow', async () => {
     getTenantByIdMock.mockRejectedValueOnce(new Error('db down'));
-    await expect(resolveEnforcementModeForTenant(TENANT)).resolves.toBe('shadow');
+    await expect(resolveEnforcementModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'CARE_TEAM_MODE_UNAVAILABLE',
+    });
   });
 
-  it('FAIL-SAFE: resolves to default when the tenant row is missing', async () => {
+  it('fails closed when the tenant row is missing', async () => {
     getTenantByIdMock.mockResolvedValueOnce(null);
-    await expect(resolveEnforcementModeForTenant(TENANT)).resolves.toBe('shadow');
+    await expect(resolveEnforcementModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'CARE_TEAM_MODE_UNAVAILABLE',
+    });
   });
 });
 

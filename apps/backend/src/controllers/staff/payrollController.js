@@ -1145,28 +1145,33 @@ export const getMyTaxSummary = async (req, res) => {
 
     if (summary.length === 0) {
       let generated;
+      let noIssuedPayslips = false;
       try {
         generated = await generateAnnualTaxSummary(staffUid, financialYear);
       } catch (generationErr) {
         if (/No payslips found/i.test(String(generationErr?.message || ''))) {
-          return success(res, {
-            staff_uid: staffUid,
-            financial_year: financialYear,
-            total_income: 0,
-            total_gross: 0,
-            total_tds: 0,
-            total_pf: 0,
-            total_esi: 0,
-            total_deductions: 0,
-            total_net: 0,
-            taxable_income: 0,
-            tax_payable: 0,
-            months_included: 0,
-            status: 'unavailable',
-            pdf_url: null,
-          }, 'No issued payslips found for this financial year');
+          noIssuedPayslips = true;
+        } else {
+          throw generationErr;
         }
-        throw generationErr;
+      }
+      if (noIssuedPayslips) {
+        return success(res, {
+          staff_uid: staffUid,
+          financial_year: financialYear,
+          total_income: 0,
+          total_gross: 0,
+          total_tds: 0,
+          total_pf: 0,
+          total_esi: 0,
+          total_deductions: 0,
+          total_net: 0,
+          taxable_income: 0,
+          tax_payable: 0,
+          months_included: 0,
+          status: 'unavailable',
+          pdf_url: null,
+        }, 'No issued payslips found for this financial year');
       }
       return success(res, generated, 'Annual tax summary generated');
     }
