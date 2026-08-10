@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/widgets/vital_text_field.dart';
 import 'package:vhhealth_staff/features/emr/screens/vitals_chart_screen.dart';
 
 void main() {
@@ -51,7 +52,11 @@ void main() {
       expect(payload['heart_rate'], 82);
       expect(payload['systolic_bp'], 120);
       expect(payload['diastolic_bp'], 78);
+      // The sheet collects °F, so the payload must say so explicitly — the
+      // backend treats a unitless temperature as °C and would reject 98.6
+      // against the 30–45 °C plausibility band (losing the whole record).
       expect(payload['temperature'], 98.6);
+      expect(payload['temperature_unit'], 'F');
       expect(payload['spo2'], 98);
       expect(payload['respiratory_rate'], 18);
       expect(payload['blood_glucose'], 110);
@@ -63,6 +68,112 @@ void main() {
       expect(payload.containsKey('bp_diastolic'), isFalse);
       expect(payload.containsKey('glucose'), isFalse);
       expect(payload.containsKey('gcs'), isFalse);
+    });
+
+    test('omits temperature_unit when no temperature was entered', () {
+      final payload = buildVitalsRecordPayload(
+        patientUid: 'PAT-1',
+        hr: '82',
+        bpSystolic: '',
+        bpDiastolic: '',
+        temp: '',
+        spo2: '',
+        rr: '',
+        glucose: '',
+        pain: '',
+        gcs: '',
+        consciousness: 'A',
+      );
+
+      expect(payload.containsKey('temperature'), isFalse);
+      expect(payload.containsKey('temperature_unit'), isFalse);
+    });
+  });
+
+  group('record-sheet field validation (STF-3)', () {
+    test('empty fields are valid — every vital is optional', () {
+      for (final field in vitalsRecordFieldBounds.keys) {
+        expect(vitalsRecordFieldIssue('', field, ''), isNull);
+        expect(vitalsRecordFieldIssue('   ', field, ''), isNull);
+      }
+    });
+
+    test('unparseable values are flagged instead of silently dropped', () {
+      expect(
+        vitalsRecordFieldIssue('abc', 'heart_rate', VitalUnit.pulse),
+        VitalsRecordFieldIssue.notANumber,
+      );
+      expect(
+        // Decimal in an integer field was previously dropped by int.tryParse.
+        vitalsRecordFieldIssue('82.5', 'heart_rate', VitalUnit.pulse),
+        VitalsRecordFieldIssue.notANumber,
+      );
+      expect(
+        vitalsRecordFieldIssue('12o', 'systolic_bp', VitalUnit.bp),
+        VitalsRecordFieldIssue.notANumber,
+      );
+    });
+
+    test('accepts values with the unit suffix the field displays', () {
+      expect(
+        vitalsRecordFieldIssue('82 /min', 'heart_rate', VitalUnit.pulse),
+        isNull,
+      );
+      expect(
+        vitalsRecordFieldIssue(
+          '98.6 deg F',
+          'temperature_f',
+          VitalUnit.temperature,
+        ),
+        isNull,
+      );
+    });
+
+    test('flags values outside the backend plausibility bounds', () {
+      expect(
+        vitalsRecordFieldIssue('101', 'spo2', VitalUnit.spo2),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      expect(
+        vitalsRecordFieldIssue('301', 'heart_rate', VitalUnit.pulse),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      // 37 (a °C habit-entry) is below the °F band — flag it rather than
+      // record a hypothermic 37 °F.
+      expect(
+        vitalsRecordFieldIssue('37', 'temperature_f', VitalUnit.temperature),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      expect(
+        vitalsRecordFieldIssue('16', 'gcs_score', VitalUnit.gcs),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      expect(
+        vitalsRecordFieldIssue('11', 'pain_score', VitalUnit.pain),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+    });
+
+    test('boundary values are accepted', () {
+      expect(
+        vitalsRecordFieldIssue('300', 'heart_rate', VitalUnit.pulse),
+        isNull,
+      );
+      expect(vitalsRecordFieldIssue('100', 'spo2', VitalUnit.spo2), isNull);
+      expect(vitalsRecordFieldIssue('15', 'gcs_score', VitalUnit.gcs), isNull);
+    });
+  });
+
+  group('temperature display conversion (canonical °C → shown °F)', () {
+    test('converts backend Celsius values to the Fahrenheit column', () {
+      expect(vitalsTemperatureDisplayF(37.0), closeTo(98.6, 0.01));
+      expect(vitalsTemperatureDisplayF(40.0), closeTo(104.0, 0.01));
+      expect(vitalsTemperatureDisplayF('36.5'), closeTo(97.7, 0.01));
+    });
+
+    test('returns null for absent or non-numeric values', () {
+      expect(vitalsTemperatureDisplayF(null), isNull);
+      expect(vitalsTemperatureDisplayF('n/a'), isNull);
     });
   });
 

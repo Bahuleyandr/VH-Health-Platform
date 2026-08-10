@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/api_error_messages.dart';
+import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
@@ -16,6 +19,38 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
+
+/// Positive patient identification for quick vitals (STF-4).
+///
+/// The MAR 5-rights flow established the wristband-scan pattern: the QR on
+/// the patient wristband carries the patient UID. Quick vitals now follows
+/// it — scan (or verify a typed identifier) → the backend resolves the
+/// patient → the nurse confirms name/identifiers before anything is charted.
+/// Free-typed patient IDs are never charted against unverified.
+final RegExp quickVitalsUuidRe = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+  caseSensitive: false,
+);
+
+/// Pick the positively-identified row out of patient-search results:
+/// an exact uid match for wristband scans, or an exact numeric-id match for
+/// manually verified IDs. Anything else (fuzzy hits) returns null.
+Map<String, dynamic>? resolveQuickVitalsPatient(
+  List<Map<String, dynamic>> rows, {
+  String? scannedUid,
+  int? manualId,
+}) {
+  for (final row in rows) {
+    if (scannedUid != null &&
+        patientUidFrom(row).toLowerCase() == scannedUid.toLowerCase()) {
+      return row;
+    }
+    if (manualId != null && int.tryParse(patientIdFrom(row)) == manualId) {
+      return row;
+    }
+  }
+  return null;
+}
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
 ///
@@ -128,12 +163,31 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
   final _patientIdCtrl = TextEditingController();
   final _notesDictationController = VoiceDictateButtonController();
 
+  /// The positively-identified patient (STF-4). Vitals can only be
+  /// submitted against this — never against free-typed text.
+  Map<String, dynamic>? _confirmedPatient;
+  bool _resolvingPatient = false;
+
   @override
   void initState() {
     super.initState();
     ConnectivitySyncService.instance.addListener(_connectivityChanged);
-    if ((widget.prefillPatientId ?? '').isNotEmpty) {
-      _patientIdCtrl.text = widget.prefillPatientId!;
+    final prefillId = int.tryParse((widget.prefillPatientId ?? '').trim());
+    final prefillUid = (widget.prefillPatientUid ?? '').trim();
+    if (prefillId != null) {
+      // Opened from the bed board's per-patient quick action: the patient
+      // was already positively identified there; carry that context over.
+      _confirmedPatient = {
+        'id': prefillId,
+        if (prefillUid.isNotEmpty) 'uid': prefillUid,
+        if ((widget.prefillPatientName ?? '').isNotEmpty)
+          'name': widget.prefillPatientName,
+      };
+    } else if (prefillUid.isNotEmpty) {
+      // UID-only prefill — resolve it to the numeric id + display identity.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_resolvePatient(scannedUid: prefillUid));
+      });
     }
   }
 
@@ -183,6 +237,75 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
     _submitFromField();
   }
 
+  /// Resolve a scanned wristband UID or a manually-typed identifier to a
+  /// positively-identified patient via the tenant-scoped patient search.
+  Future<void> _resolvePatient({String? scannedUid, int? manualId}) async {
+    if (_resolvingPatient) return;
+    setState(() => _resolvingPatient = true);
+    final strings = AppStrings.of(context);
+    try {
+      final query = scannedUid ?? 'VH-${manualId.toString().padLeft(6, '0')}';
+      final rows = await PatientApiService.search(query);
+      final match = resolveQuickVitalsPatient(
+        rows,
+        scannedUid: scannedUid,
+        manualId: manualId,
+      );
+      if (!mounted) return;
+      if (match == null) {
+        ErrorToast.show(context, strings.vitalsScanNoMatch);
+        return;
+      }
+      setState(() => _confirmedPatient = match);
+    } catch (e) {
+      if (mounted) ErrorToast.show(context, strings.vitalsScanResolveFailed);
+    } finally {
+      if (mounted) setState(() => _resolvingPatient = false);
+    }
+  }
+
+  Future<void> _scanWristband() async {
+    final strings = AppStrings.of(context);
+    String? code;
+    try {
+      code = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        builder: (ctx) => const _WristbandScannerSheet(),
+      );
+    } catch (e) {
+      if (mounted) ErrorToast.show(context, strings.vitalsScanCameraError);
+      return;
+    }
+    final scanned = code?.trim() ?? '';
+    if (scanned.isEmpty || !mounted) return;
+    if (quickVitalsUuidRe.hasMatch(scanned)) {
+      await _resolvePatient(scannedUid: scanned);
+    } else if (int.tryParse(scanned) != null) {
+      // Some wristbands carry the numeric hospital id — still verified
+      // against the backend before confirmation.
+      await _resolvePatient(manualId: int.parse(scanned));
+    } else if (mounted) {
+      ErrorToast.show(context, strings.vitalsScanNoMatch);
+    }
+  }
+
+  Future<void> _verifyTypedPatient() async {
+    final strings = AppStrings.of(context);
+    final text = _patientIdCtrl.text.trim();
+    if (quickVitalsUuidRe.hasMatch(text)) {
+      // Keyboard-wedge scanners on desktop type the wristband UID here.
+      await _resolvePatient(scannedUid: text);
+      return;
+    }
+    final id = int.tryParse(text);
+    if (id == null) {
+      ErrorToast.show(context, strings.vitalsPatientIdInvalid);
+      return;
+    }
+    await _resolvePatient(manualId: id);
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     if (!ConnectivitySyncService.instance.isOnline) {
@@ -190,6 +313,17 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       return;
     }
     if (!_formKey.currentState!.validate()) return;
+    final confirmed = _confirmedPatient;
+    final confirmedId = int.tryParse(patientIdFrom(confirmed));
+    if (confirmed == null || confirmedId == null) {
+      // Positive patient identification is mandatory (STF-4) — no
+      // charting against a free-typed, unverified patient ID.
+      ErrorToast.show(
+        context,
+        AppStrings.of(context).vitalsScanConfirmRequired,
+      );
+      return;
+    }
     setState(() => _submitting = true);
     final strings = AppStrings.of(context);
     try {
@@ -223,10 +357,8 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
         measurements['weight'] = double.parse(weight);
       }
 
-      final patientId = int.parse(_patientIdCtrl.text.trim());
-
       await MedicalApiService.recordVitals(
-        patientId: patientId,
+        patientId: confirmedId,
         vitalSigns: vitalSigns.isNotEmpty ? vitalSigns : null,
         measurements: measurements.isNotEmpty ? measurements : null,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
@@ -238,6 +370,9 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
 
       if (mounted) {
         _formKey.currentState!.reset();
+        // Force a fresh positive identification for the next patient on the
+        // round — never let one confirmation silently cover two patients.
+        _confirmedPatient = null;
         _patientIdCtrl.clear();
         _bpSysCtrl.clear();
         _bpDiaCtrl.clear();
@@ -371,29 +506,69 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Patient ID
-                  TextFormField(
-                    controller: _patientIdCtrl,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.next,
-                    onFieldSubmitted: (_) => _focusNextField(),
-                    decoration: InputDecoration(
-                      labelText: s.vitalsPatientIdLabel,
-                      hintText: s.vitalsPatientIdHint,
-                      prefixIcon: const ExcludeSemantics(
-                        child: Icon(Icons.person_outlined),
+                  // Positive patient identification (STF-4): wristband scan
+                  // is the primary path; a typed identifier must be verified
+                  // against the backend before anything can be charted.
+                  if (_confirmedPatient != null)
+                    _ConfirmedPatientCard(
+                      patient: _confirmedPatient!,
+                      onChangePatient: () =>
+                          setState(() => _confirmedPatient = null),
+                    )
+                  else ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _resolvingPatient ? null : _scanWristband,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: Text(s.vitalsScanWristbandButton),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFC62828),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
                       ),
                     ),
-                    validator: (v) {
-                      if (v == null || v.trim().isEmpty) {
-                        return s.vitalsPatientIdRequired;
-                      }
-                      if (int.tryParse(v.trim()) == null) {
-                        return s.vitalsPatientIdInvalid;
-                      }
-                      return null;
-                    },
-                  ),
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _patientIdCtrl,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) =>
+                                unawaited(_verifyTypedPatient()),
+                            decoration: InputDecoration(
+                              labelText: s.vitalsPatientIdLabel,
+                              hintText: s.vitalsPatientIdHint,
+                              prefixIcon: const ExcludeSemantics(
+                                child: Icon(Icons.person_outlined),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: OutlinedButton(
+                            onPressed: _resolvingPatient
+                                ? null
+                                : () => unawaited(_verifyTypedPatient()),
+                            child: _resolvingPatient
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(s.vitalsScanVerifyButton),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 20),
 
                   // Blood Pressure
@@ -889,6 +1064,168 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Confirmation card for the positively-identified patient: shows name +
+/// identifiers so the nurse verifies against the wristband/bed card before
+/// charting, with an explicit way to start over.
+class _ConfirmedPatientCard extends StatelessWidget {
+  const _ConfirmedPatientCard({
+    required this.patient,
+    required this.onChangePatient,
+  });
+
+  final Map<String, dynamic> patient;
+  final VoidCallback onChangePatient;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final name = patientNameFrom(patient);
+    final hospitalNumber = patientHospitalNumberFrom(patient);
+    final phone = patientPhoneFrom(patient);
+    final id = patientIdFrom(patient);
+    final details = [
+      if (hospitalNumber.isNotEmpty) hospitalNumber else if (id.isNotEmpty) id,
+      if (phone.isNotEmpty) phone,
+    ].join(' · ');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.successGreen.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.successGreen),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.verified_user, color: AppTheme.successGreen),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.vitalsScanVerifiedLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (details.isNotEmpty)
+                  Text(
+                    details,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onChangePatient,
+            child: Text(s.vitalsScanChangePatient),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Camera sheet for the wristband scan — same mobile_scanner flow the MAR
+/// 5-rights screen uses. Pops with the first non-empty barcode payload.
+class _WristbandScannerSheet extends StatefulWidget {
+  const _WristbandScannerSheet();
+
+  @override
+  State<_WristbandScannerSheet> createState() => _WristbandScannerSheetState();
+}
+
+class _WristbandScannerSheetState extends State<_WristbandScannerSheet> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+  );
+  bool _popped = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_popped) return;
+    final raw = capture.barcodes.firstOrNull?.rawValue;
+    if (raw == null || raw.trim().isEmpty) return;
+    _popped = true;
+    Navigator.of(context).pop(raw.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              s.vitalsScanWristbandButton,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              s.vitalsScanSubtitle,
+              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                height: 320,
+                child: MobileScanner(
+                  controller: _controller,
+                  onDetect: _onDetect,
+                  errorBuilder: (context, error) => ColoredBox(
+                    color: AppTheme.backgroundGrey,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          s.vitalsScanCameraError,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(AppStrings.of(context).actionCancel),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

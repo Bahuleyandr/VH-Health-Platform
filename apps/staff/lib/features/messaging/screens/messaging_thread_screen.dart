@@ -1,14 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../attachment_saver.dart';
 import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/services/messaging_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -464,15 +461,23 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     setState(() => _downloadingAttachmentIds.add(attachment.id));
     try {
       final bytes = await MessagingApiService.downloadAttachment(attachment.id);
-      final saved = await _saveAttachmentBytes(attachment, bytes);
-      await _openSavedAttachment(saved);
+      // Platform-split saver (STF-6): io platforms save + open and return
+      // the path; web hands the bytes to the browser as a Blob download
+      // (dart:io throws at runtime on staff-web) and returns null.
+      final savedPath = await saveAndOpenAttachment(
+        fileName: attachment.fileName,
+        contentType: attachment.contentType,
+        bytes: bytes,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: AppText(
-            's4.dynamic.messaging.saved_to_path',
-            values: {'path': saved.path},
-          ),
+          content: savedPath != null
+              ? AppText(
+                  's4.dynamic.messaging.saved_to_path',
+                  values: {'path': savedPath},
+                )
+              : const AppText('s4.lib.messaging.download_started'),
         ),
       );
     } catch (e) {
@@ -490,41 +495,6 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       if (mounted) {
         setState(() => _downloadingAttachmentIds.remove(attachment.id));
       }
-    }
-  }
-
-  Future<File> _saveAttachmentBytes(
-    ThreadAttachment attachment,
-    List<int> bytes,
-  ) async {
-    final baseDir =
-        await getDownloadsDirectory() ?? await getTemporaryDirectory();
-    final dir = Directory(
-      p.join(baseDir.path, 'VH Health Staff', 'message-attachments'),
-    );
-    await dir.create(recursive: true);
-    final baseName = _safeLocalFileName(attachment.fileName);
-    var candidate = File(p.join(dir.path, baseName));
-    if (await candidate.exists()) {
-      final ext = p.extension(baseName);
-      final stem = p.basenameWithoutExtension(baseName);
-      var i = 1;
-      while (await candidate.exists()) {
-        candidate = File(p.join(dir.path, '$stem ($i)$ext'));
-        i += 1;
-      }
-    }
-    return candidate.writeAsBytes(bytes, flush: true);
-  }
-
-  Future<void> _openSavedAttachment(File file) async {
-    final uri = Uri.file(file.path);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-      return;
-    }
-    if (Platform.isWindows) {
-      await Process.start('explorer.exe', [file.path]);
     }
   }
 
@@ -1546,13 +1516,4 @@ IconData _attachmentIcon(ThreadAttachment attachment) {
     return Icons.description_outlined;
   }
   return Icons.attach_file;
-}
-
-String _safeLocalFileName(String value) {
-  final trimmed = value.trim().isEmpty ? 'attachment' : value.trim();
-  final safe = trimmed
-      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  return safe.isEmpty ? 'attachment' : safe;
 }

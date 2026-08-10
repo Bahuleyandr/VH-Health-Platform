@@ -108,4 +108,78 @@ void main() {
       expect(provider.unreadCount, 0);
     },
   );
+
+  test(
+    'stop prevents an in-flight refresh from restoring signed-out data',
+    () async {
+      final requestStarted = Completer<void>();
+      final response = Completer<Map<String, dynamic>>();
+      final provider = MessageUnreadProvider(
+        loadUnreadCount: () {
+          requestStarted.complete();
+          return response.future;
+        },
+      );
+
+      final refresh = provider.refresh();
+      await requestStarted.future;
+      provider.stop();
+      response.complete({'unread_count': 7});
+      await refresh;
+
+      expect(provider.unreadCount, 0);
+    },
+  );
+
+  test('a stale refresh cannot overwrite the next signed-in session', () async {
+    final firstResponse = Completer<Map<String, dynamic>>();
+    final secondResponse = Completer<Map<String, dynamic>>();
+    var requestCount = 0;
+    final provider = MessageUnreadProvider(
+      loadUnreadCount: () {
+        requestCount += 1;
+        return requestCount == 1 ? firstResponse.future : secondResponse.future;
+      },
+    );
+
+    final firstStart = provider.start();
+    await Future<void>.delayed(Duration.zero);
+    provider.stop();
+    final secondStart = provider.start();
+    await Future<void>.delayed(Duration.zero);
+
+    secondResponse.complete({'unread_count': 2});
+    await secondStart;
+    firstResponse.complete({'unread_count': 9});
+    await firstStart;
+
+    expect(provider.unreadCount, 2);
+    provider.stop();
+  });
+
+  test('stop() clears cached alert state and allows a later restart', () async {
+    VHHttpClient.setClientForTesting(
+      MockClient((req) async {
+        return _unreadResponse(4);
+      }),
+    );
+
+    final provider = MessageUnreadProvider();
+    await provider.start();
+    expect(provider.unreadCount, 4);
+
+    // Logout path (STF-1): the badge and the last alert must not survive
+    // into the login screen or the next clinician's session.
+    provider.stop();
+    expect(provider.unreadCount, 0);
+    expect(provider.latestAlert, isNull);
+
+    // stop() is idempotent.
+    provider.stop();
+
+    // A later login can start the provider again.
+    await provider.start();
+    expect(provider.unreadCount, 4);
+    provider.stop();
+  });
 }

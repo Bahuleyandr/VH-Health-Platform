@@ -40,6 +40,10 @@ import { error, success } from '../../utils/responseHelper.js';
 const MIN_QUERY_LENGTH = 2;
 const MAX_RESULTS = 20;
 const PHONE_QUERY_RE = /^[+\d\s().-]+$/;
+// Wristband QR payloads carry the patient UID (same convention as the MAR
+// 5-rights scan flow). A UUID query resolves by exact uid match so bedside
+// flows can positively identify the patient (STF-4).
+const UUID_QUERY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DUPLICATE_OVERRIDE_MIN_REASON = 10;
 const PROFILE_PHOTO_MIMES = new Set(['image/jpeg', 'image/png']);
 
@@ -175,6 +179,45 @@ export const searchPatients = async (req, res) => {
       return success(res, { patients: [], count: 0 }, 'Patient search results');
     }
     const q = raw.toLowerCase();
+    const tenantIdForUid = UUID_QUERY_RE.test(raw) ? tenantOf(req) : null;
+    if (tenantIdForUid) {
+      // Exact wristband-UID resolution (STF-4). Same row shape as the text
+      // search; tenant-scoped like every other branch here. The uid is not
+      // matched by the LIKE branches below, so return directly.
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
+                u.profile_picture,
+                COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
+                CASE WHEN u.birthday IS NOT NULL
+                     THEN DATE_PART('year', AGE(u.birthday))::int
+                END AS age
+           FROM users u
+           LEFT JOIN LATERAL (
+             SELECT pi.identifier_value
+               FROM patient_identifiers pi
+              WHERE pi.tenant_id = u.tenant_id
+                AND pi.patient_uid = u.uid
+                AND pi.identifier_type IN ('mrn', 'uhid')
+                AND pi.status = 'active'
+              ORDER BY pi.is_primary DESC,
+                       CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                       pi.created_at ASC
+              LIMIT 1
+           ) hn ON TRUE
+          WHERE u.role = 'PATIENT'
+            AND u.is_active = true
+            AND u.uid = $1::uuid
+            AND u.tenant_id = $2::uuid
+          LIMIT 1`,
+        raw.toLowerCase(),
+        tenantIdForUid,
+      );
+      return success(
+        res,
+        { patients: rows, count: rows.length, query: raw },
+        'Patient search results',
+      );
+    }
     const rawDigits = raw.replace(/\D/g, '');
     const isPhoneLikeSearch = PHONE_QUERY_RE.test(raw) && rawDigits.length > 0;
     if (isPhoneLikeSearch && rawDigits.length < 10) {

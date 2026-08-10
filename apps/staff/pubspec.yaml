@@ -45,6 +45,9 @@ dependencies:
   image_picker: ^1.2.2
   file_picker: ^11.0.2
   url_launcher: ^6.3.1
+  # Web-only attachment download path (Blob + anchor click) — the io saver
+  # cannot run under dart2js. See features/messaging/attachment_saver_web.dart.
+  web: ^1.1.1
   flutter_web_auth_2: ^5.0.3
   web_socket_channel: ^3.0.1
   livekit_client: ^2.8.1

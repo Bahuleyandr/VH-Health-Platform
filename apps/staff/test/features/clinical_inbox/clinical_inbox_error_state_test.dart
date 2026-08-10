@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +8,25 @@ import 'package:vhhealth_staff/core/services/clinical_inbox_api_service.dart';
 import 'package:vhhealth_staff/features/clinical_inbox/screens/clinical_inbox_screen.dart';
 
 void main() {
+  test(
+    'stop prevents an in-flight refresh from restoring signed-out PHI',
+    () async {
+      final api = _DeferredInboxApi();
+      final provider = ClinicalInboxProvider(api: api);
+      provider.setTasksForTesting([_task()]);
+
+      final refresh = provider.refresh();
+      await api.started.future;
+      provider.stop();
+      api.response.complete(ClinicalInboxResult(tasks: [_task()], count: 1));
+      await refresh;
+
+      expect(provider.tasks, isEmpty);
+      expect(provider.lastError, isNull);
+      expect(provider.isRefreshing, isFalse);
+    },
+  );
+
   testWidgets('empty refresh failure never renders empty-success copy', (
     tester,
   ) async {
@@ -37,6 +58,22 @@ void main() {
     expect(find.text('Retained critical task'), findsOneWidget);
     expect(find.text('No pending critical results'), findsNothing);
   });
+}
+
+class _DeferredInboxApi extends ClinicalInboxApi {
+  final started = Completer<void>();
+  final response = Completer<ClinicalInboxResult>();
+
+  @override
+  Future<ClinicalInboxResult> listInboxTasks({int limit = 100}) {
+    if (!started.isCompleted) started.complete();
+    return response.future;
+  }
+
+  @override
+  Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId}) {
+    throw UnimplementedError();
+  }
 }
 
 Widget _host(ClinicalInboxProvider provider) {

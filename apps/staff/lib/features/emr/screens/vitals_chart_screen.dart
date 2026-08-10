@@ -45,6 +45,28 @@ String normalizeVitalsConsciousness(String value) {
   };
 }
 
+/// Temperature unit contract with the backend EMR vitals API
+/// (`POST /emr/vitals` → `services/emr/vitalsChartService.recordVitals`):
+///
+///  * This screen collects temperature in Fahrenheit ([VitalUnit.temperature]
+///    is "deg F"), so the payload MUST carry `temperature_unit: 'F'` — the
+///    backend treats a unitless temperature as Celsius and would 400-reject a
+///    real Fahrenheit entry (98.6 is far outside the 30–45 °C plausibility
+///    band), losing the whole vitals record.
+///  * The backend stores/returns the canonical Celsius value, so the read
+///    path converts back with [vitalsTemperatureDisplayF] before labelling
+///    the cell "deg F".
+const String vitalsTemperatureUnitSent = 'F';
+
+/// Convert a canonical Celsius temperature from the backend to the
+/// Fahrenheit value this screen displays. Non-numeric input returns null.
+double? vitalsTemperatureDisplayF(dynamic celsius) {
+  if (celsius == null) return null;
+  final num? c = celsius is num ? celsius : num.tryParse('$celsius');
+  if (c == null) return null;
+  return c * 9 / 5 + 32;
+}
+
 String vitalsConsciousnessLabel(AppStrings strings, String code) {
   return switch (code) {
     'A' => strings.vitalsChartConsciousAlert,
@@ -54,6 +76,51 @@ String vitalsConsciousnessLabel(AppStrings strings, String code) {
     'U' => strings.vitalsChartConsciousUnresp,
     _ => strings.vitalsChartConsciousAlert,
   };
+}
+
+/// Inline validation bounds for the record-vitals sheet, in the units the
+/// form collects. These mirror the backend hard plausibility guards
+/// (`utils/clinical/vitalPlausibility.js`, plus the pain/GCS field checks in
+/// `services/emr/vitalsChartService.js`); temperature is the 30–45 °C bound
+/// expressed in the °F this sheet collects. Values outside these bands are
+/// data-entry errors the backend would 400-reject — surface that inline
+/// instead of silently dropping the field or losing the submit.
+typedef VitalsRecordFieldBounds = ({num min, num max, bool integer});
+
+const Map<String, VitalsRecordFieldBounds> vitalsRecordFieldBounds = {
+  'heart_rate': (min: 20, max: 300, integer: true),
+  'systolic_bp': (min: 40, max: 300, integer: true),
+  'diastolic_bp': (min: 20, max: 200, integer: true),
+  'temperature_f': (min: 86, max: 113, integer: false),
+  'spo2': (min: 0, max: 100, integer: true),
+  'respiratory_rate': (min: 0, max: 80, integer: true),
+  'blood_glucose': (min: 10, max: 1500, integer: true),
+  'pain_score': (min: 0, max: 10, integer: true),
+  'gcs_score': (min: 3, max: 15, integer: true),
+};
+
+enum VitalsRecordFieldIssue { notANumber, outOfRange }
+
+/// Validate one record-sheet field. [raw] is the as-typed text (may carry a
+/// unit suffix that [normalizeVitalValue] strips); [field] keys into
+/// [vitalsRecordFieldBounds]; [unit] is the [VitalUnit] shown on the field.
+/// Returns null when the field is empty (all fields are optional) or valid.
+VitalsRecordFieldIssue? vitalsRecordFieldIssue(
+  String raw,
+  String field,
+  String unit,
+) {
+  final text = normalizeVitalValue(raw, unit);
+  if (text.isEmpty) return null;
+  final bounds = vitalsRecordFieldBounds[field]!;
+  final num? value = bounds.integer
+      ? int.tryParse(text)
+      : double.tryParse(text);
+  if (value == null) return VitalsRecordFieldIssue.notANumber;
+  if (value < bounds.min || value > bounds.max) {
+    return VitalsRecordFieldIssue.outOfRange;
+  }
+  return null;
 }
 
 Map<String, dynamic> buildVitalsRecordPayload({
@@ -88,6 +155,12 @@ Map<String, dynamic> buildVitalsRecordPayload({
     if (bpDiastolicValue.isNotEmpty)
       'diastolic_bp': int.tryParse(bpDiastolicValue),
     if (tempValue.isNotEmpty) 'temperature': double.tryParse(tempValue),
+    // The temperature field is labelled/entered in °F — say so explicitly.
+    // The backend converts to canonical °C; a unitless payload is treated
+    // as °C and a real °F reading would be rejected (see
+    // [vitalsTemperatureUnitSent]).
+    if (tempValue.isNotEmpty && double.tryParse(tempValue) != null)
+      'temperature_unit': vitalsTemperatureUnitSent,
     if (spo2Value.isNotEmpty) 'spo2': int.tryParse(spo2Value),
     if (rrValue.isNotEmpty) 'respiratory_rate': int.tryParse(rrValue),
     if (glucoseValue.isNotEmpty) 'blood_glucose': int.tryParse(glucoseValue),
@@ -467,6 +540,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       Icons.favorite,
                       suffix: VitalUnit.pulse,
                       keyboardType: TextInputType.number,
+                      boundsField: 'heart_rate',
                     ),
                     const SizedBox(height: 12),
 
@@ -480,6 +554,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             Icons.arrow_upward,
                             suffix: VitalUnit.bp,
                             keyboardType: TextInputType.number,
+                            boundsField: 'systolic_bp',
                           ),
                         ),
                         Padding(
@@ -499,6 +574,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             Icons.arrow_downward,
                             suffix: VitalUnit.bp,
                             keyboardType: TextInputType.number,
+                            boundsField: 'diastolic_bp',
                           ),
                         ),
                       ],
@@ -517,6 +593,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
+                            boundsField: 'temperature_f',
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -527,6 +604,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             Icons.air,
                             suffix: VitalUnit.spo2,
                             keyboardType: TextInputType.number,
+                            boundsField: 'spo2',
                           ),
                         ),
                       ],
@@ -543,6 +621,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             Icons.waves,
                             suffix: VitalUnit.respiratoryRate,
                             keyboardType: TextInputType.number,
+                            boundsField: 'respiratory_rate',
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -553,6 +632,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             Icons.water_drop,
                             suffix: VitalUnit.cbg,
                             keyboardType: TextInputType.number,
+                            boundsField: 'blood_glucose',
                           ),
                         ),
                       ],
@@ -569,6 +649,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             Icons.sentiment_dissatisfied,
                             suffix: VitalUnit.pain,
                             keyboardType: TextInputType.number,
+                            boundsField: 'pain_score',
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -579,6 +660,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             Icons.psychology,
                             suffix: VitalUnit.gcs,
                             keyboardType: TextInputType.number,
+                            boundsField: 'gcs_score',
                           ),
                         ),
                       ],
@@ -651,10 +733,12 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     IconData icon, {
     String? suffix,
     TextInputType? keyboardType,
+    String? boundsField,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
@@ -662,6 +746,27 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         border: const OutlineInputBorder(),
         isDense: true,
       ),
+      validator: boundsField == null
+          ? null
+          : (value) {
+              final issue = vitalsRecordFieldIssue(
+                value ?? '',
+                boundsField,
+                suffix ?? '',
+              );
+              if (issue == null) return null;
+              final strings = AppStrings.of(context);
+              if (issue == VitalsRecordFieldIssue.notANumber) {
+                return strings.lookup(
+                  's4.lib.vital_text_field.enter_valid_number',
+                );
+              }
+              final bounds = vitalsRecordFieldBounds[boundsField]!;
+              return strings.format(
+                's4.dynamic.vitals_chart.value_out_of_range',
+                {'min': bounds.min, 'max': bounds.max},
+              );
+            },
     );
   }
 
@@ -678,6 +783,11 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     required String gcs,
     required String consciousness,
   }) async {
+    // Block submit on invalid input and surface inline errors while the
+    // sheet is still open — previously unparseable values were silently
+    // dropped from the payload and a success toast still showed.
+    if (!(formKey.currentState?.validate() ?? true)) return;
+
     Navigator.of(context).pop();
 
     final data = buildVitalsRecordPayload(
@@ -1192,8 +1302,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                   ),
                 ),
                 DataCell(
+                  // Backend rows carry canonical °C; this column is labelled
+                  // °F, so convert before display (and range-check in °F).
                   _vitalCell(
-                    v['temperature'],
+                    vitalsTemperatureDisplayF(v['temperature']),
                     97.0,
                     99.5,
                     isDouble: true,

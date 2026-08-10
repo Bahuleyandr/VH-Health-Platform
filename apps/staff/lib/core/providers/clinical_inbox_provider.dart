@@ -21,6 +21,8 @@ class ClinicalInboxProvider extends ChangeNotifier {
   bool _started = false;
   bool _refreshing = false;
   bool _refreshPending = false;
+  int _sessionGeneration = 0;
+  int? _refreshGeneration;
   String? _lastError;
 
   List<ClinicalInboxTask> get tasks => _tasks;
@@ -36,6 +38,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    _sessionGeneration += 1;
     _subscriptions.addAll([
       RealtimeClient.instance
           .events('staff:clinical-alerts')
@@ -48,31 +51,62 @@ class ClinicalInboxProvider extends ChangeNotifier {
     await refresh();
   }
 
+  /// Tear down on logout (STF-1): cancel the poll timer and realtime
+  /// subscriptions and drop the previous clinician's task list so no PHI
+  /// survives into the login screen or the next session. [start] may be
+  /// called again after the next login.
+  void stop() {
+    _sessionGeneration += 1;
+    _started = false;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    for (final sub in _subscriptions) {
+      unawaited(sub.cancel());
+    }
+    _subscriptions.clear();
+    _mutatingIds.clear();
+    _tasks = const [];
+    _lastError = null;
+    _refreshing = false;
+    _refreshPending = false;
+    _refreshGeneration = null;
+    notifyListeners();
+  }
+
   Future<void> refresh() async {
-    if (_refreshing) {
+    final generation = _sessionGeneration;
+    if (_refreshing && _refreshGeneration == generation) {
       _refreshPending = true;
       return;
     }
 
     do {
+      if (generation != _sessionGeneration) return;
       _refreshing = true;
+      _refreshGeneration = generation;
       _refreshPending = false;
       notifyListeners();
       try {
         final result = await _api.listInboxTasks();
+        if (generation != _sessionGeneration) return;
         _tasks = _sortTasks(result.tasks);
         _lastError = null;
       } catch (e) {
+        if (generation != _sessionGeneration) return;
         _lastError = e.toString();
         if (kDebugMode) debugPrint('Clinical inbox refresh failed: $e');
       } finally {
-        _refreshing = false;
-        notifyListeners();
+        if (_refreshGeneration == generation) {
+          _refreshing = false;
+          _refreshGeneration = null;
+          notifyListeners();
+        }
       }
-    } while (_refreshPending);
+    } while (_refreshPending && generation == _sessionGeneration);
   }
 
   Future<void> acknowledge(String id, {int? breakGlassId}) async {
+    final generation = _sessionGeneration;
     _requireOnlineMutation();
     if (_mutatingIds.contains(id)) return;
     _mutatingIds.add(id);
@@ -82,20 +116,24 @@ class ClinicalInboxProvider extends ChangeNotifier {
         id,
         breakGlassId: breakGlassId,
       );
+      if (generation != _sessionGeneration) return;
       _tasks = _sortTasks([
         for (final task in _tasks) task.id == id ? updated : task,
       ]);
       _lastError = null;
     } catch (e) {
-      _lastError = e.toString();
+      if (generation == _sessionGeneration) _lastError = e.toString();
       rethrow;
     } finally {
-      _mutatingIds.remove(id);
-      notifyListeners();
+      if (generation == _sessionGeneration) {
+        _mutatingIds.remove(id);
+        notifyListeners();
+      }
     }
   }
 
   Future<ClinicalInboxTask> claimForReview(String id) async {
+    final generation = _sessionGeneration;
     _requireOnlineMutation();
     if (_mutatingIds.contains(id)) {
       throw StateError('This task is already being updated');
@@ -103,22 +141,27 @@ class ClinicalInboxProvider extends ChangeNotifier {
     _mutatingIds.add(id);
     notifyListeners();
     try {
-      await _api.claimTask(id);
+      final claimed = await _api.claimTask(id);
+      if (generation != _sessionGeneration) return claimed;
       await refresh();
+      if (generation != _sessionGeneration) return claimed;
       _lastError = null;
-      return _tasks.firstWhere((task) => task.id == id);
+      return _tasks.firstWhere((task) => task.id == id, orElse: () => claimed);
     } catch (e) {
-      _lastError = e.toString();
+      if (generation == _sessionGeneration) _lastError = e.toString();
       rethrow;
     } finally {
-      _mutatingIds.remove(id);
-      notifyListeners();
+      if (generation == _sessionGeneration) {
+        _mutatingIds.remove(id);
+        notifyListeners();
+      }
     }
   }
 
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
   ) async {
+    final generation = _sessionGeneration;
     _requireOnlineMutation();
     if (_mutatingIds.contains(command.taskId)) {
       throw StateError('This task is already being updated');
@@ -127,21 +170,26 @@ class ClinicalInboxProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final receipt = await _api.recordDiagnosticAction(command);
-      await refresh();
-      _lastError = null;
+      if (generation == _sessionGeneration) {
+        await refresh();
+        if (generation == _sessionGeneration) _lastError = null;
+      }
       return receipt;
     } catch (e) {
-      _lastError = e.toString();
+      if (generation == _sessionGeneration) _lastError = e.toString();
       rethrow;
     } finally {
-      _mutatingIds.remove(command.taskId);
-      notifyListeners();
+      if (generation == _sessionGeneration) {
+        _mutatingIds.remove(command.taskId);
+        notifyListeners();
+      }
     }
   }
 
   Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
     PostDischargeCrossSignCommand command,
   ) async {
+    final generation = _sessionGeneration;
     _requireOnlineMutation();
     if (_mutatingIds.contains(command.actionTaskId)) {
       throw StateError('This task is already being updated');
@@ -150,18 +198,24 @@ class ClinicalInboxProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final receipt = await _api.crossSignPendingResult(command);
-      await refresh();
-      _lastError = null;
+      if (generation == _sessionGeneration) {
+        await refresh();
+        if (generation == _sessionGeneration) _lastError = null;
+      }
       return receipt;
     } catch (e) {
-      _lastError = e.toString();
-      if (e is PostDischargeCrossSignException && e.requiresRefresh) {
+      if (generation == _sessionGeneration) _lastError = e.toString();
+      if (generation == _sessionGeneration &&
+          e is PostDischargeCrossSignException &&
+          e.requiresRefresh) {
         await refresh();
       }
       rethrow;
     } finally {
-      _mutatingIds.remove(command.actionTaskId);
-      notifyListeners();
+      if (generation == _sessionGeneration) {
+        _mutatingIds.remove(command.actionTaskId);
+        notifyListeners();
+      }
     }
   }
 
@@ -169,6 +223,7 @@ class ClinicalInboxProvider extends ChangeNotifier {
     required String generationId,
     required String reason,
   }) async {
+    final sessionGeneration = _sessionGeneration;
     _requireOnlineMutation();
     final mutationId = 'generation:$generationId';
     if (_mutatingIds.contains(mutationId)) {
@@ -181,15 +236,21 @@ class ClinicalInboxProvider extends ChangeNotifier {
         generationId: generationId,
         reason: reason,
       );
-      await refresh();
-      _lastError = null;
+      if (sessionGeneration == _sessionGeneration) {
+        await refresh();
+        if (sessionGeneration == _sessionGeneration) _lastError = null;
+      }
       return receipt;
     } catch (e) {
-      _lastError = e.toString();
+      if (sessionGeneration == _sessionGeneration) {
+        _lastError = e.toString();
+      }
       rethrow;
     } finally {
-      _mutatingIds.remove(mutationId);
-      notifyListeners();
+      if (sessionGeneration == _sessionGeneration) {
+        _mutatingIds.remove(mutationId);
+        notifyListeners();
+      }
     }
   }
 

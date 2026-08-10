@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_strings.dart';
 import '../providers/session_timeout_provider.dart';
 import '../theme/app_theme.dart';
+import 'logout_flow.dart';
 
 class SessionTimeoutWarningLayer extends StatefulWidget {
   const SessionTimeoutWarningLayer({super.key, required this.child});
@@ -28,7 +29,12 @@ class _SessionTimeoutWarningLayerState
           if (!_navigatedForExpiry) {
             _navigatedForExpiry = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) context.go('/login');
+              if (!mounted) return;
+              // Idle timeout is a logout path: stop the realtime poll
+              // providers (the timeout cleanup itself already revoked the
+              // session and closed the WebSocket) before landing on /login.
+              stopStaffRealtimePollers(context);
+              context.go('/login');
             });
           }
         } else {

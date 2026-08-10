@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
+import '../../../core/providers/clinical_inbox_provider.dart';
+import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -172,6 +177,18 @@ class _LoginScreenState extends State<LoginScreen> {
       // Provider may not be in scope under unusual mount conditions —
       // the on-/login redirect path will still call startTracking().
     }
+    // Logout tears down the realtime socket and stops the message/inbox
+    // pollers (STF-1); an in-process re-login must bring them back up.
+    // Each call is idempotent and best-effort.
+    try {
+      unawaited(context.read<RealtimeProvider>().ensureConnected());
+    } catch (_) {}
+    try {
+      unawaited(context.read<MessageUnreadProvider>().start());
+    } catch (_) {}
+    try {
+      unawaited(context.read<ClinicalInboxProvider>().start());
+    } catch (_) {}
     context.go('/dashboard');
   }
 

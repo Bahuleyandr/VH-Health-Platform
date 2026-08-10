@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
-import '../config/api_config.dart';
 import '../platform_info.dart';
+import '../services/auth_service.dart';
 import '../services/recent_patients_service.dart';
 
 typedef SessionTimeoutCleanup = Future<void> Function();
@@ -192,7 +192,12 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   static Future<void> _defaultTimeoutCleanup() async {
     await RecentPatientsService.clear();
-    await ApiConfig.clearSessionIdentity();
+    // Idle timeout must end the session server-side too (STF-5): previously
+    // this only cleared local state, leaving the bearer token and refresh
+    // credential alive on the backend after the on-device auto-logout.
+    // logoutForIdleTimeout revokes best-effort, then clears local identity
+    // and tears down the realtime socket.
+    await AuthService.logoutForIdleTimeout();
   }
 
   @override
