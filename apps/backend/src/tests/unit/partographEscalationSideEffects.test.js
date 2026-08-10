@@ -113,7 +113,7 @@ describe('raisePartographEscalationSideEffects (BE-M2)', () => {
     expect(deps.resolveClinicalAlertRecipients).toHaveBeenCalledWith(TENANT);
     expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(DUTY_RECIPIENTS.length);
     const [notification] = deps.notificationOutbox.queue.mock.calls[0];
-    expect(notification.recipientId).toBe(DUTY_RECIPIENTS[0].id);
+    expect(notification.recipientId).toBe(DUTY_RECIPIENTS[0].uid);
     expect(notification.data.recipient_role).toBe('DUTY_DOCTOR');
     expect(notification.title).toMatch(/deceleration/i);
   });
