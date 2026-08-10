@@ -37,7 +37,12 @@ const swallowingSafeCanonical = async (label, task) => {
   }
 };
 
-function makeDeps({ dbImpl, checkImpl, queueImpl, auditImpl } = {}) {
+const RECIPIENTS = [
+  { id: 71, uid: '33333333-3333-4333-8333-333333333333', phone: '+911234567890', role: 'DUTY_DOCTOR' },
+  { id: 72, uid: '44444444-4444-4444-8444-444444444444', phone: null, role: 'SENIOR_DOCTOR' },
+];
+
+function makeDeps({ dbImpl, checkImpl, queueImpl, auditImpl, resolveImpl } = {}) {
   return {
     db: {
       $queryRawUnsafe: jest.fn(dbImpl || (async (sql) => {
@@ -47,6 +52,7 @@ function makeDeps({ dbImpl, checkImpl, queueImpl, auditImpl } = {}) {
     },
     checkVitalAnomalies: jest.fn(checkImpl || (async () => [{ severity: 'CRITICAL', vital_name: 'systolic_bp' }])),
     notificationOutbox: { queue: jest.fn(queueImpl || (async () => ({ id: 5, status: 'PENDING' }))) },
+    resolveClinicalAlertRecipients: jest.fn(resolveImpl || (async () => RECIPIENTS)),
     recordClinicalAuditEvent: jest.fn(auditImpl || (async (input) => ({ id: 42, ...input }))),
     safeCanonical: swallowingSafeCanonical,
   };
@@ -87,19 +93,27 @@ describe('runAncPreeclampsiaPostCommitCheck (BE-H2)', () => {
     expect(outcome).toEqual({ alerts: [], checkFailed: true });
     expect(deps.checkVitalAnomalies).not.toHaveBeenCalled();
 
-    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(1);
+    // R2 fan-out: one CONCRETE-recipient outbox row per resolved clinician —
+    // never a recipientId:null broadcast row (the outbox has no topic delivery).
+    expect(deps.resolveClinicalAlertRecipients).toHaveBeenCalledWith(TENANT);
+    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(RECIPIENTS.length);
     const [notification, options] = deps.notificationOutbox.queue.mock.calls[0];
     expect(options).toEqual({ strict: true });
     expect(notification).toMatchObject({
-      recipientId: null, // broadcast to clinical staff
+      recipientId: RECIPIENTS[0].id,
+      recipientPhone: RECIPIENTS[0].phone,
       tenantId: TENANT,
       channel: 'clinical_alert',
     });
+    for (const [queued] of deps.notificationOutbox.queue.mock.calls) {
+      expect(queued.recipientId).not.toBeNull();
+    }
     expect(notification.data).toMatchObject({
       source_event_key: 'maternity_anc_visits:345:preeclampsia_check_failed:alert',
       anc_visit_id: 345,
       pregnancy_id: 12,
       bp: '142/92',
+      recipient_role: 'DUTY_DOCTOR',
     });
 
     expect(deps.recordClinicalAuditEvent).toHaveBeenCalledTimes(1);
@@ -122,7 +136,7 @@ describe('runAncPreeclampsiaPostCommitCheck (BE-H2)', () => {
     const outcome = await runAncPreeclampsiaPostCommitCheck({ ...baseInput, deps });
 
     expect(outcome).toEqual({ alerts: [], checkFailed: true });
-    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(1);
+    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(RECIPIENTS.length);
     expect(deps.recordClinicalAuditEvent).toHaveBeenCalledTimes(1);
   });
 

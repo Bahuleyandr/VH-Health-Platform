@@ -1,0 +1,131 @@
+// src/utils/notifications/clinicalAlertFanout.js
+//
+// Duty-role fan-out for broadcast clinical alerts (fix R2 residual, audit
+// 2026-08-10). The notification outbox has no topic delivery: a row queued
+// with recipientId:null gets a `broadcast:` recipient key that no provider
+// path can resolve, so STAT-order / MAR-scheduling-failed / pre-eclampsia
+// alerts "broadcast to relevant staff" reached nobody. This helper resolves
+// the broadcast to CONCRETE recipients at ENQUEUE time — one immutable
+// notification_outbox intent per resolved clinician — mirroring the
+// escalation engine's recipient fan-out (escalationEngineService.js
+// resolveRecipientsForRole + queueRecipientNotifications) and the
+// enqueueCriticalResultTask duty-role ownership pattern.
+//
+// Recipient resolution mirrors escalationEngineService: try the exact
+// DUTY_DOCTOR role first; if no active user holds it in the tenant, widen to
+// the doctor-tier family so a ward with nobody tagged DUTY_DOCTOR still
+// reaches an on-shift physician. Ordering is `last_sign_in_at DESC NULLS
+// LAST, id ASC` — an availability PROXY (users carries no shift/duty column),
+// same caveat as the escalation engine documents.
+import { setTenant } from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
+import logger from '../../logging/logger.js';
+import { DOCTOR_TIERS, ROLES } from '../roleHelpers.js';
+import { notificationOutbox } from './notificationOutbox.js';
+
+// Same default bound the escalation engine applies to a single role fan-out
+// (DEFAULT_RECIPIENT_FANOUT_CAP in escalationEngineService.js) — inside a
+// real hospital's doctor-tier headcount, outside accidental-explosion range.
+export const CLINICAL_ALERT_FANOUT_CAP = 500;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve the concrete clinical-staff audience for a broadcast alert in one
+ * tenant. Exact DUTY_DOCTOR first, doctor-tier family fallback second.
+ * Returns [{ id, uid, phone, role }] (may be empty — the caller decides how
+ * loudly to fail).
+ */
+export async function resolveClinicalAlertRecipients(tenantId) {
+  const tid = String(tenantId || '').trim().toLowerCase();
+  if (!UUID_RE.test(tid)) return [];
+  const query = (rolePredicate, roleValue) => setTenant(
+    tid,
+    tx => tx.$queryRawUnsafe(
+      `SELECT id, uid, phone, role
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND is_active = TRUE
+          AND ${rolePredicate}
+        ORDER BY last_sign_in_at DESC NULLS LAST, id ASC
+        LIMIT $3::integer`,
+      tid, roleValue, CLINICAL_ALERT_FANOUT_CAP,
+    ),
+    { readOnly: true },
+  );
+  const exact = await query('role = $2::text', ROLES.DUTY_DOCTOR);
+  const rows = exact.length > 0 ? exact : await query('role = ANY($2::text[])', DOCTOR_TIERS);
+  const seen = new Set();
+  const recipients = [];
+  for (const row of rows) {
+    const id = Number(row?.id);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    recipients.push({ id, uid: row.uid || null, phone: row.phone || null, role: row.role || null });
+  }
+  return recipients;
+}
+
+/**
+ * Queue one durable notification_outbox intent per resolved clinical-staff
+ * recipient. Drop-in replacement for the old `recipientId: null` broadcast
+ * enqueues — same notification shape, but every row carries a REAL
+ * recipientId (+ phone) that the outbox drain can deliver.
+ *
+ * The shared `data.source_event_key` stays identical across recipients:
+ * dedupe (`ux_notification_outbox_delivery_intent`) includes the per-recipient
+ * recipient_key, so a retried fan-out re-queues nobody twice.
+ *
+ * Per-recipient queue failures are logged and skipped; with `strict` the call
+ * throws only when NOT ONE recipient row was queued (no resolvable audience,
+ * or every queue attempt failed) so callers' degraded-escalation paths fire.
+ *
+ * @returns {{ resolved: number, queued: number }}
+ */
+export async function queueClinicalAlertFanout(notification, {
+  outbox = notificationOutbox,
+  resolveRecipients = resolveClinicalAlertRecipients,
+  strict = false,
+} = {}) {
+  const { tenantId: rawTenantId, ...intent } = notification || {};
+  const tenantId = String(rawTenantId || getCurrentTenantId() || '').trim().toLowerCase();
+  let recipients = [];
+  try {
+    recipients = await resolveRecipients(tenantId);
+  } catch (err) {
+    logger.error('clinical-alert fan-out: recipient resolution failed', {
+      tenant_id: tenantId || null, err: err?.message,
+    });
+    recipients = [];
+  }
+  if (recipients.length === 0) {
+    const message = 'clinical-alert fan-out resolved zero active clinical recipients';
+    logger.error(message, { tenant_id: tenantId || null, type: intent.type || null });
+    if (strict) throw new Error(message);
+    return { resolved: 0, queued: 0 };
+  }
+
+  let queued = 0;
+  for (const recipient of recipients) {
+    try {
+      const row = await outbox.queue({
+        ...intent,
+        tenantId: tenantId || null,
+        recipientId: recipient.id,
+        recipientPhone: recipient.phone || null,
+        data: { ...(intent.data || {}), recipient_role: recipient.role || null },
+      }, { strict: true });
+      if (row) queued += 1;
+    } catch (err) {
+      logger.warn('clinical-alert fan-out: outbox queue failed for recipient', {
+        tenant_id: tenantId || null, recipient_id: recipient.id, err: err?.message,
+      });
+    }
+  }
+  if (queued === 0 && strict) {
+    throw new Error('clinical-alert fan-out queued zero notifications');
+  }
+  return { resolved: recipients.length, queued };
+}
+
+export default queueClinicalAlertFanout;

@@ -291,7 +291,11 @@ export async function deliverNotificationOutboxRow(row) {
     const userId = row.recipient_id !== null && row.recipient_id !== undefined && row.recipient_id !== ''
       ? String(row.recipient_id)
       : String(row.recipient_phone || '').trim();
-    if (!userId) throw new Error('dispatcher outbox row has no recipient_id or recipient_phone');
+    // A recipient-less (legacy broadcast) row is NOT an exception: dispatch()
+    // records a terminal `recipient_identifier_missing` rejection per channel,
+    // so the row dead-letters and the channel keeps delivering (fix R3/R2 —
+    // throwing here left the row leased until lease-expiry marked it
+    // RECONCILIATION_REQUIRED and paused the whole channel).
 
     const pendingChannels = pendingAttempts.map(attempt => attempt.channel);
     const dryRun = forceDryRunProviders(pendingChannels);

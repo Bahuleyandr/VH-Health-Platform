@@ -22,6 +22,7 @@ import {
   checkAntithromboticInteractions,
 } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
+import { queueClinicalAlertFanout } from '../../utils/notifications/clinicalAlertFanout.js';
 import { scheduleMedications } from '../clinical/marService.js';
 import { recordFirstDrugChartEntry } from '../clinical/drugChartSlaService.js';
 import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
@@ -619,9 +620,11 @@ const ORDER_INTEGRATION_FAILURE_ALERTS = {
  * scheduled MAR doses and no detector. Every swallow in the post-create
  * integration region now escalates durably:
  *
- *   1. a notification_outbox alert to the relevant clinical staff (same
- *      broadcast recipient/topic shape as the STAT push below) — durable,
- *      retried by the outbox drain, deduplicated on source_event_key; and
+ *   1. a notification_outbox alert fanned out to CONCRETE clinical-staff
+ *      recipients (duty-doctor role fan-out via queueClinicalAlertFanout —
+ *      the outbox has no topic delivery, so a recipient-less broadcast row
+ *      reached nobody; fix R2, audit 2026-08-10) — durable, retried by the
+ *      outbox drain, deduplicated per recipient on source_event_key; and
  *   2. a clinical_audit_events row (action_status 'failed', deterministic
  *      idempotency key `clinical_orders:<id>:<stage>_failed`) via the
  *      canonical helpers under the safeCanonical post-commit policy
@@ -640,9 +643,8 @@ export async function escalateOrderIntegrationFailure({ order, stage, err, deps 
 
   let alertQueued = false;
   try {
-    const queued = await outbox.queue({
+    const fanout = await queueClinicalAlertFanout({
       type: 'push',
-      recipientId: null, // broadcast to relevant clinical staff (STAT-push shape)
       tenantId: order.tenant_id || null,
       title: copy.title,
       body: copy.body(order),
@@ -657,8 +659,12 @@ export async function escalateOrderIntegrationFailure({ order, stage, err, deps 
         error_code: err?.code || null,
       },
       channel: 'clinical_alert',
-    }, { strict: true });
-    alertQueued = !!queued;
+    }, {
+      outbox,
+      resolveRecipients: deps.resolveClinicalAlertRecipients,
+      strict: true,
+    });
+    alertQueued = fanout.queued > 0;
   } catch (queueErr) {
     logger.error(
       `Order ${stage} failure alert could NOT be queued for order ${order.order_number}: ${queueErr.message}`,
@@ -766,14 +772,17 @@ async function dispatchPostCreateSideEffects(order) {
     await integrationDispatch;
   }
 
-  // STAT orders — push notification to relevant staff
+  // STAT orders — push notification to relevant staff. Fanned out to concrete
+  // duty-doctor recipients (fix R2: the outbox has no topic delivery, so the
+  // old recipientId:null broadcast row reached nobody).
   if (order.priority === 'stat') {
-    notificationOutbox.queue({
+    queueClinicalAlertFanout({
       type: 'push',
-      recipientId: null, // broadcast to relevant staff
+      tenantId: order.tenant_id || null,
       title: 'STAT Order',
       body: `STAT ${order.order_type} order ${order.order_number} for patient`,
       data: {
+        source_event_key: `clinical_orders:${order.id}:stat:alert`,
         order_id: order.id,
         order_number: order.order_number,
         order_type: order.order_type,

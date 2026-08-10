@@ -12,9 +12,12 @@
 //                         (MARK stashed in aggregate_type; cleanup filters it).
 //   webhook_deliveries  — NOT-NULL-no-default cols = event_type, payload
 //                         (MARK in event_type; payload added to the INSERT).
-//   notification_outbox — NO `channel` column exists; NOT-NULL-no-default cols =
-//                         type, title, body. MARK stashed in `type`; cleanup
-//                         filters on `type`. (row is seeded but not asserted.)
+//   notification_outbox — NOT-NULL-no-default cols = type, title, body. MARK
+//                         stashed in `type`; cleanup filters on `type`. The
+//                         mig-609 prepare-intent trigger fills channel /
+//                         source_event_key / recipient_key / hash on INSERT.
+//                         Seeds PENDING + FAILED(retry 1) + FAILED(retry 3) +
+//                         RECONCILIATION_REQUIRED for the F7/F11 gauges.
 import { randomUUID } from 'crypto';
 import {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
@@ -123,9 +126,15 @@ d('reliability metrics collector (QA DB)', () => {
       randomUUID(),
       randomUUID(),
     );
+    // PENDING + the two dead-letter shapes (F7/F11, audit 2026-08-10):
+    // FAILED at the retry ceiling (never re-claimed by the drain) and
+    // RECONCILIATION_REQUIRED (never auto-retried at all).
     await prisma.$executeRawUnsafe(
-      `INSERT INTO notification_outbox (type, title, body, status, created_at)
-       VALUES ($1, 'relmetrics', 'relmetrics', 'PENDING', now())`,
+      `INSERT INTO notification_outbox (type, title, body, status, retry_count, created_at)
+       VALUES ($1, 'relmetrics', 'relmetrics', 'PENDING', 0, now()),
+              ($1, 'relmetrics-f1', 'relmetrics', 'FAILED', 1, now()),
+              ($1, 'relmetrics-f3', 'relmetrics', 'FAILED', 3, now()),
+              ($1, 'relmetrics-rr', 'relmetrics', 'RECONCILIATION_REQUIRED', 1, now())`,
       MARK,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
@@ -171,6 +180,17 @@ d('reliability metrics collector (QA DB)', () => {
     expect(gaugeValue(out, 'event_outbox_oldest_pending_age_seconds')).toBeGreaterThanOrEqual(3000);
     expect(gaugeValue(out, 'event_outbox_processing_rows')).toBeGreaterThanOrEqual(2);
     expect(gaugeValue(out, 'event_outbox_stale_processing_rows')).toBeGreaterThanOrEqual(1);
+  }, 30_000);
+
+  it('reports notification_outbox pending/failed/reconciliation-required/dead-letter gauges', async () => {
+    await collectReliabilityMetrics();
+    const out = serializeReliabilityMetrics();
+    expect(gaugeValue(out, 'notification_outbox_pending_rows')).toBeGreaterThanOrEqual(1);
+    expect(gaugeValue(out, 'notification_outbox_failed_rows')).toBeGreaterThanOrEqual(2);
+    expect(gaugeValue(out, 'notification_outbox_reconciliation_required_rows')).toBeGreaterThanOrEqual(1);
+    // dead letters = FAILED at the retry ceiling (1 seeded) + RECONCILIATION_REQUIRED (1 seeded);
+    // the retrying FAILED row (retry_count 1) must NOT count.
+    expect(gaugeValue(out, 'notification_outbox_dead_letter_rows')).toBeGreaterThanOrEqual(2);
   }, 30_000);
 
   it('reports webhook + circuit-breaker gauges', async () => {

@@ -115,6 +115,87 @@ describe('notification delivery ledger state separation', () => {
     expect(queryRawUnsafeMock.mock.calls.at(-1)[3]).toBe('paused_uncertain');
   });
 
+  it('resumes (never pauses) the cursor on a TERMINAL per-recipient rejection (R3)', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        receipt_id: RECEIPT_ID,
+        notification_outbox_id: 41,
+        channel: 'push',
+        outcome: 'rejected',
+        provider_code: 'fcm_token_missing',
+      }])
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'push',
+        last_contiguous_outbox_id: 40,
+        state: 'delivering',
+        blocked_outbox_id: 41,
+        inflight_outbox_id: 41,
+      }])
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'push',
+        last_contiguous_outbox_id: 40,
+        state: 'ready',
+        blocked_outbox_id: null,
+        inflight_outbox_id: null,
+      }]);
+    executeRawUnsafeMock.mockResolvedValueOnce(0);
+
+    const cursor = await applyProviderReceiptToCursor({
+      tenantId: TENANT_ID,
+      receiptId: RECEIPT_ID,
+    });
+
+    expect(cursor).toMatchObject({
+      state: 'ready',
+      blocked_outbox_id: null,
+      skipped_outbox_id: 41,
+      terminal_rejection_code: 'fcm_token_missing',
+    });
+    // last_contiguous is untouched: the mig-609 trigger reserves it for
+    // acknowledged rows; the resume UPDATE only clears the block.
+    const updateSql = queryRawUnsafeMock.mock.calls.at(-1)[0];
+    expect(updateSql).toMatch(/SET state = 'ready'/);
+    expect(updateSql).not.toMatch(/last_contiguous_outbox_id =/);
+  });
+
+  it('still pauses on a non-terminal (channel-level) rejection', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        receipt_id: RECEIPT_ID,
+        notification_outbox_id: 41,
+        channel: 'sms',
+        outcome: 'rejected',
+        provider_code: 'sms_gateway_not_configured',
+      }])
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'sms',
+        last_contiguous_outbox_id: null,
+        state: 'delivering',
+        blocked_outbox_id: 41,
+        inflight_outbox_id: 41,
+      }])
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'sms',
+        last_contiguous_outbox_id: null,
+        state: 'paused_rejected',
+        blocked_outbox_id: 41,
+        inflight_outbox_id: null,
+      }]);
+    executeRawUnsafeMock.mockResolvedValueOnce(0);
+
+    const cursor = await applyProviderReceiptToCursor({
+      tenantId: TENANT_ID,
+      receiptId: RECEIPT_ID,
+    });
+
+    expect(cursor).toMatchObject({ state: 'paused_rejected', blocked_outbox_id: 41 });
+    expect(queryRawUnsafeMock.mock.calls.at(-1)[3]).toBe('paused_rejected');
+  });
+
   it('maps each physical channel to its factual provider ledger name', () => {
     expect(providerForChannel('push')).toBe('firebase_fcm');
     expect(providerForChannel('email')).toBe('smtp');

@@ -1,5 +1,10 @@
 import { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  OPERATOR_REPLAY_SUPERSEDED_REASON,
+  TERMINAL_REJECTION_CODES,
+  isTerminalRejectionCode,
+} from '../../utils/notifications/terminalRejectionCodes.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
@@ -152,22 +157,30 @@ async function beginProviderAttemptTx(tx, {
     });
   }
 
+  // "Resolved" for ordering = acknowledged OR terminally rejected for its one
+  // recipient OR operator-superseded. Keep in sync with the identical
+  // predicates in notificationOutbox.claimPendingBatch and the acknowledged
+  // cursor-advance gap check below (fix R3).
   const earlier = await tx.$queryRawUnsafe(
     `SELECT id
        FROM notification_outbox
       WHERE tenant_id = $1::uuid AND channel = $2::text
         AND ledger_version = 1 AND id < $3::integer
         AND status NOT IN ('SENT', 'SUPPRESSED')
+        AND NOT (status = 'RECONCILIATION_REQUIRED' AND failure_reason = $5::text)
         AND NOT EXISTS (
           SELECT 1 FROM notification_provider_receipts AS resolved
            WHERE resolved.tenant_id = notification_outbox.tenant_id
              AND resolved.notification_outbox_id = notification_outbox.id
              AND resolved.channel = $2::text
-             AND resolved.outcome = 'acknowledged'
+             AND (resolved.outcome = 'acknowledged'
+               OR (resolved.outcome = 'rejected'
+                 AND resolved.provider_code = ANY($4::text[])))
         )
       ORDER BY id
       LIMIT 1`,
     tenantId, normalizedChannel, outboxId,
+    TERMINAL_REJECTION_CODES, OPERATOR_REPLAY_SUPERSEDED_REASON,
   );
   if (earlier.length === 1) {
     return Object.freeze({
@@ -318,7 +331,7 @@ export async function applyProviderReceiptToCursorTx(tx, {
   receiptId,
 } = {}) {
   const receipts = await tx.$queryRawUnsafe(
-    `SELECT receipt_id::text, notification_outbox_id, channel, outcome
+    `SELECT receipt_id::text, notification_outbox_id, channel, outcome, provider_code
        FROM notification_provider_receipts
       WHERE tenant_id = $1::uuid AND receipt_id = $2::uuid`,
     tenantId, receiptId,
@@ -335,21 +348,29 @@ export async function applyProviderReceiptToCursorTx(tx, {
       && Number(cursor.last_contiguous_outbox_id) >= outboxId) {
       return Object.freeze({ ...cursor, duplicate: true });
     }
+    // Same resolved-for-ordering predicate as beginProviderAttemptTx /
+    // claimPendingBatch: a terminally-rejected or operator-superseded earlier
+    // row is not a gap — the cursor may advance PAST it (the DB trigger only
+    // requires an acknowledged receipt on the row the cursor lands ON).
     const earlier = await tx.$queryRawUnsafe(
       `SELECT id
          FROM notification_outbox
         WHERE tenant_id = $1::uuid AND channel = $2::text
           AND ledger_version = 1 AND id < $3::integer
           AND status NOT IN ('SENT', 'SUPPRESSED')
+          AND NOT (status = 'RECONCILIATION_REQUIRED' AND failure_reason = $5::text)
           AND NOT EXISTS (
             SELECT 1 FROM notification_provider_receipts AS resolved
              WHERE resolved.tenant_id = notification_outbox.tenant_id
                AND resolved.notification_outbox_id = notification_outbox.id
                AND resolved.channel = $2::text
-               AND resolved.outcome = 'acknowledged'
+               AND (resolved.outcome = 'acknowledged'
+                 OR (resolved.outcome = 'rejected'
+                   AND resolved.provider_code = ANY($4::text[])))
           )
         ORDER BY id LIMIT 1`,
       tenantId, receipt.channel, outboxId,
+      TERMINAL_REJECTION_CODES, OPERATOR_REPLAY_SUPERSEDED_REASON,
     );
     if (earlier.length === 1) {
       throw AppError.conflict(
@@ -368,6 +389,31 @@ export async function applyProviderReceiptToCursorTx(tx, {
       tenantId, receipt.channel, outboxId,
     );
     return advanced[0] || Object.freeze({ ...cursor, duplicate: true });
+  }
+
+  // R3: a TERMINAL per-recipient rejection (missing/unregistered token, no
+  // phone/email, recipient not found) must not wedge the whole channel. The
+  // rejection receipt stands as evidence, the row dead-letters through the
+  // normal FAILED path, and the cursor resumes 'ready' so later rows deliver.
+  // last_contiguous_outbox_id is deliberately NOT advanced onto the rejected
+  // row — the mig-609 trigger (chk_notification_delivery_cursor_positive_receipt)
+  // reserves that column for acknowledged rows; the resolved-for-ordering
+  // predicates above let a later acknowledgement advance past this row.
+  if (receipt.outcome === 'rejected' && isTerminalRejectionCode(receipt.provider_code)) {
+    const resumed = await tx.$queryRawUnsafe(
+      `UPDATE notification_delivery_cursors
+          SET state = 'ready', blocked_outbox_id = NULL,
+              inflight_outbox_id = NULL, updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND channel = $2::text
+        RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
+                  state, blocked_outbox_id, inflight_outbox_id, updated_at`,
+      tenantId, receipt.channel,
+    );
+    return Object.freeze({
+      ...resumed[0],
+      skipped_outbox_id: outboxId,
+      terminal_rejection_code: receipt.provider_code,
+    });
   }
 
   const pausedState = receipt.outcome === 'uncertain' ? 'paused_uncertain' : 'paused_rejected';
@@ -473,6 +519,97 @@ export function providerForChannel(channel) {
   return PROVIDERS[normalizeChannel(channel)];
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function requireOperatorProvenance({ reason, actorUid, actorRole }) {
+  const operatorReason = String(reason || '').trim();
+  if (!operatorReason || operatorReason.length > 1000) {
+    throw AppError.badRequest('reason is required (max 1000 chars)', 'NOTIFICATION_DELIVERY_INPUT_INVALID');
+  }
+  const uid = String(actorUid || '').trim().toLowerCase();
+  if (!UUID_RE.test(uid)) {
+    throw AppError.badRequest('actor uid is invalid', 'NOTIFICATION_DELIVERY_INPUT_INVALID');
+  }
+  const role = String(actorRole || '').trim();
+  if (!role || role.length > 50) {
+    throw AppError.badRequest('actor role is invalid', 'NOTIFICATION_DELIVERY_INPUT_INVALID');
+  }
+  return { operatorReason, uid, role };
+}
+
+/** Operator visibility over the per-tenant/channel delivery cursors. */
+export async function listChannelCursors({ tenantId } = {}) {
+  const tid = requireTenantId(tenantId);
+  return setTenantTx(tid, tx => tx.$queryRawUnsafe(
+    `SELECT tenant_id::text, channel, last_contiguous_outbox_id, state,
+            blocked_outbox_id, inflight_outbox_id, updated_at
+       FROM notification_delivery_cursors
+      WHERE tenant_id = $1::uuid
+      ORDER BY channel`,
+    tid,
+  ));
+}
+
+/**
+ * Operator reset for a wedged channel cursor (fix R3). paused_rejected /
+ * paused_uncertain / a stuck 'delivering' cursor goes back to 'ready' with the
+ * block cleared; last_contiguous_outbox_id is untouched (ack-only by the
+ * mig-609 trigger). Requires a named actor and a recorded reason; writes an
+ * audit_logs row (pattern: eventOutboxService.redriveFailedEvent).
+ */
+export async function resetChannelCursor({
+  tenantId,
+  channel,
+  reason,
+  actorUid,
+  actorRole,
+  requestId = null,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const normalizedChannel = normalizeChannel(channel);
+  const { operatorReason, uid, role } = requireOperatorProvenance({ reason, actorUid, actorRole });
+  return setTenantTx(tid, async (tx) => {
+    const current = await tx.$queryRawUnsafe(
+      `SELECT tenant_id::text, channel, last_contiguous_outbox_id, state,
+              blocked_outbox_id, inflight_outbox_id
+         FROM notification_delivery_cursors
+        WHERE tenant_id = $1::uuid AND channel = $2::text
+        FOR UPDATE`,
+      tid, normalizedChannel,
+    );
+    if (current.length !== 1) {
+      throw AppError.notFound('Notification delivery cursor was not found', 'NOTIFICATION_DELIVERY_CURSOR_NOT_FOUND');
+    }
+    if (current[0].state === 'ready') {
+      throw AppError.conflict('Notification delivery cursor is not paused', 'NOTIFICATION_DELIVERY_CURSOR_NOT_PAUSED');
+    }
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE notification_delivery_cursors
+          SET state = 'ready', blocked_outbox_id = NULL,
+              inflight_outbox_id = NULL, updated_at = NOW()
+        WHERE tenant_id = $1::uuid AND channel = $2::text
+        RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
+                  state, blocked_outbox_id, inflight_outbox_id, updated_at`,
+      tid, normalizedChannel,
+    );
+    await tx.$queryRawUnsafe(
+      `INSERT INTO audit_logs
+         (tenant_id, uid, role, action, resource, resource_id, metadata, created_at)
+       VALUES ($1::uuid, $2::uuid, $3::text, 'NOTIFICATION_CHANNEL_CURSOR_RESET',
+               'notification_delivery_cursors', $4::text, $5::jsonb, NOW())`,
+      tid, uid, role, normalizedChannel,
+      JSON.stringify({
+        reason: operatorReason,
+        request_id: requestId ? String(requestId).slice(0, 180) : null,
+        prior_state: current[0].state,
+        prior_blocked_outbox_id: current[0].blocked_outbox_id,
+        prior_inflight_outbox_id: current[0].inflight_outbox_id,
+      }),
+    );
+    return rows[0];
+  }, { isolationLevel: 'Serializable' });
+}
+
 export const __testing__ = Object.freeze({
   normalizeChannel,
   normalizeOutcome,
@@ -486,6 +623,8 @@ export const notificationDeliveryLedgerService = Object.freeze({
   applyProviderReceiptToCursor,
   reconcileExpiredClaims,
   providerForChannel,
+  listChannelCursors,
+  resetChannelCursor,
 });
 
 export default notificationDeliveryLedgerService;

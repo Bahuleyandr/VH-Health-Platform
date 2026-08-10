@@ -7,7 +7,9 @@
 // Status-name notes (do NOT re-guess):
 //   event_outbox.status      pending|processing|delivered|failed  (failed = dead-letter @ MAX_ATTEMPTS=7)
 //   webhook_deliveries.status pending|failed|dead                 (dead = terminal undelivered)
-//   notification_outbox.status PENDING|SENT|FAILED                (UPPERCASE)
+//   notification_outbox.status PENDING|CLAIMED|SENT|FAILED|RECONCILIATION_REQUIRED|SUPPRESSED (UPPERCASE;
+//     FAILED retries until retry_count>=3 then dead-letters; RECONCILIATION_REQUIRED
+//     is never auto-retried — de-facto dead letter, mig-609 contract)
 import prisma, { circuitBreakerStatus } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import {
@@ -25,6 +27,9 @@ const eventOutboxDeadLetter = new Gauge('event_outbox_dead_letter_rows', 'event_
 const eventOutboxProcessing = new Gauge('event_outbox_processing_rows', 'event_outbox rows currently owned by a processing lease');
 const eventOutboxStaleProcessing = new Gauge('event_outbox_stale_processing_rows', 'event_outbox processing rows whose lease has expired');
 const notificationOutboxPending = new Gauge('notification_outbox_pending_rows', 'notification_outbox rows in PENDING status');
+const notificationOutboxFailed = new Gauge('notification_outbox_failed_rows', 'notification_outbox rows in FAILED status (retrying until retry_count >= 3)');
+const notificationOutboxReconciliationRequired = new Gauge('notification_outbox_reconciliation_required_rows', 'notification_outbox rows in RECONCILIATION_REQUIRED status (never auto-retried — de-facto dead letters)');
+const notificationOutboxDeadLetter = new Gauge('notification_outbox_dead_letter_rows', 'notification_outbox rows no auto-path will retry: FAILED with retry_count >= 3 plus all RECONCILIATION_REQUIRED');
 const webhookPending = new Gauge('webhook_deliveries_pending_rows', 'webhook_deliveries rows in pending status');
 const webhookFailed = new Gauge('webhook_deliveries_failed_rows', 'webhook_deliveries rows in failed status (retrying)');
 const webhookDead = new Gauge('webhook_deliveries_dead_rows', 'webhook_deliveries rows in the terminal dead status (undelivered)');
@@ -125,7 +130,7 @@ export function recordEventOutboxLeaseReaped(count) {
 export function recordWebhookDeliveryLeaseReaped(count) {
   recordPositiveCount(webhookDeliveryLeaseReaped, count);
 }
-const OUTBOX_REDRIVE_QUEUES = new Set(['event_outbox', 'webhook_delivery']);
+const OUTBOX_REDRIVE_QUEUES = new Set(['event_outbox', 'webhook_delivery', 'notification_outbox']);
 export function recordOutboxOperatorRedrive(queue) {
   outboxOperatorRedrive.inc({ queue: OUTBOX_REDRIVE_QUEUES.has(queue) ? queue : 'other' });
 }
@@ -375,10 +380,21 @@ export async function collectReliabilityMetrics() {
     eventOutboxProcessing.set({}, Number(eo?.processing ?? 0));
     eventOutboxStaleProcessing.set({}, Number(eo?.stale_processing ?? 0));
 
-    const [no] = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FILTER (WHERE status = 'PENDING') AS pending FROM notification_outbox`,
-    );
+    const [no] = await prisma.$queryRawUnsafe(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'PENDING') AS pending,
+        COUNT(*) FILTER (WHERE status = 'FAILED')  AS failed,
+        COUNT(*) FILTER (WHERE status = 'RECONCILIATION_REQUIRED') AS reconciliation_required,
+        COUNT(*) FILTER (
+          WHERE (status = 'FAILED' AND retry_count >= 3)
+             OR status = 'RECONCILIATION_REQUIRED'
+        ) AS dead_letter
+      FROM notification_outbox
+    `);
     notificationOutboxPending.set({}, Number(no?.pending ?? 0));
+    notificationOutboxFailed.set({}, Number(no?.failed ?? 0));
+    notificationOutboxReconciliationRequired.set({}, Number(no?.reconciliation_required ?? 0));
+    notificationOutboxDeadLetter.set({}, Number(no?.dead_letter ?? 0));
 
     const [wd] = await prisma.$queryRawUnsafe(`
       SELECT
@@ -616,7 +632,8 @@ export function serializeReliabilityMetrics() {
   const metrics = [
     eventOutboxPending, eventOutboxOldestAge, eventOutboxDeadLetter,
     eventOutboxProcessing, eventOutboxStaleProcessing,
-    notificationOutboxPending,
+    notificationOutboxPending, notificationOutboxFailed,
+    notificationOutboxReconciliationRequired, notificationOutboxDeadLetter,
     webhookPending, webhookFailed, webhookDead,
     webhookInFlight, webhookStaleInFlight, webhookParked,
     pathwayProjectorInboxPending, pathwayProjectorInboxOldestAge,

@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
+import {
+  OPERATOR_REPLAY_SUPERSEDED_REASON,
+  TERMINAL_REJECTION_CODES,
+} from './terminalRejectionCodes.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
@@ -232,12 +236,16 @@ class NotificationOutbox {
                  AND earlier.channel = outbox.channel
                  AND earlier.ledger_version = 1 AND earlier.id < outbox.id
                  AND earlier.status NOT IN ('SENT', 'SUPPRESSED')
+                 AND NOT (earlier.status = 'RECONCILIATION_REQUIRED'
+                   AND earlier.failure_reason = $5::text)
                  AND NOT EXISTS (
                    SELECT 1 FROM notification_provider_receipts AS resolved
                     WHERE resolved.tenant_id = earlier.tenant_id
                       AND resolved.notification_outbox_id = earlier.id
                       AND resolved.channel = earlier.channel
-                      AND resolved.outcome = 'acknowledged'
+                      AND (resolved.outcome = 'acknowledged'
+                        OR (resolved.outcome = 'rejected'
+                          AND resolved.provider_code = ANY($4::text[])))
                  )
             )
           ORDER BY outbox.id
@@ -260,6 +268,7 @@ class NotificationOutbox {
                   outbox.claim_token::text, outbox.claim_generation,
                   outbox.claimed_at, outbox.lease_expires_at`,
       tid, safeLimit, safeLeaseSeconds,
+      TERMINAL_REJECTION_CODES, OPERATOR_REPLAY_SUPERSEDED_REASON,
     ), { isolationLevel: 'Serializable' });
   }
 

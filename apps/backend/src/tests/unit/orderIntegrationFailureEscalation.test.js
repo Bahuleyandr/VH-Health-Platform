@@ -5,8 +5,10 @@
 // run after the order transaction committed, so their failures used to leave
 // only a log line — a medication order could commit with ZERO scheduled MAR
 // doses and no detector. escalateOrderIntegrationFailure must:
-//   * queue a durable notification_outbox alert (broadcast, STAT-push shape,
-//     deterministic source_event_key) AND
+//   * queue durable notification_outbox alerts fanned out to CONCRETE
+//     duty-doctor recipients (fix R2 2026-08-10 — the outbox has no topic
+//     delivery, so the old recipientId:null broadcast reached nobody;
+//     deterministic shared source_event_key, per-recipient dedupe) AND
 //   * write a clinical_audit_events 'failed' row with the deterministic
 //     idempotency key clinical_orders:<id>:<stage>_failed,
 //   * attempt the two INDEPENDENTLY (one failing never skips the other),
@@ -45,9 +47,15 @@ const swallowingSafeCanonical = async (label, task) => {
   }
 };
 
-function makeDeps({ queueImpl, auditImpl } = {}) {
+const RECIPIENTS = [
+  { id: 71, uid: '33333333-3333-4333-8333-333333333333', phone: '+911234567890', role: 'DUTY_DOCTOR' },
+  { id: 72, uid: '44444444-4444-4444-8444-444444444444', phone: null, role: 'SENIOR_DOCTOR' },
+];
+
+function makeDeps({ queueImpl, auditImpl, resolveImpl } = {}) {
   return {
     notificationOutbox: { queue: jest.fn(queueImpl || (async () => ({ id: 1, status: 'PENDING' }))) },
+    resolveClinicalAlertRecipients: jest.fn(resolveImpl || (async () => RECIPIENTS)),
     recordClinicalAuditEvent: jest.fn(auditImpl || (async (input) => ({ id: 99, ...input }))),
     safeCanonical: swallowingSafeCanonical,
   };
@@ -65,21 +73,32 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
 
     expect(result).toEqual({ alertQueued: true, auditRecorded: true });
 
-    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(1);
+    // R2 fan-out: one CONCRETE-recipient outbox row per resolved clinician —
+    // never a recipientId:null broadcast row (the outbox has no topic delivery).
+    expect(deps.resolveClinicalAlertRecipients).toHaveBeenCalledWith(TENANT);
+    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(RECIPIENTS.length);
     const [notification, queueOptions] = deps.notificationOutbox.queue.mock.calls[0];
     expect(queueOptions).toEqual({ strict: true });
     expect(notification).toMatchObject({
       type: 'push',
-      recipientId: null, // broadcast — same shape as the STAT push
+      recipientId: RECIPIENTS[0].id,
+      recipientPhone: RECIPIENTS[0].phone,
       tenantId: TENANT,
       channel: 'clinical_alert',
     });
+    expect(deps.notificationOutbox.queue.mock.calls[1][0]).toMatchObject({
+      recipientId: RECIPIENTS[1].id,
+    });
+    for (const [queued] of deps.notificationOutbox.queue.mock.calls) {
+      expect(queued.recipientId).not.toBeNull();
+    }
     expect(notification.data).toMatchObject({
       source_event_key: 'clinical_orders:4711:mar_schedule_failed:alert',
       order_id: 4711,
       order_number: 'ORD-20260809-0001',
       failure_stage: 'mar_schedule',
       error_code: 'MAR_DURATION_EXCEEDS_WINDOW',
+      recipient_role: 'DUTY_DOCTOR',
     });
     expect(notification.title).toMatch(/no scheduled mar doses/i);
 
@@ -119,6 +138,21 @@ describe('escalateOrderIntegrationFailure (BE-H1)', () => {
       action,
       idempotencyKey: auditKey,
     });
+  });
+
+  test('zero resolvable recipients is a queue failure (alertQueued false), audit still records', async () => {
+    const deps = makeDeps({ resolveImpl: async () => [] });
+
+    const result = await escalateOrderIntegrationFailure({
+      order: makeOrder(),
+      stage: 'mar_schedule',
+      err: new Error('boom'),
+      deps,
+    });
+
+    expect(result).toEqual({ alertQueued: false, auditRecorded: true });
+    expect(deps.notificationOutbox.queue).not.toHaveBeenCalled();
+    expect(deps.recordClinicalAuditEvent.mock.calls[0][0].metadata.alert_queued).toBe(false);
   });
 
   test('an outbox failure does NOT skip the audit row (independent attempts, no throw)', async () => {

@@ -20,7 +20,12 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 const OBSTETRICIAN_UID = '33333333-3333-4333-8333-333333333333';
 
-function makeDeps({ txImpl, queueImpl } = {}) {
+const DUTY_RECIPIENTS = [
+  { id: 71, uid: '55555555-5555-4555-8555-555555555555', phone: '+911234567890', role: 'DUTY_DOCTOR' },
+  { id: 72, uid: '66666666-6666-4666-8666-666666666666', phone: null, role: 'SENIOR_DOCTOR' },
+];
+
+function makeDeps({ txImpl, queueImpl, resolveImpl } = {}) {
   const tx = {
     $queryRawUnsafe: jest.fn(async () => [{ id: 77 }]),
     $executeRawUnsafe: jest.fn(async () => 1),
@@ -30,6 +35,7 @@ function makeDeps({ txImpl, queueImpl } = {}) {
     deps: {
       setTenantTx: jest.fn(txImpl || (async (tenantId, fn) => fn(tx))),
       notificationOutbox: { queue: jest.fn(queueImpl || (async () => ({ id: 9, status: 'PENDING' }))) },
+      resolveClinicalAlertRecipients: jest.fn(resolveImpl || (async () => DUTY_RECIPIENTS)),
     },
   };
 }
@@ -102,8 +108,13 @@ describe('raisePartographEscalationSideEffects (BE-M2)', () => {
     const insertCall = tx.$executeRawUnsafe.mock.calls[0];
     expect(insertCall[2]).toBe('fetal_decel');
     expect(insertCall[4]).toMatch(/deceleration/i);
+    // No obstetrician on file -> duty-doctor fan-out to CONCRETE recipients
+    // (fix R2 — the old recipientId:null broadcast row reached nobody).
+    expect(deps.resolveClinicalAlertRecipients).toHaveBeenCalledWith(TENANT);
+    expect(deps.notificationOutbox.queue).toHaveBeenCalledTimes(DUTY_RECIPIENTS.length);
     const [notification] = deps.notificationOutbox.queue.mock.calls[0];
-    expect(notification.recipientId).toBeNull(); // no obstetrician on file -> broadcast
+    expect(notification.recipientId).toBe(DUTY_RECIPIENTS[0].id);
+    expect(notification.data.recipient_role).toBe('DUTY_DOCTOR');
     expect(notification.title).toMatch(/deceleration/i);
   });
 
