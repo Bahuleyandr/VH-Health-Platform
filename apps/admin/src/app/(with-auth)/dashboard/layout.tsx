@@ -16,74 +16,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTenant } from '@/contexts/TenantContext';
 import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
 import { ROLE_RANK } from '@/lib/routePolicy';
+import { NAV_SECTIONS, type NavItem, type NavSection } from '@/lib/navConfig';
 import styles from './Dashboard.module.css';
-
-type NavItem = {
-  name: string;
-  href: string;
-  /** Optional role requirement (SUPER_ADMIN always allowed) */
-  requiredRole?: 'ADMIN' | 'SUPER_ADMIN';
-  /** Optional minimum portal tier (SUPER_ADMIN always allowed) */
-  minRole?: 'STAFF' | 'DOCTOR' | 'HR' | 'ADMIN' | 'SUPER_ADMIN';
-  /** Optional permission requirements (ALL must be present; SUPER_ADMIN always allowed) */
-  requiredPermissions?: string[];
-};
-
-const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard' },
-  { name: 'Users', href: '/dashboard/users', requiredPermissions: ['userManagement'] },
-  { name: 'Doctors', href: '/dashboard/doctors', requiredPermissions: ['doctorManagement'] },
-  { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
-  { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
-  { name: 'Queue Displays', href: '/dashboard/queue-displays', minRole: 'STAFF' },
-  // AD-H2: Code Blue / Code STEMI live board (realtime staff:code-blue /
-  // staff:code-stemi). Route policy allows all clinical staff (STAFF rank);
-  // without this entry the board was unreachable from any UI.
-  { name: 'Clinical Alerts', href: '/dashboard/clinical-alerts', minRole: 'STAFF' },
-  { name: 'Oncology', href: '/dashboard/oncology', minRole: 'STAFF' },
-  { name: 'Nuclear Med & Radiotherapy', href: '/dashboard/radiation-oncology', minRole: 'STAFF' },
-  { name: 'Transplant', href: '/dashboard/transplant', minRole: 'STAFF' },
-  { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
-  { name: 'Cath Consumables', href: '/dashboard/billing/cath-consumables', requiredRole: 'ADMIN' },
-  { name: 'Reporting', href: '/dashboard/reporting', minRole: 'HR' },
-  { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
-  { name: 'Report Builder', href: '/dashboard/report-builder', requiredPermissions: ['viewAuditLogs'] },
-  { name: 'Staff Roster', href: '/dashboard/staff-roster', minRole: 'HR' },
-  { name: 'Credentialing', href: '/dashboard/credentialing', minRole: 'HR' },
-  { name: 'Attendance', href: '/dashboard/attendance', requiredPermissions: ['userManagement'] },
-  { name: 'Leave Approvals', href: '/dashboard/leave-approvals', minRole: 'HR' },
-  { name: 'Shift Management', href: '/dashboard/shifts', minRole: 'HR' },
-  { name: 'Reports Audit', href: '/dashboard/audit', requiredRole: 'ADMIN' },
-  { name: 'System Audit Log', href: '/dashboard/system-audit', requiredRole: 'ADMIN' },
-  { name: 'Audit Explorer', href: '/dashboard/audit-explorer', requiredRole: 'ADMIN' },
-  { name: 'Clinical Governance', href: '/dashboard/clinical-governance', requiredRole: 'ADMIN' },
-  { name: 'Continuity Reconciliation', href: '/dashboard/continuity-reconciliation', requiredRole: 'ADMIN' },
-  { name: 'Attendance Audit', href: '/dashboard/attendance-audit', requiredRole: 'ADMIN' },
-  { name: 'Incident Reports', href: '/dashboard/incidents', minRole: 'HR' },
-  { name: 'Housekeeping', href: '/dashboard/housekeeping', minRole: 'HR' },
-  { name: 'Linen & Laundry', href: '/dashboard/linen-laundry', minRole: 'STAFF' },
-  { name: 'Grievances (HR)', href: '/dashboard/grievances', minRole: 'HR' },
-  { name: 'Bed Management', href: '/dashboard/beds', requiredPermissions: ['departmentManagement'] },
-  { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
-  { name: 'Payroll & HR Comp', href: '/dashboard/payroll', requiredRole: 'ADMIN' },
-  { name: 'Admin Management', href: '/dashboard/admin-management', requiredRole: 'ADMIN', requiredPermissions: ['adminManagement'] },
-  { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
-  { name: 'Database', href: '/dashboard/database', requiredRole: 'SUPER_ADMIN' },
-  { name: 'Feature Flags', href: '/dashboard/feature-flags', requiredRole: 'SUPER_ADMIN' },
-  { name: 'Entitlements', href: '/dashboard/entitlements', requiredRole: 'ADMIN' },
-  { name: 'Compliance', href: '/dashboard/compliance', requiredRole: 'ADMIN' },
-  { name: 'Clinical AI', href: '/dashboard/clinical-ai', requiredRole: 'ADMIN' },
-  { name: 'CSSD', href: '/dashboard/cssd', minRole: 'STAFF' },
-  { name: 'Consent', href: '/dashboard/consent', requiredPermissions: ['userManagement'] },
-  { name: 'Feedback', href: '/dashboard/feedback', requiredPermissions: ['userManagement'] },
-  { name: 'Devices', href: '/dashboard/devices', requiredRole: 'ADMIN' },
-  { name: 'Facility Context', href: '/dashboard/continuity-facility-context', requiredRole: 'SUPER_ADMIN' },
-  { name: 'Cold Chain', href: '/dashboard/cold-chain', minRole: 'STAFF' },
-  { name: 'Adoption & LMS', href: '/dashboard/adoption', requiredRole: 'ADMIN' },
-  { name: 'Developer Portal', href: '/dashboard/developer-portal', requiredRole: 'ADMIN' },
-  { name: 'ABDM', href: '/dashboard/abdm', requiredRole: 'ADMIN' },
-  { name: 'Settings', href: '/dashboard/settings', requiredRole: 'ADMIN' },
-];
 
 function isItemActive(pathname: string, href: string) {
   if (pathname === href) return true;
@@ -109,14 +43,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Auto-logout after 30 minutes of inactivity
   useIdleTimeout(30 * 60 * 1000);
 
-  const visibleNav = useMemo(() => {
-    return navigation.filter((item) => {
-      const roleOk = !item.requiredRole || isSuperAdmin || role === item.requiredRole;
-      const minRoleOk = !item.minRole || isSuperAdmin || (ROLE_RANK[role ?? ''] ?? -1) >= ROLE_RANK[item.minRole];
+  const visibleSections = useMemo<NavSection[]>(() => {
+    const itemVisible = (item: NavItem) => {
+      if (isSuperAdmin) return true;
+      // An explicit role allowlist replaces the tier checks (mirrors
+      // ROUTE_POLICY `roles` entries, e.g. the clinical-AI control plane).
+      if (item.allowedRoles) return item.allowedRoles.includes(role ?? '');
+      const roleOk = !item.requiredRole || role === item.requiredRole;
+      const minRoleOk = !item.minRole || (ROLE_RANK[role ?? ''] ?? -1) >= ROLE_RANK[item.minRole];
       const perms = item.requiredPermissions ?? [];
-      const permsOk = perms.length === 0 || isSuperAdmin || hasAllPermissions(perms);
+      const permsOk = perms.length === 0 || hasAllPermissions(perms);
       return roleOk && minRoleOk && permsOk;
-    });
+    };
+    return NAV_SECTIONS.map((section) => ({
+      ...section,
+      items: section.items.filter(itemVisible),
+    })).filter((section) => section.items.length > 0);
   }, [role, isSuperAdmin, hasAllPermissions]);
 
   useEffect(() => {
@@ -197,19 +139,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </h1>
           </div>
           <nav key="desktop-nav" className={styles.nav}>
-            {visibleNav.map((item) => {
-              const active = isItemActive(pathname, item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={active ? 'page' : undefined}
-                  className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
-                >
-                  {item.name}
-                </Link>
-              );
-            })}
+            {visibleSections.map((section) => (
+              <Fragment key={section.title}>
+                <p className={styles.navSectionTitle}>{section.title}</p>
+                {section.items.map((item) => {
+                  const active = isItemActive(pathname, item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active ? 'page' : undefined}
+                      className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
+                    >
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </Fragment>
+            ))}
           </nav>
           {(supportEmail || helpCenterUrl || legalFooter) && (
             <div className={styles.sidebarFooter}>
@@ -258,20 +205,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </button>
               </div>
               <nav key="mobile-nav" className={styles.nav}>
-                {visibleNav.map((item) => {
-                  const active = isItemActive(pathname, item.href);
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setIsSidebarOpen(false)}
-                      aria-current={active ? 'page' : undefined}
-                      className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
-                    >
-                      {item.name}
-                    </Link>
-                  );
-                })}
+                {visibleSections.map((section) => (
+                  <Fragment key={section.title}>
+                    <p className={styles.navSectionTitle}>{section.title}</p>
+                    {section.items.map((item) => {
+                      const active = isItemActive(pathname, item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setIsSidebarOpen(false)}
+                          aria-current={active ? 'page' : undefined}
+                          className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
+                        >
+                          {item.name}
+                        </Link>
+                      );
+                    })}
+                  </Fragment>
+                ))}
               </nav>
               {(supportEmail || helpCenterUrl || legalFooter) && (
                 <div className={styles.sidebarFooter}>
