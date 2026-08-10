@@ -882,6 +882,7 @@ describe('logoutStaff', () => {
     expect(out).toMatchObject({ allDevices: true, accessTokenRevoked: true });
     expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
       requireEvidence: true,
+      reason: 'logout',
     });
   });
 
@@ -977,10 +978,10 @@ describe('token generators', () => {
     );
   });
 
-  it('generateRefreshToken stamps type:refresh + 30d', () => {
-    StaffAuthService.generateRefreshToken({ id: 42, uid: 'u', role: 'DOCTOR' });
+  it('generateRefreshToken stamps type:refresh + 30d + the mint-time token_epoch (R1)', async () => {
+    await StaffAuthService.generateRefreshToken({ id: 42, uid: 'u', role: 'DOCTOR' });
     expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'refresh' }), '30d'
+      expect.objectContaining({ type: 'refresh', token_epoch: 0 }), '30d'
     );
   });
 

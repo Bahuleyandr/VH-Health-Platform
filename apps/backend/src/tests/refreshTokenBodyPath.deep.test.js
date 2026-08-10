@@ -53,6 +53,8 @@ let accessTokenNoType;
 // A fresh refresh token per use: refresh ROTATION blacklists the presented
 // jti (replay protection), so a token is single-use. Reusing one across tests
 // would (correctly) 401 as revoked — each login mints its own, so each test does too.
+// Async since the R1 epoch stamp (generateRefreshToken reads the identity's
+// current token_epoch at mint time).
 const mintRefresh = () =>
   generateRefreshToken({ uid: user.uid, id: user.id, phone: user.phone, role: user.role });
 
@@ -88,7 +90,7 @@ describe('C-9 companion — /refresh-token accepts a refresh token in the BODY',
     const res = await request(app)
       .post('/api/v1/auth/refresh-token')
       .set('X-Forwarded-For', '203.0.113.31')
-      .send({ refreshToken: mintRefresh() });
+      .send({ refreshToken: await mintRefresh() });
 
     expect(res.statusCode).toBe(200);
     // Fresh access token + rotated refresh token returned to the client.
@@ -104,7 +106,7 @@ describe('C-9 companion — /refresh-token accepts a refresh token in the BODY',
     const res = await request(app)
       .post('/api/v1/auth/refresh-token')
       .set('X-Forwarded-For', '203.0.113.32')
-      .set('Authorization', `Bearer ${mintRefresh()}`)
+      .set('Authorization', `Bearer ${await mintRefresh()}`)
       .send({});
 
     expect(res.statusCode).toBe(200);

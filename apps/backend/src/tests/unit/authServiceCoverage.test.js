@@ -983,7 +983,7 @@ describe('AuthService.logout', () => {
     // Sol Ultra #19: login mints an access + a sibling refresh JWT with no shared
     // session-family id, so blacklisting only the presented token leaves the
     // sibling usable. Logout must revoke every token for this identity.
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('u1', { requireEvidence: true });
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('u1', { requireEvidence: true, reason: 'logout' });
     expect(mockPrisma.auth_logs.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'logout', success: true }) }),
     );

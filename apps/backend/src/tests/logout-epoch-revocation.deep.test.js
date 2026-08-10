@@ -28,7 +28,6 @@
 
 import http from 'http';
 import express from 'express';
-import { jest } from '@jest/globals';
 import request from 'supertest';
 import WebSocket from 'ws';
 
@@ -66,12 +65,16 @@ async function cleanupPatient(uid) {
   await prisma.$executeRawUnsafe('DELETE FROM users WHERE uid = $1::uuid', uid).catch(() => {});
 }
 
-/** Sign a realistic access token for the user (jti + exp + tenant claim). */
+/**
+ * Sign a realistic bearer for the user (jti + exp + tenant claim), shaped like
+ * the /realtime/ticket payload: NO int `id` claim, so the WS server registers
+ * the socket under the uid (generateToken maps uid → sub; wsServer resolves
+ * decoded.uid || decoded.id || decoded.sub).
+ */
 function accessTokenFor(user) {
   return generateToken(
     {
       uid: user.uid,
-      id: user.id,
       phone: user.phone,
       role: 'PATIENT',
       tenant_id: DEFAULT_TENANT,
@@ -246,9 +249,13 @@ describe('R12 — logout fails closed (non-2xx) when the durable DB write fails'
 
   it('returns 500 (not fake success) when Postgres rejects the revocation write', async () => {
     const token = accessTokenFor(user);
-    const dbDown = jest
-      .spyOn(prisma, '$queryRawUnsafe')
-      .mockRejectedValue(new Error('database unavailable'));
+    // Simulate the durable store being down for the revocation write. Plain
+    // method swap (not jest.spyOn) — the prisma client extension proxy does
+    // not expose spy-able descriptors under ESM jest.
+    const original = prisma.$queryRawUnsafe;
+    prisma.$queryRawUnsafe = async () => {
+      throw new Error('database unavailable');
+    };
 
     try {
       const res = await request(app)
@@ -260,7 +267,7 @@ describe('R12 — logout fails closed (non-2xx) when the durable DB write fails'
       expect(res.statusCode).toBeGreaterThanOrEqual(500);
       expect(res.body?.success).toBe(false);
     } finally {
-      dbDown.mockRestore();
+      prisma.$queryRawUnsafe = original;
     }
   });
 

@@ -417,7 +417,7 @@ describeIfDb('C6.1-F I13 late SCIM recovery', () => {
       },
     });
     expect(revokeAllUserTokens).toHaveBeenCalledTimes(1);
-    expect(revokeAllUserTokens).toHaveBeenCalledWith(REVOKE_UID);
+    expect(revokeAllUserTokens).toHaveBeenCalledWith(REVOKE_UID, { reason: 'scim_deprovision' });
     const state = await prisma.$queryRawUnsafe(
       `SELECT u.is_active, u.status, s.is_active AS staff_is_active, s.archived,
               (SELECT COUNT(*)::integer FROM user_active_sessions WHERE user_uid = u.uid) AS active_sessions,
