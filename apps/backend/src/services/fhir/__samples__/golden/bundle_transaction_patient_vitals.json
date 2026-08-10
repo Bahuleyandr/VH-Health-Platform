@@ -5,7 +5,7 @@
   "timestamp": "2026-04-17T09:15:00+05:30",
   "entry": [
     {
-      "fullUrl": "urn:uuid:patient-priya",
+      "fullUrl": "urn:uuid:550e8400-e29b-41d4-a716-446655440101",
       "resource": {
         "resourceType": "Patient",
         "id": "bundle-patient-priya",
@@ -32,7 +32,7 @@
       }
     },
     {
-      "fullUrl": "urn:uuid:observation-hr",
+      "fullUrl": "urn:uuid:550e8400-e29b-41d4-a716-446655440102",
       "resource": {
         "resourceType": "Observation",
         "id": "bundle-hr",
@@ -57,7 +57,7 @@
           ]
         },
         "subject": {
-          "reference": "Patient/bundle-patient-priya"
+          "reference": "urn:uuid:550e8400-e29b-41d4-a716-446655440101"
         },
         "effectiveDateTime": "2026-04-17T09:15:00+05:30",
         "valueQuantity": {
@@ -73,7 +73,7 @@
       }
     },
     {
-      "fullUrl": "urn:uuid:observation-spo2",
+      "fullUrl": "urn:uuid:550e8400-e29b-41d4-a716-446655440103",
       "resource": {
         "resourceType": "Observation",
         "id": "bundle-spo2",
@@ -92,13 +92,18 @@
           "coding": [
             {
               "system": "http://loinc.org",
+              "code": "2708-6",
+              "display": "Oxygen saturation in Arterial blood"
+            },
+            {
+              "system": "http://loinc.org",
               "code": "59408-5",
-              "display": "Oxygen saturation by pulse oximetry"
+              "display": "Oxygen saturation in Arterial blood by Pulse oximetry"
             }
           ]
         },
         "subject": {
-          "reference": "Patient/bundle-patient-priya"
+          "reference": "urn:uuid:550e8400-e29b-41d4-a716-446655440101"
         },
         "effectiveDateTime": "2026-04-17T09:15:00+05:30",
         "valueQuantity": {

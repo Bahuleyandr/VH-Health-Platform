@@ -13,15 +13,6 @@ on:
         required: false
         type: string
         default: Backend FHIR conformance
-      blocking:
-        description: >
-          When true (default), golden-bundle failures fail the workflow.
-          Set to false only for the non-blocking legacy call in all.yml until
-          that sweep is updated. CI-1/CI-9 (WS3 B3.4): flip this to blocking
-          everywhere — any golden-bundle regression must fail CI.
-        required: false
-        type: boolean
-        default: true
     secrets:
       DISCORD_WEBHOOK_URL:
         required: false
@@ -78,24 +69,34 @@ jobs:
           done
 
       - name: Validate golden bundles strict (R4)
+        # golden/ is a REQUIRED gate: a missing or empty directory fails the
+        # job. Restore the fixtures rather than deleting them — an absent
+        # directory previously made this step exit 0 and the gate was
+        # permanently green (R9 audit, fixed 2026-08-10).
         run: |
           if [ ! -d src/services/fhir/__samples__/golden ]; then
-            echo "No golden/ subdirectory — skipping strict run."
-            exit 0
+            echo "✗ src/services/fhir/__samples__/golden/ is missing — golden fixtures are a required gate. Restore them."
+            exit 1
           fi
           shopt -s nullglob
           failed=0
+          count=0
           for f in src/services/fhir/__samples__/golden/*.json; do
+            count=$((count + 1))
             echo "=== Validating (STRICT) $f ==="
             if ! java -jar ~/.cache/fhir-validator/validator_cli.jar "$f" -version 4.0.1 -tx n/a; then
               failed=$((failed + 1))
             fi
           done
+          if [ "$count" -eq 0 ]; then
+            echo "✗ src/services/fhir/__samples__/golden/ contains no .json fixtures — golden fixtures are a required gate. Restore them."
+            exit 1
+          fi
           if [ "$failed" -gt 0 ]; then
             echo "✗ $failed golden bundle(s) failed FHIR R4 validation."
             exit 1
           fi
-          echo "✓ All golden bundles validated clean."
+          echo "✓ All $count golden bundles validated clean."
 
       - name: Notify Discord on failure
         if: failure() && inputs.notify_on_failure

@@ -777,10 +777,12 @@ SQL, JWT auth, or test infrastructure:
   `models/adherence-risk.onnx` if present (training pipeline at
   `scripts/ml/`). Production response includes `source: 'heuristic' | 'onnx'`
   so callers can tell.
-- **FHIR validator is informational.** Catches required-element +
-  bound-value-set violations. Slicing/terminology/profile invariants
-  deferred to the official IG Publisher run in CI's `fhir-conformance`
-  job (non-blocking; sample bundles in `src/services/fhir/__samples__/`).
+- **FHIR validator is two-tier.** Catches required-element +
+  bound-value-set violations. CI's `fhir-conformance` job validates
+  root-level samples in `src/services/fhir/__samples__/` informationally,
+  and golden fixtures in `__samples__/golden/` strictly — golden failures
+  (or a missing/empty `golden/` directory) fail CI. Slicing/terminology/
+  profile invariants remain deferred to an official IG Publisher run.
 - **RLS enforcement centres on `setTenant(tenantId, fn, { superAdmin })`**
   from `src/lib/prisma.js`. The callback receives a Prisma client scoped
   to a transaction with `SET LOCAL app.current_tenant_id = $1` already
