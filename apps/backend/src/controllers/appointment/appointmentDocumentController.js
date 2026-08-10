@@ -893,7 +893,7 @@ export const deletePatientRecord = async (req, res) => {
     success(res, { deleted: true }, 'Record deleted');
   } catch (err) {
     logger.error('Delete Patient Record Error:', err);
-    error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to delete patient record');
   }
 };
 

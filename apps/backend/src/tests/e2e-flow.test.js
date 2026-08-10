@@ -47,20 +47,27 @@ describe('E2E Flow — Step 1: Patient Registration', () => {
 
 describe('E2E Flow — Step 2: Appointment Booking', () => {
   it('should book an appointment', async () => {
-    const res = await admin.post('/api/v1/appointments').send({
-      phone: flow.patientPhone,
-      // users.id 2 is the first seeded doctor (doctors.id 1 ↔ users_id 2).
-      // doctor_id 1 is rejected as AMBIGUOUS_DOCTOR_REF: it matches both the
-      // fixture ADMIN user (users.id 1) and doctors.id 1.
-      doctor_id: 2,
-      doctor_name: 'Dr. Test',
-      // Unique slot per run — a fixed slot 409s (slot conflict) on a reused DB.
-      appointment_date: new Date(Date.now() + (1 + (Date.now() % 200)) * 86400000)
-        .toISOString()
-        .split('T')[0],
-      appointment_time: `${String(9 + (Date.now() % 8)).padStart(2, '0')}:${String(Date.now() % 60).padStart(2, '0')}`,
-      reason: 'E2E test consultation',
-    });
+    const slotSeed = Date.now();
+    const appointmentDate = new Date(
+      slotSeed + (30 + (slotSeed % 120)) * 86400000,
+    ).toISOString().split('T')[0];
+    let res;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const hour = 9 + Math.floor(attempt / 2);
+      const minute = attempt % 2 === 0 ? '00' : '30';
+      res = await admin.post('/api/v1/appointments').send({
+        phone: flow.patientPhone,
+        // users.id 2 is the first seeded doctor (doctors.id 1 ↔ users_id 2).
+        // doctor_id 1 is rejected as AMBIGUOUS_DOCTOR_REF: it matches both the
+        // fixture ADMIN user (users.id 1) and doctors.id 1.
+        doctor_id: 2,
+        doctor_name: 'Dr. Test',
+        appointment_date: appointmentDate,
+        appointment_time: `${String(hour).padStart(2, '0')}:${minute}`,
+        reason: 'E2E test consultation',
+      });
+      if (res.statusCode !== 409) break;
+    }
     expect([200, 201]).toContain(res.statusCode);
     const data = res.body?.data ?? res.body;
     if (data?.id) flow.appointmentId = data.id;

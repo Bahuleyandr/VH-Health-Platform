@@ -51,7 +51,7 @@ jobs:
   static-checks:
     name: Backend lint + static checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: apps/backend

@@ -12,7 +12,7 @@
 // CLAUDE.md, Phase 0.5): "Tests assert exactly, never [200, 500]".
 //
 // What is flagged: any array literal containing BOTH a 5xx status (500-599)
-// and a non-5xx status, asserted via `.toContain(<expr>.status|statusCode)`.
+// and a non-5xx status, asserted via `.toContain(<expression>)`.
 // `.not.toContain(...)` is the inverse (good) pattern and is skipped. An
 // all-5xx set (e.g. [500, 503]) is not mixing and is allowed.
 //
@@ -45,11 +45,11 @@ function walk(dir, acc = []) {
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const files = walk(join(scriptDir, '..', 'src'));
 
-// expect([ ... ]).toContain(<expr>.status | <expr>.statusCode)
+// expect([ ... ]).toContain(<expression>)
 // The array body may span lines. `.not.toContain` is skipped by construction
 // (the pattern requires `)` directly followed by `.toContain`).
 const ASSERT_RE =
-  /expect\(\s*\[([^\]]*)\]\s*\)\s*\.toContain\(\s*[\w.()?]+\.(status|statusCode)\s*\)/g;
+  /expect\(\s*\[([^\]]*)\]\s*\)\s*\.toContain\(\s*[^)]*\)/g;
 
 let offenders = 0;
 let exemptions = 0;

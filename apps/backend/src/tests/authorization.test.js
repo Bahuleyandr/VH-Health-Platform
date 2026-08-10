@@ -106,14 +106,9 @@ describe('Appointment IDOR Protection', () => {
 describe('Patient Record IDOR Protection', () => {
   describe('DELETE /api/v1/appointments/patient/records/:id', () => {
     it('should NOT return 200 when deleting a non-owned record', async () => {
-      // Known controller gap (R9 follow-up): deletePatientRecord's catch-all
-      // downgrades the not-found AppError from findPatientRecordWithExtraction
-      // to a generic 500, so a missing/non-owned record id yields 500, not
-      // 404. The IDOR property still holds (never 200). Tighten to 404 when
-      // the controller propagates AppError statuses.
       const res = await authRequest('delete', '/api/v1/appointments/patient/records/999999', patientBToken);
 
-      expect(res.statusCode).toBe(500);
+      expect(res.statusCode).toBe(404);
     });
 
     it.skip('should allow a patient to delete their own record (requires test DB)', async () => {

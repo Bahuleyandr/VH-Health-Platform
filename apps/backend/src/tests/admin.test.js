@@ -19,18 +19,19 @@ describe('Admin Department and Doctor API', () => {
     expect(del.body?.data?.department?.is_active).toBe(false);
   });
 
-  // Known controller gap (R9 follow-up): POST /api/v1/admin/doctors inserts
-  // into doctors without updated_at, which is NOT NULL without a default —
-  // the route 500s on every valid payload. Re-enable with an exact 200/201
-  // assertion once the controller sets updated_at.
-  it.skip('should add a doctor (route broken: insert omits NOT NULL updated_at)', async () => {
+  it('should add a doctor and delete it again', async () => {
     const res = await authClient('ADMIN').post('/api/v1/admin/doctors').send({
       name: `Dr. ${runTag}`,
       department: 'Cardiology',
       intro: 'Specialist in heart health',
       imageUrl: 'http://example.com/image.jpg'
     });
-    expect([200, 201]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(200);
+    const id = res.body?.data?.id;
+    expect(id).toBeDefined();
+
+    const del = await authClient('ADMIN').delete(`/api/v1/admin/doctors/${id}`);
+    expect(del.statusCode).toBe(200);
   });
 
   it('should delete a missing doctor with 404', async () => {

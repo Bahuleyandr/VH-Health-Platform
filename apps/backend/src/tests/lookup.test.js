@@ -26,10 +26,7 @@ describe('User Lookup API', () => {
 
   it('fails without query parameters', async () => {
     const res = await client.get('/api/v1/users/lookup/advanced');
-    // Known controller gap (R9 follow-up): the missing-parameter guard throws
-    // a plain Error, which the controller's catch-all surfaces as 500 instead
-    // of 400. Tighten to 400 when the service throws AppError.badRequest.
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(400);
   });
 
   it('should lookup user by phone', async () => {
