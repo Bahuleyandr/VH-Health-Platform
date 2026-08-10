@@ -30,6 +30,14 @@ const VITAL_CORRECTION_FIELDS = [
   'height_cm', 'gcs_score', 'supplemental_o2', 'o2_flow_rate',
   'consciousness', 'notes', 'fhr', 'fundal_height_cm',
 ];
+// Correcting any of these invalidates the derived clinical state (NEWS2 score
+// and/or anomaly alerts) computed from the original values, so correctVitals
+// re-scores + re-checks after such a correction (audit 2026-08-10 R4). A
+// notes/pain-score-only correction changes no scoring input and skips it.
+const VITAL_RESCORE_FIELDS = new Set([
+  'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
+  'respiratory_rate', 'consciousness', 'supplemental_o2',
+]);
 
 export function assertLateRecoveryVitalsBoundary({
   interfaceFamily,
@@ -665,6 +673,8 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
     // patient; the resolved scale is passed as options.spo2Scale, the channel
     // that wins over any caller-supplied per-reading value.
     const spo2Scale = await news2Service.resolveSpo2ScaleForPatient(resolvedPatientUid, { db: tx });
+    // vitalsChartId links the score to its source row (migration 652) so a
+    // later correction of this row can find and supersede this score.
     news2Persisted = await news2Service.persistNews2(resolvedPatientUid, {
       respiration_rate: respiratory_rate,
       spo2,
@@ -673,7 +683,7 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
       heart_rate,
       consciousness,
       supplemental_o2: supplemental_o2 || false,
-    }, recorded_by, { db: tx, spo2Scale });
+    }, recorded_by, { db: tx, spo2Scale, vitalsChartId: row.id });
 
     if (beforeCommit) {
       await beforeCommit({
@@ -949,7 +959,14 @@ export async function correctVitals(vitalsId, data) {
   // re-checked, so a correction could smuggle in an impossible value.
   assertVitalPlausibility(updateData);
 
-  return setTenantTx(requireTenantId(tenantId), async (tx) => {
+  const resolvedTenantId = requireTenantId(tenantId);
+  const correctedFields = Object.keys(updateData);
+  // R4 (audit 2026-08-10) — a correction to any scoring input invalidates the
+  // NEWS2 score + anomaly alerts derived from the ORIGINAL values (a corrected
+  // SpO2 98→88 previously left the stale reassuring score on record).
+  const needsRescore = correctedFields.some((field) => VITAL_RESCORE_FIELDS.has(field));
+
+  const { updated, news2Persisted } = await setTenantTx(resolvedTenantId, async (tx) => {
     const existing = await tx.vitals_chart.findUnique({
       where: { id },
       select: { ...VITAL_SELECT, created_at: true },
@@ -967,7 +984,7 @@ export async function correctVitals(vitalsId, data) {
       throw AppError.conflict('Vitals correction window has expired');
     }
 
-    const updated = await tx.vitals_chart.update({
+    const row = await tx.vitals_chart.update({
       where: { id },
       data: updateData,
       select: VITAL_SELECT,
@@ -982,25 +999,24 @@ export async function correctVitals(vitalsId, data) {
         metadata: {
           patient_uid: existing.patient_uid,
           encounter_id: existing.encounter_id,
-          corrected_fields: Object.keys(updateData),
-          before: Object.fromEntries(Object.keys(updateData).map((field) => [field, auditValue(existing[field])])),
-          after: Object.fromEntries(Object.keys(updateData).map((field) => [field, auditValue(updated[field])])),
+          corrected_fields: correctedFields,
+          before: Object.fromEntries(correctedFields.map((field) => [field, auditValue(existing[field])])),
+          after: Object.fromEntries(correctedFields.map((field) => [field, auditValue(row[field])])),
         },
         ip_address,
       },
     });
 
-    const correctedFields = Object.keys(updateData);
     await recordCanonicalClinicalEvent({
-      tenantId: requireTenantId(tenantId),
-      patientUid: updated.patient_uid,
-      encounterId: updated.encounter_uid || null,
+      tenantId: resolvedTenantId,
+      patientUid: row.patient_uid,
+      encounterId: row.encounter_uid || null,
       eventType: 'vitals.corrected',
       eventStatus: 'corrected',
       sourceTable: 'vitals_chart',
-      sourceId: updated.id,
+      sourceId: row.id,
       resourceType: 'vitals',
-      resourceId: updated.id,
+      resourceId: row.id,
       actorUid: corrected_by,
       actorRole: actor_role || null,
       summary: 'Vitals entry corrected',
@@ -1009,15 +1025,86 @@ export async function correctVitals(vitalsId, data) {
         corrected_fields: Object.fromEntries(correctedFields.map((field) => [field, auditValue(existing[field])])),
       },
       afterState: {
-        corrected_fields: Object.fromEntries(correctedFields.map((field) => [field, auditValue(updated[field])])),
+        corrected_fields: Object.fromEntries(correctedFields.map((field) => [field, auditValue(row[field])])),
       },
-      timelineIdempotencyKey: `vitals_chart:${updated.id}:corrected:${updated.updated_at?.toISOString?.() || Date.now()}`,
-      auditIdempotencyKey: `vitals_chart:${updated.id}:audit:corrected:${updated.updated_at?.toISOString?.() || Date.now()}`,
+      timelineIdempotencyKey: `vitals_chart:${row.id}:corrected:${row.updated_at?.toISOString?.() || Date.now()}`,
+      auditIdempotencyKey: `vitals_chart:${row.id}:audit:corrected:${row.updated_at?.toISOString?.() || Date.now()}`,
     }, { db: tx, strict: true });
 
-    logger.info(`Vitals corrected: id=${updated.id}, patient=${updated.patient_uid}, by=${corrected_by}`);
-    return updated;
+    // R4 — re-score NEWS2 from the CORRECTED row values, atomically with the
+    // correction (mirrors the recordVitals atomic-score pattern, audit
+    // 2026-06-18 §4). The replacement score is a NEW append row linked to this
+    // vitals row; every prior live score for the row is stamped
+    // superseded_by_id so the stale score stays visible but superseded.
+    let persisted = null;
+    if (needsRescore) {
+      const spo2Scale = await news2Service.resolveSpo2ScaleForPatient(row.patient_uid, { db: tx });
+      persisted = await news2Service.persistNews2(row.patient_uid, {
+        respiration_rate: row.respiratory_rate,
+        spo2: row.spo2,
+        temperature: row.temperature,
+        systolic_bp: row.systolic_bp,
+        heart_rate: row.heart_rate,
+        consciousness: row.consciousness,
+        supplemental_o2: row.supplemental_o2 || false,
+      }, corrected_by, { db: tx, spo2Scale, vitalsChartId: row.id });
+      if (persisted) {
+        await news2Service.supersedeNews2ForVitalsRow(row.id, persisted.record.id, { db: tx });
+      }
+    }
+
+    return { updated: row, news2Persisted: persisted };
   });
+
+  // POST-COMMIT (same split as recordVitals): escalation + anomaly re-check
+  // touch other tables / the CDS module and must not run inside the clinical
+  // write tx. A high-score escalation failure is LOUD (escalateNews2 throws).
+  if (news2Persisted) {
+    await news2Service.escalateNews2(
+      updated.patient_uid, news2Persisted.record, news2Persisted.computed,
+      { tenantId: resolvedTenantId },
+    );
+  }
+
+  if (needsRescore) {
+    try {
+      const vitalsForCheck = {};
+      if (updated.heart_rate != null) vitalsForCheck.heart_rate = Number(updated.heart_rate);
+      if (updated.systolic_bp != null) vitalsForCheck.systolic_bp = Number(updated.systolic_bp);
+      if (updated.diastolic_bp != null) vitalsForCheck.diastolic_bp = Number(updated.diastolic_bp);
+      if (updated.temperature != null) vitalsForCheck.temperature = Number(updated.temperature);
+      if (updated.spo2 != null) vitalsForCheck.oxygen_saturation = Number(updated.spo2);
+      if (updated.respiratory_rate != null) vitalsForCheck.respiratory_rate = Number(updated.respiratory_rate);
+
+      if (Object.keys(vitalsForCheck).length > 0) {
+        const [patientRow, correctorRow] = await Promise.all([
+          prisma.users.findUnique({ where: { uid: updated.patient_uid }, select: { id: true } }),
+          prisma.users.findUnique({ where: { uid: corrected_by }, select: { id: true } }),
+        ]);
+        if (patientRow?.id) {
+          await checkVitalAnomalies(patientRow.id, vitalsForCheck, {
+            recordedBy: correctorRow?.id ?? null,
+            source: updated.source,
+            tenantId: resolvedTenantId,
+          });
+        }
+      }
+    } catch (err) {
+      // Same LOUD semantics as recordVitals: a corrected-to-critical value
+      // whose alert cannot persist must not silently 200.
+      if (err instanceof AppError) throw err;
+      logger.error(
+        `Vital anomaly alert persistence failed for corrected vitals id=${updated.id}, patient=${updated.patient_uid}: ${err?.message}`,
+      );
+      throw AppError.internal(
+        'Vitals were corrected but a clinical alert could not be persisted — escalate to the responsible clinician.',
+        'CLINICAL_ALERT_PERSIST_FAILED',
+      );
+    }
+  }
+
+  logger.info(`Vitals corrected: id=${updated.id}, patient=${updated.patient_uid}, by=${corrected_by}`);
+  return updated;
 }
 
 export async function recordIntakeOutput(data) {

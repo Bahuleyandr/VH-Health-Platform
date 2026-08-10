@@ -126,8 +126,10 @@ describe('recordVitals — NEWS2 SpO2 scale wiring (C-M7)', () => {
     expect(uid).toBe(PATIENT_UID);
     expect(vitals.spo2).toBe(96);
     // The resolved patient-level scale travels via options.spo2Scale — the
-    // channel that wins over any per-reading vitals.spo2_scale.
-    expect(options).toEqual({ db: __txClient, spo2Scale: 2 });
+    // channel that wins over any per-reading vitals.spo2_scale. The created
+    // vitals row's id rides along so a later correction can find and
+    // supersede this score (migration 652 linkage).
+    expect(options).toEqual({ db: __txClient, spo2Scale: 2, vitalsChartId: 321 });
   });
 
   it('rolls back instead of persisting vitals with an unresolved scoring scale', async () => {
