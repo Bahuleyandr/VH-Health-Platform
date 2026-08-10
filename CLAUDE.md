@@ -181,7 +181,10 @@ act --dryrun push          # preview only
   `ghcr.io/<owner>/vh-health-platform-backend:backend-v1.2.3` and
   `ghcr.io/<owner>/vh-health-platform-adminportal:admin-v1.2.3`, plus
   `latest-backend` / `latest-admin` stable tags). ArgoCD pins digests derived
-  from these platform-owned packages in `overlays/prod/kustomization.yaml`.
+  from these platform-owned packages in
+  `infra/kubernetes/apps/kustomization.yaml` (written by
+  `scripts/update-prod-digests.mjs`; the prod overlay deliberately excludes
+  the app-tier Deployments).
 - Manual `release-images.yml` dispatches can publish `main-<sha>` and
   `manual-<sha>` tags for staging-style verification. Plain pushes to `main`
   validate the workflow wiring but do not publish images.

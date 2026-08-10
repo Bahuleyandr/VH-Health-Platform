@@ -6,6 +6,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 
 async function assertPatientInTenant(tenantId, patientUid) {
   if (!patientUid) return;
@@ -280,7 +281,7 @@ export async function listFormF({
     params.push(status);
     conds.push(`f.status = $${params.length}`);
   }
-  params.push(Number(limit));
+  params.push(boundedInteger(limit, { fallback: 200, min: 1, max: 500 }));
   return prisma.$queryRawUnsafe(
     `SELECT f.id, f.serial_no, f.test_date, f.patient_name, f.patient_age,
             f.gravida, f.parity, f.indication_category, f.status,
@@ -357,7 +358,7 @@ export async function listSubmissions({ tenantId, limit = 24 }) {
       WHERE tenant_id = $1::uuid
       ORDER BY period_year DESC, period_month DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, boundedInteger(limit, { fallback: 24, min: 1, max: 200 }),
   );
 }
 

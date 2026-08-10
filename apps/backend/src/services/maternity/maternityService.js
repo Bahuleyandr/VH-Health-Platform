@@ -17,6 +17,7 @@ import { createHash, randomUUID } from 'crypto';
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
@@ -2138,7 +2139,7 @@ export async function listActiveLaborAdmissions({ tenantId, limit = 50 }) {
         AND la.status = 'active'
       ORDER BY la.admitted_at DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, boundedInteger(limit, { fallback: 50, min: 1, max: 200 }),
   );
 }
 

@@ -144,16 +144,17 @@ function anthropicOk(triage = 'self_care', summary = 'You seem fine.', different
 }
 
 function openAiOk(triage = 'self_care', summary = 'You seem fine.') {
-  return {
-    ok: true,
-    json: async () => ({
+  const payload = {
       choices: [{
         message: {
           content: JSON.stringify({ triage, differential: [], summary, redFlags: [] }),
         },
       }],
-    }),
   };
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +456,31 @@ describe('triageService — region / egress guard', () => {
       });
       expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(result.provider).toBe('openai');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an oversized OpenAI-compatible response body', async () => {
+    const oversized = JSON.stringify({ padding: 'x'.repeat(300 * 1024) });
+    global.fetch = jest.fn(async () => new Response(oversized, {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(Buffer.byteLength(oversized)),
+      },
+    }));
+
+    const { mod: svc, cleanup } = await loadService({
+      CHATBOT_PROVIDER: 'openai',
+      CHATBOT_BASE_URL: 'http://127.0.0.1:11434/v1',
+    });
+
+    try {
+      await expect(svc.triageSymptoms({
+        symptoms: 'mild headache',
+        tenantRegion: 'IN',
+      })).rejects.toMatchObject({ statusCode: 502 });
     } finally {
       cleanup();
     }

@@ -8,6 +8,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 
 export async function listForUser({ tenantId, owner_uid, specialty, q, limit = 200 }) {
   const params = [tenantId];
@@ -24,7 +25,7 @@ export async function listForUser({ tenantId, owner_uid, specialty, q, limit = 2
     params.push(`%${q}%`);
     conds.push(`(code ILIKE $${params.length} OR title ILIKE $${params.length})`);
   }
-  params.push(Number(limit));
+  params.push(boundedInteger(limit, { fallback: 200, min: 1, max: 500 }));
   return prisma.$queryRawUnsafe(
     `SELECT id, code, title, body, specialty, scope, owner_uid,
             placeholders, use_count, active, created_at

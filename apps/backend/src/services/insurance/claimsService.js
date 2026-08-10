@@ -11,6 +11,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { postInsuranceShiftEntry } from '../billing/ledger/ledgerPostings.js';
 import { resolveLedgerWiring } from '../billing/ledger/ledgerAuthoritativeMode.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
@@ -1086,7 +1087,7 @@ export async function listPendingPreauths({ tenantId, limit = 100 }) {
                 AND pa.submit_due_at < NOW()) DESC,
                pa.created_at DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, boundedInteger(limit, { fallback: 100, min: 1, max: 200 }),
   );
 }
 
@@ -2246,7 +2247,7 @@ export async function listClaims({
   }
   if (claim_type) { params.push(claim_type); where.push(`claim_type = $${params.length}`); }
   if (aging_bucket) { params.push(aging_bucket); where.push(`aging_bucket = $${params.length}`); }
-  params.push(Number(limit));
+  params.push(boundedInteger(limit, { fallback: 100, min: 1, max: 200 }));
   return prisma.$queryRawUnsafe(
     `SELECT * FROM tpa_claims_aging
       WHERE ${where.join(' AND ')}

@@ -80,4 +80,38 @@ describe('billingV2Service.listInvoices', () => {
     expect(sql).toContain('admission_id = $2::int');
     expect(params).toEqual([42, 8, 10, 0]);
   });
+
+  it('normalizes non-finite and fractional pagination before SQL', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await listInvoices({ page: '1e309', limit: '1.5' });
+
+    const [, ...params] = queryUnsafeMock.mock.calls[0];
+    expect(params.slice(-2)).toEqual([1, 0]);
+  });
+
+  it('bounds TPA projection database concurrency', async () => {
+    const invoices = Array.from({ length: 17 }, (_, index) => ({
+      id: index + 1,
+      admission_id: index + 10,
+      tenant_id: '00000000-0000-4000-8000-000000000001',
+      total_amount: 100,
+    }));
+    let active = 0;
+    let maximumActive = 0;
+    queryUnsafeMock
+      .mockResolvedValueOnce(invoices)
+      .mockImplementation(async () => {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setImmediate(resolve));
+        active -= 1;
+        return [{ root_preauth_id: null }];
+      });
+
+    const rows = await listInvoices({ limit: 200 });
+
+    expect(rows).toHaveLength(17);
+    expect(maximumActive).toBeLessThanOrEqual(8);
+  });
 });

@@ -249,10 +249,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   compliance: { minRank: ADMIN_ONLY },
   "system-logs": { minRank: ADMIN_ONLY },
   "report-builder": { minRank: ADMIN_ONLY },
-  database: { minRank: ADMIN_ONLY }, // live DB browser — admin only
   "admin-management": { minRank: ADMIN_ONLY },
 
   // ── Platform operations (SUPER_ADMIN only) ────────────────────────────────
+  // live DB browser — backend databaseRoutes.js is SUPER_ADMIN-only too
+  database: { minRank: SUPER_ADMIN_ONLY },
   tenants: { minRank: SUPER_ADMIN_ONLY },
   "feature-flags": { minRank: SUPER_ADMIN_ONLY },
   "continuity-facility-context": { minRank: SUPER_ADMIN_ONLY },

@@ -46,6 +46,7 @@ jest.unstable_mockModule('../../middleware/jwtMiddleware.js', () => ({
     req.user = { uid: '11111111-1111-4111-8111-111111111111', role: 'DOCTOR' };
     next();
   },
+  enforceFullScope: (_req, _res, next) => next(),
 }));
 const passThrough = (_req, _res, next) => next();
 jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({

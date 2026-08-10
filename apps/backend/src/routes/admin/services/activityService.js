@@ -6,8 +6,11 @@
 // limit/offset shift to $2/$3) so an admin only sees its own tenant's activity.
 // Defense-in-depth alongside RLS.
 import { tableExists, safeQuery } from './common.js';
+import { boundedInteger } from '../../../utils/pagination.js';
 
 export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
+  const safeLimit = boundedInteger(limit, { fallback: 50, min: 1, max: 200 });
+  const safeOffset = boundedInteger(offset, { fallback: 0, max: 10_000 });
   const sources = [];
 
   if (await tableExists('appointments')) {
@@ -24,7 +27,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.appt_created'
       ),
       safeQuery(
@@ -40,7 +43,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY COALESCE(updated_at, created_at) DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.appt_completed'
       )
     );
@@ -62,7 +65,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY registered_at DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.users'
       )
     );
@@ -82,7 +85,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.sos'
       )
     );
@@ -92,7 +95,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
   const all = resultSets.flat();
 
   all.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return all.slice(0, limit);
+  return all.slice(0, safeLimit);
 }
 
 export default { getRecentActivity };

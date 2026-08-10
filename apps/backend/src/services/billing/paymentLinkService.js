@@ -12,6 +12,7 @@ import { queuePatientSms } from '../../utils/notifications/smsOutbox.js';
 import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getTenantSettings } from '../tenant/tenantSettingsService.js';
 import { collectPayment, deriveInvoicePaymentStateFromLedgerTx } from './billingV2Service.js';
@@ -685,7 +686,7 @@ export async function listPaymentLinks({ tenantId, patient_uid, status, invoice_
   if (patient_uid) { params.push(String(patient_uid)); where.push(`patient_uid = $${params.length}::uuid`); }
   if (status) { params.push(status); where.push(`status = $${params.length}`); }
   if (invoice_id) { params.push(Number(invoice_id)); where.push(`invoice_id = $${params.length}::int`); }
-  params.push(Number(limit));
+  params.push(boundedInteger(limit, { fallback: 100, min: 1, max: 200 }));
   return prisma.$queryRawUnsafe(
     `SELECT id, link_token, invoice_id, patient_uid, amount, currency,
             upi_deep_link, provider, status, expires_at, paid_at, paid_via,

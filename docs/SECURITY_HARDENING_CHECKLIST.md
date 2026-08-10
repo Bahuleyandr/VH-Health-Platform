@@ -45,7 +45,7 @@ GitHub secret, roll the deployment, THEN revoke the old credential.
 
 Already in place (verify, don't rebuild): image build+SBOM+scan+sign in
 `release-images.yml`, CodeQL, gitleaks, npm audit gates, ArgoCD pinned
-digests in `overlays/prod/kustomization.yaml`.
+digests in `infra/kubernetes/apps/kustomization.yaml`.
 
 - [ ] **Signature verification at admission** (2026-06-11: option CHOSEN and
       policy WRITTEN — Kyverno `verifyImages` keyed to the release workflows'

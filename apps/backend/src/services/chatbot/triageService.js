@@ -86,6 +86,50 @@ const TIMEOUT_MS = Math.min(
   Math.max(Number.parseInt(process.env.CHATBOT_TIMEOUT_MS, 10) || 45_000, 5_000),
   120_000
 );
+const OPENAI_COMPAT_RESPONSE_MAX_BYTES = 256 * 1024;
+const OPENAI_COMPAT_ERROR_LOG_MAX_CHARS = 2_000;
+
+async function _readBoundedResponseBody(resp) {
+  const declaredLength = Number(resp.headers?.get?.('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > OPENAI_COMPAT_RESPONSE_MAX_BYTES) {
+    throw new Error('provider response exceeded the byte limit');
+  }
+
+  if (resp.body?.getReader) {
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > OPENAI_COMPAT_RESPONSE_MAX_BYTES) {
+          await reader.cancel();
+          throw new Error('provider response exceeded the byte limit');
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  }
+
+  const text = typeof resp.text === 'function'
+    ? await resp.text()
+    : JSON.stringify(await resp.json());
+  if (Buffer.byteLength(text, 'utf8') > OPENAI_COMPAT_RESPONSE_MAX_BYTES) {
+    throw new Error('provider response exceeded the byte limit');
+  }
+  return text;
+}
 
 // ---------------------------------------------------------------------------
 // Region / egress guard
@@ -652,30 +696,56 @@ async function _callOpenAICompatible({ userMessage, history }) {
   const headers = { 'Content-Type': 'application/json' };
   if (API_KEY) headers['Authorization'] = `Bearer ${API_KEY}`;
 
-  const resp = await fetch(`${BASE_URL.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      max_tokens: 800,
-      temperature: 0.2,
-      // Ask for JSON mode where the server supports it. Servers that don't
-      // know the field just ignore it — the system prompt still enforces JSON.
-      response_format: { type: 'json_object' },
-      stream: false,
-    }),
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    logger.error(`Triage (openai-compat) error ${resp.status}: ${text}`);
+  let resp;
+  try {
+    resp = await fetch(`${BASE_URL.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
+        max_tokens: 800,
+        temperature: 0.2,
+        // Ask for JSON mode where the server supports it. Servers that don't
+        // know the field just ignore it — the system prompt still enforces JSON.
+        response_format: { type: 'json_object' },
+        stream: false,
+      }),
+      // Same bounded request timeout as the Anthropic path (TIMEOUT_MS via
+      // anthropicMessagesClient) — a hung upstream must not hold the request
+      // open indefinitely.
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (fetchErr) {
+    const reason = fetchErr?.name === 'TimeoutError'
+      ? `timed out after ${TIMEOUT_MS}ms`
+      : String(fetchErr?.message || fetchErr);
+    logger.error(`Triage (openai-compat) error: ${reason}`);
     const err = new Error('Triage service upstream error');
     err.statusCode = 502;
     throw err;
   }
 
-  const data = await resp.json();
+  let responseText;
+  try {
+    responseText = await _readBoundedResponseBody(resp);
+  } catch (bodyErr) {
+    logger.error(`Triage (openai-compat) error: ${String(bodyErr?.message || bodyErr)}`);
+    const err = new Error('Triage service upstream error');
+    err.statusCode = 502;
+    throw err;
+  }
+
+  if (!resp.ok) {
+    logger.error(
+      `Triage (openai-compat) error ${resp.status}: ${responseText.slice(0, OPENAI_COMPAT_ERROR_LOG_MAX_CHARS)}`
+    );
+    const err = new Error('Triage service upstream error');
+    err.statusCode = 502;
+    throw err;
+  }
+
+  const data = JSON.parse(responseText);
   const promptTokens = data?.usage?.prompt_tokens || 0;
   const completionTokens = data?.usage?.completion_tokens || 0;
   return {

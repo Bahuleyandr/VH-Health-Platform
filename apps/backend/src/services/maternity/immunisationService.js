@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { assertScheduleConfigured } from '../immunisation/catalogueStatus.js';
 import {
   currentCanonicalTransactionRevision,
@@ -588,6 +589,7 @@ export async function listDueOrOverdue({
       ORDER BY i.due_date, v.code
       LIMIT $5::int`,
     tenantId,
-    from_date || null, today, to_date || null, Number(limit),
+    from_date || null, today, to_date || null,
+    boundedInteger(limit, { fallback: 200, min: 1, max: 500 }),
   );
 }

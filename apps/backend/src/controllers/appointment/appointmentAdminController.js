@@ -2,6 +2,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { boundedInteger } from '../../utils/pagination.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 /**
@@ -89,8 +90,8 @@ export const getStatusAuditTrail = async (req, res) => {
     if (from_date) { params.push(from_date); where += ` AND DATE(ash.created_at) >= $${params.length}`; }
     if (to_date) { params.push(to_date); where += ` AND DATE(ash.created_at) <= $${params.length}`; }
 
-    params.push(parseInt(limit));
-    params.push(parseInt(offset));
+    params.push(boundedInteger(limit, { fallback: 100, min: 1, max: 200 }));
+    params.push(boundedInteger(offset, { fallback: 0, max: 10_000 }));
 
     const result = await prisma.$queryRawUnsafe(`
       SELECT ash.*,

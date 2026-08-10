@@ -6,7 +6,7 @@ import { validationResult , body } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as staffAuthController from '../../controllers/auth/staffAuthController.js';
-import jwtAuth from '../../middleware/jwtMiddleware.js';
+import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireDeviceType } from '../../middleware/requireDeviceTypeMiddleware.js';
 import { error } from '../../utils/responseHelper.js';
@@ -112,8 +112,9 @@ wrapRoutesWithValidation(
   }
 );
 
-// Protected Staff Routes (requires authentication)
-router.use(jwtAuth);
+// Protected Staff Routes (requires authentication). Narrow-scope tokens
+// (e.g. mfa_setup) have no business on staff endpoints — full scope only.
+router.use(jwtAuth, enforceFullScope);
 
 wrapRoutesWithValidation(
   router,
