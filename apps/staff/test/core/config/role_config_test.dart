@@ -69,6 +69,8 @@ void main() {
         StaffRole.fromString('PURCHASE_INCHARGE'),
         StaffRole.storesPurchaseIncharge,
       );
+      expect(StaffRole.fromString('ICU_STAFF'), StaffRole.ipStaffNurse);
+      expect(StaffRole.fromString('ICU_INCHARGE'), StaffRole.ipIncharge);
     });
 
     test('unknown role falls back to general (never null / throw)', () {
@@ -502,6 +504,20 @@ void main() {
           strings.lookup(calculatorsTile.titleKey),
           'Clinical Calculators',
         );
+
+        for (final rawRole in ['ICU_STAFF', 'ICU_INCHARGE']) {
+          final role = StaffRole.fromString(rawRole);
+          final ids = RoleFeatures.getFeaturesForRole(
+            role,
+          ).map((feature) => feature.id).toSet();
+          expect(RoleFeatures.hasMaternity(role), isTrue, reason: rawRole);
+          expect(
+            RoleFeatures.hasClinicalCalculators(role),
+            isTrue,
+            reason: rawRole,
+          );
+          expect(ids, containsAll(['maternity', 'calculators']));
+        }
       },
     );
 

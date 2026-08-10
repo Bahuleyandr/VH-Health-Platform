@@ -6,7 +6,6 @@ import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
-import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/icu_chart_depth_panel.dart';
 import '../widgets/nicu_picu_chart_panel.dart';
@@ -21,6 +20,16 @@ String patientCommandBoardTaskOwnerLabel(CarePathwayTaskItem task) {
     ownerIdentity,
     task.ownerRole?.trim() ?? '',
   ].where((part) => part.isNotEmpty).join(' · ');
+}
+
+@visibleForTesting
+String patientCommandBoardFreshnessLabel(
+  AppStrings strings,
+  String formattedTime,
+) {
+  return strings.format('s4.dynamic.patient_command_board.last_refreshed', {
+    'time': formattedTime,
+  });
 }
 
 @visibleForTesting
@@ -234,6 +243,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   Map<String, dynamic> _board = const {};
   List<Map<String, dynamic>> _rows = const [];
   bool _initialActionConsumed = false;
+  DateTime? _lastRefreshedAt;
 
   bool get _hasFocusedPatient =>
       _text(widget.initialPatientUid).isNotEmpty ||
@@ -374,6 +384,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       setState(() {
         _rows = rows;
         _board = board;
+        _lastRefreshedAt = DateTime.now();
       });
       _maybeOpenInitialAction();
     } catch (e) {
@@ -828,9 +839,57 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       ),
       body: Column(
         children: [
-          const RealtimeStatusBanner(margin: EdgeInsets.fromLTRB(14, 8, 14, 0)),
+          if (_lastRefreshedAt case final refreshedAt?)
+            _buildFreshnessIndicator(refreshedAt),
           Expanded(child: _buildBody(theme)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFreshnessIndicator(DateTime refreshedAt) {
+    final theme = Theme.of(context);
+    final formattedTime = MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(TimeOfDay.fromDateTime(refreshedAt));
+    final label = patientCommandBoardFreshnessLabel(
+      AppStrings.of(context),
+      formattedTime,
+    );
+    return Semantics(
+      container: true,
+      label: label,
+      child: ExcludeSemantics(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.schedule_outlined,
+                size: 18,
+                color: AppTheme.primaryBlue,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.primaryBlue,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -96,6 +96,9 @@ String _bedStatusDisplayLabel(AppStrings strings, String status) {
 
 const String bedBoardAllStatuses = 'all';
 const String bedBoardCleaningStatus = 'cleaning';
+const Set<String> _bedBoardRealtimeChannels = {'staff:beds'};
+const String _bedBoardRealtimeDeniedMessageKey =
+    's4.lib.realtime_status.beds_denied';
 
 List<WardListFilterOption> bedBoardWardFilterOptions(
   List<Map<String, dynamic>> wards,
@@ -464,7 +467,11 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       ),
       body: Column(
         children: [
-          const RealtimeStatusBanner(margin: EdgeInsets.fromLTRB(12, 8, 12, 0)),
+          const RealtimeStatusBanner(
+            watchChannels: _bedBoardRealtimeChannels,
+            deniedMessageKey: _bedBoardRealtimeDeniedMessageKey,
+            margin: EdgeInsets.fromLTRB(12, 8, 12, 0),
+          ),
           // Persistent legend — used to be tucked inside `_buildWardList()`
           // so it disappeared as soon as the user drilled into a ward, which
           // was the moment its dots actually started showing up on cards.

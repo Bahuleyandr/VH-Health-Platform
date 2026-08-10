@@ -109,6 +109,7 @@ enum StaffRole {
     }
     if (const {
       'ICU_NURSE',
+      'ICU_STAFF',
       'IP_NURSE',
       'IP_STAFF',
       'IPD_NURSE',
@@ -118,6 +119,7 @@ enum StaffRole {
       return StaffRole.ipStaffNurse;
     }
     if (const {
+      'ICU_INCHARGE',
       'IPD_INCHARGE',
       'IP_NURSING_INCHARGE',
       'WARD_NURSING_INCHARGE',

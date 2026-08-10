@@ -16,6 +16,7 @@ void main() {
   final codeBlueDeniedCopy = en.lookup(
     's4.lib.realtime_status.code_blue_denied',
   );
+  final bedsDeniedCopy = en.lookup('s4.lib.realtime_status.beds_denied');
 
   late StreamController<RealtimeConnectionState> stateChanges;
   late StreamController<Set<String>> deniedChanges;
@@ -75,9 +76,15 @@ void main() {
   testWidgets('shows the stale strip when the transport is degraded', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     state = RealtimeConnectionState.reconnecting;
     await pumpBanner(tester);
     expect(find.text(staleCopy), findsOneWidget);
+    expect(
+      tester.getSemantics(find.bySemanticsLabel(staleCopy)),
+      isSemantics(label: staleCopy, isLiveRegion: true),
+    );
+    semantics.dispose();
   });
 
   testWidgets('reacts to connection-state transitions from the stream', (
@@ -113,6 +120,28 @@ void main() {
     deniedChanges.add(const <String>{});
     await tester.pump();
     expect(find.text(codeBlueDeniedCopy), findsNothing);
+  });
+
+  testWidgets('surfaces bed update denial as a live region', (tester) async {
+    final semantics = tester.ensureSemantics();
+    expect(
+      bedsDeniedCopy,
+      isNot('s4.lib.realtime_status.beds_denied'),
+      reason: 'bed denial copy must be localized',
+    );
+    denied = {'staff:beds'};
+    await pumpBanner(
+      tester,
+      watchChannels: {'staff:beds'},
+      deniedMessageKey: 's4.lib.realtime_status.beds_denied',
+    );
+
+    expect(find.text(bedsDeniedCopy), findsOneWidget);
+    expect(
+      tester.getSemantics(find.bySemanticsLabel(bedsDeniedCopy)),
+      isSemantics(label: bedsDeniedCopy, isLiveRegion: true),
+    );
+    semantics.dispose();
   });
 
   testWidgets('ignores denials of channels it is not watching', (tester) async {
