@@ -115,7 +115,10 @@ const COVERAGE_TESTS = [
   'src/tests/unit/tenantRlsMiddleware.test.js',
 ];
 
-const nodeFlags = ['--max-old-space-size=4096', '--experimental-vm-modules'];
+// 6144 (was 4096): the curated set grew past what a 4 GB heap survives in one
+// in-band coverage pass (observed OOM 2026-08-10). GitHub-hosted ubuntu-latest
+// runners have 16 GB, so 6 GB leaves ample headroom for the rest of the job.
+const nodeFlags = ['--max-old-space-size=6144', '--experimental-vm-modules'];
 const jestArgs = [
   '--runInBand',
   '--forceExit',
