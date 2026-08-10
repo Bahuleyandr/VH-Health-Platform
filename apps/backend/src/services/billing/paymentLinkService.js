@@ -685,7 +685,7 @@ export async function listPaymentLinks({ tenantId, patient_uid, status, invoice_
   if (patient_uid) { params.push(String(patient_uid)); where.push(`patient_uid = $${params.length}::uuid`); }
   if (status) { params.push(status); where.push(`status = $${params.length}`); }
   if (invoice_id) { params.push(Number(invoice_id)); where.push(`invoice_id = $${params.length}::int`); }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT id, link_token, invoice_id, patient_uid, amount, currency,
             upi_deep_link, provider, status, expires_at, paid_at, paid_via,

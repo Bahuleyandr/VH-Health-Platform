@@ -24,7 +24,7 @@ export async function listForUser({ tenantId, owner_uid, specialty, q, limit = 2
     params.push(`%${q}%`);
     conds.push(`(code ILIKE $${params.length} OR title ILIKE $${params.length})`);
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 200, 1), 500));
   return prisma.$queryRawUnsafe(
     `SELECT id, code, title, body, specialty, scope, owner_uid,
             placeholders, use_count, active, created_at

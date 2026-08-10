@@ -51,7 +51,7 @@ export async function listItems({ tenantId, search, schedule, status = 'active',
       ` OR LOWER(brand_name) LIKE $${params.length})`,
     );
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT id, sku_code, display_name, generic_name, brand_name, manufacturer,
             form, strength, unit_label, schedule_class, is_narcotic,
@@ -112,7 +112,7 @@ export async function listBatches({ tenantId, item_id, expiring_in_days, status 
     params.push(Number(expiring_in_days));
     where.push(`b.expiry_date <= CURRENT_DATE + ($${params.length}::int || ' days')::interval`);
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 200, 1), 500));
   return prisma.$queryRawUnsafe(
     `SELECT b.id, b.inventory_item_id, b.batch_number, b.lot_number,
             b.manufacture_date, b.expiry_date, b.received_quantity,
@@ -466,7 +466,7 @@ export async function listScheduleRegister({ tenantId, schedule_class, item_id, 
   // We'll filter at the view level.
   if (date_from) { params.push(date_from); where.push(`created_at >= $${params.length}::timestamptz`); }
   if (date_to) { params.push(date_to); where.push(`created_at <= $${params.length}::timestamptz`); }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 200, 1), 500));
   return prisma.$queryRawUnsafe(
     `SELECT * FROM pharmacy_schedule_register_full
       WHERE ${where.join(' AND ')}
@@ -544,7 +544,7 @@ export async function listExpiryAlerts({ tenantId, bucket, limit = 100 }) {
   if (bucket) { params.push(bucket); where.push(`c.bucket = $${params.length}`); }
   // Default: anything not "beyond-90"
   if (!bucket) where.push(`c.bucket != 'beyond-90'`);
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT c.*, i.sku_code, i.display_name, i.generic_name, i.unit_label, i.schedule_class,
             b.batch_number, b.lot_number, b.supplier_id

@@ -2213,9 +2213,10 @@ export const getAllPrescriptions = async (req, res) => {
       where += ` AND ep.status = $${params.length}`;
     }
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    params.push(parseInt(limit));
-    params.push(offset);
+    const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
+    const safePage = Math.max(parseInt(page) || 1, 1);
+    params.push(safeLimit);
+    params.push((safePage - 1) * safeLimit);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,

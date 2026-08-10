@@ -1352,7 +1352,9 @@ export async function listInvoices({
   if (date_from) { params.push(date_from); where.push(`COALESCE(issued_at, created_at) >= $${params.length}::timestamptz`); }
   if (date_to) { params.push(date_to); where.push(`COALESCE(issued_at, created_at) <= $${params.length}::timestamptz`); }
 
-  const offset = (Number(page) - 1) * Number(limit);
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 200);
+  const safePage = Math.max(Number(page) || 1, 1);
+  const offset = (safePage - 1) * safeLimit;
   const sql = `SELECT id, invoice_number, patient_uid, patient_name, invoice_type,
                       total_amount, amount_paid, amount_due, status, admission_id,
                       tenant_id, issued_at, created_at
@@ -1360,7 +1362,7 @@ export async function listInvoices({
                  ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                  ORDER BY COALESCE(issued_at, created_at) DESC
                  LIMIT $${params.length + 1}::int OFFSET $${params.length + 2}::int`;
-  const rows = await prisma.$queryRawUnsafe(sql, ...params, Number(limit), offset);
+  const rows = await prisma.$queryRawUnsafe(sql, ...params, safeLimit, offset);
 
   return Promise.all(rows.map(async (row) => {
     if (!row.admission_id) return { ...row, tpa_utilisation: null };
@@ -2619,7 +2621,7 @@ export async function outstandingBills({ days_old, department, limit = 100 } = {
     where.push(`COALESCE(issued_at, created_at) <= NOW() - ($${params.length}::int || ' days')::interval`);
   }
   if (department) { params.push(department); where.push(`department = $${params.length}`); }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT id, invoice_number, patient_uid, patient_name, patient_phone,
             department, total_amount, amount_paid, amount_due,

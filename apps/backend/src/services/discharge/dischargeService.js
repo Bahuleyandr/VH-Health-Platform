@@ -1834,7 +1834,7 @@ export async function listForPatient({ tenantId, patient_uid, limit = 50 }) {
       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
       ORDER BY created_at DESC
       LIMIT $3::int`,
-    tenantId, String(patient_uid), Number(limit),
+    tenantId, String(patient_uid), Math.min(Math.max(Number(limit) || 50, 1), 200),
   );
 }
 
@@ -1846,6 +1846,6 @@ export async function listPending({ tenantId, limit = 100 }) {
       WHERE tenant_id = $1::uuid AND status IN ('draft', 'ready_for_signoff')
       ORDER BY updated_at DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, Math.min(Math.max(Number(limit) || 100, 1), 200),
   );
 }

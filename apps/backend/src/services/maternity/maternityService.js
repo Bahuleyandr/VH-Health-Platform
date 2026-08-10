@@ -2138,7 +2138,7 @@ export async function listActiveLaborAdmissions({ tenantId, limit = 50 }) {
         AND la.status = 'active'
       ORDER BY la.admitted_at DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, Math.min(Math.max(Number(limit) || 50, 1), 200),
   );
 }
 

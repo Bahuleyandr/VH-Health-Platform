@@ -89,8 +89,8 @@ export const getStatusAuditTrail = async (req, res) => {
     if (from_date) { params.push(from_date); where += ` AND DATE(ash.created_at) >= $${params.length}`; }
     if (to_date) { params.push(to_date); where += ` AND DATE(ash.created_at) <= $${params.length}`; }
 
-    params.push(parseInt(limit));
-    params.push(parseInt(offset));
+    params.push(Math.min(Math.max(parseInt(limit) || 100, 1), 200));
+    params.push(Math.max(parseInt(offset) || 0, 0));
 
     const result = await prisma.$queryRawUnsafe(`
       SELECT ash.*,

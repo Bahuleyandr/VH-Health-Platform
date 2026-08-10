@@ -17,7 +17,7 @@ export async function listSets({ tenantId, specialty, q, includeInactive = false
     params.push(`%${q}%`);
     conds.push(`(title ILIKE $${params.length} OR code ILIKE $${params.length})`);
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 200, 1), 500));
   return prisma.$queryRawUnsafe(
     `SELECT id, code, title, specialty, condition_codes, description,
             active, created_at,

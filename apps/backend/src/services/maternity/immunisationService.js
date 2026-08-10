@@ -588,6 +588,7 @@ export async function listDueOrOverdue({
       ORDER BY i.due_date, v.code
       LIMIT $5::int`,
     tenantId,
-    from_date || null, today, to_date || null, Number(limit),
+    from_date || null, today, to_date || null,
+    Math.min(Math.max(Number(limit) || 200, 1), 500),
   );
 }

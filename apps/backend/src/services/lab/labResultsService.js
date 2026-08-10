@@ -1963,7 +1963,7 @@ export async function listPendingSignOff({ tenantId, limit = 100 }) {
         AND status IN ('preliminary', 'final')
       ORDER BY is_critical DESC, received_at ASC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, Math.max(1, Math.min(500, Number(limit) || 100)),
   );
 }
 
@@ -2660,7 +2660,7 @@ export async function listOpenCriticalAlerts({ tenantId, limit = 50 }) {
         AND superseded_at IS NULL
       ORDER BY fired_at DESC, id DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, Math.max(1, Math.min(500, Number(limit) || 50)),
   );
 }
 
@@ -3240,7 +3240,7 @@ export async function getResultsForPatient({
       WHERE ${filters.join(' AND ')}
       ORDER BY received_at DESC
       LIMIT $3::int`,
-    tenantId, patientUids, Number(limit),
+    tenantId, patientUids, Math.max(1, Math.min(500, Number(limit) || 200)),
   );
   return rows.map((r) => ({
     ...r,

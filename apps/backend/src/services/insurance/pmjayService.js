@@ -39,7 +39,7 @@ export async function listPackages({ scheme_code, specialty_group, q, limit = 20
     params.push(`%${q}%`);
     conds.push(`(procedure_name ILIKE $${params.length} OR package_code ILIKE $${params.length})`);
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 200, 1), 500));
   return prisma.$queryRawUnsafe(
     `SELECT id, scheme_code, package_code, procedure_name, specialty_group,
             package_rate, los_days, inclusions, exclusions, bundling_allowed
@@ -330,7 +330,7 @@ export async function listCases({ tenantId, status, scheme_code, limit = 100 }) 
   const conds = ['c.tenant_id = $1::uuid'];
   if (status) { params.push(status); conds.push(`c.status = $${params.length}`); }
   if (scheme_code) { params.push(scheme_code); conds.push(`p.scheme_code = $${params.length}`); }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT c.id, c.case_number, c.patient_uid, c.primary_diagnosis,
             c.locked_package_rate, c.approved_amount, c.paid_amount,

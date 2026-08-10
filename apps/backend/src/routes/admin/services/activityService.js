@@ -8,6 +8,8 @@
 import { tableExists, safeQuery } from './common.js';
 
 export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
   const sources = [];
 
   if (await tableExists('appointments')) {
@@ -24,7 +26,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.appt_created'
       ),
       safeQuery(
@@ -40,7 +42,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY COALESCE(updated_at, created_at) DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.appt_completed'
       )
     );
@@ -62,7 +64,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY registered_at DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.users'
       )
     );
@@ -82,7 +84,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
-        [tenantId, limit, offset],
+        [tenantId, safeLimit, safeOffset],
         'activity.sos'
       )
     );
@@ -92,7 +94,7 @@ export async function getRecentActivity(tenantId, limit = 50, offset = 0) {
   const all = resultSets.flat();
 
   all.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return all.slice(0, limit);
+  return all.slice(0, safeLimit);
 }
 
 export default { getRecentActivity };

@@ -1206,7 +1206,7 @@ export async function listMyClinicalNotes({ patient_uid, limit = 100, note_type 
         AND lower(note_type) = ANY($2::text[])
       ORDER BY created_at DESC, id DESC
       LIMIT $3::int`,
-    String(patient_uid), types, Number(limit),
+    String(patient_uid), types, Math.min(Math.max(asInt(limit, 100), 1), 200),
   );
 }
 
@@ -1482,7 +1482,7 @@ export async function listMyDischargeSummaries({ tenantId, patient_uid, limit = 
       ORDER BY COALESCE(signed_at, created_at) DESC, id DESC
       LIMIT $4::int`,
     tenantId, String(patient_uid),
-    PATIENT_VISIBLE_DISCHARGE_STATUSES, Number(limit),
+    PATIENT_VISIBLE_DISCHARGE_STATUSES, Math.min(Math.max(asInt(limit, 50), 1), 200),
   );
 }
 
@@ -2009,7 +2009,7 @@ export async function listMyLabOrders({ tenantId, patient_uid, status = null, li
     params.push(String(status).toUpperCase());
     where += ` AND UPPER(i.status) = $${params.length}`;
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(asInt(limit, 100), 1), 200));
   const orders = await prisma.$queryRawUnsafe(
     `SELECT i.id, i.test_name, i.test_code, i.test_type, i.investigation_type,
             i.status, i.priority,
@@ -2188,7 +2188,7 @@ export async function listMyLabResults({ tenantId, patient_uid, limit = 100 }) {
         AND ${releaseVisibilitySql('$4')}
       ORDER BY COALESCE(performed_at, received_at) DESC NULLS LAST, id DESC
       LIMIT $3::int`,
-    tenantId, patientUids, Number(limit), releaseDelayHours(),
+    tenantId, patientUids, Math.min(Math.max(asInt(limit, 100), 1), 200), releaseDelayHours(),
   );
 }
 
@@ -2395,7 +2395,7 @@ export async function listMyThreads({ tenantId, patient_uid, status, limit = 50 
     params.push(status);
     where += ` AND status = $${params.length}`;
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(asInt(limit, 50), 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT id, subject, category, status, priority,
             last_message_at, last_message_by, patient_unread_count,
@@ -2712,7 +2712,7 @@ export async function listStaffInbox({
   } else if (!can_view_all) {
     throw AppError.forbidden('Assigned staff access required');
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(asInt(limit, 100), 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, subject, category, status, priority,
             last_message_at, last_message_by, staff_unread_count,

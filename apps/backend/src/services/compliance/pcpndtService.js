@@ -280,7 +280,7 @@ export async function listFormF({
     params.push(status);
     conds.push(`f.status = $${params.length}`);
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 200, 1), 500));
   return prisma.$queryRawUnsafe(
     `SELECT f.id, f.serial_no, f.test_date, f.patient_name, f.patient_age,
             f.gravida, f.parity, f.indication_category, f.status,
@@ -357,7 +357,7 @@ export async function listSubmissions({ tenantId, limit = 24 }) {
       WHERE tenant_id = $1::uuid
       ORDER BY period_year DESC, period_month DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, Math.min(Math.max(Number(limit) || 24, 1), 200),
   );
 }
 

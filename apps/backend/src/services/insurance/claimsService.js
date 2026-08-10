@@ -1086,7 +1086,7 @@ export async function listPendingPreauths({ tenantId, limit = 100 }) {
                 AND pa.submit_due_at < NOW()) DESC,
                pa.created_at DESC
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, Math.min(Math.max(Number(limit) || 100, 1), 200),
   );
 }
 
@@ -2246,7 +2246,7 @@ export async function listClaims({
   }
   if (claim_type) { params.push(claim_type); where.push(`claim_type = $${params.length}`); }
   if (aging_bucket) { params.push(aging_bucket); where.push(`aging_bucket = $${params.length}`); }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT * FROM tpa_claims_aging
       WHERE ${where.join(' AND ')}

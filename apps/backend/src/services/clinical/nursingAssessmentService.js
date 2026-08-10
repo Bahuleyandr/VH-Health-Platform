@@ -317,7 +317,7 @@ export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }
     params.push(kind);
     where += ` AND assessment_kind = $${params.length}`;
   }
-  params.push(Number(limit));
+  params.push(Math.min(Math.max(Number(limit) || 50, 1), 200));
   return prisma.$queryRawUnsafe(
     `SELECT id, assessment_kind, assessed_at, assessed_by_name,
             total_score, band, scoring_version, recommended_actions,
@@ -364,6 +364,6 @@ export async function listOverdueOrHighRisk({ tenantId, limit = 100 }) {
         END,
         next_assessment_due_at NULLS LAST
       LIMIT $2::int`,
-    tenantId, Number(limit),
+    tenantId, Math.min(Math.max(Number(limit) || 100, 1), 200),
   );
 }
