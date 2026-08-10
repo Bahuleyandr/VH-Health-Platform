@@ -755,4 +755,89 @@ void main() {
       expect(observed, 'caller-key-123');
     });
   });
+
+  group('VHHttpClient — retryTransientFailures: false (teardown calls)', () {
+    test('a 5xx is NOT retried when transient retries are disabled', () async {
+      await AuthService.setJwt('access');
+
+      var postCount = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          postCount++;
+          return http.Response(
+            jsonEncode({'success': false, 'message': 'down'}),
+            503,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post(
+        '/auth/logout',
+        body: const {},
+        retryTransientFailures: false,
+      );
+
+      expect(resp.isSuccess, isFalse);
+      expect(
+        postCount,
+        1,
+        reason:
+            'logout-style teardown calls must be single-shot — the standard '
+            '3-attempt backoff holds the local PHI wipe hostage',
+      );
+    });
+
+    test(
+      'a network error surfaces immediately instead of backing off',
+      () async {
+        await AuthService.setJwt('access');
+
+        var postCount = 0;
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            postCount++;
+            throw http.ClientException('connection refused');
+          }),
+        );
+
+        await expectLater(
+          VHHttpClient.post(
+            '/auth/logout',
+            body: const {},
+            retryTransientFailures: false,
+          ),
+          throwsA(isA<http.ClientException>()),
+        );
+        expect(postCount, 1);
+      },
+    );
+
+    test('the default policy still retries a 5xx (unchanged)', () async {
+      await AuthService.setJwt('access');
+
+      var postCount = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          postCount++;
+          if (postCount == 1) {
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'flaky'}),
+              500,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post('/x', body: {'a': 1});
+      expect(resp.isSuccess, isTrue);
+      expect(postCount, 2);
+    });
+  });
 }

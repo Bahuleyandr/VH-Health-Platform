@@ -2042,6 +2042,9 @@ class AppLocalizationsMl extends AppLocalizations {
   String get logoutConfirmBody => 'ലോഗ്ഔട്ട് ചെയ്യണമെന്ന് തീർച്ചയാണോ?';
 
   @override
+  String get logoutProgressMessage => 'Signing out…';
+
+  @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
 
   @override

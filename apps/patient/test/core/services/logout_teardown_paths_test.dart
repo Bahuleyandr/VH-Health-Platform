@@ -224,6 +224,48 @@ void main() {
   );
 
   testWidgets(
+    'path 1: manual logout shows a blocking progress indicator until the '
+    'teardown finishes, then dismisses it before landing on /login',
+    (tester) async {
+      final calls = <String>[];
+      final gate = Completer<void>();
+      LogoutService.debugSetDependencies(
+        _recordingDependencies(calls, signOutGate: gate),
+      );
+
+      final router = _testRouter(home: const Scaffold(body: LogoutButton()));
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(ListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Logout'));
+      await tester.pump();
+      await tester.pump();
+
+      // Teardown is still running (held open at its final step): the
+      // blocking progress dialog must be up so a slow network reads as
+      // "signing out" instead of a frozen app the user force-kills —
+      // force-killing here is what used to skip the local PHI wipe.
+      expect(find.text('Signing out…'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Signing out…'), findsNothing);
+      expect(calls, fullTeardown);
+      expect(find.text('login-screen'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'path 5: failed backend login during OTP sign-in runs the full shared teardown',
     (tester) async {
       final calls = <String>[];

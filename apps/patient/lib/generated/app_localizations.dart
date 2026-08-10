@@ -3854,6 +3854,12 @@ abstract class AppLocalizations {
   /// **'Are you sure you want to logout?'**
   String get logoutConfirmBody;
 
+  /// Blocking progress dialog shown while logout teardown runs
+  ///
+  /// In en, this message translates to:
+  /// **'Signing out…'**
+  String get logoutProgressMessage;
+
   /// Hospital name heading on About Us
   ///
   /// In en, this message translates to:

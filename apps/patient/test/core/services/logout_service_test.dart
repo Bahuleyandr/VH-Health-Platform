@@ -4,7 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 
 void main() {
-  tearDown(LogoutService.debugResetDependencies);
+  tearDown(() {
+    LogoutService.debugResetDependencies();
+    LogoutService.networkStepTimeout = const Duration(seconds: 6);
+  });
 
   test(
     'logout revokes both server sessions first, clears realtime, caches, '
@@ -183,6 +186,100 @@ void main() {
       expect(outcome.serverSessionRevoked, isFalse);
       expect(calls, contains('vh-server-revoke'));
       expect(calls, containsAll(<String>['secure-storage', 'user-provider']));
+    },
+  );
+
+  test('a hung server revocation is abandoned at the logout deadline and the '
+      'local PHI wipe still runs', () async {
+    // Pins the give-up contract: the pre-wipe network calls get a hard
+    // per-step ceiling (networkStepTimeout), so a dead network can never
+    // hold the wipe hostage long enough that a user force-kills the app
+    // with the JWT and PHI caches still on disk.
+    LogoutService.networkStepTimeout = const Duration(milliseconds: 50);
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(
+        calls,
+        // Never completes — simulates a black-holed request.
+        firebaseRevokeGate: Completer<void>(),
+      ),
+    );
+
+    final outcome = await LogoutService.logout().timeout(
+      const Duration(seconds: 5),
+    );
+
+    expect(outcome.firebaseSessionRevoked, isFalse);
+    expect(outcome.serverSessionRevoked, isFalse);
+    // Every later step — including the full local teardown — still ran.
+    expect(
+      calls,
+      containsAll(<String>[
+        'device-unregister',
+        'vh-server-revoke',
+        'secure-storage',
+        'api-cache',
+        'file-cache',
+        'doc-staging',
+        'user-provider',
+        'firebase-signout',
+      ]),
+    );
+  });
+
+  test(
+    'all three revocations hanging still completes quickly and wipes',
+    () async {
+      LogoutService.networkStepTimeout = const Duration(milliseconds: 50);
+      final never = Completer<void>();
+      final calls = <String>[];
+      final base = _dependencies(calls);
+      LogoutService.debugSetDependencies(
+        LogoutServiceDependencies(
+          revokeFirebaseSession: () async {
+            calls.add('firebase-server-revoke');
+            await never.future;
+            return true;
+          },
+          unregisterDevice: () async {
+            calls.add('device-unregister');
+            await never.future;
+          },
+          revokeVhSession: () async {
+            calls.add('vh-server-revoke');
+            await never.future;
+            return true;
+          },
+          disconnectWebSocket: base.disconnectWebSocket,
+          disconnectRealtime: base.disconnectRealtime,
+          clearPushSignedInUser: base.clearPushSignedInUser,
+          deleteFcmToken: base.deleteFcmToken,
+          cancelNotifications: base.cancelNotifications,
+          clearSecureStorage: base.clearSecureStorage,
+          clearApiCache: base.clearApiCache,
+          clearDownloadedFileCache: base.clearDownloadedFileCache,
+          purgeDocumentStaging: base.purgeDocumentStaging,
+          clearCycleTracker: base.clearCycleTracker,
+          clearDependentsProvider: base.clearDependentsProvider,
+          clearUserProvider: base.clearUserProvider,
+          signOutFirebase: base.signOutFirebase,
+        ),
+      );
+
+      final stopwatch = Stopwatch()..start();
+      final outcome = await LogoutService.logout().timeout(
+        const Duration(seconds: 5),
+      );
+      stopwatch.stop();
+
+      expect(outcome.serverSessionRevoked, isFalse);
+      expect(
+        calls,
+        containsAll(<String>['secure-storage', 'firebase-signout']),
+      );
+      // 3 hung steps x 50ms deadline — generous margin, but far below the
+      // ~144s the default transport policy would have allowed.
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
     },
   );
 

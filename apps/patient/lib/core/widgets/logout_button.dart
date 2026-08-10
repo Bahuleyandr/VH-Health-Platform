@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
@@ -55,6 +57,48 @@ class LogoutButton extends StatelessWidget {
 
     if (confirm != true || !context.mounted) return;
 
+    // Blocking progress indicator while the teardown runs. The server-side
+    // revocations are individually deadline-capped inside LogoutService, but
+    // a silent multi-second hang still reads as a frozen app — and a user who
+    // force-kills the app mid-logout skips the local PHI wipe entirely.
+    var progressDismissed = false;
+    // Captured now: the button's own context may be unmounted by the time
+    // the dialog must come down (the router redirect can navigate first).
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    void dismissProgress() {
+      if (!progressDismissed && rootNavigator.mounted) {
+        rootNavigator.pop();
+        progressDismissed = true;
+      }
+    }
+
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    AppLocalizations.of(dialogContext)!.logoutProgressMessage,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ).then((_) => progressDismissed = true),
+    );
+
     try {
       // Centralised teardown: unregisters this device + deletes its FCM token,
       // disconnects the realtime + WebSocket PHI channels, cancels local
@@ -67,6 +111,9 @@ class LogoutButton extends StatelessWidget {
       // the automatic logout paths get them too.
       final outcome = await LogoutService.logout();
 
+      // The dialog sits on the root navigator, where go_router's own
+      // navigation will NOT remove it — pop it before redirecting.
+      dismissProgress();
       if (context.mounted) {
         context.go('/login');
       }
@@ -87,6 +134,7 @@ class LogoutButton extends StatelessWidget {
       }
     } catch (e) {
       debugPrint('Logout error: $e');
+      dismissProgress();
       // If navigation fails, show error
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

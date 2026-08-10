@@ -2006,6 +2006,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get logoutConfirmBody => 'क्या आप वाकई लॉगआउट करना चाहते हैं?';
 
   @override
+  String get logoutProgressMessage => 'Signing out…';
+
+  @override
   String get aboutHospitalName => 'वेंकटेश्वर अस्पताल';
 
   @override

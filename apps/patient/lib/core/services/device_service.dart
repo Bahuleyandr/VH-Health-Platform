@@ -99,12 +99,21 @@ class DeviceService {
   }
 
   /// Unregister this device (call on logout).
-  static Future<bool> unregisterDevice(String phone) async {
+  ///
+  /// [timeout] / [retryTransientFailures] let the logout teardown run this
+  /// as one short attempt instead of the default 15s x 3-retry policy.
+  static Future<bool> unregisterDevice(
+    String phone, {
+    Duration? timeout,
+    bool retryTransientFailures = true,
+  }) async {
     try {
       final deviceId = await _getDeviceId();
       final response = await ApiClient.post(
         '/devices/unregister',
         body: {'phone': phone, 'deviceId': deviceId},
+        timeout: timeout,
+        retryTransientFailures: retryTransientFailures,
       );
       return response.isSuccess;
     } catch (e) {

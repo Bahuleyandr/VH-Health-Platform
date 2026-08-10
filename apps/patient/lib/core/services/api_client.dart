@@ -50,6 +50,7 @@ class ApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     String? idempotencyKey,
+    bool retryTransientFailures = true,
   }) => _mutate(
     'POST',
     path,
@@ -58,6 +59,7 @@ class ApiClient {
       body: body,
       timeout: timeout,
       idempotencyKey: idempotencyKey,
+      retryTransientFailures: retryTransientFailures,
     ),
   );
 

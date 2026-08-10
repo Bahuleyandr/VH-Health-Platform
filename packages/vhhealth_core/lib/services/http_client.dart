@@ -186,6 +186,12 @@ class VHHttpClient {
   /// de-duplicates replays of this mutation. The retry/refresh paths reuse the
   /// SAME key across every attempt (it is fixed once by the caller, not
   /// regenerated per attempt), which is what makes a lost-2xx retry safe.
+  ///
+  /// [retryTransientFailures] controls the transport-level retry policy
+  /// (timeouts / connection errors / 5xx — see [_sendWithRetry]). Leave it
+  /// true for normal calls; teardown paths (logout) set it false so a dead
+  /// network fails the call after one short attempt instead of holding the
+  /// user behind minutes of backoff. The 401-refresh retry is unaffected.
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
@@ -194,6 +200,7 @@ class VHHttpClient {
     String? idempotencyKey,
     String? continuityFacilityId,
     String? continuityFacilityContext,
+    bool retryTransientFailures = true,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
@@ -208,10 +215,12 @@ class VHHttpClient {
       continuityFacilityId: continuityFacilityId,
       continuityFacilityContext: continuityFacilityContext,
     );
+    final maxAttempts = retryTransientFailures ? _maxRetryAttempts : 1;
     final response = await _sendWithRetry(
       () => _client
           .post(uri, headers: headers, body: encoded)
           .timeout(timeout ?? _defaultTimeout),
+      maxAttempts: maxAttempts,
     );
     final parsed = ApiResponse.fromHttp(response);
 
@@ -227,6 +236,7 @@ class VHHttpClient {
         () => _client
             .post(uri, headers: retryHeaders, body: encoded)
             .timeout(timeout ?? _defaultTimeout),
+        maxAttempts: maxAttempts,
       );
       return _processResponse(retry);
     }
@@ -516,25 +526,27 @@ class VHHttpClient {
   static const Duration _retryBaseDelay = Duration(seconds: 1);
 
   /// Sends an HTTP request with exponential backoff on transient failures.
-  /// Retries up to 3 attempts total (initial + 2 retries) with 1s/2s backoff
-  /// on:
+  /// Retries up to [maxAttempts] total (default: initial + 2 retries) with
+  /// 1s/2s backoff on:
   ///   * [TimeoutException] — request took longer than the timeout
   ///   * [http.ClientException] — socket / DNS / connection refused
   ///   * 5xx server responses — server-side transient failure
   /// Does NOT retry 4xx responses (bad request, 401, etc.) — the caller's
   /// 401 refresh path handles auth, and 4xx bugs won't fix themselves.
+  /// Pass [maxAttempts] = 1 for single-shot calls (logout teardown).
   static Future<http.Response> _sendWithRetry(
-    Future<http.Response> Function() send,
-  ) async {
+    Future<http.Response> Function() send, {
+    int maxAttempts = _maxRetryAttempts,
+  }) async {
     Object? lastError;
     http.Response? lastResponse;
-    for (var attempt = 1; attempt <= _maxRetryAttempts; attempt++) {
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         final response = await send();
         lastResponse = response;
         // 5xx → retry; everything else (2xx, 3xx, 4xx) → return.
         if (response.statusCode < 500) return response;
-        if (attempt >= _maxRetryAttempts) return response;
+        if (attempt >= maxAttempts) return response;
         if (kDebugMode) {
           debugPrint(
             'VHHttpClient: 5xx (${response.statusCode}) attempt $attempt — retrying',
@@ -542,13 +554,13 @@ class VHHttpClient {
         }
       } on TimeoutException catch (e) {
         lastError = e;
-        if (attempt >= _maxRetryAttempts) rethrow;
+        if (attempt >= maxAttempts) rethrow;
         if (kDebugMode) {
           debugPrint('VHHttpClient: timeout attempt $attempt — retrying');
         }
       } on http.ClientException catch (e) {
         lastError = e;
-        if (attempt >= _maxRetryAttempts) rethrow;
+        if (attempt >= maxAttempts) rethrow;
         if (kDebugMode) {
           debugPrint('VHHttpClient: network error attempt $attempt — retrying');
         }

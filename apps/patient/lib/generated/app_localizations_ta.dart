@@ -2047,6 +2047,9 @@ class AppLocalizationsTa extends AppLocalizations {
   String get logoutConfirmBody => 'நிச்சயமாக வெளியேற விரும்புகிறீர்களா?';
 
   @override
+  String get logoutProgressMessage => 'Signing out…';
+
+  @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
 
   @override
