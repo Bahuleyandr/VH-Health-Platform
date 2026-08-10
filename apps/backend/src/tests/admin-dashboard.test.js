@@ -21,9 +21,7 @@ describe('Admin dashboard route wiring', () => {
     it('is mounted for ADMIN users', async () => {
       const res = await authClient('ADMIN').get(path);
 
-      expect([200, 500]).toContain(res.statusCode);
-      expect(res.statusCode).not.toBe(403);
-      expect(res.statusCode).not.toBe(404);
+      expect(res.statusCode).toBe(200);
     });
   });
 });

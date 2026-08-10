@@ -11,6 +11,10 @@ import { API_KEY, generateTestToken } from './testClient.js';
 // k8s readiness probe uses — infra/kubernetes/apps/backend/deployment.yaml).
 const MONITORING_TOKEN = process.env.MONITORING_TOKEN || 'test-monitoring-token';
 process.env.MONITORING_TOKEN = MONITORING_TOKEN;
+// The comprehensive health check reports missing ALLOWED_ORIGINS as unhealthy;
+// provide it so the assertion exercises the healthy/degraded contract, not env
+// scaffolding.
+process.env.ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS || 'http://localhost:3001';
 
 describe('Health Check API', () => {
   it('GET /health/live returns 200 without auth or database dependency', async () => {
@@ -37,6 +41,9 @@ describe('Health Check API', () => {
   it('GET /health/ready reports readiness state with a monitoring token', async () => {
     const res = await request(app).get('/health/ready').set('x-monitoring-token', MONITORING_TOKEN);
 
+    // Readiness is contractually 200 healthy / 503 degraded; which one depends
+    // on optional dependencies (Redis etc.) absent in some test envs.
+    // ban-exempt: readiness contract — 503-when-degraded is a documented state
     expect([200, 503]).toContain(res.statusCode);
     expect(res.body).toHaveProperty('checks');
     expect(res.body.checks).toHaveProperty('database');
@@ -49,6 +56,7 @@ describe('Health Check API', () => {
   it('GET /health/deep keeps the legacy deep endpoint working (token-gated)', async () => {
     const res = await request(app).get('/health/deep').set('x-monitoring-token', MONITORING_TOKEN);
 
+    // ban-exempt: readiness contract — 503-when-degraded is a documented state
     expect([200, 503]).toContain(res.statusCode);
     expect(res.body).toHaveProperty('checks');
   });
@@ -68,7 +76,9 @@ describe('Health Check API', () => {
       .set('x-monitoring-token', MONITORING_TOKEN)
       .set('Authorization', `Bearer ${token}`);
 
-    // DB may not be available in test env, accept 200 or 503/500
-    expect([200, 500, 503]).toContain(res.statusCode);
+    // CI runs a real migrated DB; a healthy stack answers 200. 503 remains the
+    // documented degraded contract; 500 is a regression and must fail.
+    // ban-exempt: readiness contract — 503-when-degraded is a documented state
+    expect([200, 503]).toContain(res.statusCode);
   });
 });

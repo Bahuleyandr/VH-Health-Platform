@@ -17,16 +17,16 @@ describe('OTP API', () => {
     const res = await request(app)
       .post('/api/v1/otp/verify-otp')
       .set('x-api-key', API_KEY)
-      .send({ phoneNumber: '9876543210', otp: '123456' });
-    // 200 (mock success), 400 (invalid OTP), 500 (no DB in test)
-    expect([200, 400, 500]).toContain(res.statusCode);
+      .send({ phone: '9876543210', otp: '123456' });
+    // No OTP was requested for this phone, so verification is rejected.
+    expect(res.statusCode).toBe(400);
   });
 
   it('should fail on incorrect OTP or return expected error', async () => {
     const res = await request(app)
       .post('/api/v1/otp/verify-otp')
       .set('x-api-key', API_KEY)
-      .send({ phoneNumber: '9876543210', otp: '000000' });
-    expect([400, 500]).toContain(res.statusCode);
+      .send({ phone: '9876543210', otp: '000000' });
+    expect(res.statusCode).toBe(400);
   });
 });

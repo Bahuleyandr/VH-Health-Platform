@@ -545,7 +545,7 @@ describe('Radiology order + report deep integration', () => {
 
     it('refuses to cancel a completed order', async () => {
       const res = await radiologist.put(`/api/v1/radiology/${orderId}/cancel`);
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 
@@ -570,14 +570,14 @@ describe('Radiology order + report deep integration', () => {
 
     it('blocks a second cancel on a cancelled order', async () => {
       const res = await doctor.put(`/api/v1/radiology/${orderId}/cancel`);
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
 
     it('refuses to submit a report on a cancelled order', async () => {
       const res = await radiologist.put(`/api/v1/radiology/${orderId}/report`).send({
         report: 'Too late - order was cancelled',
       });
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 

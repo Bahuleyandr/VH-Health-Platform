@@ -16,8 +16,8 @@ describe('Firebase Authentication API', () => {
       .post('/api/v1/auth/firebase/firebase-login')
       .set('x-api-key', API_KEY)
       .send({ idToken: 'invalid-token' });
-    // 400 (validation), 401 (invalid token), 500 (Firebase unreachable in test)
-    expect([400, 401, 500]).toContain(res.statusCode);
+    // Firebase admin rejects the malformed token: 401.
+    expect(res.statusCode).toBe(401);
   });
 
   it('rejects profile completion without a local JWT', async () => {

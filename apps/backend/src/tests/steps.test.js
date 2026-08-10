@@ -9,7 +9,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/steps/leaderboard')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
       if (res.statusCode === 200) {
         expect(res.body.success).toBe(true);
       }
@@ -21,7 +21,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/steps/profile')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
       if (res.statusCode === 200) {
         expect(res.body.success).toBe(true);
       }
@@ -34,7 +34,7 @@ describe('Steps / Gamification API', () => {
         .put('/api/v1/steps/profile')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
         .send({ displayName: 'TestUser', displayColor: '#FF5733', dailyGoal: 10000 });
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
 
     it('should reject invalid displayColor', async () => {
@@ -42,7 +42,7 @@ describe('Steps / Gamification API', () => {
         .put('/api/v1/steps/profile')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
         .send({ displayColor: 'not-a-color' });
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
 
     it('should reject dailyGoal out of range', async () => {
@@ -50,7 +50,7 @@ describe('Steps / Gamification API', () => {
         .put('/api/v1/steps/profile')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
         .send({ dailyGoal: 500 });
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 
@@ -59,7 +59,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/steps/rewards')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -68,7 +68,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/steps/history')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -87,7 +87,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/steps/sync-status')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -96,7 +96,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .post('/api/v1/steps/session/start')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -106,7 +106,7 @@ describe('Steps / Gamification API', () => {
         .post('/api/v1/steps/session/stop')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
         .send({});
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 
@@ -117,7 +117,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/rewards/badges')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -126,7 +126,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .post('/api/v1/rewards/badges/check')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -135,7 +135,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/rewards/vouchers')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -144,7 +144,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/rewards/leaderboard/monthly')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -153,7 +153,7 @@ describe('Steps / Gamification API', () => {
       const res = await testClient()
         .get('/api/v1/rewards/my-monthly-rank')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
-      expect([200, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -164,7 +164,7 @@ describe('Steps / Gamification API', () => {
         .post('/api/v1/rewards/issue-monthly')
         .set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`)
         .send({ month_year: '2026-03' });
-      expect([403, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(403);
     });
 
     it('should reject invalid month_year format', async () => {
@@ -172,7 +172,7 @@ describe('Steps / Gamification API', () => {
         .post('/api/v1/rewards/issue-monthly')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
         .send({ month_year: 'invalid' });
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 
