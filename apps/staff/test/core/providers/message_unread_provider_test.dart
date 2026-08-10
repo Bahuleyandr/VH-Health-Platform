@@ -110,9 +110,11 @@ void main() {
   );
 
   test('stop() clears cached alert state and allows a later restart', () async {
-    VHHttpClient.setClientForTesting(MockClient((req) async {
-      return _unreadResponse(4);
-    }));
+    VHHttpClient.setClientForTesting(
+      MockClient((req) async {
+        return _unreadResponse(4);
+      }),
+    );
 
     final provider = MessageUnreadProvider();
     await provider.start();

@@ -19,10 +19,7 @@ void main() {
     ];
 
     test('a scanned wristband UID resolves only by exact uid match', () {
-      expect(
-        resolveQuickVitalsPatient(rows, scannedUid: uid)?['id'],
-        51,
-      );
+      expect(resolveQuickVitalsPatient(rows, scannedUid: uid)?['id'], 51);
       expect(
         resolveQuickVitalsPatient(rows, scannedUid: uid.toUpperCase())?['id'],
         51,

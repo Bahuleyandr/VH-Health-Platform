@@ -318,7 +318,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
     if (confirmed == null || confirmedId == null) {
       // Positive patient identification is mandatory (STF-4) — no
       // charting against a free-typed, unverified patient ID.
-      ErrorToast.show(context, AppStrings.of(context).vitalsScanConfirmRequired);
+      ErrorToast.show(
+        context,
+        AppStrings.of(context).vitalsScanConfirmRequired,
+      );
       return;
     }
     setState(() => _submitting = true);

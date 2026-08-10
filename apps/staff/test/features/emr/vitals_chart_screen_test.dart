@@ -160,10 +160,7 @@ void main() {
         isNull,
       );
       expect(vitalsRecordFieldIssue('100', 'spo2', VitalUnit.spo2), isNull);
-      expect(
-        vitalsRecordFieldIssue('15', 'gcs_score', VitalUnit.gcs),
-        isNull,
-      );
+      expect(vitalsRecordFieldIssue('15', 'gcs_score', VitalUnit.gcs), isNull);
     });
   });
 
