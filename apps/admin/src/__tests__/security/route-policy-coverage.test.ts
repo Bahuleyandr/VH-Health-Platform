@@ -79,7 +79,6 @@ describe("H6/M8 — admin route policy", () => {
     const SENSITIVE_ADMIN_PATHS = [
       "/dashboard/patients",
       "/dashboard/patients/dedupe",
-      "/dashboard/database",
       "/dashboard/users",
       "/dashboard/audit-explorer",
       "/dashboard/system-logs",
@@ -112,6 +111,7 @@ describe("H6/M8 — admin route policy", () => {
       for (const p of [
         "/dashboard/tenants",
         "/dashboard/feature-flags",
+        "/dashboard/database",
         "/dashboard/continuity-facility-context",
       ]) {
         const policy = policyForPath(p);
