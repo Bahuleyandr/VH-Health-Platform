@@ -455,11 +455,14 @@ describeJourney('Journey: tpa-insurance-claim', () => {
       // its happy path instead of 400ing on missing evidence. dispensed_at is
       // NOW() so it satisfies the `dispensed_at >= discharge_initiated_at`
       // window (mark-for-discharge stamped T0 in the previous step).
+      // Status must be canonical-uppercase 'DISPENSED': migration 649's
+      // pharmacy_order_status_transition_guard trigger rejects off-vocabulary
+      // values (the evidence query matches LOWER(status) either way).
       const poRows = await prisma.$queryRawUnsafe(
         `INSERT INTO pharmacy_orders
            (uid, phone, patient_id, patient_name, order_note, medication, status,
             prescribed_by, dispensed_by, dispensed_at, tenant_id, updated_at)
-         VALUES ($1::uuid, $2, $3::int, $4, $5, $6, 'dispensed',
+         VALUES ($1::uuid, $2, $3::int, $4, $5, $6, 'DISPENSED',
                  $7::uuid, $7::uuid, NOW(), $8::uuid, NOW())
          RETURNING id`,
         PATIENT_UID, `+91${PATIENT_PHONE}`, patientId, `TPA Patient ${RUN}`,
