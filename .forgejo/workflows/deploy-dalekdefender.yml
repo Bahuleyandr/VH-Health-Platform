@@ -158,7 +158,8 @@ jobs:
             ref="${!ref_var}"
             /tmp/vh-dalek-tools/trivy image \
               --platform linux/amd64 \
-              --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+              --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+              --db-repository docker.io/aquasec/trivy-db:2 \
               --scanners vuln \
               --severity CRITICAL,HIGH \
               --ignore-unfixed \

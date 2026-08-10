@@ -111,7 +111,8 @@ jobs:
         run: |
           /tmp/vh-scanners/trivy image \
             --input /tmp/${{ matrix.app }}-image.tar \
-            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
             --scanners vuln,secret \
             --skip-version-check \
             --severity CRITICAL,HIGH \
@@ -125,7 +126,8 @@ jobs:
         run: |
           /tmp/vh-scanners/trivy image \
             --input /tmp/${{ matrix.app }}-image.tar \
-            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
             --scanners misconfig \
             --skip-version-check \
             --severity CRITICAL,HIGH \

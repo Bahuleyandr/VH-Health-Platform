@@ -120,14 +120,18 @@ check('Forgejo admin image builds provide the backend named context', () =>
     'build_context_args+=(--build-context "backend=apps/backend")',
   ));
 
-check('Forgejo image scans bypass the unreliable Trivy DB mirror', () => {
+check('Forgejo image scans use resilient official Trivy DB fallbacks', () => {
   const workflows = [
     forgejoContainerSupplyChain,
     forgejoDalekDeploy,
     forgejoReleaseImages,
   ];
-  return workflows.every((workflow) =>
-    workflow.includes('--db-repository ghcr.io/aquasecurity/trivy-db:2'),
+  return workflows.every(
+    (workflow) =>
+      workflow.includes(
+        '--db-repository public.ecr.aws/aquasecurity/trivy-db:2',
+      ) &&
+      workflow.includes('--db-repository docker.io/aquasec/trivy-db:2'),
   );
 });
 
