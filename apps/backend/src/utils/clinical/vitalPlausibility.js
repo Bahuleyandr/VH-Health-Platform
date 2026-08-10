@@ -15,10 +15,18 @@
 // must normalize (toCelsius / normalizeTemperatureC) before validating.
 import { AppError } from '../AppError.js';
 
+// Floors are physically-impossible-only (2026-08-10 audit R5): the previous
+// HR min 20 / SBP min 40 / DBP min 20 rejected peri-arrest documentation
+// (asystole is HR 0, an arrest BP is unobtainable/0) and preterm-neonate
+// truth (SBP in the 30s-40s). Cohort-specific "is this value ALARMING"
+// judgment belongs to vitalSignMonitor's neonatal/paediatric/adult ranges —
+// this module must accept every survivable-emergency value and reject only
+// entry/sensor garbage (negatives, HR 900). Migration 651 relaxes the
+// matching DB CHECK from migration 648.
 export const VITAL_PLAUSIBILITY_BOUNDS = {
-  heart_rate: { min: 20, max: 300, unit: 'bpm' },
-  systolic_bp: { min: 40, max: 300, unit: 'mmHg' },
-  diastolic_bp: { min: 20, max: 200, unit: 'mmHg' },
+  heart_rate: { min: 0, max: 300, unit: 'bpm' },
+  systolic_bp: { min: 0, max: 300, unit: 'mmHg' },
+  diastolic_bp: { min: 0, max: 200, unit: 'mmHg' },
   temperature: { min: 30, max: 45, unit: '°C' },
   // 0 stays permitted so peri-arrest saturations remain chartable; >100 is
   // physically impossible (also keeps sensor glitches out of the SpO2

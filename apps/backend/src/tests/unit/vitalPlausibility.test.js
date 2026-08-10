@@ -52,6 +52,27 @@ describe('assertVitalPlausibility — bound edges', () => {
     expect(() => assertVitalPlausibility({ heart_rate: '72' })).not.toThrow();
   });
 
+  // Audit 2026-08-10 R5 — floors are physically-impossible-only. The old
+  // HR min 20 / SBP min 40 / DBP min 20 rejected peri-arrest documentation
+  // (asystole = HR 0) and preterm-neonate truth (SBP in the 30s-40s) with a
+  // hard 400 at the bedside.
+  it('peri-arrest truth is chartable: HR 15 during a code, HR 0 asystole, arrest BP 0', () => {
+    expect(() => assertVitalPlausibility({ heart_rate: 15 })).not.toThrow();
+    expect(() => assertVitalPlausibility({ heart_rate: 0 })).not.toThrow();
+    expect(() => assertVitalPlausibility({ systolic_bp: 0, diastolic_bp: 0 })).not.toThrow();
+  });
+
+  it('neonatal truth is chartable: preterm SBP 45 / DBP 18', () => {
+    expect(() => assertVitalPlausibility({ systolic_bp: 45, diastolic_bp: 18 })).not.toThrow();
+  });
+
+  it('garbage still rejects: negative values and HR 900', () => {
+    expect(() => assertVitalPlausibility({ heart_rate: -1 })).toThrow(/heart_rate/);
+    expect(() => assertVitalPlausibility({ heart_rate: 900 })).toThrow(/heart_rate/);
+    expect(() => assertVitalPlausibility({ systolic_bp: -5 })).toThrow(/systolic_bp/);
+    expect(() => assertVitalPlausibility({ diastolic_bp: -5 })).toThrow(/diastolic_bp/);
+  });
+
   it('multi-field payload rejects on the implausible one', () => {
     expect(() => assertVitalPlausibility({
       heart_rate: 72, systolic_bp: 120, diastolic_bp: 80, temperature: 36.8,

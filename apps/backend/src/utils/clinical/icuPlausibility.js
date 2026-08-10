@@ -9,8 +9,10 @@
 // before it is persisted or trended. Core vital fields reuse the shared
 // VITAL_PLAUSIBILITY_BOUNDS values under the ICU column names; ICU-only
 // fields (ventilator, drips, I/O, neuro, scores) extend the same pattern.
-// Migration 648 mirrors these bounds as NOT VALID CHECK constraints — the DB
-// is the backstop, this module is the friendly 400.
+// Migration 648 mirrors these bounds as NOT VALID CHECK constraints (vitals
+// floors relaxed to physically-impossible-only by migration 651, audit R5 —
+// peri-arrest/neonatal truth must chart) — the DB is the backstop, this
+// module is the friendly 400.
 import { AppError } from '../AppError.js';
 import {
   VITAL_PLAUSIBILITY_BOUNDS,
