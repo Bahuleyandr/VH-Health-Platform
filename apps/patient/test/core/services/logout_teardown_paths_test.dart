@@ -105,7 +105,10 @@ void main() {
     'path 3: 401 expiry runs the full shared teardown and redirects',
     () async {
       final calls = <String>[];
-      LogoutService.debugSetDependencies(_recordingDependencies(calls));
+      final signOutGate = Completer<void>();
+      LogoutService.debugSetDependencies(
+        _recordingDependencies(calls, signOutGate: signOutGate),
+      );
 
       final user = UserProvider();
       await user.setUser('9876543210', 'Test Patient');
@@ -114,7 +117,12 @@ void main() {
       LogoutService.handleSessionExpired(
         redirectToLogin: () => redirected = true,
       );
-      // logout() is fire-and-forget on this path; drain it.
+      await Future<void>.delayed(Duration.zero);
+
+      // Do not expose the login screen while the old teardown can still wipe
+      // credentials written by a fast re-login.
+      expect(redirected, isFalse);
+      signOutGate.complete();
       await Future<void>.delayed(Duration.zero);
 
       expect(redirected, isTrue);
@@ -312,7 +320,10 @@ GoRouter _testRouter({required Widget home}) {
   );
 }
 
-LogoutServiceDependencies _recordingDependencies(List<String> calls) {
+LogoutServiceDependencies _recordingDependencies(
+  List<String> calls, {
+  Completer<void>? signOutGate,
+}) {
   LogoutStep step(String name) =>
       () => calls.add(name);
 
@@ -338,7 +349,10 @@ LogoutServiceDependencies _recordingDependencies(List<String> calls) {
     clearCycleTracker: step('cycle-tracker'),
     clearDependentsProvider: step('dependents'),
     clearUserProvider: step('user-provider'),
-    signOutFirebase: step('firebase-signout'),
+    signOutFirebase: () async {
+      calls.add('firebase-signout');
+      await signOutGate?.future;
+    },
   );
 }
 

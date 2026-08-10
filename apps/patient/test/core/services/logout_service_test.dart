@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 
@@ -108,6 +110,39 @@ void main() {
     expect(calls, contains('firebase-signout'));
   });
 
+  test('FCM token deletion still runs when push user cleanup fails', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, throwOn: 'push-user'),
+    );
+
+    await LogoutService.logout();
+
+    expect(calls, contains('fcm-token'));
+    expect(calls, contains('secure-storage'));
+  });
+
+  test('overlapping logout triggers share one teardown', () async {
+    final calls = <String>[];
+    final gate = Completer<void>();
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, firebaseRevokeGate: gate),
+    );
+
+    final first = LogoutService.logout();
+    final second = LogoutService.logout();
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      calls.where((call) => call == 'firebase-server-revoke'),
+      hasLength(1),
+    );
+
+    gate.complete();
+    final outcomes = await Future.wait([first, second]);
+    expect(outcomes.every((outcome) => outcome.serverSessionRevoked), isTrue);
+    expect(calls.where((call) => call == 'firebase-signout'), hasLength(1));
+  });
+
   test('logout reports a confirmed server-side revocation', () async {
     final calls = <String>[];
     LogoutService.debugSetDependencies(_dependencies(calls));
@@ -173,6 +208,7 @@ LogoutServiceDependencies _dependencies(
   String? throwOn,
   bool firebaseRevokeResult = true,
   bool vhRevokeResult = true,
+  Completer<void>? firebaseRevokeGate,
 }) {
   LogoutStep step(String name) {
     return () {
@@ -182,8 +218,9 @@ LogoutServiceDependencies _dependencies(
   }
 
   return LogoutServiceDependencies(
-    revokeFirebaseSession: () {
+    revokeFirebaseSession: () async {
       calls.add('firebase-server-revoke');
+      await firebaseRevokeGate?.future;
       if (throwOn == 'firebase-server-revoke') {
         throw StateError('firebase-server-revoke failed');
       }

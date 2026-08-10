@@ -29,6 +29,7 @@ class LogoutService {
   static final _storage = VHSecureStorage.instance;
   static LogoutServiceDependencies _dependencies =
       LogoutServiceDependencies.defaults();
+  static Future<LogoutOutcome>? _logoutInFlight;
 
   @visibleForTesting
   static void debugSetDependencies(LogoutServiceDependencies dependencies) {
@@ -38,6 +39,7 @@ class LogoutService {
   @visibleForTesting
   static void debugResetDependencies() {
     _dependencies = LogoutServiceDependencies.defaults();
+    _logoutInFlight = null;
   }
 
   /// Full logout: clears credentials, disconnects services, wipes caches.
@@ -48,7 +50,19 @@ class LogoutService {
   /// trying to hand back, which is worse than a stale server-side token. The
   /// returned [LogoutOutcome] reports whether the server-side revocation
   /// actually happened so the caller can say so instead of implying it did.
-  static Future<LogoutOutcome> logout() async {
+  static Future<LogoutOutcome> logout() {
+    final existing = _logoutInFlight;
+    if (existing != null) return existing;
+
+    late final Future<LogoutOutcome> tracked;
+    tracked = _performLogout().whenComplete(() {
+      if (identical(_logoutInFlight, tracked)) _logoutInFlight = null;
+    });
+    _logoutInFlight = tracked;
+    return tracked;
+  }
+
+  static Future<LogoutOutcome> _performLogout() async {
     BiometricGate.clearUnlockState();
 
     // 0. Revoke both server sessions before step 3 wipes secure storage. The
@@ -111,6 +125,10 @@ class LogoutService {
     //    PushNotificationService.syncForSignedInUser.
     try {
       await Future<void>.sync(_dependencies.clearPushSignedInUser);
+    } catch (e) {
+      debugPrint('LogoutService: push user cleanup failed: $e');
+    }
+    try {
       await Future<void>.sync(_dependencies.deleteFcmToken);
     } catch (e) {
       debugPrint('LogoutService: FCM token delete failed: $e');
@@ -220,8 +238,10 @@ class LogoutService {
     // attempt fails): disconnect the realtime + WebSocket PHI channels and
     // wipe caches, then redirect. Previously only UserProvider was cleared,
     // leaving the realtime channels live for the prior user.
-    unawaited(logout());
-    redirectToLogin();
+    unawaited(() async {
+      await logout();
+      redirectToLogin();
+    }());
   }
 
   /// Ends the VH session server-side. Returns false — never throws — when the

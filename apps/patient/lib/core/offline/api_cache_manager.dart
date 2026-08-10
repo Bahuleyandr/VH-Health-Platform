@@ -29,6 +29,7 @@ class ApiCacheManager {
   static const Duration defaultTtl = Duration(minutes: 15);
 
   static String? _cacheDir;
+  static int _sessionGeneration = 0;
   static SecretKey? _aesKey;
   static final AesGcm _aesGcm = AesGcm.with256bits();
 
@@ -192,12 +193,15 @@ class ApiCacheManager {
     CacheProfileScope? profile,
   }) async {
     try {
+      if (profile != null && !profile.isCurrent) return null;
       final dir = await _getCacheDir();
+      if (profile != null && !profile.isCurrent) return null;
       final fileKey = _keyForPath(path, profile: profile);
       final file = File('$dir/$fileKey.json');
       final cachedAt = DateTime.now();
       final envelope = {'cachedAt': cachedAt.toIso8601String(), 'data': data};
       final encrypted = await _encrypt(jsonEncode(envelope));
+      if (profile != null && !profile.isCurrent) return null;
       await file.writeAsString(encrypted);
       return cachedAt;
     } catch (e) {
@@ -220,7 +224,9 @@ class ApiCacheManager {
     CacheProfileScope? profile,
   }) async {
     try {
+      if (profile != null && !profile.isCurrent) return null;
       final dir = await _getCacheDir();
+      if (profile != null && !profile.isCurrent) return null;
       final key = _keyForPath(path, profile: profile);
       final file = File('$dir/$key.json');
       if (!await file.exists()) return null;
@@ -311,6 +317,9 @@ class ApiCacheManager {
 
   /// Clear all cached API data.
   static Future<void> clearAll() async {
+    // Invalidate request-time scopes synchronously. A response that started
+    // before logout must not recreate PHI cache files after this wipe.
+    _sessionGeneration += 1;
     try {
       final dir = await _getCacheDir();
       final directory = Directory(dir);
@@ -334,13 +343,19 @@ class ApiCacheManager {
 /// the wrong profile's namespace. Capture the scope once at request time and
 /// pass it to every load/save belonging to that request.
 class CacheProfileScope {
-  const CacheProfileScope.uid(this.uid);
+  CacheProfileScope.uid(this.uid)
+    : _generation = ApiCacheManager._sessionGeneration;
 
   /// Resolve the currently-active acting-as uid, now.
-  CacheProfileScope.current() : uid = VHHttpClient.actingAsUidProvider?.call();
+  CacheProfileScope.current()
+    : uid = VHHttpClient.actingAsUidProvider?.call(),
+      _generation = ApiCacheManager._sessionGeneration;
 
   /// Null means the guardian's own (un-prefixed) namespace.
   final String? uid;
+  final int _generation;
+
+  bool get isCurrent => _generation == ApiCacheManager._sessionGeneration;
 }
 
 /// Cached data with timestamp.

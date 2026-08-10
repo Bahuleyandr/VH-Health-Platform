@@ -87,6 +87,21 @@ void main() {
   });
 
   test(
+    'a pre-logout request scope cannot repopulate the wiped cache',
+    () async {
+      final preLogoutScope = CacheProfileScope.current();
+
+      await ApiCacheManager.clearAll();
+      final savedAt = await ApiCacheManager.save('/portal/lab-results', {
+        'who': 'signed-out-user',
+      }, profile: preLogoutScope);
+
+      expect(savedAt, isNull);
+      expect(await ApiCacheManager.load('/portal/lab-results'), isNull);
+    },
+  );
+
+  test(
     'without a snapshot the namespace resolves at call time (legacy)',
     () async {
       VHHttpClient.actingAsUidProvider = () => 'dep-uid-2';
