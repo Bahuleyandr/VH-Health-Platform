@@ -83,6 +83,8 @@ async function assessmentRows(patientUid) {
 
 async function cleanup() {
   for (const uid of [PATIENT_UID, SCALE2_PATIENT_UID]) {
+    await prisma.$executeRawUnsafe(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`, uid).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, uid).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, uid).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM nursing_assessments WHERE patient_uid = $1::uuid`, uid).catch(() => {});
@@ -226,6 +228,41 @@ d('Nursing assessment write — canonical timeline + tx + sepsis visibility (C-M
     expect(canonicalControl.seenDbIsTx).toBe(true);
     const after = (await assessmentRows(PATIENT_UID)).length;
     expect(after).toBe(before);
+  });
+
+  // Audit 2026-08-10 — NEWS2 nursing-path parity with the vitals path. The
+  // escalation-task half lives in
+  // nursing-assessment-news2-escalation.deep.test.js (it needs the REAL
+  // canonical platform service for startWorkflowSla; this file mocks it).
+  test('a zero-parameter NEWS2 is a 400, not a fabricated "total 0 / low" row', async () => {
+    const before = (await assessmentRows(PATIENT_UID)).length;
+    await expect(recordAssessment({
+      tenantId: TENANT_ID,
+      patient_uid: PATIENT_UID,
+      assessment_kind: 'news2',
+      inputs: {},
+      assessed_by: NURSE_UID,
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect((await assessmentRows(PATIENT_UID)).length).toBe(before);
+  });
+
+  test('a partial NEWS2 persists the partial marker + missing params (migration 652)', async () => {
+    const saved = await recordAssessment({
+      tenantId: TENANT_ID,
+      patient_uid: PATIENT_UID,
+      assessment_kind: 'news2',
+      inputs: { rr: 16, spo2: 97, spo2_scale: 1 },
+      assessed_by: NURSE_UID,
+    });
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT partial_score, missing_params FROM nursing_assessments WHERE id = $1::int`,
+      saved.id,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].partial_score).toBe(true);
+    expect(rows[0].missing_params).toEqual(
+      expect.arrayContaining(['temperature', 'systolic_bp', 'heart_rate', 'consciousness']),
+    );
   });
 
   test('NEWS2 with no caller scale locks the patient-level Scale-2 flag into the stored inputs', async () => {

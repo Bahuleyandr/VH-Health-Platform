@@ -12,6 +12,7 @@ import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import {
   calculateNEWS2,
+  escalateNews2,
   normalizeSpo2Scale,
   resolveSpo2ScaleForPatient,
 } from './news2Service.js';
@@ -67,7 +68,11 @@ export function scoreNews2(input, options = {}) {
           ? ['Review by registered nurse who decides if clinician review needed', 'Increase monitoring frequency to 4-6h']
           : ['Continue routine monitoring (12-hourly)'];
 
-  return { total_score: total, band, recommended_actions: recommendedActions, reassessmentMins };
+  // `computed` is the full scorer output (scorable/partial/missingParams/
+  // scores/clinicalRisk/escalationAction) — recordAssessment needs it to
+  // honor the scorable flag, persist the partial marker, and drive the same
+  // escalateNews2 the vitals path uses (audit 2026-08-10 parity fix).
+  return { total_score: total, band, recommended_actions: recommendedActions, reassessmentMins, computed };
 }
 
 // ── Braden ──────────────────────────────────────────────────────────
@@ -225,6 +230,16 @@ export async function recordAssessment({
   }
 
   const result = score(assessment_kind, effectiveInputs);
+  // Honor the scorer's scorable flag (audit 2026-08-10): a NEWS2 assessment
+  // with ZERO core parameters previously persisted as "total 0 / low /
+  // 12-hourly" — a fabricated reassuring score. Reject it instead.
+  if (assessment_kind === 'news2' && result.computed && !result.computed.scorable) {
+    throw AppError.badRequest(
+      'NEWS2 assessment requires at least one core parameter (respiration rate, SpO2, temperature, systolic BP, heart rate, or consciousness)',
+    );
+  }
+  const news2Partial = assessment_kind === 'news2' && result.computed?.partial === true;
+  const news2MissingParams = news2Partial ? result.computed.missingParams : null;
   const reassessMins = result.reassessmentMins ?? null;
   const nextDueAt = reassessMins
     ? new Date(Date.now() + reassessMins * 60_000).toISOString()
@@ -256,14 +271,16 @@ export async function recordAssessment({
   // even a positive sepsis screen left zero timeline/audit footprint.
   const resolvedTenantId = requireTenantId(tenantId);
   const sepsisPositive = assessment_kind === 'sepsis_screen' && SEPSIS_POSITIVE_BANDS.has(result.band);
-  return setTenantTx(resolvedTenantId, async (tx) => {
+  const saved = await setTenantTx(resolvedTenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO nursing_assessments
          (patient_uid, admission_id, assessment_kind, inputs, total_score,
           band, scoring_version, recommended_actions, notes,
-          assessed_by, assessed_by_name, next_assessment_due_at, tenant_id)
+          assessed_by, assessed_by_name, next_assessment_due_at, tenant_id,
+          partial_score, missing_params)
        VALUES ($1::uuid, $2::int, $3, $4::jsonb, $5::int, $6, $7,
-               $8::text[], $9, $10::uuid, $11, $12::timestamptz, $13::uuid)
+               $8::text[], $9, $10::uuid, $11, $12::timestamptz, $13::uuid,
+               $14, $15::text[])
        RETURNING *`,
       String(patient_uid),
       admission_id ? Number(admission_id) : null,
@@ -278,8 +295,10 @@ export async function recordAssessment({
       resolvedAssessedByName,
       nextDueAt,
       resolvedTenantId,
+      news2Partial,
+      news2MissingParams,
     );
-    const saved = rows[0];
+    const row = rows[0];
     await recordCanonicalClinicalEvent({
       tenantId: resolvedTenantId,
       patientUid: String(patient_uid),
@@ -287,9 +306,9 @@ export async function recordAssessment({
       eventSubtype: assessment_kind,
       eventStatus: 'recorded',
       sourceTable: 'nursing_assessments',
-      sourceId: saved.id,
+      sourceId: row.id,
       resourceType: 'nursing_assessment',
-      resourceId: saved.id,
+      resourceId: row.id,
       actorUid: assessed_by ? String(assessed_by) : null,
       summary: sepsisPositive
         ? `Sepsis screen POSITIVE (${result.band}, score ${result.total_score})`
@@ -300,15 +319,34 @@ export async function recordAssessment({
         band: result.band,
         recommended_actions: result.recommended_actions ?? null,
         scoring_version: SCORING_VERSION,
+        ...(assessment_kind === 'news2'
+          ? { partial: news2Partial, missing_params: news2MissingParams }
+          : {}),
         ...(assessment_kind === 'sepsis_screen' ? { sepsis_screen_positive: sepsisPositive } : {}),
       },
-      afterState: saved,
+      afterState: row,
       tags: sepsisPositive
         ? ['nursing-assessment', assessment_kind, 'sepsis-screen-positive']
         : ['nursing-assessment', assessment_kind],
     }, { db: tx });
-    return saved;
+    return row;
   });
+
+  // Escalation parity with the vitals path (audit 2026-08-10): a NEWS2 of 8
+  // charted through a nursing assessment previously rendered "emergency" text
+  // but raised no tracked task, while the SAME score via recordVitals did.
+  // POST-COMMIT like the vitals path (it touches other tables / the CDS
+  // module); escalateNews2 itself decides whether the score warrants a task
+  // (aggregate >= 5 or a single red parameter) and is LOUD on failure.
+  // resourceType 'nursing_assessment' keeps the task dedup slot off the
+  // news2_scores id space.
+  if (assessment_kind === 'news2' && result.computed) {
+    await escalateNews2(String(patient_uid), saved, result.computed, {
+      tenantId: resolvedTenantId,
+      resourceType: 'nursing_assessment',
+    });
+  }
+  return saved;
 }
 
 export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }) {
