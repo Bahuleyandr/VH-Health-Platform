@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/widgets/vital_text_field.dart';
 import 'package:vhhealth_staff/features/emr/screens/vitals_chart_screen.dart';
 
 void main() {
@@ -86,6 +87,83 @@ void main() {
 
       expect(payload.containsKey('temperature'), isFalse);
       expect(payload.containsKey('temperature_unit'), isFalse);
+    });
+  });
+
+  group('record-sheet field validation (STF-3)', () {
+    test('empty fields are valid — every vital is optional', () {
+      for (final field in vitalsRecordFieldBounds.keys) {
+        expect(vitalsRecordFieldIssue('', field, ''), isNull);
+        expect(vitalsRecordFieldIssue('   ', field, ''), isNull);
+      }
+    });
+
+    test('unparseable values are flagged instead of silently dropped', () {
+      expect(
+        vitalsRecordFieldIssue('abc', 'heart_rate', VitalUnit.pulse),
+        VitalsRecordFieldIssue.notANumber,
+      );
+      expect(
+        // Decimal in an integer field was previously dropped by int.tryParse.
+        vitalsRecordFieldIssue('82.5', 'heart_rate', VitalUnit.pulse),
+        VitalsRecordFieldIssue.notANumber,
+      );
+      expect(
+        vitalsRecordFieldIssue('12o', 'systolic_bp', VitalUnit.bp),
+        VitalsRecordFieldIssue.notANumber,
+      );
+    });
+
+    test('accepts values with the unit suffix the field displays', () {
+      expect(
+        vitalsRecordFieldIssue('82 /min', 'heart_rate', VitalUnit.pulse),
+        isNull,
+      );
+      expect(
+        vitalsRecordFieldIssue(
+          '98.6 deg F',
+          'temperature_f',
+          VitalUnit.temperature,
+        ),
+        isNull,
+      );
+    });
+
+    test('flags values outside the backend plausibility bounds', () {
+      expect(
+        vitalsRecordFieldIssue('101', 'spo2', VitalUnit.spo2),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      expect(
+        vitalsRecordFieldIssue('301', 'heart_rate', VitalUnit.pulse),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      // 37 (a °C habit-entry) is below the °F band — flag it rather than
+      // record a hypothermic 37 °F.
+      expect(
+        vitalsRecordFieldIssue('37', 'temperature_f', VitalUnit.temperature),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      expect(
+        vitalsRecordFieldIssue('16', 'gcs_score', VitalUnit.gcs),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+      expect(
+        vitalsRecordFieldIssue('11', 'pain_score', VitalUnit.pain),
+        VitalsRecordFieldIssue.outOfRange,
+      );
+    });
+
+    test('boundary values are accepted', () {
+      expect(
+        vitalsRecordFieldIssue('300', 'heart_rate', VitalUnit.pulse),
+        isNull,
+      );
+      expect(vitalsRecordFieldIssue('100', 'spo2', VitalUnit.spo2), isNull);
+      expect(
+        vitalsRecordFieldIssue('15', 'gcs_score', VitalUnit.gcs),
+        isNull,
+      );
     });
   });
 

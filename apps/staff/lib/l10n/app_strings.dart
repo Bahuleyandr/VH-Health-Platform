@@ -4535,6 +4535,8 @@ class AppStrings {
       'vitals.nurse_notes_label': 'Nurse Notes (optional)',
       'vitals.nurse_notes_hint': 'Any observations or concerns...',
       'vitals.validation.invalid': 'Invalid',
+      's4.dynamic.vitals_chart.value_out_of_range':
+          'Enter a value between {min} and {max}',
       'vitals.save_button': 'Save Vitals',
       'vitals.fetch_button': 'Fetch',
       'vitals.trends_hint': 'Enter a patient ID to view vital trends',
@@ -10986,6 +10988,8 @@ class AppStrings {
       'vitals.nurse_notes_label': 'नर्स नोट्स (वैकल्पिक)',
       'vitals.nurse_notes_hint': 'कोई अवलोकन या चिंताएँ...',
       'vitals.validation.invalid': 'अमान्य',
+      's4.dynamic.vitals_chart.value_out_of_range':
+          '{min} और {max} के बीच मान दर्ज करें',
       'vitals.save_button': 'वाइटल्स सहेजें',
       'vitals.fetch_button': 'लाएँ',
       'vitals.trends_hint': 'वाइटल ट्रेंड देखने के लिए मरीज़ ID दर्ज करें',
@@ -17361,6 +17365,8 @@ class AppStrings {
       'vitals.nurse_notes_label': 'செவிலியர் குறிப்புகள் (விருப்பம்)',
       'vitals.nurse_notes_hint': 'ஏதேனும் கவனிப்புகள் அல்லது கவலைகள்...',
       'vitals.validation.invalid': 'தவறான',
+      's4.dynamic.vitals_chart.value_out_of_range':
+          '{min} மற்றும் {max} இடையே ஒரு மதிப்பை உள்ளிடவும்',
       'vitals.save_button': 'வைட்டல்ஸ் சேமி',
       'vitals.fetch_button': 'பெறு',
       'vitals.trends_hint': 'வைட்டல் போக்குகளைக் காண நோயாளி ID உள்ளிடவும்',
@@ -24388,6 +24394,8 @@ class AppStrings {
       'vitals.nurse_notes_label': 'నర్స్ గమనికలు (ఐచ్ఛికం)',
       'vitals.nurse_notes_hint': 'ఏదైనా పరిశీలనలు లేదా ఆందోళనలు...',
       'vitals.validation.invalid': 'చెల్లదు',
+      's4.dynamic.vitals_chart.value_out_of_range':
+          '{min} మరియు {max} మధ్య విలువను నమోదు చేయండి',
       'vitals.save_button': 'వైటల్స్ సేవ్ చేయి',
       'vitals.fetch_button': 'తెచ్చు',
       'vitals.trends_hint': 'వైటల్ ట్రెండ్‌లను చూడటానికి రోగి ID నమోదు చేయండి',
@@ -31333,6 +31341,8 @@ class AppStrings {
       'vitals.nurse_notes_label': 'നഴ്സ് കുറിപ്പുകൾ (ഓപ്ഷണൽ)',
       'vitals.nurse_notes_hint': 'നിരീക്ഷണങ്ങളോ ആശങ്കകളോ...',
       'vitals.validation.invalid': 'അസാധു',
+      's4.dynamic.vitals_chart.value_out_of_range':
+          '{min} നും {max} നും ഇടയിലുള്ള മൂല്യം നൽകുക',
       'vitals.save_button': 'വൈറ്റൽസ് സേവ് ചെയ്യുക',
       'vitals.fetch_button': 'എടുക്കുക',
       'vitals.trends_hint': 'വൈറ്റൽ ട്രെൻഡുകൾ കാണാൻ രോഗി ഐഡി നൽകുക',
