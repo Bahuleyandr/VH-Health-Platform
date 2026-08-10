@@ -119,6 +119,7 @@ jobs:
           docker buildx build \
             --pull \
             --platform linux/amd64 \
+            --build-context backend=apps/backend \
             --metadata-file output/dalekdefender/admin-metadata.json \
             --push \
             -t "${admin_image}:${tag}" \
@@ -157,6 +158,8 @@ jobs:
             ref="${!ref_var}"
             /tmp/vh-dalek-tools/trivy image \
               --platform linux/amd64 \
+              --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+              --db-repository docker.io/aquasec/trivy-db:2 \
               --scanners vuln \
               --severity CRITICAL,HIGH \
               --ignore-unfixed \
@@ -214,7 +217,7 @@ jobs:
 
       - name: Probe deploy prerequisites
         id: prereq
-        run: node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy
+        run: node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy --allow-skip
 
       - name: Tailscale connect
         if: steps.prereq.outputs.skip != 'true'

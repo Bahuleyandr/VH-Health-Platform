@@ -9,7 +9,7 @@ COPY scripts/patch-minimatch-compat.mjs ./scripts/patch-minimatch-compat.mjs
 RUN npm ci
 
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate
 
 # ---- Production Stage ----
 FROM ${NODE_IMAGE} AS production

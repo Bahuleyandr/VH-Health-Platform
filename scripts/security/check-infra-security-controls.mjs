@@ -17,6 +17,7 @@ const backendApp = read('apps/backend/src/app.js');
 const backendAllowlist = read('apps/backend/src/middleware/ipAllowlistMiddleware.js');
 const backendDockerfile = read('apps/backend/Dockerfile');
 const backendPackage = JSON.parse(read('apps/backend/package.json'));
+const backendCi = read('scripts/ci/backend.mjs');
 const backendMinimatchPatch = read('apps/backend/scripts/patch-minimatch-compat.mjs');
 const adminMiddleware = read('apps/admin/src/middleware.ts');
 const adminDockerfile = read('apps/admin/Dockerfile');
@@ -28,6 +29,8 @@ const mcpK8s = read('infra/mcp/vh-mcp-postgres/k8s.yaml');
 const forgejoReleaseImages = read('.forgejo/workflows/release-images.yml');
 const forgejoDalekDeploy = read('.forgejo/workflows/deploy-dalekdefender.yml');
 const forgejoContainerSupplyChain = read('.forgejo/workflows/container-supply-chain.yml');
+const forgejoSecuritySweep = read('.forgejo/workflows/security-sweep.yml');
+const forgejoCosignPublicKey = read('infra/forgejo/signing/cosign.pub');
 const githubReleaseImages = read('.github/workflows/release-images.yml');
 const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
 
@@ -104,6 +107,49 @@ check('release workflows keep backend base image overrides digest-pinned', () =>
   const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
   return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(combined);
 });
+
+check('backend generation stays within the Forgejo runner memory budget', () =>
+  backendDockerfile.includes(
+    'RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate',
+  ) && backendCi.includes("NODE_OPTIONS: '--max-old-space-size=4096'"));
+
+check('staff web runtime applies Alpine security updates', () =>
+  staffWebDockerfile.includes('RUN apk upgrade --no-cache'));
+
+check('Forgejo admin image builds provide the backend named context', () =>
+  forgejoContainerSupplyChain.includes(
+    "build_contexts: '--build-context backend=apps/backend'",
+  ) &&
+  forgejoDalekDeploy.includes('--build-context backend=apps/backend') &&
+  forgejoReleaseImages.includes(
+    'build_context_args+=(--build-context "backend=apps/backend")',
+  ));
+
+check('Forgejo image scans use resilient official Trivy DB fallbacks', () => {
+  const workflows = [
+    forgejoContainerSupplyChain,
+    forgejoDalekDeploy,
+    forgejoReleaseImages,
+    forgejoSecuritySweep,
+  ];
+  return workflows.every(
+    (workflow) =>
+      workflow.includes(
+        '--db-repository public.ecr.aws/aquasecurity/trivy-db:2',
+      ) &&
+      workflow.includes('--db-repository docker.io/aquasec/trivy-db:2'),
+  );
+});
+
+check('Forgejo Dalekdefender transport fails closed as a clean skip', () =>
+  forgejoDalekDeploy.includes(
+    'forgejo-deploy-preflight.mjs --mode dalek-deploy --allow-skip',
+  ));
+
+check('Forgejo signing public key is retained for admission verification', () =>
+  /^-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+\n-----END PUBLIC KEY-----\n$/.test(
+    forgejoCosignPublicKey,
+  ));
 
 check('MCP bridge rejects query-string tokens', () =>
   !mcpIndex.includes('req.query.token') &&

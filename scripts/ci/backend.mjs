@@ -14,6 +14,7 @@ const backendEnv = {
   DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/vhhealth',
   API_KEY: 'test-api-key',
   JWT_SECRET: 'test-jwt-secret-for-ci-must-be-at-least-32-chars',
+  NODE_OPTIONS: '--max-old-space-size=4096',
   NODE_ENV: 'test',
   VH_ALLOW_NON_TEST_DATA_SEED: 'true',
   FIELD_ENCRYPTION_KEY: 'ci-field-encryption-key-32-chars-minimum',
