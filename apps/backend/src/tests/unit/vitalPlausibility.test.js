@@ -62,6 +62,22 @@ describe('assertVitalPlausibility — bound edges', () => {
     expect(() => assertVitalPlausibility({ systolic_bp: 0, diastolic_bp: 0 })).not.toThrow();
   });
 
+  it('accepts the complete peri-arrest envelope without weakening upper bounds', () => {
+    expect(() => assertVitalPlausibility({
+      heart_rate: 0,
+      systolic_bp: 0,
+      diastolic_bp: 0,
+      temperature: 12,
+      spo2: 0,
+      respiratory_rate: 120,
+      blood_glucose: 0,
+    })).not.toThrow();
+
+    expect(() => assertVitalPlausibility({ temperature: 11.9 })).toThrow(/temperature/);
+    expect(() => assertVitalPlausibility({ respiratory_rate: 121 })).toThrow(/respiratory_rate/);
+    expect(() => assertVitalPlausibility({ blood_glucose: -1 })).toThrow(/blood_glucose/);
+  });
+
   it('neonatal truth is chartable: preterm SBP 45 / DBP 18', () => {
     expect(() => assertVitalPlausibility({ systolic_bp: 45, diastolic_bp: 18 })).not.toThrow();
   });

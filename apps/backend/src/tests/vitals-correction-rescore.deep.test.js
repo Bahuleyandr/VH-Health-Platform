@@ -4,7 +4,7 @@
 //   code and a preterm-neonate SBP 45 were previously hard-400s at the
 //   plausibility gate (floors HR 20 / SBP 40); they now record AND score
 //   (NEWS2 red parameter), while garbage (negative, HR 900) still rejects.
-//   Migration 651 relaxes migration 648's ICU flowsheet CHECK to match.
+//   Migrations 651 and 654 relax migration 648's ICU flowsheet CHECK to match.
 //
 //   R4: correcting a NEWS2-input field re-scores from the corrected values.
 //   A corrected SpO2 98→88 must append a NEW news2_scores row linked to the
@@ -16,6 +16,10 @@
 
 import prisma from '../lib/prisma.js';
 import { recordVitals, correctVitals } from '../services/emr/vitalsChartService.js';
+import {
+  ICU_FLOWSHEET_BOUNDS,
+  ICU_FLOWSHEET_VITAL_FIELDS,
+} from '../utils/clinical/icuPlausibility.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = hasDb ? describe : describe.skip;
@@ -30,6 +34,24 @@ async function exec(sql, ...p) {
 async function query(sql, ...p) {
   const r = await prisma.$queryRawUnsafe(sql, ...p);
   return Array.isArray(r) ? r : [];
+}
+
+function normalizedConstraintDefinition(value) {
+  return value
+    .toLowerCase()
+    .replace(/^check/, '')
+    .replace(/not valid$/, '')
+    .replace(/::[a-z ]+/g, '')
+    .replace(/[()'\s]/g, '');
+}
+
+function expectedConstraintDefinition() {
+  return ICU_FLOWSHEET_VITAL_FIELDS
+    .map((field) => {
+      const { min, max } = ICU_FLOWSHEET_BOUNDS[field];
+      return `${field}isnullor${field}>=${min}and${field}<=${max}`;
+    })
+    .join('and');
 }
 
 async function cleanup() {
@@ -102,16 +124,13 @@ d('R5/R4 — plausibility floors + correction re-score (real Postgres)', () => {
     })).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it('R5: migration 651 relaxed the ICU flowsheet DB CHECK to the new floors', async () => {
+  it('R5: migrated ICU CHECK exactly matches every canonical floor and ceiling', async () => {
     const rows = await query(
       `SELECT pg_get_constraintdef(oid) AS def
          FROM pg_constraint WHERE conname = 'chk_icu_flowsheet_vitals_plausible'`,
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0].def).toMatch(/hr >= 0/);
-    expect(rows[0].def).toMatch(/sbp >= 0/);
-    expect(rows[0].def).toMatch(/dbp >= 0/);
-    expect(rows[0].def).toMatch(/hr <= 300/);
+    expect(normalizedConstraintDefinition(rows[0].def)).toBe(expectedConstraintDefinition());
   });
 
   it('R4: correcting SpO2 98→88 re-scores, supersedes the stale score, and escalates', async () => {

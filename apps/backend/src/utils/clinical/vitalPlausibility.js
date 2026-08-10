@@ -21,19 +21,19 @@ import { AppError } from '../AppError.js';
 // truth (SBP in the 30s-40s). Cohort-specific "is this value ALARMING"
 // judgment belongs to vitalSignMonitor's neonatal/paediatric/adult ranges —
 // this module must accept every survivable-emergency value and reject only
-// entry/sensor garbage (negatives, HR 900). Migration 651 relaxes the
-// matching DB CHECK from migration 648.
+// entry/sensor garbage (negatives, HR 900). Migrations 651 and 654 relax the
+// matching DB CHECK introduced by migration 648.
 export const VITAL_PLAUSIBILITY_BOUNDS = {
   heart_rate: { min: 0, max: 300, unit: 'bpm' },
   systolic_bp: { min: 0, max: 300, unit: 'mmHg' },
   diastolic_bp: { min: 0, max: 200, unit: 'mmHg' },
-  temperature: { min: 30, max: 45, unit: '°C' },
+  temperature: { min: 12, max: 45, unit: '°C' },
   // 0 stays permitted so peri-arrest saturations remain chartable; >100 is
   // physically impossible (also keeps sensor glitches out of the SpO2
   // classification bands — see vitalSignMonitor's one-sided SpO2 range).
   spo2: { min: 0, max: 100, unit: '%' },
-  respiratory_rate: { min: 0, max: 80, unit: '/min' },
-  blood_glucose: { min: 10, max: 1500, unit: 'mg/dL' },
+  respiratory_rate: { min: 0, max: 120, unit: '/min' },
+  blood_glucose: { min: 0, max: 1500, unit: 'mg/dL' },
   o2_flow_rate: { min: 0, max: 80, unit: 'L/min' },
 };
 
