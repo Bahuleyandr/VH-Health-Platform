@@ -98,4 +98,29 @@ d('User directory authz (CAN-055)', () => {
     expect(res.body?.data?.totalFound).toBe(0);
     expect(res.body?.data?.users).toEqual([]);
   });
+
+  it('ADMIN reaches /users/system-info before the /users/:identifier wildcard', async () => {
+    const res = await client('ADMIN', { uid: 'c0de0102-0004-4c0d-8c0d-c0de01020004' })
+      .get('/api/v1/users/system-info');
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body?.data?.database?.version).toEqual(expect.any(String));
+  });
+
+  it('non-admin staff cannot read database system information', async () => {
+    const res = await client('GENERAL_STAFF', {
+      uid: 'c0de0102-0003-4c0d-8c0d-c0de01020003',
+    }).get('/api/v1/users/system-info');
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('PATIENT cannot read database system information', async () => {
+    const res = await client('PATIENT', {
+      uid: PATIENT_UID,
+      phone: PATIENT_PHONE,
+    }).get('/api/v1/users/system-info');
+
+    expect(res.statusCode).toBe(403);
+  });
 });
