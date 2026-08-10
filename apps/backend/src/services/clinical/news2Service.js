@@ -230,9 +230,12 @@ const NEWS2_ESCALATION_THRESHOLD = 5;
  * @param {string} patientUid
  * @param {Object} vitals
  * @param {string} recordedBy
- * @param {{ db?: object, spo2Scale?: 1|2 }} [options] `spo2Scale` is the
- *   resolved patient-level scale (resolveSpo2ScaleForPatient); it wins over a
- *   per-reading vitals.spo2_scale and is what gets persisted.
+ * @param {{ db?: object, spo2Scale?: 1|2, vitalsChartId?: number|null }}
+ *   [options] `spo2Scale` is the resolved patient-level scale
+ *   (resolveSpo2ScaleForPatient); it wins over a per-reading
+ *   vitals.spo2_scale and is what gets persisted. `vitalsChartId` links the
+ *   score to its source vitals_chart row (migration 652) so a later
+ *   correction of that row can find and supersede this score.
  */
 export async function persistNews2(patientUid, vitals, recordedBy, options = {}) {
   const db = options.db || prisma;
@@ -251,9 +254,12 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
     `INSERT INTO news2_scores
        (patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
         temperature, systolic_bp, heart_rate, consciousness,
-        total_score, clinical_risk, escalation_action, recorded_by)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid)
+        total_score, clinical_risk, escalation_action, recorded_by,
+        vitals_chart_id, partial_score, missing_params)
+     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid,
+             $14::int, $15, $16::text[])
      RETURNING id, patient_uid, total_score, clinical_risk, clinical_risk AS risk_level,
+               vitals_chart_id, partial_score, missing_params,
                recorded_by, recorded_at, created_at`,
     patientUid,
     vitals.respiration_rate ?? null,
@@ -268,9 +274,34 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
     clinicalRisk,
     escalationAction,
     recordedBy,
+    options.vitalsChartId ?? null,
+    computed.partial === true,
+    computed.partial ? computed.missingParams : null,
   );
 
   return { record: rows[0], computed };
+}
+
+/**
+ * Mark every LIVE NEWS2 score derived from a given vitals_chart row as
+ * superseded. A replacement id records the append-only successor; null is
+ * valid when a correction removed the final scorable parameter and therefore
+ * produced no replacement score. Runs on the caller's tx so retirement is
+ * atomic with the correction and optional replacement insert.
+ */
+export async function supersedeNews2ForVitalsRow(vitalsChartId, replacementScoreId, { db } = {}) {
+  if (!vitalsChartId) return 0;
+  const client = db || prisma;
+  return client.$executeRawUnsafe(
+    `UPDATE news2_scores
+        SET superseded_by_id = $1::int,
+            superseded_at = NOW()
+      WHERE vitals_chart_id = $2::int
+        AND ($1::int IS NULL OR id <> $1::int)
+        AND superseded_at IS NULL`,
+    replacementScoreId == null ? null : Number(replacementScoreId),
+    Number(vitalsChartId),
+  );
 }
 
 // Resolve the patient's tenant for routing a deterioration alert when the
@@ -300,8 +331,14 @@ async function resolvePatientTenantId(patientUid) {
  * caller / Sentry sees a deteriorating-patient alert that reached no one. CDS
  * surfacing stays best-effort. Pass { tenantId } from the caller's resolved
  * tenant; otherwise it is resolved from the patient.
+ *
+ * `resourceType` defaults to the news2_scores row ('news2_score'). The
+ * nursing-assessment path passes 'nursing_assessment' with the assessment
+ * row's id — the ids come from different sequences, so sharing the
+ * news2_score dedup slot would let an unrelated score's open task swallow a
+ * genuine nursing-assessment escalation (and vice versa).
  */
-export async function escalateNews2(patientUid, record, computed, { tenantId = null } = {}) {
+export async function escalateNews2(patientUid, record, computed, { tenantId = null, resourceType = 'news2_score' } = {}) {
   const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = computed;
 
   // RCP NEWS2: escalate on a high aggregate OR a single red (=3) parameter. Both
@@ -339,7 +376,7 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
         tenantId: effectiveTenantId,
         patientUid,
         source: 'news2',
-        resourceType: 'news2_score',
+        resourceType,
         resourceId: record?.id ?? null,
         // A high aggregate (>=7) is critical; an urgent single-red review that is
         // not also a high aggregate is 'high'.
@@ -461,7 +498,9 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
             temperature, systolic_bp, heart_rate, consciousness,
-            total_score, clinical_risk, escalation_action, recorded_by, recorded_at
+            total_score, clinical_risk, escalation_action, recorded_by, recorded_at,
+            vitals_chart_id, superseded_by_id, superseded_at,
+            partial_score, missing_params
      FROM news2_scores
      WHERE patient_uid = $1
      ORDER BY recorded_at DESC
@@ -470,7 +509,7 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
   );
 
   // Build trend from last 10 scores (oldest to newest)
-  const recentScores = rows.slice(0, 10).reverse();
+  const recentScores = rows.filter((row) => row.superseded_at == null).slice(0, 10).reverse();
   let trend = 'stable';
   if (recentScores.length >= 2) {
     const latest = recentScores[recentScores.length - 1].total_score;
@@ -488,6 +527,7 @@ export default {
   normalizeSpo2Scale,
   resolveSpo2ScaleForPatient,
   persistNews2,
+  supersedeNews2ForVitalsRow,
   escalateNews2,
   recordNEWS2,
   getPatientNEWS2History,

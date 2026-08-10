@@ -855,7 +855,7 @@ async function loadPatientClinicalFields({
      SELECT DISTINCT ON (patient_uid)
             patient_uid, systolic_bp, diastolic_bp, heart_rate,
             respiratory_rate, spo2, temperature, weight_kg, recorded_at
-       FROM vitals_chart
+      FROM vitals_chart
       WHERE tenant_id = $1::uuid
         AND patient_uid = ANY($2::uuid[])
         AND recorded_at <= $3::timestamptz
@@ -884,9 +884,10 @@ async function loadPatientClinicalFields({
     `/* continuity:news2 */
      SELECT DISTINCT ON (patient_uid)
             patient_uid, total_score, clinical_risk, recorded_at
-       FROM news2_scores
+      FROM news2_scores
       WHERE tenant_id = $1::uuid
         AND patient_uid = ANY($2::uuid[])
+        AND superseded_at IS NULL
         AND recorded_at <= $3::timestamptz
       ORDER BY patient_uid, recorded_at DESC, id DESC`,
     tenantId,

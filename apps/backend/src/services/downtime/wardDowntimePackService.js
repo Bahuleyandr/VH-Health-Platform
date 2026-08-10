@@ -301,6 +301,7 @@ async function collectBedEntry(bed, { tenantId } = {}) {
                 (SELECT n.total_score FROM news2_scores n
                   WHERE n.patient_uid = vc.patient_uid
                     AND n.tenant_id = vc.tenant_id
+                    AND n.superseded_at IS NULL
                   ORDER BY n.created_at DESC LIMIT 1) AS news2
            FROM vitals_chart vc
           WHERE vc.patient_uid = $1::uuid
