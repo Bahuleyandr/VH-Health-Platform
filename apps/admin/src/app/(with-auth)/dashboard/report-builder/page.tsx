@@ -18,17 +18,21 @@ import { toast } from "react-hot-toast";
  * Types
  * ======================================================================== */
 
-type ReportType =
-  | "users"
-  | "appointments"
-  | "attendance"
-  | "pharmacy"
-  | "investigations";
+// Attendance is intentionally NOT a report type: the backend serves only
+// aggregate attendance views (analytics / late-arrivals / absent-report under
+// /api/v1/staff/admin and /api/v1/admin/staff) — there is no raw records-list
+// operation to back a row-level report (R11, 2026-08-10 audit; the old
+// /attendance/admin/records endpoint never existed and 404'd).
+type ReportType = "users" | "appointments" | "pharmacy" | "investigations";
 
 interface ReportTypeConfig {
   label: string;
   endpoint: string;
   responseKey: string;
+  /** Cap for the `limit` query param (server-side validators reject more). */
+  maxRows: number;
+  /** Whether the endpoint accepts startDate/endDate query filters. */
+  supportsDateRange: boolean;
   columns: ColumnDef[];
 }
 
@@ -48,6 +52,8 @@ const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
     label: "Users",
     endpoint: "/admin/users",
     responseKey: "users",
+    maxRows: 500,
+    supportsDateRange: true,
     columns: [
       { key: "id", label: "ID", defaultSelected: true },
       { key: "name", label: "Name", defaultSelected: true },
@@ -66,6 +72,8 @@ const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
     label: "Appointments",
     endpoint: "/appointments/list",
     responseKey: "appointments",
+    maxRows: 500,
+    supportsDateRange: true,
     columns: [
       { key: "id", label: "ID", defaultSelected: true },
       { key: "patient_name", label: "Patient Name", defaultSelected: true },
@@ -80,27 +88,12 @@ const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
       { key: "created_at", label: "Created At", defaultSelected: false },
     ],
   },
-  attendance: {
-    label: "Attendance",
-    endpoint: "/attendance/admin/records",
-    responseKey: "records",
-    columns: [
-      { key: "id", label: "ID", defaultSelected: true },
-      { key: "user_id", label: "User ID", defaultSelected: true },
-      { key: "user_name", label: "User Name", defaultSelected: true },
-      { key: "date", label: "Date", defaultSelected: true },
-      { key: "check_in", label: "Check In", defaultSelected: true },
-      { key: "check_out", label: "Check Out", defaultSelected: true },
-      { key: "status", label: "Status", defaultSelected: true },
-      { key: "department", label: "Department", defaultSelected: false },
-      { key: "shift", label: "Shift", defaultSelected: false },
-      { key: "hours_worked", label: "Hours Worked", defaultSelected: false },
-    ],
-  },
   pharmacy: {
     label: "Pharmacy Orders",
     endpoint: "/pharmacy/admin/orders",
     responseKey: "orders",
+    maxRows: 500,
+    supportsDateRange: true,
     columns: [
       { key: "id", label: "Order ID", defaultSelected: true },
       { key: "patient_name", label: "Patient Name", defaultSelected: true },
@@ -119,9 +112,16 @@ const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
     ],
   },
   investigations: {
+    // R11 (2026-08-10 audit): /investigations/admin/list never existed —
+    // the served operation is GET /api/v1/investigations/list
+    // (apps/backend/src/routes/investigation/investigationRoutes.js). Its
+    // validator caps limit at 100 and takes an exact `date` filter only, so
+    // no startDate/endDate range is sent.
     label: "Investigations",
-    endpoint: "/investigations/admin/list",
+    endpoint: "/investigations/list",
     responseKey: "investigations",
+    maxRows: 100,
+    supportsDateRange: false,
     columns: [
       { key: "id", label: "ID", defaultSelected: true },
       { key: "patient_name", label: "Patient Name", defaultSelected: true },
@@ -140,7 +140,6 @@ const REPORT_CONFIGS: Record<ReportType, ReportTypeConfig> = {
 const REPORT_TYPE_OPTIONS: { value: ReportType; label: string }[] = [
   { value: "users", label: "Users" },
   { value: "appointments", label: "Appointments" },
-  { value: "attendance", label: "Attendance" },
   { value: "pharmacy", label: "Pharmacy Orders" },
   { value: "investigations", label: "Investigations" },
 ];
@@ -216,11 +215,13 @@ export default function ReportBuilderPage() {
   // Build query params for the API call
   const queryParams = useMemo(() => {
     const params = new URLSearchParams();
-    if (dateFrom) params.set("startDate", dateFrom);
-    if (dateTo) params.set("endDate", dateTo);
-    params.set("limit", "500"); // reasonable max for report display
+    if (config.supportsDateRange) {
+      if (dateFrom) params.set("startDate", dateFrom);
+      if (dateTo) params.set("endDate", dateTo);
+    }
+    params.set("limit", String(config.maxRows));
     return params.toString();
-  }, [dateFrom, dateTo]);
+  }, [dateFrom, dateTo, config]);
 
   // TanStack Query — only runs when generateKey is set (user clicks Generate)
   const {
@@ -335,7 +336,8 @@ export default function ReportBuilderPage() {
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className={inputCls}
+              disabled={!config.supportsDateRange}
+              className={`${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`}
             />
           </div>
 
@@ -348,10 +350,18 @@ export default function ReportBuilderPage() {
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className={inputCls}
+              disabled={!config.supportsDateRange}
+              className={`${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`}
             />
           </div>
         </div>
+
+        {!config.supportsDateRange && (
+          <p className="text-xs text-muted-foreground -mt-3">
+            This report type does not support date-range filtering; the most
+            recent {config.maxRows} records are returned.
+          </p>
+        )}
 
         {/* Row 2: Column selection */}
         <div>
@@ -481,7 +491,9 @@ export default function ReportBuilderPage() {
               </span>
             </div>
             <span className="text-xs text-muted-foreground">
-              {dateFrom} to {dateTo}
+              {config.supportsDateRange
+                ? `${dateFrom} to ${dateTo}`
+                : `latest ${config.maxRows} records`}
             </span>
           </div>
 
