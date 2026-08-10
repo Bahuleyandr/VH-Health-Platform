@@ -22,6 +22,7 @@ import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
+import { queueClinicalAlertFanout } from '../../utils/notifications/clinicalAlertFanout.js';
 import {
   currentCanonicalTransactionRevision,
   recordCanonicalClinicalEvent,
@@ -839,9 +840,12 @@ export async function runAncPreeclampsiaPostCommitCheck({
     );
     let alertQueued = false;
     try {
-      const queued = await outbox.queue({
+      // Duty-doctor fan-out to CONCRETE recipients (fix R2 — the outbox has
+      // no topic delivery, so the old recipientId:null broadcast row reached
+      // nobody). Same audience the pre-eclampsia clinical_alerts fan-out
+      // targets; dedupe stays per-recipient on the same source_event_key.
+      const fanout = await queueClinicalAlertFanout({
         type: 'push',
-        recipientId: null, // broadcast to clinical staff — same audience the pre-eclampsia clinical_alerts fan-out reaches
         tenantId,
         title: 'ANC pre-eclampsia screen did not run',
         body: `Pre-eclampsia screening FAILED to run for an ANC visit with BP ${bpText}. Review the visit and screen the patient manually.`,
@@ -853,8 +857,12 @@ export async function runAncPreeclampsiaPostCommitCheck({
           bp: bpText,
         },
         channel: 'clinical_alert',
-      }, { strict: true });
-      alertQueued = !!queued;
+      }, {
+        outbox,
+        resolveRecipients: deps.resolveClinicalAlertRecipients,
+        strict: true,
+      });
+      alertQueued = fanout.queued > 0;
     } catch (queueErr) {
       logger.error(
         `ANC pre-eclampsia check-failure alert could NOT be queued for visit=${visitId}: ${queueErr.message}`,
@@ -2464,11 +2472,12 @@ export async function raisePartographEscalationSideEffects({
   }
 
   // Durable care-team notification — retried by the outbox drain,
-  // deduplicated on source_event_key.
+  // deduplicated on source_event_key. Targets the attending obstetrician when
+  // one is recorded; otherwise fans out to concrete duty-doctor recipients
+  // (fix R2 — the old recipientId:null broadcast fallback reached nobody).
   try {
-    await outbox.queue({
+    const notification = {
       type: 'push',
-      recipientId: labor.attending_obstetrician ? String(labor.attending_obstetrician) : null,
       tenantId,
       title: escalationReason === 'fetal_decel'
         ? 'Partograph: fetal deceleration — review now'
@@ -2483,7 +2492,19 @@ export async function raisePartographEscalationSideEffects({
         escalation_reason: escalationReason,
       },
       channel: 'clinical_alert',
-    }, { strict: true });
+    };
+    if (labor.attending_obstetrician) {
+      await outbox.queue({
+        ...notification,
+        recipientId: String(labor.attending_obstetrician),
+      }, { strict: true });
+    } else {
+      await queueClinicalAlertFanout(notification, {
+        outbox,
+        resolveRecipients: deps.resolveClinicalAlertRecipients,
+        strict: true,
+      });
+    }
   } catch (err) {
     logger.error(
       `Partograph escalation notification could NOT be queued for entry=${entry.id} labor=${labor.id}: ${err.message}`,

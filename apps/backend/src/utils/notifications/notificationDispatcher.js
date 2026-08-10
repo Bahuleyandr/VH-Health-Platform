@@ -7,6 +7,7 @@ import { notificationOutbox } from './notificationOutbox.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { placeVoiceCall } from './sendVoiceNotification.js';
 import { sendWhatsApp } from './sendWhatsAppNotification.js';
+import { classifyFcmProviderResponse } from './terminalRejectionCodes.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -97,23 +98,7 @@ export async function dispatch({
           data,
         });
         if (providerReceiptMode) {
-          const accepted = response.responses?.filter(item => item.success) || [];
-          results.push = response.successCount > 0
-            ? {
-                outcome: 'acknowledged',
-                providerReference: accepted[0]?.messageId || `fcm-accepted:${response.successCount}`,
-                providerCode: response.failureCount > 0 ? 'partial_acceptance' : 'accepted',
-                evidence: {
-                  success_count: response.successCount,
-                  failure_count: response.failureCount,
-                  responses: response.responses || [],
-                },
-              }
-            : rejected('fcm_no_token_accepted', {
-                success_count: response.successCount,
-                failure_count: response.failureCount,
-                responses: response.responses || [],
-              });
+          results.push = classifyFcmProviderResponse(response);
         } else {
           results.push = 'sent';
         }

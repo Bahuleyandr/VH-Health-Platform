@@ -5,6 +5,7 @@ const CLAIM_TOKEN = '00000000-0000-4000-8000-000000000099';
 const claimPendingBatchMock = jest.fn();
 const markSentMock = jest.fn();
 const markFailedMock = jest.fn();
+const markTerminalFailedMock = jest.fn();
 const markReconciliationRequiredMock = jest.fn();
 const releaseClaimMock = jest.fn();
 const deliverMock = jest.fn();
@@ -15,6 +16,7 @@ jest.unstable_mockModule('../utils/notifications/notificationOutbox.js', () => (
     claimPendingBatch: claimPendingBatchMock,
     markSent: markSentMock,
     markFailed: markFailedMock,
+    markTerminalFailed: markTerminalFailedMock,
     markReconciliationRequired: markReconciliationRequiredMock,
     releaseClaim: releaseClaimMock,
   },
@@ -44,6 +46,7 @@ describe('notification outbox drain claim/receipt finalization', () => {
     claimPendingBatchMock.mockReset();
     markSentMock.mockReset();
     markFailedMock.mockReset();
+    markTerminalFailedMock.mockReset();
     markReconciliationRequiredMock.mockReset();
     releaseClaimMock.mockReset();
     deliverMock.mockReset();
@@ -52,6 +55,7 @@ describe('notification outbox drain claim/receipt finalization', () => {
     claimPendingBatchMock.mockResolvedValue([claim()]);
     markSentMock.mockResolvedValue({ status: 'SENT' });
     markFailedMock.mockResolvedValue({ status: 'FAILED' });
+    markTerminalFailedMock.mockResolvedValue({ status: 'FAILED', retry_count: 3 });
     markReconciliationRequiredMock.mockResolvedValue({ status: 'RECONCILIATION_REQUIRED' });
     releaseClaimMock.mockResolvedValue({ status: 'PENDING' });
   });
@@ -110,5 +114,19 @@ describe('notification outbox drain claim/receipt finalization', () => {
     expect(markFailedMock).not.toHaveBeenCalled();
     expect(markReconciliationRequiredMock).not.toHaveBeenCalled();
     expect(releaseClaimMock).not.toHaveBeenCalled();
+  });
+
+  test('dead-letters a terminal provider rejection without retrying it three times', async () => {
+    deliverMock.mockResolvedValue({ outcome: 'rejected', terminal: true });
+
+    const result = await drainNotificationOutbox({ tenantId: TENANT_ID, limit: 5 });
+
+    expect(result).toMatchObject({ claimed: 1, failed: 1 });
+    expect(markTerminalFailedMock).toHaveBeenCalledWith(
+      41,
+      'provider_terminal_rejection',
+      expect.objectContaining({ claimToken: CLAIM_TOKEN }),
+    );
+    expect(markFailedMock).not.toHaveBeenCalled();
   });
 });

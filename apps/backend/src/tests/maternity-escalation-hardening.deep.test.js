@@ -32,6 +32,7 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TENANT = DEFAULT_TENANT_ID;
 const ACTOR_UID = randomUUID();
+const DUTY_DOCTOR_UID = randomUUID();
 const createdUserUids = [ACTOR_UID];
 const installedTriggers = [];
 let phoneSequence = 0;
@@ -169,6 +170,15 @@ d('BE-H2 — ANC pre-eclampsia alert-persistence failure is surfaced, never swal
        VALUES ($1::uuid, $2, 'M-ESC Nurse', 'NURSING_STAFF', true, $3::uuid, NOW())`,
       ACTOR_UID, nextPhone(), TENANT,
     );
+    // R2 fan-out audience: partograph escalations with no attending
+    // obstetrician now fan out to concrete duty-doctor recipients instead of
+    // queueing an undeliverable recipientId:null broadcast row.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'M-ESC Duty Doctor', 'DUTY_DOCTOR', true, $3::uuid, NOW())`,
+      DUTY_DOCTOR_UID, nextPhone(), TENANT,
+    );
+    createdUserUids.push(DUTY_DOCTOR_UID);
   }, 30_000);
 
   afterEach(async () => {
@@ -332,14 +342,21 @@ d('BE-H2 — ANC pre-eclampsia alert-persistence failure is surfaced, never swal
       severity: 'CRITICAL',
     });
 
+    // R2 fan-out: no attending obstetrician on this labour, so the escalation
+    // fans out to concrete duty-doctor recipients — one PENDING row per
+    // recipient, never a recipientId:null broadcast row (>= 1 because other
+    // suites may have seeded additional doctor-tier users in this tenant).
     const outboxRows = await prisma.$queryRawUnsafe(
-      `SELECT status, title FROM notification_outbox
+      `SELECT status, title, recipient_id FROM notification_outbox
         WHERE tenant_id = $1::uuid AND source_event_key = $2`,
       TENANT, `maternity_partograph_entries:${escalated.id}:escalation_alert`,
     );
-    expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0].status).toBe('PENDING');
-    expect(outboxRows[0].title).toMatch(/action line/i);
+    expect(outboxRows.length).toBeGreaterThanOrEqual(1);
+    for (const row of outboxRows) {
+      expect(row.status).toBe('PENDING');
+      expect(row.title).toMatch(/action line/i);
+      expect(row.recipient_id).not.toBeNull();
+    }
 
     // A normal-progress entry on a fresh labour raises NOTHING.
     const patient2 = await seedPatient();

@@ -21,6 +21,9 @@ describe('reliabilityMetrics serialization', () => {
       'event_outbox_processing_rows',
       'event_outbox_stale_processing_rows',
       'notification_outbox_pending_rows',
+      'notification_outbox_failed_rows',
+      'notification_outbox_reconciliation_required_rows',
+      'notification_outbox_dead_letter_rows',
       'webhook_deliveries_pending_rows',
       'webhook_deliveries_failed_rows',
       'webhook_deliveries_dead_rows',
@@ -61,6 +64,7 @@ describe('reliabilityMetrics serialization', () => {
     recordEventOutboxLeaseReaped(2);
     recordWebhookDeliveryLeaseReaped(3);
     recordOutboxOperatorRedrive('event_outbox');
+    recordOutboxOperatorRedrive('notification_outbox');
     recordOutboxOperatorRedrive('unexpected');
     const out = serializeReliabilityMetrics();
     expect(out).toContain('ws_broadcast_dropped_total{reason="backpressure"} 2');
@@ -70,6 +74,7 @@ describe('reliabilityMetrics serialization', () => {
     expect(out).toContain('event_outbox_stale_lease_reaped_total 2');
     expect(out).toContain('webhook_deliveries_stale_lease_reaped_total 3');
     expect(out).toContain('outbox_operator_redrive_total{queue="event_outbox"} 1');
+    expect(out).toContain('outbox_operator_redrive_total{queue="notification_outbox"} 1');
     expect(out).toContain('outbox_operator_redrive_total{queue="other"} 1');
   });
 

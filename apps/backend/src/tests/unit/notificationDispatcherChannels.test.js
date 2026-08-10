@@ -169,4 +169,48 @@ describe('dispatcher provider receipt mode', () => {
       evidence: { message: 'socket closed after write' },
     });
   });
+
+  it('keeps resolved FCM transient failures uncertain so critical pushes are retried safely', async () => {
+    sendPushMock.mockResolvedValue({
+      successCount: 0,
+      failureCount: 1,
+      responses: [{
+        success: false,
+        error: { code: 'messaging/internal-error', message: 'FCM unavailable' },
+      }],
+    });
+    const result = await dispatch({
+      userId: '41',
+      title: 'Transient failure',
+      body: 'Must not dead-letter',
+      channels: ['push'],
+      providerReceiptMode: true,
+    });
+    expect(result.push).toMatchObject({
+      outcome: 'uncertain',
+      providerCode: 'fcm_no_acceptance_unresolved',
+    });
+  });
+
+  it('terminally rejects only when every FCM token is permanently invalid', async () => {
+    sendPushMock.mockResolvedValue({
+      successCount: 0,
+      failureCount: 2,
+      responses: [
+        { success: false, error: { code: 'messaging/registration-token-not-registered' } },
+        { success: false, error: { code: 'messaging/invalid-registration-token' } },
+      ],
+    });
+    const result = await dispatch({
+      userId: '41',
+      title: 'Invalid tokens',
+      body: 'Permanent recipient failure',
+      channels: ['push'],
+      providerReceiptMode: true,
+    });
+    expect(result.push).toMatchObject({
+      outcome: 'rejected',
+      providerCode: 'fcm_all_tokens_invalid',
+    });
+  });
 });

@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
+import {
+  OPERATOR_REPLAY_SUPERSEDED_REASON,
+  TERMINAL_REJECTION_CODES,
+} from './terminalRejectionCodes.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHANNELS = new Set(['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print']);
@@ -232,12 +236,16 @@ class NotificationOutbox {
                  AND earlier.channel = outbox.channel
                  AND earlier.ledger_version = 1 AND earlier.id < outbox.id
                  AND earlier.status NOT IN ('SENT', 'SUPPRESSED')
+                 AND NOT (earlier.status = 'RECONCILIATION_REQUIRED'
+                   AND earlier.failure_reason = $5::text)
                  AND NOT EXISTS (
                    SELECT 1 FROM notification_provider_receipts AS resolved
                     WHERE resolved.tenant_id = earlier.tenant_id
                       AND resolved.notification_outbox_id = earlier.id
                       AND resolved.channel = earlier.channel
-                      AND resolved.outcome = 'acknowledged'
+                      AND (resolved.outcome = 'acknowledged'
+                        OR (resolved.outcome = 'rejected'
+                          AND resolved.provider_code = ANY($4::text[])))
                  )
             )
           ORDER BY outbox.id
@@ -260,6 +268,7 @@ class NotificationOutbox {
                   outbox.claim_token::text, outbox.claim_generation,
                   outbox.claimed_at, outbox.lease_expires_at`,
       tid, safeLimit, safeLeaseSeconds,
+      TERMINAL_REJECTION_CODES, OPERATOR_REPLAY_SUPERSEDED_REASON,
     ), { isolationLevel: 'Serializable' });
   }
 
@@ -276,6 +285,19 @@ class NotificationOutbox {
       claimGeneration,
       status: 'FAILED',
       reason: String(reason || 'provider_rejected').slice(0, 500),
+    });
+  }
+
+  async markTerminalFailed(outboxId, reason, {
+    tenantId, claimToken, claimGeneration,
+  } = {}) {
+    return this.#finalizeClaim(outboxId, {
+      tenantId,
+      claimToken,
+      claimGeneration,
+      status: 'FAILED',
+      reason: String(reason || 'provider_terminal_rejection').slice(0, 500),
+      terminalFailure: true,
     });
   }
 
@@ -324,6 +346,7 @@ class NotificationOutbox {
     status,
     reason,
     incrementRetry = status === 'FAILED',
+    terminalFailure = false,
   }) {
     const tid = normalizeTenantId(tenantId || getCurrentTenantId());
     if (!tid || !claimToken || !Number.isSafeInteger(Number(claimGeneration))) {
@@ -335,14 +358,17 @@ class NotificationOutbox {
             SET status = $5::text, claim_token = NULL, claimed_at = NULL,
                 lease_expires_at = NULL, last_attempt_at = NOW(),
                 sent_at = CASE WHEN $5::text = 'SENT' THEN NOW() ELSE sent_at END,
-                retry_count = retry_count + CASE WHEN $7::boolean THEN 1 ELSE 0 END,
+                retry_count = CASE
+                  WHEN $8::boolean THEN GREATEST(retry_count, 3)
+                  ELSE retry_count + CASE WHEN $7::boolean THEN 1 ELSE 0 END
+                END,
                 failure_reason = $6::text
           WHERE tenant_id = $1::uuid AND id = $2::integer
             AND status = 'CLAIMED' AND claim_token = $3::uuid
             AND claim_generation = $4::integer
           RETURNING id, status, retry_count, sent_at`,
         tid, Number(outboxId), claimToken, Number(claimGeneration),
-        status, reason, incrementRetry,
+        status, reason, incrementRetry, terminalFailure,
       );
       if (rows.length !== 1) throw new Error('Notification claim fence was lost');
       return rows[0];

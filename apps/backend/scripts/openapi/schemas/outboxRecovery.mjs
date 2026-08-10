@@ -128,6 +128,80 @@ export const schemas = {
     },
   },
   WebhookDispatchResponse: envelope('WebhookDispatchResult'),
+
+  NotificationOutboxRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['id', 'type', 'channel', 'status', 'retry_count'],
+    properties: {
+      id: { type: 'integer', minimum: 1 },
+      type: { type: 'string', maxLength: 80 },
+      channel: { type: 'string', enum: ['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print'] },
+      status: {
+        type: 'string',
+        enum: ['PENDING', 'CLAIMED', 'SENT', 'FAILED', 'RECONCILIATION_REQUIRED', 'SUPPRESSED'],
+      },
+      recipient_id: { type: 'string', nullable: true, maxLength: 320 },
+      recipient_phone: { type: 'string', nullable: true, maxLength: 32 },
+      title: { type: 'string', nullable: true },
+      source_event_key: { type: 'string', maxLength: 255 },
+      recipient_key: { type: 'string', maxLength: 320 },
+      template_version: { type: 'string', maxLength: 80 },
+      retry_count: { type: 'integer', minimum: 0 },
+      failure_reason: { type: 'string', nullable: true, maxLength: 500 },
+      created_at: { type: 'string', format: 'date-time' },
+      last_attempt_at: nullableDateTime,
+      sent_at: nullableDateTime,
+      lease_expires_at: nullableDateTime,
+      dead_letter: { type: 'boolean' },
+    },
+  },
+  NotificationOutboxList: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['rows', 'count'],
+    properties: {
+      rows: { type: 'array', items: { $ref: '#/components/schemas/NotificationOutboxRow' } },
+      count: { type: 'integer', minimum: 0 },
+    },
+  },
+  NotificationOutboxListResponse: envelope('NotificationOutboxList'),
+  NotificationOutboxReplayResult: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['mode', 'row'],
+    properties: {
+      mode: { type: 'string', enum: ['retry_reset', 'requeued_new_intent'] },
+      row: { $ref: '#/components/schemas/NotificationOutboxRow' },
+      replacement_id: { type: 'integer', minimum: 1, nullable: true },
+    },
+  },
+  NotificationOutboxReplayResponse: envelope('NotificationOutboxReplayResult'),
+  NotificationDeliveryCursorRow: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['channel', 'state'],
+    properties: {
+      tenant_id: { type: 'string', format: 'uuid' },
+      channel: { type: 'string', enum: ['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print'] },
+      last_contiguous_outbox_id: { type: 'integer', minimum: 1, nullable: true },
+      state: { type: 'string', enum: ['ready', 'delivering', 'paused_rejected', 'paused_uncertain'] },
+      blocked_outbox_id: { type: 'integer', minimum: 1, nullable: true },
+      inflight_outbox_id: { type: 'integer', minimum: 1, nullable: true },
+      updated_at: { type: 'string', format: 'date-time' },
+    },
+  },
+  NotificationDeliveryCursorList: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['cursors', 'count'],
+    properties: {
+      cursors: { type: 'array', items: { $ref: '#/components/schemas/NotificationDeliveryCursorRow' } },
+      count: { type: 'integer', minimum: 0 },
+    },
+  },
+  NotificationDeliveryCursorListResponse: envelope('NotificationDeliveryCursorList'),
+  NotificationDeliveryCursorResponse: envelope('NotificationDeliveryCursorRow'),
 };
 
 export const operations = {
@@ -177,5 +251,45 @@ export const operations = {
     request: 'OutboxReasonRequest',
     response: 'WebhookDeliveryRowResponse',
     responseStatus: 201,
+  },
+  'GET /api/v1/admin/notification-outbox': {
+    summary: 'List notification outbox rows by status',
+    description: 'Tenant-scoped listing of notification_outbox rows (default status FAILED). FAILED rows with retry_count >= 3 and all RECONCILIATION_REQUIRED rows are dead letters no automatic path will retry.',
+    response: 'NotificationOutboxListResponse',
+    parameters: [
+      {
+        name: 'status',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          enum: ['PENDING', 'CLAIMED', 'SENT', 'FAILED', 'RECONCILIATION_REQUIRED', 'SUPPRESSED'],
+          default: 'FAILED',
+        },
+      },
+      { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+      { name: 'offset', in: 'query', required: false, schema: { type: 'integer', minimum: 0, maximum: 10000, default: 0 } },
+    ],
+  },
+  'POST /api/v1/admin/notification-outbox/{id}/replay': {
+    summary: 'Replay a dead-lettered notification outbox row',
+    description: 'Operator replay with a required reason. A FAILED row has its retry budget reset in place; a RECONCILIATION_REQUIRED row (original provider state unknowable) is superseded by a NEW outbox intent — the operator explicitly accepts duplicate-delivery risk. Audited to audit_logs.',
+    pathParameters: { id: { type: 'integer', minimum: 1 } },
+    request: 'OutboxReasonRequest',
+    response: 'NotificationOutboxReplayResponse',
+  },
+  'GET /api/v1/admin/notification-outbox/cursors': {
+    summary: 'List notification delivery channel cursors',
+    description: 'Per-channel delivery cursors for the tenant, including paused_rejected / paused_uncertain states that block the channel.',
+    response: 'NotificationDeliveryCursorListResponse',
+  },
+  'POST /api/v1/admin/notification-outbox/cursors/{channel}/reset': {
+    summary: 'Reset a paused notification delivery cursor',
+    description: 'Operator un-pause for a wedged channel cursor (paused_rejected / paused_uncertain / stuck delivering). Requires a reason; audited to audit_logs. last_contiguous_outbox_id is never moved by this operation.',
+    pathParameters: {
+      channel: { type: 'string', enum: ['push', 'email', 'inapp', 'whatsapp', 'voice', 'sms', 'print'] },
+    },
+    request: 'OutboxReasonRequest',
+    response: 'NotificationDeliveryCursorResponse',
   },
 };
