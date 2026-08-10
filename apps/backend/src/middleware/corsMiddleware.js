@@ -90,11 +90,10 @@ const corsOptionsDelegate = (req, callback) => {
     });
   }
 
-  const isAllowed =
-    EXACT_ALLOWLIST.has(origin) ||
-    REGEX_ALLOWLIST.some((re) => re.test(origin));
+  const isExact = EXACT_ALLOWLIST.has(origin);
+  const isPatternMatch = !isExact && REGEX_ALLOWLIST.some((re) => re.test(origin));
 
-  if (!isAllowed) {
+  if (!isExact && !isPatternMatch) {
     // Keep this log — it helped identify your issue
     logger.warn(`Blocked CORS request from origin: ${origin}`);
     const err = new Error('Not allowed by CORS');
@@ -102,10 +101,13 @@ const corsOptionsDelegate = (req, callback) => {
     return callback(err);
   }
 
-  // Allowed
+  // Allowed. Pattern-matched origins (Vercel previews, CORS_REGEXES) live in
+  // shared namespaces anyone can deploy into — e.g. any Vercel account can
+  // publish vh-health-adminportal-<anything>.vercel.app — so they never get
+  // credentialed CORS (pentest L-3). Only the exact allowlist does.
   return callback(null, {
     origin: true, // echoes back the request origin when allowed
-    credentials: true,
+    credentials: isExact,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
     allowedHeaders: [
       'Content-Type',
