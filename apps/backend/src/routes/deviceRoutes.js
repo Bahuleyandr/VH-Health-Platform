@@ -8,6 +8,7 @@ import logger from '../logging/logger.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';
+import { extractSqlState } from '../services/security/schemaMissingGuard.js';
 import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
@@ -295,8 +296,23 @@ wrapAutoRBAC(
 
             success(res, devices, 'Devices retrieved successfully');
           } catch (err) {
+            if (err.statusCode) return sendDeviceTargetError(res, err);
+            // A real database fault must surface as an error, not an empty
+            // device list presented as authoritative. Only a verified
+            // missing-table condition (SQLSTATE 42P01) may return the honest
+            // empty result, with an explicit caveat in the response.
+            if (extractSqlState(err) === '42P01') {
+              logger.warn('Admin device list: user_devices table missing (42P01) — returning explicit empty result');
+              return success(
+                res,
+                [],
+                'Device table does not exist yet — no devices have been recorded',
+                HTTP_STATUS.OK,
+                { table_missing: true },
+              );
+            }
             logger.error('Admin Device List Error:', err);
-            success(res, [], 'Devices retrieved (empty - table may not exist)');
+            error(res, 'Failed to retrieve devices', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
         }
       ],

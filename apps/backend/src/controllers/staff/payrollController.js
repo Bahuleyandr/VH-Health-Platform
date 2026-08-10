@@ -13,6 +13,7 @@ import {
 } from '../../services/staff/payrollService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { escapeCsvField } from '../../utils/csv.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -475,7 +476,7 @@ export const issuePayslips = async (req, res) => {
 
     // Require both HR and Admin signatures before issuing
     const run = await prisma.$queryRawUnsafe(
-      `SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`, month, year);
+      `SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, failed_staff_count, failed_staff, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`, month, year);
 
     if (run.length === 0) {
       return error(res, 'No payroll run found for this month. Run payroll first.', HTTP_STATUS.BAD_REQUEST);
@@ -487,6 +488,13 @@ export const issuePayslips = async (req, res) => {
     }
     if (!r.admin_approved_at) {
       return error(res, 'Admin must countersign the payroll run before payslips can be issued', HTTP_STATUS.FORBIDDEN);
+    }
+    // By issue time the run status is 'approved', so failed_staff_count is the
+    // marker that staff are missing payslips — issuing is the last chance to
+    // stop and re-run instead of paying an incomplete month.
+    const ackRequired = runHasFailedPayslips(r);
+    if (ackRequired && !hasFailedPayslipAck(req)) {
+      return rejectUnacknowledgedFailedPayslips(res, r, 'issue');
     }
 
     // Regenerate PDFs for any manually-edited payslips
@@ -571,7 +579,10 @@ export const issuePayslips = async (req, res) => {
       }
     });
 
-    success(res, { issued }, `${issued} payslips issued to staff`);
+    if (ackRequired) await auditFailedPayslipAck(req, r, 'issue');
+    success(res, { issued }, ackRequired
+      ? `${issued} payslips issued to staff — ${r.failed_staff_count} failed payslip(s) acknowledged as not issued`
+      : `${issued} payslips issued to staff`);
   } catch (err) {
     logger.error('Issue Payslips Error:', err);
     error(res, 'Failed to issue payslips', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -583,11 +594,22 @@ export const getPayrollRuns = async (req, res) => {
   try {
     // Explicit columns (house rule: no SELECT *). `failed_staff_count` is
     // operator-facing and rendered in the admin runs list; `failed_staff` is
-    // deliberately NOT selected — it holds internal error text, which belongs in
-    // the DB and the logs, not in an API response.
+    // deliberately NOT selected raw — it holds internal error text, which
+    // belongs in the DB and the logs, not in an API response. What IS surfaced
+    // is `failed_staff_summary`: only the identity (uid + name) of each staff
+    // member whose payslip failed, so a signer can see WHO is unpaid before
+    // acknowledging a completed_with_errors run. The `reason` key is never
+    // projected.
     const runs = await prisma.$queryRawUnsafe(`
       SELECT pr.id, pr.month, pr.year, pr.status, pr.total_staff,
              pr.failed_staff_count,
+             COALESCE((
+               SELECT jsonb_agg(jsonb_build_object(
+                        'staff_uid', fs->>'staff_uid',
+                        'name', fu.name))
+                 FROM jsonb_array_elements(pr.failed_staff) fs
+                 LEFT JOIN users fu ON fu.uid = (fs->>'staff_uid')::uuid
+             ), '[]'::jsonb) AS failed_staff_summary,
              pr.total_gross, pr.total_net, pr.total_deductions,
              pr.generated_by, pr.generated_at, pr.locked_by, pr.locked_at,
              pr.notes, pr.created_at, pr.updated_at, pr.employee_count,
@@ -951,6 +973,61 @@ export const manualEditPayslip = async (req, res) => {
   }
 };
 
+// ─── Failed-payslip acknowledgement (migration 644 follow-up) ────────────────
+//
+// A run that lost staff to calculation failures finishes 'completed_with_errors'
+// (payrollService.summarizePayrollRunOutcome). Sign-off over such a run is
+// allowed, but never silently: the signer must be shown which payslips failed
+// and explicitly resubmit with `acknowledge_failed_payslips: true`. The
+// acknowledgement itself is recorded to audit_logs alongside the signature
+// columns the run row already carries.
+//
+// The predicate reads failed_staff_count (not just status) because adminSign
+// moves the run to 'approved' and issue moves it to 'locked' — the count is the
+// durable marker that payslips are missing at every later stage.
+export const FAILED_PAYSLIP_ACK_FIELD = 'acknowledge_failed_payslips';
+
+function runHasFailedPayslips(run) {
+  return run.status === 'completed_with_errors' || Number(run.failed_staff_count || 0) > 0;
+}
+
+// Only the identity of the unpaid staff is surfaced — failed_staff also holds
+// internal error text (mig 644), which stays in the DB and the logs.
+function failedStaffUids(run) {
+  const list = Array.isArray(run.failed_staff) ? run.failed_staff : [];
+  return list.map((f) => f?.staff_uid).filter(Boolean);
+}
+
+function hasFailedPayslipAck(req) {
+  return req.body?.[FAILED_PAYSLIP_ACK_FIELD] === true;
+}
+
+function rejectUnacknowledgedFailedPayslips(res, run, action) {
+  const failedCount = Number(run.failed_staff_count || 0);
+  return error(
+    res,
+    `This payroll run completed with ${failedCount} failed payslip(s) — those staff have no payslip. `
+      + `Review the failed staff below and resubmit with ${FAILED_PAYSLIP_ACK_FIELD}: true to ${action} anyway.`,
+    HTTP_STATUS.BAD_REQUEST,
+    {
+      topLevel: { code: 'FAILED_PAYSLIPS_ACK_REQUIRED' },
+      failed_staff_count: failedCount,
+      failed_staff_uids: failedStaffUids(run),
+      acknowledgement_field: FAILED_PAYSLIP_ACK_FIELD,
+    },
+  );
+}
+
+async function auditFailedPayslipAck(req, run, action) {
+  await logAudit(req, `payroll-${action}-failed-payslips-acknowledged`, {
+    run_id: run.id,
+    month: run.month,
+    year: run.year,
+    failed_staff_count: Number(run.failed_staff_count || 0),
+    failed_staff_uids: failedStaffUids(run),
+  }, { resource: 'payroll_run', resourceId: run.id });
+}
+
 // ─── HR: Sign payroll run (first approval) ────────────────────────────────────
 export const hrSignPayrollRun = async (req, res) => {
   try {
@@ -958,13 +1035,17 @@ export const hrSignPayrollRun = async (req, res) => {
     const hrUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
+    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, failed_staff_count, failed_staff, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
     if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
-    if (run[0].status !== 'completed') {
+    if (run[0].status !== 'completed' && run[0].status !== 'completed_with_errors') {
       return error(res, 'Payroll run must be in completed state before signing', HTTP_STATUS.BAD_REQUEST);
     }
     if (run[0].hr_approved_at) {
       return error(res, 'HR has already signed this payroll run', HTTP_STATUS.BAD_REQUEST);
+    }
+    const ackRequired = runHasFailedPayslips(run[0]);
+    if (ackRequired && !hasFailedPayslipAck(req)) {
+      return rejectUnacknowledgedFailedPayslips(res, run[0], 'sign');
     }
 
     const updated = await prisma.payroll_runs.update({
@@ -976,7 +1057,10 @@ export const hrSignPayrollRun = async (req, res) => {
       },
       select: PAYROLL_RUN_SELECT,
     });
-    success(res, updated, 'HR signature applied — awaiting Admin countersign before payslips can be issued');
+    if (ackRequired) await auditFailedPayslipAck(req, run[0], 'hr-sign');
+    success(res, updated, ackRequired
+      ? `HR signature applied with ${run[0].failed_staff_count} failed payslip(s) acknowledged — awaiting Admin countersign`
+      : 'HR signature applied — awaiting Admin countersign before payslips can be issued');
   } catch (err) {
     logger.error('HR Sign Payroll Run Error:', err);
     error(res, 'Failed to sign payroll run', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -990,7 +1074,7 @@ export const adminSignPayrollRun = async (req, res) => {
     const adminUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
+    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, failed_staff_count, failed_staff, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
     if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
     if (!run[0].hr_approved_at) {
       return error(res, 'HR must sign before Admin countersign', HTTP_STATUS.BAD_REQUEST);
@@ -1000,6 +1084,12 @@ export const adminSignPayrollRun = async (req, res) => {
     }
     if (run[0].hr_approved_by === adminUid) {
       return error(res, 'HR signer and Admin countersigner cannot be the same person', HTTP_STATUS.FORBIDDEN);
+    }
+    // Countersigning a run with failed payslips needs its own acknowledgement —
+    // the Admin countersigner may not be the person who acknowledged at HR sign.
+    const ackRequired = runHasFailedPayslips(run[0]);
+    if (ackRequired && !hasFailedPayslipAck(req)) {
+      return rejectUnacknowledgedFailedPayslips(res, run[0], 'countersign');
     }
 
     const hash = crypto
@@ -1018,7 +1108,10 @@ export const adminSignPayrollRun = async (req, res) => {
       },
       select: PAYROLL_RUN_SELECT,
     });
-    success(res, updated, 'Admin countersign complete — payslips can now be issued to staff');
+    if (ackRequired) await auditFailedPayslipAck(req, run[0], 'admin-sign');
+    success(res, updated, ackRequired
+      ? `Admin countersign complete with ${run[0].failed_staff_count} failed payslip(s) acknowledged — payslips can now be issued`
+      : 'Admin countersign complete — payslips can now be issued to staff');
   } catch (err) {
     logger.error('Admin Sign Payroll Run Error:', err);
     error(res, 'Failed to countersign payroll run', HTTP_STATUS.INTERNAL_SERVER_ERROR);

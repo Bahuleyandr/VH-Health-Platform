@@ -294,5 +294,10 @@ describe('runPayroll persists per-run failures', () => {
     expect(sql).toContain('pr.failed_staff_count');
     expect(sql).not.toContain('pr.failed_staff,');
     expect(sql).not.toContain('pr.*');
+    // The R7 failed_staff_summary projection surfaces WHO failed (uid + name)
+    // for the sign-off acknowledgement UI, but must never project the
+    // internal `reason` error text out of the failed_staff jsonb.
+    expect(sql).toContain('failed_staff_summary');
+    expect(sql).not.toContain("'reason'");
   });
 });

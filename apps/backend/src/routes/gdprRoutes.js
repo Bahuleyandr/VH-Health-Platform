@@ -8,6 +8,7 @@ import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
 import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
 import { executeErasure, checkLegalHold } from '../services/gdpr/dataErasureService.js';
+import { extractSqlState } from '../services/security/schemaMissingGuard.js';
 import { success, error, relayAppError } from '../utils/responseHelper.js';
 
 const router = Router();
@@ -87,8 +88,22 @@ router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) =
 
     return success(res, logs, 'Erasure log retrieved');
   } catch (err) {
+    // This log is DPDP/GDPR compliance evidence. A database fault must never
+    // be presented as "no erasures happened" — only a verified missing-table
+    // condition (SQLSTATE 42P01, pre-migration deployment) may return an empty
+    // result, and then only with an explicit caveat the caller can see.
+    if (extractSqlState(err) === '42P01') {
+      logger.warn('GDPR erasure log table missing (42P01) — returning explicit empty result');
+      return success(
+        res,
+        [],
+        'Erasure log table does not exist yet — no erasure evidence has been recorded',
+        HTTP_STATUS.OK,
+        { table_missing: true },
+      );
+    }
     logger.error('GDPR erasure log error:', err);
-    return success(res, [], 'Erasure log table may not exist yet');
+    return relayAppError(res, err, 'Failed to retrieve erasure log');
   }
 });
 
