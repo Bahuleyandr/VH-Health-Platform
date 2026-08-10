@@ -16,11 +16,14 @@
 //
 // Self-skips without a DB.
 
+import { jest } from '@jest/globals';
+
 import prisma from '../lib/prisma.js';
 import { importFhirBundle } from '../services/import/patientDataImport.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = hasDb ? describe : describe.skip;
+jest.setTimeout(30_000);
 
 const TENANT = '00000000-0000-4000-8000-000000000001'; // literal default tenant
 const PATIENT = '00000000-0000-4000-8000-0000000f4151';
@@ -53,10 +56,76 @@ function heartRateBundle(effective, value) {
   };
 }
 
+function compositeNews2Bundle(effective, { idSuffix = '' } = {}) {
+  const observations = [
+    { id: 'obs-rr-crit', code: '9279-1', value: 26, unit: 'breaths/minute' },
+    { id: 'obs-spo2-crit', code: '2708-6', value: 88, unit: '%' },
+    { id: 'obs-sbp-crit', code: '8480-6', value: 88, unit: 'mmHg' },
+    { id: 'obs-hr-crit', code: '8867-4', value: 132, unit: 'beats/minute' },
+    { id: 'obs-temp-normal', code: '8310-5', value: 37, unit: 'Cel' },
+  ];
+  return {
+    resourceType: 'Bundle',
+    type: 'collection',
+    entry: observations.map(({ id, code, value, unit }) => ({
+      resource: {
+        resourceType: 'Observation',
+        id: `${id}${idSuffix}`,
+        status: 'final',
+        category: [{ coding: [{ code: 'vital-signs' }] }],
+        code: { coding: [{ system: 'http://loinc.org', code }] },
+        subject: { reference: `Patient/${PATIENT}` },
+        effectiveDateTime: effective,
+        valueQuantity: { value, unit },
+      },
+    })),
+  };
+}
+
+function componentAndFahrenheitBundle(effective) {
+  return {
+    resourceType: 'Bundle',
+    type: 'collection',
+    entry: [
+      {
+        resource: {
+          resourceType: 'Observation',
+          id: 'obs-bp-panel',
+          status: 'final',
+          category: [{ coding: [{ code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: effective,
+          component: [
+            { code: { coding: [{ system: 'http://loinc.org', code: '8480-6' }] }, valueQuantity: { value: 118, unit: 'mmHg' } },
+            { code: { coding: [{ system: 'http://loinc.org', code: '8462-4' }] }, valueQuantity: { value: 72, unit: 'mmHg' } },
+          ],
+        },
+      },
+      {
+        resource: {
+          resourceType: 'Observation',
+          id: 'obs-temp-fahrenheit',
+          status: 'final',
+          category: [{ coding: [{ code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '8310-5' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: effective,
+          valueQuantity: { value: 98.6, unit: 'degF' },
+        },
+      },
+    ],
+  };
+}
+
 async function cleanup() {
-  await exec(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT);
+    await tx.$executeRawUnsafe(`DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`, PATIENT);
+  }).catch(() => {});
   await exec(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+  await exec(`DELETE FROM clinical_alerts WHERE patient_id = (SELECT id FROM users WHERE uid = $1::uuid)`, PATIENT).catch(() => {});
   // Append-only guarded tables — test-DB role is a superuser (accepted escape).
   await exec(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
   await exec(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
@@ -212,5 +281,89 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
       PATIENT,
     );
     expect(rows).toHaveLength(0);
+  });
+
+  it('imports one same-instant FHIR vitals set as one composite NEWS2 12 high-risk assessment', async () => {
+    const observedAt = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const result = await importFhirBundle(compositeNews2Bundle(observedAt), IMPORTER, { tenantId: TENANT });
+    expect(result.errors).toEqual([]);
+    expect(result.imported).toBe(5);
+
+    const rows = await query(
+      `SELECT v.id, v.respiratory_rate, v.spo2, v.systolic_bp, v.heart_rate, v.temperature,
+              n.total_score, n.clinical_risk, n.escalation_action
+         FROM vitals_chart v
+         JOIN news2_scores n ON n.vitals_chart_id = v.id
+        WHERE v.patient_uid = $1::uuid
+          AND v.recorded_at = $2::timestamptz
+          AND n.superseded_at IS NULL
+        ORDER BY n.id DESC`,
+      PATIENT, observedAt,
+    );
+
+    expect(rows).toHaveLength(1);
+    expect([
+      rows[0].respiratory_rate,
+      rows[0].spo2,
+      rows[0].systolic_bp,
+      rows[0].heart_rate,
+      rows[0].temperature,
+    ].map(Number)).toEqual([26, 88, 88, 132, 37]);
+    expect(Number(rows[0].total_score)).toBe(12);
+    expect(rows[0].clinical_risk).toBe('high');
+    expect(rows[0].escalation_action).toMatch(/Emergency response/i);
+
+    const replay = await importFhirBundle(compositeNews2Bundle(observedAt), IMPORTER, { tenantId: TENANT });
+    expect(replay.errors).toEqual([]);
+    expect(replay.imported).toBe(5);
+    const afterReplay = await query(
+      `SELECT v.id, v.source_device, n.id AS news2_id
+         FROM vitals_chart v
+         JOIN news2_scores n ON n.vitals_chart_id = v.id
+        WHERE v.patient_uid = $1::uuid
+          AND v.recorded_at = $2::timestamptz`,
+      PATIENT, observedAt,
+    );
+    expect(afterReplay).toHaveLength(1);
+    expect(afterReplay[0].source_device).toMatch(/^fhir-set:[0-9a-f]{64}$/);
+
+    const distinct = await importFhirBundle(
+      compositeNews2Bundle(observedAt, { idSuffix: '-distinct' }),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+    expect(distinct.errors).toEqual([]);
+    expect(distinct.imported).toBe(5);
+    const distinctRows = await query(
+      `SELECT v.source_device, n.total_score, n.clinical_risk
+         FROM vitals_chart v
+         JOIN news2_scores n ON n.vitals_chart_id = v.id
+        WHERE v.patient_uid = $1::uuid
+          AND v.recorded_at = $2::timestamptz
+        ORDER BY v.id`,
+      PATIENT, observedAt,
+    );
+    expect(distinctRows).toHaveLength(2);
+    expect(new Set(distinctRows.map((row) => row.source_device)).size).toBe(2);
+    expect(distinctRows.map((row) => Number(row.total_score))).toEqual([12, 12]);
+    expect(distinctRows.map((row) => row.clinical_risk)).toEqual(['high', 'high']);
+  });
+
+  it('keeps component observations and source units inside the grouped bundle path', async () => {
+    const observedAt = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const result = await importFhirBundle(componentAndFahrenheitBundle(observedAt), IMPORTER, { tenantId: TENANT });
+    expect(result.errors).toEqual([]);
+    expect(result.imported).toBe(2);
+
+    const rows = await query(
+      `SELECT systolic_bp, diastolic_bp, temperature
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid
+          AND recorded_at = $2::timestamptz`,
+      PATIENT, observedAt,
+    );
+    expect(rows).toHaveLength(1);
+    expect([rows[0].systolic_bp, rows[0].diastolic_bp, rows[0].temperature].map(Number))
+      .toEqual([118, 72, 37]);
   });
 });

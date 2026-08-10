@@ -8,6 +8,10 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { fromFhirPatient } from '../fhir/fhirAdapter.js';
+import {
+  fhirObservationToVitals,
+  LOINC_TO_VITALS_FIELD,
+} from '../fhir/observationVitalsMapper.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -34,6 +38,16 @@ export async function importFhirBundle(bundle, importedBy, { tenantId = null } =
   }
 
   const results = { imported: 0, skipped: 0, errors: [] };
+  const observationGroups = new Map();
+  for (const entry of bundle.entry || []) {
+    const resource = entry?.resource;
+    const key = fhirVitalSetKey(resource);
+    if (!key) continue;
+    const group = observationGroups.get(key) || [];
+    group.push(resource);
+    observationGroups.set(key, group);
+  }
+  const importedObservationGroups = new Set();
 
   for (const entry of bundle.entry || []) {
     const resource = entry.resource;
@@ -42,6 +56,7 @@ export async function importFhirBundle(bundle, importedBy, { tenantId = null } =
       continue;
     }
 
+    let resources = [resource];
     try {
       switch (resource.resourceType) {
         case 'Patient':
@@ -53,21 +68,30 @@ export async function importFhirBundle(bundle, importedBy, { tenantId = null } =
         case 'MedicationRequest':
           await importMedication(resource, importedBy, { tenantId });
           break;
-        case 'Observation':
-          await importObservation(resource, importedBy, { tenantId });
+        case 'Observation': {
+          const groupKey = fhirVitalSetKey(resource);
+          if (groupKey) {
+            if (importedObservationGroups.has(groupKey)) continue;
+            importedObservationGroups.add(groupKey);
+            resources = observationGroups.get(groupKey) || resources;
+          }
+          await importObservationSet(resources, importedBy, { tenantId });
           break;
+        }
         default:
           results.skipped++;
           continue;
       }
-      results.imported++;
+      results.imported += resources.length;
     } catch (err) {
-      logger.warn(`FHIR import error for ${resource.resourceType}/${resource.id}: ${err.message}`);
-      results.errors.push({
-        resource: resource.resourceType,
-        id: resource.id,
-        error: err.message,
-      });
+      for (const failedResource of resources) {
+        logger.warn(`FHIR import error for ${failedResource.resourceType}/${failedResource.id}: ${err.message}`);
+        results.errors.push({
+          resource: failedResource.resourceType,
+          id: failedResource.id,
+          error: err.message,
+        });
+      }
     }
   }
 
@@ -317,13 +341,41 @@ async function importMedication(fhirMedication, importedBy, { tenantId = null } 
   );
 }
 
-async function importObservation(fhirObservation, importedBy, { tenantId = null } = {}) {
-  if (!fhirObservation || fhirObservation.resourceType !== 'Observation') return;
+function fhirVitalSetKey(fhirObservation) {
+  if (!fhirObservation || fhirObservation.resourceType !== 'Observation') return null;
+  const category = fhirObservation.category?.[0]?.coding?.[0]?.code;
+  const loincCode = fhirObservation.code?.coding?.[0]?.code || '';
+  const patientRef = fhirObservation.subject?.reference || '';
+  const patientUid = patientRef.replace('Patient/', '');
+  const effectiveDateTime = fhirObservation.effectiveDateTime;
+  const value = fhirObservation.valueQuantity?.value ?? fhirObservation.valueString;
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  const mapped = fhirObservationToVitals(fhirObservation);
+  const hasMappedValues = Object.keys(mapped.vitals).length > 0;
+  const hasLegacyStringValue = Boolean(
+    LOINC_TO_VITALS_FIELD[loincCode]
+    && value !== null
+    && value !== undefined
+    && !(typeof value === 'string' && value.trim() === '')
+    && Number.isFinite(numericValue),
+  );
+  if (
+    category !== 'vital-signs'
+    || (!hasMappedValues && !hasLegacyStringValue)
+    || !patientUid
+    || !effectiveDateTime
+  ) {
+    return null;
+  }
+  return JSON.stringify([patientUid, String(effectiveDateTime)]);
+}
+
+function prepareFhirVitalObservation(fhirObservation) {
+  if (!fhirObservation || fhirObservation.resourceType !== 'Observation') return null;
 
   const patientRef = fhirObservation.subject?.reference || '';
   const patientUid = patientRef.replace('Patient/', '');
   if (!patientUid) throw new Error('Observation missing patient reference');
-  await assertPatientInTenant(patientUid, tenantId);
 
   // Only import vital signs
   const category = fhirObservation.category?.[0]?.coding?.[0]?.code;
@@ -333,33 +385,35 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
   }
 
   const loincCode = fhirObservation.code?.coding?.[0]?.code || '';
-  const value = fhirObservation.valueQuantity?.value ?? fhirObservation.valueString;
   const recordedAt = fhirObservation.effectiveDateTime || new Date().toISOString();
+  const components = Array.isArray(fhirObservation.component) ? fhirObservation.component : [];
+  const mapped = fhirObservationToVitals(fhirObservation);
+  let values;
+  let numericValue = null;
 
-  if (value === null || value === undefined) return;
-  if (typeof value === 'string' && value.trim() === '') {
-    throw AppError.badRequest('FHIR Observation value must not be empty');
-  }
-  const numericValue = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numericValue)) {
-    throw AppError.badRequest('FHIR Observation value must be a finite number');
-  }
-
-  // Map LOINC to vitals_chart columns
-  const columnMap = {
-    '8867-4': 'heart_rate',
-    '8480-6': 'systolic_bp',
-    '8462-4': 'diastolic_bp',
-    '8310-5': 'temperature',
-    '2708-6': 'spo2',
-    '9279-1': 'respiratory_rate',
-    '2339-0': 'blood_glucose',
-  };
-
-  const column = columnMap[loincCode];
-  if (!column) {
-    logger.info(`Skipped observation with unknown LOINC code ${loincCode} for patient ${patientUid}`);
-    return;
+  if (components.length > 0) {
+    values = new Map(Object.entries(mapped.vitals));
+    if (values.size === 0) {
+      const codes = mapped.unmapped.length > 0 ? mapped.unmapped.join(', ') : loincCode;
+      logger.info(`Skipped observation with unknown LOINC code(s) ${codes} for patient ${patientUid}`);
+      return null;
+    }
+  } else {
+    const value = fhirObservation.valueQuantity?.value ?? fhirObservation.valueString;
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string' && value.trim() === '') {
+      throw AppError.badRequest('FHIR Observation value must not be empty');
+    }
+    numericValue = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(numericValue)) {
+      throw AppError.badRequest('FHIR Observation value must be a finite number');
+    }
+    const mapping = LOINC_TO_VITALS_FIELD[loincCode];
+    if (!mapping) {
+      logger.info(`Skipped observation with unknown LOINC code ${loincCode} for patient ${patientUid}`);
+      return null;
+    }
+    values = new Map([[mapping.field, numericValue]]);
   }
 
   // Audit 2026-08-10 R8 — imports must NEVER rewrite charted data in place.
@@ -369,11 +423,12 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
   // staff-charted. Dedupe is now idempotency-only: skip when a prior
   // 'fhir'-sourced row already carries the exact observation fingerprint;
   // anything else — including a staff-charted near-duplicate — gets its own
-  // new sourced row. The
-  // idempotency key includes the exact observation identity and value; a
-  // time-window-only check would discard two distinct readings taken within
-  // the same minute. When no stable source timestamp/id exists we deliberately
-  // skip dedupe rather than risk losing a real clinical observation.
+  // new sourced row.
+  // Each resource fingerprint includes its exact identity and values. A
+  // same-instant set composes those fingerprints into one order-independent
+  // set fingerprint; a time-only key would discard distinct FHIR resources.
+  // When no stable source timestamp/id exists we skip dedupe rather than risk
+  // losing a real clinical observation.
   const sourceTimestamp = fhirObservation.effectiveDateTime
     || fhirObservation.issued
     || fhirObservation.meta?.lastUpdated
@@ -383,8 +438,23 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
     || fhirObservation.id
     || (Array.isArray(fhirObservation.identifier) && fhirObservation.identifier.length > 0),
   );
-  const sourceDevice = hasStableIdentity
-    ? `fhir:${crypto.createHash('sha256').update(JSON.stringify({
+  const fingerprintPayload = components.length > 0
+    ? {
+        resourceId: fhirObservation.id || null,
+        identifiers: fhirObservation.identifier || null,
+        patientUid,
+        loincCode,
+        sourceTimestamp,
+        values: Object.fromEntries([...values.entries()].sort(([a], [b]) => a.localeCompare(b))),
+        components: components
+          .map((component) => ({
+            code: component.code?.coding?.[0]?.code || null,
+            value: component.valueQuantity?.value ?? null,
+            unit: component.valueQuantity?.unit || component.valueQuantity?.code || null,
+          }))
+          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      }
+    : {
         resourceId: fhirObservation.id || null,
         identifiers: fhirObservation.identifier || null,
         patientUid,
@@ -392,48 +462,99 @@ async function importObservation(fhirObservation, importedBy, { tenantId = null 
         sourceTimestamp,
         value: numericValue,
         unit: fhirObservation.valueQuantity?.unit || fhirObservation.valueQuantity?.code || null,
-      })).digest('hex')}`
+      };
+  const sourceDevice = hasStableIdentity
+    ? `fhir:${crypto.createHash('sha256').update(JSON.stringify(fingerprintPayload)).digest('hex')}`
     : null;
 
-  const existing = sourceDevice
-    ? await prisma.$queryRawUnsafe(
-        `SELECT id FROM vitals_chart
-         WHERE patient_uid = $1::uuid
-           AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
-           AND source = 'fhir'
-           AND source_device = $2
-         LIMIT 1`,
-        patientUid, sourceDevice, tenantId,
-      )
-    : [];
-
-  if (existing.length) {
-    logger.info(`Skipped duplicate FHIR ${column} observation for patient ${patientUid} (matching source fingerprint)`);
-    return;
-  }
-
-  // Route through the real vitals write path: plausibility gates, canonical
-  // timeline + audit events in the same transaction, NEWS2 scoring/escalation
-  // and anomaly detection all apply, and the row carries source 'fhir'
-  // (recorded_at backdating is exempt for fhir ingest — imported observation
-  // timestamps are legitimately old).
-  const payload = {
-    patient_uid: patientUid,
-    [column]: numericValue,
-    recorded_at: recordedAt,
-    recorded_by: importedBy,
-    source: 'fhir',
-    source_device: sourceDevice,
-    ...(tenantId ? { tenant_id: tenantId } : {}),
+  return {
+    values,
+    patientUid,
+    recordedAt,
+    sourceDevice,
+    temperatureUnit: mapped.temperatureUnit,
   };
-  // Temperature unit contract: canonical storage is Celsius; a Fahrenheit
-  // valueQuantity must say so or it would be read as °C.
-  if (column === 'temperature') {
-    const unit = String(fhirObservation.valueQuantity?.unit || fhirObservation.valueQuantity?.code || '').replace(/[[\]]/g, '');
-    if (/^deg ?f$|^f$|fahrenheit/i.test(unit)) payload.temperature_unit = 'F';
+}
+
+function partitionObservationSets(observations) {
+  const sets = [];
+  const sorted = [...observations].sort((a, b) => (
+    [...a.values.keys()].join(',').localeCompare([...b.values.keys()].join(','))
+    || String(a.sourceDevice || '').localeCompare(String(b.sourceDevice || ''))
+  ));
+  for (const observation of sorted) {
+    const columns = [...observation.values.keys()];
+    let set = sets.find((candidate) => columns.every((column) => !candidate.values.has(column)));
+    if (!set) {
+      set = { values: new Map(), observations: [] };
+      sets.push(set);
+    }
+    for (const [column, value] of observation.values) set.values.set(column, value);
+    set.observations.push(observation);
   }
+  return sets;
+}
+
+function sourceDeviceForObservationSet(observations) {
+  if (observations.some((observation) => !observation.sourceDevice)) return null;
+  if (observations.length === 1) return observations[0].sourceDevice;
+  const memberFingerprints = observations.map((observation) => observation.sourceDevice).sort();
+  return `fhir-set:${crypto.createHash('sha256').update(JSON.stringify(memberFingerprints)).digest('hex')}`;
+}
+
+async function importObservationSet(fhirObservations, importedBy, { tenantId = null } = {}) {
+  const observations = fhirObservations
+    .map((observation) => prepareFhirVitalObservation(observation))
+    .filter(Boolean);
+  if (observations.length === 0) return;
+
+  const patientUid = observations[0].patientUid;
+  const recordedAt = observations[0].recordedAt;
+  if (observations.some((observation) => (
+    observation.patientUid !== patientUid || observation.recordedAt !== recordedAt
+  ))) {
+    throw AppError.badRequest('FHIR vital-sign set must reference one patient and one effectiveDateTime');
+  }
+  await assertPatientInTenant(patientUid, tenantId);
+
   const { recordVitals } = await import('../emr/vitalsChartService.js');
-  await recordVitals(payload);
+  for (const observationSet of partitionObservationSets(observations)) {
+    const sourceDevice = sourceDeviceForObservationSet(observationSet.observations);
+
+    const existing = sourceDevice
+      ? await prisma.$queryRawUnsafe(
+          `SELECT id FROM vitals_chart
+           WHERE patient_uid = $1::uuid
+             AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+             AND source = 'fhir'
+             AND source_device = $2
+           LIMIT 1`,
+          patientUid, sourceDevice, tenantId,
+        )
+      : [];
+
+    if (existing.length) {
+      const columns = [...observationSet.values.keys()].join(', ');
+      logger.info(`Skipped duplicate FHIR observation set (${columns}) for patient ${patientUid} (matching source fingerprint)`);
+      continue;
+    }
+
+    // Route the complete same-instant set through the real vitals write path:
+    // plausibility gates, canonical timeline + audit events, NEWS2 scoring and
+    // anomaly detection all see the same clinical observation set.
+    const payload = {
+      patient_uid: patientUid,
+      ...Object.fromEntries(observationSet.values),
+      recorded_at: recordedAt,
+      recorded_by: importedBy,
+      source: 'fhir',
+      source_device: sourceDevice,
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+    };
+    const temperatureObservation = observationSet.observations.find(({ values }) => values.has('temperature'));
+    if (temperatureObservation?.temperatureUnit) payload.temperature_unit = temperatureObservation.temperatureUnit;
+    await recordVitals(payload);
+  }
 }
 
 // =============================================================================
