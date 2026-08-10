@@ -69,6 +69,24 @@ class MessageUnreadProvider extends ChangeNotifier {
     await refresh();
   }
 
+  /// Tear down on logout (STF-1): cancel the realtime subscription and the
+  /// 2-minute unread poll, and clear the cached alert/badge state so the
+  /// previous clinician's message subjects cannot surface on the login
+  /// screen of a shared ward device. [start] may be called again after the
+  /// next login.
+  void stop() {
+    if (!_started) return;
+    _started = false;
+    _messageSub?.cancel();
+    _messageSub = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _seenMessageKeys.clear();
+    _unreadCount = 0;
+    _latestAlert = null;
+    notifyListeners();
+  }
+
   Future<void> refresh() async {
     if (_refreshing) {
       _refreshPending = true;

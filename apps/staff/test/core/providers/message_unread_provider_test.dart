@@ -108,4 +108,28 @@ void main() {
       expect(provider.unreadCount, 0);
     },
   );
+
+  test('stop() clears cached alert state and allows a later restart', () async {
+    VHHttpClient.setClientForTesting(MockClient((req) async {
+      return _unreadResponse(4);
+    }));
+
+    final provider = MessageUnreadProvider();
+    await provider.start();
+    expect(provider.unreadCount, 4);
+
+    // Logout path (STF-1): the badge and the last alert must not survive
+    // into the login screen or the next clinician's session.
+    provider.stop();
+    expect(provider.unreadCount, 0);
+    expect(provider.latestAlert, isNull);
+
+    // stop() is idempotent.
+    provider.stop();
+
+    // A later login can start the provider again.
+    await provider.start();
+    expect(provider.unreadCount, 4);
+    provider.stop();
+  });
 }

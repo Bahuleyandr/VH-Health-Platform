@@ -89,7 +89,14 @@ void _handleServerSessionExpired() {
 
   unawaited(
     ForcedLogoutFlow.run(
-      stopSessionTracking: timeout?.stopTracking,
+      stopSessionTracking: () {
+        timeout?.stopTracking();
+        // Stop the realtime poll providers so nothing keeps polling or
+        // surfacing the previous clinician's data on the login screen
+        // (STF-1); the forced cleanup itself closes the WebSocket.
+        final ctx = rootNavigatorKey.currentContext;
+        if (ctx != null && ctx.mounted) stopStaffRealtimePollers(ctx);
+      },
       navigateToLogin: () => appRouter.go('/login'),
       reportPreservedItems: _reportPreservedOfflineItems,
     ).catchError((Object error, StackTrace stack) {

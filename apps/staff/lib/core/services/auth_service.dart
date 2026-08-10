@@ -5,6 +5,7 @@ import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import '../config/api_config.dart';
 import '../platform_info.dart';
@@ -437,9 +438,41 @@ class AuthService {
     }
   }
 
+  /// Idle-timeout logout. Unlike [logout] it never blocks on pending offline
+  /// work (an unattended shared ward device must always end its session), but
+  /// it DOES revoke the session server-side like an explicit logout — the
+  /// backend deletes the staff_auth_sessions row and blacklists this device's
+  /// access-token jti, so the bearer token cannot keep working after the
+  /// on-device timeout. Best-effort: if the device is offline the local
+  /// teardown still runs and the token lapses on its own expiry.
+  static Future<void> logoutForIdleTimeout() async {
+    final syncService = ConnectivitySyncService.instance;
+    await syncService.beginSessionBarrier();
+    try {
+      try {
+        await ApiClient.post('/auth/staff/logout', body: {});
+      } catch (e) {
+        debugPrint('AuthService.logoutForIdleTimeout revocation failed: $e');
+      }
+      await _clearLocalSession(telemetryEvent: 'auth.idle_timeout');
+    } finally {
+      syncService.endSessionBarrier();
+    }
+  }
+
   static Future<void> _clearLocalSession({
     required String telemetryEvent,
   }) async {
+    // Tear down the realtime socket BEFORE clearing the JWT so any
+    // last-breath unsubscribe frames still authenticate, and so no
+    // message/notification events can pop up on the login screen of a
+    // shared ward device after sign-out (STF-1 / H3). Never let a socket
+    // hiccup block the sign-out itself.
+    try {
+      await RealtimeClient.instance.disconnect();
+    } catch (e) {
+      debugPrint('AuthService: realtime teardown failed: $e');
+    }
     await ApiConfig.clearSessionIdentity();
     await Telemetry.event(telemetryEvent);
     await CrashReporter.instance.setUserId(null);

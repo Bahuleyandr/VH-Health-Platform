@@ -317,21 +317,42 @@ function deliverBroadcastLocal(channel, event, data, tenantId) {
   }
 }
 
+// Session-revocation events must not leave the revoked session's sockets
+// open: on shared ward devices the still-connected socket kept delivering
+// message subjects/bodies onto the login screen after logout (STF-1 / H3).
+// After delivering `session:revoked`, the socket is closed server-side —
+// the client's own teardown is belt-and-braces, not the enforcement point.
+const SESSION_REVOKED_EVENT = 'session:revoked';
+const SESSION_REVOKED_CLOSE_CODE = 4001;
+
 /** Deliver a user-targeted message to this process's sockets for that user. */
 function deliverUserLocal(userId, event, data, tenantId) {
   const sockets = clients.get(String(userId));
   if (!sockets) return;
   const payload = JSON.stringify({ event, data });
-  for (const ws of sockets) {
-    if (ws.readyState !== 1) continue;
+  const isRevocation = event === SESSION_REVOKED_EVENT;
+  // Copy: closing a socket mutates `sockets` via the ws 'close' handler.
+  for (const ws of [...sockets]) {
     const meta = socketMeta.get(ws);
     if (!tenantMatches(meta?.tenantId, tenantId)) continue;
-    if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-      recordWsBroadcastDropped('backpressure');
-      logger.warn(`Skipping sendToUser to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
-      continue;
+    const open = ws.readyState === 1;
+    if (open) {
+      if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+        recordWsBroadcastDropped('backpressure');
+        logger.warn(`Skipping sendToUser to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+      } else {
+        ws.send(payload);
+      }
     }
-    ws.send(payload);
+    if (isRevocation) {
+      // Close even when the send was skipped (backpressure) or the socket
+      // is still connecting — a revoked session gets no further delivery.
+      try {
+        ws.close(SESSION_REVOKED_CLOSE_CODE, 'Session revoked');
+      } catch {
+        ws.terminate();
+      }
+    }
   }
 }
 

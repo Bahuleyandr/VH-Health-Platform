@@ -3,10 +3,27 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../l10n/app_strings.dart';
+import '../providers/clinical_inbox_provider.dart';
+import '../providers/message_unread_provider.dart';
 import '../providers/session_timeout_provider.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'offline_sync_badge.dart';
+
+/// Stop the message-unread and clinical-inbox pollers (realtime
+/// subscriptions + periodic HTTP polls) and clear their cached PHI. Call on
+/// EVERY logout path — explicit logout, forced/revoked logout, and idle
+/// timeout — so nothing keeps polling or popping snackbars on the login
+/// screen of a shared ward device (STF-1). Provider lookups are best-effort:
+/// hosts that don't mount these providers (tests) are a no-op.
+void stopStaffRealtimePollers(BuildContext context) {
+  try {
+    context.read<MessageUnreadProvider>().stop();
+  } catch (_) {}
+  try {
+    context.read<ClinicalInboxProvider>().stop();
+  } catch (_) {}
+}
 
 typedef StaffLogoutOperation = Future<StaffLogoutResult> Function();
 typedef StaffSyncStatusOpener = Future<void> Function(BuildContext context);
@@ -112,6 +129,10 @@ class LogoutFlow {
     }
 
     context.read<SessionTimeoutProvider>().stopTracking();
+    // The WebSocket itself is torn down inside AuthService.logout's local
+    // cleanup; also stop the poll-timer providers that would otherwise keep
+    // firing (and surfacing message content) on the login screen.
+    stopStaffRealtimePollers(context);
     if (!context.mounted) return true;
     final messenger = result.serverRevocationFailed
         ? ScaffoldMessenger.maybeOf(context)

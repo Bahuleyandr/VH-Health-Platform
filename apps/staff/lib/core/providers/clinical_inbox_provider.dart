@@ -48,6 +48,24 @@ class ClinicalInboxProvider extends ChangeNotifier {
     await refresh();
   }
 
+  /// Tear down on logout (STF-1): cancel the poll timer and realtime
+  /// subscriptions and drop the previous clinician's task list so no PHI
+  /// survives into the login screen or the next session. [start] may be
+  /// called again after the next login.
+  void stop() {
+    if (!_started) return;
+    _started = false;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    for (final sub in _subscriptions) {
+      unawaited(sub.cancel());
+    }
+    _subscriptions.clear();
+    _tasks = const [];
+    _lastError = null;
+    notifyListeners();
+  }
+
   Future<void> refresh() async {
     if (_refreshing) {
       _refreshPending = true;
