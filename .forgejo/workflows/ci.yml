@@ -4,8 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches:
-      - '**'
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -92,3 +91,15 @@ jobs:
           JEST_OLD_SPACE_MB: '2560'
           JEST_TEST_TIMEOUT_MS: '90000'
         run: node scripts/ci/run.mjs --install --only=${{ matrix.stage }}
+
+  merge-gate:
+    name: Merge Gate
+    if: always()
+    needs: [stage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every canonical stage
+        env:
+          CANONICAL_STAGE_RESULT: ${{ needs.stage.result }}
+        run: test "$CANONICAL_STAGE_RESULT" = "success"
