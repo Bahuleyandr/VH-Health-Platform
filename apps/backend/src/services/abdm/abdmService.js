@@ -360,9 +360,10 @@ class ABDMService {
    * when `ABDM_CONFIG.enabled`, and fails closed when it is.
    *
    * Every link carries a verification status (migration 653): 'verified' only
-   * when the ABDM gateway confirmed the number in this call, otherwise
-   * 'pending'. A pending link keeps the number on the account for display but
-   * does not own the tenant-scoped canonical unique slot and never resolves in
+   * when the ABDM gateway confirmed the number (in this call or on an existing
+   * verified link for the same number), otherwise 'pending'. A pending link
+   * keeps the number on the account for display but does not own the
+   * tenant-scoped canonical unique slot and never resolves in
    * ABDM flows — that closes the squat where any authenticated patient could
    * permanently claim someone else's ABHA while ABDM is disabled.
    *
@@ -395,7 +396,9 @@ class ABDMService {
 
     // Check patient exists
     const patientResult = await prisma.$queryRawUnsafe(
-      `SELECT uid, name, phone, tenant_id FROM users
+      `SELECT uid, name, phone, tenant_id, abha_number,
+              abha_verification_status, abha_verified_at
+       FROM users
        WHERE uid = $1::uuid
          AND tenant_id = $2::uuid
          AND role = 'PATIENT'
@@ -406,6 +409,12 @@ class ABDMService {
     if (patientResult.length === 0) {
       throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
     }
+    const currentLink = patientResult[0];
+    const currentCleanAbha = currentLink.abha_number
+      ? String(currentLink.abha_number).trim().replace(/-/g, '')
+      : null;
+    const preserveVerifiedLink = currentLink.abha_verification_status === 'verified'
+      && currentCleanAbha === cleanAbha;
 
     // Check ABHA not already VERIFIED-linked to another patient. Legacy rows
     // may use either plain digits or canonical 2-4-4-4 spelling, so compare
@@ -427,9 +436,9 @@ class ABDMService {
     }
 
     // Verify ABHA with ABDM gateway (if enabled)
-    let gatewayVerified = false;
+    let gatewayVerified = preserveVerifiedLink;
     let gatewayVerificationRan = false;
-    if (ABDM_CONFIG.enabled) {
+    if (!preserveVerifiedLink && ABDM_CONFIG.enabled) {
       try {
         gatewayVerificationRan = true;
         await abdmGateway.verifyABHA(normalizedAbha);
@@ -456,9 +465,10 @@ class ABDMService {
       }
     }
 
-    // 'verified' is minted ONLY by a successful gateway check in this call;
-    // ABDM disabled and the ABDM_ABHA_ALLOW_UNVERIFIED override both mint
-    // 'pending' — the status column records which path created the link.
+    // A new number is 'verified' only after a successful gateway check in this
+    // call. Re-linking the same already-verified number preserves that proof;
+    // an ABDM outage or disabled deployment must never downgrade it to pending
+    // and release its tenant-unique ownership slot.
     const verificationStatus = gatewayVerified ? 'verified' : 'pending';
 
     // Update patient with ABHA details + same-transaction audit row. ABHA
@@ -472,12 +482,18 @@ class ABDMService {
           `UPDATE users
            SET abha_number = $1, abha_address = $2,
                abha_verification_status = $3::text,
-               abha_verified_at = CASE WHEN $3::text = 'verified' THEN NOW() ELSE NULL END,
+               abha_verified_at = CASE
+                 WHEN $3::text = 'verified' AND $6::boolean
+                   THEN COALESCE(abha_verified_at, NOW())
+                 WHEN $3::text = 'verified' THEN NOW()
+                 ELSE NULL
+               END,
                updated_at = NOW()
            WHERE uid = $4::uuid AND tenant_id = $5::uuid
            RETURNING uid, tenant_id, name, phone, abha_number, abha_address,
                      abha_verification_status, abha_verified_at, updated_at`,
-          normalizedAbha, normalizedAddress, verificationStatus, patientUid, tid
+          normalizedAbha, normalizedAddress, verificationStatus, patientUid, tid,
+          preserveVerifiedLink
         );
         await recordClinicalAuditEvent({
           tenantId: tid,
@@ -622,9 +638,33 @@ class ABDMService {
                updated_at = NOW()
            WHERE uid = $1::uuid AND tenant_id = $2::uuid
              AND abha_verification_status = 'pending'
+             AND regexp_replace(abha_number, '-', '', 'g') = $3
            RETURNING uid, abha_number, abha_address, abha_verification_status, abha_verified_at`,
-          patientUid, tid
+          patientUid, tid, cleanAbha
         );
+        if (rows.length === 0) {
+          const currentRows = await tx.$queryRawUnsafe(
+            `SELECT uid, abha_number, abha_address,
+                    abha_verification_status, abha_verified_at
+             FROM users
+             WHERE uid = $1::uuid AND tenant_id = $2::uuid
+             LIMIT 1
+             FOR UPDATE`,
+            patientUid, tid
+          );
+          const current = currentRows[0];
+          const currentCanonical = current?.abha_number
+            ? String(current.abha_number).trim().replace(/-/g, '')
+            : null;
+          if (current?.abha_verification_status === 'verified'
+            && currentCanonical === cleanAbha) {
+            return currentRows;
+          }
+          throw AppError.conflict(
+            'The linked ABHA changed while verification was in progress; retry with the current link',
+            'ABHA_LINK_CHANGED',
+          );
+        }
         await recordClinicalAuditEvent({
           tenantId: tid,
           patientUid,

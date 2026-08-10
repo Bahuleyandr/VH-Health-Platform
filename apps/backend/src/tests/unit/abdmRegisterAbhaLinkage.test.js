@@ -121,6 +121,42 @@ describe('registerABHA — ABHA number', () => {
     );
   });
 
+  it('preserves an existing verified link when the same number is re-linked while ABDM is disabled', async () => {
+    const verifiedAt = new Date('2026-08-01T00:00:00Z');
+    stubQueries({
+      patient: [{
+        uid: PATIENT_UID,
+        abha_number: '12-3456-7890-1234',
+        abha_verification_status: 'verified',
+        abha_verified_at: verifiedAt,
+      }],
+      updated: [{
+        uid: PATIENT_UID,
+        abha_number: '12-3456-7890-1234',
+        abha_address: 'patient@abdm',
+        abha_verification_status: 'verified',
+        abha_verified_at: verifiedAt,
+      }],
+    });
+
+    const result = await abdmService.registerABHA(
+      PATIENT_UID,
+      '12345678901234',
+      'patient@abdm',
+      { tenantId: TENANT_ID },
+    );
+
+    const [updateSql, ...updateArgs] = prismaQuery.mock.calls[2];
+    expect(updateSql).toMatch(/COALESCE\(abha_verified_at, NOW\(\)\)/);
+    expect(updateArgs[2]).toBe('verified');
+    expect(updateArgs[5]).toBe(true);
+    expect(result).toMatchObject({
+      verification_status: 'verified',
+      abha_verified_at: verifiedAt,
+    });
+    expect(verifyABHA).not.toHaveBeenCalled();
+  });
+
   it('records the admin actor when an admin links on behalf of a patient', async () => {
     stubQueries();
     const ADMIN_UID = 'ab100000-0000-4000-8000-0000000000ad';

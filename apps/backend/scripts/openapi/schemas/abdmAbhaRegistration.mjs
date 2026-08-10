@@ -71,7 +71,8 @@ export const schemas = {
         enum: ['pending', 'verified'],
         description:
           'Verification state minted for the link (migration 653). `verified` only when the '
-          + 'ABDM gateway confirmed the number during this call; linking while ABDM is '
+          + 'ABDM gateway confirmed the number during this call, or when re-linking the same '
+          + 'number whose earlier verification is preserved; linking while ABDM is '
           + 'disabled, or under the audited ABDM_ABHA_ALLOW_UNVERIFIED override, mints '
           + '`pending`. A pending link displays to the patient but does not resolve in ABDM '
           + 'flows and does not block another patient from claiming (and verifying) the same '
@@ -123,7 +124,9 @@ export const operations = {
       + 'FAILS CLOSED with 503 '
       + 'ABHA_VERIFICATION_FAILED if that verification cannot be completed, unless the audited '
       + '`ABDM_ABHA_ALLOW_UNVERIFIED` override is active (which mints `pending`). A pending '
-      + 'link is promoted later via `POST /api/v1/abdm/my-abha/verify`. The write commits with '
+      + 'link is promoted later via `POST /api/v1/abdm/my-abha/verify`. Re-linking the same '
+      + 'already-verified number preserves its verified state and original verification time, '
+      + 'including while ABDM is disabled. The write commits with '
       + 'an ABHA_LINKED clinical audit row in one transaction and is recorded to the HIPAA '
       + 'PHI access log.',
     request: 'AbhaLinkRequest',
