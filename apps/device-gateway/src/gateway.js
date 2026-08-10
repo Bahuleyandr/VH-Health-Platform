@@ -1,6 +1,6 @@
 import net from 'node:net';
 import http from 'node:http';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ack, extractMeta, messageText } from './hl7.js';
 import { errorFields, logEvent } from './logger.js';
@@ -181,12 +181,14 @@ export class GatewayRuntime {
     this.controlIdTtlMs = controlIdTtlMs;
     this.maxControlIds = maxControlIds;
     this.legacySpools = new Map();
+    this.legacyAcceptQueues = new Map();
     this.controlIds = new Map();
     this.enrollments = enrollments.map(validateEnrollment);
     this.clockEvidenceProvider = clockEvidenceProvider;
     this.stageHook = stageHook;
     this.partitionByEnrollment = new Map();
     this.inFlight = new Set();
+    this.legacyDrainInFlight = false;
     this.lastRecoveryState = new Map();
     this.drainTimer = null;
     this.startupFault = null;
@@ -211,16 +213,44 @@ export class GatewayRuntime {
     return `${enrollment.listener}:${enrollment.gateway_registry_id}:${enrollment.device_registry_id}`;
   }
 
-  legacySpool(source) {
-    const ref = opaquePartitionRef(`legacy:${source}`);
-    if (!this.legacySpools.has(source)) {
-      this.legacySpools.set(source, new NdjsonSpool({
+  // Keyed by opaque partition ref (not source name) so a spool file recovered
+  // from disk after a restart and a live device reconnecting under the same
+  // source name resolve to ONE NdjsonSpool instance (whose internal mutex
+  // serializes mutations). Two instances on one file would race.
+  legacySpoolByRef(ref) {
+    let spool = this.legacySpools.get(ref);
+    if (!spool) {
+      spool = new NdjsonSpool({
         dir: join(this.spoolDir, 'legacy'),
         source: ref,
         maxBytes: this.maxSpoolBytes,
-      }));
+      });
+      this.legacySpools.set(ref, spool);
     }
-    return this.legacySpools.get(source);
+    return spool;
+  }
+
+  legacySpool(source) {
+    return this.legacySpoolByRef(opaquePartitionRef(`legacy:${source}`));
+  }
+
+  // Register every legacy spool file already on disk (from a previous
+  // process) so the supervised drain delivers it even when its device never
+  // reconnects. Without this, a spool written before a crash/restart was
+  // invisible until the exact source name happened to be re-accepted.
+  async discoverLegacySpools() {
+    const legacyDir = join(this.spoolDir, 'legacy');
+    let names;
+    try {
+      names = await readdir(legacyDir);
+    } catch (err) {
+      if (err.code === 'ENOENT') return;
+      throw err;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.ndjson') || name.endsWith('.dead.ndjson')) continue;
+      this.legacySpoolByRef(name.slice(0, -'.ndjson'.length));
+    }
   }
 
   async initialize() {
@@ -258,9 +288,26 @@ export class GatewayRuntime {
     return { enrollment: enrollment || null, listenerEnrolled: true };
   }
 
-  rememberControlId(source, controlId) {
+  // Dedup is split into a read (hasControlId) and a write (markControlId) so
+  // the legacy accept path can check for duplicates BEFORE the durable append
+  // but only consume the control ID AFTER the append succeeded. Remembering
+  // the ID first (the old rememberControlId) meant a failed append left the
+  // ID consumed: the device's retransmit was answered "AA Duplicate" while
+  // nothing was ever persisted — a silent vitals drop under a success ACK.
+  hasControlId(source, controlId) {
     if (!controlId) return false;
     const key = `${source}:${controlId}`;
+    const expires = this.controlIds.get(key);
+    if (expires === undefined) return false;
+    if (expires < Date.now()) {
+      this.controlIds.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  markControlId(source, controlId) {
+    if (!controlId) return;
     const now = Date.now();
     for (const [seenKey, expires] of this.controlIds.entries()) {
       if (expires < now) this.controlIds.delete(seenKey);
@@ -270,9 +317,23 @@ export class GatewayRuntime {
       if (oldest === undefined) break;
       this.controlIds.delete(oldest);
     }
-    if (this.controlIds.has(key)) return true;
-    this.controlIds.set(key, now + this.controlIdTtlMs);
-    return false;
+    this.controlIds.set(`${source}:${controlId}`, now + this.controlIdTtlMs);
+  }
+
+  async serializeLegacyAccept(source, operation) {
+    const previous = this.legacyAcceptQueues.get(source) || Promise.resolve();
+    let release;
+    const current = new Promise((resolve) => { release = resolve; });
+    this.legacyAcceptQueues.set(source, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.legacyAcceptQueues.get(source) === current) {
+        this.legacyAcceptQueues.delete(source);
+      }
+    }
   }
 
   async acceptFrame({ listener, sourceIp, message, channel = '' }) {
@@ -418,21 +479,68 @@ export class GatewayRuntime {
 
   async acceptLegacy({ listener, sourceIp, message, meta, channel }) {
     const source = meta.sendingApp || meta.sendingFacility || (typeof listener === 'string' ? listener : listener?.name) || 'unknown';
-    const resolution = await this.backendClient.resolveDevice({ source_ip: sourceIp, device_code: source, channel });
-    const deviceKey = resolution.device?.device_code || source;
-    if (this.rememberControlId(deviceKey, meta.controlId)) return { duplicate: true };
-    const entry = await this.legacySpool(source).append({
-      message: messageText(message),
-      device_code: deviceKey,
-      patient_uid: resolution.patient_uid || null,
-      channel,
-      control_id: meta.controlId,
+    let resolution = null;
+    try {
+      resolution = await this.backendClient.resolveDevice({ source_ip: sourceIp, device_code: source, channel });
+      gatewayCredentialEvents.inc({ kind: 'device', status: 'verified' });
+    } catch (err) {
+      // A definite backend refusal (any 4xx: unknown device, auth refused)
+      // stays a refusal — the device gets AE and nothing is spooled. Anything
+      // else (5xx, timeout, network failure, backend outage) must NOT refuse:
+      // the durable-recovery-spool commitment is that vitals buffer locally
+      // during a backend outage and drain on recovery. Spool with the
+      // MSH-derived identity; the drain-time ingest re-resolves the device,
+      // so a genuinely unknown device still dead-letters with evidence.
+      if (Number.isInteger(err?.status) && err.status >= 400 && err.status < 500) throw err;
+      if (err?.code === 'DEVICE_AUTH_REFUSED') throw err;
+      gatewayCredentialEvents.inc({ kind: 'device', status: 'spool_only' });
+      logEvent('warn', 'legacy_accept_backend_unavailable', {
+        source_ref: this.legacySpool(source).source,
+        reason: legacyDeliveryFailureReason(err),
+        ...errorFields(err),
+      });
+    }
+    const deviceKey = resolution?.device?.device_code || source;
+    return this.serializeLegacyAccept(source, async () => {
+      if (this.hasControlId(deviceKey, meta.controlId)) return { duplicate: true };
+      // Persist first, then consume the control ID. The per-source queue keeps
+      // this check/append/mark sequence atomic across concurrent sockets. If
+      // the append throws, the ID stays unconsumed so a retransmit is accepted.
+      const entry = await this.legacySpool(source).append({
+        message: messageText(message),
+        device_code: deviceKey,
+        patient_uid: resolution?.patient_uid || null,
+        channel,
+        control_id: meta.controlId,
+      });
+      this.markControlId(deviceKey, meta.controlId);
+      return { duplicate: false, entry };
     });
-    return { duplicate: false, entry };
   }
 
   async drainLegacySource(source) {
-    const spool = this.legacySpool(source);
+    return this.drainLegacySpool(this.legacySpool(source));
+  }
+
+  // Drain every known legacy spool: those touched in-process plus any
+  // discovered on disk from a previous process. Called from the supervised
+  // drain timer so legacy messages buffered during a backend outage are
+  // delivered as soon as the backend recovers — the spool is a durable
+  // buffer, not a write-only graveyard.
+  async drainAllLegacy() {
+    if (this.legacyDrainInFlight) return;
+    this.legacyDrainInFlight = true;
+    try {
+      await this.discoverLegacySpools();
+      for (const spool of this.legacySpools.values()) {
+        await this.drainLegacySpool(spool);
+      }
+    } finally {
+      this.legacyDrainInFlight = false;
+    }
+  }
+
+  async drainLegacySpool(spool) {
     for (const entry of await spool.entries()) {
       try {
         await this.backendClient.ingest({
@@ -652,9 +760,13 @@ export class GatewayRuntime {
   }
 
   startSupervisedDrains(intervalMs = 5000) {
-    if (this.drainTimer || this.enrollments.length === 0) return;
+    if (this.drainTimer) return;
+    // The timer starts even with zero I09 enrollments: legacy spools always
+    // need a drain loop, otherwise messages buffered during a backend outage
+    // are never delivered on recovery.
     const drain = async () => {
       for (const enrollment of this.enrollments) await this.drainPartition(enrollment);
+      await this.drainAllLegacy();
     };
     this.drainTimer = setInterval(() => {
       drain().catch((err) => {
@@ -784,12 +896,15 @@ export async function startGateway({
   const servers = [];
   let metricsServer = null;
   let coldChainServer = null;
+  const openSockets = new Set();
+  const socketWork = new Map();
   try {
     for (const listener of listeners) {
       const server = net.createServer((socket) => {
         const reader = new MllpFrameReader();
         const labels = { listener: listener.name };
         mllpConnectionsActive.inc(labels);
+        openSockets.add(socket);
         // A TCP-level error on a device connection (ECONNRESET on abrupt
         // monitor disconnect, EPIPE on a failed ACK write) must never crash the
         // gateway: with no listener, 'error' is an uncaught exception. Log and
@@ -806,7 +921,35 @@ export async function startGateway({
           console.error(`device-gateway: mllp socket idle timeout after ${socketIdleTimeoutMs}ms listener=${listener.name} remote=${socket.remoteAddress || 'unknown'}`);
           socket.destroy();
         });
-        socket.on('data', async (chunk) => {
+        // Never rejects: every failure path destroys the socket instead, so
+        // the per-socket promise chain below can never wedge on a rejection.
+        const processMessage = async (message) => {
+          try {
+            const result = await runtime.acceptFrame({
+              listener,
+              sourceIp: normalizeIp(socket.remoteAddress),
+              message,
+            });
+            // The peer can have disconnected while acceptFrame ran (backend
+            // HTTP + fsync'd spool append — the durable append correctly
+            // happens before any ACK and must stay first). Writing to a
+            // destroyed socket would throw/emit 'error'; skip the ACK
+            // instead — the device retransmits and dedupe answers.
+            if (socket.destroyed || !socket.writable) return;
+            socket.write(frameMessage(result.ack));
+          } catch {
+            socket.destroy();
+          }
+        };
+        // Frame reassembly is synchronous and runs in TCP arrival order, so
+        // frames split across chunks reassemble correctly even while earlier
+        // messages are still being processed. Message processing is chained
+        // per socket: the old `async (chunk)` handler processed each chunk's
+        // messages CONCURRENTLY, so a fast message from chunk N+1 could be
+        // ACKed before a slow message from chunk N — out-of-order MLLP ACKs
+        // that a sequential device (send, await ACK, send) misattributes.
+        let pending = Promise.resolve();
+        socket.on('data', (chunk) => {
           let messages;
           try {
             messages = reader.push(chunk);
@@ -815,26 +958,23 @@ export async function startGateway({
             return;
           }
           for (const message of messages) {
-            try {
-              const result = await runtime.acceptFrame({
-                listener,
-                sourceIp: normalizeIp(socket.remoteAddress),
-                message,
-              });
-              // The peer can have disconnected while acceptFrame ran (backend
-              // HTTP + fsync'd spool append — the durable append correctly
-              // happens before any ACK and must stay first). Writing to a
-              // destroyed socket would throw/emit 'error'; skip the ACK
-              // instead — the device retransmits and dedupe answers.
-              if (socket.destroyed || !socket.writable) return;
-              socket.write(frameMessage(result.ack));
-            } catch {
-              socket.destroy();
-              return;
-            }
+            pending = pending.then(() => processMessage(message));
+          }
+          socketWork.set(socket, pending);
+        });
+        socket.on('close', () => {
+          mllpConnectionsActive.dec(labels);
+          openSockets.delete(socket);
+          // A peer can disconnect while acceptFrame is still fsyncing its
+          // durable spool entry. Keep that promise visible to shutdown until
+          // it settles; deleting it here lets SIGTERM exit mid-persist.
+          const work = socketWork.get(socket);
+          if (work) {
+            work.finally(() => {
+              if (socketWork.get(socket) === work) socketWork.delete(socket);
+            });
           }
         });
-        socket.on('close', () => mllpConnectionsActive.dec(labels));
       });
       guardServer(server, `mllp:${listener.name}`);
       await listenServer(server, listener.port, listener.host || '0.0.0.0');
@@ -860,7 +1000,37 @@ export async function startGateway({
       : null;
     if (coldChainServer) await listenServer(coldChainServer, coldChainIngestPort);
     runtime.startSupervisedDrains(Number(process.env.DEVICE_GATEWAY_DRAIN_INTERVAL_MS || 5000));
-    return { servers, metricsServer, coldChainServer };
+    // Graceful shutdown (SIGTERM from Kubernetes, SIGINT from an operator):
+    // stop the drain timer, stop accepting new connections, let in-flight
+    // frames finish their durable append + ACK (bounded), then drop the
+    // remaining sockets. Anything not yet durably appended never received AA,
+    // so the device retransmits after reconnecting — nothing is lost.
+    let shutdownPromise = null;
+    const shutdown = ({ drainTimeoutMs = 10000 } = {}) => {
+      if (shutdownPromise) return shutdownPromise;
+      shutdownPromise = (async () => {
+        runtime.stopSupervisedDrains?.();
+        const closing = [...servers, metricsServer, coldChainServer]
+          .filter(Boolean)
+          .map((server) => closeListeningServer(server));
+        await Promise.race([
+          Promise.allSettled([...socketWork.values()]),
+          new Promise((resolve) => {
+            const timer = setTimeout(resolve, drainTimeoutMs);
+            timer.unref?.();
+          }),
+        ]);
+        for (const socket of [...openSockets]) {
+          // destroySoon flushes queued writes (the final ACK) before closing;
+          // plain destroy() could discard an ACK written microseconds ago.
+          if (typeof socket.destroySoon === 'function') socket.destroySoon();
+          else socket.destroy();
+        }
+        await Promise.allSettled(closing);
+      })();
+      return shutdownPromise;
+    };
+    return { servers, metricsServer, coldChainServer, shutdown };
   } catch (err) {
     runtime.stopSupervisedDrains?.();
     await Promise.allSettled([

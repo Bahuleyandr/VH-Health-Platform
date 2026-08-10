@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build:runtime": "node tools/build-runtime-verifier.mjs",
+    "pretest": "node tools/ensure-test-certificate.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

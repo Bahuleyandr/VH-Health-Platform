@@ -52,7 +52,7 @@ describe('logger PHI hygiene', () => {
 });
 
 describe('refusal-path logging (GW-M1)', () => {
-  it('preserves the underlying error code when the metric label collapses to spool_corrupt', async () => {
+  it('preserves the underlying error code when a statusless resolve failure falls back to spool-only', async () => {
     const backend = {
       resolveDevice: jest.fn(async () => {
         throw Object.assign(new Error('surprising internal failure'), { code: 'SOMETHING_WEIRD' });
@@ -63,19 +63,50 @@ describe('refusal-path logging (GW-M1)', () => {
       const result = await runtime.acceptFrame({
         listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-LOG-1'),
       });
-      expect(result.ackCode).toBe('AE');
-      const refusal = entries.find((entry) => entry.event === 'mllp_refusal');
-      expect(refusal).toMatchObject({
-        level: 'error',
-        reason: 'spool_corrupt',
+      // A statusless resolve failure is indistinguishable from a backend
+      // outage, so the legacy path spools durably and ACKs instead of
+      // refusing — but the warn log still preserves the real error identity.
+      expect(result.ackCode).toBe('AA');
+      const warned = entries.find((entry) => entry.event === 'legacy_accept_backend_unavailable');
+      expect(warned).toMatchObject({
+        level: 'warn',
+        reason: 'backend_unreachable',
         error_code: 'SOMETHING_WEIRD',
         error_name: 'Error',
-        ack_code: 'AE',
       });
       const serialized = JSON.stringify(entries);
       expect(serialized).not.toContain('CTRL-LOG-1');
       expect(serialized).not.toContain(PATIENT_UID);
       expect(serialized).not.toContain('surprising internal failure');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('still refuses with the preserved error code on a definite backend 4xx', async () => {
+    const backend = {
+      resolveDevice: jest.fn(async () => {
+        throw Object.assign(new Error('unknown device'), { code: 'DEVICE_NOT_FOUND', status: 404 });
+      }),
+    };
+    const { dir, runtime } = await tempRuntime(backend);
+    try {
+      const result = await runtime.acceptFrame({
+        listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-LOG-2'),
+      });
+      expect(result.ackCode).toBe('AE');
+      const refusal = entries.find((entry) => entry.event === 'mllp_refusal');
+      expect(refusal).toMatchObject({
+        level: 'error',
+        reason: 'spool_corrupt',
+        error_code: 'DEVICE_NOT_FOUND',
+        error_name: 'Error',
+        ack_code: 'AE',
+      });
+      expect(await runtime.legacySpool('MON-ICU-01').entries()).toHaveLength(0);
+      const serialized = JSON.stringify(entries);
+      expect(serialized).not.toContain('CTRL-LOG-2');
+      expect(serialized).not.toContain(PATIENT_UID);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
