@@ -19,6 +19,13 @@ import {
 
 const shared = VITAL_PLAUSIBILITY_BOUNDS;
 
+function finiteNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export const ICU_FLOWSHEET_BOUNDS = {
   // Vitals — shared bounds under the ICU flowsheet column names.
   hr: { ...shared.heart_rate, integer: true },
@@ -87,8 +94,8 @@ function assertBounds(values, boundsMap) {
   for (const [field, bounds] of Object.entries(boundsMap)) {
     const value = values[field];
     if (value === undefined || value === null) continue;
-    const num = Number(value);
-    if (Number.isNaN(num)) {
+    const num = finiteNumber(value);
+    if (num === null) {
       throw AppError.badRequest(`${field} must be a number`);
     }
     if (bounds.integer && !Number.isInteger(num)) {
@@ -120,8 +127,8 @@ function assertOtherDrips(otherDrips) {
       throw AppError.badRequest('each other_drips entry needs a name (max 120 chars)');
     }
     if (entry.rate !== undefined && entry.rate !== null) {
-      const rate = Number(entry.rate);
-      if (!Number.isFinite(rate) || rate < 0 || rate > 100000) {
+      const rate = finiteNumber(entry.rate);
+      if (rate === null || rate < 0 || rate > 100000) {
         throw AppError.badRequest('other_drips rate must be a number between 0 and 100000');
       }
     }

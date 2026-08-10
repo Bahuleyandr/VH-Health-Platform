@@ -31,9 +31,11 @@
 --
 -- Grandfathering: rows already carrying a legacy off-vocabulary status are
 -- untouched (the trigger fires only on new writes, and non-status column
--- updates on such rows stay legal). A status CHANGE away from an
--- off-vocabulary value may go to any canonical status — the data-repair
--- path — but never to another off-vocabulary value.
+-- updates on such rows stay legal). Known lowercase/hyphenated spellings are
+-- treated as their canonical semantic state, so a legacy `dispensed` row
+-- cannot be "repaired" by reopening it as PENDING. A same-state case repair
+-- is allowed. Truly unknown legacy values may move to any canonical status
+-- as a deliberate data-repair path, but never to another unknown value.
 --
 -- Raise style follows migrations 609/610: SQLSTATE 23514 with a synthetic
 -- CONSTRAINT label for client pattern-matching (no pg_constraint row exists
@@ -56,6 +58,7 @@ DECLARE
     'ON_HOLD', 'REJECTED'
   ];
   allowed text[];
+  old_semantic text;
 BEGIN
   -- Only status writes are policed: INSERTs, and UPDATEs that change status.
   IF TG_OP = 'UPDATE' AND NEW.status IS NOT DISTINCT FROM OLD.status THEN
@@ -70,13 +73,22 @@ BEGIN
   END IF;
 
   IF TG_OP = 'UPDATE' THEN
-    -- Legacy off-vocabulary rows: any canonical target is a permitted
-    -- repair; no transition map applies.
-    IF OLD.status IS NULL OR NOT (OLD.status = ANY (canonical)) THEN
+    old_semantic := UPPER(REPLACE(REPLACE(BTRIM(OLD.status), '-', '_'), ' ', '_'));
+
+    -- Truly unknown legacy rows may be repaired to any canonical target.
+    -- Known case/hyphen variants keep their semantic lifecycle state so a
+    -- terminal lowercase status cannot be used as a reopening escape hatch.
+    IF OLD.status IS NULL OR NOT (old_semantic = ANY (canonical)) THEN
       RETURN NEW;
     END IF;
 
-    allowed := CASE OLD.status
+    -- A spelling-only repair (for example `dispensed` -> `DISPENSED`) does
+    -- not represent a lifecycle transition and is always safe.
+    IF NEW.status = old_semantic AND OLD.status IS DISTINCT FROM old_semantic THEN
+      RETURN NEW;
+    END IF;
+
+    allowed := CASE old_semantic
       WHEN 'PENDING'    THEN ARRAY['CONFIRMED', 'DISPENSED', 'UNAVAILABLE', 'CANCELLED']
       WHEN 'CONFIRMED'  THEN ARRAY['PREPARING', 'DISPATCHED', 'DISPENSED', 'UNAVAILABLE', 'CANCELLED']
       WHEN 'PREPARING'  THEN ARRAY['READY', 'DISPATCHED', 'UNAVAILABLE', 'CANCELLED']

@@ -60,6 +60,10 @@ describe('ICU flowsheet bounds — edges', () => {
 
   it('non-numeric and non-integer values on integer columns are rejected', () => {
     expect(() => assertIcuFlowsheetPlausibility({ hr: 'fast' })).toThrow(/hr must be a number/);
+    expect(() => assertIcuFlowsheetPlausibility({ spo2: '' })).toThrow(/spo2 must be a number/);
+    expect(() => assertIcuFlowsheetPlausibility({ urine_output_ml: false })).toThrow(
+      /urine_output_ml must be a number/,
+    );
     expect(() => assertIcuFlowsheetPlausibility({ hr: 82.5 })).toThrow(/hr must be an integer/);
     expect(() => assertIcuFlowsheetPlausibility({ temp_c: 37.4 })).not.toThrow();
   });
@@ -69,6 +73,9 @@ describe('ICU flowsheet bounds — edges', () => {
     expect(() => assertIcuFlowsheetPlausibility({ other_drips: [{ rate: 5 }] })).toThrow(/name/);
     expect(() => assertIcuFlowsheetPlausibility({
       other_drips: [{ name: 'milrinone', rate: -1 }],
+    })).toThrow(/rate/);
+    expect(() => assertIcuFlowsheetPlausibility({
+      other_drips: [{ name: 'milrinone', rate: '' }],
     })).toThrow(/rate/);
     expect(() => assertIcuFlowsheetPlausibility({
       other_drips: [{ name: 'milrinone', rate: 0.375, unit: 'mcg/kg/min' }],

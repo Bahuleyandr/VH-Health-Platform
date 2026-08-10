@@ -105,7 +105,7 @@ d('pharmacy_orders status transition guard (migration 649)', () => {
     await expect23514(setStatus(order.id, 'PENDING'));
   });
 
-  it('legacy off-vocabulary rows: non-status updates work, repair must land on the vocabulary', async () => {
+  it('legacy known statuses keep lifecycle semantics while unknown values remain repairable', async () => {
     // Simulate a pre-backstop legacy row by inserting with triggers disabled
     // (session_replication_role only affects this superuser session).
     await prisma.$executeRawUnsafe(`SET session_replication_role = replica`);
@@ -122,13 +122,26 @@ d('pharmacy_orders status transition guard (migration 649)', () => {
       `UPDATE pharmacy_orders SET pharmacist_notes = 'ok' WHERE id = $1`, legacy.id,
     );
 
-    // Repair to another off-vocabulary value is blocked …
+    // Repair to another off-vocabulary value is blocked.
     await expect23514(setStatus(legacy.id, 'delivered'));
-    // … but repair onto the canonical vocabulary is allowed.
-    await setStatus(legacy.id, 'CANCELLED');
+    // A lowercase terminal state cannot use the generic repair path to
+    // reopen or transition elsewhere, but a spelling-only repair is legal.
+    await expect23514(setStatus(legacy.id, 'PENDING'));
+    await expect23514(setStatus(legacy.id, 'CANCELLED'));
+    await setStatus(legacy.id, 'DISPENSED');
     const rows = await prisma.$queryRawUnsafe(
       `SELECT status FROM pharmacy_orders WHERE id = $1`, legacy.id,
     );
-    expect(rows[0].status).toBe('CANCELLED');
+    expect(rows[0].status).toBe('DISPENSED');
+
+    // A genuinely unknown legacy value still has a controlled repair path.
+    await prisma.$executeRawUnsafe(`SET session_replication_role = replica`);
+    let unknown;
+    try {
+      unknown = await insertOrder('legacy_archived');
+    } finally {
+      await prisma.$executeRawUnsafe(`SET session_replication_role = DEFAULT`);
+    }
+    await setStatus(unknown.id, 'CANCELLED');
   });
 });

@@ -113,6 +113,14 @@ d('ICU lifecycle canonical events + migration 648 backstops', () => {
     expect(timeline.find((r) => r.event_type === 'icu.admission_created').idempotency_key)
       .toBe(`icu_admissions:${adm.id}:icu.admission_created`);
     expect(audit.map((r) => r.action)).toContain('icu.admission_created');
+    const history = await prisma.$queryRawUnsafe(
+      `SELECT previous_code_status, new_code_status FROM icu_code_status_history
+        WHERE icu_admission_id = $1 ORDER BY id`,
+      adm.id,
+    );
+    expect(history).toEqual([
+      expect.objectContaining({ previous_code_status: null, new_code_status: 'full_code' }),
+    ]);
   });
 
   it('a DNR flip appends history + canonical pair; an exact retry absorbs', async () => {
@@ -132,8 +140,9 @@ d('ICU lifecycle canonical events + migration 648 backstops', () => {
         WHERE icu_admission_id = $1 ORDER BY id`,
       adm.id,
     );
-    expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({ previous_code_status: 'full_code', new_code_status: 'dnr' });
+    expect(history).toHaveLength(2);
+    expect(history[0]).toMatchObject({ previous_code_status: null, new_code_status: 'full_code' });
+    expect(history[1]).toMatchObject({ previous_code_status: 'full_code', new_code_status: 'dnr' });
 
     const timeline = await timelineRows(adm.id);
     expect(timeline.filter((r) => r.event_type === 'icu.code_status_changed')).toHaveLength(1);
@@ -146,7 +155,7 @@ d('ICU lifecycle canonical events + migration 648 backstops', () => {
       `SELECT new_code_status FROM icu_code_status_history WHERE icu_admission_id = $1 ORDER BY id`,
       adm.id,
     );
-    expect(history2.map((r) => r.new_code_status)).toEqual(['dnr', 'full_code']);
+    expect(history2.map((r) => r.new_code_status)).toEqual(['full_code', 'dnr', 'full_code']);
     const timeline2 = await timelineRows(adm.id);
     expect(timeline2.filter((r) => r.event_type === 'icu.code_status_changed')).toHaveLength(2);
   });

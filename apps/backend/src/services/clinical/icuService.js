@@ -44,6 +44,8 @@ async function assertIcuAdmissionInTenant(tenantId, icuAdmissionId) {
 // ADMISSIONS
 // ════════════════════════════════════════════════════════════════════
 
+const VALID_CODE_STATUSES = ['full_code', 'dni', 'dnr', 'dnr_dni', 'comfort_only'];
+
 // Canonical lifecycle emit — every ICU lifecycle write (admit, code-status
 // flip, discharge/death) persists the detail row plus one
 // clinical_timeline_events row and one clinical_audit_events row in the SAME
@@ -92,6 +94,12 @@ async function emitIcuLifecycleEvent(tx, {
 export async function createAdmission({ tenantId, actorUid = null, actorRole = null, ...body }) {
   if (!body.patient_uid) throw AppError.badRequest('patient_uid required');
   if (!body.unit_code) throw AppError.badRequest('unit_code required');
+  const codeStatus = body.code_status ?? 'full_code';
+  if (!VALID_CODE_STATUSES.includes(codeStatus)) {
+    throw AppError.badRequest('invalid code_status');
+  }
+  const codeStatusWasExplicit = body.code_status !== undefined && body.code_status !== null;
+  const codeStatusActor = codeStatusWasExplicit ? actorUid : null;
 
   // E-4 — uuid columns (patient_uid, admitting_doctor_uid,
   // code_status_set_by, tenant_id) need explicit ::uuid casts. node-pg
@@ -110,7 +118,7 @@ export async function createAdmission({ tenantId, actorUid = null, actorRole = n
        monitoring_interval_minutes, npo_from, fasting_until, pre_op_status,
        er_visit_id)
     VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10,
-            $11, $12, $13, COALESCE($14, 'full_code'), $15, $16::uuid, $17::uuid,
+            $11, $12, $13, $14, $15, $16::uuid, $17::uuid,
             $18, $19::timestamptz, $20::timestamptz, $21, $22)
     RETURNING *`;
   const tenant = tenantOr(tenantId);
@@ -130,9 +138,9 @@ export async function createAdmission({ tenantId, actorUid = null, actorRole = n
       body.sofa_score || null,
       body.predicted_mortality_pct || null,
       body.expected_los_days || null,
-      body.code_status || null,
-      body.code_status ? new Date() : null,
-      body.code_status_set_by || null,
+      codeStatus,
+      codeStatusWasExplicit ? new Date() : null,
+      codeStatusActor,
       tenant,
       // E-4 ICU monitoring + fasting fields (migration 184).
       body.monitoring_interval_minutes ?? 60,
@@ -145,6 +153,26 @@ export async function createAdmission({ tenantId, actorUid = null, actorRole = n
       body.er_visit_id ? parseInt(body.er_visit_id, 10) : null
     );
     const row = unwrap(rows);
+    // Anchor the initial order for admissions created after migration 648.
+    // The migration backfills pre-existing admissions, but without this row a
+    // new admission's first history entry would only appear after a later
+    // flip, leaving the initial code-status order absent from its dedicated
+    // append-only ledger. The authenticated actor is authoritative; a request
+    // body cannot attribute the order to another user.
+    await tx.$queryRawUnsafe(
+      `INSERT INTO icu_code_status_history
+         (tenant_id, icu_admission_id, patient_uid, previous_code_status,
+          new_code_status, changed_by, changed_at)
+       VALUES ($1::uuid, $2, $3::uuid, NULL, $4, $5::uuid,
+               COALESCE($6::timestamptz, $7::timestamptz, NOW()))`,
+      tenant,
+      row.id,
+      row.patient_uid,
+      row.code_status,
+      row.code_status_set_by || null,
+      row.code_status_set_at || null,
+      row.admitted_at || null
+    );
     // Insert-once fixed key: the emit runs exactly once, in the tx that
     // mints the admission id.
     await emitIcuLifecycleEvent(tx, {
@@ -258,7 +286,7 @@ export async function updateMonitoringInterval({ tenantId, id, monitoring_interv
 }
 
 export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set_by, actorRole = null }) {
-  if (!['full_code', 'dni', 'dnr', 'dnr_dni', 'comfort_only'].includes(code_status)) {
+  if (!VALID_CODE_STATUSES.includes(code_status)) {
     throw AppError.badRequest('invalid code_status');
   }
   const admissionId = parseInt(id, 10);

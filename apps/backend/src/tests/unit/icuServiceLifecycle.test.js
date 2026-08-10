@@ -177,16 +177,28 @@ describe('updateAdmissionCodeStatus — append-only history + canonical pair (CL
 });
 
 describe('createAdmission — canonical pair in the minting tx', () => {
-  it('emits icu.admission_created with the insert-once fixed key', async () => {
-    txQueryRawMock.mockResolvedValueOnce([{
-      id: 9, patient_uid: PATIENT, status: 'active', unit_code: 'MICU',
-      bed_no: 'B2', code_status: 'full_code', reason_for_icu: null, er_visit_id: null,
-    }]);
+  it('anchors initial code status and emits the insert-once canonical pair', async () => {
+    txQueryRawMock.mockImplementation(async (sql) => {
+      if (sql.includes('INSERT INTO icu_admissions')) {
+        return [{
+          id: 9, patient_uid: PATIENT, status: 'active', unit_code: 'MICU',
+          bed_no: 'B2', code_status: 'full_code', code_status_set_by: null,
+          code_status_set_at: null, admitted_at: new Date('2026-08-10T10:00:00Z'),
+          reason_for_icu: null, er_visit_id: null,
+        }];
+      }
+      return [];
+    });
     const row = await icu.createAdmission({
       tenantId: TENANT, actorUid: ACTOR, actorRole: 'DOCTOR',
       patient_uid: PATIENT, unit_code: 'MICU', bed_no: 'B2',
     });
     expect(row.id).toBe(9);
+    const historyCall = txQueryRawMock.mock.calls.find(
+      (c) => c[0].includes('INSERT INTO icu_code_status_history'),
+    );
+    expect(historyCall).toBeDefined();
+    expect(historyCall.slice(1, 6)).toEqual([TENANT, 9, PATIENT, 'full_code', null]);
     expect(recordCanonicalMock).toHaveBeenCalledTimes(1);
     expect(recordCanonicalMock.mock.calls[0][0]).toMatchObject({
       eventType: 'icu.admission_created',
@@ -196,6 +208,49 @@ describe('createAdmission — canonical pair in the minting tx', () => {
       auditIdempotencyKey: 'icu_admissions:9:audit:icu.admission_created',
     });
     expect(recordCanonicalMock.mock.calls[0][1]).toEqual({ db: tx });
+  });
+
+  it('rejects an invalid initial code status before DB work', async () => {
+    await expect(icu.createAdmission({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      patient_uid: PATIENT,
+      unit_code: 'MICU',
+      code_status: 'no_code',
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+  });
+
+  it('attributes an explicit initial code status to the authenticated actor', async () => {
+    const spoofedActor = '44444444-4444-4444-8444-444444444444';
+    txQueryRawMock.mockImplementation(async (sql) => {
+      if (sql.includes('INSERT INTO icu_admissions')) {
+        return [{
+          id: 10, patient_uid: PATIENT, status: 'active', unit_code: 'MICU',
+          code_status: 'dnr', code_status_set_by: ACTOR,
+          code_status_set_at: new Date(), admitted_at: new Date(),
+        }];
+      }
+      return [];
+    });
+
+    await icu.createAdmission({
+      tenantId: TENANT,
+      actorUid: ACTOR,
+      patient_uid: PATIENT,
+      unit_code: 'MICU',
+      code_status: 'dnr',
+      code_status_set_by: spoofedActor,
+    });
+
+    const admissionInsert = txQueryRawMock.mock.calls.find(
+      (c) => c[0].includes('INSERT INTO icu_admissions'),
+    );
+    expect(admissionInsert[16]).toBe(ACTOR);
+    const historyCall = txQueryRawMock.mock.calls.find(
+      (c) => c[0].includes('INSERT INTO icu_code_status_history'),
+    );
+    expect(historyCall[5]).toBe(ACTOR);
   });
 });
 
