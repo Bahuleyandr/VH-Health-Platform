@@ -10,7 +10,6 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
-import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
@@ -25,8 +24,7 @@ class SettingsController {
 
   final LocalAuthentication _auth = LocalAuthentication();
   final _secureStorage = VHSecureStorage.instance;
-  final AccountDeletionService _accountDeletionService =
-      AccountDeletionService();
+  final AccountDeletionService _accountDeletionService;
 
   // These will be initialized with proper context
   late BuildContext context;
@@ -43,12 +41,16 @@ class SettingsController {
   bool _initialized = false;
 
   // Context is passed later via initialize() — not the constructor.
+  // [accountDeletionService] is injectable so the account-deletion logout
+  // path is testable without Firebase.
   SettingsController(
     this.phone,
     this.name,
     this.refresh, {
     this.hospitalNumber = '',
-  });
+    AccountDeletionService? accountDeletionService,
+  }) : _accountDeletionService =
+           accountDeletionService ?? AccountDeletionService();
 
   void initialize(BuildContext ctx) {
     if (_initialized) return;
@@ -159,54 +161,10 @@ class SettingsController {
     refresh();
   }
 
-  Future<void> logout() async {
-    final nav = Navigator.of(context);
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(loc.settingsLogoutConfirmation),
-        content: Text(loc.settingsAreYouSureLogout),
-        actions: [
-          TextButton(
-            onPressed: () => nav.pop(false),
-            child: Text(loc.commonCancelButton),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            onPressed: () => nav.pop(true),
-            child: Text(loc.settingsConfirmLogout),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      // Unregister the device before clearing storage. LogoutService owns both
-      // server-session revocations and their combined success result.
-      try {
-        await DeviceService.unregisterDevice(phone);
-      } catch (e) {
-        debugPrint('Settings logout cleanup failed: $e');
-      }
-      // LogoutService signs out of Firebase as its own final step now, so this
-      // path must not do it again ahead of the teardown (PR #783 ordering).
-      final outcome = await LogoutService.logout();
-      if (context.mounted) {
-        context.go('/login');
-      }
-      // Local teardown always runs, so never block the sign-out — but say so
-      // when the VH token could not be revoked server-side.
-      if (!outcome.serverSessionRevoked) {
-        _showSnackBar(
-          'Signed out on this device. We could not reach the server, so other '
-          'devices may stay signed in until you retry.',
-        );
-      }
-    }
-  }
+  // NOTE: the manual logout path lives in LogoutButton.confirmAndLogout —
+  // the Settings screen renders a LogoutButton. A parallel logout() here was
+  // dead code (never wired to any UI) and a second place for teardown steps
+  // to silently drift, so it was removed (PAT-4).
 
   Future<void> deleteAccount() async {
     if (phone.trim().isEmpty) {

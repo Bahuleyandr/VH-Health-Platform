@@ -134,6 +134,39 @@ void main() {
       },
     );
 
+    test('reconnect never gives up and caps the retry delay at 30s', () async {
+      final timers = <_FakeTimer>[];
+      final service = WebSocketService.test(
+        tokenReader: () async => 'jwt-token',
+        connector: (_) {
+          final connection = _FakeWebSocketConnection.pending();
+          connection.completeError(StateError('backend down'));
+          return connection;
+        },
+        timerFactory: (duration, callback) {
+          final timer = _FakeTimer(duration, callback);
+          timers.add(timer);
+          return timer;
+        },
+      );
+      addTearDown(service.dispose);
+
+      await service.connect();
+
+      // Previously the service silently gave up after 5 attempts, leaving
+      // the app without realtime for the rest of the session. Drive well
+      // past that: every failure must schedule another retry.
+      for (var i = 0; i < 9; i++) {
+        expect(timers, hasLength(i + 1));
+        timers.last.fire();
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(timers, hasLength(10));
+      expect(timers.last.duration, const Duration(seconds: 30));
+      expect(service.isConnected, isFalse);
+    });
+
     test('stale in-flight connect cannot replace a newer reconnect', () async {
       final connections = <_FakeWebSocketConnection>[];
       final service = WebSocketService.test(

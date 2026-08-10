@@ -219,12 +219,7 @@ class _OtpWidgetState extends State<OtpWidget> {
       );
 
       if (!backendLoginOk) {
-        // The backend exchange may have written part of the local session
-        // before a later storage write failed. Use the centralized teardown
-        // so no partial JWT can make the router treat this failed login as an
-        // authenticated session when Firebase sign-out refreshes it.
-        await LogoutService.logout();
-        _setInlineError(l.otpBackendLoginFailed);
+        await teardownFailedBackendLogin();
         return;
       }
 
@@ -241,6 +236,18 @@ class _OtpWidgetState extends State<OtpWidget> {
       _setInlineError(l.otpAuthenticationFailed);
       developer.log("Firebase auth error: $e", name: 'OtpWidget');
     }
+  }
+
+  /// Failed backend exchange after a successful Firebase sign-in — one of
+  /// the six logout paths. The backend exchange may have written part of the
+  /// local session before a later storage write failed; the centralized
+  /// teardown guarantees no partial JWT can make the router treat this failed
+  /// login as an authenticated session when Firebase sign-out refreshes it.
+  @visibleForTesting
+  Future<void> teardownFailedBackendLogin() async {
+    await LogoutService.logout();
+    if (!mounted) return;
+    _setInlineError(AppLocalizations.of(context)!.otpBackendLoginFailed);
   }
 
   void _setFirebaseVerificationError(FirebaseAuthException error) {

@@ -12,16 +12,29 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 
+import '../navigation/app_router.dart';
 import '../services/logout_service.dart';
 import 'live_region_snack_bar.dart';
 
 class SessionRevocationListener extends StatefulWidget {
-  const SessionRevocationListener({super.key, required this.child});
+  const SessionRevocationListener({
+    super.key,
+    required this.child,
+    this.redirectToLogin,
+  });
+
   final Widget child;
+
+  /// Navigation used after teardown; defaults to the app router. Injectable
+  /// because this widget lives in MaterialApp.router's `builder`, ABOVE the
+  /// Router — `GoRouter.of(context)` throws there ("No GoRouter found in
+  /// context"), which used to kill the whole kick handler before any
+  /// teardown ran.
+  final VoidCallback? redirectToLogin;
 
   @override
   State<SessionRevocationListener> createState() =>
@@ -30,19 +43,39 @@ class SessionRevocationListener extends StatefulWidget {
 
 class _SessionRevocationListenerState extends State<SessionRevocationListener> {
   StreamSubscription? _sub;
+  StreamSubscription? _stateSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final realtime = context.read<RealtimeProvider>();
-      // `broadcastChannel: false` — sendToUser pushes to the per-user
-      // socket bucket directly; no server-side subscribe handshake.
-      _sub = realtime
-          .events('session:revoked', broadcastChannel: false)
-          .listen(_onRevoked);
+      _subscribe();
+      // Logout tears the RealtimeClient down completely, closing every
+      // channel stream — including ours. Without re-subscribing, the
+      // "logged in elsewhere" kick would be dead for every login after the
+      // first logout in this process. onConnectionStateChange is never
+      // closed, so re-attaching on every connected transition keeps the
+      // subscription live across logout/login cycles (re-subscribing to an
+      // already-open stream is a cheap cancel + relisten).
+      _stateSub = RealtimeClient.instance.onConnectionStateChange.listen((
+        state,
+      ) {
+        if (state == RealtimeConnectionState.connected && mounted) {
+          _subscribe();
+        }
+      });
     });
+  }
+
+  void _subscribe() {
+    final realtime = context.read<RealtimeProvider>();
+    _sub?.cancel();
+    // `broadcastChannel: false` — sendToUser pushes to the per-user
+    // socket bucket directly; no server-side subscribe handshake.
+    _sub = realtime
+        .events('session:revoked', broadcastChannel: false)
+        .listen(_onRevoked);
   }
 
   Future<void> _onRevoked(dynamic event) async {
@@ -54,7 +87,6 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
               : <String, dynamic>{});
     final reason = data['reason']?.toString();
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final goRouter = GoRouter.of(context);
 
     messenger?.showSnackBar(
       LiveRegionSnackBar.build(
@@ -69,12 +101,13 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
     // blacklisted the JTI, so any in-flight requests will 401 anyway.
     await LogoutService.logout();
     if (!mounted) return;
-    goRouter.go('/login');
+    (widget.redirectToLogin ?? () => AppRouter.router.go('/login'))();
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _stateSub?.cancel();
     super.dispose();
   }
 

@@ -73,7 +73,6 @@ class WebSocketService {
   static final WebSocketService instance = WebSocketService._();
 
   static final _storage = VHSecureStorage.instance;
-  static const int _maxRetries = 5;
   static const Duration _maxDelay = Duration(seconds: 30);
   static const List<String> _defaultChannels = [
     'appointment-updates',
@@ -285,22 +284,22 @@ class WebSocketService {
   }
 
   void _scheduleReconnect() {
-    if (_intentionalDisconnect || _retryCount >= _maxRetries) {
-      if (kDebugMode && _retryCount >= _maxRetries) {
-        debugPrint('WebSocketService: max retries reached - giving up');
-      }
-      return;
-    }
+    if (_intentionalDisconnect) return;
 
+    // Retry indefinitely at a capped interval — this socket carries PHI
+    // updates and previously gave up silently after 5 attempts, leaving the
+    // app without realtime for the rest of the session even once the backend
+    // recovered. The exponent is clamped separately so _retryCount can keep
+    // counting without the shift overflowing.
     final delay = Duration(
-      seconds: (1 << _retryCount).clamp(1, _maxDelay.inSeconds),
+      seconds: (1 << _retryCount.clamp(0, 5)).clamp(1, _maxDelay.inSeconds),
     );
     _retryCount++;
 
     if (kDebugMode) {
       debugPrint(
         'WebSocketService: reconnecting in ${delay.inSeconds}s '
-        '(attempt $_retryCount/$_maxRetries)',
+        '(attempt $_retryCount)',
       );
     }
 

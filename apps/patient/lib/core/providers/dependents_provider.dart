@@ -63,7 +63,17 @@ class Dependent {
 }
 
 class DependentsProvider extends ChangeNotifier {
+  /// The live provider instance, for service-layer code with no
+  /// `BuildContext` (LogoutService clears it on EVERY logout path — the
+  /// automatic paths have no context, and a survivor here both shows the
+  /// prior guardian's roster to the next account and keeps attaching a
+  /// stale `X-Acting-As-Uid` header that 403s the new session). Mirrors
+  /// [UserProvider.instance]: a reference to the one provider the widget
+  /// tree owns, not a parallel copy of its state.
+  static DependentsProvider? instance;
+
   DependentsProvider() {
+    instance = this;
     // Register the acting-as resolver with the shared HTTP client so every
     // authenticated request the patient app makes attaches the right header
     // based on the currently-active profile. The closure captures `this`,
@@ -244,6 +254,7 @@ class DependentsProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    if (identical(instance, this)) instance = null;
     // Tear down the resolver so a torn-down provider doesn't keep
     // returning a stale uid into a still-running HTTP client (matters
     // mainly for tests; the production app keeps one provider alive).

@@ -29,6 +29,7 @@ class ApiCacheManager {
   static const Duration defaultTtl = Duration(minutes: 15);
 
   static String? _cacheDir;
+  static int _sessionGeneration = 0;
   static SecretKey? _aesKey;
   static final AesGcm _aesGcm = AesGcm.with256bits();
 
@@ -169,23 +170,38 @@ class ApiCacheManager {
         .replaceFirst(RegExp(r'^_'), '');
   }
 
-  static String _keyForPath(String path) {
+  static String _keyForPath(String path, {CacheProfileScope? profile}) {
     final base = _baseKeyForPath(path);
-    final actingAs = VHHttpClient.actingAsUidProvider?.call();
+    final actingAs = profile != null
+        ? profile.uid
+        : VHHttpClient.actingAsUidProvider?.call();
     if (actingAs == null || actingAs.isEmpty) return base;
     final safeUid = actingAs.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '');
     return 'as_${safeUid}__$base';
   }
 
   /// Save JSON data to cache for a given API path.
-  static Future<DateTime?> save(String path, dynamic data) async {
+  ///
+  /// Pass [profile] (captured via [CacheProfileScope.current] when the
+  /// request STARTED) for responses saved after an await: without it the
+  /// acting-as namespace is resolved at save time, so a profile switch while
+  /// the request was in flight would file profile A's PHI under profile B's
+  /// namespace and serve it back there.
+  static Future<DateTime?> save(
+    String path,
+    dynamic data, {
+    CacheProfileScope? profile,
+  }) async {
     try {
+      if (profile != null && !profile.isCurrent) return null;
       final dir = await _getCacheDir();
-      final fileKey = _keyForPath(path);
+      if (profile != null && !profile.isCurrent) return null;
+      final fileKey = _keyForPath(path, profile: profile);
       final file = File('$dir/$fileKey.json');
       final cachedAt = DateTime.now();
       final envelope = {'cachedAt': cachedAt.toIso8601String(), 'data': data};
       final encrypted = await _encrypt(jsonEncode(envelope));
+      if (profile != null && !profile.isCurrent) return null;
       await file.writeAsString(encrypted);
       return cachedAt;
     } catch (e) {
@@ -200,10 +216,18 @@ class ApiCacheManager {
 
   /// Load cached data for a given API path.
   /// Returns null if no cache exists.
-  static Future<CachedData?> load(String path) async {
+  ///
+  /// [profile] pins the acting-as namespace to a request-time snapshot —
+  /// see [save].
+  static Future<CachedData?> load(
+    String path, {
+    CacheProfileScope? profile,
+  }) async {
     try {
+      if (profile != null && !profile.isCurrent) return null;
       final dir = await _getCacheDir();
-      final key = _keyForPath(path);
+      if (profile != null && !profile.isCurrent) return null;
+      final key = _keyForPath(path, profile: profile);
       final file = File('$dir/$key.json');
       if (!await file.exists()) return null;
 
@@ -293,6 +317,9 @@ class ApiCacheManager {
 
   /// Clear all cached API data.
   static Future<void> clearAll() async {
+    // Invalidate request-time scopes synchronously. A response that started
+    // before logout must not recreate PHI cache files after this wipe.
+    _sessionGeneration += 1;
     try {
       final dir = await _getCacheDir();
       final directory = Directory(dir);
@@ -306,6 +333,29 @@ class ApiCacheManager {
       }
     }
   }
+}
+
+/// Snapshot of the acting-as cache namespace, captured when a request starts.
+///
+/// [ApiCacheManager] keys are namespaced by the active acting-as profile.
+/// Resolving that namespace lazily at save time is a race: a guardian can
+/// switch profiles while a fetch is in flight, re-homing the response under
+/// the wrong profile's namespace. Capture the scope once at request time and
+/// pass it to every load/save belonging to that request.
+class CacheProfileScope {
+  CacheProfileScope.uid(this.uid)
+    : _generation = ApiCacheManager._sessionGeneration;
+
+  /// Resolve the currently-active acting-as uid, now.
+  CacheProfileScope.current()
+    : uid = VHHttpClient.actingAsUidProvider?.call(),
+      _generation = ApiCacheManager._sessionGeneration;
+
+  /// Null means the guardian's own (un-prefixed) namespace.
+  final String? uid;
+  final int _generation;
+
+  bool get isCurrent => _generation == ApiCacheManager._sessionGeneration;
 }
 
 /// Cached data with timestamp.

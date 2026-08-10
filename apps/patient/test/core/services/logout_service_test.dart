@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 
@@ -15,18 +17,23 @@ void main() {
 
       expect(calls, [
         // Both server revocations run first, with Firebase before VH because
-        // the VH logout invalidates the bearer token used by both calls.
+        // the VH logout invalidates the bearer token used by both calls; the
+        // device unregister also authenticates with that token so it must
+        // run before the VH revoke too.
         'firebase-server-revoke',
+        'device-unregister',
         'vh-server-revoke',
         'websocket',
         'realtime',
         'push-user',
+        'fcm-token',
         'notifications',
         'secure-storage',
         'api-cache',
         'file-cache',
         'doc-staging',
         'cycle-tracker',
+        'dependents',
         'user-provider',
         // Firebase sign-out MUST come last: it is what fires the router's
         // auth-state refreshListenable, and by then every other logged-in
@@ -103,6 +110,39 @@ void main() {
     expect(calls, contains('firebase-signout'));
   });
 
+  test('FCM token deletion still runs when push user cleanup fails', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, throwOn: 'push-user'),
+    );
+
+    await LogoutService.logout();
+
+    expect(calls, contains('fcm-token'));
+    expect(calls, contains('secure-storage'));
+  });
+
+  test('overlapping logout triggers share one teardown', () async {
+    final calls = <String>[];
+    final gate = Completer<void>();
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, firebaseRevokeGate: gate),
+    );
+
+    final first = LogoutService.logout();
+    final second = LogoutService.logout();
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      calls.where((call) => call == 'firebase-server-revoke'),
+      hasLength(1),
+    );
+
+    gate.complete();
+    final outcomes = await Future.wait([first, second]);
+    expect(outcomes.every((outcome) => outcome.serverSessionRevoked), isTrue);
+    expect(calls.where((call) => call == 'firebase-signout'), hasLength(1));
+  });
+
   test('logout reports a confirmed server-side revocation', () async {
     final calls = <String>[];
     LogoutService.debugSetDependencies(_dependencies(calls));
@@ -168,6 +208,7 @@ LogoutServiceDependencies _dependencies(
   String? throwOn,
   bool firebaseRevokeResult = true,
   bool vhRevokeResult = true,
+  Completer<void>? firebaseRevokeGate,
 }) {
   LogoutStep step(String name) {
     return () {
@@ -177,13 +218,15 @@ LogoutServiceDependencies _dependencies(
   }
 
   return LogoutServiceDependencies(
-    revokeFirebaseSession: () {
+    revokeFirebaseSession: () async {
       calls.add('firebase-server-revoke');
+      await firebaseRevokeGate?.future;
       if (throwOn == 'firebase-server-revoke') {
         throw StateError('firebase-server-revoke failed');
       }
       return firebaseRevokeResult;
     },
+    unregisterDevice: step('device-unregister'),
     revokeVhSession: () {
       calls.add('vh-server-revoke');
       if (throwOn == 'vh-server-revoke') {
@@ -194,12 +237,14 @@ LogoutServiceDependencies _dependencies(
     disconnectWebSocket: step('websocket'),
     disconnectRealtime: step('realtime'),
     clearPushSignedInUser: step('push-user'),
+    deleteFcmToken: step('fcm-token'),
     cancelNotifications: step('notifications'),
     clearSecureStorage: step('secure-storage'),
     clearApiCache: step('api-cache'),
     clearDownloadedFileCache: step('file-cache'),
     purgeDocumentStaging: step('doc-staging'),
     clearCycleTracker: step('cycle-tracker'),
+    clearDependentsProvider: step('dependents'),
     clearUserProvider: step('user-provider'),
     signOutFirebase: step('firebase-signout'),
   );
