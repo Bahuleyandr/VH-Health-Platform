@@ -25,26 +25,6 @@ on:
       - '.github/workflows/_reusable-backend-fhir.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'apps/backend/**'
-      - 'apps/staff/lib/core/config/role_config.dart'
-      - 'apps/staff/lib/core/models/clinical_platform_models.dart'
-      - 'apps/staff/lib/core/services/clinical_platform_api_service.dart'
-      - 'apps/staff/lib/core/services/staff_action_policy_repository.dart'
-      - 'apps/staff/lib/core/services/staff_action_policy_source.dart'
-      - 'apps/staff/lib/core/services/staff_clinical_action_gateway.dart'
-      - 'apps/staff/lib/core/widgets/main_scaffold.dart'
-      - 'packages/vhhealth_core/lib/models/clinical_continuity_action_policy.dart'
-      - 'packages/vhhealth_core/lib/services/clinical_continuity_action_gate.dart'
-      - 'packages/vhhealth_core/lib/services/clinical_continuity_verifier.dart'
-      - 'packages/vhhealth_core/lib/services/offline_action_ids.dart'
-      # CORE-1: the Dart client's spec copy must never drift from the backend
-      # canonical — check-core-spec-sync.mjs runs in this workflow, so a direct
-      # edit to the copy must also fire it.
-      - 'packages/vhhealth_core/swagger/openapi.json'
-      - '.github/workflows/ci-backend.yml'
-      - '.github/workflows/_reusable-backend-lint-test.yml'
-      - '.github/workflows/_reusable-backend-fhir.yml'
 
 concurrency:
   group: ci-backend-${{ github.ref }}
@@ -59,7 +39,6 @@ jobs:
     secrets: inherit
 
   fhir-conformance:
-    needs: lint-and-test
     uses: ./.github/workflows/_reusable-backend-fhir.yml
 
   semgrep:

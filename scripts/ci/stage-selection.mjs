@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 
 const fullRunPatterns = [
@@ -81,35 +80,12 @@ function gitMaybe(args) {
   }
 }
 
-function hasCommit(ref) {
-  try {
-    execFileSync('git', ['cat-file', '-e', `${ref}^{commit}`], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function eventPayload() {
-  const eventPath = process.env.GITHUB_EVENT_PATH;
-  if (!eventPath || !existsSync(eventPath)) return {};
-  try {
-    return JSON.parse(readFileSync(eventPath, 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-function isZeroSha(value) {
-  return Boolean(value) && /^0+$/.test(value);
-}
-
 function diffBaseForBranchPush() {
-  const payload = eventPayload();
-  const before = payload.before || process.env.GITHUB_BEFORE;
-  if (before && !isZeroSha(before) && hasCommit(before)) return before;
-
-  return gitMaybe(['merge-base', 'HEAD', 'origin/main']) || gitMaybe(['rev-parse', 'HEAD~1']) || 'HEAD';
+  const base = gitMaybe(['merge-base', 'HEAD', 'origin/main']);
+  if (!base) {
+    throw new Error('Unable to resolve the complete branch delta against origin/main');
+  }
+  return base;
 }
 
 export function shouldSelectChangedStages() {
