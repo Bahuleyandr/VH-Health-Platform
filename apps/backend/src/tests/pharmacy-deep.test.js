@@ -172,9 +172,7 @@ describe('Pharmacy order lifecycle — deep integration', () => {
       const res = await admin.put(`/api/v1/pharmacy-orders/orders/${orderId}/status`).send({
         status: ORDER_STATUS.DELIVERED,
       });
-      // Service throws INVALID_TRANSITION → controller maps to 500 without mapping;
-      // the key signal is that no status update landed.
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
       const row = await prisma.$queryRawUnsafe(
         `SELECT status FROM pharmacy_orders WHERE id = $1`, orderId);
       expect(row[0].status).toBe(ORDER_STATUS.PENDING);
@@ -211,7 +209,7 @@ describe('Pharmacy order lifecycle — deep integration', () => {
       const res = await admin.put(`/api/v1/pharmacy-orders/orders/${orderId}/status`).send({
         status: ORDER_STATUS.CANCELLED,
       });
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 

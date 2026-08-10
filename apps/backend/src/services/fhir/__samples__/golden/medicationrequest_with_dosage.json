@@ -42,10 +42,15 @@
       "sequence": 1,
       "text": "1 tablet orally twice daily with meals",
       "timing": {
-        "repeat": {
-          "frequency": 2,
-          "period": 1,
-          "periodUnit": "d"
+        "code": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/v3-GTSAbbreviation",
+              "code": "BID",
+              "display": "BID"
+            }
+          ],
+          "text": "twice daily"
         }
       },
       "route": {

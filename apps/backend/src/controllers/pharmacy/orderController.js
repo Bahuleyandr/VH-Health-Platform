@@ -124,6 +124,8 @@ export const updateOrderStatus = async (req, res) => {
     
     if (err.message === 'INVALID_STATUS') {
       error(res, 'Invalid status provided', HTTP_STATUS.BAD_REQUEST);
+    } else if (err.message === 'INVALID_TRANSITION') {
+      error(res, 'Invalid order status transition', HTTP_STATUS.BAD_REQUEST);
     } else {
       error(res, 'Failed to update order status', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }

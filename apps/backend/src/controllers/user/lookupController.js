@@ -8,7 +8,7 @@ import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -57,7 +57,7 @@ export class LookupController {
         return error(res, err.message, HTTP_STATUS.TOO_MANY_REQUESTS);
       }
 
-      error(res, 'User lookup failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      return relayAppError(res, err, 'User lookup failed');
     }
   }
 

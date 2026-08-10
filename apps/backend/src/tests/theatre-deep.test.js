@@ -284,8 +284,8 @@ describe('Theatre scheduling — deep integration', () => {
       const res = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({
         status: 'in_progress',
       });
-      // Service throws AppError.invalidTransition — may surface as 400 or 500 via next(err)
-      expect([400, 500]).toContain(res.statusCode);
+      // Service throws AppError.invalidTransition — surfaced as 400
+      expect(res.statusCode).toBe(400);
       const row = await prisma.$queryRawUnsafe(
         `SELECT status FROM ot_schedules WHERE id = $1`, scheduleId);
       expect(row[0].status).toBe('scheduled');
@@ -375,14 +375,14 @@ describe('Theatre scheduling — deep integration', () => {
       const res = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({
         status: 'cancelled',
       });
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
 
     it('refuses to update checklist on a completed surgery', async () => {
       const res = await admin.put(`/api/v1/theatre/${scheduleId}/checklist`).send({
         checklist: { late_edit: true },
       });
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 
@@ -409,7 +409,7 @@ describe('Theatre scheduling — deep integration', () => {
 
     it('blocks further cancel on an already-cancelled surgery', async () => {
       const res = await admin.delete(`/api/v1/theatre/${scheduleId}`);
-      expect([400, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(400);
     });
   });
 

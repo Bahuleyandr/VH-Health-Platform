@@ -2,7 +2,7 @@ import request from 'supertest';
 import app from '../app.js';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 import { __testing__ as rateLimitTesting } from '../middleware/rateLimitMiddleware.js';
-import { API_KEY, generateTestToken, authClient } from './testClient.js';
+import { API_KEY, generateTestToken } from './testClient.js';
 
 describe('Rate Limiting', () => {
   it('rate limit profile has a finite max (not Infinity)', () => {
@@ -34,10 +34,9 @@ describe('Rate Limiting', () => {
     expect(profile.message).toContain('readiness');
   });
 
-  it('should trigger rate limit after multiple requests', async () => {
+  it('keeps the liveness endpoint healthy across a short request burst', async () => {
     const token = generateTestToken('ADMIN');
     const results = [];
-    // Use fewer requests to avoid timeout — rate limit fires at some threshold
     for (let i = 0; i < 5; i++) {
       const res = await request(app)
         .get('/api/v1/health')
@@ -45,10 +44,7 @@ describe('Rate Limiting', () => {
         .set('Authorization', `Bearer ${token}`);
       results.push(res.statusCode);
     }
-    // All responses should be valid HTTP codes
-    results.forEach(code => {
-      expect([200, 401, 429, 500, 503]).toContain(code);
-    });
+    expect(results).toEqual([200, 200, 200, 200, 200]);
   }, 15000); // 15s timeout
 
   it('keys pre-auth staff login-shaped requests by account identity', () => {

@@ -77,10 +77,8 @@ describe('Appointment IDOR Protection', () => {
           reason: 'Checkup'
         });
 
-      // Without DB: 500 (service error). With DB: 404 (not found) or 403 (IDOR).
-      // The critical assertion: never 200.
-      expect(res.statusCode).not.toBe(200);
-      expect([403, 404, 500]).toContain(res.statusCode);
+      // Appointment 999999 does not exist on the seeded CI DB: exact 404.
+      expect(res.statusCode).toBe(404);
     });
 
     it.skip('should allow a patient to update their own appointment (requires test DB)', async () => {
@@ -92,8 +90,7 @@ describe('Appointment IDOR Protection', () => {
     it('should NOT return 200 when cancelling a non-owned appointment', async () => {
       const res = await authRequest('delete', '/api/v1/appointments/999999', patientBToken);
 
-      expect(res.statusCode).not.toBe(200);
-      expect([403, 404, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(404);
     });
 
     it.skip('should allow a patient to cancel their own appointment (requires test DB)', async () => {
@@ -109,13 +106,9 @@ describe('Appointment IDOR Protection', () => {
 describe('Patient Record IDOR Protection', () => {
   describe('DELETE /api/v1/appointments/patient/records/:id', () => {
     it('should NOT return 200 when deleting a non-owned record', async () => {
-      // The controller scopes: WHERE id=$1 AND patient_id=$2
-      // Without DB the query fails (500). With DB the scoped query returns
-      // nothing (404). Either way, the delete never succeeds for wrong user.
       const res = await authRequest('delete', '/api/v1/appointments/patient/records/999999', patientBToken);
 
-      expect(res.statusCode).not.toBe(200);
-      expect([403, 404, 500]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(404);
     });
 
     it.skip('should allow a patient to delete their own record (requires test DB)', async () => {
@@ -156,10 +149,9 @@ describe('Pharmacy Order Authorization', () => {
       // a route ordering issue where /:phone (RBAC: no PATIENT) catches "my".
       const res = await authRequest('get', '/api/v1/pharmacy-orders/orders/my', patientAToken);
 
-      // Current behavior: 403 (/:phone route catches "my" first and RBAC blocks PATIENT).
-      // This is a known route-ordering concern. The test documents the actual behavior.
-      // If the route order is fixed, change this to: expect(res.statusCode).not.toBe(403);
-      expect([200, 403, 500]).toContain(res.statusCode);
+      // The historical /:phone-shadows-/my route-ordering bug is fixed: /my
+      // resolves for PATIENT and returns the caller's (empty) order list.
+      expect(res.statusCode).toBe(200);
     });
   });
 

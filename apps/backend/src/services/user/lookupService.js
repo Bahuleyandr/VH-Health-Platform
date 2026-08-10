@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { USER_CONFIG } from '../../config/userConfig.js';
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 
 function buildLookupSelect(userRole) {
@@ -46,7 +47,7 @@ export class LookupService {
     const { phone, uid, name, email, limit = 10 } = searchParams;
 
     if (!phone && !uid && !name && !email) {
-      throw new Error('Provide at least one search parameter');
+      throw AppError.badRequest('Provide at least one search parameter', 'LOOKUP_CRITERIA_REQUIRED');
     }
 
     const recentLookups = await prisma.audit_logs.count({
@@ -86,7 +87,10 @@ export class LookupService {
 
     if (searchConditions.length === 0) {
       // e.g. a non-admin/doctor supplying only `email` — no usable criterion.
-      throw new Error('Provide at least one usable search parameter');
+      throw AppError.badRequest(
+        'Provide at least one usable search parameter',
+        'LOOKUP_CRITERIA_REQUIRED',
+      );
     }
 
     // CAN-056: OR the search criteria together, but AND the non-admin role

@@ -304,8 +304,8 @@ describeJourney('Journey: surgical-day-care', () => {
   describe('Step 5 — OT case runs the theatre state machine', () => {
     it('rejects SCHEDULED → IN_PROGRESS (must go via pre_op)', async () => {
       const res = await admin.put(`/api/v1/theatre/${otScheduleId}/status`).send({ status: 'in_progress' });
-      // Service throws AppError.invalidTransition — 400, or 500 if surfaced via next(err).
-      expect([400, 500]).toContain(res.statusCode);
+      // Service throws AppError.invalidTransition — surfaced as 400.
+      expect(res.statusCode).toBe(400);
       const row = await prisma.$queryRawUnsafe(`SELECT status FROM ot_schedules WHERE id = $1`, otScheduleId);
       expect(row[0].status).toBe('scheduled');
     });

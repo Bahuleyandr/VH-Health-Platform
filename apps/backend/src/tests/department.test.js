@@ -8,12 +8,12 @@ describe('Department API', () => {
   it('should fetch all departments', async () => {
     // Departments require API key
     const res = await authed.get('/api/v1/departments');
-    expect([200, 400, 401, 403, 404, 500]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(200);
   });
 
   it('should fetch departments with doctors', async () => {
     const res = await authed.get('/api/v1/departments/departments-with-doctors');
-    expect([200, 400, 401, 403, 404, 500]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(200);
   });
 
   it('allows guest patient directory lookup with API key only', async () => {
@@ -27,6 +27,7 @@ describe('Department API', () => {
 
   it('should fetch a department by ID (example ID 1)', async () => {
     const res = await authed.get('/api/v1/departments/1');
-    expect([200, 400, 401, 403, 404, 500]).toContain(res.statusCode);
+    // Seeded lookup data guarantees department 1 exists.
+    expect(res.statusCode).toBe(200);
   });
 });

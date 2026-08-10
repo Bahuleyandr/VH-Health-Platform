@@ -3,73 +3,79 @@
  * registration → booking → investigation → pharmacy → billing
  *
  * These tests exercise full vertical slices of the API, chaining
- * outputs from one step as inputs to the next.
+ * outputs from one step as inputs to the next. Every step asserts its
+ * exact expected status — the earlier "status-or-500" sets let the whole
+ * journey silently no-op when step 1 failed.
  */
 
-import { authClient, generateTestToken } from './testClient.js';
+import { authClient } from './testClient.js';
 
 const admin = authClient('ADMIN');
-const doctor = authClient('DOCTOR');
 
 // Shared state — populated as each step runs
 const flow = {
-  patientPhone: `+91${Date.now().toString().slice(-9)}`, // unique phone per run
+  patientPhone: `9${Date.now().toString().slice(-9)}`, // unique phone per run
   patientUid: null,
   appointmentId: null,
   investigationId: null,
-  pharmacyOrderId: null,
   invoiceId: null,
 };
 
 // ─── Step 1: User Registration ───────────────────────────────────────────────
 
 describe('E2E Flow — Step 1: Patient Registration', () => {
-  it('should register a new patient or accept existing', async () => {
+  it('should register a new patient', async () => {
     const res = await admin.post('/api/v1/users/profile').send({
       phone: flow.patientPhone,
       name: 'E2E Test Patient',
       gender: 'MALE',
       role: 'PATIENT',
     });
-    expect([200, 201, 400, 409, 422, 500]).toContain(res.statusCode);
-    if (res.statusCode === 201 || res.statusCode === 200) {
-      const data = res.body?.data ?? res.body;
-      if (data?.uid) flow.patientUid = data.uid;
-    }
+    expect(res.statusCode).toBe(200);
+    const user = res.body?.data?.user;
+    expect(user?.uid).toBeDefined();
+    flow.patientUid = user.uid;
   });
 
   it('should look up patient by phone', async () => {
-    const res = await admin.get(`/api/v1/users/phone/${flow.patientPhone}`);
-    expect([200, 400, 404, 500]).toContain(res.statusCode);
-    if (res.statusCode === 200) {
-      const data = res.body?.data ?? res.body;
-      if (data?.uid) flow.patientUid = data.uid;
-    }
+    const res = await admin.get(`/api/v1/users/${flow.patientPhone}`);
+    expect(res.statusCode).toBe(200);
   });
 });
 
 // ─── Step 2: Appointment Booking ─────────────────────────────────────────────
 
 describe('E2E Flow — Step 2: Appointment Booking', () => {
-  it('should book an appointment or return expected status', async () => {
-    const res = await admin.post('/api/v1/appointments').send({
-      phone: flow.patientPhone,
-      doctor_id: 1,
-      doctor_name: 'Dr. Test',
-      appointment_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-      appointment_time: '10:00',
-      reason: 'E2E test consultation',
-    });
-    expect([200, 201, 400, 401, 403, 409, 422, 500]).toContain(res.statusCode);
-    if (res.statusCode === 201 || res.statusCode === 200) {
-      const data = res.body?.data ?? res.body;
-      if (data?.id) flow.appointmentId = data.id;
+  it('should book an appointment', async () => {
+    const slotSeed = Date.now();
+    const appointmentDate = new Date(
+      slotSeed + (30 + (slotSeed % 120)) * 86400000,
+    ).toISOString().split('T')[0];
+    let res;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const hour = 9 + Math.floor(attempt / 2);
+      const minute = attempt % 2 === 0 ? '00' : '30';
+      res = await admin.post('/api/v1/appointments').send({
+        phone: flow.patientPhone,
+        // users.id 2 is the first seeded doctor (doctors.id 1 ↔ users_id 2).
+        // doctor_id 1 is rejected as AMBIGUOUS_DOCTOR_REF: it matches both the
+        // fixture ADMIN user (users.id 1) and doctors.id 1.
+        doctor_id: 2,
+        doctor_name: 'Dr. Test',
+        appointment_date: appointmentDate,
+        appointment_time: `${String(hour).padStart(2, '0')}:${minute}`,
+        reason: 'E2E test consultation',
+      });
+      if (res.statusCode !== 409) break;
     }
+    expect([200, 201]).toContain(res.statusCode);
+    const data = res.body?.data ?? res.body;
+    if (data?.id) flow.appointmentId = data.id;
   });
 
   it('should fetch appointments by phone', async () => {
     const res = await admin.get(`/api/v1/appointments/phone/${flow.patientPhone}`);
-    expect([200, 400, 401, 403, 404, 500]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -78,25 +84,24 @@ describe('E2E Flow — Step 2: Appointment Booking', () => {
 describe('E2E Flow — Step 3: Investigation', () => {
   it('should reject investigation without required fields', async () => {
     const res = await admin.post('/api/v1/investigations').send({});
-    expect([400, 401, 403, 422]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(400);
   });
 
-  it('should create investigation order or return expected status', async () => {
+  it('should create investigation order', async () => {
     const res = await admin.post('/api/v1/investigations').send({
       phone: flow.patientPhone,
       test_name: 'Complete Blood Count',
       test_type: 'HAEMATOLOGY',
     });
-    expect([200, 201, 400, 401, 403, 422, 500]).toContain(res.statusCode);
-    if (res.statusCode === 201 || res.statusCode === 200) {
-      const data = res.body?.data ?? res.body;
-      if (data?.id) flow.investigationId = data.id;
-    }
+    expect([200, 201]).toContain(res.statusCode);
+    const data = res.body?.data ?? res.body;
+    if (data?.id) flow.investigationId = data.id;
   });
 
-  it('should fetch investigations by phone', async () => {
-    const res = await admin.get(`/api/v1/investigations/${flow.patientPhone}`);
-    expect([200, 400, 401, 403, 404, 500]).toContain(res.statusCode);
+  it('should fetch investigations by patient uid', async () => {
+    // There is no by-phone list route — /:phone would match /:id and 404.
+    const res = await admin.get(`/api/v1/investigations/uid/${flow.patientUid}`);
+    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -105,12 +110,12 @@ describe('E2E Flow — Step 3: Investigation', () => {
 describe('E2E Flow — Step 4: Pharmacy Order', () => {
   it('should reject pharmacy order without required fields', async () => {
     const res = await admin.post('/api/v1/pharmacy-orders/orders/place').send({});
-    expect([400, 401, 403, 415, 422]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(400);
   });
 
-  it('should fetch pharmacy order queue or return expected status', async () => {
+  it('should fetch pharmacy order queue', async () => {
     const res = await admin.get('/api/v1/pharmacy-orders/orders/queue');
-    expect([200, 400, 401, 403, 404, 500]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -124,42 +129,33 @@ describe('E2E Flow — Step 5: Billing', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('should create invoice or return expected status', async () => {
-    const uid = flow.patientUid ?? '11111111-1111-1111-1111-111111111111';
+  it('should create invoice for the registered patient', async () => {
+    expect(flow.patientUid).toBeDefined();
     const res = await admin.post('/api/v1/billing/invoice').send({
-      patient_uid: uid,
+      patient_uid: flow.patientUid,
       type: 'consultation',
       items: [{ description: 'Consultation fee', quantity: 1, unit_price: 500, amount: 500 }],
       subtotal: 500,
       total_amount: 500,
       payment_method: 'cash',
     });
-    expect([200, 201, 400, 401, 403, 422, 500]).toContain(res.statusCode);
-    if (res.statusCode === 201 || res.statusCode === 200) {
-      const data = res.body?.data ?? res.body;
-      if (data?.id) flow.invoiceId = data.id;
-    }
+    expect([200, 201]).toContain(res.statusCode);
+    const data = res.body?.data ?? res.body;
+    expect(data?.id).toBeDefined();
+    flow.invoiceId = data.id;
   });
 
   it('should fetch invoices for the patient', async () => {
-    const uid = flow.patientUid ?? '11111111-1111-1111-1111-111111111111';
-    const res = await admin.get(`/api/v1/billing/invoices/patient/${uid}`);
-    expect([200, 400, 401, 403, 404, 500]).toContain(res.statusCode);
-    if (res.statusCode === 200) {
-      expect(res.body).toBeDefined();
-    }
+    const res = await admin.get(`/api/v1/billing/invoices/patient/${flow.patientUid}`);
+    expect(res.statusCode).toBe(200);
   });
 
-  it('should record a payment against the invoice (if created)', async () => {
-    if (!flow.invoiceId) {
-      // Invoice wasn't created (DB issue in test env) — skip gracefully
-      expect(true).toBe(true);
-      return;
-    }
+  it('should record a payment against the invoice', async () => {
+    expect(flow.invoiceId).toBeDefined();
     const res = await admin
       .post(`/api/v1/billing/invoice/${flow.invoiceId}/payment`)
       .send({ amount: 500, payment_method: 'cash' });
-    expect([200, 201, 400, 401, 403, 422, 500]).toContain(res.statusCode);
+    expect([200, 201]).toContain(res.statusCode);
   });
 });
 
@@ -176,6 +172,6 @@ describe('E2E Flow — Step 6: Revenue Check', () => {
     const res = await admin.get(
       `/api/v1/billing/revenue?date_from=${today}&date_to=${today}`,
     );
-    expect([200, 400, 401, 403, 500]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(200);
   });
 });

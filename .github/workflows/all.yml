@@ -99,8 +99,7 @@ jobs:
     uses: ./.github/workflows/_reusable-backend-fhir.yml
     with:
       notify_on_failure: true
-      # WS3 B3.4 CI-1: blocking=true — golden-bundle violations fail the sweep.
-      blocking: true
+      # WS3 B3.4 CI-1: golden-bundle violations fail the sweep (always blocking).
       notification_label: Full Stack Sweep / backend FHIR
     secrets: inherit
 

@@ -173,7 +173,7 @@ describe('Investigation order workflow — deep integration', () => {
   describe('orderInvestigation', () => {
     it('rejects order missing required fields', async () => {
       const res = await doctor.post('/api/v1/investigations/order').send({ test_name: 'CBC' });
-      expect([400, 404, 500]).toContain(res.statusCode); // MISSING_REQUIRED_FIELDS → generic 500 in controller
+      expect(res.statusCode).toBe(400);
       // Nothing persisted
       const rows = await prisma.$queryRawUnsafe(
         `SELECT COUNT(*)::int AS n FROM investigations WHERE test_name = 'CBC' AND phone = $1`, PATIENT_PHONE);

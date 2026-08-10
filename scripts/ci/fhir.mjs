@@ -58,8 +58,9 @@ function jsonFiles(dir) {
 export async function runFhirStage({ install = false } = {}) {
   const samplesDir = resolve(repoRoot, 'apps/backend/src/services/fhir/__samples__');
   if (!existsSync(samplesDir)) {
-    console.log('No FHIR samples directory; skipping FHIR conformance.');
-    return;
+    // A missing samples tree previously skipped the stage silently, which made
+    // the gate permanently green (R9 audit, fixed 2026-08-10).
+    throw new Error(`FHIR samples directory is missing (${samplesDir}) — golden fixtures are a required gate.`);
   }
 
   if (!checkCommand('java', ['-version']) && !(install && installJavaIfPossible())) {
@@ -78,8 +79,16 @@ export async function runFhirStage({ install = false } = {}) {
   }
 
   const goldenDir = join(samplesDir, 'golden');
+  const goldenFiles = jsonFiles(goldenDir);
+  if (goldenFiles.length === 0) {
+    // An absent/empty golden/ used to mean zero strict iterations and a
+    // guaranteed pass (R9 audit, fixed 2026-08-10). It is a required gate now.
+    throw new Error(
+      `No golden FHIR fixtures found in ${goldenDir} — golden fixtures are a required gate. Restore them.`
+    );
+  }
   let failures = 0;
-  for (const file of jsonFiles(goldenDir)) {
+  for (const file of goldenFiles) {
     console.log(`Strict FHIR golden validation: ${file}`);
     try {
       run('java', ['-jar', validator, file, ...validatorArgs]);

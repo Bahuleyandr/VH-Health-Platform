@@ -51,7 +51,7 @@ jobs:
   static-checks:
     name: Backend lint + static checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: apps/backend
@@ -149,8 +149,18 @@ jobs:
       - name: Seed comprehensive test data
         run: npm run seed:test-data
 
-      - name: Seeded DB coverage check
+      # Renamed from "Seeded DB coverage check" — this checks DB-contract
+      # seed coverage, not code coverage. The code-coverage gate is the next
+      # step.
+      - name: Seeded DB contract check
         run: npm run db:contracts:seeded
+
+      # Enforces the per-file jest coverageThreshold (package.json) via the
+      # curated deterministic suite list in scripts/run-coverage-jest.mjs.
+      # The config existed since B3.2 but nothing ever invoked it — this step
+      # is what makes the thresholds real (R9 audit, wired 2026-08-10).
+      - name: Code coverage gate (B3.2 per-file thresholds)
+        run: npm run test:coverage
 
       - name: Schema drift check (table allowlist)
         run: node scripts/ci-schema-drift.mjs
