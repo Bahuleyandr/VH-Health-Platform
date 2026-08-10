@@ -892,6 +892,30 @@ export function extractAdminPaths(source, { endpointMap = new Map() } = {}) {
     }
   }
 
+  // Config-table pass (audit R11, 2026-08-10): bare-suffix literals stored
+  // under an `endpoint:` property and invoked later through a variable
+  // (`fetchAdminAPI(config.endpoint)`) evaded every pass above — the call site
+  // is non-literal and the anchored sweep only catches `/api/v1/…` strings.
+  // The report-builder's `/attendance/admin/records` 404'd in production this
+  // way. An `endpoint:` property in admin code is by convention a
+  // rewriting-helper path, so treat it exactly like a fetchAdminAPI literal.
+  // The verb is unknowable here, so these check path existence only.
+  const endpointProp = /\bendpoint\s*:\s*/g;
+  let ep;
+  while ((ep = endpointProp.exec(code)) !== null) {
+    const literal = literalByStart.get(ep.index + ep[0].length);
+    if (!literal || seen.has(literal.start)) continue;
+    if (inAnyRange(literal.start, skipRanges)) continue;
+    seen.add(literal.start);
+    found.push({
+      value: substituteEndpointRefs(literal.value, endpointMap),
+      offset: literal.start,
+      via: 'endpoint-property',
+      method: null,
+      rewrite: true,
+    });
+  }
+
   // Anchored sweep: exported path consts, ApiData<> spec keys, and helpers this
   // list does not know about. The verb is not knowable here, so these are
   // checked for path existence only. Policy tables are skipped by rule.
@@ -1382,6 +1406,23 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
         const { path, candidates, interpolated, unresolvedPrefix } =
           normalizeClientPath(runtimePath);
 
+        // An endpoint-property literal is a config-table value whose consumer
+        // either passes it to a rewriting helper as-is (report-builder) or
+        // prepends `/admin` first (clinical-ai TierGenericPanel). Both
+        // consumptions are legitimate, so the literal fails only when NEITHER
+        // reading resolves to a served operation.
+        let effectiveCandidates = candidates;
+        if (hit.via === 'endpoint-property') {
+          const adminVariant = normalizeClientPath(
+            resolveRuntimePath(
+              `/admin${stripProxyPrefix(hit.value)}`,
+              source.kind,
+              hit.rewrite,
+            ),
+          );
+          effectiveCandidates = [...candidates, ...adminVariant.candidates];
+        }
+
         if (unresolvedPrefix) {
           stats.unresolvableLiterals += 1;
           sourceStats.dynamic += 1;
@@ -1408,7 +1449,7 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
         // no reading does.
         let methodMiss = null;
         let outcome = null;
-        for (const candidate of candidates) {
+        for (const candidate of effectiveCandidates) {
           if (matchesAllowlist(candidate, allow, hit.method)) {
             outcome = 'allowlisted';
             break;
@@ -1449,7 +1490,7 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
           sourceStats.findings += 1;
           continue;
         }
-        if (interpolated && candidates.some((c) => matchesLeniently(c, specIndex))) {
+        if (interpolated && effectiveCandidates.some((c) => matchesLeniently(c, specIndex))) {
           ambiguous.push(record(path));
           continue;
         }

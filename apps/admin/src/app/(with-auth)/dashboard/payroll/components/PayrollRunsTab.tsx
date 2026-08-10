@@ -46,7 +46,8 @@ export function PayrollRunsTab() {
   });
 
   const issueMut = useMutation({
-    mutationFn: (data: { month: number; year: number }) => issuePayslips(data),
+    mutationFn: (data: { month: number; year: number; acknowledge_failed_payslips?: boolean }) =>
+      issuePayslips(data),
     onSuccess: (r) => {
       const count = unwrap<{ issued: number }>(r)?.issued ?? 0;
       toast.success(`${count} payslips issued to staff`);

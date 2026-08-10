@@ -271,6 +271,45 @@ describe('admin extraction', () => {
     const { found } = extractAdminPaths(src);
     assert.deepEqual(found.map((f) => f.value), ['/api/v1/admin/alerts']);
   });
+
+  // Audit R11 (2026-08-10): the report-builder stored bare-suffix paths in a
+  // config table (`endpoint: "/attendance/admin/records"`) and invoked them
+  // through a variable — the non-literal call site made the gate blind to a
+  // production 404. `endpoint:` properties are now extracted as rewrite-style
+  // paths with an unknowable verb.
+  test('extracts a bare-suffix endpoint-property literal from a config table', () => {
+    const src = [
+      'const REPORT_CONFIGS = {',
+      '  attendance: {',
+      '    label: "Attendance",',
+      '    endpoint: "/attendance/admin/records",',
+      '  },',
+      '};',
+      'fetchAdminAPI(config.endpoint);',
+    ].join('\n');
+    const { found } = extractAdminPaths(src);
+    assert.deepEqual(
+      found.map((f) => [f.method, f.value, f.rewrite, f.via]),
+      [[null, '/attendance/admin/records', true, 'endpoint-property']],
+    );
+  });
+
+  test('endpoint-property extraction skips non-literal values', () => {
+    const { found } = extractAdminPaths('const c = { endpoint: buildPath(kind) };');
+    assert.deepEqual(found, []);
+  });
+
+  test('an endpoint-property literal already seen by a call-site pass is not duplicated', () => {
+    const { found } = extractAdminPaths(
+      'fetchAdminAPI("/x/y", { endpoint: "/x/y" });',
+    );
+    // The first literal is the call-site path; the options-object literal is a
+    // separate offset and IS an endpoint property.
+    assert.deepEqual(
+      found.map((f) => f.via),
+      ['fetchAdminAPI', 'endpoint-property'],
+    );
+  });
 });
 
 describe('API_ENDPOINTS parsing', () => {

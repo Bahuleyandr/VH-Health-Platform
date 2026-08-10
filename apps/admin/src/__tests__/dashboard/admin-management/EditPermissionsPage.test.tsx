@@ -45,6 +45,7 @@ function mockPermissions(
 ): ReturnType<typeof usePermissions> {
   return {
     user: null,
+    rawRole: "SUPER_ADMIN",
     role: "SUPER_ADMIN",
     permissions: ["*"],
     isSuperAdmin: true,
