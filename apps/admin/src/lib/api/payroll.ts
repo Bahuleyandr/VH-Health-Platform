@@ -17,6 +17,12 @@ export interface PayrollRun {
   total_staff: number;
   /** Staff whose payslip calculation failed in this run; > 0 implies completed_with_errors. */
   failed_staff_count: number;
+  /**
+   * Identity (uid + name) of each staff member whose payslip failed — shown to
+   * the signer before they acknowledge a completed_with_errors run. The
+   * backend never returns the internal failure reason text.
+   */
+  failed_staff_summary?: Array<{ staff_uid: string; name: string | null }>;
   total_gross: string;
   total_net: string;
   total_deductions: string;
@@ -178,6 +184,8 @@ export const runPayroll = <T = unknown>(data: { month: number; year: number }) =
 export const issuePayslips = <T = unknown>(data: {
   month: number;
   year: number;
+  /** Required (true) when the run has failed payslips — see PayrollRun.failed_staff_count. */
+  acknowledge_failed_payslips?: boolean;
 }) => postJSON<T>("/api/v1/staff/admin/payroll/issue", data);
 
 export const getStaffForPayroll = <T = StaffForPayroll[]>(params?: {
@@ -227,12 +235,18 @@ export const rejectRevision = <T = unknown>(
   data: { reason?: string }
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}/reject`, data);
 
-// Payroll run dual sign + manual edit
-export const hrSignPayrollRun = <T = unknown>(runId: string, data: { comment?: string }) =>
-  postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/hr-sign`, data);
+// Payroll run dual sign + manual edit. `acknowledge_failed_payslips: true` is
+// required by the backend when the run is completed_with_errors — the signer
+// must explicitly confirm they reviewed the failed payslips.
+export const hrSignPayrollRun = <T = unknown>(
+  runId: string,
+  data: { comment?: string; acknowledge_failed_payslips?: boolean }
+) => postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/hr-sign`, data);
 
-export const adminSignPayrollRun = <T = unknown>(runId: string, data: { comment?: string }) =>
-  postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/admin-sign`, data);
+export const adminSignPayrollRun = <T = unknown>(
+  runId: string,
+  data: { comment?: string; acknowledge_failed_payslips?: boolean }
+) => postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/admin-sign`, data);
 
 export const manualEditPayslip = <T = unknown>(payslipId: string, data: Record<string, unknown>) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/payslips/${payslipId}/edit`, data);
