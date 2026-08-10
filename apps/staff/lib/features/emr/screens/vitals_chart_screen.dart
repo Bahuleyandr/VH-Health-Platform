@@ -45,6 +45,28 @@ String normalizeVitalsConsciousness(String value) {
   };
 }
 
+/// Temperature unit contract with the backend EMR vitals API
+/// (`POST /emr/vitals` → `services/emr/vitalsChartService.recordVitals`):
+///
+///  * This screen collects temperature in Fahrenheit ([VitalUnit.temperature]
+///    is "deg F"), so the payload MUST carry `temperature_unit: 'F'` — the
+///    backend treats a unitless temperature as Celsius and would 400-reject a
+///    real Fahrenheit entry (98.6 is far outside the 30–45 °C plausibility
+///    band), losing the whole vitals record.
+///  * The backend stores/returns the canonical Celsius value, so the read
+///    path converts back with [vitalsTemperatureDisplayF] before labelling
+///    the cell "deg F".
+const String vitalsTemperatureUnitSent = 'F';
+
+/// Convert a canonical Celsius temperature from the backend to the
+/// Fahrenheit value this screen displays. Non-numeric input returns null.
+double? vitalsTemperatureDisplayF(dynamic celsius) {
+  if (celsius == null) return null;
+  final num? c = celsius is num ? celsius : num.tryParse('$celsius');
+  if (c == null) return null;
+  return c * 9 / 5 + 32;
+}
+
 String vitalsConsciousnessLabel(AppStrings strings, String code) {
   return switch (code) {
     'A' => strings.vitalsChartConsciousAlert,
@@ -88,6 +110,12 @@ Map<String, dynamic> buildVitalsRecordPayload({
     if (bpDiastolicValue.isNotEmpty)
       'diastolic_bp': int.tryParse(bpDiastolicValue),
     if (tempValue.isNotEmpty) 'temperature': double.tryParse(tempValue),
+    // The temperature field is labelled/entered in °F — say so explicitly.
+    // The backend converts to canonical °C; a unitless payload is treated
+    // as °C and a real °F reading would be rejected (see
+    // [vitalsTemperatureUnitSent]).
+    if (tempValue.isNotEmpty && double.tryParse(tempValue) != null)
+      'temperature_unit': vitalsTemperatureUnitSent,
     if (spo2Value.isNotEmpty) 'spo2': int.tryParse(spo2Value),
     if (rrValue.isNotEmpty) 'respiratory_rate': int.tryParse(rrValue),
     if (glucoseValue.isNotEmpty) 'blood_glucose': int.tryParse(glucoseValue),
@@ -1192,8 +1220,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                   ),
                 ),
                 DataCell(
+                  // Backend rows carry canonical °C; this column is labelled
+                  // °F, so convert before display (and range-check in °F).
                   _vitalCell(
-                    v['temperature'],
+                    vitalsTemperatureDisplayF(v['temperature']),
                     97.0,
                     99.5,
                     isDouble: true,

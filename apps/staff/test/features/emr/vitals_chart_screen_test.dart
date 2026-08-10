@@ -51,7 +51,11 @@ void main() {
       expect(payload['heart_rate'], 82);
       expect(payload['systolic_bp'], 120);
       expect(payload['diastolic_bp'], 78);
+      // The sheet collects °F, so the payload must say so explicitly — the
+      // backend treats a unitless temperature as °C and would reject 98.6
+      // against the 30–45 °C plausibility band (losing the whole record).
       expect(payload['temperature'], 98.6);
+      expect(payload['temperature_unit'], 'F');
       expect(payload['spo2'], 98);
       expect(payload['respiratory_rate'], 18);
       expect(payload['blood_glucose'], 110);
@@ -63,6 +67,38 @@ void main() {
       expect(payload.containsKey('bp_diastolic'), isFalse);
       expect(payload.containsKey('glucose'), isFalse);
       expect(payload.containsKey('gcs'), isFalse);
+    });
+
+    test('omits temperature_unit when no temperature was entered', () {
+      final payload = buildVitalsRecordPayload(
+        patientUid: 'PAT-1',
+        hr: '82',
+        bpSystolic: '',
+        bpDiastolic: '',
+        temp: '',
+        spo2: '',
+        rr: '',
+        glucose: '',
+        pain: '',
+        gcs: '',
+        consciousness: 'A',
+      );
+
+      expect(payload.containsKey('temperature'), isFalse);
+      expect(payload.containsKey('temperature_unit'), isFalse);
+    });
+  });
+
+  group('temperature display conversion (canonical °C → shown °F)', () {
+    test('converts backend Celsius values to the Fahrenheit column', () {
+      expect(vitalsTemperatureDisplayF(37.0), closeTo(98.6, 0.01));
+      expect(vitalsTemperatureDisplayF(40.0), closeTo(104.0, 0.01));
+      expect(vitalsTemperatureDisplayF('36.5'), closeTo(97.7, 0.01));
+    });
+
+    test('returns null for absent or non-numeric values', () {
+      expect(vitalsTemperatureDisplayF(null), isNull);
+      expect(vitalsTemperatureDisplayF('n/a'), isNull);
     });
   });
 
