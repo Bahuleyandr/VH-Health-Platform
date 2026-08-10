@@ -343,11 +343,18 @@ export async function applyProviderReceiptToCursorTx(tx, {
   const cursor = await ensureCursorTx(tx, tenantId, receipt.channel);
   const outboxId = Number(receipt.notification_outbox_id);
 
+  if (cursor.last_contiguous_outbox_id !== null
+    && Number(cursor.last_contiguous_outbox_id) >= outboxId) {
+    return Object.freeze({ ...cursor, duplicate: true });
+  }
+  const ownsInflight = cursor.state === 'delivering'
+    && Number(cursor.inflight_outbox_id) === outboxId
+    && Number(cursor.blocked_outbox_id) === outboxId;
+  if (!ownsInflight) {
+    return Object.freeze({ ...cursor, stale: true });
+  }
+
   if (receipt.outcome === 'acknowledged') {
-    if (cursor.last_contiguous_outbox_id !== null
-      && Number(cursor.last_contiguous_outbox_id) >= outboxId) {
-      return Object.freeze({ ...cursor, duplicate: true });
-    }
     // Same resolved-for-ordering predicate as beginProviderAttemptTx /
     // claimPendingBatch: a terminally-rejected or operator-superseded earlier
     // row is not a gap — the cursor may advance PAST it (the DB trigger only
@@ -384,6 +391,9 @@ export async function applyProviderReceiptToCursorTx(tx, {
               blocked_outbox_id = NULL, inflight_outbox_id = NULL, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND channel = $2::text
           AND (last_contiguous_outbox_id IS NULL OR last_contiguous_outbox_id < $3::integer)
+          AND state = 'delivering'
+          AND inflight_outbox_id = $3::integer
+          AND blocked_outbox_id = $3::integer
         RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
                   state, blocked_outbox_id, inflight_outbox_id, updated_at`,
       tenantId, receipt.channel, outboxId,
@@ -405,9 +415,12 @@ export async function applyProviderReceiptToCursorTx(tx, {
           SET state = 'ready', blocked_outbox_id = NULL,
               inflight_outbox_id = NULL, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND channel = $2::text
+          AND state = 'delivering'
+          AND inflight_outbox_id = $3::integer
+          AND blocked_outbox_id = $3::integer
         RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
                   state, blocked_outbox_id, inflight_outbox_id, updated_at`,
-      tenantId, receipt.channel,
+      tenantId, receipt.channel, outboxId,
     );
     return Object.freeze({
       ...resumed[0],
@@ -422,6 +435,9 @@ export async function applyProviderReceiptToCursorTx(tx, {
         SET state = $3::text, blocked_outbox_id = $4::integer,
             inflight_outbox_id = NULL, updated_at = NOW()
       WHERE tenant_id = $1::uuid AND channel = $2::text
+        AND state = 'delivering'
+        AND inflight_outbox_id = $4::integer
+        AND blocked_outbox_id = $4::integer
       RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
                 state, blocked_outbox_id, inflight_outbox_id, updated_at`,
     tenantId, receipt.channel, pausedState, outboxId,
@@ -454,10 +470,10 @@ export async function reconcileExpiredClaims({ tenantId, limit = 50 } = {}) {
     for (const row of expired) {
       const attempts = await tx.$queryRawUnsafe(
         `SELECT attempt.attempt_id::text, attempt.channel,
-                receipt.receipt_id::text, receipt.outcome
+                receipt.receipt_id::text, receipt.outcome, receipt.provider_code
            FROM notification_delivery_attempts AS attempt
            LEFT JOIN LATERAL (
-             SELECT receipt_id, outcome
+              SELECT receipt_id, outcome, provider_code
                FROM notification_provider_receipts
               WHERE tenant_id = attempt.tenant_id AND attempt_id = attempt.attempt_id
               ORDER BY observed_at DESC LIMIT 1
@@ -494,20 +510,39 @@ export async function reconcileExpiredClaims({ tenantId, limit = 50 } = {}) {
             evidence: { claim_token: row.claim_token, claim_generation: Number(row.claim_generation) },
           });
           receiptId = receipt.receipt_id;
+          attempt.receipt_id = receipt.receipt_id;
+          attempt.outcome = receipt.outcome;
+          attempt.provider_code = receipt.provider_code;
         }
         await applyProviderReceiptToCursorTx(tx, { tenantId: tid, receiptId });
       }
       const allAcknowledged = attempts.every(attempt => attempt.outcome === 'acknowledged');
+      const allResolved = attempts.every(attempt => Boolean(attempt.receipt_id));
+      const hasTerminalRejection = attempts.some(attempt => (
+        attempt.outcome === 'rejected' && isTerminalRejectionCode(attempt.provider_code)
+      ));
+      const terminallyResolved = allResolved
+        && hasTerminalRejection
+        && attempts.every(attempt => (
+          attempt.outcome === 'acknowledged'
+          || (attempt.outcome === 'rejected' && isTerminalRejectionCode(attempt.provider_code))
+        ));
+      const finalStatus = allAcknowledged ? 'SENT'
+        : terminallyResolved ? 'FAILED'
+          : 'RECONCILIATION_REQUIRED';
       await tx.$executeRawUnsafe(
         `UPDATE notification_outbox
             SET status = $4::text, claim_token = NULL, claimed_at = NULL,
                 lease_expires_at = NULL, last_attempt_at = NOW(),
                 sent_at = CASE WHEN $4::text = 'SENT' THEN NOW() ELSE sent_at END,
+                retry_count = CASE WHEN $4::text = 'FAILED'
+                  THEN GREATEST(retry_count, 3) ELSE retry_count END,
                 failure_reason = CASE WHEN $4::text = 'SENT' THEN NULL
+                  WHEN $4::text = 'FAILED' THEN 'provider_terminal_rejection'
                   ELSE 'provider_state_requires_owner_reconciliation' END
           WHERE tenant_id = $1::uuid AND id = $2::integer
             AND status = 'CLAIMED' AND claim_token = $3::uuid`,
-        tid, row.id, row.claim_token, allAcknowledged ? 'SENT' : 'RECONCILIATION_REQUIRED',
+        tid, row.id, row.claim_token, finalStatus,
       );
       reconciled += 1;
     }
@@ -551,8 +586,8 @@ export async function listChannelCursors({ tenantId } = {}) {
 }
 
 /**
- * Operator reset for a wedged channel cursor (fix R3). paused_rejected /
- * paused_uncertain / a stuck 'delivering' cursor goes back to 'ready' with the
+ * Operator reset for a wedged channel cursor (fix R3). paused_rejected or
+ * paused_uncertain goes back to 'ready' with the
  * block cleared; last_contiguous_outbox_id is untouched (ack-only by the
  * mig-609 trigger). Requires a named actor and a recorded reason; writes an
  * audit_logs row (pattern: eventOutboxService.redriveFailedEvent).
@@ -580,7 +615,7 @@ export async function resetChannelCursor({
     if (current.length !== 1) {
       throw AppError.notFound('Notification delivery cursor was not found', 'NOTIFICATION_DELIVERY_CURSOR_NOT_FOUND');
     }
-    if (current[0].state === 'ready') {
+    if (!['paused_rejected', 'paused_uncertain'].includes(current[0].state)) {
       throw AppError.conflict('Notification delivery cursor is not paused', 'NOTIFICATION_DELIVERY_CURSOR_NOT_PAUSED');
     }
     const rows = await tx.$queryRawUnsafe(
@@ -588,6 +623,7 @@ export async function resetChannelCursor({
           SET state = 'ready', blocked_outbox_id = NULL,
               inflight_outbox_id = NULL, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND channel = $2::text
+          AND state IN ('paused_rejected', 'paused_uncertain')
         RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
                   state, blocked_outbox_id, inflight_outbox_id, updated_at`,
       tid, normalizedChannel,

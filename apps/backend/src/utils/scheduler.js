@@ -434,7 +434,14 @@ export async function drainNotificationOutbox({ tenantId, limit = 50 } = {}) {
         await notificationOutbox.markSent(row.id, claimFence);
         sent += 1;
       } else if (result.outcome === 'rejected') {
-        await notificationOutbox.markFailed(row.id, 'provider_rejected_notification', claimFence);
+        const finalize = result.terminal
+          ? notificationOutbox.markTerminalFailed.bind(notificationOutbox)
+          : notificationOutbox.markFailed.bind(notificationOutbox);
+        await finalize(
+          row.id,
+          result.terminal ? 'provider_terminal_rejection' : 'provider_rejected_notification',
+          claimFence,
+        );
         failed += 1;
       } else if (result.outcome === 'uncertain') {
         await notificationOutbox.markReconciliationRequired(

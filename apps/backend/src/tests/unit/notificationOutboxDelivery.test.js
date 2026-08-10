@@ -229,4 +229,28 @@ describe('notification outbox durable provider delivery', () => {
     expect(sendPushMock).not.toHaveBeenCalled();
     expect(recordProviderReceiptMock).not.toHaveBeenCalled();
   });
+
+  test('does not turn a resolved transient FCM batch failure into terminal rejection', async () => {
+    getTenantSettingsMock.mockResolvedValue({});
+    beginProviderAttemptsMock.mockResolvedValue([attempt('push')]);
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ t: 'fcm-token' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    sendPushMock.mockResolvedValue({
+      successCount: 0,
+      failureCount: 1,
+      responses: [{ success: false, error: { code: 'messaging/server-unavailable' } }],
+    });
+
+    const result = await deliverNotificationOutboxRow(row());
+
+    expect(result).toMatchObject({ outcome: 'uncertain', terminal: false });
+    expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'push',
+      outcome: 'uncertain',
+      providerCode: 'fcm_no_acceptance_unresolved',
+      receiptSource: 'transport_failure',
+    }));
+  });
 });

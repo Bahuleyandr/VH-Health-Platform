@@ -7,6 +7,7 @@
 // nowhere. queueClinicalAlertFanout resolves the duty-doctor audience at
 // enqueue time and queues one immutable outbox intent per clinician.
 import { randomUUID } from 'node:crypto';
+import { jest } from '@jest/globals';
 
 import prisma from '../lib/prisma.js';
 import {
@@ -144,4 +145,25 @@ describeIfDb('R2 — broadcast clinical_alert duty-role fan-out', () => {
       channel: 'clinical_alert',
     })).resolves.toEqual({ resolved: 0, queued: 0 });
   }, 60_000);
+
+  test('strict mode rejects a partial fan-out so the safe retry can fill the gap', async () => {
+    const queue = jest.fn()
+      .mockResolvedValueOnce({ id: 1 })
+      .mockRejectedValueOnce(new Error('forced queue failure'));
+    await expect(queueClinicalAlertFanout({
+      type: 'push',
+      tenantId: TENANT_A,
+      title: 'Partial fan-out',
+      body: 'Every recipient must queue',
+      data: { source_event_key: `fanout:${SUFFIX}:partial` },
+      channel: 'clinical_alert',
+    }, {
+      strict: true,
+      outbox: { queue },
+      resolveRecipients: async () => [
+        { id: 1, role: 'DUTY_DOCTOR' },
+        { id: 2, role: 'DUTY_DOCTOR' },
+      ],
+    })).rejects.toThrow('queued 1 of 2 notifications');
+  });
 });

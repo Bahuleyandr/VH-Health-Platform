@@ -149,6 +149,15 @@ export async function replayNotificationOutboxRow({
       );
       if (rows.length !== 1) throw AppError.conflict('Notification outbox replay lost its state fence');
       updated = rows[0];
+      await tx.$executeRawUnsafe(
+        `UPDATE notification_delivery_cursors
+            SET state = 'ready', blocked_outbox_id = NULL,
+                inflight_outbox_id = NULL, updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND channel = $2::text
+            AND state IN ('paused_rejected', 'paused_uncertain')
+            AND blocked_outbox_id = $3::integer`,
+        tid, row.channel, outboxId,
+      );
     } else {
       if (row.failure_reason === OPERATOR_REPLAY_SUPERSEDED_REASON) {
         throw AppError.conflict('Notification outbox row was already replayed by an operator');

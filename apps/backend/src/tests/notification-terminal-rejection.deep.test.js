@@ -199,6 +199,174 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
     expect(await readOutbox(bad.id)).toMatchObject({ status: 'FAILED' });
   }, 60_000);
 
+  test('operator reset cannot clear a live delivery lease', async () => {
+    const row = await notificationOutbox.queue(
+      intent(`r3:${SUFFIX}:live-lease`, REACHABLE_UID, 'print'),
+      { strict: true },
+    );
+    const { claim } = await claimOne(row.id);
+    expect(claim).toBeDefined();
+    const [attempt] = await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: claim.id,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+      renderedIntentHash: claim.rendered_intent_hash,
+      channels: ['print'],
+    });
+    expect(attempt.state).toBe('ready');
+    expect((await readCursor('print')).state).toBe('delivering');
+
+    await expect(resetChannelCursor({
+      tenantId: TENANT_ID,
+      channel: 'print',
+      reason: 'Must not reset an active provider attempt.',
+      actorUid: ACTOR_UID,
+      actorRole: 'SUPER_ADMIN',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'NOTIFICATION_DELIVERY_CURSOR_NOT_PAUSED',
+    });
+    expect((await readCursor('print')).state).toBe('delivering');
+
+    const receipt = await recordProviderReceipt({
+      tenantId: TENANT_ID,
+      attemptId: attempt.attempt_id,
+      outboxId: row.id,
+      channel: 'print',
+      outcome: 'uncertain',
+      receiptSource: 'transport_failure',
+      providerCode: 'test_cleanup_uncertain',
+      evidence: { test: SUFFIX },
+    });
+    await applyProviderReceiptToCursor({ tenantId: TENANT_ID, receiptId: receipt.receipt_id });
+    await notificationOutbox.markReconciliationRequired(
+      row.id,
+      'test_cleanup_uncertain',
+      {
+        tenantId: TENANT_ID,
+        claimToken: claim.claim_token,
+        claimGeneration: claim.claim_generation,
+      },
+    );
+  }, 60_000);
+
+  test('lease reconciliation preserves a recorded terminal rejection as a dead letter', async () => {
+    const row = await notificationOutbox.queue(
+      intent(`r3:${SUFFIX}:terminal-crash`, REACHABLE_UID, 'whatsapp'),
+      { strict: true },
+    );
+    const { claim } = await claimOne(row.id);
+    expect(claim).toBeDefined();
+    const [attempt] = await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: claim.id,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+      renderedIntentHash: claim.rendered_intent_hash,
+      channels: ['whatsapp'],
+    });
+    await recordProviderReceipt({
+      tenantId: TENANT_ID,
+      attemptId: attempt.attempt_id,
+      outboxId: row.id,
+      channel: 'whatsapp',
+      outcome: 'rejected',
+      receiptSource: 'provider_response',
+      providerCode: 'recipient_not_found',
+      evidence: { test: SUFFIX },
+    });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox
+          SET lease_expires_at = NOW() - INTERVAL '1 second'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_ID, row.id,
+    ));
+
+    await reconcileExpiredClaims({ tenantId: TENANT_ID });
+
+    expect(await readOutbox(row.id)).toMatchObject({
+      status: 'FAILED',
+      retry_count: 3,
+      failure_reason: 'provider_terminal_rejection',
+    });
+    expect((await readCursor('whatsapp')).state).toBe('ready');
+  }, 60_000);
+
+  test('a late receipt cannot clear a newer delivery from the channel cursor', async () => {
+    const oldRow = await notificationOutbox.queue(
+      intent(`r3:${SUFFIX}:old-terminal`, TOKENLESS_UID, 'voice'),
+      { strict: true },
+    );
+    const { claim: oldClaim } = await claimOne(oldRow.id);
+    const { receipt: oldReceipt } = await attemptAndReceipt(oldClaim, 'voice', {
+      outcome: 'rejected',
+      providerCode: 'recipient_not_found',
+    });
+    await applyProviderReceiptToCursor({
+      tenantId: TENANT_ID,
+      receiptId: oldReceipt.receipt_id,
+    });
+    await notificationOutbox.markTerminalFailed(
+      oldRow.id,
+      'provider_terminal_rejection',
+      {
+        tenantId: TENANT_ID,
+        claimToken: oldClaim.claim_token,
+        claimGeneration: oldClaim.claim_generation,
+      },
+    );
+
+    const newRow = await notificationOutbox.queue(
+      intent(`r3:${SUFFIX}:new-inflight`, REACHABLE_UID, 'voice'),
+      { strict: true },
+    );
+    const { claim: newClaim } = await claimOne(newRow.id);
+    const [newAttempt] = await beginProviderAttempts({
+      tenantId: TENANT_ID,
+      outboxId: newClaim.id,
+      claimToken: newClaim.claim_token,
+      claimGeneration: newClaim.claim_generation,
+      renderedIntentHash: newClaim.rendered_intent_hash,
+      channels: ['voice'],
+    });
+
+    const stale = await applyProviderReceiptToCursor({
+      tenantId: TENANT_ID,
+      receiptId: oldReceipt.receipt_id,
+    });
+    expect(stale.stale).toBe(true);
+    expect(await readCursor('voice')).toMatchObject({
+      state: 'delivering',
+      inflight_outbox_id: newRow.id,
+      blocked_outbox_id: newRow.id,
+    });
+
+    const cleanupReceipt = await recordProviderReceipt({
+      tenantId: TENANT_ID,
+      attemptId: newAttempt.attempt_id,
+      outboxId: newRow.id,
+      channel: 'voice',
+      outcome: 'uncertain',
+      receiptSource: 'transport_failure',
+      providerCode: 'test_cleanup_uncertain',
+      evidence: { test: SUFFIX },
+    });
+    await applyProviderReceiptToCursor({
+      tenantId: TENANT_ID,
+      receiptId: cleanupReceipt.receipt_id,
+    });
+    await notificationOutbox.markReconciliationRequired(
+      newRow.id,
+      'test_cleanup_uncertain',
+      {
+        tenantId: TENANT_ID,
+        claimToken: newClaim.claim_token,
+        claimGeneration: newClaim.claim_generation,
+      },
+    );
+  }, 60_000);
+
   test('a non-terminal (ambiguous) rejection still pauses, and the operator reset recovers it', async () => {
     const row = await notificationOutbox.queue(
       intent(`r3:${SUFFIX}:ambiguous`, REACHABLE_UID, 'sms'),
@@ -257,6 +425,52 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
       tenantId: TENANT_ID,
       claimToken: reclaim.claim_token,
       claimGeneration: reclaim.claim_generation,
+    });
+  }, 60_000);
+
+  test('operator replay of a FAILED row resumes the cursor blocked on that row', async () => {
+    const row = await notificationOutbox.queue(
+      intent(`r3:${SUFFIX}:failed-replay`, REACHABLE_UID, 'inapp'),
+      { strict: true },
+    );
+    const { claim } = await claimOne(row.id);
+    const { receipt } = await attemptAndReceipt(claim, 'inapp', {
+      outcome: 'rejected',
+      providerCode: 'inapp_provider_not_configured',
+    });
+    await applyProviderReceiptToCursor({ tenantId: TENANT_ID, receiptId: receipt.receipt_id });
+    await notificationOutbox.markFailed(row.id, 'provider_rejected_notification', {
+      tenantId: TENANT_ID,
+      claimToken: claim.claim_token,
+      claimGeneration: claim.claim_generation,
+    });
+    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
+      `UPDATE notification_outbox SET retry_count = 3
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_ID, row.id,
+    ));
+    expect(await readCursor('inapp')).toMatchObject({
+      state: 'paused_rejected',
+      blocked_outbox_id: row.id,
+    });
+
+    await replayNotificationOutboxRow({
+      tenantId: TENANT_ID,
+      id: row.id,
+      reason: 'Provider repaired; resume the exact blocked cursor.',
+      actorUid: ACTOR_UID,
+      actorRole: 'SUPER_ADMIN',
+      requestId: `r3-failed-replay-${SUFFIX}`,
+    });
+
+    expect(await readCursor('inapp')).toMatchObject({
+      state: 'ready',
+      blocked_outbox_id: null,
+    });
+    expect(await readOutbox(row.id)).toMatchObject({
+      status: 'FAILED',
+      retry_count: 0,
+      failure_reason: 'operator_replay_requested',
     });
   }, 60_000);
 

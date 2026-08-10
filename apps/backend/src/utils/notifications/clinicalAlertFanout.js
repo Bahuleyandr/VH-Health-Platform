@@ -76,9 +76,9 @@ export async function resolveClinicalAlertRecipients(tenantId) {
  * dedupe (`ux_notification_outbox_delivery_intent`) includes the per-recipient
  * recipient_key, so a retried fan-out re-queues nobody twice.
  *
- * Per-recipient queue failures are logged and skipped; with `strict` the call
- * throws only when NOT ONE recipient row was queued (no resolvable audience,
- * or every queue attempt failed) so callers' degraded-escalation paths fire.
+ * Per-recipient queue failures are logged and skipped. With `strict`, every
+ * resolved recipient must queue successfully so partial clinical fan-out
+ * cannot be reported as success.
  *
  * @returns {{ resolved: number, queued: number }}
  */
@@ -122,8 +122,10 @@ export async function queueClinicalAlertFanout(notification, {
       });
     }
   }
-  if (queued === 0 && strict) {
-    throw new Error('clinical-alert fan-out queued zero notifications');
+  if (strict && queued !== recipients.length) {
+    throw new Error(
+      `clinical-alert fan-out queued ${queued} of ${recipients.length} notifications`,
+    );
   }
   return { resolved: recipients.length, queued };
 }

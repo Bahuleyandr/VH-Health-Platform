@@ -288,6 +288,19 @@ class NotificationOutbox {
     });
   }
 
+  async markTerminalFailed(outboxId, reason, {
+    tenantId, claimToken, claimGeneration,
+  } = {}) {
+    return this.#finalizeClaim(outboxId, {
+      tenantId,
+      claimToken,
+      claimGeneration,
+      status: 'FAILED',
+      reason: String(reason || 'provider_terminal_rejection').slice(0, 500),
+      terminalFailure: true,
+    });
+  }
+
   async markReconciliationRequired(outboxId, reason, { tenantId, claimToken, claimGeneration } = {}) {
     return this.#finalizeClaim(outboxId, {
       tenantId,
@@ -333,6 +346,7 @@ class NotificationOutbox {
     status,
     reason,
     incrementRetry = status === 'FAILED',
+    terminalFailure = false,
   }) {
     const tid = normalizeTenantId(tenantId || getCurrentTenantId());
     if (!tid || !claimToken || !Number.isSafeInteger(Number(claimGeneration))) {
@@ -344,14 +358,17 @@ class NotificationOutbox {
             SET status = $5::text, claim_token = NULL, claimed_at = NULL,
                 lease_expires_at = NULL, last_attempt_at = NOW(),
                 sent_at = CASE WHEN $5::text = 'SENT' THEN NOW() ELSE sent_at END,
-                retry_count = retry_count + CASE WHEN $7::boolean THEN 1 ELSE 0 END,
+                retry_count = CASE
+                  WHEN $8::boolean THEN GREATEST(retry_count, 3)
+                  ELSE retry_count + CASE WHEN $7::boolean THEN 1 ELSE 0 END
+                END,
                 failure_reason = $6::text
           WHERE tenant_id = $1::uuid AND id = $2::integer
             AND status = 'CLAIMED' AND claim_token = $3::uuid
             AND claim_generation = $4::integer
           RETURNING id, status, retry_count, sent_at`,
         tid, Number(outboxId), claimToken, Number(claimGeneration),
-        status, reason, incrementRetry,
+        status, reason, incrementRetry, terminalFailure,
       );
       if (rows.length !== 1) throw new Error('Notification claim fence was lost');
       return rows[0];

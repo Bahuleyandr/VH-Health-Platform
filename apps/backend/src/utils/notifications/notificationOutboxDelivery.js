@@ -9,6 +9,10 @@ import {
 import { getTenantSettings } from '../../services/tenant/tenantSettingsService.js';
 import { dispatch } from './notificationDispatcher.js';
 import { sendPushNotification } from './sendPushNotification.js';
+import {
+  classifyFcmProviderResponse,
+  isTerminalRejectionCode,
+} from './terminalRejectionCodes.js';
 import { resolveChannelsForOutboxRow } from './tenantNotificationChannels.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -237,23 +241,7 @@ async function deliverLegacyWithProviderReceipt(row, channels, tenantId) {
         data: payloadObject(row),
         userId: row.recipient_id || null,
       });
-      const accepted = response.responses?.filter(item => item.success) || [];
-      results.push = response.successCount > 0
-        ? {
-            outcome: 'acknowledged',
-            providerReference: accepted[0]?.messageId || `fcm-accepted:${response.successCount}`,
-            providerCode: response.failureCount > 0 ? 'partial_acceptance' : 'accepted',
-            evidence: {
-              success_count: response.successCount,
-              failure_count: response.failureCount,
-              responses: response.responses || [],
-            },
-          }
-        : rejected('fcm_no_token_accepted', {
-            success_count: response.successCount,
-            failure_count: response.failureCount,
-            responses: response.responses || [],
-          });
+      results.push = classifyFcmProviderResponse(response);
     } catch (err) {
       results.push = uncertain(err.code || 'fcm_transport_failure', err);
     }
@@ -365,6 +353,12 @@ export async function deliverNotificationOutboxRow(row) {
       : outcomes.includes('deferred')
         ? 'deferred'
         : 'acknowledged';
+  const rejectedResults = Object.values(providerResults)
+    .filter(result => result.outcome === 'rejected');
+  const terminal = outcome === 'rejected'
+    && blocked.length === 0
+    && rejectedResults.length > 0
+    && rejectedResults.every(result => isTerminalRejectionCode(result.providerCode));
 
   return {
     mode: decision.source === 'tenant' ? 'dispatcher' : 'legacy',
@@ -372,6 +366,7 @@ export async function deliverNotificationOutboxRow(row) {
     preferenceKey: decision.preferenceKey,
     tenantId: decision.tenantId,
     outcome,
+    terminal,
     attempts,
     receipts,
   };

@@ -25,7 +25,7 @@
 // reason). Such rows must stop blocking the strict per-channel ordering.
 export const TERMINAL_REJECTION_CODES = Object.freeze([
   'fcm_token_missing',
-  'fcm_no_token_accepted',
+  'fcm_all_tokens_invalid',
   'recipient_identifier_missing',
   'recipient_not_found',
   'email_address_missing',
@@ -36,6 +36,53 @@ const TERMINAL_SET = new Set(TERMINAL_REJECTION_CODES);
 
 export function isTerminalRejectionCode(providerCode) {
   return TERMINAL_SET.has(String(providerCode || ''));
+}
+
+const PERMANENT_FCM_TOKEN_CODES = new Set([
+  'messaging/invalid-registration-token',
+  'messaging/registration-token-not-registered',
+]);
+
+export function classifyFcmProviderResponse(response = {}) {
+  const responses = Array.isArray(response.responses) ? response.responses : [];
+  const successCount = Number(response.successCount) || 0;
+  const failureCount = Number(response.failureCount) || 0;
+  const evidence = {
+    success_count: successCount,
+    failure_count: failureCount,
+    responses,
+  };
+
+  if (successCount > 0) {
+    const accepted = responses.find(item => item?.success);
+    return {
+      outcome: 'acknowledged',
+      providerReference: accepted?.messageId || `fcm-accepted:${successCount}`,
+      providerCode: failureCount > 0 ? 'partial_acceptance' : 'accepted',
+      evidence,
+    };
+  }
+
+  const failureCodes = responses
+    .filter(item => item && item.success === false)
+    .map(item => String(item.error?.code || ''));
+  if (failureCodes.length > 0
+    && failureCodes.length === responses.length
+    && failureCodes.every(code => PERMANENT_FCM_TOKEN_CODES.has(code))) {
+    return {
+      outcome: 'rejected',
+      providerReference: null,
+      providerCode: 'fcm_all_tokens_invalid',
+      evidence,
+    };
+  }
+
+  return {
+    outcome: 'uncertain',
+    providerReference: null,
+    providerCode: 'fcm_no_acceptance_unresolved',
+    evidence,
+  };
 }
 
 // failure_reason stamped on a RECONCILIATION_REQUIRED row that an operator
