@@ -724,11 +724,15 @@ app.head('/', async (req, res, next) => {
 });
 
 // Public API routes
-// Only the patient Firebase exchange is an app-facing pre-API-key entry point.
-// Keep admin/staff SSO callbacks and the non-Firebase OTP utilities outside
-// this scope: browser/provider callbacks cannot attach an App Check header.
+// The patient Firebase exchange and the legacy DB-OTP login (which mints the
+// same PATIENT JWT) are app-facing pre-API-key entry points — both run App
+// Check in report mode. Keep admin/staff SSO callbacks and the non-login OTP
+// utilities outside this scope: browser/provider callbacks cannot attach an
+// App Check header.
 app.use('/api/v1/auth', patientRateLimiter);
 app.use('/api/v1/auth/firebase', appCheckMiddleware({ expectedClient: 'patient' }));
+app.use('/api/v1/auth/request-otp', appCheckMiddleware({ expectedClient: 'patient' }));
+app.use('/api/v1/auth/verify-otp', appCheckMiddleware({ expectedClient: 'patient' }));
 app.use('/api/v1/auth', authRoutes); // Patient, staff, and admin authentication
 app.use('/api/v1/otp', patientRateLimiter, otpRoutes);
 app.use('/api/v1/health', genericLimiter, healthRoutes);
