@@ -11,8 +11,11 @@
 //   * zero scheduled doses exist for it,
 //   * a clinical_audit_events row exists with action_status 'failed' and the
 //     deterministic idempotency key clinical_orders:<id>:mar_schedule_failed,
-//   * a notification_outbox alert row exists with source_event_key
-//     clinical_orders:<id>:mar_schedule_failed:alert.
+//   * notification_outbox alert rows exist with source_event_key
+//     clinical_orders:<id>:mar_schedule_failed:alert — one per CONCRETE
+//     duty-doctor/doctor-tier recipient (fix R2: the outbox has no topic
+//     delivery, so the old single recipientId:null broadcast row reached
+//     nobody; queueClinicalAlertFanout resolves recipients at enqueue time).
 //
 // Needs the test Postgres (DATABASE_URL / TEST_DATABASE_URL, default
 // 127.0.0.1:55432 db vhhealth_test). Self-skips when unconfigured.
@@ -22,6 +25,7 @@ import { randomUUID } from 'crypto';
 import prisma from '../lib/prisma.js';
 import { createOrder } from '../services/emr/orderEntryService.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { DOCTOR_TIERS } from '../utils/roleHelpers.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -138,15 +142,37 @@ d('BE-H1 — MAR scheduling failure on a committed medication order escalates du
     });
 
     // Durable detector #2 — the staff alert in the notification outbox.
+    // Fanned out at enqueue time to CONCRETE duty-doctor/doctor-tier
+    // recipients (queueClinicalAlertFanout): one PENDING row per resolved
+    // recipient, all sharing the deterministic source_event_key. The poll can
+    // observe a partial fan-out mid-insert, so assert shape + audience, not
+    // an exact count.
     const outboxRows = await pollForRows(
-      `SELECT status, channel, title, payload
+      `SELECT status, channel, title, payload, recipient_id
          FROM notification_outbox
         WHERE tenant_id = $1::uuid AND source_event_key = $2`,
       [TENANT, `clinical_orders:${order.id}:mar_schedule_failed:alert`],
     );
-    expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0].status).toBe('PENDING');
-    expect(outboxRows[0].title).toMatch(/no scheduled mar doses/i);
+    expect(outboxRows.length).toBeGreaterThanOrEqual(1);
+    for (const row of outboxRows) {
+      expect(row.status).toBe('PENDING');
+      expect(row.title).toMatch(/no scheduled mar doses/i);
+    }
+    // Every row targets a real, distinct recipient — no recipient-less
+    // broadcast rows survive (they reached nobody).
+    const recipientIds = outboxRows.map((row) => row.recipient_id);
+    expect(recipientIds.every((id) => id !== null && String(id).trim() !== '')).toBe(true);
+    expect(new Set(recipientIds.map(String)).size).toBe(recipientIds.length);
+    // And the audience is the tenant's active doctor-tier staff (exact
+    // DUTY_DOCTOR preferred, doctor-tier family fallback — both subsets of
+    // DOCTOR_TIERS).
+    const doctorRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM users
+        WHERE tenant_id = $1::uuid AND is_active = TRUE AND role = ANY($2::text[])`,
+      TENANT, DOCTOR_TIERS,
+    );
+    const doctorIds = new Set(doctorRows.map((row) => String(row.id)));
+    expect(recipientIds.every((id) => doctorIds.has(String(id)))).toBe(true);
 
     // The failure really did leave zero scheduled doses for this order.
     const marRows = await prisma.$queryRawUnsafe(
