@@ -335,11 +335,20 @@ export class AuthService {
       const requireMfa = process.env.REQUIRE_MFA_FOR_SUPER_ADMIN !== 'false';
       const isSuperAdmin = String(admin.role || '').toUpperCase() === 'SUPER_ADMIN';
       if (requireMfa && isSuperAdmin && !admin.totp_enabled) {
+        // R1 (issuance-time revocation gate): the setup token passes through
+        // jwtMiddleware on the /mfa/setup-* routes, so it must carry the
+        // identity's CURRENT token_epoch — an epoch-less token is treated as
+        // epoch-0 and refused (401 TOKEN_REVOKED) once the admin's epoch was
+        // ever bumped (any prior logout / force-revoke), which would block
+        // first-time MFA enrollment forever. Same sourcing as the full-token
+        // mint below (issueAccessTokenAndClaimSession reads the same durable
+        // epoch); getCurrentTokenEpoch FAILS CLOSED on store outage.
+        const setupTokenEpoch = await getCurrentTokenEpoch(String(admin.uid));
         const setupToken = issueSetupToken({
           uid: admin.uid,
           role: admin.role,
           username: admin.username,
-        });
+        }, setupTokenEpoch);
         logSecurityEvent('MFA_SETUP_REQUIRED', {
           userId: admin.uid,
           userName: admin.username,
