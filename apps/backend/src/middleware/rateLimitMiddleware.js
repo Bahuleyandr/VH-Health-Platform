@@ -87,6 +87,9 @@ export const selectStore = (prefix = 'rl:') => {
 };
 
 const authKeyGenerator = (req) => {
+  const uid = req.user?.uid || req.user?.id;
+  if (uid) return `auth:u:${String(uid)}`;
+
   const ip = ipKeyGenerator(req.ip);
   // Extract account identifier from request body (login endpoints).
   const account = req.body?.username || req.body?.email || req.body?.employeeId || req.body?.phone || '';

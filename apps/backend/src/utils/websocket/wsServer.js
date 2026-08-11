@@ -149,7 +149,10 @@ async function authenticateAndRegister(ws, token) {
     }
   }
 
-  const userId = decoded.uid || decoded.id || decoded.sub;
+  const identityClaim = decoded.uid || decoded.sub || decoded.id;
+  const userId = identityClaim === undefined || identityClaim === null
+    ? null
+    : String(identityClaim);
   const role = decoded.role;
   const tenantId = decoded.tenant_id || decoded.tenantId || null;
   if (!userId) {

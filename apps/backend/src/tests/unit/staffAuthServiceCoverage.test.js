@@ -52,12 +52,16 @@ jest.unstable_mockModule('bcrypt', () => ({
 const mockIsTokenBlacklisted = jest.fn();
 const mockBlacklistToken = jest.fn();
 const mockRevokeAllUserTokens = jest.fn();
+const mockPersistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
+const mockPublishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   isTokenBlacklisted: mockIsTokenBlacklisted,
   // staffAuthService.logoutStaff revokes the presented access token's jti, and
   // the all-device branch additionally revokes every token for the identity.
   blacklistToken: mockBlacklistToken,
+  persistRevokeAllUserTokens: mockPersistRevokeAllUserTokens,
+  publishRevokeAllUserTokens: mockPublishRevokeAllUserTokens,
   revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 
@@ -347,10 +351,14 @@ describe('changeOwnPassword', () => {
     const out = await StaffAuthService.changeOwnPassword('uid', 'old', 'newpw', req);
     expect(out).toEqual({ success: true });
     expect(mockBcryptHash).toHaveBeenCalledWith('newpw', 10);
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'password_changed',
     });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'uid', 1_700_000_000, { reason: 'password_changed' },
+    );
   });
 
   it('does not report password-change success when durable revocation fails', async () => {
@@ -360,10 +368,23 @@ describe('changeOwnPassword', () => {
       encrypted_password: 'h',
     }]);
     mockBcryptCompare.mockResolvedValue(true);
-    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+    let passwordCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      let stagedPassword = false;
+      const tx = {
+        ...mockPrisma,
+        $executeRawUnsafe: jest.fn(async () => { stagedPassword = true; return 1; }),
+      };
+      const result = await callback(tx);
+      passwordCommitted = stagedPassword;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
 
     await expect(StaffAuthService.changeOwnPassword('uid', 'old', 'newpw', REQ))
       .rejects.toThrow('durable store unavailable');
+    expect(passwordCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 });
 
@@ -691,10 +712,37 @@ describe('setupPin', () => {
 
     await StaffAuthService.setupPin('uid', 'tok', '5678');
 
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'pin_changed',
     });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'uid', 1_700_000_000, { reason: 'pin_changed' },
+    );
+  });
+
+  it('rolls back a PIN replacement when durable revocation fails', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
+    read(/SELECT pin_hash FROM staff_devices/, [{ pin_hash: 'old-pin-hash' }]);
+    let pinCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      let stagedPin = false;
+      const tx = {
+        ...mockPrisma,
+        $executeRawUnsafe: jest.fn(async () => { stagedPin = true; return 1; }),
+      };
+      const result = await callback(tx);
+      pinCommitted = stagedPin;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(StaffAuthService.setupPin('uid', 'tok', '5678'))
+      .rejects.toThrow('durable store unavailable');
+    expect(pinCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('throws (catch path) when the user is not found', async () => {
@@ -988,10 +1036,39 @@ describe('admin methods', () => {
     read(/UPDATE staff_devices SET pin_hash = NULL[\s\S]*RETURNING/, [{ id: 1 }, { id: 2 }]);
     const out = await StaffAuthService.adminResetPin(42, 'admin-uid', REQ);
     expect(out).toMatchObject({ success: true, devicesAffected: 2 });
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'pin_reset',
     });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'staff-uuid-1', 1_700_000_000, { reason: 'pin_reset' },
+    );
+  });
+
+  it('rolls back an admin PIN reset when durable revocation fails', async () => {
+    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
+    read(/UPDATE staff_devices SET pin_hash = NULL[\s\S]*RETURNING/, [{ id: 1 }]);
+    let pinResetCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      let stagedReset = false;
+      const tx = {
+        ...mockPrisma,
+        $queryRawUnsafe: jest.fn(async (sql, ...params) => {
+          if (/UPDATE staff_devices SET pin_hash = NULL/.test(sql)) stagedReset = true;
+          return mockPrisma.$queryRawUnsafe(sql, ...params);
+        }),
+      };
+      const result = await callback(tx);
+      pinResetCommitted = stagedReset;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(StaffAuthService.adminResetPin(42, 'admin-uid', REQ))
+      .rejects.toThrow('durable store unavailable');
+    expect(pinResetCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('adminForceLogout surfaces DB errors (catch path)', async () => {

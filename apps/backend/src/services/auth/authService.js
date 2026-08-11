@@ -14,7 +14,14 @@ import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isLegacyPhoneAuthAllowed } from '../../utils/authCompatibilityGates.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { blacklistToken, getCurrentTokenEpoch, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  blacklistToken,
+  getCurrentTokenEpoch,
+  isTokenBlacklisted,
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+  revokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken, resolveTenantIdForUid } from './loginSessionHelper.js';
@@ -467,15 +474,18 @@ export class AuthService {
 
       const newHash = await bcrypt.hash(newPassword, 10);
 
-      await prisma.admins.update({
-        where: { uid: String(adminId) },
-        data: { password_hash: newHash, password_changed_at: new Date() },
+      const revokedAt = await prisma.$transaction(async (tx) => {
+        await tx.admins.update({
+          where: { uid: String(adminId) },
+          data: { password_hash: newHash, password_changed_at: new Date() },
+        });
+        return persistRevokeAllUserTokens(String(adminId), {
+          client: tx,
+          requireEvidence: true,
+          reason: 'password_changed',
+        });
       });
-
-      await revokeAllUserTokens(String(adminId), {
-        requireEvidence: true,
-        reason: 'password_changed',
-      });
+      await publishRevokeAllUserTokens(String(adminId), revokedAt, { reason: 'password_changed' });
 
       return { message: 'Password changed successfully' };
     } catch (error) {
@@ -588,7 +598,7 @@ export class AuthService {
       // ── Phase 1 (transaction): rotate the password and burn the OTP
       // atomically, scoped so the OTP can only be consumed once even under
       // concurrent requests (used=false guard in the conditional update).
-      const result = await prisma.$transaction(async (tx) => {
+      const { result, revokedAt } = await prisma.$transaction(async (tx) => {
         const burned = await tx.password_reset_otps.updateMany({
           where: { id: otpRecord.id, used: false },
           data: { used: true },
@@ -601,12 +611,17 @@ export class AuthService {
           data: { password_hash: newHash, password_changed_at: new Date() },
         });
 
-        return { message: 'Password reset successfully' };
+        const durableRevokedAt = await persistRevokeAllUserTokens(String(admin.uid), {
+          client: tx,
+          requireEvidence: true,
+          reason: 'password_reset',
+        });
+        return {
+          result: { message: 'Password reset successfully' },
+          revokedAt: durableRevokedAt,
+        };
       });
-      await revokeAllUserTokens(String(admin.uid), {
-        requireEvidence: true,
-        reason: 'password_reset',
-      });
+      await publishRevokeAllUserTokens(String(admin.uid), revokedAt, { reason: 'password_reset' });
       return result;
     } catch (error) {
       logger.error('Admin reset password error:', error);

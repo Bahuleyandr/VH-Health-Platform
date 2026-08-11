@@ -13,7 +13,10 @@ import {
   issueAccessTokenAndClaimSession,
   resolveTenantIdForUid,
 } from '../../services/auth/loginSessionHelper.js';
-import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   generateTotpSetup,
@@ -444,20 +447,23 @@ export const mfaDisable = async (req, res) => {
     const totpOk = await verifyTotp(String(code), admin.totp_secret_encrypted);
     if (!totpOk) return error(res, 'Invalid authenticator code', HTTP_STATUS.UNAUTHORIZED);
 
-    await prisma.admins.update({
-      where: { uid: String(adminId) },
-      data: {
-        totp_enabled: false,
-        totp_secret_encrypted: null,
-        totp_backup_codes: null,
-        totp_enrolled_at: null,
-      },
+    const revokedAt = await prisma.$transaction(async (tx) => {
+      await tx.admins.update({
+        where: { uid: String(adminId) },
+        data: {
+          totp_enabled: false,
+          totp_secret_encrypted: null,
+          totp_backup_codes: null,
+          totp_enrolled_at: null,
+        },
+      });
+      return persistRevokeAllUserTokens(String(adminId), {
+        client: tx,
+        requireEvidence: true,
+        reason: 'mfa_disabled',
+      });
     });
-
-    await revokeAllUserTokens(String(adminId), {
-      requireEvidence: true,
-      reason: 'mfa_disabled',
-    });
+    await publishRevokeAllUserTokens(String(adminId), revokedAt, { reason: 'mfa_disabled' });
 
     logger.info('Admin MFA disabled', { adminId });
     return success(res, { enabled: false }, 'MFA disabled');

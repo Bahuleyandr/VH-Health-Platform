@@ -11,7 +11,14 @@ import { AppError } from '../../utils/AppError.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { blacklistToken, getCurrentTokenEpoch, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  blacklistToken,
+  getCurrentTokenEpoch,
+  isTokenBlacklisted,
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+  revokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 import { getUserSessionDeviceType } from './userActiveSession.js';
 
@@ -399,16 +406,19 @@ export class StaffAuthService {
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    await query(`
-      UPDATE users
-      SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
-      WHERE uid = $1::uuid
-    `, [staffUid, newHash]);
-
-    await revokeAllUserTokens(String(staffUid), {
-      requireEvidence: true,
-      reason: 'password_changed',
+    const revokedAt = await prisma.$transaction(async (tx) => {
+      await query(`
+        UPDATE users
+        SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
+        WHERE uid = $1::uuid
+      `, [staffUid, newHash], tx);
+      return persistRevokeAllUserTokens(String(staffUid), {
+        client: tx,
+        requireEvidence: true,
+        reason: 'password_changed',
+      });
     });
+    await publishRevokeAllUserTokens(String(staffUid), revokedAt, { reason: 'password_changed' });
 
     await this.logActivity(staffUid, 'STAFF_PASSWORD_CHANGED', 'Staff changed own password', req, {
       deviceType: req?.user?.deviceType || null,
@@ -618,17 +628,27 @@ export class StaffAuthService {
     try {
       // ✅ FIX: Uses the new helper method to reduce duplication.
       const internalDeviceId = await this._verifyDeviceOwnership(staffUid, deviceToken);
-      const previous = await query(
-        'SELECT pin_hash FROM staff_devices WHERE id = $1',
-        [internalDeviceId],
-      );
       const pinHash = await bcrypt.hash(pin, 10);
-      await query('UPDATE staff_devices SET pin_hash = $1 WHERE id = $2', [pinHash, internalDeviceId]);
-      if (previous.rows[0]?.pin_hash) {
-        await revokeAllUserTokens(staffUid, {
+      const revokedAt = await prisma.$transaction(async (tx) => {
+        const previous = await query(
+          'SELECT pin_hash FROM staff_devices WHERE id = $1 FOR UPDATE',
+          [internalDeviceId],
+          tx,
+        );
+        await query(
+          'UPDATE staff_devices SET pin_hash = $1 WHERE id = $2',
+          [pinHash, internalDeviceId],
+          tx,
+        );
+        if (!previous.rows[0]?.pin_hash) return null;
+        return persistRevokeAllUserTokens(staffUid, {
+          client: tx,
           requireEvidence: true,
           reason: 'pin_changed',
         });
+      });
+      if (revokedAt !== null) {
+        await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'pin_changed' });
       }
       return { success: true, message: 'PIN setup successfully' };
     } catch (error) {
@@ -1051,19 +1071,27 @@ export class StaffAuthService {
 
   static async adminResetPin(staffId, adminUid, req) {
     try {
-      const identity = await query(
-        'SELECT uid FROM users WHERE id = $1 LIMIT 1',
-        [staffId],
-      );
-      if (identity.rows.length === 0) throw new Error('Staff not found');
-      const result = await query(
-        'UPDATE staff_devices SET pin_hash = NULL WHERE staff_id = $1 AND is_active = true RETURNING id',
-        [staffId]
-      );
-      await revokeAllUserTokens(String(identity.rows[0].uid), {
-        requireEvidence: true,
-        reason: 'pin_reset',
+      const { result, staffUid, revokedAt } = await prisma.$transaction(async (tx) => {
+        const identity = await query(
+          'SELECT uid FROM users WHERE id = $1 LIMIT 1 FOR UPDATE',
+          [staffId],
+          tx,
+        );
+        if (identity.rows.length === 0) throw new Error('Staff not found');
+        const resetResult = await query(
+          'UPDATE staff_devices SET pin_hash = NULL WHERE staff_id = $1 AND is_active = true RETURNING id',
+          [staffId],
+          tx,
+        );
+        const uid = String(identity.rows[0].uid);
+        const durableRevokedAt = await persistRevokeAllUserTokens(uid, {
+          client: tx,
+          requireEvidence: true,
+          reason: 'pin_reset',
+        });
+        return { result: resetResult, staffUid: uid, revokedAt: durableRevokedAt };
       });
+      await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'pin_reset' });
       // ✅ FIX: Uses the logActivity helper for consistency.
       await this.logActivity(adminUid, 'ADMIN_RESET_PIN', `Reset PIN for staff ${staffId}`, req, { affectedStaffId: staffId, devicesAffected: result.rowCount });
       return { success: true, message: 'PIN reset successfully', devicesAffected: result.rowCount };

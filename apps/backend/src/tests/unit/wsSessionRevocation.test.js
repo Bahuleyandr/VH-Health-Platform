@@ -22,6 +22,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   verifyToken: (token) => ({
     sub: 'user-1',
+    id: 42,
     role: 'PATIENT',
     tenant_id: 'tenant-1',
     iat: 1000,

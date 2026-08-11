@@ -122,10 +122,14 @@ jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
 const mockBlacklistToken = jest.fn().mockResolvedValue(undefined);
 const mockIsTokenBlacklisted = jest.fn().mockResolvedValue(false);
 const mockRevokeAllUserTokens = jest.fn().mockResolvedValue(undefined);
+const mockPersistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
+const mockPublishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   blacklistToken: mockBlacklistToken,
   isTokenBlacklisted: mockIsTokenBlacklisted,
+  persistRevokeAllUserTokens: mockPersistRevokeAllUserTokens,
+  publishRevokeAllUserTokens: mockPublishRevokeAllUserTokens,
   revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 
@@ -554,10 +558,14 @@ describe('AuthService.adminResetPassword', () => {
     expect(mockPrisma.password_reset_otps.updateMany).toHaveBeenCalledWith({
       where: { id: 77, used: false }, data: { used: true },
     });
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('a1', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('a1', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'password_reset',
     });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'a1', 1_700_000_000, { reason: 'password_reset' },
+    );
   });
 
   it('does not report reset success when durable session revocation fails', async () => {
@@ -568,12 +576,34 @@ describe('AuthService.adminResetPassword', () => {
       attempts: 0,
     });
     mockBcryptCompare.mockResolvedValue(true);
-    mockPrisma.password_reset_otps.updateMany.mockResolvedValue({ count: 1 });
-    mockPrisma.admins.update.mockResolvedValue({});
-    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+    let otpBurnCommitted = false;
+    let passwordCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      let stagedOtpBurn = false;
+      let stagedPassword = false;
+      const tx = {
+        ...mockPrisma,
+        password_reset_otps: {
+          ...mockPrisma.password_reset_otps,
+          updateMany: jest.fn(async () => { stagedOtpBurn = true; return { count: 1 }; }),
+        },
+        admins: {
+          ...mockPrisma.admins,
+          update: jest.fn(async () => { stagedPassword = true; return {}; }),
+        },
+      };
+      const result = await callback(tx);
+      otpBurnCommitted = stagedOtpBurn;
+      passwordCommitted = stagedPassword;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
 
     await expect(AuthService.adminResetPassword('root', '246813', 'NewPass1!'))
       .rejects.toThrow('durable store unavailable');
+    expect(otpBurnCommitted).toBe(false);
+    expect(passwordCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('accepts a legacy plaintext OTP row (=== fallback)', async () => {
@@ -636,6 +666,16 @@ describe('AuthService.changeAdminPassword', () => {
     mockPrisma.admins.findUnique.mockResolvedValue({ password_hash: '$2b$10$old' });
     mockBcryptCompare.mockResolvedValue(true);
     mockPrisma.admins.update.mockResolvedValue({});
+    let transactionCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      const result = await callback(mockPrisma);
+      transactionCommitted = true;
+      return result;
+    });
+    mockPublishRevokeAllUserTokens.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(true);
+      return { database: { persisted: true } };
+    });
 
     const res = await AuthService.changeAdminPassword('admin-1', 'old', 'new');
 
@@ -644,20 +684,39 @@ describe('AuthService.changeAdminPassword', () => {
     expect(mockPrisma.admins.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ password_hash: 'hashed-value' }) }),
     );
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('admin-1', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('admin-1', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'password_changed',
     });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'admin-1', 1_700_000_000, { reason: 'password_changed' },
+    );
   });
 
   it('does not report password-change success when durable revocation fails', async () => {
     mockPrisma.admins.findUnique.mockResolvedValue({ password_hash: '$2b$10$old' });
     mockBcryptCompare.mockResolvedValue(true);
-    mockPrisma.admins.update.mockResolvedValue({});
-    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+    let passwordCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      let stagedPassword = false;
+      const tx = {
+        ...mockPrisma,
+        admins: {
+          ...mockPrisma.admins,
+          update: jest.fn(async () => { stagedPassword = true; return {}; }),
+        },
+      };
+      const result = await callback(tx);
+      passwordCommitted = stagedPassword;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
 
     await expect(AuthService.changeAdminPassword('admin-1', 'old', 'new'))
       .rejects.toThrow('durable store unavailable');
+    expect(passwordCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('throws when the admin is not found', async () => {

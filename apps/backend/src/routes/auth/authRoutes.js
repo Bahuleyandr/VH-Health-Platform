@@ -65,7 +65,7 @@ wrapRoutesWithValidation(
       ['/refresh-token', authRateLimiter, authController.refreshToken],
 
       // Logout (works for all auth methods)
-      ['/logout', authRateLimiter, jwtAuth, authController.logout],
+      ['/logout', jwtAuth, authRateLimiter, authController.logout],
       
       // Legacy routes (backward compatibility - deprecated)
       [

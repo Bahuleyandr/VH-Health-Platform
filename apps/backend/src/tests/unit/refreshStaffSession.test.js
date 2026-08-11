@@ -44,6 +44,8 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   // staffAuthService.logoutStaff revokes the presented access token's jti, and
   // the all-device branch additionally revokes every token for the identity.
   blacklistToken: mockBlacklistToken,
+  persistRevokeAllUserTokens: jest.fn(),
+  publishRevokeAllUserTokens: jest.fn(),
   revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 

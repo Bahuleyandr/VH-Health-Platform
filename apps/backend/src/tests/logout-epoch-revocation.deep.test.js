@@ -28,6 +28,7 @@
 
 import http from 'http';
 import { randomUUID } from 'node:crypto';
+import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
 import WebSocket from 'ws';
@@ -47,6 +48,8 @@ import {
   initWebSocket,
   closeWebSocket,
 } from '../utils/websocket/wsServer.js';
+
+jest.setTimeout(30000);
 
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 
@@ -72,10 +75,9 @@ async function cleanupPatient(uid) {
 }
 
 /**
- * Sign a realistic bearer for the user (jti + exp + tenant claim), shaped like
- * the /realtime/ticket payload: NO int `id` claim, so the WS server registers
- * the socket under the uid (generateToken maps uid → sub; wsServer resolves
- * decoded.uid || decoded.id || decoded.sub).
+ * Sign a realistic production bearer for the user (jti + exp + tenant claim).
+ * Patient/staff access tokens carry both the integer database `id` and the UUID
+ * subject; WebSocket identity handling must consistently use the UUID subject.
  *
  * Stamped with the identity's CURRENT token_epoch, exactly like production
  * mints (issueAccessTokenAndClaimSession). This matters mid-suite: once an
@@ -88,6 +90,7 @@ async function accessTokenFor(user, jti = null) {
   return generateToken(
     {
       uid: user.uid,
+      id: user.id,
       phone: user.phone,
       role: 'PATIENT',
       tenant_id: DEFAULT_TENANT,
@@ -264,6 +267,33 @@ describe('R14 — logout and revoke-all close the revoked session WebSockets', (
     });
   }
 
+  function expectRejectedConnection(token, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+      const timer = setTimeout(
+        () => reject(new Error('timeout: revoked socket was not rejected')),
+        timeoutMs,
+      );
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.event === 'connected') {
+            clearTimeout(timer);
+            reject(new Error('revoked token reconnected successfully'));
+          }
+        } catch { /* ignore non-JSON frames */ }
+      });
+      ws.on('close', (code, reason) => {
+        clearTimeout(timer);
+        resolve({ code, reason: reason?.toString() });
+      });
+      ws.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
   it('logout pushes session:revoked and the server closes the socket (4001)', async () => {
     const token = await accessTokenFor(user);
     const { ws, frames } = await connect(token);
@@ -294,6 +324,7 @@ describe('R14 — logout and revoke-all close the revoked session WebSockets', (
     const closed = await closePromise;
     expect(closed.code).toBe(4001);
     expect(frames.some((f) => f.event === 'session:revoked')).toBe(true);
+    await expect(expectRejectedConnection(token)).resolves.toMatchObject({ code: 4001 });
   });
 
   it('a device-scoped logout closes only the socket authenticated by that jti', async () => {
@@ -350,7 +381,7 @@ describe('R12 — logout fails closed (non-2xx) when the durable DB write fails'
     expect(res.body?.success).toBe(false);
   });
 
-  it('throttles repeated unauthenticated logout attempts', async () => {
+  it('does not let unauthenticated shared-IP traffic exhaust an authenticated logout', async () => {
     const statuses = [];
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const res = await request(app)
@@ -360,10 +391,16 @@ describe('R12 — logout fails closed (non-2xx) when the durable DB write fails'
       statuses.push(res.statusCode);
     }
 
-    expect(statuses[0]).toBe(401);
-    expect(statuses).toContain(429);
-    expect(statuses.at(-1)).toBe(429);
-    expect(statuses.filter((status) => status === 401)).toHaveLength(5);
+    expect(statuses).toEqual(Array(8).fill(401));
+
+    const token = await accessTokenFor(user);
+    const authenticated = await request(app)
+      .post('/api/v1/auth/logout')
+      .set('X-Forwarded-For', '198.51.100.176')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(authenticated.statusCode).toBe(200);
   });
 
   it('returns 500 (not fake success) when Postgres rejects the revocation write', async () => {
