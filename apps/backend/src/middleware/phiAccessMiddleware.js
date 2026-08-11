@@ -121,7 +121,7 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
         policyCode: options.policyCode || policyCodeForRecordType(recordType),
         recordType,
         ...(typeof options.patientSelector === 'function' ? { patient } : {}),
-        requireResolvedPatient: options.requireResolvedPatient === true,
+        requireResolvedPatient: options.requireResolvedPatient === true || options.requirePatientContext === true,
         shadowMode: shadow,
       });
       if (decision?.no_patient_context) {
@@ -133,6 +133,9 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
             message: 'Patient context is required for this PHI operation',
             code: 'PATIENT_CONTEXT_REQUIRED',
           });
+        }
+        if (!decision.allowed) {
+          return res.status(403).json(patientAccessErrorPayload(decision));
         }
         return next();
       }
@@ -186,6 +189,7 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
     idSelector = null,
     allowNoPatientResource = false,
     careTeamModeGoverned = false,
+    requirePatientContext = false,
   } = options;
 
   return async function patientAccessGuardForResourceMiddleware(req, res, next) {
@@ -206,7 +210,11 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
         : req.params?.[idParam] ?? req.query?.[idParam] ?? req.body?.[idParam] ?? null;
 
       if (!resourceId) {
-        return patientAccessGuard(recordType, { policyCode, careTeamModeGoverned })(req, res, next);
+        return patientAccessGuard(recordType, {
+          policyCode,
+          careTeamModeGoverned,
+          requirePatientContext,
+        })(req, res, next);
       }
 
       const patient = await resolvePatientForResourceAccess(req, {

@@ -30,8 +30,10 @@ function canSeeRawUserContact(context = {}) {
 
 function formatUserSearchResult(row, context) {
   const canSeeRaw = canSeeRawUserContact(context);
+  const { highlight, ...result } = row;
   return {
-    ...row,
+    ...result,
+    ...(canSeeRaw && highlight != null ? { highlight } : {}),
     phone: canSeeRaw ? row.phone : maskPhone(row.phone),
     email: canSeeRaw ? row.email : (row.email ? maskEmail(row.email) : null),
     type: 'user',

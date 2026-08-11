@@ -621,6 +621,23 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'pathology_report':
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM ap_reports ar
+           JOIN ap_cases ac
+             ON ac.id = ar.ap_case_id
+            AND ac.tenant_id = ar.tenant_id
+           JOIN users p
+             ON p.uid = ac.patient_uid
+            AND p.tenant_id = ar.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE ar.tenant_id = $1::uuid
+            AND ar.id = $2::bigint
+          LIMIT 1`,
+        resourceId,
+      );
     case 'oncology_diagnosis':
       return patientFromBigintResourceQuery(
         req,
@@ -1722,6 +1739,8 @@ function _writePatientAccessAuditToFile(req, decision, extra = {}) {
       request_id: req?.id ? String(req.id) : null,
       policy_code: decision?.policy_code ?? null,
       record_type: decision?.recordType ?? null,
+      shadow_mode: decision?.shadow_mode === true,
+      enforced: decision?.enforced !== false,
       timestamp: new Date().toISOString(),
       ...extra,
     });
@@ -1841,7 +1860,9 @@ export async function authorizePatientAccessRequest(req, {
       recordType,
       shadow_mode: shadowMode,
       enforced: shadowMode !== true,
+      no_patient_context: true,
     };
+    req.patientAccessDecision = unresolvedDecision;
     // A denied access attempt must leave an audit trail even when no patient
     // could be resolved (audit §3). patient_access_audit_log.patient_uid is NOT
     // NULL, so writePatientAccessAudit records this in the durable file sink
@@ -1849,7 +1870,9 @@ export async function authorizePatientAccessRequest(req, {
     if (audit && policy.audit_required !== false) {
       await writePatientAccessAudit(req, unresolvedDecision);
     }
-    return unresolvedDecision;
+    return shadowMode
+      ? { ...unresolvedDecision, allowed: true, shadow_denied: true }
+      : unresolvedDecision;
   }
 
   const role = actorRoleOf(req);

@@ -221,6 +221,32 @@ describe('accessDecisionService', () => {
     expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 
+  it('allows but marks an unresolved patient denial in shadow mode', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+    const req = reqFor('DOCTOR');
+
+    const decision = await authorizePatientAccessRequest(req, {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
+      recordType: 'MEDICAL_RECORD',
+      patient: { id: 15 },
+      requireResolvedPatient: true,
+      shadowMode: true,
+    });
+
+    expect(decision).toEqual(expect.objectContaining({
+      allowed: true,
+      shadow_denied: true,
+      shadow_mode: true,
+      no_patient_context: true,
+    }));
+    expect(req.patientAccessDecision).toEqual(expect.objectContaining({
+      allowed: false,
+      shadow_mode: true,
+      no_patient_context: true,
+    }));
+    expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
+  });
+
   it('allows a referred consultant to view patient records through an active referral relationship', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce(patientLookup())
@@ -1176,6 +1202,7 @@ describe('accessDecisionService', () => {
       ['chemo_cycle', 'chemo_cycles', 73],
       ['chair_booking', 'chair_bookings', 73],
       ['chemo_administration', 'chemo_administrations', 73],
+      ['pathology_report', 'ap_reports', '73'],
       ['oncology_diagnosis', 'oncology_diagnoses', '73'],
       ['oncology_staging_record', 'oncology_staging_records', '73'],
       ['oncology_toxicity_event', 'oncology_toxicity_events', '73'],

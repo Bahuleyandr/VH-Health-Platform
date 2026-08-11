@@ -69,10 +69,12 @@ const guardOncologyPatientWrite = patientAccessGuard('ONCOLOGY', {
 const oncologyResourceGuard = (resourceType, {
   policyCode = ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
   idSelector,
+  requirePatientContext = false,
 } = {}) => patientAccessGuardForResource('ONCOLOGY', {
   policyCode,
   resourceType,
   ...(idSelector ? { idSelector } : {}),
+  requirePatientContext,
   careTeamModeGoverned: true,
 });
 
@@ -88,6 +90,11 @@ const guardAdministrationWrite = oncologyResourceGuard('chemo_administration');
 const guardDiagnosisWrite = oncologyResourceGuard('oncology_diagnosis');
 const guardDiagnosisBodyWrite = oncologyResourceGuard('oncology_diagnosis', {
   idSelector: (req) => req.body?.diagnosis_id,
+  requirePatientContext: true,
+});
+const guardPathologyReportBodyWrite = oncologyResourceGuard('pathology_report', {
+  idSelector: (req) => req.body?.pathology_report_id,
+  requirePatientContext: true,
 });
 const guardStagingWrite = oncologyResourceGuard('oncology_staging_record');
 const guardToxicityWrite = oncologyResourceGuard('oncology_toxicity_event');
@@ -381,7 +388,7 @@ router.get('/diagnoses', guardOncologyPatientView, async (req, res) => {
   }
 });
 
-router.post('/diagnoses', guardOncologyPatientWrite, async (req, res) => {
+router.post('/diagnoses', guardPathologyReportBodyWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create oncology diagnoses', HTTP_STATUS.FORBIDDEN);
     const diagnosis = await createOncologyDiagnosis({
@@ -453,7 +460,7 @@ router.get('/toxicity-events', guardOncologyPatientView, async (req, res) => {
   }
 });
 
-router.post('/toxicity-events', guardOncologyPatientWrite, async (req, res) => {
+router.post('/toxicity-events', guardDiagnosisBodyWrite, async (req, res) => {
   try {
     const toxicity_event = await createToxicityEvent({
       tenantId: tenantOf(req),

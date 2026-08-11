@@ -15,11 +15,11 @@ describe('oncology patient guard wiring', () => {
     ["router.post('/administrations/:id/administer', guardAdministrationWrite"],
     ["router.post('/administrations/:id/withhold', guardAdministrationWrite"],
     ["router.get('/diagnoses', guardOncologyPatientView"],
-    ["router.post('/diagnoses', guardOncologyPatientWrite"],
+    ["router.post('/diagnoses', guardPathologyReportBodyWrite"],
     ["router.post('/diagnoses/:id/staging', guardDiagnosisWrite"],
     ["router.post('/staging/:id/sign', guardStagingWrite"],
     ["router.get('/toxicity-events', guardOncologyPatientView"],
-    ["router.post('/toxicity-events', guardOncologyPatientWrite"],
+    ["router.post('/toxicity-events', guardDiagnosisBodyWrite"],
     ["router.post('/toxicity-events/:id/sign', guardToxicityWrite"],
     ["router.post('/tumor-board/cases', guardDiagnosisBodyWrite"],
     ["router.patch('/tumor-board/cases/:id/state', guardTumorBoardCaseWrite"],
@@ -35,6 +35,15 @@ describe('oncology patient guard wiring', () => {
     );
     expect(source).toMatch(
       /const guardOncologyPatientWrite = patientAccessGuard\([\s\S]*?requirePatientContext: true,[\s\S]*?careTeamModeGoverned: true/,
+    );
+  });
+
+  test('derived-patient create guards fail closed when neither direct nor resource context is present', () => {
+    expect(source).toMatch(
+      /const guardPathologyReportBodyWrite = oncologyResourceGuard\('pathology_report',[\s\S]*?requirePatientContext: true/,
+    );
+    expect(source).toMatch(
+      /const guardDiagnosisBodyWrite = oncologyResourceGuard\('oncology_diagnosis',[\s\S]*?requirePatientContext: true/,
     );
   });
 });
