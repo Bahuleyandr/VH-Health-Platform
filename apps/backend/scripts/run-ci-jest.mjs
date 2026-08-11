@@ -16,6 +16,7 @@ const endChunk = process.env.JEST_CI_END_CHUNK
   ? Number(process.env.JEST_CI_END_CHUNK)
   : null;
 const mandatoryIsolatedTestPatterns = [
+  'fhir-server.deep.test.js',
   'pathway-event-delivery.deep.test.js',
   'pathway-projector-replay.deep.test.js',
 ];

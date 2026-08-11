@@ -12,6 +12,21 @@ let patientUid;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
+    `DELETE FROM fhir_vital_observation_set_resources ownership
+      USING fhir_vital_observation_sets vital_set
+      WHERE ownership.tenant_id = vital_set.tenant_id
+        AND ownership.set_fingerprint = vital_set.set_fingerprint
+        AND vital_set.patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM fhir_vital_observation_sets
+      WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM fhir_vital_observation_receipts
+      WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_code_bindings WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -63,6 +78,12 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
       .send({
         resourceType: 'Observation',
         status: 'final',
+        category: [{
+          coding: [{
+            system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+            code: 'vital-signs',
+          }],
+        }],
         code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }], text: 'BP panel' },
         subject: { reference: `Patient/${patientUid}` },
         effectiveDateTime: new Date().toISOString(),
