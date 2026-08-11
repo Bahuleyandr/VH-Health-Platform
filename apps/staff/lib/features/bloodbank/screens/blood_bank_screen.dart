@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -61,6 +63,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   final _unitsController = TextEditingController();
   final _indicationController = TextEditingController();
   bool _submittingRequest = false;
+  String? _requestIntentFingerprint;
+  String? _requestIdempotencyKey;
 
   static const List<String> _bloodTypes = [
     'A+',
@@ -152,15 +156,17 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     final s = AppStrings.of(context);
     setState(() => _submittingRequest = true);
     try {
+      final payload = BloodRequestPayload(
+        patientUid: _requestPatient!.uid,
+        bloodGroup: _requestBloodType!,
+        units: int.parse(_unitsController.text.trim()),
+        component: _requestComponent!,
+        clinicalIndication: _indicationController.text.trim(),
+        urgency: _requestUrgency,
+      );
       final response = await widget.gateway.createRequest(
-        BloodRequestPayload(
-          patientUid: _requestPatient!.uid,
-          bloodGroup: _requestBloodType!,
-          units: int.parse(_unitsController.text.trim()),
-          component: _requestComponent!,
-          clinicalIndication: _indicationController.text.trim(),
-          urgency: _requestUrgency,
-        ),
+        payload,
+        idempotencyKey: _idempotencyKeyFor(payload),
       );
       if (mounted) {
         if (response.isSuccess) {
@@ -178,6 +184,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             _requestBloodType = null;
             _requestComponent = null;
             _requestUrgency = BloodUrgency.routine;
+            _requestIntentFingerprint = null;
+            _requestIdempotencyKey = null;
           });
           unawaited(_fetchInventory());
         } else {
@@ -201,6 +209,16 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     } finally {
       if (mounted) setState(() => _submittingRequest = false);
     }
+  }
+
+  String _idempotencyKeyFor(BloodRequestPayload payload) {
+    final fingerprint = jsonEncode(payload.toJson());
+    if (_requestIntentFingerprint != fingerprint ||
+        _requestIdempotencyKey == null) {
+      _requestIntentFingerprint = fingerprint;
+      _requestIdempotencyKey = IdempotencyKey.generate();
+    }
+    return _requestIdempotencyKey!;
   }
 
   Future<BloodRequestPatient?> _pickPatient() async {

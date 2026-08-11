@@ -83,17 +83,106 @@ void main() {
       'clinical_indication': 'Elective surgery, Hb 7.1',
       'urgency': 'urgent',
     });
+    expect(transport.posts.single.idempotencyKey, isNotEmpty);
     expect(find.text('Blood request submitted successfully'), findsOneWidget);
   });
+
+  testWidgets(
+    'reuses the request key when an uncertain submission is retried',
+    (tester) async {
+      final transport = _FakeBloodBankTransport(
+        responses: const [
+          ApiResponse(
+            statusCode: 503,
+            isSuccess: false,
+            message: 'Delivery outcome unknown',
+          ),
+          ApiResponse(statusCode: 201, isSuccess: true, data: {}),
+        ],
+      );
+      final gateway = ApiBloodBankGateway(transport);
+      const patient = BloodRequestPatient(
+        uid: 'a9999999-9999-4999-8999-999999999a03',
+        name: 'Blood Test Patient',
+        hospitalNumber: 'VH-000018',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          supportedLocales: AppStrings.supportedLocales,
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: BloodBankScreen(
+            gateway: gateway,
+            patientPicker: (_) async => patient,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Requests'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('blood_request_patient_picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('blood_request_group')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('O+').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('blood_request_component')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Packed red blood cells').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('blood_request_units')), '2');
+      await tester.enterText(
+        find.byKey(const Key('blood_request_indication')),
+        'Elective surgery, Hb 7.1',
+      );
+
+      final submit = find.byKey(const Key('blood_request_submit'));
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+
+      expect(transport.posts, hasLength(2));
+      expect(transport.posts[0].idempotencyKey, isNotEmpty);
+      expect(
+        transport.posts[1].idempotencyKey,
+        transport.posts[0].idempotencyKey,
+      );
+    },
+  );
 }
 
 class _FakeBloodBankTransport implements BloodBankTransport {
-  final posts = <({String path, Map<String, dynamic>? body})>[];
+  _FakeBloodBankTransport({List<ApiResponse>? responses})
+    : _responses = List<ApiResponse>.of(
+        responses ??
+            const [ApiResponse(statusCode: 201, isSuccess: true, data: {})],
+      );
+
+  final List<ApiResponse> _responses;
+  final posts =
+      <({String path, Map<String, dynamic>? body, String? idempotencyKey})>[];
 
   @override
-  Future<ApiResponse> post(String path, {Map<String, dynamic>? body}) async {
-    posts.add((path: path, body: body));
-    return const ApiResponse(statusCode: 201, isSuccess: true, data: {});
+  Future<ApiResponse> post(
+    String path, {
+    Map<String, dynamic>? body,
+    String? idempotencyKey,
+  }) async {
+    posts.add((path: path, body: body, idempotencyKey: idempotencyKey));
+    if (_responses.length == 1) return _responses.single;
+    return _responses.removeAt(0);
   }
 
   @override

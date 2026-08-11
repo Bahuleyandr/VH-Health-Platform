@@ -4,7 +4,11 @@ import '../models/blood_request.dart';
 abstract interface class BloodBankTransport {
   Future<ApiResponse> get(String path, {Map<String, String>? queryParameters});
 
-  Future<ApiResponse> post(String path, {Map<String, dynamic>? body});
+  Future<ApiResponse> post(
+    String path, {
+    Map<String, dynamic>? body,
+    String? idempotencyKey,
+  });
 }
 
 class ApiClientBloodBankTransport implements BloodBankTransport {
@@ -17,8 +21,11 @@ class ApiClientBloodBankTransport implements BloodBankTransport {
   }) => ApiClient.get(path, queryParameters: queryParameters);
 
   @override
-  Future<ApiResponse> post(String path, {Map<String, dynamic>? body}) =>
-      ApiClient.post(path, body: body);
+  Future<ApiResponse> post(
+    String path, {
+    Map<String, dynamic>? body,
+    String? idempotencyKey,
+  }) => ApiClient.post(path, body: body, idempotencyKey: idempotencyKey);
 }
 
 abstract interface class BloodBankGateway {
@@ -26,7 +33,10 @@ abstract interface class BloodBankGateway {
 
   Future<ApiResponse> getIssuedUnits();
 
-  Future<ApiResponse> createRequest(BloodRequestPayload payload);
+  Future<ApiResponse> createRequest(
+    BloodRequestPayload payload, {
+    required String idempotencyKey,
+  });
 }
 
 class ApiBloodBankGateway implements BloodBankGateway {
@@ -46,6 +56,22 @@ class ApiBloodBankGateway implements BloodBankGateway {
   );
 
   @override
-  Future<ApiResponse> createRequest(BloodRequestPayload payload) =>
-      _transport.post('/blood-bank/request', body: payload.toJson());
+  Future<ApiResponse> createRequest(
+    BloodRequestPayload payload, {
+    required String idempotencyKey,
+  }) {
+    final key = idempotencyKey.trim();
+    if (key.isEmpty || key.length > 200) {
+      throw ArgumentError.value(
+        idempotencyKey,
+        'idempotencyKey',
+        'must contain between 1 and 200 characters',
+      );
+    }
+    return _transport.post(
+      '/blood-bank/request',
+      body: payload.toJson(),
+      idempotencyKey: key,
+    );
+  }
 }

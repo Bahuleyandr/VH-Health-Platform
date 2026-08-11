@@ -16,11 +16,18 @@ void main() {
       urgency: BloodUrgency.emergency,
     );
 
-    final response = await gateway.createRequest(payload);
+    final response = await gateway.createRequest(
+      payload,
+      idempotencyKey: 'blood-request-intent-1',
+    );
 
     expect(response.statusCode, 201);
     expect(transport.posts, [
-      _CapturedRequest('/blood-bank/request', payload.toJson()),
+      _CapturedRequest(
+        '/blood-bank/request',
+        payload.toJson(),
+        'blood-request-intent-1',
+      ),
     ]);
   });
 }
@@ -35,8 +42,12 @@ class _FakeTransport implements BloodBankTransport {
   }) async => const ApiResponse(statusCode: 200, isSuccess: true, data: []);
 
   @override
-  Future<ApiResponse> post(String path, {Map<String, dynamic>? body}) async {
-    posts.add(_CapturedRequest(path, body));
+  Future<ApiResponse> post(
+    String path, {
+    Map<String, dynamic>? body,
+    String? idempotencyKey,
+  }) async {
+    posts.add(_CapturedRequest(path, body, idempotencyKey));
     return const ApiResponse(statusCode: 201, isSuccess: true, data: {});
   }
 }
@@ -44,17 +55,19 @@ class _FakeTransport implements BloodBankTransport {
 class _CapturedRequest {
   final String path;
   final Map<String, dynamic>? body;
+  final String? idempotencyKey;
 
-  const _CapturedRequest(this.path, this.body);
+  const _CapturedRequest(this.path, this.body, this.idempotencyKey);
 
   @override
   bool operator ==(Object other) =>
       other is _CapturedRequest &&
       other.path == path &&
-      _mapsEqual(other.body, body);
+      _mapsEqual(other.body, body) &&
+      other.idempotencyKey == idempotencyKey;
 
   @override
-  int get hashCode => Object.hash(path, body.toString());
+  int get hashCode => Object.hash(path, body.toString(), idempotencyKey);
 }
 
 bool _mapsEqual(Map<String, dynamic>? left, Map<String, dynamic>? right) {
