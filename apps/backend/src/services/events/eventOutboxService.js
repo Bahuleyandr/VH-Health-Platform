@@ -308,8 +308,7 @@ export async function claimPendingEvents({
     MAX_LEASE_SECONDS,
     'lease seconds',
   );
-  try {
-    return await setTenantTx(null, (tx) => tx.$queryRawUnsafe(
+  return setTenantTx(null, (tx) => tx.$queryRawUnsafe(
       `WITH due AS (
          SELECT tenant_id, id
            FROM event_outbox
@@ -339,10 +338,6 @@ export async function claimPendingEvents({
       owner,
       seconds,
     ), { superAdmin: true });
-  } catch (error) {
-    logger.warn('Failed to claim event_outbox batch', { error: error.message });
-    return [];
-  }
 }
 
 export async function completeClaimedEventFanout({ claim } = {}) {

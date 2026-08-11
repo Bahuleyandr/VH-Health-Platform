@@ -453,15 +453,16 @@ export async function runFhirVitalEffectsRecoveryJob({ limitPerTenant = 25 } = {
  * tenants.settings.notificationChannels override, it fans out through the
  * shared notification dispatcher (including WhatsApp/voice dry-run logging).
  *
- * A row with no deliverable target (no phone, no resolvable token) is marked
- * FAILED with a reason and backs off — after 3 such attempts it drops out of
- * the eligible set (retry_count >= 3), which is the intended dead-letter state.
+ * A clean recipient-specific absence such as a missing FCM token is terminal.
+ * Provider/configuration rejections remain retryable and drop out after the
+ * bounded retry budget. Registry read faults remain uncertain rather than
+ * being misreported as a missing recipient token.
  *
  * Exported for tests (proves a pending row is marked SENT after a drain).
  *
  * @param {Object} [opts]
  * @param {number} [opts.limit=50] Max rows per drain tick.
- * @returns {{ claimed:number, sent:number, failed:number }}
+ * @returns {{ claimed:number, sent:number, failed:number, uncertain:number, deferred:number, expired:Object }}
  */
 export async function drainNotificationOutbox({ tenantId, limit = 50 } = {}) {
   if (!tenantId) throw new Error('notification outbox drain requires tenantId');
@@ -508,11 +509,37 @@ export async function drainNotificationOutbox({ tenantId, limit = 50 } = {}) {
         deferred += 1;
       }
     } catch (err) {
-      uncertain += 1;
-      logger.warn(
-        `outbox-drain: row ${row.id} remains leased for expiry reconciliation after delivery error:`,
-        err.message,
-      );
+      const claimFence = {
+        tenantId,
+        claimToken: row.claim_token,
+        claimGeneration: row.claim_generation,
+      };
+      if (err.notificationDeliveryPhase === 'pre_provider') {
+        try {
+          await notificationOutbox.releaseClaim(
+            row.id,
+            'delivery_pre_provider_failed',
+            claimFence,
+          );
+          deferred += 1;
+          logger.warn(
+            `outbox-drain: row ${row.id} claim released after pre-provider failure:`,
+            err.message,
+          );
+        } catch (releaseError) {
+          uncertain += 1;
+          logger.warn(
+            `outbox-drain: row ${row.id} pre-provider failure could not release its claim:`,
+            releaseError.message,
+          );
+        }
+      } else {
+        uncertain += 1;
+        logger.warn(
+          `outbox-drain: row ${row.id} remains leased for expiry reconciliation after delivery error:`,
+          err.message,
+        );
+      }
     }
   }
   logger.info(

@@ -282,6 +282,45 @@ the provider (FCM/SMS) is failing.
 2. `SELECT type, count(*) FROM notification_outbox WHERE status='PENDING' GROUP BY 1 ORDER BY 2 DESC;`.
 3. Provider down → backlog drains on recovery (intent is persisted, never lost).
 
+## NotificationOutboxDeadLetters
+
+One or more notification intents exhausted their retry budget or entered an
+operator-review state. Open **Admin → Notifications → Delivery Health**, select
+the failed status, and inspect the bounded reason and delivery metadata. Do not
+copy recipient identifiers into an incident channel or change outbox state with
+raw SQL. Repair the provider or configuration cause first, enter a specific
+operator reason, and use **Replay** only for the named row. A replay of an
+uncertain delivery creates a new intent and may duplicate a delivery; confirm
+that risk before submitting it.
+
+## NotificationOutboxReconciliationRequired
+
+The backend cannot prove whether a provider accepted one or more notification
+attempts. Treat the outcome as unknown, not failed. In **Admin → Notifications →
+Delivery Health**, correlate the row with provider evidence without exposing the
+message body or payload. If acceptance can be proven, preserve the provider
+receipt; otherwise use the audited row replay only after explicitly accepting
+duplicate-delivery risk. The original uncertain row is never silently retried.
+
+## NotificationDeliveryCursorPaused
+
+A channel is deliberately blocked behind a rejected or uncertain head row so
+later messages cannot overtake it. Use the Delivery Health cursor view to find
+the blocked row, then resolve or replay that exact row. The reset action refuses
+an unresolved head; it is only for clearing a stale pause after the ledger shows
+a terminal rejection, acknowledged delivery, suppression, or audited superseding
+replay. Enter an incident-specific reason and never clear the cursor with SQL.
+
+## ReliabilityMetricsStale
+
+The last complete reliability-metric collection is absent or older than five
+minutes, so queue gauges must not be treated as current. Check backend logs for
+`collectReliabilityMetrics: <family> skipped` and the named metric family, then verify
+database connectivity and tenant-scoped reads. Healthy families continue to
+refresh independently, but the global freshness timestamp advances only when
+every configured family, including a configured read replica, succeeds. Restore
+the failed collector path before closing queue alerts based on apparent zeros.
+
 ## CarePathwayReconciliationTechnicalError
 
 The latest append-only receipt for at least one tenant/pathway contains a bounded

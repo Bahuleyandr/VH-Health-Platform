@@ -16,6 +16,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   prismaReadOnly: { $queryRawUnsafe: readOnlyQueryRawUnsafeMock },
   circuitBreakerStatus: () => ({ open: false }),
   isTenantTransactionClient: () => true,
+  setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: primaryQueryRawUnsafeMock }),
   setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: primaryQueryRawUnsafeMock }),
 }));
 
@@ -34,25 +35,43 @@ const {
 } = await import('../../observability/reliabilityMetrics.js');
 
 function mockPrimaryCollectorQueries() {
-  primaryQueryRawUnsafeMock
-    .mockResolvedValueOnce([{ pending: 1, dead_letter: 0, oldest_age: 2 }])
-    .mockResolvedValueOnce([{ pending: 3 }])
-    .mockResolvedValueOnce([{ pending: 4, failed: 5, dead: 6 }])
-    .mockResolvedValueOnce([{ pending: 7, oldest_age: 8, leased: 9, dead: 10 }])
-    .mockResolvedValueOnce([{ pending: 11 }])
-    .mockResolvedValueOnce([{
-      active_devices: 0,
-      silent_devices: 0,
-      unverified_rows: 0,
-      active_associations: 0,
-      unassociated_messages: 0,
-      open_excursions: 0,
-      suppressed: {},
-    }]);
+  primaryQueryRawUnsafeMock.mockImplementation(async (sql) => {
+    if (/FROM event_outbox/.test(sql)) return [{ pending: 1, dead_letter: 0, oldest_age: 2 }];
+    if (/FROM tenants\b/.test(sql)) return [{ id: '00000000-0000-4000-8000-000000000001' }];
+    if (/FROM notification_outbox/.test(sql)) {
+      return [{ pending: 3, failed: 0, reconciliation_required: 0, dead_letter: 0, paused_rejected: 0, paused_uncertain: 0 }];
+    }
+    if (/FROM webhook_deliveries/.test(sql)) {
+      return [{ pending: 4, failed: 5, dead: 6, in_flight: 0, stale_in_flight: 0, parked: 0 }];
+    }
+    if (/FROM pathway_projector_inbox\b/.test(sql) && /consumer_key = \$1/.test(sql)) {
+      return [{ pending: 7, oldest_age: 8, leased: 9, dead: 10 }];
+    }
+    if (/FROM event_consumer_offsets offsets/.test(sql)) return [{ pending: 11 }];
+    if (/WITH live_offsets AS/.test(sql)) {
+      return [{ observed_at: 1_800_000_000, offsets_observed: 0, scopes: [] }];
+    }
+    if (/WITH pathway_keys/.test(sql)) return [];
+    if (/WITH registry AS/.test(sql)) {
+      return [{
+        active_devices: 0,
+        silent_devices: 0,
+        unverified_rows: 0,
+        active_associations: 0,
+        unassociated_messages: 0,
+        open_excursions: 0,
+        suppressed: {},
+      }];
+    }
+    return [];
+  });
 }
 
 function expectPathwayProjectorQueryScope() {
-  const [sql, consumerKey, generation] = primaryQueryRawUnsafeMock.mock.calls[3];
+  const pathwayCall = primaryQueryRawUnsafeMock.mock.calls.find(([sql]) => (
+    /FROM pathway_projector_inbox\b/.test(sql) && /consumer_key = \$1/.test(sql)
+  ));
+  const [sql, consumerKey, generation] = pathwayCall;
   expect(sql).toContain('FROM pathway_projector_inbox');
   expect(sql).toContain('WHERE consumer_key = $1');
   expect(sql).toContain('AND generation = $2');
@@ -60,7 +79,10 @@ function expectPathwayProjectorQueryScope() {
   expect(consumerKey).toBe(PATHWAY_PROJECTOR_CONSUMER_KEY);
   expect(generation).toBe(PATHWAY_PROJECTOR_GENERATION);
 
-  const [retiredSql, retiredConsumerKey] = primaryQueryRawUnsafeMock.mock.calls[4];
+  const retiredCall = primaryQueryRawUnsafeMock.mock.calls.find(([sql]) => (
+    /FROM event_consumer_offsets offsets/.test(sql)
+  ));
+  const [retiredSql, retiredConsumerKey] = retiredCall;
   expect(retiredSql).toContain('FROM event_consumer_offsets offsets');
   expect(retiredSql).toContain('JOIN pathway_projector_inbox inbox');
   expect(retiredSql).toContain('offsets.intake_retired_at IS NOT NULL');

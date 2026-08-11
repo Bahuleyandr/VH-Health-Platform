@@ -116,6 +116,28 @@ describe('notification outbox drain claim/receipt finalization', () => {
     expect(releaseClaimMock).not.toHaveBeenCalled();
   });
 
+  test('releases a claim when delivery fails before any provider attempt starts', async () => {
+    const error = Object.assign(new Error('tenant settings unavailable'), {
+      code: 'NOTIFICATION_PRE_PROVIDER_FAILURE',
+      notificationDeliveryPhase: 'pre_provider',
+    });
+    deliverMock.mockRejectedValue(error);
+
+    const result = await drainNotificationOutbox({ tenantId: TENANT_ID, limit: 5 });
+
+    expect(result).toMatchObject({ claimed: 1, uncertain: 0, deferred: 1 });
+    expect(releaseClaimMock).toHaveBeenCalledWith(
+      41,
+      'delivery_pre_provider_failed',
+      {
+        tenantId: TENANT_ID,
+        claimToken: CLAIM_TOKEN,
+        claimGeneration: 2,
+      },
+    );
+    expect(markReconciliationRequiredMock).not.toHaveBeenCalled();
+  });
+
   test('dead-letters a terminal provider rejection without retrying it three times', async () => {
     deliverMock.mockResolvedValue({ outcome: 'rejected', terminal: true });
 

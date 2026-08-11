@@ -13,6 +13,7 @@ const {
   applyProviderReceiptToCursor,
   providerForChannel,
   recordProviderReceipt,
+  resetChannelCursor,
 } = await import('../../services/notification/notificationDeliveryLedgerService.js');
 
 const TENANT_ID = '8dfe8b20-0846-43a5-bc50-252393197221';
@@ -202,5 +203,73 @@ describe('notification delivery ledger state separation', () => {
     expect(providerForChannel('whatsapp')).toBe('twilio_whatsapp');
     expect(providerForChannel('voice')).toBe('twilio_voice');
     expect(providerForChannel('inapp')).toBe('local_database');
+  });
+
+  it('refuses to report a cursor reset while its head-of-line outbox row is unresolved', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'push',
+        last_contiguous_outbox_id: 40,
+        state: 'paused_uncertain',
+        blocked_outbox_id: 41,
+        inflight_outbox_id: null,
+      }])
+      .mockResolvedValueOnce([{
+        id: 41,
+        status: 'RECONCILIATION_REQUIRED',
+        failure_reason: 'provider_delivery_outcome_uncertain',
+        ledger_resolved: false,
+      }]);
+
+    await expect(resetChannelCursor({
+      tenantId: TENANT_ID,
+      channel: 'push',
+      reason: 'Provider outage was investigated',
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorRole: 'SUPER_ADMIN',
+    })).rejects.toMatchObject({ code: 'NOTIFICATION_DELIVERY_HEAD_UNRESOLVED' });
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toMatch(/notification_provider_receipts/);
+    expect(queryRawUnsafeMock.mock.calls.some(([sql]) => /UPDATE notification_delivery_cursors/.test(sql))).toBe(false);
+  });
+
+  it('resets a paused cursor only after its blocked head is factually resolved', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'push',
+        last_contiguous_outbox_id: 40,
+        state: 'paused_rejected',
+        blocked_outbox_id: 41,
+        inflight_outbox_id: null,
+      }])
+      .mockResolvedValueOnce([{
+        id: 41,
+        status: 'FAILED',
+        failure_reason: 'fcm_token_missing',
+        ledger_resolved: true,
+      }])
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'push',
+        last_contiguous_outbox_id: 40,
+        state: 'ready',
+        blocked_outbox_id: null,
+        inflight_outbox_id: null,
+      }])
+      .mockResolvedValueOnce([]);
+
+    await expect(resetChannelCursor({
+      tenantId: TENANT_ID,
+      channel: 'push',
+      reason: 'Terminal rejection was verified',
+      actorUid: '11111111-1111-4111-8111-111111111111',
+      actorRole: 'SUPER_ADMIN',
+    })).resolves.toMatchObject({ state: 'ready', blocked_outbox_id: null });
+
+    expect(queryRawUnsafeMock.mock.calls[2][0]).toMatch(/UPDATE notification_delivery_cursors/);
+    expect(queryRawUnsafeMock.mock.calls[3][0]).toMatch(/NOTIFICATION_CHANNEL_CURSOR_RESET/);
   });
 });

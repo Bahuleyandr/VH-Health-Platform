@@ -59,10 +59,6 @@ export async function resolveRecipientTokens(recipientId, explicitTenantId = nul
       idText,
     );
     for (const r of userRows) if (r.t) tokens.add(r.t);
-  } catch (err) {
-    logger.warn('outbox-drain: users token lookup failed:', err.message);
-  }
-  try {
     const udRows = await scopedQuery(
       `SELECT fcm_token AS t FROM user_devices
         WHERE tenant_id = $1::uuid
@@ -73,7 +69,10 @@ export async function resolveRecipientTokens(recipientId, explicitTenantId = nul
     );
     for (const r of udRows) if (r.t) tokens.add(r.t);
   } catch (err) {
-    logger.warn('outbox-drain: user_devices token lookup failed:', err.message);
+    logger.warn('outbox-drain: recipient FCM token lookup failed:', err.message);
+    const lookupError = new Error('Recipient FCM token lookup failed', { cause: err });
+    lookupError.code = 'recipient_token_lookup_failed';
+    throw lookupError;
   }
   return [...tokens];
 }
@@ -227,16 +226,30 @@ async function deliverLegacyWithProviderReceipt(row, channels, tenantId) {
       });
       results.push = classifyFcmProviderResponse(response);
     } catch (err) {
-      results.push = uncertain(err.code || 'fcm_transport_failure', err);
+      results.push = uncertain(
+        err.code === 'recipient_token_lookup_failed'
+          ? 'recipient_token_lookup_failed'
+          : err.code || 'fcm_transport_failure',
+        err,
+      );
     }
   }
   return results;
 }
 
 export async function deliverNotificationOutboxRow(row) {
-  const decision = await resolveChannelDecision(row);
-  if (!decision.tenantId) throw new Error('notification outbox row has no tenant provenance');
+  let decision;
+  try {
+    decision = await resolveChannelDecision(row);
+    if (!decision.tenantId) throw new Error('notification outbox row has no tenant provenance');
+  } catch (err) {
+    err.notificationDeliveryPhase = 'pre_provider';
+    throw err;
+  }
 
+  // A transaction/connection failure here can leave commit state unknown.
+  // Do not label it safe-to-release: lease expiry reconciles any attempt that
+  // may have committed before the client observed the failure.
   const attempts = await beginProviderAttempts({
     tenantId: decision.tenantId,
     outboxId: row.id,
