@@ -103,7 +103,7 @@ rules:
     message: >
       Math.random() is not cryptographically secure. For token generation,
       OTP codes, or any security-sensitive random value use crypto.randomBytes()
-      or crypto.randomUUID() (already used in tokenHelpers.js).
+      or crypto.randomUUID() (already used in jwtUtils.js).
     severity: WARNING
     languages: [javascript]
     pattern: Math.random()

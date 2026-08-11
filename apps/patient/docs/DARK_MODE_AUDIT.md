@@ -66,7 +66,6 @@ regressions that static analysis misses.
 | `features/investigations/widgets/result_gauge_widget.dart` | 7 | **Clinical — preserve semantic colours.** |
 | `features/investigations/screens/my_bookings_screen.dart` | 7 | Booking list. |
 | `features/gamification/widgets/achievement_share_card.dart` | 7 | Likely brand. |
-| `features/dashboard/widgets/smart_pharmacy_card.dart` | 7 | Dashboard card. |
 | `features/dashboard/screens/dashboard_screen.dart` | 7 | Main landing. |
 | `core/widgets/circular_feature_dial.dart` | 7 | Navigation dial — main UX element. |
 | `features/departments/screens/departments_screen.dart` | 6 | Department listing. |
@@ -75,7 +74,6 @@ regressions that static analysis misses.
 | `features/pharmacy/widgets/order_list_tab.dart` | 5 | Listing. |
 | `features/notifications/screens/notifications_screen.dart` | 5 | Alerts feed. |
 | `features/feedback/screens/feedback_history_screen.dart` | 5 | History. |
-| `features/dashboard/widgets/smart_investigation_card.dart` | 5 | Dashboard card. |
 | `features/about/screens/about_us_screen.dart` | 5 | Static content — may keep brand. |
 
 Remaining 125 files each have ≤4 callsites. Handle as part of "whoever

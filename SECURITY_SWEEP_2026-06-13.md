@@ -93,6 +93,8 @@ Other roles remain gated by the route-level `requireRole()` / `patientAccessGuar
 **Problem:** This `generateToken` signed the payload **without a `jti`**. `jwtMiddleware` skips the blacklist check when `jti` is absent, and `authService.logout()` cannot blacklist such a token - so admin tokens issued on the most-secure (MFA) login path stayed valid for the full 4h TTL after "logout" and could not be revoked per-token.
 **Fix applied:** Inject `jti: crypto.randomUUID()` into the signed payload (preserving an explicit `payload.jti` if present), giving parity with `utils/jwtUtils.generateToken`. These tokens now participate in blacklist + logout.
 
+**Retired in Audit #3 P10:** This duplicate helper was later proven unreachable and removed. Admin authentication now uses the canonical login-session and `utils/jwtUtils.js` paths.
+
 ### H-3 (High) - SVG uploads -> stored XSS via inline R2 delivery
 **Where:** `apps/backend/src/config/uploadConfig.js` (`HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes`), the magic-byte SVG branch in `middleware/uploadMiddleware.js`, and inline serving by `utils/r2Storage.js` signed URLs. Routes relying only on `validateFileContent` (staff document upload, messaging, clinical-AI docs) accepted it.
 **Problem:** An SVG containing `<script>` passed the filter + content check, was stored with `image/svg+xml`, and the signed URL served it inline -> JavaScript execution when another user opens the link.
@@ -222,7 +224,7 @@ JWT verification uses an explicit `algorithms: ['HS256']` allowlist (no alg-conf
 
 ## 8. Files changed in this pass
 
-Backend: `controllers/record/patientRecordController.js`, `services/otpService.js`, `services/auth/adminOtpService.js`, `utils/auth/tokenHelpers.js`, `config/uploadConfig.js`, `services/notification/adminNotificationService.js`, `routes/auth/authRoutes.js`, `routes/auth/otpRoutes.js`, `controllers/pharmacy/pharmacyOrderController.js`, `.dockerignore` (new).
+Backend: `controllers/record/patientRecordController.js`, `services/otpService.js`, `services/auth/adminOtpService.js`, `utils/auth/tokenHelpers.js` (subsequently retired in Audit #3 P10), `config/uploadConfig.js`, `services/notification/adminNotificationService.js`, `routes/auth/authRoutes.js`, `routes/auth/otpRoutes.js`, `controllers/pharmacy/pharmacyOrderController.js`, `.dockerignore` (new).
 Admin: `lib/exportToCsv.ts`, `app/api/proxy/[...path]/route.ts`.
 Mobile/shared: `apps/patient/lib/features/auth/widgets/login_form.dart`, `apps/patient/lib/core/navigation/app_router.dart`, `packages/vhhealth_core/lib/utils/safe_url_launcher.dart`.
 CI: `.github/workflows/release-patient.yml`, `.github/workflows/release-staff.yml`.

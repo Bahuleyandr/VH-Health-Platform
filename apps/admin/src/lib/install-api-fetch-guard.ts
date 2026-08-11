@@ -79,161 +79,11 @@ const ADMINISH: readonly string[] = [
   '/rbac/admin/',
 ];
 
-function withDefaults(u: URL, defaults: Record<string, string>) {
-  for (const [k, v] of Object.entries(defaults)) {
-    if (!u.searchParams.has(k)) u.searchParams.set(k, v);
-  }
-}
-
-/** Normalize historical/legacy paths to the backend's current routes */
 function getApiBaseForParsing(): string {
   if (typeof window !== 'undefined' && API_BASE_URL.startsWith('/')) {
     return `${window.location.origin}${API_BASE_URL}`;
   }
   return API_BASE_URL;
-}
-
-function applyAliasesWithQuery(path: string): string {
-  const u = new URL(path, getApiBaseForParsing());
-  const { pathname } = u;
-
-  // ---- ADMIN STATS (new mappings) ----
-  if (pathname === '/admin/statistics') {
-    u.pathname = '/admin/stats/quick';
-    return u.pathname + u.search;
-  }
-
-  // ---- ADMIN UPLOADS (normalize paths) ----
-  if (pathname.startsWith('/admin/upload/')) {
-    u.pathname = pathname.replace('/admin/upload/', '/admin/uploads/');
-    return u.pathname + u.search;
-  }
-
-  // ---- ADMIN ATTENDANCE (normalize paths) ----
-  if (pathname.startsWith('/admin/staff/attendance/')) {
-    u.pathname = pathname.replace('/admin/staff/attendance/', '/admin/attendance/');
-    return u.pathname + u.search;
-  }
-  if (pathname === '/admin/alerts/system') {
-    u.pathname = '/admin/alerts';
-    return u.pathname + u.search;
-  }
-
-  // ---- USERS ----
-  if (pathname.startsWith('/admin/users') || pathname === '/users') {
-    u.pathname = '/users';
-    withDefaults(u, { page: '1', limit: '20' });
-    return u.pathname + u.search;
-  }
-
-  // ---- DOCTORS ----
-  if (pathname === '/doctors') {
-    withDefaults(u, { page: '1', limit: '20' });
-    return u.pathname + u.search;
-  }
-
-  // ---- APPOINTMENTS ----
-  if (pathname.startsWith('/appointments/manage')) {
-    u.pathname = '/appointments/list';
-    withDefaults(u, { page: '1', limit: '20' });
-    return u.pathname + u.search;
-  }
-  if (pathname === '/appointments' && !u.search) {
-    u.pathname = '/appointments/list';
-    withDefaults(u, { page: '1', limit: '20' });
-    return u.pathname + u.search;
-  }
-
-  // ---- PHARMACY ----
-  if (pathname.startsWith('/pharmacy/orders')) {
-    u.pathname = '/pharmacy/orders';
-    withDefaults(u, { page: '1', limit: '10' });
-    return u.pathname + u.search;
-  }
-  if (pathname.startsWith('/pharmacy/analytics')) {
-    u.pathname = '/admin/stats/quick';
-    return u.pathname + u.search;
-  }
-  if (pathname.startsWith('/pharmacy-orders')) {
-    u.pathname = '/pharmacy/orders';
-    withDefaults(u, { page: '1', limit: '10' });
-    return u.pathname + u.search;
-  }
-
-  // ---- ANALYTICS (legacy) ----
-  if (pathname.startsWith('/analytics/revenue')) {
-    u.pathname = '/admin/stats/quick';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/analytics') {
-    u.pathname = '/analytics/dashboard';
-    return u.pathname + u.search;
-  }
-
-  // ---- NOTIFICATIONS ----
-  if (pathname === '/notifications') {
-    u.pathname = '/notifications/stats/summary';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/notifications/announce') {
-    u.pathname = '/notifications/admin/announcement';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/notifications/targeted') {
-    u.pathname = '/notifications/admin/targeted';
-    return u.pathname + u.search;
-  }
-
-  // ---- RECORDS ----
-  if (pathname.startsWith('/health-records')) {
-    u.pathname = pathname.replace('/health-records', '/records/health-records');
-    return u.pathname + u.search;
-  }
-  if (pathname.startsWith('/consultations')) {
-    u.pathname = pathname.replace('/consultations', '/records/consultations');
-    return u.pathname + u.search;
-  }
-
-  // ---- LOGS ----
-  if (pathname.startsWith('/logs/audit')) {
-    u.pathname = '/rbac/admin/audit-log';
-    withDefaults(u, { page: '1', limit: '20' });
-    return u.pathname + u.search;
-  }
-  if (pathname.startsWith('/logs/system')) {
-    const page = Number(u.searchParams.get('page') || '1');
-    const limit = Number(u.searchParams.get('limit') || '20');
-    const offset = Math.max(0, (page - 1) * limit);
-    u.pathname = '/admin/activity/recent';
-    u.searchParams.set('limit', String(limit));
-    u.searchParams.set('offset', String(offset));
-    u.searchParams.delete('page');
-    return u.pathname + u.search;
-  }
-
-  // ---- SYSTEM SETTINGS ----
-  if (pathname.startsWith('/system/settings')) {
-    u.pathname = '/settings';
-    return u.pathname + u.search;
-  }
-  if (pathname === '/system/status') {
-    u.pathname = '/health/system';
-    return u.pathname + u.search;
-  }
-
-  // ---- STAFF MEDICAL (normalize) ----
-  if (pathname === '/staffMedicalRoutes') {
-    u.pathname = '/staff/medical/investigations';
-    return u.pathname + u.search;
-  }
-
-  // ---- DEBUG ----
-  if (pathname === '/debugRoutes') {
-    u.pathname = '/debug/routes';
-    return u.pathname + u.search;
-  }
-
-  return path;
 }
 
 function needsApiV1Prefix(p: string): boolean {
@@ -328,9 +178,6 @@ export function installApiFetchGuard() {
           return originalFetch(input, init);
         }
       }
-
-      // Apply aliases/defaults
-      if (path) path = applyAliasesWithQuery(path);
 
       // Add /api/v1 if clearly an API call that's missing it
       if (path && needsApiV1Prefix(path)) {
