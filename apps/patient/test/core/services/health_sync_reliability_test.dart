@@ -8,13 +8,66 @@ void main() {
     final now = DateTime(2026, 8, 11, 15, 30);
 
     test(
-      'keeps a stale vitals cursor instead of truncating replay to 7 days',
+      'keeps a stale vitals cursor with a bounded inclusive replay overlap',
       () {
         final cursor = now.subtract(const Duration(days: 19));
+        final recentSafetyScan = now.subtract(const Duration(hours: 1));
 
-        expect(HealthSyncCheckpointPolicy.vitalsStart(cursor, now), cursor);
+        expect(
+          HealthSyncCheckpointPolicy.vitalsStart(
+            cursor,
+            now,
+            lastSafetyScan: recentSafetyScan,
+          ),
+          cursor.subtract(HealthSyncCheckpointPolicy.vitalsReplayWindow),
+        );
       },
     );
+
+    test('periodically replays a multi-day window for delayed imports', () {
+      final cursor = now.subtract(const Duration(minutes: 10));
+      final staleSafetyScan = now.subtract(
+        HealthSyncCheckpointPolicy.vitalsSafetyInterval,
+      );
+      final start = HealthSyncCheckpointPolicy.vitalsStart(
+        cursor,
+        now,
+        lastSafetyScan: staleSafetyScan,
+      );
+
+      expect(
+        start,
+        now.subtract(HealthSyncCheckpointPolicy.vitalsSafetyWindow),
+      );
+      expect(
+        HealthSyncCheckpointPolicy.includesVitalSample(
+          now.subtract(const Duration(days: 3)),
+          start,
+        ),
+        isTrue,
+      );
+    });
+
+    test('includes samples equal to and older than the durable cursor', () {
+      final cursor = DateTime(2026, 8, 11, 14);
+      final start = HealthSyncCheckpointPolicy.vitalsStart(cursor, now);
+
+      expect(
+        HealthSyncCheckpointPolicy.includesVitalSample(start, start),
+        isTrue,
+      );
+      expect(
+        HealthSyncCheckpointPolicy.includesVitalSample(cursor, start),
+        isTrue,
+      );
+      expect(
+        HealthSyncCheckpointPolicy.includesVitalSample(
+          start.subtract(const Duration(microseconds: 1)),
+          start,
+        ),
+        isFalse,
+      );
+    });
 
     test(
       'keeps a stale activity cursor day instead of truncating to yesterday',
@@ -54,6 +107,38 @@ void main() {
       },
     );
   });
+
+  test('vital cursor keys are stable and isolated per sample type', () {
+    final heartRate = buildHealthSyncVitalCursorKey(
+      sourceTag: 'health_connect',
+      sampleType: 'HEART_RATE',
+    );
+    final oxygen = buildHealthSyncVitalCursorKey(
+      sourceTag: 'health_connect',
+      sampleType: 'BLOOD_OXYGEN',
+    );
+
+    expect(heartRate, 'health_sync_last_vitals_health_connect_HEART_RATE');
+    expect(oxygen, isNot(heartRate));
+    expect(
+      buildHealthSyncVitalSafetyKey(
+        sourceTag: 'health_connect',
+        sampleType: 'HEART_RATE',
+      ),
+      'health_sync_last_vitals_safety_health_connect_HEART_RATE',
+    );
+  });
+
+  test(
+    'health timestamps carry an explicit offset without changing the instant',
+    () {
+      final instant = DateTime.utc(2026, 8, 11, 8, 1, 2, 345);
+      final encoded = formatHealthSyncRfc3339(instant);
+
+      expect(encoded, matches(RegExp(r'(?:Z|[+-]\d{2}:\d{2})$')));
+      expect(DateTime.parse(encoded).toUtc(), instant);
+    },
+  );
 
   test('activity batches stay within the backend 31-day contract', () {
     final batches = partitionHealthSyncDays(
@@ -120,6 +205,73 @@ void main() {
       expect(distinct, isNot(first));
     },
   );
+
+  test('terminal sample rejections are separated from retryable failures', () {
+    expect(
+      classifyHealthSyncPostStatus(200),
+      HealthSyncPostDisposition.accepted,
+    );
+    expect(
+      classifyHealthSyncPostStatus(400),
+      HealthSyncPostDisposition.terminalRejection,
+    );
+    expect(
+      classifyHealthSyncPostStatus(409),
+      HealthSyncPostDisposition.terminalRejection,
+    );
+    for (final status in [401, 403, 404, 408, 429, 500, 503]) {
+      expect(
+        classifyHealthSyncPostStatus(status),
+        HealthSyncPostDisposition.retryableFailure,
+        reason: 'HTTP $status must retain the sample for replay',
+      );
+    }
+  });
+
+  test(
+    'quarantine keys bind the receipt to the exact rejected payload',
+    () async {
+      final recordedAt = DateTime.utc(2026, 8, 11, 8, 1);
+      final first = await buildHealthSyncRejectionKey(
+        sourceTag: 'health_connect',
+        field: 'heartRate',
+        value: 999,
+        sourceRecordId: 'HEART_RATE:receipt',
+        recordedAt: recordedAt,
+      );
+      final replay = await buildHealthSyncRejectionKey(
+        sourceTag: 'health_connect',
+        field: 'heartRate',
+        value: 999,
+        sourceRecordId: 'HEART_RATE:receipt',
+        recordedAt: recordedAt,
+      );
+      final changed = await buildHealthSyncRejectionKey(
+        sourceTag: 'health_connect',
+        field: 'heartRate',
+        value: 998,
+        sourceRecordId: 'HEART_RATE:receipt',
+        recordedAt: recordedAt,
+      );
+
+      expect(first, replay);
+      expect(first, matches(RegExp(r'^[0-9a-f]{64}$')));
+      expect(changed, isNot(first));
+    },
+  );
+
+  test('quarantine retention is bounded and keeps the newest receipts', () {
+    final retained = retainHealthSyncRejectionKeys(
+      List<String>.generate(
+        HealthSyncRejectionPolicy.maxEntries + 2,
+        (i) => 'r$i',
+      ),
+    );
+
+    expect(retained, hasLength(HealthSyncRejectionPolicy.maxEntries));
+    expect(retained.first, 'r2');
+    expect(retained.last, 'r${HealthSyncRejectionPolicy.maxEntries + 1}');
+  });
 
   test(
     'overlapping triggers execute one operation and share its result',

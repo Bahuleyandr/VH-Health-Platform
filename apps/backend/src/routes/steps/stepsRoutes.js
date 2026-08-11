@@ -25,6 +25,9 @@ const ACTIVITY_SYNC_SOURCES = new Set([
 
 const DEFAULT_DAILY_GOAL = 8000;
 const WALKING_STEP_LENGTH_METERS = 0.75;
+const ACTIVITY_SAMPLE_MAX_FUTURE_MS = 5 * 60 * 1000;
+const RFC3339_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function normalizeActivitySource(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -42,7 +45,8 @@ function parseIsoDay(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
   const date = new Date(`${raw}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().split('T')[0];
+  const normalized = date.toISOString().split('T')[0];
+  return normalized === raw ? normalized : null;
 }
 
 function safeNonNegativeNumber(value, { integer = false, max = 1000000 } = {}) {
@@ -50,6 +54,31 @@ function safeNonNegativeNumber(value, { integer = false, max = 1000000 } = {}) {
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   const capped = Math.min(parsed, max);
   return integer ? Math.round(capped) : capped;
+}
+
+function parseActivitySampleTimestamp(value, sourceDay, nowMs = Date.now()) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!RFC3339_TIMESTAMP.test(normalized)) return null;
+  const recordedAt = new Date(normalized);
+  const recordedAtMs = recordedAt.getTime();
+  if (Number.isNaN(recordedAtMs)) return null;
+
+  const sourceDayMs = Date.parse(`${sourceDay}T00:00:00.000Z`);
+  if (recordedAtMs > nowMs + ACTIVITY_SAMPLE_MAX_FUTURE_MS) return null;
+  const localDay = normalized.slice(0, 10);
+  const nextDay = new Date(sourceDayMs + 24 * 60 * 60 * 1000)
+    .toISOString()
+    .split('T')[0];
+  const localHour = Number(normalized.slice(11, 13));
+  const belongsToSourceDay = localDay === sourceDay;
+  const crossesMidnight = localDay === nextDay && localHour < 6;
+  if (!belongsToSourceDay && !crossesMidnight) {
+    return null;
+  }
+  return recordedAt;
 }
 
 function buildActivityLevel({ steps = 0, distanceMeters = 0, dailyGoal = DEFAULT_DAILY_GOAL } = {}) {
@@ -204,22 +233,43 @@ router.post('/health-sync', async (req, res) => {
       return error(res, 'days must contain 31 entries or fewer', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    const rows = [];
+    const now = Date.now();
+    const normalizedDays = [];
     for (const day of days) {
       const date = parseIsoDay(day?.date);
-      if (!date) continue;
+      if (!date) {
+        return error(res, 'date must be a valid ISO calendar date', HTTP_STATUS.BAD_REQUEST);
+      }
 
       const steps = safeNonNegativeNumber(day?.steps, { integer: true, max: 200000 });
       const distanceMeters = safeNonNegativeNumber(day?.distanceMeters, { max: 500000 });
       const sleepMinutes = safeNonNegativeNumber(day?.sleepMinutes, { integer: true, max: 1440 });
       const activeEnergyKcal = safeNonNegativeNumber(day?.activeEnergyKcal, { max: 20000 });
-      const recordedAt = day?.lastSampleAt ? new Date(day.lastSampleAt) : new Date();
-
       if (steps === 0 && distanceMeters === 0 && sleepMinutes === 0 && activeEnergyKcal === 0) {
         continue;
       }
 
+      const recordedAt = parseActivitySampleTimestamp(day?.lastSampleAt, date, now);
+      if (!recordedAt) {
+        return error(
+          res,
+          'lastSampleAt must be an RFC 3339 timestamp within its source-day window and not in the future',
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+      normalizedDays.push({
+        date,
+        steps,
+        distanceMeters,
+        sleepMinutes,
+        activeEnergyKcal,
+        recordedAt,
+      });
+    }
+
+    const today = new Date(now).toISOString().split('T')[0];
+    const rows = [];
+    for (const day of normalizedDays) {
       const inserted = await prisma.$queryRawUnsafe(
         // CAN-012: health-platform syncs are device/app-measured → attested
         // reward_eligible=true (re-syncs keep it true).
@@ -267,14 +317,14 @@ router.post('/health-sync', async (req, res) => {
           RETURNING id, source_day, steps, distance_meters, sleep_minutes, active_energy_kcal`,
         uid,
         source,
-        date,
-        steps,
-        distanceMeters,
-        sleepMinutes,
-        activeEnergyKcal,
+        day.date,
+        day.steps,
+        day.distanceMeters,
+        day.sleepMinutes,
+        day.activeEnergyKcal,
         sourceDevice,
         sourceApp,
-        Number.isNaN(recordedAt.getTime()) ? new Date() : recordedAt,
+        day.recordedAt,
       );
       if (inserted[0]) rows.push(inserted[0]);
     }

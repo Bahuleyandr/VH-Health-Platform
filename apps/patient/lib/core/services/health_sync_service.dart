@@ -42,14 +42,35 @@ class HealthSyncRunCoordinator {
 
 class HealthSyncCheckpointPolicy {
   static const Duration bootstrapWindow = Duration(days: 7);
+  static const Duration vitalsReplayWindow = Duration(hours: 1);
+  static const Duration vitalsSafetyWindow = Duration(days: 7);
+  static const Duration vitalsSafetyInterval = Duration(days: 1);
 
   static DateTime _dayStart(DateTime value) {
     final local = value.toLocal();
     return DateTime(local.year, local.month, local.day);
   }
 
-  static DateTime vitalsStart(DateTime? cursor, DateTime now) =>
-      cursor ?? _dayStart(now).subtract(bootstrapWindow);
+  static bool vitalsSafetyScanDue(DateTime? lastSafetyScan, DateTime now) =>
+      lastSafetyScan == null ||
+      lastSafetyScan.isAfter(now) ||
+      !lastSafetyScan.add(vitalsSafetyInterval).isAfter(now);
+
+  static DateTime vitalsStart(
+    DateTime? cursor,
+    DateTime now, {
+    DateTime? lastSafetyScan,
+  }) {
+    if (cursor == null) return _dayStart(now).subtract(bootstrapWindow);
+
+    final replayStart = cursor.subtract(vitalsReplayWindow);
+    if (!vitalsSafetyScanDue(lastSafetyScan, now)) return replayStart;
+    final safetyStart = now.subtract(vitalsSafetyWindow);
+    return replayStart.isBefore(safetyStart) ? replayStart : safetyStart;
+  }
+
+  static bool includesVitalSample(DateTime sampleAt, DateTime replayStart) =>
+      !sampleAt.isBefore(replayStart);
 
   static DateTime activityStart(DateTime? cursor, DateTime now) {
     final bootstrap = _dayStart(now).subtract(bootstrapWindow);
@@ -59,6 +80,52 @@ class HealthSyncCheckpointPolicy {
     final yesterday = _dayStart(now).subtract(const Duration(days: 1));
     return cursorDay.isBefore(yesterday) ? cursorDay : yesterday;
   }
+}
+
+String buildHealthSyncVitalCursorKey({
+  required String sourceTag,
+  required String sampleType,
+}) => 'health_sync_last_vitals_${sourceTag}_$sampleType';
+
+String buildHealthSyncVitalSafetyKey({
+  required String sourceTag,
+  required String sampleType,
+}) => 'health_sync_last_vitals_safety_${sourceTag}_$sampleType';
+
+enum HealthSyncPostDisposition { accepted, terminalRejection, retryableFailure }
+
+HealthSyncPostDisposition classifyHealthSyncPostStatus(int statusCode) {
+  if (statusCode >= 200 && statusCode < 300) {
+    return HealthSyncPostDisposition.accepted;
+  }
+  if (statusCode == 400 || statusCode == 409) {
+    return HealthSyncPostDisposition.terminalRejection;
+  }
+  return HealthSyncPostDisposition.retryableFailure;
+}
+
+class HealthSyncRejectionPolicy {
+  static const int maxEntries = 512;
+}
+
+List<String> retainHealthSyncRejectionKeys(Iterable<String> values) {
+  final ordered = <String>[];
+  final seen = <String>{};
+  for (final value in values) {
+    if (seen.add(value)) ordered.add(value);
+  }
+  if (ordered.length <= HealthSyncRejectionPolicy.maxEntries) return ordered;
+  return ordered.sublist(ordered.length - HealthSyncRejectionPolicy.maxEntries);
+}
+
+String formatHealthSyncRfc3339(DateTime value) {
+  final local = value.toLocal();
+  final offset = local.timeZoneOffset;
+  final sign = offset.isNegative ? '-' : '+';
+  final absoluteMinutes = offset.inMinutes.abs();
+  final hours = (absoluteMinutes ~/ 60).toString().padLeft(2, '0');
+  final minutes = (absoluteMinutes % 60).toString().padLeft(2, '0');
+  return '${local.toIso8601String()}$sign$hours:$minutes';
 }
 
 List<List<T>> partitionHealthSyncDays<T>(List<T> values) {
@@ -124,6 +191,26 @@ Future<String> buildHealthSyncSourceRecordId({
   return '$sampleType:$hex';
 }
 
+Future<String> buildHealthSyncRejectionKey({
+  required String sourceTag,
+  required String field,
+  required num value,
+  required String sourceRecordId,
+  required DateTime recordedAt,
+}) async {
+  final payload = jsonEncode([
+    sourceTag,
+    field,
+    value,
+    sourceRecordId,
+    recordedAt.toUtc().toIso8601String(),
+  ]);
+  final digest = await Sha256().hash(utf8.encode(payload));
+  return digest.bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
+
 /// Bridges Apple HealthKit / Google Health Connect (Fit successor) into the
 /// VHHealth backend. Sync runs on three schedules:
 ///   1. User-triggered — the Settings tile calls [requestPermissions] + [syncNow].
@@ -135,9 +222,10 @@ class HealthSyncService {
   HealthSyncService._();
   static final HealthSyncService instance = HealthSyncService._();
 
-  static const String _prefsLastVitalsSyncPrefix = 'health_sync_last_vitals_';
   static const String _prefsLastActivitySyncPrefix =
       'health_sync_last_activity_';
+  static const String _prefsRejectedVitalsPrefix =
+      'health_sync_rejected_vitals_';
   static const Duration _foregroundInterval = Duration(minutes: 30);
   static const String backgroundTaskName = 'vhhealth.health_sync';
 
@@ -353,24 +441,61 @@ class HealthSyncService {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final vitalsKey = '$_prefsLastVitalsSyncPrefix$_sourceTag';
+    await prefs.reload();
     final activityKey = '$_prefsLastActivitySyncPrefix$_sourceTag';
     final end = DateTime.now();
-    // The legacy shared checkpoint advanced after partial failures, so it is
-    // deliberately not migrated; the first run safely replays seven days.
-    final vitalsCursor = _readCursor(prefs.getString(vitalsKey), end);
+    final vitalTypes = types.where(_isVitalType).toList();
+    final hasActivityReadTypes = types.any(_isActivityType);
+    final vitalCursorKeys = <HealthDataType, String>{
+      for (final type in vitalTypes)
+        type: buildHealthSyncVitalCursorKey(
+          sourceTag: _sourceTag,
+          sampleType: type.name,
+        ),
+    };
+    final vitalSafetyKeys = <HealthDataType, String>{
+      for (final type in vitalTypes)
+        type: buildHealthSyncVitalSafetyKey(
+          sourceTag: _sourceTag,
+          sampleType: type.name,
+        ),
+    };
+    final vitalCursors = <HealthDataType, DateTime?>{
+      for (final type in vitalTypes)
+        type: _readCursor(prefs.getString(vitalCursorKeys[type]!), end),
+    };
+    final vitalSafetyScans = <HealthDataType, DateTime?>{
+      for (final type in vitalTypes)
+        type: _readCursor(prefs.getString(vitalSafetyKeys[type]!), end),
+    };
+    final vitalSafetyScanDue = <HealthDataType, bool>{
+      for (final type in vitalTypes)
+        type: HealthSyncCheckpointPolicy.vitalsSafetyScanDue(
+          vitalSafetyScans[type],
+          end,
+        ),
+    };
+    final vitalStarts = <HealthDataType, DateTime>{
+      for (final type in vitalTypes)
+        type: HealthSyncCheckpointPolicy.vitalsStart(
+          vitalCursors[type],
+          end,
+          lastSafetyScan: vitalSafetyScans[type],
+        ),
+    };
     final activityCursor = _readCursor(prefs.getString(activityKey), end);
-    final vitalsStart = HealthSyncCheckpointPolicy.vitalsStart(
-      vitalsCursor,
-      end,
-    );
     final activityStart = HealthSyncCheckpointPolicy.activityStart(
       activityCursor,
       end,
     );
-    final start = vitalsStart.isBefore(activityStart)
-        ? vitalsStart
-        : activityStart;
+    final starts = [
+      if (hasActivityReadTypes) activityStart,
+      ...vitalStarts.values,
+    ];
+    final start = starts.reduce(
+      (earliest, candidate) =>
+          candidate.isBefore(earliest) ? candidate : earliest,
+    );
     if (!end.isAfter(start)) {
       return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
     }
@@ -386,10 +511,6 @@ class HealthSyncService {
       if (kDebugMode) debugPrint('HealthSyncService: read failed: $e');
       return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: false);
     }
-    if (points.isEmpty) {
-      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
-    }
-
     double steps = 0;
     String? sourceApp;
     String? sourceDevice;
@@ -422,25 +543,35 @@ class HealthSyncService {
       if (v == null) continue;
       switch (p.type) {
         case HealthDataType.HEART_RATE:
-          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
+          }
           vitalSamples.add(
-            _WearableVitalSample(
+            await _buildVitalSample(
+              healthType: p.type,
               field: 'heartRate',
               value: v.round(),
-              recordedAt: p.dateTo,
-              sourceRecordId: await _sourceRecordId(p),
+              point: p,
             ),
           );
           break;
         case HealthDataType.BLOOD_OXYGEN:
-          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
+          }
           final pct = v <= 1.0 ? v * 100 : v;
           vitalSamples.add(
-            _WearableVitalSample(
+            await _buildVitalSample(
+              healthType: p.type,
               field: 'spO2',
               value: pct.round(),
-              recordedAt: p.dateTo,
-              sourceRecordId: await _sourceRecordId(p),
+              point: p,
             ),
           );
           break;
@@ -477,24 +608,34 @@ class HealthSyncService {
           summary.trackLatest(p.dateTo);
           break;
         case HealthDataType.WEIGHT:
-          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
+          }
           vitalSamples.add(
-            _WearableVitalSample(
+            await _buildVitalSample(
+              healthType: p.type,
               field: 'weight',
               value: v,
-              recordedAt: p.dateTo,
-              sourceRecordId: await _sourceRecordId(p),
+              point: p,
             ),
           );
           break;
         case HealthDataType.BODY_TEMPERATURE:
-          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
+          }
           vitalSamples.add(
-            _WearableVitalSample(
+            await _buildVitalSample(
+              healthType: p.type,
               field: 'temperature',
               value: v,
-              recordedAt: p.dateTo,
-              sourceRecordId: await _sourceRecordId(p),
+              point: p,
             ),
           );
           break;
@@ -506,56 +647,100 @@ class HealthSyncService {
     var updatedSurfaces = 0;
     var succeeded = true;
     var vitalsUpdated = false;
-    final vitalBatches = groupHealthSyncSamples(
-      vitalSamples,
-      recordedAt: (sample) => sample.recordedAt,
-      stableId: (sample) => sample.sourceRecordId,
-    );
-    for (final batch in vitalBatches) {
-      var groupSucceeded = true;
-      for (final sample in batch.values) {
-        try {
-          final resp = await ApiClient.post(
-            '/health/patient/vitals',
-            body: {
-              sample.field: sample.value,
-              'source': _sourceTag,
-              'sourceRecordId': sample.sourceRecordId,
-              'recordedAtSource': sample.recordedAt.toIso8601String(),
-            },
-            idempotencyKey:
-                'wearable-vital:$_sourceTag:${sample.sourceRecordId}',
-          );
-          if (!resp.isSuccess) {
+    final rejectionKey = '$_prefsRejectedVitalsPrefix$_sourceTag';
+    final rejectedSamples =
+        (prefs.getStringList(rejectionKey) ?? const <String>[]).toSet();
+    for (final type in vitalTypes) {
+      var typeSucceeded = true;
+      final vitalBatches = groupHealthSyncSamples(
+        vitalSamples.where((sample) => sample.healthType == type).toList(),
+        recordedAt: (sample) => sample.recordedAt,
+        stableId: (sample) => sample.sourceRecordId,
+      );
+      for (final batch in vitalBatches) {
+        var groupSucceeded = true;
+        for (final sample in batch.values) {
+          if (rejectedSamples.contains(sample.rejectionKey)) continue;
+          try {
+            final resp = await ApiClient.post(
+              '/health/patient/vitals',
+              body: {
+                sample.field: sample.value,
+                'source': _sourceTag,
+                'sourceRecordId': sample.sourceRecordId,
+                'recordedAtSource': formatHealthSyncRfc3339(sample.recordedAt),
+              },
+              idempotencyKey:
+                  'wearable-vital:$_sourceTag:${sample.sourceRecordId}',
+            );
+            switch (classifyHealthSyncPostStatus(resp.statusCode)) {
+              case HealthSyncPostDisposition.accepted:
+                vitalsUpdated = true;
+                break;
+              case HealthSyncPostDisposition.terminalRejection:
+                if (!await _saveRejectedSample(
+                  prefs,
+                  rejectionKey,
+                  rejectedSamples,
+                  sample.rejectionKey,
+                )) {
+                  groupSucceeded = false;
+                } else if (kDebugMode) {
+                  debugPrint(
+                    'HealthSyncService: quarantined rejected vital '
+                    '(${resp.statusCode})',
+                  );
+                }
+                break;
+              case HealthSyncPostDisposition.retryableFailure:
+                groupSucceeded = false;
+                if (kDebugMode) {
+                  debugPrint(
+                    'HealthSyncService: vitals POST failed ${resp.statusCode}',
+                  );
+                }
+                break;
+            }
+          } catch (e) {
             groupSucceeded = false;
             if (kDebugMode) {
-              debugPrint(
-                'HealthSyncService: vitals POST failed ${resp.statusCode}',
-              );
+              debugPrint('HealthSyncService: vitals POST error $e');
             }
-            break;
           }
-          vitalsUpdated = true;
-        } catch (e) {
-          groupSucceeded = false;
-          if (kDebugMode) {
-            debugPrint('HealthSyncService: vitals POST error $e');
-          }
+          if (!groupSucceeded) break;
+        }
+
+        if (!groupSucceeded ||
+            !await _saveCursor(
+              prefs,
+              vitalCursorKeys[type]!,
+              batch.checkpoint,
+            )) {
+          succeeded = false;
+          typeSucceeded = false;
           break;
         }
       }
-
-      if (!groupSucceeded ||
-          !await _saveCursor(prefs, vitalsKey, batch.checkpoint)) {
+      if (typeSucceeded) {
+        if (!await _saveCursor(prefs, vitalCursorKeys[type]!, end)) {
+          succeeded = false;
+          typeSucceeded = false;
+        }
+      }
+      if (typeSucceeded &&
+          vitalSafetyScanDue[type]! &&
+          !await _saveCursor(prefs, vitalSafetyKeys[type]!, end)) {
         succeeded = false;
-        break;
       }
     }
     if (vitalsUpdated) updatedSurfaces += 1;
 
-    final days = daily.values.where((d) => d.hasActivity).toList()
-      ..sort((a, b) => a.date.compareTo(b.date));
+    final days = hasActivityReadTypes
+        ? (daily.values.where((d) => d.hasActivity).toList()
+            ..sort((a, b) => a.date.compareTo(b.date)))
+        : <_DailyActivitySummary>[];
     var activityUpdated = false;
+    var activitySucceeded = hasActivityReadTypes;
     for (final batch in partitionHealthSyncDays(days)) {
       try {
         final resp = await ApiClient.post(
@@ -569,6 +754,7 @@ class HealthSyncService {
         );
         if (!resp.isSuccess) {
           succeeded = false;
+          activitySucceeded = false;
           if (kDebugMode) {
             debugPrint(
               'HealthSyncService: activity POST failed ${resp.statusCode}',
@@ -581,14 +767,19 @@ class HealthSyncService {
             .reduce(_laterOfNonNull);
         if (!await _saveCursor(prefs, activityKey, checkpoint)) {
           succeeded = false;
+          activitySucceeded = false;
           break;
         }
         activityUpdated = true;
       } catch (e) {
         succeeded = false;
+        activitySucceeded = false;
         if (kDebugMode) debugPrint('HealthSyncService: activity POST error $e');
         break;
       }
+    }
+    if (activitySucceeded && !await _saveCursor(prefs, activityKey, end)) {
+      succeeded = false;
     }
     if (activityUpdated) updatedSurfaces += 1;
 
@@ -609,11 +800,21 @@ class HealthSyncService {
     return parsed;
   }
 
-  bool _isAfterCursor(DateTime sampleAt, DateTime? cursor) =>
-      cursor == null || sampleAt.isAfter(cursor);
-
   DateTime _laterOfNonNull(DateTime current, DateTime candidate) =>
       candidate.isAfter(current) ? candidate : current;
+
+  bool _isVitalType(HealthDataType type) =>
+      type == HealthDataType.HEART_RATE ||
+      type == HealthDataType.BLOOD_OXYGEN ||
+      type == HealthDataType.WEIGHT ||
+      type == HealthDataType.BODY_TEMPERATURE;
+
+  bool _isActivityType(HealthDataType type) =>
+      type == HealthDataType.STEPS ||
+      type == HealthDataType.DISTANCE_DELTA ||
+      type == HealthDataType.DISTANCE_WALKING_RUNNING ||
+      type == HealthDataType.ACTIVE_ENERGY_BURNED ||
+      _isSleepType(type);
 
   Future<String> _sourceRecordId(HealthDataPoint point) =>
       buildHealthSyncSourceRecordId(
@@ -624,12 +825,57 @@ class HealthSyncService {
         dateTo: point.dateTo,
       );
 
+  Future<_WearableVitalSample> _buildVitalSample({
+    required HealthDataType healthType,
+    required String field,
+    required num value,
+    required HealthDataPoint point,
+  }) async {
+    final sourceRecordId = await _sourceRecordId(point);
+    return _WearableVitalSample(
+      healthType: healthType,
+      field: field,
+      value: value,
+      recordedAt: point.dateTo,
+      sourceRecordId: sourceRecordId,
+      rejectionKey: await buildHealthSyncRejectionKey(
+        sourceTag: _sourceTag,
+        field: field,
+        value: value,
+        sourceRecordId: sourceRecordId,
+        recordedAt: point.dateTo,
+      ),
+    );
+  }
+
+  Future<bool> _saveRejectedSample(
+    SharedPreferences prefs,
+    String storageKey,
+    Set<String> rejectedSamples,
+    String sampleKey,
+  ) async {
+    await prefs.reload();
+    final retained = retainHealthSyncRejectionKeys([
+      ...?prefs.getStringList(storageKey),
+      ...rejectedSamples,
+      sampleKey,
+    ]);
+    if (!await prefs.setStringList(storageKey, retained)) return false;
+    rejectedSamples
+      ..clear()
+      ..addAll(retained);
+    return true;
+  }
+
   Future<bool> _saveCursor(
     SharedPreferences prefs,
     String key,
     DateTime value,
   ) async {
-    if (!await prefs.setString(key, value.toIso8601String())) {
+    await prefs.reload();
+    final current = _readCursor(prefs.getString(key), DateTime.now());
+    final next = current != null && current.isAfter(value) ? current : value;
+    if (!await prefs.setString(key, next.toUtc().toIso8601String())) {
       if (kDebugMode) {
         debugPrint('HealthSyncService: failed to persist $key checkpoint');
       }
@@ -900,21 +1146,26 @@ class _DailyActivitySummary {
     'distanceMeters': distanceMeters,
     'sleepMinutes': sleepMinutes,
     'activeEnergyKcal': activeEnergyKcal,
-    if (lastSampleAt != null) 'lastSampleAt': lastSampleAt!.toIso8601String(),
+    if (lastSampleAt != null)
+      'lastSampleAt': formatHealthSyncRfc3339(lastSampleAt!),
   };
 }
 
 class _WearableVitalSample {
+  final HealthDataType healthType;
   final String field;
   final num value;
   final DateTime recordedAt;
   final String sourceRecordId;
+  final String rejectionKey;
 
   const _WearableVitalSample({
+    required this.healthType,
     required this.field,
     required this.value,
     required this.recordedAt,
     required this.sourceRecordId,
+    required this.rejectionKey,
   });
 }
 

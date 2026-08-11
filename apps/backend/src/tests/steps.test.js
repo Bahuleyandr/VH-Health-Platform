@@ -3,15 +3,15 @@ import prisma from '../lib/prisma.js';
 
 const HEALTH_SYNC_TEST_UID = '550e8400-e29b-41d4-a716-446655440000';
 const HEALTH_SYNC_TEST_DAY = '2001-03-04';
+const HEALTH_SYNC_FUTURE_SAMPLE = new Date(Date.now() + 24 * 60 * 60 * 1000);
+const HEALTH_SYNC_FUTURE_DAY = HEALTH_SYNC_FUTURE_SAMPLE.toISOString().split('T')[0];
 
 async function clearHealthSyncFreshnessFixture() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM step_sessions
       WHERE user_uid = $1::uuid
-        AND source = 'oura'
-        AND source_day = $2::date`,
+        AND source = 'oura'`,
     HEALTH_SYNC_TEST_UID,
-    HEALTH_SYNC_TEST_DAY,
   );
 }
 
@@ -141,6 +141,106 @@ describe('Steps / Gamification API', () => {
       expect(rows[0].recorded_at_source.toISOString()).toBe(
         '2001-03-04T23:00:00.000Z',
       );
+    });
+
+    it.each([
+      ['missing', '2001-03-05', undefined],
+      ['invalid', '2001-03-05', 'not-a-timestamp'],
+      ['timezone-less', '2001-03-05', '2001-03-04T20:00:00.000'],
+      ['next-day afternoon', '2001-03-05', '2001-03-06T14:00:00.000Z'],
+      ['outside the source day window', '2001-03-05', '2001-03-08T20:00:00.000Z'],
+      ['future', HEALTH_SYNC_FUTURE_DAY, HEALTH_SYNC_FUTURE_SAMPLE.toISOString()],
+    ])('rejects %s lastSampleAt before writing any activity day', async (_label, date, lastSampleAt) => {
+      await clearHealthSyncFreshnessFixture();
+      const days = [
+        {
+          date: HEALTH_SYNC_TEST_DAY,
+          steps: 1200,
+          lastSampleAt: '2001-03-04T23:00:00.000Z',
+        },
+        {
+          date,
+          steps: 100,
+          ...(lastSampleAt === undefined ? {} : { lastSampleAt }),
+        },
+      ];
+      const res = await testClient()
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send({ source: 'oura', days });
+
+      expect(res.statusCode).toBe(400);
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT source_day
+           FROM step_sessions
+          WHERE user_uid = $1::uuid
+            AND source = 'oura'`,
+        HEALTH_SYNC_TEST_UID,
+      );
+      expect(rows).toHaveLength(0);
+    });
+
+    it.each(['not-a-date', '2001-02-30'])(
+      'rejects invalid source day %s before writing any activity day',
+      async invalidDate => {
+        await clearHealthSyncFreshnessFixture();
+        const res = await testClient()
+          .post('/api/v1/steps/health-sync')
+          .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+          .send({
+            source: 'oura',
+            days: [
+              {
+                date: HEALTH_SYNC_TEST_DAY,
+                steps: 1200,
+                lastSampleAt: '2001-03-04T23:00:00.000Z',
+              },
+              {
+                date: invalidDate,
+                steps: 100,
+                lastSampleAt: '2001-03-02T01:00:00.000Z',
+              },
+            ],
+          });
+
+        expect(res.statusCode).toBe(400);
+        const rows = await prisma.$queryRawUnsafe(
+          `SELECT source_day
+             FROM step_sessions
+            WHERE user_uid = $1::uuid
+              AND source = 'oura'`,
+          HEALTH_SYNC_TEST_UID,
+        );
+        expect(rows).toHaveLength(0);
+      },
+    );
+
+    it('accepts a next-day sample timestamp for activity intervals that cross midnight', async () => {
+      await clearHealthSyncFreshnessFixture();
+      const res = await testClient()
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send({
+          source: 'oura',
+          days: [{
+            date: HEALTH_SYNC_TEST_DAY,
+            sleepMinutes: 480,
+            lastSampleAt: '2001-03-05T05:59:00.000Z',
+          }],
+        });
+
+      expect(res.statusCode).toBe(200);
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT source_day, sleep_minutes, recorded_at_source
+           FROM step_sessions
+          WHERE user_uid = $1::uuid
+            AND source = 'oura'`,
+        HEALTH_SYNC_TEST_UID,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].source_day.toISOString().split('T')[0]).toBe(HEALTH_SYNC_TEST_DAY);
+      expect(rows[0].sleep_minutes).toBe(480);
+      expect(rows[0].recorded_at_source.toISOString()).toBe('2001-03-05T05:59:00.000Z');
     });
   });
 
