@@ -19,8 +19,11 @@ const setTenantTxMock = jest.fn();
 const reassignIdentifiersMock = jest.fn();
 const recordTimelineEventMock = jest.fn();
 const recordClinicalAuditEventMock = jest.fn();
-const revokeAllUserTokensMock = jest.fn();
 const lockTenantPatientMergeStabilityMock = jest.fn();
+const persistRevokeAllUserTokensMock = jest.fn();
+const publishRevokeAllUserTokensMock = jest.fn();
+const loggerWarnMock = jest.fn();
+const loggerErrorMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryUnsafeMock,
@@ -45,8 +48,15 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordTimelineEvent: recordTimelineEventMock,
   recordClinicalAuditEvent: recordClinicalAuditEventMock,
 }));
+jest.unstable_mockModule('../../logging/logger.js', () => ({
+  default: {
+    warn: loggerWarnMock,
+    error: loggerErrorMock,
+  },
+}));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
-  revokeAllUserTokens: revokeAllUserTokensMock,
+  persistRevokeAllUserTokens: persistRevokeAllUserTokensMock,
+  publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
 }));
 jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
   lockTenantPatientMergeStability: lockTenantPatientMergeStabilityMock,
@@ -121,14 +131,18 @@ beforeEach(() => {
   reassignIdentifiersMock.mockReset();
   recordTimelineEventMock.mockReset();
   recordClinicalAuditEventMock.mockReset();
-  revokeAllUserTokensMock.mockReset();
   lockTenantPatientMergeStabilityMock.mockReset();
+  persistRevokeAllUserTokensMock.mockReset();
+  publishRevokeAllUserTokensMock.mockReset();
+  loggerWarnMock.mockReset();
+  loggerErrorMock.mockReset();
   transactionMock.mockImplementation(async (cb) => cb(__prismaTxMock));
   setTenantTxMock.mockImplementation(async (_tenantId, fn) => transactionMock(fn));
   executeUnsafeMock.mockResolvedValue(1);
   recordTimelineEventMock.mockResolvedValue({ id: 'tl-1' });
   recordClinicalAuditEventMock.mockResolvedValue({ id: 'audit-1' });
-  revokeAllUserTokensMock.mockResolvedValue({});
+  persistRevokeAllUserTokensMock.mockResolvedValue(1_775_000_000);
+  publishRevokeAllUserTokensMock.mockResolvedValue({ database: { persisted: true } });
 });
 
 function mockNext(rows) {
@@ -347,7 +361,8 @@ describe('executeMerge', () => {
       .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_CONTINUITY_WORKFLOW_REQUIRED' });
     expect(reassignIdentifiersMock).not.toHaveBeenCalled();
     expect(executeUnsafeMock).not.toHaveBeenCalled();
-    expect(revokeAllUserTokensMock).not.toHaveBeenCalled();
+    expect(persistRevokeAllUserTokensMock).not.toHaveBeenCalled();
+    expect(publishRevokeAllUserTokensMock).not.toHaveBeenCalled();
   });
 
   it('refuses to execute against an already-merged secondary', async () => {
@@ -385,7 +400,8 @@ describe('executeMerge', () => {
     // Nothing mutated: no identifier retarget, no sweep, no deactivation.
     expect(reassignIdentifiersMock).not.toHaveBeenCalled();
     expect(executeUnsafeMock).not.toHaveBeenCalled();
-    expect(revokeAllUserTokensMock).not.toHaveBeenCalled();
+    expect(persistRevokeAllUserTokensMock).not.toHaveBeenCalled();
+    expect(publishRevokeAllUserTokensMock).not.toHaveBeenCalled();
   });
 
   it('allows the merge when only one side holds an active admission', async () => {
@@ -493,8 +509,94 @@ describe('executeMerge', () => {
       }),
       { db: expect.any(Object) },
     );
-    // Post-commit best-effort token revocation for the merged-away record.
-    expect(revokeAllUserTokensMock).toHaveBeenCalledWith(SECONDARY);
+    // Durable revocation belongs to the merge transaction and only the
+    // cache/WebSocket publication may run after commit.
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledWith(SECONDARY, {
+      client: __prismaTxMock,
+      requireEvidence: true,
+      reason: 'patient_merged',
+    });
+    expect(publishRevokeAllUserTokensMock).toHaveBeenCalledWith(
+      SECONDARY,
+      1_775_000_000,
+      { reason: 'patient_merged' },
+    );
+    expect(persistRevokeAllUserTokensMock).not.toHaveBeenCalledWith(
+      PRIMARY,
+      expect.anything(),
+    );
+  });
+
+  it('rolls back the merge when the durable secondary-token revocation cannot persist', async () => {
+    mockHappyPathUntilSweep({ candidateId: null });
+    persistRevokeAllUserTokensMock.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
+      .rejects.toThrow('durable store unavailable');
+
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledWith(SECONDARY, {
+      client: __prismaTxMock,
+      requireEvidence: true,
+      reason: 'patient_merged',
+    });
+    expect(publishRevokeAllUserTokensMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the committed merge successful and reports a post-commit publication failure', async () => {
+    let committed = false;
+    transactionMock.mockImplementationOnce(async (cb) => {
+      const result = await cb(__prismaTxMock);
+      committed = true;
+      return result;
+    });
+    mockHappyPathUntilSweep({ candidateId: null });
+    mockNext([{
+      id: 9, status: 'executed', candidate_id: null,
+      primary_uid: PRIMARY, secondary_uid: SECONDARY,
+      executor_uid: EXECUTOR, execution_summary: {},
+    }]);
+    publishRevokeAllUserTokensMock.mockImplementationOnce(async () => {
+      expect(committed).toBe(true);
+      throw new Error('websocket unavailable');
+    });
+
+    await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
+      .resolves.toMatchObject({ status: 'executed' });
+
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledTimes(1);
+    expect(publishRevokeAllUserTokensMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'patient merge token revocation publication failed',
+      expect.objectContaining({
+        mergeRequestId: 9,
+        tenantId: TENANT,
+        secondaryUid: SECONDARY,
+        error: 'websocket unavailable',
+      }),
+    );
+  });
+
+  it('retries exactly after a durable-revocation rollback and never revokes the survivor', async () => {
+    mockHappyPathUntilSweep({ candidateId: null });
+    persistRevokeAllUserTokensMock.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
+      .rejects.toThrow('durable store unavailable');
+
+    mockHappyPathUntilSweep({ candidateId: null });
+    mockNext([{
+      id: 9, status: 'executed', candidate_id: null,
+      primary_uid: PRIMARY, secondary_uid: SECONDARY,
+      executor_uid: EXECUTOR, execution_summary: {},
+    }]);
+
+    await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
+      .resolves.toMatchObject({ status: 'executed' });
+
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledTimes(2);
+    expect(persistRevokeAllUserTokensMock.mock.calls.map(([uid]) => uid))
+      .toEqual([SECONDARY, SECONDARY]);
+    expect(publishRevokeAllUserTokensMock).toHaveBeenCalledTimes(1);
   });
 
   it('fails the merge when the canonical timeline emit does not persist', async () => {
@@ -502,7 +604,8 @@ describe('executeMerge', () => {
     recordTimelineEventMock.mockResolvedValueOnce(null);
     await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
       .rejects.toMatchObject({ code: 'PATIENT_MERGE_TIMELINE_REQUIRED' });
-    expect(revokeAllUserTokensMock).not.toHaveBeenCalled();
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledTimes(1);
+    expect(publishRevokeAllUserTokensMock).not.toHaveBeenCalled();
   });
 
   it('fails the merge when the canonical audit emit does not persist', async () => {
@@ -510,6 +613,8 @@ describe('executeMerge', () => {
     recordClinicalAuditEventMock.mockResolvedValueOnce(null);
     await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
       .rejects.toMatchObject({ code: 'PATIENT_MERGE_AUDIT_REQUIRED' });
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledTimes(1);
+    expect(publishRevokeAllUserTokensMock).not.toHaveBeenCalled();
   });
 
   it('translates data conflicts (unique/FK violations) into a 409', async () => {
@@ -521,7 +626,8 @@ describe('executeMerge', () => {
     );
     await expect(executeMerge({ tenantId: TENANT, id: 9, executorUid: EXECUTOR }))
       .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_DATA_CONFLICT' });
-    expect(revokeAllUserTokensMock).not.toHaveBeenCalled();
+    expect(persistRevokeAllUserTokensMock).not.toHaveBeenCalled();
+    expect(publishRevokeAllUserTokensMock).not.toHaveBeenCalled();
   });
 });
 

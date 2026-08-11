@@ -37,7 +37,8 @@
  *     execution_summary so an admin can audit which rows moved.
  *   - Deactivate the secondary patient record (is_active=false,
  *     status='merged', merged_into_uid=survivor) in the same
- *     transaction, and post-commit revoke its live JWTs.
+ *     transaction, and durably revoke its live JWTs in that same transaction.
+ *     Redis/WebSocket publication happens only after commit.
  *   - Emit one clinical_timeline_events row + one clinical_audit_events
  *     row for the survivor in the same transaction (canonical clinical
  *     timeline invariant).
@@ -85,7 +86,10 @@ import {
   lockTenantPatientMergeStability,
   PATIENT_MERGE_STABILITY_TIMEOUT_MS,
 } from '../../utils/patientMergeStabilityLock.js';
-import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
 import { reassignIdentifiersForMerge } from './patientIdentifierService.js';
@@ -94,6 +98,7 @@ const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 
 const MERGE_STATUSES = ['requested', 'approved', 'executed', 'rejected', 'cancelled'];
+const PATIENT_MERGE_REVOCATION_REASON = 'patient_merged';
 const CONTINUITY_PROPOSER_ROLES = new Set([
   'SUPER_ADMIN', 'ADMIN', 'MEDICAL_RECORDS', 'RECEPTIONIST',
   'RECEPTION_INCHARGE', 'ADMISSION_OFFICER',
@@ -1051,7 +1056,7 @@ export async function executeMerge({
   if (!executor) throw AppError.badRequest('executor_uid is required');
 
   let updated;
-  let secondaryUidForRevocation = null;
+  let secondaryRevocationForPublication = null;
   try {
     updated = await setTenantTx(requireTenantId(tid), async (tx) => {
       const existingRows = await tx.$queryRawUnsafe(
@@ -1235,6 +1240,17 @@ export async function executeMerge({
         throw AppError.conflict('Secondary patient could not be deactivated', 'PATIENT_MERGE_DEACTIVATION_FAILED');
       }
 
+      // The identity deactivation and its bearer-token revocation are one
+      // security boundary. Persist the epoch bump + revoke-all watermark on
+      // this transaction client so a durable-store failure rolls the entire
+      // merge back to 'approved' instead of leaving a merged-away patient
+      // able to keep using an already-issued token.
+      const secondaryRevokedAt = await persistRevokeAllUserTokens(secondary, {
+        client: tx,
+        requireEvidence: true,
+        reason: PATIENT_MERGE_REVOCATION_REASON,
+      });
+
       // Chain flattening: records merged into the secondary EARLIER (A→B,
       // now B→C) must end pointing at the final survivor, or old-identifier
       // lookups and login redirects dead-end on a deactivated record. Stored
@@ -1269,6 +1285,7 @@ export async function executeMerge({
         chained_users_repointed: chainedUsersRepointed,
         chained_identifiers_repointed: chainedIdentifiersRepointed,
         secondary_deactivated: true,
+        secondary_tokens_revoked: true,
         secondary_user_id: patients.secondary.id,
         primary_user_id: patients.primary.id,
       };
@@ -1354,7 +1371,10 @@ export async function executeMerge({
         );
       }
 
-      secondaryUidForRevocation = secondary;
+      secondaryRevocationForPublication = {
+        uid: secondary,
+        revokedAt: secondaryRevokedAt,
+      };
       return executedRow;
     }, { timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS });
   } catch (err) {
@@ -1372,15 +1392,23 @@ export async function executeMerge({
     throw err;
   }
 
-  // Phase 1.5 (post-commit, best-effort): the merged-away record must not
-  // keep using JWTs issued before the merge. Failure is logged, never
-  // blocks the committed merge.
-  if (secondaryUidForRevocation) {
+  // Phase 1.5 (post-commit, best-effort): publish only the already-committed
+  // revocation timestamp to Redis and live WebSockets. A publication failure
+  // is observable but cannot roll back or misreport the completed domain
+  // merge; every reconnect still checks the durable epoch/watermark.
+  if (secondaryRevocationForPublication) {
     try {
-      await revokeAllUserTokens(secondaryUidForRevocation);
+      await publishRevokeAllUserTokens(
+        secondaryRevocationForPublication.uid,
+        secondaryRevocationForPublication.revokedAt,
+        { reason: PATIENT_MERGE_REVOCATION_REASON },
+      );
     } catch (err) {
-      logger.warn('patient merge token revocation failed', {
-        mergeRequestId: mid, error: err.message,
+      logger.warn('patient merge token revocation publication failed', {
+        mergeRequestId: mid,
+        tenantId: tid,
+        secondaryUid: secondaryRevocationForPublication.uid,
+        error: err.message,
       });
     }
   }
