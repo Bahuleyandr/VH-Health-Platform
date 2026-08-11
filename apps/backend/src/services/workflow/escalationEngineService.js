@@ -477,8 +477,10 @@ async function resolveRecipientByUid(tx, tenantId, uid) {
 // Enqueue ONE outbox row per resolved recipient with a REAL recipientId +
 // recipientPhone, so the drained outbox (scheduler.js drainNotificationOutbox)
 // actually delivers a push/WS (by userId) and/or SMS (by phone) to a human. A
-// queue is part of the same transaction that records the escalation marker:
-// if durable enqueue is not confirmed, the once-only tier must remain live.
+// queue is part of the same transaction that records the escalation marker.
+// Notify actions fail closed when enqueue is unconfirmed. Tier-1 priority
+// escalation isolates its optional assignee re-notification behind a savepoint:
+// the clinical priority transition still commits and dispatches a loud fallback.
 async function queueRecipientNotifications({ recipients, title, body, data, tenantId, tx }) {
   const resolved = Array.isArray(recipients) ? recipients : [];
   if (resolved.length === 0) {
@@ -513,6 +515,32 @@ async function queueRecipientNotifications({ recipients, title, body, data, tena
     queued += 1;
   }
   return queued;
+}
+
+async function queuePriorityEscalationNotification({ recipients, notification, tenantId, tx }) {
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    return { queued: 0, fallbackCode: 'no_active_assignee' };
+  }
+
+  await tx.$executeRawUnsafe('SAVEPOINT tier1_assignee_notification');
+  try {
+    const queued = await queueRecipientNotifications({
+      recipients,
+      tenantId,
+      tx,
+      ...notification,
+    });
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT tier1_assignee_notification');
+    return { queued, fallbackCode: null };
+  } catch (cause) {
+    await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tier1_assignee_notification');
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT tier1_assignee_notification');
+    return {
+      queued: 0,
+      fallbackCode: 'durable_enqueue_unconfirmed',
+      fallbackError: cause?.message || 'unknown enqueue failure',
+    };
+  }
 }
 
 function clampLimit(value) {
@@ -662,23 +690,28 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
 
   let queued = 0;
   let notifyRole = null;
+  let fallbackCode = null;
+  let fallbackError = null;
   if (action === 'escalate_priority' && payload.also_notify === 'assignee') {
     const recipients = await resolveRecipientByUid(tx, tenantId, taskRow.assigned_to_uid);
-    queued = await queueRecipientNotifications({
+    const delivery = await queuePriorityEscalationNotification({
       recipients,
       tenantId,
       tx,
-      title: 'Critical result still needs review',
-      body: `Escalated (tier ${tier ?? 1}): ${taskRow.title || 'critical result'} — please review now.`,
-      data: {
-        kind: 'results_inbox_escalation',
-        task_id: taskRow.id,
-        rule_id: ruleRow.id,
-        tier,
-        assigned_to_uid: taskRow.assigned_to_uid || null,
-        assigned_to_role: taskRow.assigned_to_role || null,
+      notification: {
+        title: 'Critical result still needs review',
+        body: `Escalated (tier ${tier ?? 1}): ${taskRow.title || 'critical result'} — please review now.`,
+        data: {
+          kind: 'results_inbox_escalation',
+          task_id: taskRow.id,
+          rule_id: ruleRow.id,
+          tier,
+          assigned_to_uid: taskRow.assigned_to_uid || null,
+          assigned_to_role: taskRow.assigned_to_role || null,
+        },
       },
     });
+    ({ queued, fallbackCode, fallbackError } = delivery);
   } else if (action === 'notify') {
     notifyRole = resolveRoleCode(payload.notify_role);
     const recipients = await resolveRecipientsForRole(tx, tenantId, notifyRole, now);
@@ -724,7 +757,7 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
       assigned_to_uid: taskRow.assigned_to_uid || null,
       assigned_to_role: taskRow.assigned_to_role || null,
     }),
-    delivery: Object.freeze({ queued, notifyRole }),
+    delivery: Object.freeze({ queued, notifyRole, fallbackCode, fallbackError }),
     firedAt: nowIso,
   });
 }
@@ -735,6 +768,24 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
 async function dispatchAction({ plan }) {
   const { action, payload, task: taskRow } = plan;
   const tier = payload.tier ?? null;
+  if (action === 'escalate_priority'
+    && payload.also_notify === 'assignee'
+    && plan.delivery.fallbackCode) {
+    const fallbackReason = plan.delivery.fallbackCode === 'no_active_assignee'
+      ? 'no active assignee; durable tier-1 notification was not enqueued'
+      : 'durable tier-1 assignee notification was not enqueued';
+    logger.error('escalation sweep: critical priority committed without durable assignee notification', {
+      taskId: taskRow.id,
+      tier,
+      fallbackCode: plan.delivery.fallbackCode,
+      fallbackError: plan.delivery.fallbackError,
+    });
+    sendSecurityWebhook(UNACKED_EVENT, {
+      userId: taskRow.assigned_to_uid || null,
+      path: `/api/v1/admin/workflow/tasks/${taskRow.id}`,
+      reason: `tier=${tier ?? 1} patient=${taskRow.patient_uid || 'unknown'} :: ${fallbackReason}`,
+    });
+  }
   if (action === 'notify') {
     const role = plan.delivery.notifyRole;
     if (payload.security_webhook) {

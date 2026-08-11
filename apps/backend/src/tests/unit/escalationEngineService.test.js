@@ -332,8 +332,9 @@ describe('runEscalationSweep', () => {
     // priority bumped to critical via an UPDATE on the task (the metadata append
     // is the $executeRawUnsafe write). The escalations[] array is a bound
     // ::jsonb param (raw-param rules — not interpolated into SQL text).
-    const appendSql = executeRawMock.mock.calls[0][0];
-    const appendMetaParam = executeRawMock.mock.calls[0][1];
+    const appendCall = executeRawMock.mock.calls.find(([sql]) => /UPDATE\s+tasks/i.test(sql));
+    const appendSql = appendCall?.[0];
+    const appendMetaParam = appendCall?.[1];
     expect(appendSql).toMatch(/UPDATE\s+tasks/i);
     expect(appendSql).toMatch(/metadata\s*=\s*\$1::jsonb/i);
     expect(appendSql).toMatch(/priority\s*=\s*'critical'/i);
@@ -348,6 +349,113 @@ describe('runEscalationSweep', () => {
     const note = queueNotificationMock.mock.calls[0][0];
     expect(note.recipientId).toBe(42);
     expect(String(note.body || note.title || '')).toMatch(/escalat|critical|review/i);
+  });
+
+  it('critical_result_ack tier-1 commits critical priority and pages loudly with no active assignee', async () => {
+    const unassigned = task({ assigned_to_uid: null, assigned_to_role: 'DUTY_DOCTOR' });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([unassigned])
+      .mockResolvedValueOnce(claimed(unassigned))
+      .mockResolvedValueOnce([]);
+
+    const first = await runEscalationSweep({ now: NOW });
+
+    expect(first.escalated).toBe(1);
+    const update = executeRawMock.mock.calls.find(([sql]) => /UPDATE\s+tasks/i.test(sql));
+    expect(update?.[0]).toMatch(/priority\s*=\s*'critical'/i);
+    expect(JSON.parse(update?.[1])).toMatchObject({
+      escalations: [expect.objectContaining({
+        tier: 1,
+        rule_id: 5,
+        action: 'escalate_priority',
+      })],
+    });
+    expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(executeRawMock.mock.calls.map(([sql]) => sql).join('\n')).not.toMatch(/SAVEPOINT/i);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledWith(
+      expect.stringMatching(/CRITICAL_RESULT_UNACKED|UNACK/i),
+      expect.objectContaining({
+        path: '/api/v1/admin/workflow/tasks/77',
+        reason: expect.stringMatching(/no active assignee|not enqueued/i),
+      }),
+    );
+
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const replay = await runEscalationSweep({ now: NOW });
+
+    expect(replay.escalated).toBe(0);
+    expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('critical_result_ack tier-1 commits critical priority and pages loudly when strict enqueue faults', async () => {
+    queueNotificationMock.mockRejectedValueOnce(new Error('notification outbox unavailable'));
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce([{
+        id: 42,
+        uid: CLINICIAN,
+        phone: '+919800000001',
+        role: 'DOCTOR',
+      }])
+      .mockResolvedValueOnce([]);
+
+    const first = await runEscalationSweep({ now: NOW });
+
+    expect(first.escalated).toBe(1);
+    const update = executeRawMock.mock.calls.find(([sql]) => /UPDATE\s+tasks/i.test(sql));
+    expect(update?.[0]).toMatch(/priority\s*=\s*'critical'/i);
+    expect(JSON.parse(update?.[1])).toMatchObject({
+      escalations: [expect.objectContaining({
+        tier: 1,
+        rule_id: 5,
+        action: 'escalate_priority',
+      })],
+    });
+    expect(queueNotificationMock).toHaveBeenCalledTimes(1);
+    const statements = executeRawMock.mock.calls.map(([sql]) => sql);
+    expect(statements).toEqual(expect.arrayContaining([
+      'SAVEPOINT tier1_assignee_notification',
+      'ROLLBACK TO SAVEPOINT tier1_assignee_notification',
+      'RELEASE SAVEPOINT tier1_assignee_notification',
+    ]));
+    expect(statements.findIndex(sql => /ROLLBACK TO SAVEPOINT/i.test(sql)))
+      .toBeLessThan(statements.findIndex(sql => /UPDATE\s+tasks/i.test(sql)));
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledWith(
+      expect.stringMatching(/CRITICAL_RESULT_UNACKED|UNACK/i),
+      expect.objectContaining({
+        path: '/api/v1/admin/workflow/tasks/77',
+        reason: expect.stringMatching(/enqueue|not enqueued/i),
+      }),
+    );
+
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const replay = await runEscalationSweep({ now: NOW });
+
+    expect(replay.escalated).toBe(0);
+    expect(queueNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([
