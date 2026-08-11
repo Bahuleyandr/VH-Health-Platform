@@ -177,6 +177,7 @@ test.each([
     const [appointmentData, actor] = createAppointmentMock.mock.calls[0];
     expect(appointmentData).toEqual(expect.objectContaining({
       patient_id: patientId,
+      patient_phone: undefined,
       doctor_id: 12,
       tenant_id: TENANT_ID,
     }));
@@ -209,6 +210,12 @@ test('service passes the trusted actor identity into appointment creation eviden
         uid: PATIENT_UID,
         phone: '+919876543210',
         name: 'Booked Patient',
+        role: 'PATIENT',
+        is_active: true,
+        status: 'active',
+        is_deleted: false,
+        deleted_at: null,
+        merged_into_uid: null,
       }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([appointment]),
@@ -259,4 +266,69 @@ test('service passes the trusted actor identity into appointment creation eviden
   expect(populateAppointmentCareTeamMock).toHaveBeenCalledWith(
     expect.objectContaining({ createdBy: STAFF_UID }),
   );
+});
+
+test.each([
+  {
+    label: 'phone changed after preflight',
+    patient: {
+      id: 41,
+      uid: PATIENT_UID,
+      phone: '+919111111111',
+      name: 'Booked Patient',
+      role: 'PATIENT',
+      is_active: true,
+      status: 'active',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: null,
+    },
+    code: 'APPOINTMENT_PATIENT_ID_PHONE_MISMATCH',
+  },
+  {
+    label: 'patient was deactivated after preflight',
+    patient: {
+      id: 41,
+      uid: PATIENT_UID,
+      phone: '+919876543210',
+      name: 'Booked Patient',
+      role: 'PATIENT',
+      is_active: false,
+      status: 'deactivated',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: null,
+    },
+    code: 'APPOINTMENT_PATIENT_UNAVAILABLE',
+  },
+])('service revalidates and locks patient identity in the booking transaction: $label', async ({ patient, code }) => {
+  const tx = {
+    $queryRaw: jest.fn().mockResolvedValueOnce([patient]),
+  };
+  setTenantTxMock.mockImplementation(async (_tenantId, callback) => callback(tx));
+  resolveDoctorRefMock.mockResolvedValue({
+    id: 12,
+    uid: '44444444-4444-4444-8444-444444444444',
+    name: 'Dr Example',
+    department: 'General Medicine',
+  });
+
+  await expect(appointmentService.createAppointment({
+    patient_id: 41,
+    patient_phone: '+919876543210',
+    doctor_id: 12,
+    appointment_date: '2026-08-01',
+    appointment_time: '10:00',
+    reason: 'Consultation',
+    tenant_id: TENANT_ID,
+  }, {
+    actorUid: STAFF_UID,
+    actorId: 9,
+    actorRole: 'RECEPTIONIST',
+  })).rejects.toMatchObject({ code });
+
+  expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+  expect(String(tx.$queryRaw.mock.calls[0][0])).toContain('FOR SHARE');
+  expect(ensureAppointmentQueueMock).not.toHaveBeenCalled();
+  expect(recordAppointmentCreatedEvidenceMock).not.toHaveBeenCalled();
 });

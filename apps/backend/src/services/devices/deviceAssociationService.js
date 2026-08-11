@@ -4,6 +4,8 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { canManageDeviceAssociation } from '../../utils/roleHelpers.js';
+import { normalizeRole } from '../../utils/roles.js';
 
 const START_METHODS = new Set(['scan', 'manual', 'adt']);
 const END_REASONS = new Set(['manual', 'device_reassigned', 'discharge', 'transfer', 'device_retired', 'ttl_expired']);
@@ -102,11 +104,70 @@ async function resolveDevice(db, tenantId, { deviceId = null, deviceCode = null 
 
 async function assertPatient(db, tenantId, patientUid) {
   const rows = await db.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+    `SELECT uid, role, is_active, status, is_deleted, deleted_at, merged_into_uid
+       FROM users
+      WHERE uid = $1::uuid
+        AND tenant_id = $2::uuid
+        AND role = 'PATIENT'
+        AND is_active = TRUE
+        AND status = 'active'
+        AND is_deleted IS FALSE
+        AND deleted_at IS NULL
+        AND merged_into_uid IS NULL
+      LIMIT 1
+      FOR SHARE`,
     patientUid,
     tenantId,
   );
-  if (!rows[0]) throw AppError.notFound('Patient not found', 'DEVICE_ASSOCIATION_PATIENT_NOT_FOUND');
+  const patient = rows[0];
+  if (
+    !patient
+    || normalizeRole(patient.role) !== 'PATIENT'
+    || patient.is_active !== true
+    || String(patient.status || '').trim().toLowerCase() !== 'active'
+    || patient.is_deleted !== false
+    || patient.deleted_at !== null
+    || patient.merged_into_uid !== null
+  ) {
+    throw AppError.notFound('Patient not found', 'DEVICE_ASSOCIATION_PATIENT_NOT_FOUND');
+  }
+}
+
+async function assertAssociationOperator(db, tenantId, actorUid, claimedRole) {
+  const uid = normalizeUuid(actorUid, 'actor uid');
+  const role = normalizeRole(claimedRole);
+  if (!canManageDeviceAssociation(role)) {
+    throw AppError.forbidden(
+      'Current actor is not authorized to manage device associations',
+      'DEVICE_ASSOCIATION_OPERATOR_FORBIDDEN',
+    );
+  }
+  const rows = await db.$queryRawUnsafe(
+    `SELECT actor.uid, actor.role, actor.is_active, actor.status,
+            actor.is_deleted, actor.deleted_at
+       FROM users actor
+      WHERE actor.tenant_id = $1::uuid
+        AND actor.uid = $2::uuid
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    uid,
+  );
+  const actor = rows[0];
+  if (
+    !actor
+    || actor.is_active !== true
+    || String(actor.status || '').trim().toLowerCase() !== 'active'
+    || actor.is_deleted !== false
+    || actor.deleted_at !== null
+    || normalizeRole(actor.role) !== role
+    || !canManageDeviceAssociation(actor.role)
+  ) {
+    throw AppError.forbidden(
+      'Current actor is not authorized to manage device associations',
+      'DEVICE_ASSOCIATION_OPERATOR_FORBIDDEN',
+    );
+  }
 }
 
 async function assertBed(db, tenantId, bedId) {
@@ -282,6 +343,7 @@ export async function associateDevicePatient(input = {}, context = {}) {
   const actorRole = safeText(context.actorRole, 80);
 
   return setTenantTx(tenantId, async (tx) => {
+    await assertAssociationOperator(tx, tenantId, actorUid, actorRole);
     const device = await resolveDevice(tx, tenantId, {
       deviceId: input.device_id ?? input.deviceId,
       deviceCode: input.device_code ?? input.deviceCode,
@@ -363,6 +425,7 @@ export async function disconnectAssociation(input = {}, context = {}) {
   const actorRole = safeText(context.actorRole, 80);
 
   return setTenantTx(tenantId, async (tx) => {
+    await assertAssociationOperator(tx, tenantId, actorUid, actorRole);
     const rows = await tx.$queryRawUnsafe(
       `UPDATE device_patient_associations
           SET ended_at = NOW(),

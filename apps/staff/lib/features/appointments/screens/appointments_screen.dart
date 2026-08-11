@@ -23,6 +23,18 @@ import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 export '../appointment_calendar_helpers.dart';
 
+typedef AppointmentsLoader =
+    Future<Map<String, dynamic>> Function({
+      String? doctorId,
+      required String date,
+      String? status,
+      required int page,
+      required int limit,
+    });
+
+typedef AppointmentsRoleLoader = Future<String> Function();
+typedef AppointmentsStaffIdLoader = Future<String?> Function();
+
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 
 @visibleForTesting
@@ -221,11 +233,19 @@ String _doctorLabelWithStrings(Map<String, dynamic> doctor, {AppStrings? s}) {
 class AppointmentsScreen extends StatefulWidget {
   final DateTime? initialDate;
   final bool workspaceMode;
+  final AppointmentsLoader? loadAppointments;
+  final AppointmentsRoleLoader? loadRole;
+  final AppointmentsStaffIdLoader? loadStaffId;
+  final bool autoRefresh;
 
   const AppointmentsScreen({
     super.key,
     this.initialDate,
     this.workspaceMode = false,
+    this.loadAppointments,
+    this.loadRole,
+    this.loadStaffId,
+    this.autoRefresh = true,
   });
 
   @override
@@ -246,6 +266,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   bool _queuePanelCollapsed = false;
   bool _queuePanelManuallyToggled = false;
   late final ScrollController _queuePanelScrollController;
+  int _loadGeneration = 0;
+  bool _hasLoadedAppointments = false;
 
   bool get _canBookAppointments => !_doctorScoped;
   bool get _doctorWorkspaceMode => widget.workspaceMode && _doctorScoped;
@@ -288,7 +310,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     _queuePanelScrollController = ScrollController();
     _selectedDate = _dateOnly(widget.initialDate ?? DateTime.now());
     _load();
-    _attachRealtime();
+    if (widget.autoRefresh) {
+      _attachRealtime();
+    }
   }
 
   Future<void> _attachRealtime() async {
@@ -319,30 +343,47 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     bool showLoading = true,
     bool preserveLastKnownData = false,
   }) async {
-    if (showLoading) {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
+    final selectedDate = _selectedDate;
+    final selectedStatus = _selectedStatus;
+    if (showLoading && !_hasLoadedAppointments) {
       setState(() {
         _loading = true;
         _error = null;
       });
     }
     try {
-      final role = (await ApiConfig.getRole()).toUpperCase();
+      final role = (await (widget.loadRole?.call() ?? ApiConfig.getRole()))
+          .toUpperCase();
       final doctorScoped = _isDoctorQueueRole(role);
-      final doctorId = doctorScoped ? await ApiConfig.getStaffId() : null;
-      final days = _appointmentWeekDays(_selectedDate);
+      final doctorId = doctorScoped
+          ? await (widget.loadStaffId?.call() ?? ApiConfig.getStaffId())
+          : null;
+      final days = _appointmentWeekDays(selectedDate);
       final results = await Future.wait(
-        days.map(
-          (day) => ScheduleApiService.getAppointments(
+        days.map((day) {
+          final loader = widget.loadAppointments;
+          if (loader != null) {
+            return loader(
+              doctorId: doctorId,
+              date: _dateParam(day),
+              status: selectedStatus == 'all' ? null : selectedStatus,
+              page: 1,
+              limit: 100,
+            );
+          }
+          return ScheduleApiService.getAppointments(
             doctorId: doctorId,
             date: _dateParam(day),
-            status: _selectedStatus == 'all' ? null : _selectedStatus,
+            status: selectedStatus == 'all' ? null : selectedStatus,
             page: 1,
             limit: 100,
-          ),
-        ),
+          );
+        }),
       );
+      if (!mounted || generation != _loadGeneration) return;
       final byDate = <String, List<StaffAppointment>>{};
-      if (!mounted) return;
       final s = AppStrings.of(context);
       for (var index = 0; index < days.length; index += 1) {
         byDate[_dateParam(days[index])] = StaffAppointment.listFrom(
@@ -353,6 +394,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       if (mounted) {
         setState(() {
           _appointmentsByDate = byDate;
+          _hasLoadedAppointments = true;
           _error = null;
           _doctorScoped = doctorScoped;
           _currentStaffId = int.tryParse(doctorId ?? '');
@@ -367,15 +409,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
-          if (!preserveLastKnownData || _appointmentsByDate.isEmpty) {
+          if (!_hasLoadedAppointments &&
+              (!preserveLastKnownData || _appointmentsByDate.isEmpty)) {
             _error = e.toString().replaceFirst('Exception: ', '');
           }
         });
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _loading = false);
+      }
     }
   }
 

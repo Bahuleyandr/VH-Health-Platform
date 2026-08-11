@@ -14,8 +14,65 @@ const queueInProgressFilterStatus = 'IN_PROGRESS';
 @visibleForTesting
 const queueInProgressUpdateStatus = 'IN_PROGRESS';
 
+typedef QueueAppointmentsLoader =
+    Future<Map<String, dynamic>> Function({
+      required String date,
+      required String status,
+      required int limit,
+    });
+
+String? _queueText(dynamic value) {
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? null : text;
+}
+
+@visibleForTesting
+String queuePatientName(Map<String, dynamic> appointment, String fallback) =>
+    _queueText(appointment['patient_name']) ??
+    _queueText(appointment['patientName']) ??
+    _queueText(appointment['patient']?['name']) ??
+    fallback;
+
+@visibleForTesting
+String queuePatientPhone(Map<String, dynamic> appointment) =>
+    _queueText(appointment['patient_phone']) ??
+    _queueText(appointment['phone']) ??
+    _queueText(appointment['patientPhone']) ??
+    _queueText(appointment['patient']?['phone']) ??
+    '';
+
+@visibleForTesting
+String queueAppointmentType(Map<String, dynamic> appointment) =>
+    _queueText(appointment['visit_type']) ??
+    _queueText(appointment['type']) ??
+    _queueText(appointment['appointmentType']) ??
+    '';
+
+@visibleForTesting
+DateTime? queueAppointmentDateTime(Map<String, dynamic> appointment) {
+  final canonicalDate = _queueText(appointment['appointment_date']);
+  final canonicalTime = _queueText(appointment['appointment_time']);
+  if (canonicalDate != null && canonicalTime != null) {
+    final date = canonicalDate.length >= 10
+        ? canonicalDate.substring(0, 10)
+        : canonicalDate;
+    final parsed = DateTime.tryParse('${date}T$canonicalTime');
+    if (parsed != null) return parsed;
+  }
+  final legacy =
+      _queueText(appointment['dateTime']) ?? _queueText(appointment['date']);
+  return legacy == null ? null : DateTime.tryParse(legacy);
+}
+
 class QueueScreen extends StatefulWidget {
-  const QueueScreen({super.key});
+  const QueueScreen({
+    super.key,
+    this.loadAppointments,
+    this.autoRefresh = true,
+  });
+
+  final QueueAppointmentsLoader? loadAppointments;
+  final bool autoRefresh;
 
   @override
   State<QueueScreen> createState() => _QueueScreenState();
@@ -31,12 +88,19 @@ class _QueueScreenState extends State<QueueScreen> {
   Timer? _tickTimer;
   DateTime? _consultationStart;
   Duration _elapsed = Duration.zero;
+  int _loadGeneration = 0;
+  bool _hasLoadedQueue = false;
 
   @override
   void initState() {
     super.initState();
     _load();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _load());
+    if (widget.autoRefresh) {
+      _refreshTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => _load(),
+      );
+    }
     _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_consultationStart != null && mounted) {
         setState(
@@ -54,31 +118,31 @@ class _QueueScreenState extends State<QueueScreen> {
   }
 
   Future<void> _load() async {
-    if (!_loading) setState(() {});
+    final generation = ++_loadGeneration;
     try {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
+      Future<Map<String, dynamic>> loadStatus(String status) {
+        final loader = widget.loadAppointments;
+        if (loader != null) {
+          return loader(date: today, status: status, limit: 50);
+        }
+        return ScheduleApiService.getAppointments(
+          date: today,
+          status: status,
+          limit: 50,
+        );
+      }
+
       // Fetch all relevant statuses
-      final scheduled = await ScheduleApiService.getAppointments(
-        date: today,
-        status: 'scheduled',
-        limit: 50,
-      );
-      final confirmed = await ScheduleApiService.getAppointments(
-        date: today,
-        status: 'confirmed',
-        limit: 50,
-      );
-      final inProgress = await ScheduleApiService.getAppointments(
-        date: today,
-        status: queueInProgressFilterStatus,
-        limit: 50,
-      );
-      final completed = await ScheduleApiService.getAppointments(
-        date: today,
-        status: 'completed',
-        limit: 50,
-      );
+      final results = await Future.wait([
+        loadStatus('scheduled'),
+        loadStatus('confirmed'),
+        loadStatus(queueInProgressFilterStatus),
+        loadStatus('completed'),
+      ]);
+      if (!mounted || generation != _loadGeneration) return;
+      final [scheduled, confirmed, inProgress, completed] = results;
 
       List<Map<String, dynamic>> extractList(Map<String, dynamic> data) {
         final raw =
@@ -92,16 +156,20 @@ class _QueueScreenState extends State<QueueScreen> {
       ];
       // Sort by time
       waitingList.sort((a, b) {
-        final aTime = a['dateTime']?.toString() ?? a['date']?.toString() ?? '';
-        final bTime = b['dateTime']?.toString() ?? b['date']?.toString() ?? '';
+        final aTime = queueAppointmentDateTime(a);
+        final bTime = queueAppointmentDateTime(b);
+        if (aTime == null) return bTime == null ? 0 : 1;
+        if (bTime == null) return -1;
         return aTime.compareTo(bTime);
       });
 
       final inProgressList = extractList(inProgress);
       final completedList = extractList(completed);
       completedList.sort((a, b) {
-        final aTime = a['dateTime']?.toString() ?? a['date']?.toString() ?? '';
-        final bTime = b['dateTime']?.toString() ?? b['date']?.toString() ?? '';
+        final aTime = queueAppointmentDateTime(a);
+        final bTime = queueAppointmentDateTime(b);
+        if (aTime == null) return bTime == null ? 0 : 1;
+        if (bTime == null) return -1;
         return bTime.compareTo(aTime); // most recent first
       });
 
@@ -110,6 +178,7 @@ class _QueueScreenState extends State<QueueScreen> {
           _waiting = waitingList;
           _current = inProgressList.isNotEmpty ? inProgressList.first : null;
           _completed = completedList;
+          _hasLoadedQueue = true;
           _loading = false;
           _error = null;
           // If there's an in-progress appointment and we don't have a start time, start now
@@ -123,9 +192,11 @@ class _QueueScreenState extends State<QueueScreen> {
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
-          _error = e.toString().replaceFirst('Exception: ', '');
+          if (!_hasLoadedQueue) {
+            _error = e.toString().replaceFirst('Exception: ', '');
+          }
           _loading = false;
         });
       }
@@ -183,14 +254,11 @@ class _QueueScreenState extends State<QueueScreen> {
   }
 
   void _showPatientDetails(Map<String, dynamic> appointment) async {
-    final phone =
-        appointment['patientPhone']?.toString() ??
-        appointment['patient']?['phone']?.toString() ??
-        '';
-    final patientName =
-        appointment['patientName']?.toString() ??
-        appointment['patient']?['name']?.toString() ??
-        AppStrings.of(context).queueUnknownPatient;
+    final phone = queuePatientPhone(appointment);
+    final patientName = queuePatientName(
+      appointment,
+      AppStrings.of(context).queueUnknownPatient,
+    );
 
     unawaited(
       showModalBottomSheet(
@@ -218,19 +286,14 @@ class _QueueScreenState extends State<QueueScreen> {
   }
 
   String _waitTime(Map<String, dynamic> appt, BuildContext context) {
-    final dt = appt['dateTime']?.toString() ?? appt['date']?.toString();
-    if (dt == null) return '';
+    final parsed = queueAppointmentDateTime(appt);
+    if (parsed == null) return '';
     final s = AppStrings.of(context);
-    try {
-      final parsed = DateTime.parse(dt);
-      final diff = DateTime.now().difference(parsed);
-      if (diff.isNegative) {
-        return '${s.queueInPrefix} ${_formatDuration(-diff)}';
-      }
-      return '${s.queueWaitingPrefix} ${_formatDuration(diff)}';
-    } catch (e) {
-      return '';
+    final diff = DateTime.now().difference(parsed);
+    if (diff.isNegative) {
+      return '${s.queueInPrefix} ${_formatDuration(-diff)}';
     }
+    return '${s.queueWaitingPrefix} ${_formatDuration(diff)}';
   }
 
   @override
@@ -436,15 +499,11 @@ class _CurrentConsultationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ignore: unused_local_variable
-    final name =
-        appointment['patientName']?.toString() ??
-        appointment['patient']?['name']?.toString() ??
-        AppStrings.of(context).queueUnknownPatient;
-    final type =
-        appointment['type']?.toString() ??
-        appointment['appointmentType']?.toString() ??
-        '';
+    final name = queuePatientName(
+      appointment,
+      AppStrings.of(context).queueUnknownPatient,
+    );
+    final type = queueAppointmentType(appointment);
 
     return Card(
       color: AppTheme.primaryBlue.withValues(alpha: 0.05),
@@ -565,28 +624,16 @@ class _QueueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name =
-        appointment['patientName']?.toString() ??
-        appointment['patient']?['name']?.toString() ??
-        AppStrings.of(context).queueUnknownPatient;
-    final type =
-        appointment['type']?.toString() ??
-        appointment['appointmentType']?.toString() ??
-        '';
-    final time =
-        appointment['dateTime']?.toString() ??
-        appointment['date']?.toString() ??
-        '';
+    final name = queuePatientName(
+      appointment,
+      AppStrings.of(context).queueUnknownPatient,
+    );
+    final type = queueAppointmentType(appointment);
+    final dateTime = queueAppointmentDateTime(appointment);
 
-    String displayTime = '';
-    try {
-      if (time.isNotEmpty) {
-        final dt = DateTime.parse(time);
-        displayTime = DateFormat('hh:mm a').format(dt);
-      }
-    } catch (e) {
-      displayTime = time;
-    }
+    final displayTime = dateTime == null
+        ? (_queueText(appointment['appointment_time']) ?? '')
+        : DateFormat('hh:mm a').format(dateTime);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),

@@ -25,7 +25,12 @@ import {
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { AppError } from '../../utils/AppError.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { isClinical, isAdmin, isDoctor } from '../../utils/roleHelpers.js';
+import {
+  canManageDeviceAssociation,
+  isClinical,
+  isAdmin,
+  isDoctor,
+} from '../../utils/roleHelpers.js';
 
 const router = express.Router();
 
@@ -47,6 +52,17 @@ function gatewaySurfaceGuard(req, res, next) {
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
+}
+
+function requireDeviceAssociationOperator(req, res) {
+  const role = req.user?.rawRole || req.user?.role;
+  if (canManageDeviceAssociation(role)) return true;
+  error(
+    res,
+    'Only authorized nursing operators can manage device associations',
+    HTTP_STATUS.FORBIDDEN,
+  );
+  return false;
 }
 
 router.use(gatewaySurfaceGuard);
@@ -173,6 +189,7 @@ router.get('/associations', async (req, res) => {
 
 router.post('/associations', async (req, res) => {
   try {
+    if (!requireDeviceAssociationOperator(req, res)) return;
     const association = await associateDevicePatient({
       device_id: req.body.device_id,
       device_code: req.body.device_code,
@@ -184,7 +201,7 @@ router.post('/associations', async (req, res) => {
     }, {
       tenantId: requestTenantId(req),
       actorUid: req.user?.uid || null,
-      actorRole: req.user?.role || null,
+      actorRole: req.user?.rawRole || req.user?.role || null,
     });
     return success(res, { association }, 'Device associated', HTTP_STATUS.CREATED);
   } catch (err) {
@@ -194,13 +211,14 @@ router.post('/associations', async (req, res) => {
 
 router.post('/associations/:id/disconnect', async (req, res) => {
   try {
+    if (!requireDeviceAssociationOperator(req, res)) return;
     const association = await disconnectAssociation({
       id: req.params.id,
       end_reason: req.body.end_reason || 'manual',
     }, {
       tenantId: requestTenantId(req),
       actorUid: req.user?.uid || null,
-      actorRole: req.user?.role || null,
+      actorRole: req.user?.rawRole || req.user?.role || null,
     });
     return success(res, { association }, 'Device association disconnected');
   } catch (err) {

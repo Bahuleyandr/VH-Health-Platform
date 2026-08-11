@@ -5,6 +5,7 @@ import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appointmentWorkflowController.js';
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
@@ -106,6 +107,7 @@ export class AppointmentService {
   async createAppointment(appointmentData, options = {}) {
     const {
       patient_id,
+      patient_phone = null,
       doctor_id,
       appointment_date,
       appointment_time,
@@ -140,24 +142,57 @@ export class AppointmentService {
         // Resolve patient phone and, when specified, doctor routing metadata.
         const [pRows, resolvedDoctor] = await Promise.all([
           tx.$queryRaw`
-            SELECT id, uid, phone, name
+            SELECT id, uid, phone, name, role, is_active, status,
+                   is_deleted, deleted_at, merged_into_uid
               FROM users
              WHERE id = ${parseInt(patient_id)}
                AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
              LIMIT 1
+             FOR SHARE
           `,
           hasDoctorId
             ? resolveDoctorRef(tx, doctor_id, { tenantId: tenant_id })
             : Promise.resolve(null),
         ]);
-        if (!pRows[0]) {
+        const patient = pRows[0];
+        if (!patient) {
           const err = new Error('Patient not found');
           err.statusCode = 400;
           throw err;
         }
-        const patientPhone = pRows[0]?.phone ?? '';
-        const patientName = pRows[0]?.name ?? null;
-        bookedPatientUid = pRows[0]?.uid ?? null;
+        if (
+          String(patient.role || '').trim().toUpperCase() !== 'PATIENT'
+          || patient.is_active !== true
+          || String(patient.status || '').trim().toLowerCase() !== 'active'
+          || patient.is_deleted !== false
+          || patient.deleted_at !== null
+          || patient.merged_into_uid !== null
+        ) {
+          throw AppError.conflict(
+            'Patient is no longer available for appointment booking',
+            'APPOINTMENT_PATIENT_UNAVAILABLE',
+          );
+        }
+        if (patient_phone) {
+          const requestedPhone = normalizePhone(patient_phone);
+          const storedPhone = normalizePhone(patient.phone);
+          const requestedLast10 = requestedPhone?.replace(/\D/g, '').slice(-10);
+          const storedLast10 = storedPhone?.replace(/\D/g, '').slice(-10);
+          if (
+            !requestedPhone
+            || !isValidPhone(requestedPhone)
+            || !storedLast10
+            || requestedLast10 !== storedLast10
+          ) {
+            throw AppError.conflict(
+              'patient_id and patient_phone identify different patients',
+              'APPOINTMENT_PATIENT_ID_PHONE_MISMATCH',
+            );
+          }
+        }
+        const patientPhone = patient.phone ?? '';
+        const patientName = patient.name ?? null;
+        bookedPatientUid = patient.uid ?? null;
         bookedDoctorUid = resolvedDoctor?.uid ?? null;
         bookedDoctorId = resolvedDoctor?.id ?? null;
         if (hasDoctorId && !resolvedDoctor?.id) {

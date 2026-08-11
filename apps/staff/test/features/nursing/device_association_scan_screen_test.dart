@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
@@ -77,7 +78,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('manual device selection exposes an association action', (
+  testWidgets('manual device selection requires review before association', (
     tester,
   ) async {
     String? associatedPatient;
@@ -115,12 +116,55 @@ void main() {
 
     await tester.tap(action);
     await tester.pump();
+
+    expect(associatedPatient, isNull);
+    expect(associatedDevice, isNull);
+    final confirm = find.widgetWithText(FilledButton, 'Confirm');
+    expect(confirm, findsOneWidget);
+
+    await tester.tap(confirm);
+    await tester.pump();
     await tester.pump();
 
     expect(associatedPatient, 'patient-42');
     expect(associatedDevice, 'MON-1');
     expect(find.text('Bedside Monitor'), findsOneWidget);
     expect(find.byType(FilledButton), findsNothing);
+  });
+
+  testWidgets('scanned device code requires review before association', (
+    tester,
+  ) async {
+    var associationCalls = 0;
+
+    await pumpScreen(
+      tester,
+      loadDevices: () async => const [],
+      loadAssociations: ({required patientUid}) async => const [],
+      associateDevice: ({required patientUid, required deviceCode}) async {
+        associationCalls++;
+        expect(patientUid, 'patient-42');
+        expect(deviceCode, 'MON-SCANNED');
+        return const {};
+      },
+      disconnectAssociation: (_) async => const {},
+    );
+
+    final scanner = tester.widget<MobileScanner>(find.byType(MobileScanner));
+    scanner.onDetect!(
+      const BarcodeCapture(barcodes: [Barcode(rawValue: 'MON-SCANNED')]),
+    );
+    await tester.pump();
+
+    expect(associationCalls, 0);
+    expect(find.widgetWithText(FilledButton, 'Confirm'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 701));
+
+    expect(associationCalls, 1);
   });
 
   testWidgets(
@@ -141,6 +185,8 @@ void main() {
 
       await selectDevice(tester);
       await tester.tap(find.widgetWithText(FilledButton, 'Associate device'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
       await tester.pump();
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
 
