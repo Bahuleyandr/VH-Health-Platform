@@ -20,6 +20,7 @@ import { jest } from '@jest/globals';
 const queryRawMock = jest.fn();
 const executeRawMock = jest.fn();
 const txQueryRawMock = jest.fn();
+const txExecuteRawMock = jest.fn();
 const setTenantTxMock = jest.fn();
 const enqueueCriticalResultTaskMock = jest.fn();
 
@@ -29,7 +30,7 @@ const __prismaDefaultMock = {
 };
 const __txClient = {
   $queryRawUnsafe: txQueryRawMock,
-  $executeRawUnsafe: jest.fn(),
+  $executeRawUnsafe: txExecuteRawMock,
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -77,6 +78,7 @@ function resetAll() {
   queryRawMock.mockReset();
   executeRawMock.mockReset();
   txQueryRawMock.mockReset();
+  txExecuteRawMock.mockReset().mockResolvedValue(1);
   setTenantTxMock.mockReset();
   enqueueCriticalResultTaskMock.mockReset();
   enqueueCriticalResultTaskMock.mockResolvedValue({ created: true });
@@ -168,7 +170,7 @@ describe('checkVitalAnomalies — warning-only tenant stamping (C-M2)', () => {
     expect(activePatientLocks()).toHaveLength(1);
     expect(setTenantTxMock.mock.calls[0][0]).toBe(PATIENT_TENANT);
     // The cds_alerts mirror used the uid from the single merged lookup.
-    const cdsInserts = executeRawMock.mock.calls.filter((c) => /INSERT INTO cds_alerts/i.test(c[0]));
+    const cdsInserts = txExecuteRawMock.mock.calls.filter((c) => /INSERT INTO cds_alerts/i.test(c[0]));
     expect(cdsInserts.length).toBeGreaterThanOrEqual(1);
     expect(cdsInserts[0][1]).toBe(PATIENT_UID);
   });

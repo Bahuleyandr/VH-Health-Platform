@@ -425,9 +425,13 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       // duplicate-order alerts the dashboard already reads. Best-effort:
       // a mirror failure must not undo the committed clinical_alerts row
       // or block the alert dispatch. Finding b6dc4ea4.
-      if (alert.is_pregnancy_bp_signal && alertPatientUid) {
+      if (
+        alert.is_pregnancy_bp_signal
+        && alertPatientUid
+        && !context.persistedClinicalAlertIdsByVitalName
+      ) {
         try {
-          await prisma.$executeRawUnsafe(
+          await setTenantTx(persistTenantId, async (tx) => tx.$executeRawUnsafe(
             `INSERT INTO cds_alerts
                (patient_uid, alert_type, severity, title, description, source_data)
              VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)`,
@@ -446,9 +450,13 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
               unit: alert.unit,
               normal_range: alert.normal_range,
               cohort: alert.cohort,
+              clinical_alert_id: clinicalAlertId,
+              source_vitals_chart_id: context.sourceVitalsChartId == null
+                ? null
+                : Number(context.sourceVitalsChartId),
               source: 'vitalSignMonitor.checkVitalAnomalies',
             }),
-          );
+          ));
         } catch (cdsErr) {
           logger.warn(`vitalSignMonitor: cds_alerts mirror failed for patient_id=${patientId}: ${cdsErr.message}`);
         }

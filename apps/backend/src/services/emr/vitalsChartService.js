@@ -1387,6 +1387,7 @@ export async function correctVitals(vitalsId, data) {
           correctedBy: corrected_by,
           currentVitalAnomalies: anomalies,
           patientId: patientIntId,
+          patientUid: row.patient_uid,
           deferNews2TaskRetirement: replacementEscalates,
           replacementNews2: replacementEscalates
             ? {

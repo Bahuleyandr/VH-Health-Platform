@@ -97,6 +97,34 @@ describe('P4 NEWS2 presentation contract', () => {
       trend_reason: 'latest_score_partial',
     });
   });
+
+  it('returns an unavailable trend when fewer than two complete live scores exist', async () => {
+    queryMock.mockReset().mockResolvedValueOnce([
+      { id: 3, total_score: 4, partial_score: false, superseded_at: null },
+      { id: 2, total_score: 9, partial_score: true, superseded_at: null },
+      { id: 1, total_score: 1, partial_score: false, superseded_at: new Date() },
+    ]);
+
+    await expect(getPatientNEWS2History(PATIENT, 10)).resolves.toMatchObject({
+      trend: null,
+      trend_available: false,
+      trend_reason: 'insufficient_complete_scores',
+    });
+  });
+
+  it('ignores a partial prior row when comparing the two latest complete live scores', async () => {
+    queryMock.mockReset().mockResolvedValueOnce([
+      { id: 3, total_score: 3, partial_score: false, superseded_at: null },
+      { id: 2, total_score: 9, partial_score: true, superseded_at: null },
+      { id: 1, total_score: 1, partial_score: false, superseded_at: null },
+    ]);
+
+    await expect(getPatientNEWS2History(PATIENT, 10)).resolves.toMatchObject({
+      trend: 'increasing',
+      trend_available: true,
+      trend_reason: null,
+    });
+  });
 });
 
 describe('P4 correction consequence reconciliation', () => {
@@ -180,6 +208,142 @@ describe('P4 correction consequence reconciliation', () => {
       tasksSuperseded: 1,
       activeAlertIdsByVitalName: { oxygen_saturation: 17 },
     });
+  });
+
+  it('pregnant severe BP critical→normal resolves its linked CDS mirror and task/SLA idempotently', async () => {
+    let replay = false;
+    queryMock.mockImplementation(async (sql, _tenantId, _oldScoreIds, alertIds) => {
+      if (/FROM news2_scores/.test(sql)) return replay ? [] : [{ id: 701 }];
+      if (/FROM clinical_alerts/.test(sql)) {
+        return replay ? [] : [{ id: 17, vital_name: 'systolic_bp', severity: 'CRITICAL' }];
+      }
+      if (/SELECT[\s\S]+FROM cds_alerts/.test(sql) && /PREGNANCY_HYPERTENSION/.test(sql)) {
+        return replay ? [] : [{
+          id: 23,
+          alert_type: 'PREGNANCY_HYPERTENSION',
+          severity: 'CRITICAL',
+          clinical_alert_id: '17',
+          vital_name: 'systolic_bp',
+        }];
+      }
+      if (/UPDATE cds_alerts/.test(sql) && /PREGNANCY_HYPERTENSION/.test(sql)) return [{ id: 23 }];
+      if (/UPDATE cds_alerts/.test(sql)) return [];
+      if (/FROM tasks/.test(sql)) {
+        return !replay && alertIds?.includes('17')
+          ? [{
+            id: 29,
+            related_resource_type: 'clinical_alert',
+            related_resource_id: '17',
+            workflow_sla_instance_id: '44444444-4444-4444-8444-444444444444',
+          }]
+          : [];
+      }
+      return [];
+    });
+
+    const first = await supersedeNews2ForVitalsRow(42, null, {
+      db: tx,
+      tenantId: TENANT,
+      correctedBy: ACTOR,
+      patientId: 88,
+      patientUid: PATIENT,
+      currentVitalAnomalies: [],
+    });
+    expect(first).toMatchObject({
+      alertsResolved: 1,
+      cdsAlertsResolved: 1,
+      cdsAlertsReconciled: 0,
+      tasksSuperseded: 1,
+    });
+    expect(supersedeTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      relatedResourceId: '17',
+      workflowSlaInstanceId: '44444444-4444-4444-8444-444444444444',
+    }));
+
+    replay = true;
+    const second = await supersedeNews2ForVitalsRow(42, null, {
+      db: tx,
+      tenantId: TENANT,
+      correctedBy: ACTOR,
+      patientId: 88,
+      patientUid: PATIENT,
+      currentVitalAnomalies: [],
+    });
+    expect(second).toMatchObject({
+      alertsResolved: 0,
+      cdsAlertsResolved: 0,
+      cdsAlertsReconciled: 0,
+      tasksSuperseded: 0,
+    });
+    expect(supersedeTaskMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('pregnant severe BP critical→warning updates one linked CDS mirror and retires the critical task/SLA', async () => {
+    queryMock.mockImplementation(async (sql, _tenantId, _oldScoreIds, alertIds) => {
+      if (/FROM news2_scores/.test(sql)) return [{ id: 701 }];
+      if (/FROM clinical_alerts/.test(sql)) {
+        return [{ id: 17, vital_name: 'systolic_bp', severity: 'CRITICAL' }];
+      }
+      if (/SELECT[\s\S]+FROM cds_alerts/.test(sql) && /PREGNANCY_HYPERTENSION/.test(sql)) {
+        return [{
+          id: 23,
+          alert_type: 'PREGNANCY_HYPERTENSION',
+          severity: 'CRITICAL',
+          clinical_alert_id: '17',
+          vital_name: 'systolic_bp',
+        }];
+      }
+      if (/UPDATE cds_alerts/.test(sql) && /PREGNANCY_HYPERTENSION/.test(sql)) return [{ id: 23 }];
+      if (/UPDATE cds_alerts/.test(sql)) return [];
+      if (/FROM tasks/.test(sql)) {
+        return alertIds?.includes('17')
+          ? [{
+            id: 29,
+            related_resource_type: 'clinical_alert',
+            related_resource_id: '17',
+            workflow_sla_instance_id: '44444444-4444-4444-8444-444444444444',
+          }]
+          : [];
+      }
+      return [];
+    });
+
+    const result = await supersedeNews2ForVitalsRow(42, 909, {
+      db: tx,
+      tenantId: TENANT,
+      correctedBy: ACTOR,
+      patientId: 88,
+      patientUid: PATIENT,
+      currentVitalAnomalies: [{
+        patient_id: 88,
+        vital_name: 'systolic_bp',
+        value: 142,
+        unit: 'mmHg',
+        severity: 'WARNING',
+        normal_range: '90-139',
+        cohort: 'pregnant',
+        message: 'Pregnancy-induced hypertension: systolic BP remains high',
+        recorded_by: 55,
+        is_pregnancy_bp_signal: true,
+      }],
+    });
+
+    expect(result).toMatchObject({
+      alertsResolved: 0,
+      alertsReconciled: 1,
+      cdsAlertsResolved: 0,
+      cdsAlertsReconciled: 1,
+      tasksSuperseded: 1,
+      activeAlertIdsByVitalName: { systolic_bp: 17 },
+    });
+    const pregnancyUpdate = queryMock.mock.calls.find(([sql]) => (
+      /UPDATE cds_alerts/.test(sql) && /PREGNANCY_HYPERTENSION/.test(sql)
+    ));
+    expect(pregnancyUpdate).toEqual(expect.arrayContaining(['WARNING']));
+    expect(supersedeTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      relatedResourceId: '17',
+      workflowSlaInstanceId: '44444444-4444-4444-8444-444444444444',
+    }));
   });
 });
 

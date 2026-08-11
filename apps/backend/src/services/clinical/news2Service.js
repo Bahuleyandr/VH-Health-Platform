@@ -350,6 +350,7 @@ export async function supersedeNews2ForVitalsRow(
     correctedBy = null,
     currentVitalAnomalies = [],
     patientId = null,
+    patientUid = null,
     deferNews2TaskRetirement = false,
     replacementNews2 = null,
   } = {},
@@ -462,10 +463,150 @@ export async function supersedeNews2ForVitalsRow(
     ...demotedCriticalAlertIds,
   ])].map(String);
 
-  let cdsRows;
-  let cdsAlertsReconciled = 0;
+  const existingAlertIdTexts = existingAlertRows.map((row) => String(row.id));
+  const pregnancyCdsRows = await client.$queryRawUnsafe(
+    `SELECT id,
+            alert_type,
+            severity,
+            source_data->>'clinical_alert_id' AS clinical_alert_id,
+            source_data->>'vital_name' AS vital_name
+       FROM cds_alerts
+      WHERE tenant_id = $1::uuid
+        AND COALESCE(acknowledged, FALSE) = FALSE
+        AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+        AND (
+          source_data->>'source_vitals_chart_id' = $2::text
+          OR source_data->>'clinical_alert_id' = ANY($3::text[])
+        )
+      FOR UPDATE`,
+    tenantId,
+    String(vitalsChartId),
+    existingAlertIdTexts,
+  );
+  const currentPregnancyByAlertId = new Map();
+  const currentPregnancyByVitalName = new Map();
+  for (const [vitalName, alert] of currentByVitalName) {
+    if (alert.is_pregnancy_bp_signal !== true) continue;
+    const clinicalAlertId = activeAlertIdsByVitalName[vitalName];
+    if (clinicalAlertId == null) continue;
+    const current = { alert, clinicalAlertId, vitalName };
+    currentPregnancyByAlertId.set(String(clinicalAlertId), current);
+    currentPregnancyByVitalName.set(vitalName, current);
+  }
+
+  let pregnancyCdsResolved = 0;
+  let pregnancyCdsReconciled = 0;
+  const reconciledPregnancyAlertIds = new Set();
+  for (const cdsRow of pregnancyCdsRows) {
+    const current = currentPregnancyByAlertId.get(String(cdsRow.clinical_alert_id))
+      || currentPregnancyByVitalName.get(String(cdsRow.vital_name));
+    if (!current) {
+      const acknowledged = await client.$queryRawUnsafe(
+        `UPDATE cds_alerts
+            SET acknowledged = TRUE,
+                ack_at = COALESCE(ack_at, NOW())
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int
+            AND COALESCE(acknowledged, FALSE) = FALSE
+            AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+          RETURNING id`,
+        tenantId,
+        Number(cdsRow.id),
+      );
+      pregnancyCdsResolved += acknowledged.length;
+      continue;
+    }
+
+    const { alert, clinicalAlertId, vitalName } = current;
+    const alertType = vitalName === 'preeclampsia_screen'
+      ? 'PREECLAMPSIA_SCREEN_POSITIVE'
+      : 'PREGNANCY_HYPERTENSION';
+    const title = vitalName === 'preeclampsia_screen'
+      ? 'Positive pre-eclampsia screen'
+      : `Gestational hypertension (${vitalName.replace(/_/g, ' ')} ${alert.value}${alert.unit})`;
+    const updated = await client.$queryRawUnsafe(
+      `UPDATE cds_alerts
+          SET alert_type = $3,
+              severity = $4,
+              title = $5,
+              description = $6,
+              source_data = COALESCE(source_data, '{}'::jsonb) || $7::jsonb
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND COALESCE(acknowledged, FALSE) = FALSE
+          AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+        RETURNING id`,
+      tenantId,
+      Number(cdsRow.id),
+      alertType,
+      alert.severity,
+      title,
+      alert.message,
+      JSON.stringify({
+        vital_name: vitalName,
+        value: alert.value,
+        unit: alert.unit,
+        normal_range: alert.normal_range,
+        cohort: alert.cohort,
+        clinical_alert_id: clinicalAlertId,
+        source_vitals_chart_id: Number(vitalsChartId),
+        source: 'vitals.corrected',
+      }),
+    );
+    pregnancyCdsReconciled += updated.length;
+    reconciledPregnancyAlertIds.add(String(clinicalAlertId));
+  }
+
+  for (const { alert, clinicalAlertId, vitalName } of currentPregnancyByAlertId.values()) {
+    if (reconciledPregnancyAlertIds.has(String(clinicalAlertId))) continue;
+    if (!patientUid) {
+      throw AppError.internal('Pregnancy CDS reconciliation requires patient identity');
+    }
+    const alertType = vitalName === 'preeclampsia_screen'
+      ? 'PREECLAMPSIA_SCREEN_POSITIVE'
+      : 'PREGNANCY_HYPERTENSION';
+    const title = vitalName === 'preeclampsia_screen'
+      ? 'Positive pre-eclampsia screen'
+      : `Gestational hypertension (${vitalName.replace(/_/g, ' ')} ${alert.value}${alert.unit})`;
+    const inserted = await client.$queryRawUnsafe(
+      `INSERT INTO cds_alerts
+         (patient_uid, alert_type, severity, title, description, source_data)
+       SELECT $1::uuid, $2, $3, $4, $5, $6::jsonb
+        WHERE NOT EXISTS (
+          SELECT 1
+            FROM cds_alerts
+           WHERE tenant_id = $7::uuid
+             AND COALESCE(acknowledged, FALSE) = FALSE
+             AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+             AND source_data->>'clinical_alert_id' = $8::text
+        )
+       RETURNING id`,
+      patientUid,
+      alertType,
+      alert.severity,
+      title,
+      alert.message,
+      JSON.stringify({
+        vital_name: vitalName,
+        value: alert.value,
+        unit: alert.unit,
+        normal_range: alert.normal_range,
+        cohort: alert.cohort,
+        clinical_alert_id: clinicalAlertId,
+        source_vitals_chart_id: Number(vitalsChartId),
+        source: 'vitals.corrected',
+      }),
+      tenantId,
+      String(clinicalAlertId),
+    );
+    pregnancyCdsReconciled += inserted.length;
+  }
+
+  let news2CdsRows;
+  let cdsAlertsResolved = pregnancyCdsResolved;
+  let cdsAlertsReconciled = pregnancyCdsReconciled;
   if (deferNews2TaskRetirement && replacementNews2) {
-    cdsRows = await client.$queryRawUnsafe(
+    news2CdsRows = await client.$queryRawUnsafe(
       `UPDATE cds_alerts
           SET severity = $4,
               title = $5,
@@ -494,10 +635,9 @@ export async function supersedeNews2ForVitalsRow(
       Number(replacementNews2.totalScore),
       replacementNews2.clinicalRisk,
     );
-    cdsAlertsReconciled = cdsRows.length;
-    cdsRows = [];
+    cdsAlertsReconciled += news2CdsRows.length;
   } else {
-    cdsRows = await client.$queryRawUnsafe(
+    news2CdsRows = await client.$queryRawUnsafe(
       `UPDATE cds_alerts
           SET acknowledged = TRUE,
               ack_at = COALESCE(ack_at, NOW())
@@ -513,6 +653,7 @@ export async function supersedeNews2ForVitalsRow(
       oldScoreIds,
       String(vitalsChartId),
     );
+    cdsAlertsResolved += news2CdsRows.length;
   }
 
   const tasks = await client.$queryRawUnsafe(
@@ -563,7 +704,7 @@ export async function supersedeNews2ForVitalsRow(
     alertsResolved: resolvedAlertIds.length,
     alertsReconciled: Object.keys(activeAlertIdsByVitalName).length,
     activeAlertIdsByVitalName,
-    cdsAlertsResolved: cdsRows.length,
+    cdsAlertsResolved,
     cdsAlertsReconciled,
     tasksSuperseded: tasks.length,
   };
@@ -850,9 +991,8 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
     patientUid, limit
   );
 
-  // Build trend from last 10 scores (oldest to newest)
-  const recentScores = rows.filter((row) => row.superseded_at == null).slice(0, 10).reverse();
-  const latestScore = recentScores[recentScores.length - 1];
+  const recentScores = rows.filter((row) => row.superseded_at == null).slice(0, 10);
+  const latestScore = recentScores[0];
   if (latestScore?.partial_score === true) {
     return {
       scores: rows.map(presentNews2Record),
@@ -861,15 +1001,27 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
       trend_reason: 'latest_score_partial',
     };
   }
-  let trend = 'stable';
-  if (recentScores.length >= 2) {
-    const latest = recentScores[recentScores.length - 1].total_score;
-    const previous = recentScores[recentScores.length - 2].total_score;
-    if (latest > previous) trend = 'increasing';
-    else if (latest < previous) trend = 'decreasing';
+  const completeScores = recentScores.filter((row) => row.partial_score !== true);
+  if (completeScores.length < 2) {
+    return {
+      scores: rows.map(presentNews2Record),
+      trend: null,
+      trend_available: false,
+      trend_reason: 'insufficient_complete_scores',
+    };
   }
+  let trend = 'stable';
+  const latest = completeScores[0].total_score;
+  const previous = completeScores[1].total_score;
+  if (latest > previous) trend = 'increasing';
+  else if (latest < previous) trend = 'decreasing';
 
-  return { scores: rows.map(presentNews2Record), trend };
+  return {
+    scores: rows.map(presentNews2Record),
+    trend,
+    trend_available: true,
+    trend_reason: null,
+  };
 }
 
 /**
