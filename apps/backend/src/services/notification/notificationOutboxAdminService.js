@@ -42,6 +42,79 @@ const STATUSES = Object.freeze([
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const NOTIFICATION_OUTBOX_ROW_SELECT = `SELECT notification_outbox.id,
+       notification_outbox.type, notification_outbox.channel,
+       notification_outbox.status, notification_outbox.recipient_id,
+       notification_outbox.recipient_phone, notification_outbox.title,
+       notification_outbox.source_event_key, notification_outbox.recipient_key,
+       notification_outbox.template_version, notification_outbox.retry_count,
+       notification_outbox.failure_reason, notification_outbox.created_at,
+       notification_outbox.last_attempt_at, notification_outbox.sent_at,
+       notification_outbox.lease_expires_at,
+       COALESCE((
+         SELECT jsonb_agg(jsonb_build_object(
+           'attempt_id', attempt.attempt_id::text,
+           'channel', attempt.channel,
+           'provider', attempt.provider,
+           'attempt_number', attempt.attempt_number,
+           'started_at', attempt.started_at,
+           'receipt_id', receipt.receipt_id::text,
+           'outcome', receipt.outcome,
+           'receipt_source', receipt.receipt_source,
+           'provider_reference', receipt.provider_reference,
+           'provider_code', receipt.provider_code,
+           'evidence', receipt.evidence,
+           'observed_at', receipt.observed_at,
+           'owner_actor_uid', receipt.owner_actor_uid::text,
+           'owner_reason', receipt.owner_reason
+         ) ORDER BY attempt.started_at DESC)
+           FROM notification_delivery_attempts AS attempt
+           LEFT JOIN LATERAL (
+             SELECT receipt_id, outcome, receipt_source, provider_reference,
+                    provider_code, evidence, observed_at, owner_actor_uid,
+                    owner_reason
+               FROM notification_provider_receipts
+              WHERE tenant_id = attempt.tenant_id
+                AND attempt_id = attempt.attempt_id
+              ORDER BY observed_at DESC, receipt_id DESC
+              LIMIT 1
+           ) AS receipt ON TRUE
+          WHERE attempt.tenant_id = notification_outbox.tenant_id
+            AND attempt.notification_outbox_id = notification_outbox.id
+            AND attempt.attempt_number = (
+              SELECT MAX(newest.attempt_number)
+                FROM notification_delivery_attempts AS newest
+               WHERE newest.tenant_id = attempt.tenant_id
+                 AND newest.notification_outbox_id = attempt.notification_outbox_id
+                 AND newest.channel = attempt.channel
+            )
+       ), '[]'::jsonb) AS delivery_attempts,
+       (notification_outbox.status = 'RECONCILIATION_REQUIRED'
+         OR (notification_outbox.status = 'FAILED'
+           AND notification_outbox.retry_count >= 3)) AS dead_letter`;
+
+function mapNotificationOutboxRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    retry_count: Number(row.retry_count),
+    delivery_attempts: Array.isArray(row.delivery_attempts) ? row.delivery_attempts : [],
+    dead_letter: Boolean(row.dead_letter),
+  };
+}
+
+async function readNotificationOutboxRowTx(tx, tenantId, id) {
+  const rows = await tx.$queryRawUnsafe(
+    `${NOTIFICATION_OUTBOX_ROW_SELECT}
+       FROM notification_outbox
+      WHERE notification_outbox.tenant_id = $1::uuid
+        AND notification_outbox.id = $2::integer
+      LIMIT 1`,
+    tenantId,
+    id,
+  );
+  return mapNotificationOutboxRow(rows[0]);
+}
 
 function boundedInteger(value, fallback, min, max, label) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -105,58 +178,16 @@ export async function listNotificationOutboxRows({
   }
   const safeLimit = boundedInteger(limit, DEFAULT_LIMIT, 1, MAX_LIMIT, 'limit');
   const safeOffset = boundedInteger(offset, 0, 0, 10_000, 'offset');
-  return setTenantTx(tid, tx => tx.$queryRawUnsafe(
-    `SELECT id, type, channel, status, recipient_id, recipient_phone, title,
-            source_event_key, recipient_key, template_version, retry_count,
-            failure_reason, created_at, last_attempt_at, sent_at,
-            lease_expires_at,
-            COALESCE((
-              SELECT jsonb_agg(jsonb_build_object(
-                'attempt_id', attempt.attempt_id::text,
-                'channel', attempt.channel,
-                'provider', attempt.provider,
-                'attempt_number', attempt.attempt_number,
-                'started_at', attempt.started_at,
-                'receipt_id', receipt.receipt_id::text,
-                'outcome', receipt.outcome,
-                'receipt_source', receipt.receipt_source,
-                'provider_reference', receipt.provider_reference,
-                'provider_code', receipt.provider_code,
-                'evidence', receipt.evidence,
-                'observed_at', receipt.observed_at,
-                'owner_actor_uid', receipt.owner_actor_uid::text,
-                'owner_reason', receipt.owner_reason
-              ) ORDER BY attempt.started_at DESC)
-                FROM notification_delivery_attempts AS attempt
-                LEFT JOIN LATERAL (
-                  SELECT receipt_id, outcome, receipt_source, provider_reference,
-                         provider_code, evidence, observed_at, owner_actor_uid,
-                         owner_reason
-                    FROM notification_provider_receipts
-                   WHERE tenant_id = attempt.tenant_id
-                     AND attempt_id = attempt.attempt_id
-                   ORDER BY observed_at DESC, receipt_id DESC
-                   LIMIT 1
-                ) AS receipt ON TRUE
-               WHERE attempt.tenant_id = notification_outbox.tenant_id
-                 AND attempt.notification_outbox_id = notification_outbox.id
-                 AND attempt.attempt_number = (
-                   SELECT MAX(newest.attempt_number)
-                     FROM notification_delivery_attempts AS newest
-                    WHERE newest.tenant_id = attempt.tenant_id
-                      AND newest.notification_outbox_id = attempt.notification_outbox_id
-                      AND newest.channel = attempt.channel
-                 )
-            ), '[]'::jsonb) AS delivery_attempts,
-            (status = 'RECONCILIATION_REQUIRED'
-              OR (status = 'FAILED' AND retry_count >= 3)) AS dead_letter
+  const rows = await setTenantTx(tid, tx => tx.$queryRawUnsafe(
+    `${NOTIFICATION_OUTBOX_ROW_SELECT}
        FROM notification_outbox
-      WHERE tenant_id = $1::uuid
-        AND status = $2::text
-      ORDER BY id ASC
+      WHERE notification_outbox.tenant_id = $1::uuid
+        AND notification_outbox.status = $2::text
+      ORDER BY notification_outbox.id ASC
       LIMIT $3::integer OFFSET $4::integer`,
     tid, normalizedStatus, safeLimit, safeOffset,
   ));
+  return rows.map(mapNotificationOutboxRow);
 }
 
 /** Record externally verified provider acceptance for one unresolved attempt. */
@@ -247,7 +278,6 @@ export async function reconcileNotificationOutboxAttempt({
     target.receipt_id = receipt.receipt_id;
     const fullyReconciled = attempts.length > 0
       && attempts.every(attempt => attempt.outcome === 'acknowledged');
-    let row = current[0];
     if (fullyReconciled) {
       const updated = await tx.$queryRawUnsafe(
         `UPDATE notification_outbox
@@ -260,7 +290,6 @@ export async function reconcileNotificationOutboxAttempt({
         tid, outboxId, receipt.observed_at,
       );
       if (updated.length !== 1) throw AppError.conflict('Notification reconciliation lost its state fence');
-      row = updated[0];
     }
 
     await tx.$queryRawUnsafe(
@@ -281,6 +310,8 @@ export async function reconcileNotificationOutboxAttempt({
         fully_reconciled: fullyReconciled,
       }),
     );
+    const row = await readNotificationOutboxRowTx(tx, tid, outboxId);
+    if (!row) throw AppError.conflict('Notification reconciliation row could not be reloaded');
     return { row, receipt, cursor, fully_reconciled: fullyReconciled };
   }, { isolationLevel: 'Serializable' });
 }

@@ -42,7 +42,35 @@ beforeEach(() => {
       provider_code: 'fcm_no_acceptance_unresolved',
     }])
     .mockResolvedValueOnce([{ id: 41, status: 'SENT', sent_at: new Date(), failure_reason: null }])
-    .mockResolvedValueOnce([]);
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{
+      id: 41,
+      type: 'push',
+      channel: 'push',
+      status: 'SENT',
+      recipient_id: '42',
+      recipient_phone: '+919800000001',
+      title: 'Critical result still needs review',
+      source_event_key: 'workflow-escalation:77:5:42',
+      recipient_key: 'user:42',
+      template_version: 'critical-result.v1',
+      retry_count: 1,
+      failure_reason: null,
+      created_at: new Date('2026-08-11T09:00:00.000Z'),
+      last_attempt_at: new Date('2026-08-11T09:59:00.000Z'),
+      sent_at: new Date('2026-08-11T10:00:00.000Z'),
+      lease_expires_at: null,
+      delivery_attempts: [{
+        attempt_id: ATTEMPT,
+        channel: 'push',
+        provider: 'firebase_fcm',
+        attempt_number: 1,
+        started_at: '2026-08-11T09:59:00.000Z',
+        receipt_id: RECEIPT,
+        outcome: 'acknowledged',
+      }],
+      dead_letter: false,
+    }]);
   recordReceiptMock.mockResolvedValue({
     receipt_id: RECEIPT,
     observed_at: '2026-08-11T10:00:00.000Z',
@@ -85,7 +113,19 @@ describe('notification outbox operator reconciliation', () => {
     expect(queryRawMock.mock.calls[3][0]).toMatch(/NOTIFICATION_OUTBOX_PROVIDER_ACCEPTANCE_RECORDED/);
     expect(queryRawMock.mock.calls[3][5]).toContain('request-41');
     expect(result.fully_reconciled).toBe(true);
-    expect(result.row.status).toBe('SENT');
+    expect(result.row).toMatchObject({
+      id: 41,
+      type: 'push',
+      channel: 'push',
+      status: 'SENT',
+      retry_count: 1,
+      delivery_attempts: [expect.objectContaining({
+        attempt_id: ATTEMPT,
+        outcome: 'acknowledged',
+        receipt_id: RECEIPT,
+      })],
+      dead_letter: false,
+    });
   });
 
   test('does not write a terminal state or audit row when receipt append fails', async () => {
