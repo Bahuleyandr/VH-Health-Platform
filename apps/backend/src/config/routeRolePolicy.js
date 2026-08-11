@@ -157,7 +157,18 @@ export const INVESTIGATION_ROUTE_ROLES = mergeRoles(
 
 export const PATIENT_LOOKUP_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'op_flow', 'nursing_governance', 'theatre', 'cath_lab', 'billing']),
-  rolesFrom(['CMO', 'MEDICAL_SUPERINTENDENT', 'MEDICAL_RECORDS']),
+  rolesFrom([
+    'CMO',
+    'MEDICAL_SUPERINTENDENT',
+    'MEDICAL_RECORDS',
+    // Blood requests require a patient_uid selected through the curated,
+    // audited lookup surface rather than a free-text patient identity.
+    'BLOOD_BANK_STAFF',
+    'BLOOD_BANK_TECHNICIAN',
+    'DIALYSIS_TECHNICIAN',
+    'LAB_INCHARGE',
+    'PATHOLOGIST',
+  ]),
 );
 
 export const PATIENT_REGISTRY_WRITE_ROUTE_ROLES = mergeRoles(

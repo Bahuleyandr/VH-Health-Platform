@@ -2277,15 +2277,33 @@ class AppStrings {
   String get bloodBankStockLow => _t('blood_bank.stock.low');
   String get bloodBankStockAdequate => _t('blood_bank.stock.adequate');
   String get bloodBankRequestHeader => _t('blood_bank.request_header');
-  String get bloodBankPatientNameLabel => _t('blood_bank.patient_name_label');
-  String get bloodBankPatientNameRequired =>
-      _t('blood_bank.patient_name_required');
+  String get bloodBankSelectPatientLabel =>
+      _t('blood_bank.select_patient_label');
+  String get bloodBankSelectPatientRequired =>
+      _t('blood_bank.select_patient_required');
   String get bloodBankBloodTypeLabel => _t('blood_bank.blood_type_label');
   String get bloodBankBloodTypeRequired => _t('blood_bank.blood_type_required');
+  String get bloodBankComponentLabel => _t('blood_bank.component_label');
+  String get bloodBankComponentRequired => _t('blood_bank.component_required');
+  String get bloodBankComponentWholeBlood =>
+      _t('blood_bank.component.whole_blood');
+  String get bloodBankComponentPrbc => _t('blood_bank.component.prbc');
+  String get bloodBankComponentFfp => _t('blood_bank.component.ffp');
+  String get bloodBankComponentPlatelets =>
+      _t('blood_bank.component.platelets');
+  String get bloodBankComponentCryoprecipitate =>
+      _t('blood_bank.component.cryoprecipitate');
   String get bloodBankUnitsLabel => _t('blood_bank.units_label');
   String get bloodBankUnitsRequired => _t('blood_bank.units_required');
-  String get bloodBankUnitsInvalid => _t('blood_bank.units_invalid');
-  String get bloodBankReasonLabel => _t('blood_bank.reason_label');
+  String get bloodBankUnitsRange => _t('blood_bank.units_range');
+  String get bloodBankClinicalIndicationLabel =>
+      _t('blood_bank.clinical_indication_label');
+  String get bloodBankClinicalIndicationRequired =>
+      _t('blood_bank.clinical_indication_required');
+  String get bloodBankUrgencyLabel => _t('blood_bank.urgency_label');
+  String get bloodBankUrgencyRoutine => _t('blood_bank.urgency.routine');
+  String get bloodBankUrgencyUrgent => _t('blood_bank.urgency.urgent');
+  String get bloodBankUrgencyEmergency => _t('blood_bank.urgency.emergency');
   String get bloodBankSubmitRequest => _t('blood_bank.submit_request');
   String get bloodBankSubmittingButton => _t('blood_bank.submitting_button');
   // REVIEW: clinical confirmation
@@ -5654,14 +5672,27 @@ class AppStrings {
       'blood_bank.stock.low': 'Low stock',
       'blood_bank.stock.adequate': 'Adequate',
       'blood_bank.request_header': 'Request Blood',
-      'blood_bank.patient_name_label': 'Patient Name',
-      'blood_bank.patient_name_required': 'Patient name is required',
+      'blood_bank.select_patient_label': 'Select patient',
+      'blood_bank.select_patient_required': 'Select a patient',
       'blood_bank.blood_type_label': 'Blood Type',
       'blood_bank.blood_type_required': 'Select blood type',
+      'blood_bank.component_label': 'Blood component',
+      'blood_bank.component_required': 'Select a blood component',
+      'blood_bank.component.whole_blood': 'Whole blood',
+      'blood_bank.component.prbc': 'Packed red blood cells',
+      'blood_bank.component.ffp': 'Fresh frozen plasma',
+      'blood_bank.component.platelets': 'Platelets',
+      'blood_bank.component.cryoprecipitate': 'Cryoprecipitate',
       'blood_bank.units_label': 'Units Required',
       'blood_bank.units_required': 'Units required',
-      'blood_bank.units_invalid': 'Enter a valid number',
-      'blood_bank.reason_label': 'Reason / Notes',
+      'blood_bank.units_range': 'Enter units from 1 to 10',
+      'blood_bank.clinical_indication_label': 'Clinical indication',
+      'blood_bank.clinical_indication_required':
+          'Clinical indication is required',
+      'blood_bank.urgency_label': 'Urgency',
+      'blood_bank.urgency.routine': 'Routine',
+      'blood_bank.urgency.urgent': 'Urgent',
+      'blood_bank.urgency.emergency': 'Emergency',
       'blood_bank.submit_request': 'Submit Request',
       'blood_bank.submitting_button': 'Submitting...',
       'blood_bank.request_success': 'Blood request submitted successfully',
@@ -12203,17 +12234,12 @@ class AppStrings {
       'blood_bank.stock.low': 'कम स्टॉक',
       'blood_bank.stock.adequate': 'पर्याप्त',
       'blood_bank.request_header': 'रक्त अनुरोध',
-      'blood_bank.patient_name_label': 'मरीज़ का नाम',
-      'blood_bank.patient_name_required': 'मरीज़ का नाम आवश्यक है',
       // REVIEW: clinical - blood typing
       'blood_bank.blood_type_label': 'रक्त समूह',
       // REVIEW: clinical - blood typing
       'blood_bank.blood_type_required': 'रक्त समूह चुनें',
       'blood_bank.units_label': 'आवश्यक यूनिट',
       'blood_bank.units_required': 'यूनिट आवश्यक',
-      'blood_bank.units_invalid': 'मान्य संख्या दर्ज करें',
-      // REVIEW: clinical - verify request wording
-      'blood_bank.reason_label': 'कारण / नोट्स',
       'blood_bank.submit_request': 'अनुरोध सबमिट करें',
       'blood_bank.submitting_button': 'सबमिट हो रहा है…',
       // REVIEW: clinical confirmation
@@ -19230,10 +19256,6 @@ class AppStrings {
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'blood_bank.request_header': 'இரத்தத்தைக் கோருங்கள்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
-      'blood_bank.patient_name_label': 'நோயாளி பெயர்',
-      // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
-      'blood_bank.patient_name_required': 'நோயாளியின் பெயர் தேவை',
-      // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'blood_bank.blood_type_label': 'இரத்த வகை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'blood_bank.blood_type_required': 'இரத்த வகையைத் தேர்ந்தெடுக்கவும்',
@@ -19241,10 +19263,6 @@ class AppStrings {
       'blood_bank.units_label': 'அலகுகள் தேவை',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'blood_bank.units_required': 'அலகுகள் தேவை',
-      // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
-      'blood_bank.units_invalid': 'சரியான எண்ணை உள்ளிடவும்',
-      // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
-      'blood_bank.reason_label': 'காரணம் / குறிப்புகள்',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'blood_bank.submitting_button': 'சமர்ப்பிக்கிறது...',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
@@ -26249,10 +26267,6 @@ class AppStrings {
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'blood_bank.request_header': 'రక్తాన్ని అభ్యర్థించండి',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
-      'blood_bank.patient_name_label': 'రోగి పేరు',
-      // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
-      'blood_bank.patient_name_required': 'రోగి పేరు అవసరం',
-      // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'blood_bank.blood_type_label': 'రక్త రకం',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'blood_bank.blood_type_required': 'రక్త రకాన్ని ఎంచుకోండి',
@@ -26260,10 +26274,6 @@ class AppStrings {
       'blood_bank.units_label': 'యూనిట్లు అవసరం',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'blood_bank.units_required': 'యూనిట్లు అవసరం',
-      // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
-      'blood_bank.units_invalid': 'చెల్లుబాటు అయ్యే నంబర్‌ను నమోదు చేయండి',
-      // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
-      'blood_bank.reason_label': 'కారణం / గమనికలు',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'blood_bank.submitting_button': 'సమర్పిస్తోంది...',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production

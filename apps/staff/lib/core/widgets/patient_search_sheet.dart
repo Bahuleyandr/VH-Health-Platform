@@ -18,8 +18,14 @@ import '../utils/patient_identity.dart';
 ///
 /// Open via [PatientSearchSheet.show] from any screen — typically a
 /// magnifier icon in the AppBar or a Cmd+K shortcut.
+typedef PatientLookup =
+    Future<List<Map<String, dynamic>>> Function(String query);
+
 class PatientSearchSheet extends StatefulWidget {
-  const PatientSearchSheet({super.key});
+  final bool pickOnly;
+  final PatientLookup? search;
+
+  const PatientSearchSheet({super.key, this.pickOnly = false, this.search});
 
   /// Boot-time hook (registered in `main.dart`) that opens the one-screen
   /// patient summary (roadmap E5). Lives as an injected callback so this
@@ -44,6 +50,21 @@ class PatientSearchSheet extends StatefulWidget {
       builder: (_) => const Padding(
         padding: EdgeInsets.only(top: 32),
         child: PatientSearchSheet(),
+      ),
+    );
+  }
+
+  static Future<Map<String, dynamic>?> pick(BuildContext context) {
+    return showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const Padding(
+        padding: EdgeInsets.only(top: 32),
+        child: PatientSearchSheet(pickOnly: true),
       ),
     );
   }
@@ -132,7 +153,8 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
       _error = null;
     });
     try {
-      final rows = (await PatientApiService.search(query))
+      final lookup = widget.search ?? PatientApiService.search;
+      final rows = (await lookup(query))
           .where((patient) => patientMatchesLookupQuery(patient, query))
           .toList(growable: false);
       if (!mounted || query != _lastQuery) return;
@@ -155,6 +177,10 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
   ) async {
     final uid = patientUidFrom(patient);
     if (uid.isEmpty) return;
+    if (widget.pickOnly) {
+      Navigator.of(context).pop(patient);
+      return;
+    }
     final role = await ApiConfig.getRole();
     if (!context.mounted) return;
     Navigator.of(context).pop();
