@@ -8,6 +8,7 @@ const controls = {
   burnoutReviewError: null,
   clinicalReviewError: null,
   listError: null,
+  shiftRows: [],
   ptoRows: [],
 };
 
@@ -24,7 +25,7 @@ const queryRawUnsafeMock = jest.fn(async (sql) => {
   }
   if (query.includes('FROM staff_attendance')) {
     if (controls.shiftsError) throw controls.shiftsError;
-    return [];
+    return controls.shiftRows;
   }
   if (query.includes('SELECT id') && query.includes('FROM users')) return [{ id: 1 }];
   if (query.includes('FROM leave_requests')) {
@@ -34,6 +35,9 @@ const queryRawUnsafeMock = jest.fn(async (sql) => {
   }
   if (query.includes('FROM leave_applications')) {
     if (controls.ptoError) throw controls.ptoError;
+    if (query.includes("LOWER(status) = 'approved'")) {
+      return controls.ptoRows.filter((row) => String(row.status).toLowerCase() === 'approved');
+    }
     return controls.ptoRows;
   }
   if (query.includes('FROM clinical_ai_prompts')) return [];
@@ -88,8 +92,12 @@ const staffUid = '00000000-0000-4000-8000-0000000000b1';
 
 describe('staff burnout evidence and persistence failures', () => {
   beforeEach(() => {
-    Object.keys(controls).forEach((key) => { controls[key] = key === 'ptoRows' ? [] : null; });
+    Object.keys(controls).forEach((key) => { controls[key] = key.endsWith('Rows') ? [] : null; });
     queryRawUnsafeMock.mockClear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   test.each([
@@ -112,17 +120,22 @@ describe('staff burnout evidence and persistence failures', () => {
       .rejects.toThrow('review list unavailable');
   });
 
-  test('loads tenant-scoped PTO evidence from canonical leave applications', async () => {
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setUTCDate(today.getUTCDate() - 1);
+  test('counts a single approved PTO day on the rolling-window start boundary', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-12T12:00:00.000Z'));
+    controls.shiftRows = [{
+      id: 1,
+      start_at: '2026-08-10T09:00:00.000Z',
+      end_at: '2026-08-10T17:00:00.000Z',
+      shift_name: 'day',
+      overtime_hours: 0,
+    }];
     controls.ptoRows = [{
-      start_date: yesterday.toISOString().slice(0, 10),
-      end_date: today.toISOString().slice(0, 10),
+      start_date: '2026-07-13',
+      end_date: '2026-07-13',
       status: 'approved',
     }];
 
-    const result = await evaluateStaffBurnout({ req, staffUid });
+    const result = await evaluateStaffBurnout({ req, staffUid, windowDays: 30 });
 
     const identityCall = queryRawUnsafeMock.mock.calls.find(([sql]) => (
       String(sql).includes('SELECT id') && String(sql).includes('FROM users')
@@ -132,10 +145,65 @@ describe('staff burnout evidence and persistence failures', () => {
 
     const leaveCall = queryRawUnsafeMock.mock.calls.find(([sql]) => String(sql).includes('FROM leave_applications'));
     expect(String(leaveCall?.[0])).toContain('tenant_id = $1::uuid');
+    expect(String(leaveCall?.[0])).toContain("LOWER(status) = 'approved'");
+    expect(String(leaveCall?.[0])).not.toMatch(/'taken'|'completed'/);
     expect(leaveCall?.slice(1, 3)).toEqual([req.tenantId, 1]);
     expect(queryRawUnsafeMock.mock.calls.some(([sql]) => String(sql).includes('FROM leave_requests'))).toBe(false);
+    expect(result.draft.pto_days_taken).toBe(1);
+    expect(result.draft.contributing_signals.map(({ code }) => code)).toEqual(['LOW_PTO_UTILIZATION']);
     expect(result.source_citations).toEqual(expect.arrayContaining([
       expect.objectContaining({ source_type: 'leave_applications' }),
     ]));
   });
+
+  test('counts both approved PTO dates when a two-day leave starts on the boundary', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-12T12:00:00.000Z'));
+    controls.shiftRows = [{
+      id: 1,
+      start_at: '2026-08-10T09:00:00.000Z',
+      end_at: '2026-08-10T17:00:00.000Z',
+      shift_name: 'day',
+      overtime_hours: 0,
+    }];
+    controls.ptoRows = [{
+      start_date: '2026-07-13',
+      end_date: '2026-07-14',
+      status: 'approved',
+    }];
+
+    const result = await evaluateStaffBurnout({ req, staffUid, windowDays: 30 });
+
+    expect(result.draft.pto_days_taken).toBe(2);
+    expect(result.draft.contributing_signals).toEqual([]);
+    expect(result.source_citations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source_type: 'leave_applications' }),
+    ]));
+  });
+
+  test.each(['taken', 'completed'])(
+    'rejects legacy %s leave state as PTO evidence',
+    async (status) => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-08-12T12:00:00.000Z'));
+      controls.shiftRows = [{
+        id: 1,
+        start_at: '2026-08-10T09:00:00.000Z',
+        end_at: '2026-08-10T17:00:00.000Z',
+        shift_name: 'day',
+        overtime_hours: 0,
+      }];
+      controls.ptoRows = [{
+        start_date: '2026-08-10',
+        end_date: '2026-08-11',
+        status,
+      }];
+
+      const result = await evaluateStaffBurnout({ req, staffUid, windowDays: 30 });
+
+      expect(result.draft.pto_days_taken).toBe(0);
+      expect(result.draft.contributing_signals.map(({ code }) => code)).toEqual(['LOW_PTO_UTILIZATION']);
+      expect(result.source_citations).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ source_type: 'leave_applications' }),
+      ]));
+    }
+  );
 });

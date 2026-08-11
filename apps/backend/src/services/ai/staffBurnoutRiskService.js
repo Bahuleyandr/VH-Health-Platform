@@ -40,6 +40,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 const NIGHT_SHIFT_TYPES = new Set(['night', 'overnight', 'nightshift']);
 const WEEKEND_DAYS = new Set([0, 6]); // Sunday, Saturday (UTC day-of-week)
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Thresholds for signal detection.
 export const WEEKLY_OVERTIME_CAP = 48; // hours/week threshold for overtime signal
@@ -105,6 +106,13 @@ function toNonNegativeNumber(value, fallback = 0) {
 function roundTo(value, decimals = 2) {
   const factor = 10 ** decimals;
   return Math.round(toNumber(value) * factor) / factor;
+}
+
+function utcDateOrdinal(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+    / MILLISECONDS_PER_DAY;
 }
 
 function clampInt(value, min, max, fallback) {
@@ -519,7 +527,7 @@ async function loadPtoDays({ tenantId, staffUid, windowStart, windowEnd }) {
        FROM leave_applications
        WHERE tenant_id = $1::uuid
          AND staff_id = $2::int
-         AND LOWER(status) IN ('approved', 'taken', 'completed')
+         AND LOWER(status) = 'approved'
          AND end_date >= $3::date
          AND start_date <= $4::date
        LIMIT 200`,
@@ -529,14 +537,17 @@ async function loadPtoDays({ tenantId, staffUid, windowStart, windowEnd }) {
       windowEnd.toISOString().slice(0, 10)
   );
   let totalDays = 0;
-  const wsMs = windowStart.getTime();
-  const weMs = windowEnd.getTime();
+  const windowStartDay = utcDateOrdinal(windowStart);
+  const windowEndDay = utcDateOrdinal(windowEnd);
   for (const row of asArray(rows)) {
     if (!row.start_date || !row.end_date) continue;
-    const startMs = Math.max(wsMs, new Date(row.start_date).getTime());
-    const endMs = Math.min(weMs, new Date(row.end_date).getTime());
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) continue;
-    const days = (endMs - startMs) / (24 * 60 * 60 * 1000) + 1;
+    const rowStartDay = utcDateOrdinal(row.start_date);
+    const rowEndDay = utcDateOrdinal(row.end_date);
+    if (rowStartDay === null || rowEndDay === null) continue;
+    const startDay = Math.max(windowStartDay, rowStartDay);
+    const endDay = Math.min(windowEndDay, rowEndDay);
+    if (endDay < startDay) continue;
+    const days = endDay - startDay + 1;
     if (days > 0) totalDays += days;
   }
   return roundTo(totalDays, 2);
