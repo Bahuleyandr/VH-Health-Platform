@@ -34,8 +34,22 @@ describe('Audit 3 dead-surface guard', () => {
       'analytics_exec_digest_deliveries',
       'analytics_benchmark_pack_exports',
     ];
+    const firstDrop = migration.indexOf('DROP TABLE');
+    const preflightEnd = migration.indexOf('END $$;');
+
+    expect(migration).not.toContain('@no-transaction');
+    expect(migration).not.toMatch(/\bCASCADE\b/i);
+    expect(migration).toContain("SET LOCAL lock_timeout = '10s';");
+    expect(migration).toContain("SET LOCAL statement_timeout = '30s';");
+    expect(migration).toContain('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE');
+    expect(migration).toContain('SELECT EXISTS (SELECT 1 FROM public.%I LIMIT 1)');
+    expect(migration).toContain("ERRCODE = 'P10D1'");
+    expect(migration).toContain('AUDIT3_P10_DEAD_SURFACE_DATA_PRESENT');
+    expect(preflightEnd).toBeGreaterThan(-1);
+    expect(firstDrop).toBeGreaterThan(preflightEnd);
 
     for (const table of tables) {
+      expect(migration).toContain(`'${table}'`);
       expect(migration).toContain(`DROP TABLE IF EXISTS ${table};`);
       expect(schema).not.toContain(`model ${table} {`);
     }
