@@ -10,6 +10,7 @@ import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/services/deep_link_service.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
+import 'package:vhhealth/core/services/patient_notification_privacy.dart';
 
 class PushNotificationService {
   PushNotificationService._();
@@ -95,14 +96,16 @@ class PushNotificationService {
     if (message.notification != null) return;
 
     final payload = normalizedPayload(message);
-    final title = _notificationTitle(message, payload);
-    final body = _notificationBody(message, payload);
-    if (title.isEmpty && body.isEmpty) return;
+    final copy = patientLockScreenCopy(
+      remoteTitle: message.notification?.title,
+      remoteBody: message.notification?.body,
+      payload: payload,
+    );
 
     try {
       await NotificationScheduler.showPushNotification(
-        title: title,
-        body: body,
+        title: copy.title,
+        body: copy.body,
         payload: payload,
       );
     } catch (e) {
@@ -117,11 +120,7 @@ class PushNotificationService {
 
   @visibleForTesting
   static Map<String, dynamic> normalizePayload(Map<String, dynamic> data) {
-    final normalized = <String, dynamic>{};
-    data.forEach((key, value) {
-      normalized[key] = value?.toString();
-    });
-    return normalized;
+    return patientNotificationPayload(data);
   }
 
   static Future<bool> _requestNotificationPermission() async {
@@ -152,9 +151,14 @@ class PushNotificationService {
 
   static Future<void> _handleForeground(RemoteMessage message) async {
     final payload = normalizedPayload(message);
+    final copy = patientLockScreenCopy(
+      remoteTitle: message.notification?.title,
+      remoteBody: message.notification?.body,
+      payload: payload,
+    );
     await NotificationScheduler.showPushNotification(
-      title: _notificationTitle(message, payload),
-      body: _notificationBody(message, payload),
+      title: copy.title,
+      body: copy.body,
       payload: payload,
     );
 
@@ -163,22 +167,6 @@ class PushNotificationService {
     if (phone != null && provider != null) {
       unawaited(provider.refreshBadgeAfterPush(phone));
     }
-  }
-
-  static String _notificationTitle(
-    RemoteMessage message,
-    Map<String, dynamic> payload,
-  ) {
-    return message.notification?.title ??
-        payload['title']?.toString() ??
-        'VH Health';
-  }
-
-  static String _notificationBody(
-    RemoteMessage message,
-    Map<String, dynamic> payload,
-  ) {
-    return message.notification?.body ?? payload['body']?.toString() ?? '';
   }
 
   static void _routeRemoteMessage(RemoteMessage message) {
