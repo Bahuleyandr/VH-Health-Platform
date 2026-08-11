@@ -286,7 +286,8 @@ the provider (FCM/SMS) is failing.
 
 One or more notification intents exhausted their retry budget or entered an
 operator-review state. Open **Admin → Notifications → Delivery Health**, select
-the failed status, and inspect the bounded reason and delivery metadata. Do not
+the failed status, and inspect the bounded reason, provider attempt, latest
+receipt outcome, provider code, and provider reference. Do not
 copy recipient identifiers into an incident channel or change outbox state with
 raw SQL. Repair the provider or configuration cause first, enter a specific
 operator reason, and use **Replay** only for the named row. A replay of an
@@ -298,15 +299,22 @@ that risk before submitting it.
 The backend cannot prove whether a provider accepted one or more notification
 attempts. Treat the outcome as unknown, not failed. In **Admin → Notifications →
 Delivery Health**, correlate the row with provider evidence without exposing the
-message body or payload. If acceptance can be proven, preserve the provider
-receipt; otherwise use the audited row replay only after explicitly accepting
-duplicate-delivery risk. The original uncertain row is never silently retried.
+message body or payload. If the provider or an independently retained delivery
+record proves acceptance for the exact attempt, enter its **Provider reference**,
+summarize the source in **Provider evidence**, enter an incident-specific
+operator reason, and use **Record acceptance**. This appends an actor-attributed
+acceptance receipt and advances only the cursor paused on that outbox row; the
+row becomes sent only after every current channel attempt has acceptance
+evidence. If acceptance cannot be proven, use the audited row replay only after
+explicitly accepting duplicate-delivery risk. The original uncertain row is
+never silently retried. Never use **Record acceptance** for a provider ticket
+that merely reports receipt of a support request or for inferred delivery.
 
 ## NotificationDeliveryCursorPaused
 
 A channel is deliberately blocked behind a rejected or uncertain head row so
 later messages cannot overtake it. Use the Delivery Health cursor view to find
-the blocked row, then resolve or replay that exact row. The reset action refuses
+the blocked row, then record acceptance evidence or replay that exact row. The reset action refuses
 an unresolved head; it is only for clearing a stale pause after the ledger shows
 a terminal rejection, acknowledged delivery, suppression, or audited superseding
 replay. Enter an incident-specific reason and never clear the cursor with SQL.

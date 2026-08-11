@@ -31,6 +31,14 @@ describe('reconcile (ops-alerts)', () => {
     expect(r.toNotify).toHaveLength(1);
   });
 
+  it('retries an unnotified high alert without requiring another severity increase', () => {
+    const r = reconcile(
+      [open({ severity: 'high', notified_at: null })],
+      [cand({ severity: 'high' })],
+    );
+    expect(r.toNotify).toHaveLength(1);
+  });
+
   it('does NOT re-notify an already-notified alert', () => {
     const r = reconcile([open({ severity: 'high', notified_at: new Date() })], [cand({ severity: 'critical' })]);
     expect(r.toNotify).toHaveLength(0);

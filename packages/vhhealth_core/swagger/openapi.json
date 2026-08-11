@@ -27796,6 +27796,96 @@
           }
         }
       },
+      "NotificationDeliveryAttemptEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attempt_id",
+          "channel",
+          "provider",
+          "attempt_number",
+          "started_at"
+        ],
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "push",
+              "email",
+              "inapp",
+              "whatsapp",
+              "voice",
+              "sms",
+              "print"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "attempt_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "acknowledged",
+              "rejected",
+              "uncertain"
+            ],
+            "nullable": true
+          },
+          "receipt_source": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 32
+          },
+          "provider_reference": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "provider_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 120
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "owner_actor_uid": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "owner_reason": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          }
+        }
+      },
       "NotificationDeliveryCursorList": {
         "type": "object",
         "additionalProperties": false,
@@ -27947,6 +28037,81 @@
           }
         }
       },
+      "NotificationOutboxReconcileRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attempt_id",
+          "provider_reference",
+          "evidence",
+          "reason"
+        ],
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider_reference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "minProperties": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "NotificationOutboxReconcileResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NotificationOutboxReconcileResult"
+          }
+        }
+      },
+      "NotificationOutboxReconcileResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "row",
+          "receipt",
+          "cursor",
+          "fully_reconciled"
+        ],
+        "properties": {
+          "row": {
+            "$ref": "#/components/schemas/NotificationOutboxRow"
+          },
+          "receipt": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/NotificationDeliveryCursorRow"
+          },
+          "fully_reconciled": {
+            "type": "boolean"
+          }
+        }
+      },
       "NotificationOutboxReplayResponse": {
         "type": "object",
         "required": [
@@ -28086,6 +28251,12 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "delivery_attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationDeliveryAttemptEvidence"
+            }
           },
           "dead_letter": {
             "type": "boolean"
@@ -56626,6 +56797,49 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/OutboxReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/notification-outbox/{id}/reconcile": {
+      "post": {
+        "operationId": "post_api_v1_admin_notification_outbox_by_id_reconcile",
+        "tags": [
+          "notification"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationOutboxReconcileResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Record verified provider acceptance for a notification attempt",
+        "description": "Appends actor-attributed provider acceptance evidence for one current uncertain or rejected attempt. Advances only the exact paused channel cursor and marks the outbox row sent only after every current channel attempt is acknowledged. Audited to audit_logs.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationOutboxReconcileRequest"
               }
             }
           }

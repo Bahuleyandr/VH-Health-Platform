@@ -520,6 +520,43 @@ describe('runEscalationSweep', () => {
     ]);
   });
 
+  it('does not consume the once-only tier when the durable enqueue is not confirmed', async () => {
+    const t2 = rule({
+      id: 6,
+      trigger_window_minutes: 10,
+      action_kind: 'notify',
+      action_payload: { tier: 2, notify_role: 'DUTY' },
+    });
+    queueNotificationMock.mockResolvedValueOnce(null);
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([t2])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
+      .mockResolvedValueOnce([{
+        id: 51,
+        uid: '33333333-3333-4333-8333-333333333333',
+        phone: '+919800000051',
+        role: 'DUTY_DOCTOR',
+      }])
+      .mockResolvedValueOnce([]);
+
+    const result = await runEscalationSweep({ now: NOW });
+
+    expect(result.escalated).toBe(0);
+    expect(queueNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientId: 51, tenantId: TENANT }),
+      expect.objectContaining({ strict: true }),
+    );
+    expect(executeRawMock).not.toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'escalation sweep: per-task atomic action failed',
+      expect.objectContaining({ tenantId: TENANT, taskId: 77, ruleId: 6 }),
+    );
+  });
+
   it('tier-2 notify with NO resolvable recipient → pages via security webhook (never a silent no-op)', async () => {
     const t2 = rule({
       id: 6,
@@ -542,10 +579,11 @@ describe('runEscalationSweep', () => {
 
     const res = await runEscalationSweep({ now: NOW });
 
-    expect(res.escalated).toBe(1);
+    expect(res.escalated).toBe(0);
     // No outbox row (nobody to deliver to) — but the unstaffed-role escalation is
-    // made LOUD via the security webhook so it is never an unheard no-op (C-3).
+    // made LOUD via the security webhook, and the once-only tier remains live.
     expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(executeRawMock).not.toHaveBeenCalled();
     expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
     const [eventType] = sendSecurityWebhookMock.mock.calls[0];
     expect(eventType).toMatch(/CRITICAL_RESULT_UNACKED|UNACK/i);
@@ -716,15 +754,18 @@ describe('runEscalationSweep', () => {
     const result = await runEscalationSweep({ now: NOW });
 
     expect(result.escalated).toBe(1);
-    expect(queueNotificationMock).toHaveBeenCalledWith(expect.objectContaining({
-      recipientId: 71,
-      title: 'Critical result escalation',
-      body: expect.stringContaining('unacknowledged'),
-      data: expect.objectContaining({
-        kind: 'results_inbox_escalation',
-        notify_role: 'MEDICAL_RECORDS',
+    expect(queueNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientId: 71,
+        title: 'Critical result escalation',
+        body: expect.stringContaining('unacknowledged'),
+        data: expect.objectContaining({
+          kind: 'results_inbox_escalation',
+          notify_role: 'MEDICAL_RECORDS',
+        }),
       }),
-    }));
+      expect.objectContaining({ strict: true }),
+    );
     expect(JSON.stringify(queueNotificationMock.mock.calls[0][0]))
       .not.toMatch(/clinical_task_escalation|CLINICAL_TASK_UNACTIONED/);
   });
@@ -774,6 +815,7 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([rule()])
       .mockResolvedValueOnce([t1, t2]) // two candidates
       .mockResolvedValueOnce(claimed(t1))
+      .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
       .mockResolvedValueOnce(claimed(t2))
       .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
       .mockResolvedValueOnce([]);

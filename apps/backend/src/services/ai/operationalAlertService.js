@@ -1,5 +1,5 @@
 // src/services/ai/operationalAlertService.js
-import prisma, { setTenant } from '../../lib/prisma.js';
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -8,11 +8,9 @@ import { OPERATIONAL_ALERT_EVALUATORS } from './operationalAlertEvaluators.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 
-const SEVERITY = ['unknown', 'low', 'moderate', 'high', 'critical'];
 const PUSH_SEVERITIES = new Set(['high', 'critical']);
 const FINAL_DECISIONS = new Set(['accepted', 'deferred', 'rejected', 'edited']);
 
-function sevRank(s) { const i = SEVERITY.indexOf(s); return i < 0 ? 0 : i; }
 function resolveTenantId(t) { return requireTenantId(t); }
 
 // Advisory guarantee (spec): EVERY persisted alert carries the decision-support
@@ -44,10 +42,8 @@ export function reconcile(openAlerts, candidates) {
       if (PUSH_SEVERITIES.has(c.severity)) toNotify.push(c);
     } else {
       toUpdate.push({ id: existing.id, candidate: c });
-      const escalatedIntoPush = PUSH_SEVERITIES.has(c.severity)
-        && sevRank(c.severity) > sevRank(existing.severity)
-        && !existing.notified_at;
-      if (escalatedIntoPush) toNotify.push({ ...c, id: existing.id });
+      const needsPush = PUSH_SEVERITIES.has(c.severity) && !existing.notified_at;
+      if (needsPush) toNotify.push({ ...c, id: existing.id });
     }
   }
   const toResolve = openAlerts.filter((a) => !candScopes.has(a.scope_key));
@@ -99,15 +95,38 @@ async function resolveAlert(tenantId, id, reason = 'forecast_cleared') {
 }
 
 async function notifyAndStamp(tenantId, c, alertId) {
-  try {
-    if (c.owner_role) {
-      // Role-addressed intent row using the REAL notificationOutbox contract
-      // (recipientId/title/body/data). recipient_id is null — a role-fanout
-      // notifier resolves `data.notify_role`, the same pattern
-      // escalationEngineService uses for role notifications. The durable
-      // surfacing is the event below + the admin alert list.
-      await notificationOutbox.queue({
+  return setTenantTx(tenantId, async (tx) => {
+    const alerts = await tx.$queryRawUnsafe(
+      `SELECT id, notified_at
+         FROM clinical_ai_operational_alerts
+        WHERE id = $1 AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      alertId, tenantId,
+    );
+    if (!alerts?.[0]) throw AppError.notFound('Operational alert not found');
+    if (alerts[0].notified_at) return { notified: false, alreadyNotified: true };
+    if (!c.owner_role) throw new Error('Operational alert has no owner role');
+
+    const recipients = await tx.$queryRawUnsafe(
+      `SELECT id, phone, role
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND role = $2
+          AND is_active = TRUE
+        ORDER BY id ASC`,
+      tenantId, c.owner_role,
+    );
+    if (!recipients?.length) {
+      throw new Error(`Operational alert owner role '${c.owner_role}' has no active recipient`);
+    }
+
+    for (const recipient of recipients) {
+      const outboxRow = await notificationOutbox.queue({
         type: 'push',
+        tenantId,
+        recipientId: recipient.id,
+        recipientPhone: recipient.phone || null,
+        sourceEventKey: `operational-alert:${alertId}:${recipient.id}`,
         title: `Operational alert (${c.severity}): ${c.domain}`,
         body: c.summary || `${c.scope_label || c.scope_key} — ${c.alert_category}`,
         data: {
@@ -115,27 +134,31 @@ async function notifyAndStamp(tenantId, c, alertId) {
           domain: c.domain, severity: c.severity, scope_label: c.scope_label || c.scope_key,
           horizon: c.horizon || null,
         },
-      });
+      }, { tx, strict: true });
+      if (!outboxRow?.id) {
+        throw new Error(`Operational alert enqueue was not confirmed for recipient ${recipient.id}`);
+      }
     }
-    await publishEvent({
+
+    const event = await publishEvent({
       eventType: 'clinical_ai.operational_alert_raised',
       aggregateType: 'clinical_ai_operational_alert', aggregateId: alertId,
+      tx,
+      tenantId,
       payload: { tenant_id: tenantId, module_key: c.module_key, domain: c.domain,
         severity: c.severity, scope_label: c.scope_label || c.scope_key,
         horizon: c.horizon || null, predicted_for: c.predicted_for || null },
     });
-  } catch (err) {
-    logger.warn('operational alert notify failed', { error: err?.message, module_key: c.module_key });
-  }
-  // Stamp notified_at independently so a missing outbox/event store doesn't lose the dedup mark.
-  try {
-    await prisma.$queryRawUnsafe(
-      `UPDATE clinical_ai_operational_alerts SET notified_at=NOW(), updated_at=NOW()
-        WHERE id=$1 AND tenant_id=$2::uuid`, alertId, tenantId,
+    if (!event?.id) throw new Error('Operational alert event enqueue was not confirmed');
+
+    await tx.$queryRawUnsafe(
+      `UPDATE clinical_ai_operational_alerts
+          SET notified_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND tenant_id = $2::uuid AND notified_at IS NULL`,
+      alertId, tenantId,
     );
-  } catch (err) {
-    logger.warn('operational alert notify stamp failed', { error: err?.message });
-  }
+    return { notified: true, recipients: recipients.length };
+  }, { isolationLevel: 'Serializable' });
 }
 
 export async function runSweep({ tenantId = null, moduleKeys = null, now = new Date() } = {}) {
@@ -183,7 +206,10 @@ export async function runSweep({ tenantId = null, moduleKeys = null, now = new D
 
       for (const c of toNotify) {
         const alertId = upsertedIds.get(c.scope_key);
-        if (alertId) { await notifyAndStamp(tid, c, alertId); summary.raised += 1; }
+        if (alertId) {
+          const delivery = await notifyAndStamp(tid, c, alertId);
+          if (delivery.notified) summary.raised += 1;
+        }
       }
     } catch (err) {
       summary.errors.push({ module_key: evaluator.module_key, error: err?.message });
@@ -235,5 +261,7 @@ export async function decideOperationalAlert({ tenantId = null, alertId, decisio
   if (!rows?.[0]) throw AppError.notFound('Operational alert not found');
   return rows[0];
 }
+
+export const __testing__ = Object.freeze({ notifyAndStamp });
 
 export default { reconcile, runSweep, listOperationalAlerts, decideOperationalAlert };

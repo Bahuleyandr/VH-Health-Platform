@@ -30,6 +30,10 @@ import { recordOutboxOperatorRedrive } from '../../observability/reliabilityMetr
 import { AppError } from '../../utils/AppError.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { OPERATOR_REPLAY_SUPERSEDED_REASON } from '../../utils/notifications/terminalRejectionCodes.js';
+import {
+  applyProviderReceiptToCursorTx,
+  recordProviderReceiptTx,
+} from './notificationDeliveryLedgerService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const STATUSES = Object.freeze([
@@ -54,6 +58,25 @@ function normalizeOutboxId(value) {
     throw AppError.badRequest('notification outbox id is invalid');
   }
   return id;
+}
+
+function normalizeAttemptId(value) {
+  const id = String(value || '').trim().toLowerCase();
+  if (!UUID_RE.test(id)) throw AppError.badRequest('delivery attempt id is invalid');
+  return id;
+}
+
+function requiredText(value, max, label) {
+  const text = String(value || '').trim();
+  if (!text || text.length > max) throw AppError.badRequest(`${label} is required (max ${max} chars)`);
+  return text;
+}
+
+function requireEvidence(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length === 0) {
+    throw AppError.badRequest('provider evidence must be a non-empty object');
+  }
+  return value;
 }
 
 function requireOperator({ reason, actorUid, actorRole }) {
@@ -87,6 +110,44 @@ export async function listNotificationOutboxRows({
             source_event_key, recipient_key, template_version, retry_count,
             failure_reason, created_at, last_attempt_at, sent_at,
             lease_expires_at,
+            COALESCE((
+              SELECT jsonb_agg(jsonb_build_object(
+                'attempt_id', attempt.attempt_id::text,
+                'channel', attempt.channel,
+                'provider', attempt.provider,
+                'attempt_number', attempt.attempt_number,
+                'started_at', attempt.started_at,
+                'receipt_id', receipt.receipt_id::text,
+                'outcome', receipt.outcome,
+                'receipt_source', receipt.receipt_source,
+                'provider_reference', receipt.provider_reference,
+                'provider_code', receipt.provider_code,
+                'evidence', receipt.evidence,
+                'observed_at', receipt.observed_at,
+                'owner_actor_uid', receipt.owner_actor_uid::text,
+                'owner_reason', receipt.owner_reason
+              ) ORDER BY attempt.started_at DESC)
+                FROM notification_delivery_attempts AS attempt
+                LEFT JOIN LATERAL (
+                  SELECT receipt_id, outcome, receipt_source, provider_reference,
+                         provider_code, evidence, observed_at, owner_actor_uid,
+                         owner_reason
+                    FROM notification_provider_receipts
+                   WHERE tenant_id = attempt.tenant_id
+                     AND attempt_id = attempt.attempt_id
+                   ORDER BY observed_at DESC, receipt_id DESC
+                   LIMIT 1
+                ) AS receipt ON TRUE
+               WHERE attempt.tenant_id = notification_outbox.tenant_id
+                 AND attempt.notification_outbox_id = notification_outbox.id
+                 AND attempt.attempt_number = (
+                   SELECT MAX(newest.attempt_number)
+                     FROM notification_delivery_attempts AS newest
+                    WHERE newest.tenant_id = attempt.tenant_id
+                      AND newest.notification_outbox_id = attempt.notification_outbox_id
+                      AND newest.channel = attempt.channel
+                 )
+            ), '[]'::jsonb) AS delivery_attempts,
             (status = 'RECONCILIATION_REQUIRED'
               OR (status = 'FAILED' AND retry_count >= 3)) AS dead_letter
        FROM notification_outbox
@@ -96,6 +157,132 @@ export async function listNotificationOutboxRows({
       LIMIT $3::integer OFFSET $4::integer`,
     tid, normalizedStatus, safeLimit, safeOffset,
   ));
+}
+
+/** Record externally verified provider acceptance for one unresolved attempt. */
+export async function reconcileNotificationOutboxAttempt({
+  tenantId,
+  id,
+  attemptId,
+  providerReference,
+  evidence,
+  reason,
+  actorUid,
+  actorRole,
+  requestId = null,
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  const outboxId = normalizeOutboxId(id);
+  const deliveryAttemptId = normalizeAttemptId(attemptId);
+  const reference = requiredText(providerReference, 255, 'provider reference');
+  const providerEvidence = requireEvidence(evidence);
+  const { operatorReason, uid, role } = requireOperator({ reason, actorUid, actorRole });
+  if (operatorReason.length > 500) {
+    throw AppError.badRequest('provider reconciliation reason is too long (max 500 chars)');
+  }
+  const request = requestId ? String(requestId).slice(0, 180) : null;
+
+  return setTenantTx(tid, async (tx) => {
+    const current = await tx.$queryRawUnsafe(
+      `SELECT id, status
+         FROM notification_outbox
+        WHERE tenant_id = $1::uuid AND id = $2::integer
+        FOR UPDATE`,
+      tid, outboxId,
+    );
+    if (!current[0]) throw AppError.notFound('Notification outbox row not found');
+    if (current[0].status !== 'RECONCILIATION_REQUIRED') {
+      throw AppError.conflict('Notification outbox row does not require reconciliation');
+    }
+
+    const attempts = await tx.$queryRawUnsafe(
+      `SELECT attempt.attempt_id::text, attempt.channel, attempt.provider,
+              receipt.receipt_id::text, receipt.outcome, receipt.provider_code
+         FROM notification_delivery_attempts AS attempt
+         LEFT JOIN LATERAL (
+           SELECT receipt_id, outcome, provider_code
+             FROM notification_provider_receipts
+            WHERE tenant_id = attempt.tenant_id AND attempt_id = attempt.attempt_id
+            ORDER BY observed_at DESC, receipt_id DESC
+            LIMIT 1
+         ) AS receipt ON TRUE
+        WHERE attempt.tenant_id = $1::uuid
+          AND attempt.notification_outbox_id = $2::integer
+          AND attempt.attempt_number = (
+            SELECT MAX(newest.attempt_number)
+              FROM notification_delivery_attempts AS newest
+             WHERE newest.tenant_id = attempt.tenant_id
+               AND newest.notification_outbox_id = attempt.notification_outbox_id
+               AND newest.channel = attempt.channel
+          )
+        ORDER BY attempt.channel
+        FOR UPDATE OF attempt`,
+      tid, outboxId,
+    );
+    const target = attempts.find(attempt => attempt.attempt_id === deliveryAttemptId);
+    if (!target) throw AppError.notFound('Current delivery attempt not found');
+    if (!['uncertain', 'rejected'].includes(target.outcome)) {
+      throw AppError.conflict('Delivery attempt is not awaiting reconciliation evidence');
+    }
+
+    const receipt = await recordProviderReceiptTx(tx, {
+      tenantId: tid,
+      attemptId: deliveryAttemptId,
+      outboxId,
+      channel: target.channel,
+      outcome: 'acknowledged',
+      receiptSource: 'operator_reconciliation',
+      providerReference: reference,
+      providerCode: 'operator_verified_acceptance',
+      evidence: providerEvidence,
+      ownerActorUid: uid,
+      ownerReason: operatorReason,
+    });
+    const cursor = await applyProviderReceiptToCursorTx(tx, {
+      tenantId: tid,
+      receiptId: receipt.receipt_id,
+    });
+
+    target.outcome = 'acknowledged';
+    target.receipt_id = receipt.receipt_id;
+    const fullyReconciled = attempts.length > 0
+      && attempts.every(attempt => attempt.outcome === 'acknowledged');
+    let row = current[0];
+    if (fullyReconciled) {
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE notification_outbox
+            SET status = 'SENT', sent_at = COALESCE(sent_at, $3::timestamptz),
+                failure_reason = NULL, claim_token = NULL, claimed_at = NULL,
+                lease_expires_at = NULL
+          WHERE tenant_id = $1::uuid AND id = $2::integer
+            AND status = 'RECONCILIATION_REQUIRED'
+          RETURNING id, status, sent_at, failure_reason`,
+        tid, outboxId, receipt.observed_at,
+      );
+      if (updated.length !== 1) throw AppError.conflict('Notification reconciliation lost its state fence');
+      row = updated[0];
+    }
+
+    await tx.$queryRawUnsafe(
+      `INSERT INTO audit_logs
+         (tenant_id, uid, role, action, resource, resource_id, metadata, created_at)
+       VALUES ($1::uuid, $2::uuid, $3::text,
+               'NOTIFICATION_OUTBOX_PROVIDER_ACCEPTANCE_RECORDED',
+               'notification_outbox', $4::text, $5::jsonb, NOW())`,
+      tid, uid, role, String(outboxId),
+      JSON.stringify({
+        reason: operatorReason,
+        request_id: request,
+        attempt_id: deliveryAttemptId,
+        channel: target.channel,
+        provider: target.provider,
+        receipt_id: receipt.receipt_id,
+        provider_reference: reference,
+        fully_reconciled: fullyReconciled,
+      }),
+    );
+    return { row, receipt, cursor, fully_reconciled: fullyReconciled };
+  }, { isolationLevel: 'Serializable' });
 }
 
 /**
@@ -224,6 +411,7 @@ export async function replayNotificationOutboxRow({
 
 export const notificationOutboxAdminService = Object.freeze({
   listNotificationOutboxRows,
+  reconcileNotificationOutboxAttempt,
   replayNotificationOutboxRow,
 });
 

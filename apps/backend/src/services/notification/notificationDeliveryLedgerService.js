@@ -14,6 +14,7 @@ const RECEIPT_SOURCES = new Set([
   'transport_failure',
   'lease_expiry',
   'owner_reconciliation',
+  'operator_reconciliation',
 ]);
 
 const PROVIDERS = Object.freeze({
@@ -283,6 +284,10 @@ export async function recordProviderReceiptTx(tx, {
     && (!recoveryInboxId || !ownerActorUid || !String(ownerReason || '').trim())) {
     throw AppError.badRequest('owner reconciliation provenance is incomplete', 'NOTIFICATION_DELIVERY_INPUT_INVALID');
   }
+  if (normalizedSource === 'operator_reconciliation'
+    && (!ownerActorUid || !String(ownerReason || '').trim())) {
+    throw AppError.badRequest('operator reconciliation provenance is incomplete', 'NOTIFICATION_DELIVERY_INPUT_INVALID');
+  }
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO notification_provider_receipts
        (tenant_id, attempt_id, notification_outbox_id, channel, outcome,
@@ -350,7 +355,11 @@ export async function applyProviderReceiptToCursorTx(tx, {
   const ownsInflight = cursor.state === 'delivering'
     && Number(cursor.inflight_outbox_id) === outboxId
     && Number(cursor.blocked_outbox_id) === outboxId;
-  if (!ownsInflight) {
+  const ownsPausedHead = receipt.outcome === 'acknowledged'
+    && ['paused_rejected', 'paused_uncertain'].includes(cursor.state)
+    && cursor.inflight_outbox_id === null
+    && Number(cursor.blocked_outbox_id) === outboxId;
+  if (!ownsInflight && !ownsPausedHead) {
     return Object.freeze({ ...cursor, stale: true });
   }
 
@@ -391,9 +400,15 @@ export async function applyProviderReceiptToCursorTx(tx, {
               blocked_outbox_id = NULL, inflight_outbox_id = NULL, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND channel = $2::text
           AND (last_contiguous_outbox_id IS NULL OR last_contiguous_outbox_id < $3::integer)
-          AND state = 'delivering'
-          AND inflight_outbox_id = $3::integer
-          AND blocked_outbox_id = $3::integer
+          AND (
+            (state = 'delivering'
+              AND inflight_outbox_id = $3::integer
+              AND blocked_outbox_id = $3::integer)
+            OR
+            (state IN ('paused_rejected', 'paused_uncertain')
+              AND inflight_outbox_id IS NULL
+              AND blocked_outbox_id = $3::integer)
+          )
         RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
                   state, blocked_outbox_id, inflight_outbox_id, updated_at`,
       tenantId, receipt.channel, outboxId,

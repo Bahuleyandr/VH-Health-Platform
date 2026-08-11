@@ -76,6 +76,95 @@ describe('notification delivery ledger state separation', () => {
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
+  it('requires actor provenance for an operator reconciliation receipt', async () => {
+    await expect(recordProviderReceipt({
+      tenantId: TENANT_ID,
+      attemptId: ATTEMPT_ID,
+      outboxId: 41,
+      channel: 'push',
+      outcome: 'acknowledged',
+      receiptSource: 'operator_reconciliation',
+      providerReference: 'projects/vh/messages/41',
+      evidence: { provider_export_sha256: 'abc123' },
+    })).rejects.toMatchObject({ code: 'NOTIFICATION_DELIVERY_INPUT_INVALID' });
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('appends actor-attributed operator acceptance without an I17 inbox', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      receipt_id: RECEIPT_ID,
+      tenant_id: TENANT_ID,
+      attempt_id: ATTEMPT_ID,
+      notification_outbox_id: 41,
+      channel: 'push',
+      outcome: 'acknowledged',
+      receipt_source: 'operator_reconciliation',
+      provider_reference: 'projects/vh/messages/41',
+      owner_actor_uid: '11111111-1111-4111-8111-111111111111',
+      owner_reason: 'Provider export confirmed acceptance',
+    }]);
+
+    await recordProviderReceipt({
+      tenantId: TENANT_ID,
+      attemptId: ATTEMPT_ID,
+      outboxId: 41,
+      channel: 'push',
+      outcome: 'acknowledged',
+      receiptSource: 'operator_reconciliation',
+      providerReference: 'projects/vh/messages/41',
+      evidence: { provider_export_sha256: 'abc123' },
+      ownerActorUid: '11111111-1111-4111-8111-111111111111',
+      ownerReason: 'Provider export confirmed acceptance',
+    });
+
+    const args = queryRawUnsafeMock.mock.calls[0];
+    expect(args[6]).toBe('operator_reconciliation');
+    expect(args[10]).toBeNull();
+    expect(args[11]).toBe('11111111-1111-4111-8111-111111111111');
+    expect(args[12]).toBe('Provider export confirmed acceptance');
+  });
+
+  it('advances a cursor paused on the same row when owner evidence proves acceptance', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        receipt_id: RECEIPT_ID,
+        notification_outbox_id: 41,
+        channel: 'push',
+        outcome: 'acknowledged',
+        provider_code: 'accepted',
+      }])
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'push',
+        last_contiguous_outbox_id: 40,
+        state: 'paused_uncertain',
+        blocked_outbox_id: 41,
+        inflight_outbox_id: null,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        tenant_id: TENANT_ID,
+        channel: 'push',
+        last_contiguous_outbox_id: 41,
+        state: 'ready',
+        blocked_outbox_id: null,
+        inflight_outbox_id: null,
+      }]);
+    executeRawUnsafeMock.mockResolvedValueOnce(0);
+
+    await expect(applyProviderReceiptToCursor({
+      tenantId: TENANT_ID,
+      receiptId: RECEIPT_ID,
+    })).resolves.toMatchObject({
+      state: 'ready',
+      last_contiguous_outbox_id: 41,
+      blocked_outbox_id: null,
+    });
+
+    expect(queryRawUnsafeMock.mock.calls[2][0]).toMatch(/id < \$3::integer/);
+    expect(queryRawUnsafeMock.mock.calls[3][0]).toMatch(/last_contiguous_outbox_id = \$3::integer/);
+  });
+
   it('applies uncertain evidence only in the separate cursor operation and pauses it', async () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{

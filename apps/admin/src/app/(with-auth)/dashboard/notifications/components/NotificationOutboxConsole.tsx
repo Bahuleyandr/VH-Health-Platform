@@ -8,6 +8,23 @@ import { toast } from "react-hot-toast";
 
 type OutboxStatus = "FAILED" | "RECONCILIATION_REQUIRED";
 
+type DeliveryAttempt = {
+  attempt_id: string;
+  channel: string;
+  provider: string;
+  attempt_number: number;
+  started_at: string;
+  receipt_id?: string | null;
+  outcome?: "acknowledged" | "rejected" | "uncertain" | null;
+  receipt_source?: string | null;
+  provider_reference?: string | null;
+  provider_code?: string | null;
+  evidence?: Record<string, unknown> | null;
+  observed_at?: string | null;
+  owner_actor_uid?: string | null;
+  owner_reason?: string | null;
+};
+
 type NotificationOutboxRow = {
   id: number;
   type: string;
@@ -20,6 +37,7 @@ type NotificationOutboxRow = {
   created_at: string;
   last_attempt_at?: string | null;
   dead_letter: boolean;
+  delivery_attempts?: DeliveryAttempt[];
 };
 
 type DeliveryCursor = {
@@ -48,7 +66,12 @@ export function NotificationOutboxConsole() {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<OutboxStatus>("FAILED");
   const [reason, setReason] = useState("");
+  const [providerReference, setProviderReference] = useState("");
+  const [providerEvidence, setProviderEvidence] = useState("");
   const hasReason = reason.trim().length > 0;
+  const hasReconciliationReason = hasReason && reason.trim().length <= 500;
+  const hasAcceptanceEvidence = providerReference.trim().length > 0
+    && providerEvidence.trim().length > 0;
 
   const rowsQuery = useQuery({
     queryKey: ["notification-outbox", status],
@@ -92,6 +115,26 @@ export function NotificationOutboxConsole() {
     onError: (error: Error) => toast.error(error.message || "Delivery cursor reset failed"),
   });
 
+  const reconcile = useMutation({
+    mutationFn: ({ rowId, attemptId }: { rowId: number; attemptId: string }) => fetchAdminAPI(
+      `/admin/notification-outbox/${rowId}/reconcile`,
+      {
+        method: "POST",
+        body: {
+          attempt_id: attemptId,
+          provider_reference: providerReference.trim(),
+          evidence: { operator_note: providerEvidence.trim() },
+          reason: reason.trim(),
+        },
+      },
+    ),
+    onSuccess: async () => {
+      await refreshLedger();
+      toast.success("Provider acceptance evidence was recorded");
+    },
+    onError: (error: Error) => toast.error(error.message || "Provider acceptance could not be recorded"),
+  });
+
   const rows = rowsQuery.data?.rows ?? [];
   const cursors = cursorsQuery.data?.cursors ?? [];
 
@@ -107,6 +150,13 @@ export function NotificationOutboxConsole() {
     if (!hasReason) return;
     if (window.confirm("Reset this cursor only after its blocked delivery is factually resolved?")) {
       reset.mutate(cursor.channel);
+    }
+  };
+
+  const requestAcceptance = (row: NotificationOutboxRow, attempt: DeliveryAttempt) => {
+    if (!hasReconciliationReason || !hasAcceptanceEvidence) return;
+    if (window.confirm("Record externally verified provider acceptance for this exact attempt?")) {
+      reconcile.mutate({ rowId: row.id, attemptId: attempt.attempt_id });
     }
   };
 
@@ -148,6 +198,30 @@ export function NotificationOutboxConsole() {
         <p className="mt-1 text-xs text-muted-foreground">
           An uncertain replay can duplicate delivery. A cursor reset cannot bypass an unresolved head.
         </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="block text-sm font-semibold">
+            Provider reference
+            <input
+              aria-label="Provider reference"
+              value={providerReference}
+              onChange={(event) => setProviderReference(event.target.value)}
+              maxLength={255}
+              placeholder="Provider message, ticket, or acceptance identifier"
+              className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-normal"
+            />
+          </label>
+          <label className="block text-sm font-semibold">
+            Provider evidence
+            <input
+              aria-label="Provider evidence"
+              value={providerEvidence}
+              onChange={(event) => setProviderEvidence(event.target.value)}
+              maxLength={1000}
+              placeholder="How acceptance was independently verified"
+              className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-normal"
+            />
+          </label>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -179,10 +253,10 @@ export function NotificationOutboxConsole() {
           </div>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border bg-card">
-            <table className="w-full min-w-[960px] divide-y divide-border text-sm">
+            <table className="w-full min-w-[1160px] divide-y divide-border text-sm">
               <thead className="bg-muted">
                 <tr>
-                  {['ID', 'Created', 'Type / channel', 'Status', 'Retries', 'Failure', 'Action'].map((heading) => (
+                  {['ID', 'Created', 'Type / channel', 'Status', 'Retries', 'Failure', 'Provider evidence', 'Action'].map((heading) => (
                     <th key={heading} className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
                       {heading}
                     </th>
@@ -190,7 +264,10 @@ export function NotificationOutboxConsole() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {rows.map((row) => (
+                {rows.map((row) => {
+                  const attempts = row.delivery_attempts ?? [];
+                  const unresolved = attempts.find((attempt) => attempt.outcome !== "acknowledged");
+                  return (
                   <tr key={row.id} className="align-top hover:bg-muted/40">
                     <td className="px-4 py-3 font-mono">{row.id}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{formatDate(row.created_at)}</td>
@@ -205,19 +282,61 @@ export function NotificationOutboxConsole() {
                     </td>
                     <td className="px-4 py-3">{row.retry_count}</td>
                     <td className="max-w-xs px-4 py-3 text-muted-foreground">{row.failure_reason || "—"}</td>
+                    <td className="max-w-sm px-4 py-3">
+                      {attempts.length === 0 ? "—" : attempts.map((attempt) => (
+                        <div key={attempt.attempt_id} className="mb-2 last:mb-0">
+                          <div className="font-medium">{attempt.provider} / {attempt.channel}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {attempt.outcome || "no receipt"} · {attempt.provider_code || "no code"}
+                          </div>
+                          <div className="break-all text-xs text-muted-foreground">
+                            {attempt.provider_reference || "No provider reference"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {attempt.receipt_source || "no receipt source"} · {formatDate(attempt.observed_at)}
+                          </div>
+                          {attempt.owner_reason && (
+                            <div className="text-xs text-muted-foreground">
+                              {attempt.owner_reason} · actor {attempt.owner_actor_uid || "unknown"}
+                            </div>
+                          )}
+                          {attempt.evidence && Object.keys(attempt.evidence).length > 0 && (
+                            <details className="mt-1 text-xs text-muted-foreground">
+                              <summary className="cursor-pointer">Receipt evidence</summary>
+                              <pre className="mt-1 max-w-xs whitespace-pre-wrap break-all rounded bg-muted p-2">
+                                {JSON.stringify(attempt.evidence, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      ))}
+                    </td>
                     <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        disabled={!hasReason || !row.dead_letter || replay.isPending}
-                        onClick={() => requestReplay(row)}
-                        title={!row.dead_letter ? "Only terminal or uncertain rows can be replayed" : undefined}
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Replay
-                      </button>
+                      <div className="flex flex-col gap-2">
+                        {row.status === "RECONCILIATION_REQUIRED" && unresolved && (
+                          <button
+                            type="button"
+                            disabled={!hasReconciliationReason || !hasAcceptanceEvidence || reconcile.isPending}
+                            onClick={() => requestAcceptance(row, unresolved)}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Record acceptance
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={!hasReason || !row.dead_letter || replay.isPending}
+                          onClick={() => requestReplay(row)}
+                          title={!row.dead_letter ? "Only terminal or uncertain rows can be replayed" : undefined}
+                          className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Replay
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -65,7 +65,7 @@ export function classifyFcmProviderResponse(response = {}) {
 
   const failureCodes = responses
     .filter(item => item && item.success === false)
-    .map(item => String(item.error?.code || ''));
+    .map(item => String(item.errorCode || item.error?.code || ''));
   if (failureCodes.length > 0
     && failureCodes.length === responses.length
     && failureCodes.every(code => PERMANENT_FCM_TOKEN_CODES.has(code))) {

@@ -20,7 +20,12 @@ describe("notification outbox operator console contract", () => {
     expect(component).toContain("/admin/notification-outbox?status=");
     expect(component).toContain("/admin/notification-outbox/cursors");
     expect(component).toContain("/replay");
+    expect(component).toContain("/reconcile");
     expect(component).toContain("/reset");
     expect(component).toContain("Operator reason");
+    expect(component).toContain("Provider reference");
+    expect(component).toContain("Provider evidence");
+    expect(component).toContain("Receipt evidence");
+    expect(component).toContain("Record acceptance");
   });
 });
