@@ -37,11 +37,13 @@
 //  12. Two-person rule holds even for unattributed rows: a request with
 //      NULL requested_by is rejected at approval with a specific 409
 //      instead of letting any single actor approve it.
+//  13. ICU code-status history retains immutable original provenance while
+//      current identity joins through its admission to the merge survivor.
 //
 // Requires a reachable Postgres (DATABASE_URL). Skipped if none configured.
 
 import { randomUUID } from 'crypto';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
   requestMerge,
   approveMerge,
@@ -74,6 +76,7 @@ const EXECUTOR = randomUUID();
 const seeded = {
   userUids: [],
   admissionIds: [],
+  icuAdmissionIds: [],
   investigationIds: [],
   appointmentIds: [],
   labResultIds: [],
@@ -126,6 +129,27 @@ async function seedChart(patient) {
   );
   seeded.appointmentIds.push(appointmentRows[0].id);
   return { admissionId, investigationId: investigationRows[0].id, appointmentId: appointmentRows[0].id };
+}
+
+async function seedIcuAdmission(patient) {
+  return setTenantTx(TENANT, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO icu_admissions
+         (tenant_id, patient_uid, unit_code, code_status, status, admitted_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'MICU', 'dnr', 'active', NOW(), NOW())
+       RETURNING id`,
+      TENANT, patient.uid,
+    );
+    const id = rows[0].id;
+    seeded.icuAdmissionIds.push(id);
+    await tx.$queryRawUnsafe(
+      `INSERT INTO icu_code_status_history
+         (tenant_id, icu_admission_id, patient_uid, previous_code_status, new_code_status)
+       VALUES ($1::uuid, $2, $3::uuid, 'full_code', 'dnr')`,
+      TENANT, id, patient.uid,
+    );
+    return id;
+  });
 }
 
 async function seedIdentifier(patientUid, value) {
@@ -294,6 +318,19 @@ async function cleanup() {
       `DELETE FROM appointments WHERE id = ANY($1::int[])`, seeded.appointmentIds,
     );
   }
+  if (seeded.icuAdmissionIds.length) {
+    await setTenantTx(TENANT, async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL app.audit_bypass = 'on'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM icu_code_status_history WHERE icu_admission_id = ANY($1::int[])`,
+        seeded.icuAdmissionIds,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM icu_admissions WHERE id = ANY($1::int[])`,
+        seeded.icuAdmissionIds,
+      );
+    });
+  }
   if (seeded.admissionIds.length) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM admissions WHERE id = ANY($1::int[])`, seeded.admissionIds,
@@ -338,6 +375,7 @@ d('patient merge execution (deep)', () => {
     const primary = await seedPatient('primary');
     const secondary = await seedPatient('secondary');
     const chart = await seedChart(secondary);
+    const icuAdmissionId = await seedIcuAdmission(secondary);
     await seedIdentifier(primary.uid, `${MARK}-P-MRN`);
     await seedIdentifier(secondary.uid, `${MARK}-S-MRN`);
 
@@ -358,6 +396,22 @@ d('patient merge execution (deep)', () => {
     expect(investigation[0].patient_uid).toBe(primary.uid);
     expect(investigation[0].patient_id).toBe(primary.id);
     expect(investigation[0].admission_id).toBe(chart.admissionId);
+    const codeStatusHistory = await prisma.$queryRawUnsafe(
+      `SELECT history.patient_uid::text AS recorded_patient_uid,
+              admission.patient_uid::text AS current_patient_uid
+         FROM icu_code_status_history AS history
+         JOIN icu_admissions AS admission
+           ON admission.tenant_id = history.tenant_id
+          AND admission.id = history.icu_admission_id
+        WHERE history.icu_admission_id = $1`,
+      icuAdmissionId,
+    );
+    expect(codeStatusHistory).toEqual([
+      expect.objectContaining({
+        recorded_patient_uid: secondary.uid,
+        current_patient_uid: primary.uid,
+      }),
+    ]);
     const appointment = await prisma.$queryRawUnsafe(
       `SELECT patient_id FROM appointments WHERE id = $1`, chart.appointmentId,
     );
@@ -419,7 +473,10 @@ d('patient merge execution (deep)', () => {
     expect(summary.table_summary.investigations.rows_moved).toBe(2);
     expect(summary.table_summary.appointments.rows_moved).toBe(1);
     expect(summary.update_blocked_skipped).toEqual(
-      expect.arrayContaining(['clinical_timeline_events.patient_uid']),
+      expect.arrayContaining([
+        'clinical_timeline_events.patient_uid',
+        'icu_code_status_history.patient_uid',
+      ]),
     );
     expect(summary.update_blocked_triggers.clinical_timeline_events).toEqual(
       expect.arrayContaining(['audit_append_only_guard']),

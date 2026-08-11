@@ -539,6 +539,12 @@ describe('merge sweep exclusions', () => {
     ]));
     expect(__testing__.MERGE_SWEEP_EXCLUDED_PREFIXES).toEqual(['clinical_continuity_']);
   });
+
+  it('certifies ICU code-status history through its admission-derived read path', () => {
+    expect([...__testing__.MERGE_ADMISSION_DERIVED_PROTECTED_TABLES]).toEqual([
+      'icu_code_status_history',
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------

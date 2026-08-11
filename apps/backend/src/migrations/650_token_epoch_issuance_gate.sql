@@ -1,5 +1,8 @@
 -- 650: per-identity token-generation epoch — issuance-time revocation gate (R1).
 --
+-- @no-transaction
+-- @statement_timeout: 0
+--
 -- Problem: logout / revoke-all / SCIM deprovision wrote only (a) per-jti
 -- blacklist rows and (b) a `user:<uid>` revoke-all watermark that jwtMiddleware
 -- compares against a token's iat at VERIFY time. Nothing consulted revocation
@@ -37,9 +40,28 @@ ALTER TABLE admins
 
 -- The epoch can only move forward — a decrement would resurrect revoked
 -- credentials. Cheap CHECK-level backstop for the non-negative floor.
-ALTER TABLE users DROP CONSTRAINT IF EXISTS chk_users_token_epoch_nonnegative;
-ALTER TABLE users
-  ADD CONSTRAINT chk_users_token_epoch_nonnegative CHECK (token_epoch >= 0);
-ALTER TABLE admins DROP CONSTRAINT IF EXISTS chk_admins_token_epoch_nonnegative;
-ALTER TABLE admins
-  ADD CONSTRAINT chk_admins_token_epoch_nonnegative CHECK (token_epoch >= 0);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.users'::regclass
+       AND conname = 'chk_users_token_epoch_nonnegative'
+  ) THEN
+    ALTER TABLE public.users
+      ADD CONSTRAINT chk_users_token_epoch_nonnegative
+      CHECK (token_epoch >= 0) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.admins'::regclass
+       AND conname = 'chk_admins_token_epoch_nonnegative'
+  ) THEN
+    ALTER TABLE public.admins
+      ADD CONSTRAINT chk_admins_token_epoch_nonnegative
+      CHECK (token_epoch >= 0) NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE users VALIDATE CONSTRAINT chk_users_token_epoch_nonnegative;
+ALTER TABLE admins VALIDATE CONSTRAINT chk_admins_token_epoch_nonnegative;

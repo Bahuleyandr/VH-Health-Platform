@@ -50,10 +50,10 @@
  *     (append-only audit trails + canonical timeline, evidence ledgers,
  *     identity-pinned interface rows, ...): history stays recorded under
  *     the uid it happened to, with the merge timeline/audit pair as the
- *     cross-reference. A merge succeeds only for protected tables listed in
- *     MERGE_READ_UNION_COVERED_TABLES; their readers union merged-away uids
- *     via services/clinical/mergedPatientReadUnion.js. Any other protected
- *     history blocks execution before mutation.
+ *     cross-reference. A merge succeeds only for protected tables whose read
+ *     path is explicitly certified: either a merged-uid union, or an admission-
+ *     derived relationship whose parent patient_uid is swept. Any other
+ *     protected history blocks execution before mutation.
  *   - clinical_continuity_* tables: continuity identities merge through
  *     the alias-based executeContinuityMerge flow above, and the tables
  *     sit behind facility-scoped fail-closed RLS. If continuity rows
@@ -133,6 +133,13 @@ const MERGE_READ_UNION_COVERED_TABLES = new Set([
   'clinical_audit_events',
   'clinical_timeline_events',
   'patient_access_audit_log',
+]);
+
+// icu_code_status_history keeps the patient_uid recorded when the code-status
+// order happened as immutable provenance. Production identity lookup joins
+// icu_admissions; that parent patient_uid is swept to the merge survivor.
+const MERGE_ADMISSION_DERIVED_PROTECTED_TABLES = new Set([
+  'icu_code_status_history',
 ]);
 
 /**
@@ -277,7 +284,11 @@ async function findUnsupportedProtectedHistory(tx, {
 }) {
   const unsupported = [];
   for (const target of targets) {
-    if (!target.update_blocked || MERGE_READ_UNION_COVERED_TABLES.has(target.table_name)) {
+    if (
+      !target.update_blocked
+      || MERGE_READ_UNION_COVERED_TABLES.has(target.table_name)
+      || MERGE_ADMISSION_DERIVED_PROTECTED_TABLES.has(target.table_name)
+    ) {
       continue;
     }
     const values = target.is_uuid ? secondaryPatientUids : secondaryPatientIds;
@@ -1416,6 +1427,7 @@ export const __testing__ = {
   MERGE_SWEEP_EXCLUDED_TABLES,
   MERGE_SWEEP_EXCLUDED_PREFIXES,
   MERGE_READ_UNION_COVERED_TABLES,
+  MERGE_ADMISSION_DERIVED_PROTECTED_TABLES,
   CONTINUITY_PROPOSER_ROLES,
   CONTINUITY_DOCTOR_APPROVER_ROLES,
   discoverMergeSweepTargets,

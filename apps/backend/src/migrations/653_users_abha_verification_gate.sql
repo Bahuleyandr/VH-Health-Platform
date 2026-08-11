@@ -1,5 +1,8 @@
 -- 653: ABHA verification gate (squat fix).
 --
+-- @no-transaction
+-- @statement_timeout: 0
+--
 -- With ABDM disabled (the default deployment posture), registerABHA linked any
 -- well-formed 14-digit number after a format check only, and migration 647's
 -- tenant-scoped canonical unique index then made that unverified claim
@@ -18,10 +21,20 @@
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS abha_verification_status VARCHAR(16) NOT NULL DEFAULT 'pending';
 
-ALTER TABLE users DROP CONSTRAINT IF EXISTS chk_users_abha_verification_status;
-ALTER TABLE users
-  ADD CONSTRAINT chk_users_abha_verification_status
-  CHECK (abha_verification_status IN ('pending', 'verified'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.users'::regclass
+       AND conname = 'chk_users_abha_verification_status'
+  ) THEN
+    ALTER TABLE public.users
+      ADD CONSTRAINT chk_users_abha_verification_status
+      CHECK (abha_verification_status IN ('pending', 'verified')) NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE users VALIDATE CONSTRAINT chk_users_abha_verification_status;
 
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS abha_verified_at TIMESTAMPTZ NULL;
@@ -36,9 +49,31 @@ ALTER TABLE users
 -- canonical number per tenant exists, and this migration moves every row to
 -- 'pending', so the reshaped (verified-only) index starts over an empty set —
 -- there is nothing to reconcile.
-DROP INDEX IF EXISTS uniq_users_tenant_abha_number_canonical;
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_tenant_abha_number_canonical
+-- Build the replacement before removing 647's stricter index. The temporary
+-- index remains an active uniqueness backstop throughout the concurrent swap,
+-- and every statement is safe to repeat after a no-transaction interruption.
+DROP INDEX CONCURRENTLY IF EXISTS public.uniq_users_abha_verified_invalid_rebuild;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+     WHERE indexrelid = to_regclass(
+       'public.uniq_users_tenant_abha_number_canonical_verified_build'
+     )
+       AND NOT indisvalid
+  ) THEN
+    ALTER INDEX public.uniq_users_tenant_abha_number_canonical_verified_build
+      RENAME TO uniq_users_abha_verified_invalid_rebuild;
+  END IF;
+END $$;
+DROP INDEX CONCURRENTLY IF EXISTS public.uniq_users_abha_verified_invalid_rebuild;
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uniq_users_tenant_abha_number_canonical_verified_build
   ON users (tenant_id, (regexp_replace(abha_number, '-', '', 'g')))
   WHERE abha_number IS NOT NULL
     AND btrim(abha_number) <> ''
     AND abha_verification_status = 'verified';
+
+DROP INDEX CONCURRENTLY IF EXISTS uniq_users_tenant_abha_number_canonical;
+ALTER INDEX IF EXISTS uniq_users_tenant_abha_number_canonical_verified_build
+  RENAME TO uniq_users_tenant_abha_number_canonical;

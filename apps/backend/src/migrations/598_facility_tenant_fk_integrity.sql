@@ -37,8 +37,8 @@
 -- its brief ACCESS EXCLUSIVE lock immediately and VALIDATE never holds
 -- one. Every statement is therefore written re-runnable (guarded /
 -- IF NOT EXISTS / no-op on repeat), as runMigrations.js requires for
--- this mode. ci-setup-db.mjs ignores the directive and wraps the file in
--- one transaction — every statement here is legal in that mode too.
+-- this mode. ci-setup-db.mjs honors the same directive and executes each
+-- guarded statement separately.
 
 -- ---------------------------------------------------------------------------
 -- 1. (tenant_id, id) anchor on facilities. id alone is the PK, so this

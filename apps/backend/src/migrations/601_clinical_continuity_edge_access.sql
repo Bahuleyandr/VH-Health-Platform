@@ -4,8 +4,8 @@
 --
 -- This migration is additive and inert. It does not seed a policy, grant,
 -- revocation, receipt, credential, or activation row. Statements are guarded
--- because the boot runner commits no-transaction migrations statement by
--- statement while ci-setup-db can wrap the same file.
+-- because both migration runners commit no-transaction migrations statement
+-- by statement.
 
 SET lock_timeout = '10s';
 SET statement_timeout = '60s';
