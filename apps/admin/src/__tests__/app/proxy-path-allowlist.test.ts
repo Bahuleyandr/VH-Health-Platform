@@ -62,6 +62,13 @@ describe("proxy path allowlist", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not expose unrelated patient-registry endpoints through the portal proxy", async () => {
+    const response = await GET(request("patients/abc/timeline"));
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards only the exact reconciliation family and its signed facility context", async () => {
     const response = await GET(
       request("downtime/reconciliation/workbench", {

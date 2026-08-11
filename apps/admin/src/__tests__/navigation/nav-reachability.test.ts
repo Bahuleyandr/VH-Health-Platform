@@ -171,6 +171,32 @@ describe("R10 — nav gating exactly mirrors ROUTE_POLICY", () => {
     }
   });
 
+  test.each([
+    ["/dashboard/appointments", "appointmentManagement"],
+    ["/dashboard/beds", "departmentManagement"],
+    ["/dashboard/consent", "userManagement"],
+    ["/dashboard/notifications", "notificationManagement"],
+  ])("%s remains hidden from a scoped ADMIN missing %s", (href, permission) => {
+    const item = NAV_ITEMS.find((candidate) => candidate.href === href);
+    expect(item).toBeDefined();
+    expect(
+      isNavItemVisible(item!, {
+        rawRole: "ADMIN",
+        role: "ADMIN",
+        isSuperAdmin: false,
+        hasAllPermissions: () => false,
+      }),
+    ).toBe(false);
+    expect(
+      isNavItemVisible(item!, {
+        rawRole: "ADMIN",
+        role: "ADMIN",
+        isSuperAdmin: false,
+        hasAllPermissions: (permissions) => permissions.includes(permission),
+      }),
+    ).toBe(true);
+  });
+
   test("the command palette consumes the shared role-filtered nav", () => {
     const paletteSource = fs.readFileSync(
       path.join(APP_DIR, "..", "components", "CommandPalette.tsx"),

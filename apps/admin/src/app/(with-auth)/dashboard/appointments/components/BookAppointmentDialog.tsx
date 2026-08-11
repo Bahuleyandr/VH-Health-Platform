@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import { useQuery } from "@tanstack/react-query";
 import { bookAppointmentAdmin } from "@/lib/api/appointments";
@@ -87,6 +87,10 @@ export function BookAppointmentDialog({
   const [patientLookupStatus, setPatientLookupStatus] = useState<
     "idle" | "checking" | "found" | "new" | "error"
   >("idle");
+  const [patientLookupPhone, setPatientLookupPhone] = useState<string | null>(
+    null,
+  );
+  const patientLookupGeneration = useRef(0);
   const [doctorId, setDoctorId] = useState("");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("10:00");
@@ -103,8 +107,11 @@ export function BookAppointmentDialog({
   });
 
   useEffect(() => {
+    const generation = ++patientLookupGeneration.current;
     const last10 = digitsOnly(patientPhone).slice(-10);
     setPatientId(null);
+    setPatientName("");
+    setPatientLookupPhone(null);
 
     if (last10.length < 10) {
       setPatientLookupStatus("idle");
@@ -120,14 +127,18 @@ export function BookAppointmentDialog({
         const exact = (result.patients ?? []).find((patient) =>
           digitsOnly(patient.phone).endsWith(last10),
         );
+        if (generation !== patientLookupGeneration.current) return;
         if (exact?.id) {
           setPatientId(exact.id);
           setPatientName(exact.name ?? "");
+          setPatientLookupPhone(last10);
           setPatientLookupStatus("found");
         } else {
+          setPatientLookupPhone(last10);
           setPatientLookupStatus("new");
         }
       } catch {
+        if (generation !== patientLookupGeneration.current) return;
         setPatientLookupStatus("error");
       }
     }, 450);
@@ -139,11 +150,15 @@ export function BookAppointmentDialog({
     event.preventDefault();
     const parsedDoctorId = Number(doctorId);
     const phoneDigits = digitsOnly(patientPhone);
+    const currentPhone = phoneDigits.slice(-10);
     if (phoneDigits.length < 10) {
       toast.error("Valid patient phone required");
       return;
     }
-    if (patientLookupStatus === "checking" || patientLookupStatus === "error") {
+    if (
+      !["found", "new"].includes(patientLookupStatus) ||
+      patientLookupPhone !== currentPhone
+    ) {
       toast.error("Patient lookup must succeed before booking");
       return;
     }
@@ -163,12 +178,10 @@ export function BookAppointmentDialog({
     setSubmitting(true);
     try {
       await bookAppointmentAdmin({
+        patient_phone: patientPhone.trim(),
         ...(patientId
           ? { patient_id: patientId }
-          : {
-              patient_phone: patientPhone.trim(),
-              patient_name: patientName.trim(),
-            }),
+          : { patient_name: patientName.trim() }),
         doctor_id: parsedDoctorId,
         appointment_date: date,
         appointment_time: time,
@@ -211,7 +224,7 @@ export function BookAppointmentDialog({
               {patientLookupStatus === "new" &&
                 "New patient - enter name to register while booking."}
               {patientLookupStatus === "error" &&
-                "Could not check patient now; new-patient booking is still available."}
+                "Could not check the patient registry. Booking is blocked until lookup recovers."}
             </p>
           </div>
 

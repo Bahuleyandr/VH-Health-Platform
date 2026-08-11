@@ -22,9 +22,10 @@ const rescheduleInPlaceMock = jest.fn();
 const updateAppointmentMock = jest.fn();
 const validateBookingRequestMock = jest.fn();
 const validateUpdateRequestMock = jest.fn();
+const queryRawUnsafeMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: jest.fn(async () => []) },
+  default: { $queryRawUnsafe: queryRawUnsafeMock },
   setTenantTx: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/appointment/appointmentService.js', () => ({
@@ -105,9 +106,34 @@ beforeEach(() => {
   updateAppointmentMock.mockReset();
   validateBookingRequestMock.mockReset();
   validateUpdateRequestMock.mockReset();
+  queryRawUnsafeMock.mockReset();
+  queryRawUnsafeMock.mockResolvedValue([]);
 });
 
 describe('appointmentCrudController relays AppError code + details over HTTP', () => {
+  test('book rejects a patient_id paired with another patient phone', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 1,
+      phone: '+919876543210',
+      role: 'PATIENT',
+    }]);
+
+    const response = await request(app)
+      .post('/api/v1/appointments/book')
+      .send({
+        patient_id: 1,
+        patient_phone: '9123456789',
+        doctor_id: 2,
+        appointment_date: '2026-08-01',
+        appointment_time: '10:00',
+      });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.code).toBe('APPOINTMENT_PATIENT_ID_PHONE_MISMATCH');
+    expect(validateBookingRequestMock).not.toHaveBeenCalled();
+    expect(createAppointmentMock).not.toHaveBeenCalled();
+  });
+
   test('book relays an AppError with code and details (409)', async () => {
     validateBookingRequestMock.mockRejectedValueOnce(AppError.conflict(
       'Doctor is not accepting bookings',

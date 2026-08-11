@@ -477,8 +477,9 @@ describe('admin proxy allowlist contract', () => {
 
   test('the shipped proxy admits every currently extracted admin path', () => {
     const prefixes = loadProxyAllowedPrefixes();
-    assert.ok(prefixes.includes('api/v1/patients'));
+    assert.ok(prefixes.includes('api/v1/patients/search'));
     assert.ok(prefixes.includes('api/v1/diagnostic-results'));
+    assert.equal(proxyAllowsRuntimePath('/api/v1/patients/abc/timeline', prefixes), false);
     const result = analyze({
       index: loadSpecIndex(),
       allowlist: loadAllowlist(),
