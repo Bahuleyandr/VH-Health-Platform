@@ -22,7 +22,7 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/admin/",
   "api/v1/auth/",
   "api/v1/users",
-  "api/v1/patients",
+  "api/v1/patients/search",
   "api/v1/doctors",
   "api/v1/departments",
   "api/v1/appointments",

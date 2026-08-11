@@ -8,9 +8,10 @@ import appointmentValidationService from '../../services/appointment/appointment
 import { checkAppointmentPermission } from '../../utils/appointment/appointmentHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
+import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
+import { AppError } from '../../utils/AppError.js';
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -18,7 +19,7 @@ function tenantOf(req) {
 
 async function resolveOrCreatePatientFromPhone({ patientPhone, patientName, tenantId }) {
   const normalizedPhone = normalizePhone(patientPhone);
-  if (!normalizedPhone) {
+  if (!normalizedPhone || !isValidPhone(normalizedPhone)) {
     const err = new Error('Valid patient phone is required');
     err.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw err;
@@ -59,6 +60,38 @@ async function resolveOrCreatePatientFromPhone({ patientPhone, patientName, tena
   return { patient: created[0], created: true };
 }
 
+async function assertPatientPhoneMatches({ patientId, patientPhone, tenantId }) {
+  const normalizedPhone = normalizePhone(patientPhone);
+  if (!normalizedPhone || !isValidPhone(normalizedPhone)) {
+    throw AppError.badRequest(
+      'Valid patient phone is required when patient_id and patient_phone are both provided',
+      'APPOINTMENT_PATIENT_PHONE_INVALID',
+    );
+  }
+
+  const patientRows = await prisma.$queryRawUnsafe(
+    `SELECT id, phone
+       FROM users
+      WHERE id = $1
+        AND tenant_id = $2::uuid
+      LIMIT 1`,
+    patientId,
+    tenantId,
+  );
+  if (patientRows.length === 0) return;
+
+  const requestedLast10 = normalizedPhone.replace(/\D/g, '').slice(-10);
+  const storedLast10 = normalizePhone(patientRows[0].phone)
+    ?.replace(/\D/g, '')
+    .slice(-10);
+  if (!storedLast10 || requestedLast10 !== storedLast10) {
+    throw AppError.conflict(
+      'patient_id and patient_phone identify different patients',
+      'APPOINTMENT_PATIENT_ID_PHONE_MISMATCH',
+    );
+  }
+}
+
 async function resolveDoctorIdFromUid(doctorUid, tenantId) {
   if (!doctorUid) return null;
   const row = await prisma.users.findFirst({
@@ -86,6 +119,13 @@ export const createAppointment = async (req, res) => {
 
     let resolvedPatient = null;
     let createdNewPatient = false;
+    if (req.body.patient_id && patientPhone) {
+      await assertPatientPhoneMatches({
+        patientId: req.body.patient_id,
+        patientPhone,
+        tenantId,
+      });
+    }
     if (!req.body.patient_id && patientPhone) {
       const resolved = await resolveOrCreatePatientFromPhone({
         patientPhone,
