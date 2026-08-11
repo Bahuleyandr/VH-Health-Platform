@@ -4,12 +4,10 @@ import { Router } from 'express';
 import { HTTP_STATUS } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
 import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
-import { isStaff } from '../utils/roleHelpers.js';
 import { success, error } from '../utils/responseHelper.js';
 import {
   searchUsers,
   searchDoctors,
-  searchAppointments,
   searchGlobal,
 } from '../utils/search/searchService.js';
 
@@ -19,17 +17,18 @@ function tenantOf(req) {
   return resolveTenantOrThrow(req);
 }
 
-// GET /api/v1/search?q=term&type=all|users|doctors|appointments&limit=20
+const SEARCH_TYPES = new Set(['all', 'users', 'doctors']);
+
+// GET /api/v1/search?q=term&type=all|users|doctors&limit=20
 router.get('/', async (req, res) => {
   try {
-    if (!isStaff(req.user?.role)) {
-      return error(res, 'Staff access required for global search', HTTP_STATUS.FORBIDDEN);
-    }
-
     const { q, type = 'all', limit = '20' } = req.query;
 
     if (!q || q.trim().length === 0) {
       return error(res, 'Search query "q" is required', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (!SEARCH_TYPES.has(type)) {
+      return error(res, 'Search type must be all, users, or doctors', HTTP_STATUS.BAD_REQUEST);
     }
 
     const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
@@ -47,10 +46,6 @@ router.get('/', async (req, res) => {
         break;
       case 'doctors':
         results = { total: 0, results: await searchDoctors(q, parsedLimit, context) };
-        results.total = results.results.length;
-        break;
-      case 'appointments':
-        results = { total: 0, results: await searchAppointments(q, parsedLimit, context) };
         results.total = results.results.length;
         break;
       case 'all':
