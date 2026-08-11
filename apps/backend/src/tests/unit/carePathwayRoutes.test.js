@@ -617,7 +617,10 @@ describe('carePathwayRoutes', () => {
       .get(`/api/v1/care-pathways/instances/${INSTANCE_ID}`);
 
     expect(response.statusCode).toBe(200);
-    expect(finishedContext).toEqual({ patientUid: PATIENT_UID });
+    expect(finishedContext).toEqual({
+      patientId: 27,
+      patientUid: PATIENT_UID,
+    });
   });
 
   it('returns the guarded minimal transfer review to the exact recipient and audits its patient', async () => {
@@ -659,7 +662,10 @@ describe('carePathwayRoutes', () => {
         authorizationMode: 'patient_access_care_team',
       },
     });
-    expect(finishedContext).toEqual({ patientUid: PATIENT_UID });
+    expect(finishedContext).toEqual({
+      patientId: 27,
+      patientUid: PATIENT_UID,
+    });
   });
 
   it('keeps inaccessible and malformed transfer ids non-enumerable before service access', async () => {
