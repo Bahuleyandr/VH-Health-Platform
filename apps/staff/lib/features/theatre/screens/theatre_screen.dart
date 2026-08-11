@@ -101,19 +101,31 @@ class _TheatreScreenState extends State<TheatreScreen>
     _refreshDebounce?.cancel();
     _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      _loadCurrentTab(showLoading: false);
+      _loadCurrentTab(showLoading: false, preserveLastKnownData: true);
     });
   }
 
-  Future<void> _loadCurrentTab({bool showLoading = true}) async {
+  Future<void> _loadCurrentTab({
+    bool showLoading = true,
+    bool preserveLastKnownData = false,
+  }) async {
     if (_tabController.index == 0) {
-      await _fetchSchedule(showLoading: showLoading);
+      await _fetchSchedule(
+        showLoading: showLoading,
+        preserveLastKnownData: preserveLastKnownData,
+      );
     } else {
-      await _fetchAvailability(showLoading: showLoading);
+      await _fetchAvailability(
+        showLoading: showLoading,
+        preserveLastKnownData: preserveLastKnownData,
+      );
     }
   }
 
-  Future<void> _fetchSchedule({bool showLoading = true}) async {
+  Future<void> _fetchSchedule({
+    bool showLoading = true,
+    bool preserveLastKnownData = false,
+  }) async {
     if (mounted && showLoading) {
       setState(() {
         _loading = true;
@@ -128,19 +140,25 @@ class _TheatreScreenState extends State<TheatreScreen>
         setState(() {
           _schedule = data;
           _loading = false;
+          _error = null;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          if (!preserveLastKnownData || _schedule.isEmpty) {
+            _error = e.toString();
+          }
           _loading = false;
         });
       }
     }
   }
 
-  Future<void> _fetchAvailability({bool showLoading = true}) async {
+  Future<void> _fetchAvailability({
+    bool showLoading = true,
+    bool preserveLastKnownData = false,
+  }) async {
     if (mounted && showLoading) {
       setState(() {
         _loading = true;
@@ -155,12 +173,15 @@ class _TheatreScreenState extends State<TheatreScreen>
         setState(() {
           _availability = data;
           _loading = false;
+          _error = null;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          if (!preserveLastKnownData || _availability.isEmpty) {
+            _error = e.toString();
+          }
           _loading = false;
         });
       }
@@ -235,7 +256,10 @@ class _TheatreScreenState extends State<TheatreScreen>
           RealtimeStatusBanner(
             watchChannels: const {'staff:or-board'},
             deniedMessageKey: 's4.lib.realtime_status.stale',
-            fallbackPoll: () => _loadCurrentTab(showLoading: false),
+            fallbackPoll: () => _loadCurrentTab(
+              showLoading: false,
+              preserveLastKnownData: true,
+            ),
             margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
           ),
           Expanded(
