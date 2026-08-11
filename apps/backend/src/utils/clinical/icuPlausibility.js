@@ -9,10 +9,10 @@
 // before it is persisted or trended. Core vital fields reuse the shared
 // VITAL_PLAUSIBILITY_BOUNDS values under the ICU column names; ICU-only
 // fields (ventilator, drips, I/O, neuro, scores) extend the same pattern.
-// Migration 648 mirrors these bounds as NOT VALID CHECK constraints (vitals
-// floors relaxed to physically-impossible-only by migration 651, audit R5 —
-// peri-arrest/neonatal truth must chart) — the DB is the backstop, this
-// module is the friendly 400.
+// Migration 648 mirrors these bounds as a NOT VALID CHECK constraint.
+// Migrations 651 and 654 relax its vital limits to reject only physically
+// impossible values without scanning historical rows; every new write remains
+// protected. The DB is the backstop; this module is the friendly 400.
 import { AppError } from '../AppError.js';
 import {
   VITAL_PLAUSIBILITY_BOUNDS,
@@ -37,7 +37,7 @@ export const ICU_FLOWSHEET_BOUNDS = {
   rr: { ...shared.respiratory_rate, integer: true },
   temp_c: { ...shared.temperature },
   // ICU-only haemodynamics / perfusion.
-  map: { min: 20, max: 250, unit: 'mmHg', integer: true },
+  map: { min: 0, max: 250, unit: 'mmHg', integer: true },
   cvp: { min: -10, max: 60, unit: 'cmH2O', integer: true },
   cap_refill_sec: { min: 0, max: 30, unit: 's' },
   // Neuro.
@@ -73,6 +73,21 @@ export const ICU_FLOWSHEET_BOUNDS = {
   ng_aspirate_ml: { min: 0, max: 3000, unit: 'mL', integer: true },
   stool_count: { min: 0, max: 20, unit: '', integer: true },
 };
+
+// These columns share one database CHECK in migrations 648/651/654. Keep the
+// structural field list beside the source bounds so drift tests can derive the
+// complete SQL contract without copying any numeric limits.
+export const ICU_FLOWSHEET_VITAL_FIELDS = [
+  'hr',
+  'sbp',
+  'dbp',
+  'map',
+  'cvp',
+  'spo2',
+  'rr',
+  'temp_c',
+  'cap_refill_sec',
+];
 
 export const ICU_ASSESSMENT_BOUNDS = {
   // RASS −5 (unarousable) … +4 (combative).

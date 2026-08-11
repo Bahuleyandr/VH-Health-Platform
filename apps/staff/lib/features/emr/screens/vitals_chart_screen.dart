@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/clinical/vital_plausibility.dart';
+
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -78,34 +80,41 @@ String vitalsConsciousnessLabel(AppStrings strings, String code) {
   };
 }
 
-/// Inline validation bounds for the record-vitals sheet, in the units the
-/// form collects. These mirror the backend hard plausibility guards
-/// (`utils/clinical/vitalPlausibility.js`, plus the pain/GCS field checks in
-/// `services/emr/vitalsChartService.js`); temperature is the 30–45 °C bound
-/// expressed in the °F this sheet collects. Values outside these bands are
-/// data-entry errors the backend would 400-reject — surface that inline
-/// instead of silently dropping the field or losing the submit.
+/// Record-sheet bounds in the units the form collects. Core vital ranges are
+/// projected from the generated backend contract; only pain/GCS remain local
+/// because they are endpoint-specific fields outside VITAL_PLAUSIBILITY_BOUNDS.
 typedef VitalsRecordFieldBounds = ({num min, num max, bool integer});
 
-const Map<String, VitalsRecordFieldBounds> vitalsRecordFieldBounds = {
-  'heart_rate': (min: 20, max: 300, integer: true),
-  'systolic_bp': (min: 40, max: 300, integer: true),
-  'diastolic_bp': (min: 20, max: 200, integer: true),
-  'temperature_f': (min: 86, max: 113, integer: false),
-  'spo2': (min: 0, max: 100, integer: true),
-  'respiratory_rate': (min: 0, max: 80, integer: true),
-  'blood_glucose': (min: 10, max: 1500, integer: true),
+VitalsRecordFieldBounds _generatedRecordBound(
+  String field, {
+  required bool integer,
+  bool fahrenheit = false,
+}) {
+  final bounds = vitalPlausibilityBoundFor(field, fahrenheit: fahrenheit);
+  return (min: bounds.min, max: bounds.max, integer: integer);
+}
+
+final Map<String, VitalsRecordFieldBounds> vitalsRecordFieldBounds = {
+  'heart_rate': _generatedRecordBound('heart_rate', integer: true),
+  'systolic_bp': _generatedRecordBound('systolic_bp', integer: true),
+  'diastolic_bp': _generatedRecordBound('diastolic_bp', integer: true),
+  'temperature_f': _generatedRecordBound(
+    'temperature',
+    integer: false,
+    fahrenheit: true,
+  ),
+  'spo2': _generatedRecordBound('spo2', integer: true),
+  'respiratory_rate': _generatedRecordBound('respiratory_rate', integer: true),
+  'blood_glucose': _generatedRecordBound('blood_glucose', integer: true),
   'pain_score': (min: 0, max: 10, integer: true),
   'gcs_score': (min: 3, max: 15, integer: true),
 };
-
-enum VitalsRecordFieldIssue { notANumber, outOfRange }
 
 /// Validate one record-sheet field. [raw] is the as-typed text (may carry a
 /// unit suffix that [normalizeVitalValue] strips); [field] keys into
 /// [vitalsRecordFieldBounds]; [unit] is the [VitalUnit] shown on the field.
 /// Returns null when the field is empty (all fields are optional) or valid.
-VitalsRecordFieldIssue? vitalsRecordFieldIssue(
+VitalPlausibilityIssue? vitalsRecordFieldIssue(
   String raw,
   String field,
   String unit,
@@ -113,14 +122,21 @@ VitalsRecordFieldIssue? vitalsRecordFieldIssue(
   final text = normalizeVitalValue(raw, unit);
   if (text.isEmpty) return null;
   final bounds = vitalsRecordFieldBounds[field]!;
-  final num? value = bounds.integer
-      ? int.tryParse(text)
-      : double.tryParse(text);
-  if (value == null) return VitalsRecordFieldIssue.notANumber;
-  if (value < bounds.min || value > bounds.max) {
-    return VitalsRecordFieldIssue.outOfRange;
+  if (field == 'pain_score' || field == 'gcs_score') {
+    final value = bounds.integer ? int.tryParse(text) : num.tryParse(text);
+    if (value == null) return VitalPlausibilityIssue.notANumber;
+    if (value < bounds.min || value > bounds.max) {
+      return VitalPlausibilityIssue.outOfRange;
+    }
+    return null;
   }
-  return null;
+  final sourceField = field == 'temperature_f' ? 'temperature' : field;
+  return vitalPlausibilityIssue(
+    text,
+    sourceField,
+    integer: bounds.integer,
+    fahrenheit: field == 'temperature_f',
+  );
 }
 
 Map<String, dynamic> buildVitalsRecordPayload({
@@ -756,7 +772,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               );
               if (issue == null) return null;
               final strings = AppStrings.of(context);
-              if (issue == VitalsRecordFieldIssue.notANumber) {
+              if (issue == VitalPlausibilityIssue.notANumber) {
                 return strings.lookup(
                   's4.lib.vital_text_field.enter_valid_number',
                 );

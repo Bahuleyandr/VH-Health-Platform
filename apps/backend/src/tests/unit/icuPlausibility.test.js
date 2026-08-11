@@ -35,6 +35,18 @@ describe('ICU flowsheet bounds — edges', () => {
     expect(ICU_FLOWSHEET_BOUNDS.temp_c.min).toBe(VITAL_PLAUSIBILITY_BOUNDS.temperature.min);
   });
 
+  it('accepts an arrest flowsheet row including MAP 0 and the expanded shared envelope', () => {
+    expect(() => assertIcuFlowsheetPlausibility({
+      hr: 0,
+      sbp: 0,
+      dbp: 0,
+      map: 0,
+      spo2: 0,
+      rr: 120,
+      temp_c: 12,
+    })).not.toThrow();
+  });
+
   it('the H1 reproduction (spo2 990) is a 400 naming the field and range', () => {
     try {
       assertIcuFlowsheetPlausibility({ spo2: 990 });

@@ -43,6 +43,14 @@ melos:
       description: "watch-mode OpenAPI → Dart codegen for vhhealth_core"
       run: node scripts/codegen.mjs --watch
 
+    vital-bounds:
+      description: "Regenerate the staff vital plausibility contract from backend source."
+      run: node scripts/generate-vital-bounds.mjs
+
+    vital-bounds-check:
+      description: "Fail when the generated staff vital bounds drift from backend source."
+      run: node scripts/generate-vital-bounds.mjs --check
+
     clean:
       description: "flutter clean every package"
       run: melos exec -- "flutter clean"

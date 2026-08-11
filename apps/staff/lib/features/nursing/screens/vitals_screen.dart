@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:vhhealth_core/clinical/vital_plausibility.dart';
 
 import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
@@ -50,6 +51,24 @@ Map<String, dynamic>? resolveQuickVitalsPatient(
     }
   }
   return null;
+}
+
+/// Quick-vitals validation uses the same generated server contract as the EMR
+/// record sheet. [unit] is stripped before validation; this screen collects
+/// temperature in Fahrenheit, so only that field requests unit conversion.
+VitalPlausibilityIssue? quickVitalsFieldIssue(
+  String? raw,
+  String field,
+  String unit, {
+  required bool integer,
+  bool fahrenheit = false,
+}) {
+  return vitalPlausibilityIssue(
+    normalizeVitalValue(raw ?? '', unit),
+    field,
+    integer: integer,
+    fahrenheit: fahrenheit,
+  );
 }
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
@@ -592,14 +611,15 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                             suffixText: VitalUnit.bp,
                           ),
                           validator: (v) {
-                            if (v == null || v.isEmpty) return null;
-                            final n = int.tryParse(
-                              normalizeVitalValue(v, VitalUnit.bp),
-                            );
-                            if (n == null || n < 60 || n > 300) {
-                              return s.vitalsValidationInvalid;
-                            }
-                            return null;
+                            return quickVitalsFieldIssue(
+                                      v,
+                                      'systolic_bp',
+                                      VitalUnit.bp,
+                                      integer: true,
+                                    ) ==
+                                    null
+                                ? null
+                                : s.vitalsValidationInvalid;
                           },
                         ),
                       ),
@@ -619,14 +639,15 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                             suffixText: VitalUnit.bp,
                           ),
                           validator: (v) {
-                            if (v == null || v.isEmpty) return null;
-                            final n = int.tryParse(
-                              normalizeVitalValue(v, VitalUnit.bp),
-                            );
-                            if (n == null || n < 30 || n > 200) {
-                              return s.vitalsValidationInvalid;
-                            }
-                            return null;
+                            return quickVitalsFieldIssue(
+                                      v,
+                                      'diastolic_bp',
+                                      VitalUnit.bp,
+                                      integer: true,
+                                    ) ==
+                                    null
+                                ? null
+                                : s.vitalsValidationInvalid;
                           },
                         ),
                       ),
@@ -657,14 +678,16 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                       ),
                     ),
                     validator: (v) {
-                      if (v == null || v.isEmpty) return null;
-                      final n = double.tryParse(
-                        normalizeVitalValue(v, VitalUnit.temperature),
-                      );
-                      if (n == null || n < 90 || n > 115) {
-                        return s.vitalsValidationInvalid;
-                      }
-                      return null;
+                      return quickVitalsFieldIssue(
+                                v,
+                                'temperature',
+                                VitalUnit.temperature,
+                                integer: false,
+                                fahrenheit: true,
+                              ) ==
+                              null
+                          ? null
+                          : s.vitalsValidationInvalid;
                     },
                   ),
                   const SizedBox(height: 20),
@@ -693,14 +716,15 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                             ),
                           ),
                           validator: (v) {
-                            if (v == null || v.isEmpty) return null;
-                            final n = int.tryParse(
-                              normalizeVitalValue(v, VitalUnit.pulse),
-                            );
-                            if (n == null || n < 20 || n > 250) {
-                              return s.vitalsValidationInvalid;
-                            }
-                            return null;
+                            return quickVitalsFieldIssue(
+                                      v,
+                                      'heart_rate',
+                                      VitalUnit.pulse,
+                                      integer: true,
+                                    ) ==
+                                    null
+                                ? null
+                                : s.vitalsValidationInvalid;
                           },
                         ),
                       ),
@@ -722,14 +746,15 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                             ),
                           ),
                           validator: (v) {
-                            if (v == null || v.isEmpty) return null;
-                            final n = double.tryParse(
-                              normalizeVitalValue(v, VitalUnit.spo2),
-                            );
-                            if (n == null || n < 50 || n > 100) {
-                              return s.vitalsValidationInvalid;
-                            }
-                            return null;
+                            return quickVitalsFieldIssue(
+                                      v,
+                                      'spo2',
+                                      VitalUnit.spo2,
+                                      integer: false,
+                                    ) ==
+                                    null
+                                ? null
+                                : s.vitalsValidationInvalid;
                           },
                         ),
                       ),

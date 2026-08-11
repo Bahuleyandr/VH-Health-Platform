@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_core/clinical/vital_plausibility.dart';
 import 'package:vhhealth_staff/core/widgets/vital_text_field.dart';
 import 'package:vhhealth_staff/features/emr/screens/vitals_chart_screen.dart';
 
@@ -101,16 +102,16 @@ void main() {
     test('unparseable values are flagged instead of silently dropped', () {
       expect(
         vitalsRecordFieldIssue('abc', 'heart_rate', VitalUnit.pulse),
-        VitalsRecordFieldIssue.notANumber,
+        VitalPlausibilityIssue.notANumber,
       );
       expect(
         // Decimal in an integer field was previously dropped by int.tryParse.
         vitalsRecordFieldIssue('82.5', 'heart_rate', VitalUnit.pulse),
-        VitalsRecordFieldIssue.notANumber,
+        VitalPlausibilityIssue.notANumber,
       );
       expect(
         vitalsRecordFieldIssue('12o', 'systolic_bp', VitalUnit.bp),
-        VitalsRecordFieldIssue.notANumber,
+        VitalPlausibilityIssue.notANumber,
       );
     });
 
@@ -132,29 +133,51 @@ void main() {
     test('flags values outside the backend plausibility bounds', () {
       expect(
         vitalsRecordFieldIssue('101', 'spo2', VitalUnit.spo2),
-        VitalsRecordFieldIssue.outOfRange,
+        VitalPlausibilityIssue.outOfRange,
       );
       expect(
         vitalsRecordFieldIssue('301', 'heart_rate', VitalUnit.pulse),
-        VitalsRecordFieldIssue.outOfRange,
+        VitalPlausibilityIssue.outOfRange,
       );
       // 37 (a °C habit-entry) is below the °F band — flag it rather than
       // record a hypothermic 37 °F.
       expect(
         vitalsRecordFieldIssue('37', 'temperature_f', VitalUnit.temperature),
-        VitalsRecordFieldIssue.outOfRange,
+        VitalPlausibilityIssue.outOfRange,
       );
       expect(
         vitalsRecordFieldIssue('16', 'gcs_score', VitalUnit.gcs),
-        VitalsRecordFieldIssue.outOfRange,
+        VitalPlausibilityIssue.outOfRange,
       );
       expect(
         vitalsRecordFieldIssue('11', 'pain_score', VitalUnit.pain),
-        VitalsRecordFieldIssue.outOfRange,
+        VitalPlausibilityIssue.outOfRange,
       );
     });
 
     test('boundary values are accepted', () {
+      expect(
+        vitalsRecordFieldIssue('0', 'heart_rate', VitalUnit.pulse),
+        isNull,
+      );
+      expect(vitalsRecordFieldIssue('0', 'systolic_bp', VitalUnit.bp), isNull);
+      expect(vitalsRecordFieldIssue('0', 'diastolic_bp', VitalUnit.bp), isNull);
+      expect(
+        vitalsRecordFieldIssue('53.6', 'temperature_f', VitalUnit.temperature),
+        isNull,
+      );
+      expect(
+        vitalsRecordFieldIssue(
+          '120',
+          'respiratory_rate',
+          VitalUnit.respiratoryRate,
+        ),
+        isNull,
+      );
+      expect(
+        vitalsRecordFieldIssue('0', 'blood_glucose', VitalUnit.cbg),
+        isNull,
+      );
       expect(
         vitalsRecordFieldIssue('300', 'heart_rate', VitalUnit.pulse),
         isNull,

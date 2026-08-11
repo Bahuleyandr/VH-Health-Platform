@@ -9,6 +9,21 @@ import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
+import 'package:vhhealth_core/clinical/vital_plausibility.dart';
+
+VitalPlausibilityIssue? patientVitalsFieldIssue(
+  String? raw,
+  String field, {
+  required bool integer,
+  bool fahrenheit = false,
+}) {
+  return vitalPlausibilityIssue(
+    raw ?? '',
+    field,
+    integer: integer,
+    fahrenheit: fahrenheit,
+  );
+}
 
 class VitalsFormTab extends StatefulWidget {
   final VoidCallback onSubmitted;
@@ -193,13 +208,14 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                         border: const OutlineInputBorder(),
                       ),
                       validator: (v) {
-                        if (v != null && v.isNotEmpty) {
-                          final n = int.tryParse(v);
-                          if (n == null || n < 50 || n > 300) {
-                            return l.vitalsInvalidValue;
-                          }
-                        }
-                        return null;
+                        return patientVitalsFieldIssue(
+                                  v,
+                                  'systolic_bp',
+                                  integer: true,
+                                ) ==
+                                null
+                            ? null
+                            : l.vitalsInvalidValue;
                       },
                     ),
                   ),
@@ -217,13 +233,14 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                         border: const OutlineInputBorder(),
                       ),
                       validator: (v) {
-                        if (v != null && v.isNotEmpty) {
-                          final n = int.tryParse(v);
-                          if (n == null || n < 20 || n > 200) {
-                            return l.vitalsInvalidValue;
-                          }
-                        }
-                        return null;
+                        return patientVitalsFieldIssue(
+                                  v,
+                                  'diastolic_bp',
+                                  integer: true,
+                                ) ==
+                                null
+                            ? null
+                            : l.vitalsInvalidValue;
                       },
                     ),
                   ),
@@ -245,13 +262,14 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                   border: const OutlineInputBorder(),
                 ),
                 validator: (v) {
-                  if (v != null && v.isNotEmpty) {
-                    final n = int.tryParse(v);
-                    if (n == null || n < 30 || n > 250) {
-                      return l.vitalsHeartRateRange;
-                    }
-                  }
-                  return null;
+                  return patientVitalsFieldIssue(
+                            v,
+                            'heart_rate',
+                            integer: true,
+                          ) ==
+                          null
+                      ? null
+                      : l.vitalsHeartRateRange;
                 },
               ),
             ),
@@ -272,13 +290,15 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                   border: const OutlineInputBorder(),
                 ),
                 validator: (v) {
-                  if (v != null && v.isNotEmpty) {
-                    final n = double.tryParse(v);
-                    if (n == null || n < 90 || n > 110) {
-                      return l.vitalsTemperatureRange;
-                    }
-                  }
-                  return null;
+                  return patientVitalsFieldIssue(
+                            v,
+                            'temperature',
+                            integer: false,
+                            fahrenheit: true,
+                          ) ==
+                          null
+                      ? null
+                      : l.vitalsTemperatureRange;
                 },
               ),
             ),
@@ -297,13 +317,14 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                   border: const OutlineInputBorder(),
                 ),
                 validator: (v) {
-                  if (v != null && v.isNotEmpty) {
-                    final n = int.tryParse(v);
-                    if (n == null || n < 20 || n > 600) {
-                      return l.vitalsBloodSugarRange;
-                    }
-                  }
-                  return null;
+                  return patientVitalsFieldIssue(
+                            v,
+                            'blood_glucose',
+                            integer: true,
+                          ) ==
+                          null
+                      ? null
+                      : l.vitalsBloodSugarRange;
                 },
               ),
             ),
@@ -349,13 +370,10 @@ class _VitalsFormTabState extends State<VitalsFormTab> {
                   border: const OutlineInputBorder(),
                 ),
                 validator: (v) {
-                  if (v != null && v.isNotEmpty) {
-                    final n = int.tryParse(v);
-                    if (n == null || n < 50 || n > 100) {
-                      return l.vitalsSpo2Range;
-                    }
-                  }
-                  return null;
+                  return patientVitalsFieldIssue(v, 'spo2', integer: true) ==
+                          null
+                      ? null
+                      : l.vitalsSpo2Range;
                 },
               ),
             ),

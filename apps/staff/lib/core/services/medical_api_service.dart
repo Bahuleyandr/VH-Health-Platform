@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../models/composition_alternatives.dart';
 import 'api_client.dart';
@@ -27,9 +28,14 @@ class MedicalApiService {
 
   static Future<Map<String, dynamic>> _post(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    final resp = await ApiClient.post(path, body: body);
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) async {
+    final resp = await ApiClient.post(
+      path,
+      body: body,
+      idempotencyKey: idempotencyKey,
+    );
     return _handle(resp);
   }
 
@@ -340,14 +346,16 @@ class MedicalApiService {
     return _get('/records/health-records/$phone');
   }
 
-  /// POST /health/records — create a health record with vital signs
+  /// POST /health/records — record canonical vitals through the legacy body
   static Future<Map<String, dynamic>> recordVitals({
     required int patientId,
     Map<String, dynamic>? vitalSigns,
     Map<String, dynamic>? measurements,
     String? notes,
     int? recordedBy,
+    String? idempotencyKey,
   }) async {
+    final effectiveIdempotencyKey = idempotencyKey ?? IdempotencyKey.generate();
     return _post('/health/records', {
       'patient_id': patientId,
       'record_type': 'VITALS',
@@ -355,7 +363,7 @@ class MedicalApiService {
       'measurements': ?measurements,
       'notes': ?notes,
       'recorded_by': ?recordedBy,
-    });
+    }, idempotencyKey: effectiveIdempotencyKey);
   }
 
   /// GET /health/patient/:patient_id/trends — vital trends for a patient

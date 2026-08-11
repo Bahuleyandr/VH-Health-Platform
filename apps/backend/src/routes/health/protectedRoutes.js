@@ -1,14 +1,20 @@
 // src/routes/health/protectedRoutes.js
 import express from 'express';
+import { CLINICAL_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import * as healthStatsController from '../../controllers/health/healthStatsController.js';
 import * as patientHealthController from '../../controllers/health/patientHealthController.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   activeOnlyValidator,
   patientIdValidator,
   trendsValidator,
 } from '../../validators/health/healthValidators.js';
+import {
+  guardClinicalVitalsWrite,
+  guardVitalsResourceWrite,
+} from '../emr/vitalsRouteGuards.js';
 
 const router = express.Router();
 
@@ -54,15 +60,18 @@ router.post('/patient/vitals',
   patientHealthController.recordPatientVitals
 );
 
-// Legacy staff-app vitals endpoint. The staff app historically posted
-// structured vitals to /health/records; keep that URL backed by the current
-// patient_vitals schema.
+// Staff-app compatibility endpoint. The app historically posts its structured
+// body to /health/records; the controller adapts that body to the canonical
+// vitals_chart service so timeline, audit, NEWS2, and escalation all run.
 //
 // This is the staff offline-queue's vitals drain target — a lost-2xx retry or
 // redrain would otherwise create a duplicate vitals row. The client now always
 // sends a stable Idempotency-Key; consume it so replays collapse (finding #15).
 router.post('/records',
-  requireIdempotencyKey({ required: false, scope: 'staff_vitals_record' }),
+  requireRole(...CLINICAL_STAFF_ROUTE_ROLES),
+  rejectMobileClinicalWrite,
+  guardClinicalVitalsWrite,
+  requireIdempotencyKey({ scope: 'staff_vitals_record' }),
   patientHealthController.recordStaffVitals
 );
 
@@ -70,8 +79,14 @@ router.post('/records',
 // after recording. Outside the window, edits must go through a clinical
 // note addendum. Finding:
 //   2026-05-10-surgical-day-care-nurse-vitals-edit-window-missing
-router.put('/records/:id', patientHealthController.updateStaffVitals);
-router.patch('/records/:id', patientHealthController.updateStaffVitals);
+const correctionGuards = [
+  requireRole(...CLINICAL_STAFF_ROUTE_ROLES),
+  rejectMobileClinicalWrite,
+  guardVitalsResourceWrite,
+  requireIdempotencyKey({ scope: 'staff_vitals_correction' }),
+];
+router.put('/records/:id', ...correctionGuards, patientHealthController.updateStaffVitals);
+router.patch('/records/:id', ...correctionGuards, patientHealthController.updateStaffVitals);
 
 router.get('/patient/:patient_id/vitals',
   patientIdValidator,

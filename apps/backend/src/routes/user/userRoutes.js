@@ -26,6 +26,11 @@ router.post('/bulk-import', bulkImportValidation, UserController.bulkImportUsers
 // List Users with Advanced Filtering
 router.get('/', searchValidation, UserController.listUsers);
 
+// Search Users with Advanced Filters — registered BEFORE /:identifier so the
+// static one-segment path resolves here instead of being captured as an
+// identifier ("search" is not a uuid → the directory lookup 404/500'd).
+router.get('/search', userSearchValidation, UserController.searchUsers);
+
 // Get User by ID/UID
 router.get('/:identifier', userIdValidation, UserController.getUserById);
 
@@ -34,9 +39,6 @@ router.get('/role/:role', roleValidation, UserController.getUsersByRole);
 
 // Get Users by Department
 router.get('/department/:department', departmentValidation, UserController.getUsersByDepartment);
-
-// Search Users with Advanced Filters
-router.get('/search', userSearchValidation, UserController.searchUsers);
 
 // Update User Profile
 router.put('/:identifier', [...userIdValidation, ...userUpdateValidation], sanitizeProfileFields, UserController.updateUser);

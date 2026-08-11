@@ -2,6 +2,7 @@ export 'config/api_config.dart';
 export 'config/client_readiness_config.dart';
 export 'config/security_config.dart';
 export 'config/tenant_config.dart';
+export 'clinical/vital_plausibility.dart';
 // NOTE (hygiene sweep FL-L6, 2026-08-09): entitlements/product_entitlements.dart
 // has zero app consumers — it is exercised only by its own unit test, which
 // imports it directly. Kept on disk for that test, but dropped from the
