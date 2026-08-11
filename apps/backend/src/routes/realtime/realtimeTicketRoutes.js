@@ -42,6 +42,9 @@ router.post('/ticket', (req, res) => {
         // identify the access-token session that minted it.
         sessionFamilyId: user.sessionFamilyId || user.jti,
         ...(user.stableDeviceId ? { stableDeviceId: user.stableDeviceId } : {}),
+        ...(req.acting?.actorUid
+          ? { revocationOwnerUid: String(req.acting.actorUid) }
+          : {}),
       },
       TICKET_TTL,
     );

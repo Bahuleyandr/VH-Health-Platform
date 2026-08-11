@@ -27,6 +27,26 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
       'sibling-access': { sessionFamilyId: 'family-b', stableDeviceId: 'device-b' },
       'sibling-ticket': { sessionFamilyId: 'family-b', stableDeviceId: 'device-b', scope: 'ws' },
       'legacy-ticket': { sessionFamilyId: 'legacy-access', scope: 'ws' },
+      'delegated-ticket': {
+        sub: 'dependent-1',
+        sessionFamilyId: 'family-a',
+        stableDeviceId: 'device-a',
+        revocationOwnerUid: 'guardian-1',
+        scope: 'ws',
+      },
+      'delegated-sibling-ticket': {
+        sub: 'dependent-2',
+        sessionFamilyId: 'family-b',
+        stableDeviceId: 'device-b',
+        revocationOwnerUid: 'guardian-1',
+        scope: 'ws',
+      },
+      'guardian-sibling-ticket': {
+        sub: 'guardian-1',
+        sessionFamilyId: 'family-b',
+        stableDeviceId: 'device-b',
+        scope: 'ws',
+      },
     };
     return {
       sub: 'user-1',
@@ -40,9 +60,10 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
     };
   },
 }));
+const isUserTokensRevokedMock = jest.fn().mockResolvedValue(false);
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
-  isUserTokensRevoked: jest.fn().mockResolvedValue(false),
+  isUserTokensRevoked: isUserTokensRevokedMock,
 }));
 jest.unstable_mockModule('../../utils/websocket/channelAuth.js', () => ({
   authorizeChannel: () => ({ allowed: true, reason: 'ok' }),
@@ -61,6 +82,7 @@ const {
   initWebSocket,
   initWsFanout,
   pushSessionRevoked,
+  sendToUser,
 } = await import('../../utils/websocket/wsServer.js');
 
 class FakeSocket extends EventEmitter {
@@ -222,5 +244,56 @@ describe('session revocation WebSocket closure', () => {
     expect(ordinarySocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     expect(ticketSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     expect(siblingSocket.close).not.toHaveBeenCalled();
+  });
+
+  it('keeps delegated delivery scoped to the dependent but revokes by guardian session', async () => {
+    initWebSocket({});
+    isUserTokensRevokedMock.mockClear();
+    const delegatedSocket = new FakeSocket();
+    const siblingDependentSocket = new FakeSocket();
+    const siblingGuardianSocket = new FakeSocket();
+    serverInstance.clients.add(delegatedSocket);
+    serverInstance.emit('connection', delegatedSocket, {
+      url: '/ws?token=delegated-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(isUserTokensRevokedMock).toHaveBeenLastCalledWith('guardian-1', 1000, 3);
+    serverInstance.clients.add(siblingDependentSocket);
+    serverInstance.clients.add(siblingGuardianSocket);
+    serverInstance.emit('connection', siblingDependentSocket, {
+      url: '/ws?token=delegated-sibling-ticket',
+      headers: {},
+    });
+    serverInstance.emit('connection', siblingGuardianSocket, {
+      url: '/ws?token=guardian-sibling-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    delegatedSocket.send.mockClear();
+    siblingDependentSocket.send.mockClear();
+    siblingGuardianSocket.send.mockClear();
+
+    sendToUser('dependent-1', 'clinical:update', { id: 'result-1' });
+
+    expect(delegatedSocket.send).toHaveBeenCalledWith(JSON.stringify({
+      event: 'clinical:update',
+      data: { id: 'result-1' },
+    }));
+    expect(siblingDependentSocket.send).not.toHaveBeenCalled();
+    expect(siblingGuardianSocket.send).not.toHaveBeenCalled();
+
+    pushSessionRevoked('guardian-1', {
+      reason: 'logout',
+      jti: 'post-refresh-access',
+      sessionFamilyId: 'family-a',
+      stableDeviceId: 'device-a',
+    });
+
+    expect(delegatedSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(siblingDependentSocket.close).not.toHaveBeenCalled();
+    expect(siblingGuardianSocket.close).not.toHaveBeenCalled();
   });
 });

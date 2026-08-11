@@ -371,7 +371,10 @@ describe('jwtMiddleware — acting-as delegation', () => {
   });
 
   it('rewrites req.user to the dependent and records req.acting on success', async () => {
-    verifyTokenMock.mockReturnValue(guardianToken());
+    verifyTokenMock.mockReturnValue(guardianToken({
+      sessionFamilyId: 'guardian-session-family',
+      stableDeviceId: 'guardian-device',
+    }));
     queryRawUnsafeMock.mockResolvedValueOnce([{
       dep_id: 20, dep_uid: DEP_UID, dep_phone: '+919111111111', dep_email: 'kid@test.local',
       dep_role: 'PATIENT', dep_is_minor: true, dep_tenant_id: 'tenant-A',
@@ -385,6 +388,8 @@ describe('jwtMiddleware — acting-as delegation', () => {
     expect(req.user.id).toBe(20);
     expect(req.user.role).toBe('PATIENT');
     expect(req.user.tenant_id).toBe('tenant-A');
+    expect(req.user.sessionFamilyId).toBe('guardian-session-family');
+    expect(req.user.stableDeviceId).toBe('guardian-device');
     expect(req.acting).toMatchObject({ actorUid: GUARDIAN_UID, actorId: 10 });
   });
 });

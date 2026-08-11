@@ -12,6 +12,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 const { default: realtimeTicketRoutes } = await import('../../routes/realtime/realtimeTicketRoutes.js');
 
+let currentActing = null;
 const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
@@ -23,6 +24,7 @@ app.use((req, _res, next) => {
     sessionFamilyId: 'session-family-1',
     stableDeviceId: 'device-1',
   };
+  req.acting = currentActing;
   next();
 });
 app.use('/api/v1/realtime', realtimeTicketRoutes);
@@ -30,6 +32,7 @@ app.use('/api/v1/realtime', realtimeTicketRoutes);
 describe('POST /api/v1/realtime/ticket session binding', () => {
   beforeEach(() => {
     generateTokenMock.mockClear();
+    currentActing = null;
   });
 
   it('binds the short-lived ticket to the parent access-token session', async () => {
@@ -39,6 +42,24 @@ describe('POST /api/v1/realtime/ticket session binding', () => {
     expect(generateTokenMock).toHaveBeenCalledWith(
       expect.objectContaining({
         scope: 'ws',
+        sessionFamilyId: 'session-family-1',
+        stableDeviceId: 'device-1',
+      }),
+      '60s',
+    );
+    expect(generateTokenMock.mock.calls[0][0]).not.toHaveProperty('revocationOwnerUid');
+  });
+
+  it('binds a delegated ticket to its authenticated guardian for revocation', async () => {
+    currentActing = { actorUid: 'guardian-1' };
+
+    const response = await request(app).post('/api/v1/realtime/ticket');
+
+    expect(response.status).toBe(200);
+    expect(generateTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uid: 'user-1',
+        revocationOwnerUid: 'guardian-1',
         sessionFamilyId: 'session-family-1',
         stableDeviceId: 'device-1',
       }),

@@ -28,7 +28,10 @@ export function closeWsFanout() {
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
 const clients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, role: string, tenantId?: string, jti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string> }>} */
+/** @type {Map<string, Set<import('ws').WebSocket>>} authenticated owner uid → Set of sockets */
+const revocationClients = new Map();
+
+/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -97,6 +100,7 @@ export function initWebSocket(server) {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = null;
     clients.clear();
+    revocationClients.clear();
     socketMeta.clear();
   });
 }
@@ -116,6 +120,7 @@ export function closeWebSocket() {
     activeServer.close(() => {
       if (wss === activeServer) wss = null;
       clients.clear();
+      revocationClients.clear();
       socketMeta.clear();
       resolve();
     });
@@ -155,6 +160,10 @@ async function authenticateAndRegister(ws, token) {
     : String(identityClaim);
   const role = decoded.role;
   const tenantId = decoded.tenant_id || decoded.tenantId || null;
+  const revocationOwnerUid = decoded.revocationOwnerUid === undefined
+    || decoded.revocationOwnerUid === null
+    ? userId
+    : String(decoded.revocationOwnerUid);
   if (!userId) {
     ws.close(4001, 'Invalid token payload');
     return;
@@ -163,10 +172,18 @@ async function authenticateAndRegister(ws, token) {
     ws.close(4001, 'Invalid token tenant');
     return;
   }
+  if (!revocationOwnerUid) {
+    ws.close(4001, 'Invalid token payload');
+    return;
+  }
 
   // Check if all user tokens were revoked (force-logout)
   if (decoded.iat) {
-    const revoked = await isUserTokensRevoked(String(userId), decoded.iat, decoded.token_epoch);
+    const revoked = await isUserTokensRevoked(
+      revocationOwnerUid,
+      decoded.iat,
+      decoded.token_epoch,
+    );
     if (revoked) {
       ws.close(4001, 'All sessions revoked');
       return;
@@ -183,8 +200,13 @@ async function authenticateAndRegister(ws, token) {
   // Register client
   if (!clients.has(userId)) clients.set(userId, new Set());
   clients.get(userId).add(ws);
+  if (!revocationClients.has(revocationOwnerUid)) {
+    revocationClients.set(revocationOwnerUid, new Set());
+  }
+  revocationClients.get(revocationOwnerUid).add(ws);
   socketMeta.set(ws, {
     userId,
+    revocationOwnerUid,
     role,
     tenantId,
     jti: decoded.jti ?? null,
@@ -274,6 +296,10 @@ async function authenticateAndRegister(ws, token) {
     if (meta) {
       clients.get(meta.userId)?.delete(ws);
       if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
+      revocationClients.get(meta.revocationOwnerUid)?.delete(ws);
+      if (revocationClients.get(meta.revocationOwnerUid)?.size === 0) {
+        revocationClients.delete(meta.revocationOwnerUid);
+      }
       socketMeta.delete(ws);
     }
   });
@@ -338,10 +364,17 @@ const SESSION_REVOKED_CLOSE_CODE = 4001;
 
 /** Deliver a user-targeted message to this process's sockets for that user. */
 function deliverUserLocal(userId, event, data, tenantId) {
-  const sockets = clients.get(String(userId));
-  if (!sockets) return;
-  const payload = JSON.stringify({ event, data });
   const isRevocation = event === SESSION_REVOKED_EVENT;
+  const uid = String(userId);
+  const deliverySockets = clients.get(uid);
+  const ownerSockets = isRevocation ? revocationClients.get(uid) : null;
+  if (!deliverySockets && !ownerSockets) return;
+  // Normal user delivery remains effective-subject scoped. Only revocation
+  // adds sockets authenticated by that owner (for guardian acting-as tickets).
+  const sockets = isRevocation
+    ? new Set([...(deliverySockets || []), ...(ownerSockets || [])])
+    : deliverySockets;
+  const payload = JSON.stringify({ event, data });
   const revokedJti = isRevocation && data?.jti ? String(data.jti) : null;
   const revokedSessionFamilyId = isRevocation && data?.sessionFamilyId
     ? String(data.sessionFamilyId)
