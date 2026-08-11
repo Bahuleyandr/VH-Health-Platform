@@ -45,6 +45,7 @@ import * as publicPaymentPage from './openapi/schemas/publicPaymentPage.mjs';
 import * as firebaseAuth from './openapi/schemas/firebaseAuth.mjs';
 import * as abdmAbhaRegistration from './openapi/schemas/abdmAbhaRegistration.mjs';
 import * as announcementBanner from './openapi/schemas/announcementBanner.mjs';
+import * as bloodBank from './openapi/schemas/bloodBank.mjs';
 
 const SCHEMA_MODULES = [
   abdm,
@@ -78,7 +79,8 @@ const SCHEMA_MODULES = [
   publicPaymentPage,
   firebaseAuth,
   abdmAbhaRegistration,
-  announcementBanner
+  announcementBanner,
+  bloodBank
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

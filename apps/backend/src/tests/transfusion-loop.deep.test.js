@@ -82,6 +82,7 @@ d('Transfusion closed loop — deep round-trip (roadmap B5)', () => {
   test('create request; matrix-incompatible unit cannot be recorded compatible without override', async () => {
     const req = await authClient('DOCTOR')
       .post('/api/v1/blood-bank/request')
+      .set('Idempotency-Key', `b5-request-${RUN}`)
       .send({
         patient_uid: patientUid,
         blood_group: 'A+',
@@ -248,6 +249,7 @@ d('Transfusion closed loop — deep round-trip (roadmap B5)', () => {
   test('legacy PUT /:id/transfused honours the verification gate', async () => {
     const req = await authClient('DOCTOR')
       .post('/api/v1/blood-bank/request')
+      .set('Idempotency-Key', `b5-legacy-request-${RUN}`)
       .send({
         patient_uid: patientUid,
         blood_group: 'A+',

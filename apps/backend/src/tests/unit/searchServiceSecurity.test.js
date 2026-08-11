@@ -21,7 +21,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { searchUsers, searchAppointments } = await import('../../utils/search/searchService.js');
+const { searchUsers, searchDoctors, searchGlobal } = await import('../../utils/search/searchService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 
@@ -56,15 +56,81 @@ describe('global search security', () => {
     }));
   });
 
-  it('tenant-scopes appointment search', async () => {
+  it('does not return an unmasked email through full-text highlights to non-admin staff', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 7,
+      uid: '11111111-1111-4111-8111-111111111111',
+      name: 'Patient One',
+      phone: '+919876543210',
+      email: 'patient@example.test',
+      role: 'PATIENT',
+      rank: 0.8,
+      highlight: 'Patient One patient@<b>example</b>.test',
+    }]);
+
+    const results = await searchUsers('patient example', 20, {
+      tenantId: TENANT,
+      role: 'OP_DOCTOR',
+    });
+
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain('ts_headline');
+    expect(results[0].email).toBe('p***@example.test');
+    expect(results[0]).not.toHaveProperty('highlight');
+    expect(JSON.stringify(results[0])).not.toContain('patient@example.test');
+    expect(JSON.stringify(results[0])).not.toContain('patient@<b>example</b>.test');
+  });
+
+  it('preserves full-text highlights for administrators who may view raw contact details', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 7,
+      uid: '11111111-1111-4111-8111-111111111111',
+      name: 'Patient One',
+      phone: '+919876543210',
+      email: 'patient@example.test',
+      role: 'PATIENT',
+      rank: 0.8,
+      highlight: 'Patient One patient@<b>example</b>.test',
+    }]);
+
+    const results = await searchUsers('patient example', 20, {
+      tenantId: TENANT,
+      role: 'ADMIN',
+    });
+
+    expect(results[0]).toEqual(expect.objectContaining({
+      phone: '+919876543210',
+      email: 'patient@example.test',
+      highlight: 'Patient One patient@<b>example</b>.test',
+    }));
+  });
+
+  it('tenant-scopes doctors directly and never borrows a cross-tenant user contact', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]);
 
-    await searchAppointments('follow', 10, { tenantId: TENANT, role: 'ADMIN' });
+    await searchDoctors('on', 20, { tenantId: TENANT, role: 'RECEPTIONIST' });
 
     const [sql, searchParam, tenantParam, limitParam] = queryUnsafeMock.mock.calls[0];
-    expect(sql).toContain('tenant_id = $2::uuid');
-    expect(searchParam).toBe('follow:*');
+    expect(sql).toContain('d.tenant_id = $2::uuid');
+    expect(sql).toContain('u.tenant_id = d.tenant_id');
+    expect(sql).not.toContain('DEFAULT_TENANT_ID');
+    expect(sql).not.toContain('COALESCE(u.tenant_id');
+    expect(searchParam).toBe('%on%');
     expect(tenantParam).toBe(TENANT);
-    expect(limitParam).toBe(10);
+    expect(limitParam).toBe(20);
+  });
+
+  it('global search never queries or returns appointment reason/notes', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const result = await searchGlobal('follow', 10, { tenantId: TENANT, role: 'ADMIN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    for (const [sql] of queryUnsafeMock.mock.calls) {
+      expect(sql).not.toMatch(/\bappointments\b/i);
+      expect(sql).not.toMatch(/\breason\b|\bnotes\b/i);
+    }
+    expect(result).toEqual({ total: 0, results: [] });
   });
 });

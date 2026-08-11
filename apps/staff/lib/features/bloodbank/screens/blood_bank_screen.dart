@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
-import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/patient_search_sheet.dart';
 import '../../../l10n/app_strings.dart';
+import '../models/blood_request.dart';
+import '../services/blood_bank_gateway.dart';
 
 int? _intValue(dynamic value) {
   if (value is int) return value;
@@ -19,8 +23,18 @@ String? _nonEmptyString(dynamic value) {
   return text == null || text.isEmpty ? null : text;
 }
 
+typedef BloodBankPatientPicker =
+    Future<BloodRequestPatient?> Function(BuildContext context);
+
 class BloodBankScreen extends StatefulWidget {
-  const BloodBankScreen({super.key});
+  final BloodBankGateway gateway;
+  final BloodBankPatientPicker? patientPicker;
+
+  const BloodBankScreen({
+    super.key,
+    this.gateway = const ApiBloodBankGateway(),
+    this.patientPicker,
+  });
 
   @override
   State<BloodBankScreen> createState() => _BloodBankScreenState();
@@ -42,11 +56,15 @@ class _BloodBankScreenState extends State<BloodBankScreen>
 
   // Request form
   final _requestFormKey = GlobalKey<FormState>();
+  BloodRequestPatient? _requestPatient;
   String? _requestBloodType;
+  BloodComponent? _requestComponent;
+  BloodUrgency _requestUrgency = BloodUrgency.routine;
   final _unitsController = TextEditingController();
-  final _reasonController = TextEditingController();
-  final _patientNameController = TextEditingController();
+  final _indicationController = TextEditingController();
   bool _submittingRequest = false;
+  String? _requestIntentFingerprint;
+  String? _requestIdempotencyKey;
 
   static const List<String> _bloodTypes = [
     'A+',
@@ -71,8 +89,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   void dispose() {
     _tabController.dispose();
     _unitsController.dispose();
-    _reasonController.dispose();
-    _patientNameController.dispose();
+    _indicationController.dispose();
     super.dispose();
   }
 
@@ -82,7 +99,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
       _inventoryError = null;
     });
     try {
-      final response = await ApiClient.get('/blood-bank/inventory');
+      final response = await widget.gateway.getInventory();
       if (response.isSuccess) {
         final data = response.data;
         final list = data is List
@@ -109,10 +126,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
       _issuedUnitsError = null;
     });
     try {
-      final response = await ApiClient.get(
-        '/blood-bank/units',
-        queryParameters: const {'status': 'issued'},
-      );
+      final response = await widget.gateway.getIssuedUnits();
       if (response.isSuccess) {
         final data = response.data;
         final list = data is Map ? data['units'] ?? data['items'] ?? [] : data;
@@ -142,14 +156,17 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     final s = AppStrings.of(context);
     setState(() => _submittingRequest = true);
     try {
-      final response = await ApiClient.post(
-        '/blood-bank/request',
-        body: {
-          'bloodType': _requestBloodType,
-          'units': int.tryParse(_unitsController.text) ?? 1,
-          'reason': _reasonController.text.trim(),
-          'patientName': _patientNameController.text.trim(),
-        },
+      final payload = BloodRequestPayload(
+        patientUid: _requestPatient!.uid,
+        bloodGroup: _requestBloodType!,
+        units: int.parse(_unitsController.text.trim()),
+        component: _requestComponent!,
+        clinicalIndication: _indicationController.text.trim(),
+        urgency: _requestUrgency,
+      );
+      final response = await widget.gateway.createRequest(
+        payload,
+        idempotencyKey: _idempotencyKeyFor(payload),
       );
       if (mounted) {
         if (response.isSuccess) {
@@ -161,9 +178,15 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           );
           _requestFormKey.currentState!.reset();
           _unitsController.clear();
-          _reasonController.clear();
-          _patientNameController.clear();
-          setState(() => _requestBloodType = null);
+          _indicationController.clear();
+          setState(() {
+            _requestPatient = null;
+            _requestBloodType = null;
+            _requestComponent = null;
+            _requestUrgency = BloodUrgency.routine;
+            _requestIntentFingerprint = null;
+            _requestIdempotencyKey = null;
+          });
           unawaited(_fetchInventory());
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -187,6 +210,39 @@ class _BloodBankScreenState extends State<BloodBankScreen>
       if (mounted) setState(() => _submittingRequest = false);
     }
   }
+
+  String _idempotencyKeyFor(BloodRequestPayload payload) {
+    final fingerprint = jsonEncode(payload.toJson());
+    if (_requestIntentFingerprint != fingerprint ||
+        _requestIdempotencyKey == null) {
+      _requestIntentFingerprint = fingerprint;
+      _requestIdempotencyKey = IdempotencyKey.generate();
+    }
+    return _requestIdempotencyKey!;
+  }
+
+  Future<BloodRequestPatient?> _pickPatient() async {
+    final injectedPicker = widget.patientPicker;
+    if (injectedPicker != null) return injectedPicker(context);
+    final result = await PatientSearchSheet.pick(context);
+    if (result == null) return null;
+    return BloodRequestPatient.fromSearchResult(result);
+  }
+
+  String _componentLabel(AppStrings s, BloodComponent component) =>
+      switch (component) {
+        BloodComponent.wholeBlood => s.bloodBankComponentWholeBlood,
+        BloodComponent.packedRedBloodCells => s.bloodBankComponentPrbc,
+        BloodComponent.freshFrozenPlasma => s.bloodBankComponentFfp,
+        BloodComponent.platelets => s.bloodBankComponentPlatelets,
+        BloodComponent.cryoprecipitate => s.bloodBankComponentCryoprecipitate,
+      };
+
+  String _urgencyLabel(AppStrings s, BloodUrgency urgency) => switch (urgency) {
+    BloodUrgency.routine => s.bloodBankUrgencyRoutine,
+    BloodUrgency.urgent => s.bloodBankUrgencyUrgent,
+    BloodUrgency.emergency => s.bloodBankUrgencyEmergency,
+  };
 
   Color _stockColor(int units) {
     if (units < 5) return AppTheme.errorRed;
@@ -392,28 +448,89 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             ),
             const SizedBox(height: 16),
 
-            // Patient name
-            TextFormField(
-              controller: _patientNameController,
-              decoration: InputDecoration(
-                labelText: s.bloodBankPatientNameLabel,
-                prefixIcon: const ExcludeSemantics(
-                  child: Icon(Icons.person_outline),
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-                fillColor: AppTheme.surfaceWhite,
+            FormField<BloodRequestPatient>(
+              key: ValueKey(
+                'blood_request_patient_${_requestPatient?.uid ?? 'none'}',
               ),
-              validator: (v) => (v == null || v.trim().isEmpty)
-                  ? s.bloodBankPatientNameRequired
-                  : null,
+              initialValue: _requestPatient,
+              validator: (patient) =>
+                  patient == null ? s.bloodBankSelectPatientRequired : null,
+              builder: (field) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  OutlinedButton(
+                    key: const Key('blood_request_patient_picker'),
+                    onPressed: _submittingRequest
+                        ? null
+                        : () async {
+                            final selected = await _pickPatient();
+                            if (selected == null || !mounted) return;
+                            field.didChange(selected);
+                            setState(() => _requestPatient = selected);
+                          },
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(60),
+                      alignment: Alignment.centerLeft,
+                      side: BorderSide(
+                        color: field.hasError
+                            ? AppTheme.errorRed
+                            : Colors.grey.shade400,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.person_search_outlined),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _requestPatient == null
+                              ? Text(s.bloodBankSelectPatientLabel)
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      _requestPatient!.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (_requestPatient!
+                                        .hospitalNumber
+                                        .isNotEmpty)
+                                      Text(
+                                        _requestPatient!.hospitalNumber,
+                                        style: TextStyle(
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                        const Icon(Icons.chevron_right),
+                      ],
+                    ),
+                  ),
+                  if (field.errorText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 12, top: 6),
+                      child: Text(
+                        field.errorText!,
+                        style: const TextStyle(
+                          color: AppTheme.errorRed,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: 14),
 
-            // Blood type dropdown
             DropdownButtonFormField<String>(
+              key: const Key('blood_request_group'),
               initialValue: _requestBloodType,
               decoration: InputDecoration(
                 labelText: s.bloodBankBloodTypeLabel,
@@ -434,8 +551,37 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             ),
             const SizedBox(height: 14),
 
-            // Units
+            DropdownButtonFormField<BloodComponent>(
+              key: const Key('blood_request_component'),
+              initialValue: _requestComponent,
+              decoration: InputDecoration(
+                labelText: s.bloodBankComponentLabel,
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.water_drop_outlined),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: AppTheme.surfaceWhite,
+              ),
+              items: BloodComponent.values
+                  .map(
+                    (component) => DropdownMenuItem(
+                      value: component,
+                      child: Text(_componentLabel(s, component)),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (component) =>
+                  setState(() => _requestComponent = component),
+              validator: (component) =>
+                  component == null ? s.bloodBankComponentRequired : null,
+            ),
+            const SizedBox(height: 14),
+
             TextFormField(
+              key: const Key('blood_request_units'),
               controller: _unitsController,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
@@ -452,18 +598,21 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                   return s.bloodBankUnitsRequired;
                 }
                 final n = int.tryParse(v.trim());
-                if (n == null || n < 1) return s.bloodBankUnitsInvalid;
+                if (n == null || n < 1 || n > 10) {
+                  return s.bloodBankUnitsRange;
+                }
                 return null;
               },
             ),
             const SizedBox(height: 14),
 
-            // Reason
             TextFormField(
-              controller: _reasonController,
+              key: const Key('blood_request_indication'),
+              controller: _indicationController,
               maxLines: 3,
+              maxLength: 500,
               decoration: InputDecoration(
-                labelText: s.bloodBankReasonLabel,
+                labelText: s.bloodBankClinicalIndicationLabel,
                 prefixIcon: const Padding(
                   padding: EdgeInsets.only(bottom: 40),
                   child: Icon(Icons.notes),
@@ -474,6 +623,39 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                 filled: true,
                 fillColor: AppTheme.surfaceWhite,
               ),
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? s.bloodBankClinicalIndicationRequired
+                  : null,
+            ),
+            const SizedBox(height: 14),
+
+            DropdownButtonFormField<BloodUrgency>(
+              key: const Key('blood_request_urgency'),
+              initialValue: _requestUrgency,
+              decoration: InputDecoration(
+                labelText: s.bloodBankUrgencyLabel,
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.priority_high),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: AppTheme.surfaceWhite,
+              ),
+              items: BloodUrgency.values
+                  .map(
+                    (urgency) => DropdownMenuItem(
+                      value: urgency,
+                      child: Text(_urgencyLabel(s, urgency)),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (urgency) {
+                if (urgency != null) {
+                  setState(() => _requestUrgency = urgency);
+                }
+              },
             ),
             const SizedBox(height: 20),
 
@@ -481,6 +663,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               width: double.infinity,
               height: 48,
               child: ElevatedButton.icon(
+                key: const Key('blood_request_submit'),
                 onPressed: _submittingRequest ? null : _submitRequest,
                 icon: _submittingRequest
                     ? const SizedBox(

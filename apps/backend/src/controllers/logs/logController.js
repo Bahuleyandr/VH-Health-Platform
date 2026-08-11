@@ -57,64 +57,57 @@ export async function getAuditLogs(req, res) {
       allowOffset: true,
     });
 
-    let rows = [];
-    let total = 0;
-
-    try {
-      const params = [];
-      const conditions = [];
-      if (listQuery.search) {
-        params.push(`%${listQuery.search}%`);
-        conditions.push(`(
+    const params = [];
+    const conditions = [];
+    if (listQuery.search) {
+      params.push(`%${listQuery.search}%`);
+      conditions.push(`(
           action ILIKE $${params.length}
           OR resource ILIKE $${params.length}
           OR role ILIKE $${params.length}
           OR resource_id::text ILIKE $${params.length}
           OR ip_address ILIKE $${params.length}
         )`);
-      }
-      addIlikeFilter({
-        query: req.query,
-        key: 'action',
-        column: 'action',
-        conditions,
-        params,
-      });
-      addIlikeFilter({
-        query: req.query,
-        key: 'resource',
-        column: 'resource',
-        conditions,
-        params,
-      });
-      addIlikeFilter({
-        query: req.query,
-        key: 'role',
-        column: 'role',
-        conditions,
-        params,
-      });
-      applyDateFilters({ query: req.query, conditions, params });
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const listParams = [...params, listQuery.limit, listQuery.offset];
-      rows = await prisma.$queryRawUnsafe(
-        `SELECT id, uid, role, action, resource, resource_id, metadata,
+    }
+    addIlikeFilter({
+      query: req.query,
+      key: 'action',
+      column: 'action',
+      conditions,
+      params,
+    });
+    addIlikeFilter({
+      query: req.query,
+      key: 'resource',
+      column: 'resource',
+      conditions,
+      params,
+    });
+    addIlikeFilter({
+      query: req.query,
+      key: 'role',
+      column: 'role',
+      conditions,
+      params,
+    });
+    applyDateFilters({ query: req.query, conditions, params });
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const listParams = [...params, listQuery.limit, listQuery.offset];
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, uid, role, action, resource, resource_id, metadata,
           ip_address, user_agent, created_at
          FROM audit_logs
          ${where}
          ORDER BY ${allowedSortFields[listQuery.sortBy]} ${listQuery.sortOrder}, created_at DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-        ...listParams,
-      );
+      ...listParams,
+    );
 
-      const countResult = await prisma.$queryRawUnsafe(
-        `SELECT COUNT(*)::int AS count FROM audit_logs ${where}`,
-        ...params,
-      );
-      total = parseInt(countResult?.[0]?.count ?? 0, 10);
-    } catch (_tableError) {
-      logger.warn('[logs] audit_logs table not found or unreadable; returning empty audit logs');
-    }
+    const countResult = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM audit_logs ${where}`,
+      ...params,
+    );
+    const total = parseInt(countResult?.[0]?.count ?? 0, 10);
 
     const pagination = buildPagination(total, listQuery.page, listQuery.limit);
     success(res, {
@@ -143,7 +136,6 @@ export async function getAuditLogs(req, res) {
 
 // ────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/logs/system  — system activity logs
-// Falls back gracefully if admin_activity_logs table does not exist.
 // ────────────────────────────────────────────────────────────────────────────
 export async function getSystemLogs(req, res) {
   try {
@@ -162,55 +154,47 @@ export async function getSystemLogs(req, res) {
       allowOffset: true,
     });
 
-    let rows = [];
-    let total = 0;
-
-    try {
-      const params = [];
-      const conditions = [];
-      if (listQuery.search) {
-        params.push(`%${listQuery.search}%`);
-        conditions.push(`(
+    const params = [];
+    const conditions = [];
+    if (listQuery.search) {
+      params.push(`%${listQuery.search}%`);
+      conditions.push(`(
           action ILIKE $${params.length}
           OR description ILIKE $${params.length}
           OR admin_uid::text ILIKE $${params.length}
           OR ip_address ILIKE $${params.length}
         )`);
-      }
-      addIlikeFilter({
-        query: req.query,
-        key: 'action',
-        column: 'action',
-        conditions,
-        params,
-      });
-      addIlikeFilter({
-        query: req.query,
-        key: 'admin_uid',
-        column: 'admin_uid::text',
-        conditions,
-        params,
-      });
-      applyDateFilters({ query: req.query, conditions, params });
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-      const listParams = [...params, listQuery.limit, listQuery.offset];
-      rows = await prisma.$queryRawUnsafe(
-        `SELECT id, admin_uid, action, description, details, ip_address, created_at
+    }
+    addIlikeFilter({
+      query: req.query,
+      key: 'action',
+      column: 'action',
+      conditions,
+      params,
+    });
+    addIlikeFilter({
+      query: req.query,
+      key: 'admin_uid',
+      column: 'admin_uid::text',
+      conditions,
+      params,
+    });
+    applyDateFilters({ query: req.query, conditions, params });
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const listParams = [...params, listQuery.limit, listQuery.offset];
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, admin_uid, action, description, details, ip_address, created_at
          FROM admin_activity_logs
          ${where}
          ORDER BY ${allowedSortFields[listQuery.sortBy]} ${listQuery.sortOrder}, created_at DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-        ...listParams,
-      );
-      const countResult = await prisma.$queryRawUnsafe(
-        `SELECT COUNT(*) FROM admin_activity_logs ${where}`,
-        ...params,
-      );
-      total = parseInt(countResult?.[0]?.count ?? 0, 10);
-    } catch {
-      // Table does not exist yet — return empty list, not an error
-      logger.warn('[logs] admin_activity_logs table not found; returning empty system logs');
-    }
+      ...listParams,
+    );
+    const countResult = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) FROM admin_activity_logs ${where}`,
+      ...params,
+    );
+    const total = parseInt(countResult?.[0]?.count ?? 0, 10);
 
     const pagination = buildPagination(total, listQuery.page, listQuery.limit);
     success(res, {
@@ -271,16 +255,9 @@ export async function exportSystemLogs(req, res) {
     const limit = Math.min(Number(req.query.limit ?? 1000), 10000);
     const offset = Number(req.query.offset ?? 0);
 
-    let rows = [];
-
-    try {
-      const result = await prisma.$queryRawUnsafe(
-        `SELECT id, admin_uid, action, description, details, ip_address, created_at
-         FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset);
-      rows = result;
-    } catch {
-      logger.warn('[logs] admin_activity_logs table not found; exporting empty system logs');
-    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, admin_uid, action, description, details, ip_address, created_at
+       FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset);
 
     const columns = rows.length > 0 ? Object.keys(rows[0]) : ['id', 'action', 'created_at'];
     const csv = buildCsv(rows, columns);

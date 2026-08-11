@@ -1,9 +1,33 @@
 // src\utils\notifications\sendPushNotification.js"
 
+import { randomUUID } from 'node:crypto';
 import { getMessaging } from 'firebase-admin/messaging';
 import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendToUser } from '../websocket/wsServer.js';
+
+const PRIVATE_LOCK_SCREEN_TITLE = 'VH Health';
+const PRIVATE_LOCK_SCREEN_BODY = 'You have a new update. Open the app to view it.';
+const PRIVATE_NOTIFICATION_ROUTE = '/notifications';
+const PRIVATE_NOTIFICATION_ACTION = 'open_notification_inbox';
+
+/**
+ * @typedef {Object} PrivatePushEnvelope
+ * @property {string} notification_id
+ * @property {string} route
+ * @property {string} action
+ * @property {string} click_action
+ */
+
+/** @returns {PrivatePushEnvelope} */
+function createPrivatePushEnvelope() {
+  return {
+    notification_id: `push_${randomUUID()}`,
+    route: PRIVATE_NOTIFICATION_ROUTE,
+    action: PRIVATE_NOTIFICATION_ACTION,
+    click_action: 'FLUTTER_NOTIFICATION_CLICK',
+  };
+}
 
 /**
  * Send a Firebase multicast message with retry logic for transient errors.
@@ -29,8 +53,8 @@ async function sendWithRetry(message, maxRetries = 2) {
  * Send push notification using Firebase Admin SDK
  * @param {Object} options
  * @param {string|string[]} options.tokens - A single FCM token or an array of tokens
- * @param {string} options.title - Notification title
- * @param {string} options.body - Notification body
+ * @param {string} options.title - Detailed authenticated-app title; normal FCM display copy is private
+ * @param {string} options.body - Detailed authenticated-app body; normal FCM display copy is private
  * @param {Object} [options.data] - Optional custom key-value data
  */
 export async function sendPushNotification({ tokens, title, body, data = {}, userId = null, priority = 'normal', channelId = null }) {
@@ -58,18 +82,28 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
   // High-priority messages (Code Blue, critical vitals) are sent data-only so
   // the client can build a full-screen-intent notification locally against a
   // MAX-importance channel. Normal messages use FCM's notification block so
-  // Android's system tray renders them directly.
+  // Android's system tray renders them directly. Their display copy is always
+  // privacy-minimized; authenticated app surfaces retain the detailed copy.
   const isHigh = priority === 'high';
+  const transportData = isHigh
+    ? {
+        ...data,
+        title,
+        body,
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+      }
+    : createPrivatePushEnvelope();
   const multicastMessage = {
     tokens: tokenArray,
     ...(isHigh
       ? {}
-      : { notification: { title, body } }),
-    data: {
-      ...(isHigh ? { title, body } : {}),
-      ...data,
-      click_action: 'FLUTTER_NOTIFICATION_CLICK',
-    },
+      : {
+          notification: {
+            title: PRIVATE_LOCK_SCREEN_TITLE,
+            body: PRIVATE_LOCK_SCREEN_BODY,
+          },
+        }),
+    data: transportData,
     ...(isHigh
       ? {
           android: {
@@ -82,7 +116,11 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
             payload: { aps: { 'interruption-level': 'critical', sound: 'default' } },
           },
         }
-      : {}),
+      : {
+          android: {
+            notification: { visibility: 'private' },
+          },
+        }),
   };
 
   try {
@@ -94,7 +132,7 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
       const invalidTokens = [];
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
-          logger.warn(`⚠️ Failed token [${tokenArray[idx]}]: ${resp.error?.message}`);
+          logger.warn(`⚠️ Failed FCM token at index ${idx}: ${resp.error?.message}`);
           // Collect tokens with permanent failure codes for cleanup
           const errorCode = resp.error?.code;
           if (errorCode === 'messaging/registration-token-not-registered' ||

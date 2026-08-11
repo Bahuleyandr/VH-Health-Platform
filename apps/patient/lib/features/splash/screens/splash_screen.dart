@@ -172,6 +172,7 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted) return;
       // Populate the Provider tree so the dashboard greeting + dashboard's
       // /dashboard?phone= probe see the right value on first paint.
+      var notificationTapRouted = false;
       try {
         // ignore: use_build_context_synchronously
         unawaited(
@@ -181,10 +182,12 @@ class _SplashScreenState extends State<SplashScreen>
             hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
           ),
         );
-        await PushNotificationService.syncForSignedInUser(
-          phone: phone,
-          notificationProvider: context.read<NotificationProvider>(),
-        );
+        notificationTapRouted =
+            await PushNotificationService.syncForSignedInUser(
+              phone: phone,
+              notificationProvider: context.read<NotificationProvider>(),
+              routeInitialMessage: !isNewUser,
+            );
       } catch (e) {
         developer.log(
           'Auto dev-login: UserProvider sync failed: $e',
@@ -197,7 +200,7 @@ class _SplashScreenState extends State<SplashScreen>
       // submitted with phone='' and the validator rejected (400).
       if (isNewUser) {
         context.go('/profile-setup', extra: phone);
-      } else {
+      } else if (!notificationTapRouted) {
         context.go('/home');
       }
     } catch (e, st) {
@@ -299,12 +302,13 @@ class _SplashScreenState extends State<SplashScreen>
           return;
         }
         if (!mounted) return;
-        await PushNotificationService.syncForSignedInUser(
-          phone: phone ?? '',
-          notificationProvider: context.read<NotificationProvider>(),
-        );
+        final notificationTapRouted =
+            await PushNotificationService.syncForSignedInUser(
+              phone: phone ?? '',
+              notificationProvider: context.read<NotificationProvider>(),
+            );
         if (!mounted) return;
-        context.go('/home');
+        if (!notificationTapRouted) context.go('/home');
         return;
       }
 
@@ -332,12 +336,13 @@ class _SplashScreenState extends State<SplashScreen>
                 return;
               }
               if (!mounted) return;
-              await PushNotificationService.syncForSignedInUser(
-                phone: phone,
-                notificationProvider: context.read<NotificationProvider>(),
-              );
+              final notificationTapRouted =
+                  await PushNotificationService.syncForSignedInUser(
+                    phone: phone,
+                    notificationProvider: context.read<NotificationProvider>(),
+                  );
               if (!mounted) return;
-              context.go('/home');
+              if (!notificationTapRouted) context.go('/home');
               return;
             }
           }

@@ -41,6 +41,7 @@ import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth/core/widgets/patient_outage_scope.dart';
 import 'package:vhhealth/core/outage/patient_outage_config.dart';
@@ -298,6 +299,7 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    BiometricGate.handleAppLifecycleState(state);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // Save battery: disconnect WebSocket and stop connectivity polling

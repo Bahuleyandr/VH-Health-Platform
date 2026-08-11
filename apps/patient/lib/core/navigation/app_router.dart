@@ -374,8 +374,9 @@ class AppRouter {
           ),
           GoRoute(
             path: '/notifications',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: NotificationsScreen()),
+            pageBuilder: (context, state) => NoTransitionPage(
+              child: _biometricGated((_) => const NotificationsScreen()),
+            ),
           ),
           GoRoute(
             path: '/settings',

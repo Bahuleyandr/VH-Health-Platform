@@ -50,6 +50,15 @@ describe('staff patient lookup namespace', () => {
       ),
     ).toBe(true);
   });
+
+  it('logs PHI access for the global patient/doctor search surface', () => {
+    expect(
+      hasMountedMiddleware(
+        '/api/v1/search',
+        (handle) => handle?.phiRecordType === 'PATIENT_SEARCH',
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('staff workbench PHI namespaces', () => {

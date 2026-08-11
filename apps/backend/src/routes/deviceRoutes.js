@@ -217,18 +217,26 @@ wrapAutoRBAC(
 
           } catch (err) {
             if (err.statusCode) return sendDeviceTargetError(res, err);
+            if (isOptionalTableMissing(err, 'user_devices')) {
+              logger.warn('User device list: user_devices table missing (42P01) — returning explicit empty result');
+              return success(
+                res,
+                {
+                  devices: [],
+                  totalDevices: 0,
+                  activeDevices: 0,
+                  inactiveDevices: 0,
+                  dormantDevices: 0,
+                  note: 'Device table does not exist yet — no devices have been recorded',
+                  requestedBy: req.user?.name,
+                },
+                'Device table does not exist yet — no devices have been recorded',
+                HTTP_STATUS.OK,
+                { table_missing: true },
+              );
+            }
             logger.error('Get User Devices Error:', err);
-            
-            // Fallback response
-            success(res, {
-              devices: [],
-              totalDevices: 0,
-              activeDevices: 0,
-              inactiveDevices: 0,
-              dormantDevices: 0,
-              note: 'Could not retrieve devices - user_devices table may not exist',
-              requestedBy: req.user?.name
-            }, 'User devices retrieved (empty - table may not exist)');
+            return error(res, 'Failed to retrieve user devices', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
         }
       ],

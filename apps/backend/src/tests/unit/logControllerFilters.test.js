@@ -22,13 +22,19 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { getAuditLogs, getSystemLogs } = await import('../../controllers/logs/logController.js');
+const {
+  exportSystemLogs,
+  getAuditLogs,
+  getSystemLogs,
+} = await import('../../controllers/logs/logController.js');
 
 function mockResponse() {
   return {
     req: { id: 'req-logs-test', originalUrl: '/api/v1/logs/audit' },
     status: jest.fn().mockReturnThis(),
     json: jest.fn(),
+    setHeader: jest.fn(),
+    send: jest.fn(),
   };
 }
 
@@ -126,5 +132,60 @@ describe('logController filters', () => {
       admin_uid: '11111111-1111-4111-8111-111111111111',
       dateRange: 'today',
     }));
+  });
+
+  it('returns 500 when the audit evidence query fails', async () => {
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('audit store unavailable'));
+    const res = mockResponse();
+
+    await getAuditLogs({ query: {} }, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json.mock.calls[0][0]).toEqual(expect.objectContaining({
+      success: false,
+      message: 'Failed to fetch audit logs',
+    }));
+  });
+
+  it('returns 500 when the system evidence query fails', async () => {
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('system log store unavailable'));
+    const res = mockResponse();
+
+    await getSystemLogs({ query: {} }, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json.mock.calls[0][0]).toEqual(expect.objectContaining({
+      success: false,
+      message: 'Failed to fetch system logs',
+    }));
+  });
+
+  it('returns 500 instead of an authoritative empty CSV when system export fails', async () => {
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('system export unavailable'));
+    const res = mockResponse();
+
+    await exportSystemLogs({ query: {} }, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.send).not.toHaveBeenCalled();
+    expect(res.json.mock.calls[0][0]).toEqual(expect.objectContaining({
+      success: false,
+      message: 'Failed to export system logs',
+    }));
+  });
+
+  it('preserves a successful system CSV export', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 9,
+      action: 'ROLE_UPDATED',
+      created_at: '2026-08-11T00:00:00.000Z',
+    }]);
+    const res = mockResponse();
+
+    await exportSystemLogs({ query: { limit: '10', offset: '0' } }, res);
+
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv');
+    expect(res.send).toHaveBeenCalledWith(expect.stringContaining('ROLE_UPDATED'));
+    expect(res.status).not.toHaveBeenCalledWith(500);
   });
 });

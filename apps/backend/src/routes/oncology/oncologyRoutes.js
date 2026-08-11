@@ -45,12 +45,61 @@ import {
   reviewRegistryExport,
 } from '../../services/oncology/oncologyCompletionService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import {
+  patientAccessGuard,
+  patientAccessGuardForResource,
+} from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isLeadership, isDoctor } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
 
 const canManage = (role) => isAdmin(role) || isLeadership(role) || isDoctor(role) || role === 'SUPER_ADMIN';
+const guardOncologyPatientView = patientAccessGuard('ONCOLOGY', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  requirePatientContext: true,
+  careTeamModeGoverned: true,
+});
+const guardOncologyPatientWrite = patientAccessGuard('ONCOLOGY', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  requirePatientContext: true,
+  careTeamModeGoverned: true,
+});
+const oncologyResourceGuard = (resourceType, {
+  policyCode = ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  idSelector,
+  requirePatientContext = false,
+} = {}) => patientAccessGuardForResource('ONCOLOGY', {
+  policyCode,
+  resourceType,
+  ...(idSelector ? { idSelector } : {}),
+  requirePatientContext,
+  careTeamModeGoverned: true,
+});
+
+const guardPlanView = oncologyResourceGuard('chemo_treatment_plan', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardPlanWrite = oncologyResourceGuard('chemo_treatment_plan');
+const guardCycleBodyWrite = oncologyResourceGuard('chemo_cycle', {
+  idSelector: (req) => req.body?.cycle_id,
+});
+const guardBookingWrite = oncologyResourceGuard('chair_booking');
+const guardAdministrationWrite = oncologyResourceGuard('chemo_administration');
+const guardDiagnosisWrite = oncologyResourceGuard('oncology_diagnosis');
+const guardDiagnosisBodyWrite = oncologyResourceGuard('oncology_diagnosis', {
+  idSelector: (req) => req.body?.diagnosis_id,
+  requirePatientContext: true,
+});
+const guardPathologyReportBodyWrite = oncologyResourceGuard('pathology_report', {
+  idSelector: (req) => req.body?.pathology_report_id,
+  requirePatientContext: true,
+});
+const guardStagingWrite = oncologyResourceGuard('oncology_staging_record');
+const guardToxicityWrite = oncologyResourceGuard('oncology_toxicity_event');
+const guardTumorBoardCaseWrite = oncologyResourceGuard('tumor_board_case');
+const guardTumorBoardRecommendationWrite = oncologyResourceGuard('tumor_board_recommendation');
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
@@ -113,7 +162,7 @@ router.post('/protocols/:id/activate', async (req, res) => {
 
 // ── treatment plans + cycles ────────────────────────────────────────────
 
-router.post('/protocols/:id/plans', async (req, res) => {
+router.post('/protocols/:id/plans', guardOncologyPatientWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create treatment plans', HTTP_STATUS.FORBIDDEN);
     const plan = await createTreatmentPlan(req.params.id, {
@@ -132,7 +181,7 @@ router.post('/protocols/:id/plans', async (req, res) => {
   }
 });
 
-router.get('/plans/:id', async (req, res) => {
+router.get('/plans/:id', guardPlanView, async (req, res) => {
   try {
     const plan = await getPlanDetail(req.params.id, { tenantId: tenantOf(req) });
     return success(res, { plan }, 'Treatment plan');
@@ -141,7 +190,7 @@ router.get('/plans/:id', async (req, res) => {
   }
 });
 
-router.post('/plans/:id/cycles', async (req, res) => {
+router.post('/plans/:id/cycles', guardPlanWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership schedule cycles', HTTP_STATUS.FORBIDDEN);
     const result = await scheduleCycle(req.params.id, {
@@ -217,7 +266,7 @@ router.get('/infusion-board', async (req, res) => {
   }
 });
 
-router.post('/chair-bookings', async (req, res) => {
+router.post('/chair-bookings', guardCycleBodyWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership book infusion chairs', HTTP_STATUS.FORBIDDEN);
     const result = await bookInfusionChair({
@@ -234,7 +283,7 @@ router.post('/chair-bookings', async (req, res) => {
   }
 });
 
-router.post('/chair-bookings/:id/cancel', async (req, res) => {
+router.post('/chair-bookings/:id/cancel', guardBookingWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership cancel infusion chair bookings', HTTP_STATUS.FORBIDDEN);
     const booking = await cancelChairBooking(req.params.id, {
@@ -249,7 +298,7 @@ router.post('/chair-bookings/:id/cancel', async (req, res) => {
 
 // ── administration loop ─────────────────────────────────────────────────
 
-router.post('/administrations/:id/verify', async (req, res) => {
+router.post('/administrations/:id/verify', guardAdministrationWrite, async (req, res) => {
   try {
     const verification = await verifyAdministration(req.params.id, {
       tenantId: tenantOf(req),
@@ -262,7 +311,7 @@ router.post('/administrations/:id/verify', async (req, res) => {
   }
 });
 
-router.post('/administrations/:id/administer', async (req, res) => {
+router.post('/administrations/:id/administer', guardAdministrationWrite, async (req, res) => {
   try {
     const administration = await recordChemoAdministration(req.params.id, {
       tenantId: tenantOf(req),
@@ -274,7 +323,7 @@ router.post('/administrations/:id/administer', async (req, res) => {
   }
 });
 
-router.post('/administrations/:id/withhold', async (req, res) => {
+router.post('/administrations/:id/withhold', guardAdministrationWrite, async (req, res) => {
   try {
     const administration = await withholdAdministration(req.params.id, {
       tenantId: tenantOf(req),
@@ -288,7 +337,7 @@ router.post('/administrations/:id/withhold', async (req, res) => {
 
 // ── cumulative dose view ────────────────────────────────────────────────
 
-router.get('/patients/:uid/cumulative', async (req, res) => {
+router.get('/patients/:uid/cumulative', guardOncologyPatientView, async (req, res) => {
   try {
     const cumulative = await getPatientCumulative(req.params.uid, { tenantId: tenantOf(req) });
     return success(res, { cumulative, count: cumulative.length }, 'Cumulative chemo doses');
@@ -326,7 +375,7 @@ router.patch('/completion-settings', async (req, res) => {
 
 // ── diagnosis + staging ─────────────────────────────────────────────────
 
-router.get('/diagnoses', async (req, res) => {
+router.get('/diagnoses', guardOncologyPatientView, async (req, res) => {
   try {
     const diagnoses = await listOncologyDiagnoses({
       tenantId: tenantOf(req),
@@ -339,7 +388,7 @@ router.get('/diagnoses', async (req, res) => {
   }
 });
 
-router.post('/diagnoses', async (req, res) => {
+router.post('/diagnoses', guardPathologyReportBodyWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create oncology diagnoses', HTTP_STATUS.FORBIDDEN);
     const diagnosis = await createOncologyDiagnosis({
@@ -360,7 +409,7 @@ router.post('/diagnoses', async (req, res) => {
   }
 });
 
-router.post('/diagnoses/:id/staging', async (req, res) => {
+router.post('/diagnoses/:id/staging', guardDiagnosisWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership record oncology staging', HTTP_STATUS.FORBIDDEN);
     const staging = await createStagingRecord(req.params.id, {
@@ -383,7 +432,7 @@ router.post('/diagnoses/:id/staging', async (req, res) => {
   }
 });
 
-router.post('/staging/:id/sign', async (req, res) => {
+router.post('/staging/:id/sign', guardStagingWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership sign oncology staging', HTTP_STATUS.FORBIDDEN);
     const staging = await signStagingRecord(req.params.id, {
@@ -398,7 +447,7 @@ router.post('/staging/:id/sign', async (req, res) => {
 
 // ── CTCAE toxicity ──────────────────────────────────────────────────────
 
-router.get('/toxicity-events', async (req, res) => {
+router.get('/toxicity-events', guardOncologyPatientView, async (req, res) => {
   try {
     const toxicity_events = await listToxicityEvents({
       tenantId: tenantOf(req),
@@ -411,7 +460,7 @@ router.get('/toxicity-events', async (req, res) => {
   }
 });
 
-router.post('/toxicity-events', async (req, res) => {
+router.post('/toxicity-events', guardDiagnosisBodyWrite, async (req, res) => {
   try {
     const toxicity_event = await createToxicityEvent({
       tenantId: tenantOf(req),
@@ -437,7 +486,7 @@ router.post('/toxicity-events', async (req, res) => {
   }
 });
 
-router.post('/toxicity-events/:id/sign', async (req, res) => {
+router.post('/toxicity-events/:id/sign', guardToxicityWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership sign toxicity events', HTTP_STATUS.FORBIDDEN);
     const toxicity_event = await signToxicityEvent(req.params.id, { tenantId: tenantOf(req) }, ctx(req));
@@ -482,7 +531,7 @@ router.post('/tumor-board/meetings', async (req, res) => {
   }
 });
 
-router.post('/tumor-board/cases', async (req, res) => {
+router.post('/tumor-board/cases', guardDiagnosisBodyWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create tumor board cases', HTTP_STATUS.FORBIDDEN);
     const board_case = await createTumorBoardCase({
@@ -502,7 +551,7 @@ router.post('/tumor-board/cases', async (req, res) => {
   }
 });
 
-router.patch('/tumor-board/cases/:id/state', async (req, res) => {
+router.patch('/tumor-board/cases/:id/state', guardTumorBoardCaseWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership change tumor board case state', HTTP_STATUS.FORBIDDEN);
     const board_case = await updateTumorBoardCaseState(req.params.id, {
@@ -516,7 +565,7 @@ router.patch('/tumor-board/cases/:id/state', async (req, res) => {
   }
 });
 
-router.post('/tumor-board/cases/:id/recommendations', async (req, res) => {
+router.post('/tumor-board/cases/:id/recommendations', guardTumorBoardCaseWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create tumor board recommendations', HTTP_STATUS.FORBIDDEN);
     const recommendation = await createTumorBoardRecommendation(req.params.id, {
@@ -533,7 +582,7 @@ router.post('/tumor-board/cases/:id/recommendations', async (req, res) => {
   }
 });
 
-router.patch('/tumor-board/recommendations/:id/status', async (req, res) => {
+router.patch('/tumor-board/recommendations/:id/status', guardTumorBoardRecommendationWrite, async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership update tumor board recommendations', HTTP_STATUS.FORBIDDEN);
     const recommendation = await updateTumorBoardRecommendationStatus(req.params.id, {

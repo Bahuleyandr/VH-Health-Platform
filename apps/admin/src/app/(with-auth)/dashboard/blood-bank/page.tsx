@@ -1,7 +1,7 @@
 // src/app/(with-auth)/dashboard/blood-bank/page.tsx
 "use client";
 
-import { useState, Suspense } from "react";
+import { useRef, useState, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -19,7 +19,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
+import { fetchAdminAPI, postJSON, postJSONEnvelope, putJSON } from "@/lib/api";
 import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 
 type BloodRequest = {
@@ -365,10 +365,18 @@ function NewRequestTab() {
     clinical_indication: "",
   });
   const [created, setCreated] = useState(false);
+  const retryIdentity = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const create = useMutation({
-    mutationFn: () => postJSON("/api/v1/blood-bank/request", form),
+    mutationFn: ({ payload, idempotencyKey }: { payload: typeof form; idempotencyKey: string }) =>
+      postJSONEnvelope(
+        "/api/v1/blood-bank/request",
+        payload,
+        true,
+        { "Idempotency-Key": idempotencyKey },
+      ),
     onSuccess: () => {
+      retryIdentity.current = null;
       setCreated(true);
       setForm({ patient_uid: "", blood_group: "O+", component: "prbc", units: 1, clinical_indication: "" });
       qc.invalidateQueries({ queryKey: ["blood-bank"] });
@@ -382,7 +390,11 @@ function NewRequestTab() {
       return;
     }
     setCreated(false);
-    create.mutate();
+    const fingerprint = JSON.stringify(form);
+    if (retryIdentity.current?.fingerprint !== fingerprint) {
+      retryIdentity.current = { fingerprint, key: crypto.randomUUID() };
+    }
+    create.mutate({ payload: form, idempotencyKey: retryIdentity.current.key });
   };
 
   return (

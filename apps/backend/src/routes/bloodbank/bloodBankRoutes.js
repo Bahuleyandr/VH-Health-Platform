@@ -20,6 +20,7 @@ import { success, relayAppError } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { requiredNumber, requiredEnum, paramId, bloodRequestValidator } from '../../validators/sharedValidators.js';
 import { emitBloodBankEvent } from '../../utils/websocket/realtimeEmitter.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 
 // Shared failure mapper for the B5 closed-loop endpoints.
 function handleLoopFailure(res, next, err, context) {
@@ -220,7 +221,7 @@ router.get('/registers/:registerType', async (req, res, next) => {
  * POST /blood-bank/request
  * Create a new blood request
  */
-router.post('/request', ...bloodRequestValidator, validate, async (req, res, next) => {
+router.post('/request', ...bloodRequestValidator, validate, requireIdempotencyKey({ required: true, scope: 'blood_bank_request' }), async (req, res, next) => {
   try {
     const requestData = {
       patient_uid: req.body.patient_uid,

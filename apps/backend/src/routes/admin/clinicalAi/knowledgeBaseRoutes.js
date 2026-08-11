@@ -143,6 +143,20 @@ router.post('/knowledge-bases', async (req, res, next) => {
   }
 });
 
+router.get('/knowledge-bases/retrieval-logs', async (req, res, next) => {
+  try {
+    const result = await listRetrievalLogs({
+      tenantId: req.tenantId,
+      knowledgeBaseId: req.query.knowledge_base_id || null,
+      moduleKey: req.query.module_key || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Retrieval logs retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/knowledge-bases/:id', async (req, res, next) => {
   try {
     const kb = await getKnowledgeBase({ tenantId: req.tenantId, id: req.params.id });
@@ -481,20 +495,6 @@ router.post('/knowledge-bases/retrieve', async (req, res, next) => {
       minScore: req.body?.min_score,
     });
     return success(res, result, 'Knowledge base retrieval complete');
-  } catch (err) {
-    return next(err);
-  }
-});
-
-router.get('/knowledge-bases/retrieval-logs', async (req, res, next) => {
-  try {
-    const result = await listRetrievalLogs({
-      tenantId: req.tenantId,
-      knowledgeBaseId: req.query.knowledge_base_id || null,
-      moduleKey: req.query.module_key || null,
-      limit: req.query.limit,
-    });
-    return success(res, result, 'Retrieval logs retrieved');
   } catch (err) {
     return next(err);
   }

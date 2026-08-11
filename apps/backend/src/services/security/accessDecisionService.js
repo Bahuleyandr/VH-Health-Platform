@@ -530,6 +530,71 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'chemo_treatment_plan':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM chemo_treatment_plans ctp
+           JOIN users p
+             ON p.uid = ctp.patient_uid
+            AND p.tenant_id = ctp.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE ctp.tenant_id = $1::uuid
+            AND ctp.id = $2::int
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'chemo_cycle':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM chemo_cycles cc
+           JOIN chemo_treatment_plans ctp
+             ON ctp.id = cc.plan_id
+            AND ctp.tenant_id = cc.tenant_id
+           JOIN users p
+             ON p.uid = ctp.patient_uid
+            AND p.tenant_id = cc.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE cc.tenant_id = $1::uuid
+            AND cc.id = $2::int
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'chair_booking':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM chair_bookings cb
+           JOIN users p
+             ON p.uid = cb.patient_uid
+            AND p.tenant_id = cb.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE cb.tenant_id = $1::uuid
+            AND cb.id = $2::int
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'chemo_administration':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM chemo_administrations ca
+           JOIN chemo_cycles cc
+             ON cc.id = ca.cycle_id
+            AND cc.tenant_id = ca.tenant_id
+           JOIN chemo_treatment_plans ctp
+             ON ctp.id = cc.plan_id
+            AND ctp.tenant_id = ca.tenant_id
+           JOIN users p
+             ON p.uid = ctp.patient_uid
+            AND p.tenant_id = ca.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE ca.tenant_id = $1::uuid
+            AND ca.id = $2::int
+          LIMIT 1`,
+        resourceId,
+      );
     case 'clinical_note':
       return patientFromResourceQuery(
         req,
@@ -553,6 +618,93 @@ export async function resolvePatientForResourceAccess(req, {
             AND p.tenant_id = $1::uuid
             AND d.id = $2::int
             AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'pathology_report':
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM ap_reports ar
+           JOIN ap_cases ac
+             ON ac.id = ar.ap_case_id
+            AND ac.tenant_id = ar.tenant_id
+           JOIN users p
+             ON p.uid = ac.patient_uid
+            AND p.tenant_id = ar.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE ar.tenant_id = $1::uuid
+            AND ar.id = $2::bigint
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'oncology_diagnosis':
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM oncology_diagnoses od
+           JOIN users p
+             ON p.uid = od.patient_uid
+            AND p.tenant_id = od.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE od.tenant_id = $1::uuid
+            AND od.id = $2::bigint
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'oncology_staging_record':
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM oncology_staging_records osr
+           JOIN users p
+             ON p.uid = osr.patient_uid
+            AND p.tenant_id = osr.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE osr.tenant_id = $1::uuid
+            AND osr.id = $2::bigint
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'oncology_toxicity_event':
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM oncology_toxicity_events ote
+           JOIN users p
+             ON p.uid = ote.patient_uid
+            AND p.tenant_id = ote.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE ote.tenant_id = $1::uuid
+            AND ote.id = $2::bigint
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'tumor_board_case':
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM tumor_board_cases tbc
+           JOIN users p
+             ON p.uid = tbc.patient_uid
+            AND p.tenant_id = tbc.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE tbc.tenant_id = $1::uuid
+            AND tbc.id = $2::bigint
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'tumor_board_recommendation':
+      return patientFromBigintResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM tumor_board_recommendations tbr
+           JOIN users p
+             ON p.uid = tbr.patient_uid
+            AND p.tenant_id = tbr.tenant_id
+            AND p.role = 'PATIENT'
+          WHERE tbr.tenant_id = $1::uuid
+            AND tbr.id = $2::bigint
           LIMIT 1`,
         resourceId,
       );
@@ -1587,6 +1739,8 @@ function _writePatientAccessAuditToFile(req, decision, extra = {}) {
       request_id: req?.id ? String(req.id) : null,
       policy_code: decision?.policy_code ?? null,
       record_type: decision?.recordType ?? null,
+      shadow_mode: decision?.shadow_mode === true,
+      enforced: decision?.enforced !== false,
       timestamp: new Date().toISOString(),
       ...extra,
     });
@@ -1706,7 +1860,9 @@ export async function authorizePatientAccessRequest(req, {
       recordType,
       shadow_mode: shadowMode,
       enforced: shadowMode !== true,
+      no_patient_context: true,
     };
+    req.patientAccessDecision = unresolvedDecision;
     // A denied access attempt must leave an audit trail even when no patient
     // could be resolved (audit §3). patient_access_audit_log.patient_uid is NOT
     // NULL, so writePatientAccessAudit records this in the durable file sink
@@ -1714,7 +1870,9 @@ export async function authorizePatientAccessRequest(req, {
     if (audit && policy.audit_required !== false) {
       await writePatientAccessAudit(req, unresolvedDecision);
     }
-    return unresolvedDecision;
+    return shadowMode
+      ? { ...unresolvedDecision, allowed: true, shadow_denied: true }
+      : unresolvedDecision;
   }
 
   const role = actorRoleOf(req);

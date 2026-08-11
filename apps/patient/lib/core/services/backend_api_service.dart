@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/config/api_config.dart';
 
+import 'api_client.dart';
+
 /// A singleton-like API service class for backend communication.
 class BackendApiService {
   /// 🔐 Firebase OTP token login (called after OTP is verified).
@@ -24,14 +26,12 @@ class BackendApiService {
 
   /// 📝 Save user profile after initial registration (post-OTP onboarding)
   static Future<bool> saveUserProfile(Map<String, dynamic> profile) async {
-    final response = await http
-        .post(
-          Uri.parse('${ApiConfig.baseUrl}/auth/firebase/complete-profile'),
-          headers: ApiConfig.jsonHeaders,
-          body: jsonEncode(profile),
-        )
-        .timeout(const Duration(seconds: 15));
-    return response.statusCode == 200 || response.statusCode == 201;
+    final response = await ApiClient.post(
+      '/auth/firebase/complete-profile',
+      body: profile,
+      timeout: const Duration(seconds: 15),
+    );
+    return response.isSuccess;
   }
 
   /// 📤 Utility to parse response JSON safely

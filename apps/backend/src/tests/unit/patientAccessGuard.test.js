@@ -228,10 +228,7 @@ describe('patientAccessGuard', () => {
     const next = jest.fn();
     const res = resStub();
 
-    await patientAccessGuardForResource('APPOINTMENT', {
-      policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
-      resourceType: 'appointment',
-    })({
+    const req = {
       id: 'req-resource-1',
       method: 'POST',
       originalUrl: '/api/v1/appointments/42/confirm',
@@ -244,11 +241,20 @@ describe('patientAccessGuard', () => {
         role: 'RECEPTIONIST',
         tenant_id: '00000000-0000-4000-8000-000000000001',
       },
-    }, res, next);
+    };
+
+    await patientAccessGuardForResource('APPOINTMENT', {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
+      resourceType: 'appointment',
+    })(req, res, next);
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toMatch(/FROM appointments/i);
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('role');
+    expect(req.phiContext).toEqual(expect.objectContaining({
+      patientId: 15,
+      patientUid: '11111111-1111-4111-8111-111111111111',
+    }));
   });
 });

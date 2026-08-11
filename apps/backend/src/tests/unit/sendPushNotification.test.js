@@ -29,8 +29,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: setTenantMock,
 }));
 
+const loggerWarnMock = jest.fn();
 jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  default: { info: jest.fn(), warn: loggerWarnMock, error: jest.fn(), debug: jest.fn() },
 }));
 
 const sendToUserMock = jest.fn();
@@ -108,25 +109,79 @@ describe('sendPushNotification — guards', () => {
   });
 
   it('still pushes over WebSocket when a userId is supplied', async () => {
-    await sendPushNotification({ tokens: 'tok-1', title: 'T', body: 'B', userId: 42 });
+    await sendPushNotification({
+      tokens: 'tok-1',
+      title: 'Prescription ready',
+      body: 'Prescription RX-42 is ready',
+      data: { type: 'prescription', prescriptionId: '42' },
+      userId: 42,
+    });
 
     expect(sendToUserMock).toHaveBeenCalledWith('42', 'notification', {
-      title: 'T',
-      body: 'B',
-      data: {},
+      title: 'Prescription ready',
+      body: 'Prescription RX-42 is ready',
+      data: { type: 'prescription', prescriptionId: '42' },
     });
   });
 });
 
 describe('sendPushNotification — message shape', () => {
-  it('normal priority uses the FCM notification block', async () => {
-    await sendPushNotification({ tokens: 'tok-1', title: 'T', body: 'B', data: { k: 'v' } });
+  const expectOpaqueNormalEnvelope = (message) => {
+    expect(message.notification).toEqual({
+      title: 'VH Health',
+      body: 'You have a new update. Open the app to view it.',
+    });
+    expect(message.data).toEqual({
+      notification_id: expect.stringMatching(
+        /^push_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      ),
+      route: '/notifications',
+      action: 'open_notification_inbox',
+      click_action: 'FLUTTER_NOTIFICATION_CLICK',
+    });
+    expect(message.android).toEqual({
+      notification: { visibility: 'private' },
+    });
+    expect(message.apns).toBeUndefined();
+  };
+
+  it('normal priority replaces display and data with an opaque private envelope', async () => {
+    await sendPushNotification({
+      tokens: 'tok-1',
+      title: 'Investigation Report Ready',
+      body: 'Patient Alex: biopsy result is ready',
+      data: {
+        k: 'v',
+        title: 'Injected title',
+        body: 'Injected body',
+      },
+    });
 
     const message = sendEachForMulticastMock.mock.calls[0][0];
-    expect(message.notification).toEqual({ title: 'T', body: 'B' });
-    expect(message.data).toEqual({ k: 'v', click_action: 'FLUTTER_NOTIFICATION_CLICK' });
-    expect(message.android).toBeUndefined();
-    expect(message.apns).toBeUndefined();
+    expectOpaqueNormalEnvelope(message);
+  });
+
+  it.each([
+    ['prescription', { type: 'prescription', prescriptionId: '612' }],
+    ['appointment', { type: 'appointment_confirmed', appointment_id: '93', token: '42' }],
+    ['patient message', { type: 'patient_message', thread_id: '77', deep_link: '/portal/messages/77' }],
+    ['arbitrary outbox', {
+      title: 'Injected title',
+      body: 'Injected body',
+      route: '/portal/lab-results/88',
+      action: 'open_record',
+      patient_uid: 'patient-uid',
+      unknown_clinical_field: 'biopsy',
+    }],
+  ])('normal %s data cannot escape the opaque FCM envelope', async (_label, data) => {
+    await sendPushNotification({
+      tokens: 'tok-1',
+      title: 'Detailed authenticated title',
+      body: 'Detailed authenticated body',
+      data,
+    });
+
+    expectOpaqueNormalEnvelope(sendEachForMulticastMock.mock.calls[0][0]);
   });
 
   it('high priority is data-only with a 60s TTL and critical APNs headers', async () => {
@@ -136,6 +191,7 @@ describe('sendPushNotification — message shape', () => {
       body: 'Ward 3',
       priority: 'high',
       channelId: 'code_blue',
+      data: { type: 'code_blue', patientId: 'patient-42', ward: '3' },
     });
 
     const message = sendEachForMulticastMock.mock.calls[0][0];
@@ -143,6 +199,9 @@ describe('sendPushNotification — message shape', () => {
     expect(message.data).toEqual({
       title: 'Code Blue',
       body: 'Ward 3',
+      type: 'code_blue',
+      patientId: 'patient-42',
+      ward: '3',
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
     });
     expect(message.android).toEqual({
@@ -233,6 +292,8 @@ describe('sendPushNotification — invalid token deactivation', () => {
       expect(['tenant-1', 'tenant-2']).toContain(tenantId);
       expect(invalidTokens).toEqual(['stale', 'bogus']);
     }
+    expect(loggerWarnMock.mock.calls.flat().join(' ')).not.toContain('stale');
+    expect(loggerWarnMock.mock.calls.flat().join(' ')).not.toContain('bogus');
   });
 
   it('leaves transiently-failed tokens alone', async () => {
