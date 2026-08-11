@@ -29,6 +29,7 @@ const NURSE_UID = 'b2222222-3333-4444-8555-666666660004';
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const vitalsCreateMock = jest.fn(async ({ data }) => ({
+  ...data,
   id: 321,
   patient_uid: data.patient_uid,
   encounter_id: data.encounter_id ?? null,
@@ -91,6 +92,8 @@ function resetAll() {
   persistNews2Mock.mockReset();
   escalateNews2Mock.mockReset();
   vitalsCreateMock.mockClear();
+  __txClient.$executeRawUnsafe.mockClear();
+  __txClient.$queryRawUnsafe.mockReset();
 
   usersFindUniqueMock.mockImplementation(async ({ where }) => {
     if (where?.uid === PATIENT_UID) {
@@ -100,6 +103,16 @@ function resetAll() {
     return null;
   });
   queryRawMock.mockResolvedValue([]);
+  __txClient.$queryRawUnsafe.mockResolvedValue([{
+    id: 777,
+    uid: PATIENT_UID,
+    role: 'PATIENT',
+    tenant_id: PATIENT_TENANT,
+    is_active: true,
+    status: 'active',
+    merged_into_uid: null,
+    is_deleted: false,
+  }]);
   setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(__txClient));
   checkVitalAnomaliesMock.mockResolvedValue([]);
   recordCanonicalMock.mockResolvedValue({ timeline: { id: 1 }, audit: { id: 2 } });
@@ -142,6 +155,39 @@ describe('recordVitals — NEWS2 SpO2 scale wiring (C-M7)', () => {
     expect(vitalsCreateMock).toHaveBeenCalledTimes(1);
     expect(persistNews2Mock).not.toHaveBeenCalled();
     expect(checkVitalAnomaliesMock).not.toHaveBeenCalled();
+  });
+
+  it('derives supplemental oxygen from live device oxygen-flow evidence before NEWS2', async () => {
+    resetAll();
+
+    await recordVitals({
+      ...baseWrite,
+      source: 'device',
+      heart_rate: 88,
+      o2_flow_rate: 2,
+    });
+
+    expect(vitalsCreateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ o2_flow_rate: 2, supplemental_o2: true }),
+    }));
+    expect(persistNews2Mock).toHaveBeenCalledWith(
+      PATIENT_UID,
+      expect.objectContaining({ heart_rate: 88, supplemental_o2: true }),
+      NURSE_UID,
+      expect.objectContaining({ db: __txClient }),
+    );
+  });
+
+  it('rejects contradictory oxygen flow and supplemental-oxygen claims', async () => {
+    resetAll();
+    await expect(recordVitals({
+      ...baseWrite,
+      source: 'device',
+      heart_rate: 88,
+      o2_flow_rate: 2,
+      supplemental_o2: false,
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
   });
 });
 

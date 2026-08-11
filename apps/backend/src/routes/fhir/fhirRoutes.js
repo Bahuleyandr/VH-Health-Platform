@@ -22,8 +22,8 @@ import {
 import { validatedFhirJson, validateResource } from '../../services/fhir/fhirValidator.js';
 import { requireConsent } from '../../middleware/consentMiddleware.js';
 import { fhirPatientUidFromRequest } from '../../middleware/fhirPatientContext.js';
-import { fhirObservationToVitals } from '../../services/fhir/observationVitalsMapper.js';
-import { recordVitals } from '../../services/emr/vitalsChartService.js';
+import { prepareFhirVitalObservation } from '../../services/import/patientDataImport.js';
+import { ingestFhirVitalObservation } from '../../services/fhir/fhirVitalObservationIngestService.js';
 import { createProblem } from '../../services/clinical/problemListService.js';
 import {
   attachResourceCodings,
@@ -1180,31 +1180,21 @@ router.post(
     const patientUid = patientUidFromReference(resource.subject?.reference);
     await assertPatientInTenant(patientUid, tenantId);
 
-    const mappedResult = fhirObservationToVitals(resource);
-    if (mappedResult.mapped.length === 0) {
-      throw AppError.badRequest(
-        `No supported vital-sign LOINC codes found (unsupported: ${mappedResult.unmapped.join(', ') || 'none'})`,
-        'FHIR_OBSERVATION_UNSUPPORTED_CODES',
-      );
-    }
-
-    const result = await recordVitals({
-      patient_uid: patientUid,
-      tenant_id: tenantId,
-      ...mappedResult.vitals,
-      temperature_unit: mappedResult.temperatureUnit || undefined,
-      recorded_at: mappedResult.effective || undefined,
-      notes: `FHIR Observation create (${mappedResult.mapped.join(', ')})`,
-      recorded_by: req.user?.uid || req.smart?.user_uid || null,
-      source: 'fhir',
+    const prepared = prepareFhirVitalObservation(resource, {
+      requireMappedValue: true,
+      requireVitalCategory: true,
     });
-    const row = result?.vitals || result;
+    const result = await ingestFhirVitalObservation(
+      resource,
+      req.user?.uid || req.smart?.user_uid || null,
+      { tenantId },
+    );
 
     res.status(201);
-    res.setHeader('Location', `Observation/vitals-${row.id}`);
+    res.setHeader('Location', `Observation/vitals-${result.vitalsChartId}`);
     return res.json({
       resourceType: 'Observation',
-      id: `vitals-${row.id}`,
+      id: `vitals-${result.vitalsChartId}`,
       status: 'final',
       category: [{
         coding: [{
@@ -1213,9 +1203,9 @@ router.post(
         }],
       }],
       code: resource.code,
-      subject: { reference: `Patient/${patientUid}` },
-      effectiveDateTime: row.recorded_at,
-      component: mappedResult.mapped.map((loinc) => ({
+      subject: { reference: `Patient/${result.patientUid || patientUid}` },
+      effectiveDateTime: result.recordedAt || prepared.recordedAt,
+      component: prepared.loincCodes.map((loinc) => ({
         code: { coding: [{ system: 'http://loinc.org', code: loinc }] },
       })),
     });

@@ -615,6 +615,26 @@ describe('src/lib/prisma.js coverage completion', () => {
       });
       expect(primary.$transaction).toHaveBeenCalled();
     });
+
+    it('forwards explicit interactive transaction acquisition and runtime bounds', async () => {
+      const mod = await freshImport();
+      const primary = allStubs[0];
+
+      await mod.setTenantTx('66666666-7777-4888-8999-aaaaaaaaaaaa', async () => 'bounded', {
+        isolationLevel: 'Serializable',
+        maxWait: 4_000,
+        timeout: 30_000,
+      });
+
+      expect(primary.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        {
+          isolationLevel: 'Serializable',
+          maxWait: 4_000,
+          timeout: 30_000,
+        },
+      );
+    });
   });
 
   // ── circuitBreakerStatus shape ────────────────────────────────────────
@@ -1141,6 +1161,41 @@ describe('src/lib/prisma.js coverage completion', () => {
         'retention_policy',
         'retention_until',
       ]);
+      for (const table of [
+        'fhir_vital_observation_receipts',
+        'fhir_vital_observation_sets',
+        'fhir_vital_observation_set_resources',
+      ]) {
+        expect(grantSql).toContain(
+          `REVOKE ALL PRIVILEGES\n          ON TABLE public.${table}\n          FROM vhhealth_app`,
+        );
+        expect(grantSql.indexOf(
+          `REVOKE ALL PRIVILEGES\n          ON TABLE public.${table}`,
+        )).toBeGreaterThan(grantSql.indexOf(
+          'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public',
+        ));
+      }
+      expect(grantSql).toContain(
+        'GRANT SELECT, INSERT\n          ON TABLE public.fhir_vital_observation_receipts\n          TO vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'GRANT UPDATE (patient_uid)\n          ON TABLE public.fhir_vital_observation_receipts\n          TO vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'GRANT UPDATE (\n          patient_uid,\n          vitals_chart_id,\n          news2_effects_completed_at,',
+      );
+      expect(grantSql).toContain(
+        'anomaly_effects_next_retry_at\n        ) ON TABLE public.fhir_vital_observation_sets TO vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON FUNCTION public.validate_fhir_vital_observation_receipt_update()\n          FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON FUNCTION public.validate_fhir_vital_observation_receipt_scope_deferred()\n          FROM vhhealth_app',
+      );
+      expect(grantSql).toContain(
+        'REVOKE ALL PRIVILEGES\n          ON FUNCTION public.validate_fhir_vital_observation_set_scope_deferred()\n          FROM vhhealth_app',
+      );
       expect(grantSql).toContain(
         "pg_catalog.to_regclass('public.hl7_inbound_recovery_receipts_id_seq')",
       );

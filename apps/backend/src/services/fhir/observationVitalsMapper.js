@@ -22,6 +22,7 @@ export const LOINC_TO_VITALS_FIELD = Object.freeze({
   '2339-0': { field: 'blood_glucose', label: 'Glucose (blood)' },
   '9269-2': { field: 'gcs_score', label: 'Glasgow Coma Scale total' },
   '72514-3': { field: 'pain_score', label: 'Pain severity 0-10' },
+  '3151-8': { field: 'o2_flow_rate', label: 'Inhaled oxygen flow rate' },
   '29463-7': { field: 'weight_kg', label: 'Body weight' },
   '8302-2': { field: 'height_cm', label: 'Body height' },
 });
@@ -31,7 +32,9 @@ export const BP_PANEL_LOINC = '85354-9';
 
 function codeOf(codeable) {
   const coding = Array.isArray(codeable?.coding) ? codeable.coding : [];
-  const loinc = coding.find((c) => !c.system || String(c.system).includes('loinc'));
+  const loinc = coding.find((c) => (
+    String(c.system || '').trim() === 'http://loinc.org'
+  ));
   return loinc?.code ? String(loinc.code).trim() : null;
 }
 
@@ -49,6 +52,21 @@ function strictNumericValue(value) {
 function normalizedUnitToken(value) {
   return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '');
 }
+
+const UCUM_CODES_BY_FIELD = Object.freeze({
+  heart_rate: new Set(['/min', '{beats}/min']),
+  respiratory_rate: new Set(['/min', '{breaths}/min']),
+  systolic_bp: new Set(['mm[Hg]']),
+  diastolic_bp: new Set(['mm[Hg]']),
+  temperature: new Set(['Cel', '[degF]']),
+  spo2: new Set(['%', '1', '{fraction}']),
+  blood_glucose: new Set(['mg/dL', 'mg/dL{blood}', 'mmol/L']),
+  weight_kg: new Set(['kg', 'g', '[lb_av]']),
+  height_cm: new Set(['cm', 'm', 'mm', '[in_i]']),
+  gcs_score: new Set(['1', '{score}']),
+  pain_score: new Set(['1', '{score}']),
+  o2_flow_rate: new Set(['L/min']),
+});
 
 function unitConversion(field, token) {
   const unit = normalizedUnitToken(token);
@@ -135,6 +153,12 @@ function unitConversion(field, token) {
       ['{score}', { kind: 'score', factor: 1 }],
       ['score', { kind: 'score', factor: 1 }],
     ]),
+    o2_flow_rate: new Map([
+      ['l/min', { kind: 'litres_per_minute', factor: 1 }],
+      ['l/minute', { kind: 'litres_per_minute', factor: 1 }],
+      ['litres/min', { kind: 'litres_per_minute', factor: 1 }],
+      ['liters/min', { kind: 'litres_per_minute', factor: 1 }],
+    ]),
   };
   return conversions[field]?.get(unit) || null;
 }
@@ -142,6 +166,21 @@ function unitConversion(field, token) {
 function conversionForQuantity(quantity, mapping) {
   const code = String(quantity?.code ?? '').trim();
   const unit = String(quantity?.unit ?? '').trim();
+  const system = String(quantity?.system ?? '').trim();
+  if (system && system !== 'http://unitsofmeasure.org') {
+    throw AppError.badRequest(
+      `FHIR Observation ${mapping.label} must use the canonical UCUM system for coded units`,
+      'FHIR_OBSERVATION_INVALID_UNIT',
+    );
+  }
+  if (system === 'http://unitsofmeasure.org'
+    && code
+    && !UCUM_CODES_BY_FIELD[mapping.field]?.has(code)) {
+    throw AppError.badRequest(
+      `FHIR Observation ${mapping.label} has a missing or unsupported case-sensitive UCUM code`,
+      'FHIR_OBSERVATION_INVALID_UNIT',
+    );
+  }
   if (!code && !unit && ['gcs_score', 'pain_score'].includes(mapping.field)) {
     return { kind: 'score', factor: 1 };
   }
@@ -166,8 +205,14 @@ function conversionForQuantity(quantity, mapping) {
 function assignFhir(vitals, code, node, unmapped) {
   const mapping = LOINC_TO_VITALS_FIELD[code];
   if (!mapping) {
-    if (code) unmapped.push(code);
+    unmapped.push(code || '(missing or non-LOINC component code)');
     return null;
+  }
+  if (node?.valueQuantity?.comparator != null) {
+    throw AppError.badRequest(
+      `FHIR Observation ${mapping.label} must provide an exact Quantity value without a comparator`,
+      'FHIR_OBSERVATION_INVALID_VALUE',
+    );
   }
   const value = strictNumericValue(node?.valueQuantity?.value);
   if (value == null) {
@@ -214,6 +259,7 @@ export function fhirObservationToVitals(resource = {}) {
   const vitals = {};
   const mapped = [];
   const unmapped = [];
+  const unmappedComponents = [];
   let temperatureUnit = null;
 
   const rootCode = codeOf(resource.code);
@@ -222,12 +268,13 @@ export function fhirObservationToVitals(resource = {}) {
   if (components.length > 0) {
     for (const component of components) {
       const code = codeOf(component.code);
-      const hit = assignFhir(vitals, code, component, unmapped);
+      const hit = assignFhir(vitals, code, component, unmappedComponents);
       if (hit) {
         mapped.push(hit.code);
         temperatureUnit = hit.temperatureUnit || temperatureUnit;
       }
     }
+    unmapped.push(...unmappedComponents);
     // A BP panel whose components mapped is fine even though 85354-9
     // itself has no direct column.
     if (rootCode && rootCode !== BP_PANEL_LOINC && !LOINC_TO_VITALS_FIELD[rootCode]
@@ -246,6 +293,7 @@ export function fhirObservationToVitals(resource = {}) {
     vitals,
     mapped: [...new Set(mapped)],
     unmapped: [...new Set(unmapped)],
+    unmappedComponents: [...new Set(unmappedComponents)],
     effective: resource.effectiveDateTime || resource.issued || null,
     temperatureUnit,
   };

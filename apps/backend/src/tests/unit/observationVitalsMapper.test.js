@@ -6,6 +6,8 @@ import {
   LOINC_TO_VITALS_FIELD,
 } from '../../services/fhir/observationVitalsMapper.js';
 
+const loincCoding = (code) => [{ system: 'http://loinc.org', code }];
+
 describe('fhirObservationToVitals', () => {
   test('maps a single-code observation (heart rate)', () => {
     const out = fhirObservationToVitals({
@@ -32,9 +34,22 @@ describe('fhirObservationToVitals', () => {
     expect(out.unmapped).toEqual([]);
   });
 
+  test('maps canonical UCUM oxygen flow evidence', () => {
+    const out = fhirObservationToVitals({
+      code: { coding: [{ system: 'http://loinc.org', code: '3151-8' }] },
+      valueQuantity: {
+        value: 2,
+        system: 'http://unitsofmeasure.org',
+        code: 'L/min',
+      },
+    });
+    expect(out.vitals).toEqual({ o2_flow_rate: 2 });
+    expect(out.mapped).toEqual(['3151-8']);
+  });
+
   test('detects Fahrenheit temperatures', () => {
     const out = fhirObservationToVitals({
-      code: { coding: [{ code: '8310-5' }] },
+      code: { coding: loincCoding('8310-5') },
       valueQuantity: { value: 101.2, unit: 'degF' },
     });
     expect(out.vitals.temperature).toBe(101.2);
@@ -43,15 +58,15 @@ describe('fhirObservationToVitals', () => {
 
   test('normalizes source units using valueQuantity code or display unit', () => {
     const height = fhirObservationToVitals({
-      code: { coding: [{ code: '8302-2' }] },
+      code: { coding: loincCoding('8302-2') },
       valueQuantity: { value: 1.82, code: 'm', unit: 'metres' },
     });
     const saturation = fhirObservationToVitals({
-      code: { coding: [{ code: '2708-6' }] },
+      code: { coding: loincCoding('2708-6') },
       valueQuantity: { value: 0.88, code: '1', unit: 'fraction' },
     });
     const temperature = fhirObservationToVitals({
-      code: { coding: [{ code: '8310-5' }] },
+      code: { coding: loincCoding('8310-5') },
       valueQuantity: { value: 98.6, code: '[degF]' },
     });
 
@@ -70,7 +85,7 @@ describe('fhirObservationToVitals', () => {
     ['UCUM respirations per minute', '9279-1', 18, '{breaths}/min', 'respiratory_rate', 18],
   ])('normalizes %s into its canonical field', (_label, code, value, unit, field, expected) => {
     const out = fhirObservationToVitals({
-      code: { coding: [{ code }] },
+      code: { coding: loincCoding(code) },
       valueQuantity: { value, code: unit },
     });
 
@@ -79,16 +94,55 @@ describe('fhirObservationToVitals', () => {
 
   test('rejects conflicting UCUM code and display units', () => {
     expect(() => fhirObservationToVitals({
-      code: { coding: [{ code: '2708-6' }] },
+      code: { coding: loincCoding('2708-6') },
       valueQuantity: { value: 0.92, code: '1', unit: '%' },
     })).toThrow(/conflicting source units/i);
   });
 
   test('does not let a display unit mask an invalid UCUM code', () => {
     expect(() => fhirObservationToVitals({
-      code: { coding: [{ code: '8867-4' }] },
+      code: { coding: loincCoding('8867-4') },
       valueQuantity: { value: 91, code: 'kg', unit: 'beats/minute' },
     })).toThrow(/unsupported source unit/i);
+  });
+
+  test('does not accept a recognized unit code from a lookalike UCUM system', () => {
+    expect(() => fhirObservationToVitals({
+      code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
+      valueQuantity: {
+        value: 91,
+        system: 'https://example.invalid/not-ucum',
+        code: '/min',
+      },
+    })).toThrow(/canonical UCUM system/i);
+  });
+
+  test('treats canonical UCUM codes as case-sensitive', () => {
+    const exact = fhirObservationToVitals({
+      code: { coding: [{ system: 'http://loinc.org', code: '2339-0' }] },
+      valueQuantity: {
+        value: 1,
+        system: 'http://unitsofmeasure.org',
+        code: 'mg/dL',
+      },
+    });
+    expect(exact.vitals).toEqual({ blood_glucose: 1 });
+
+    expect(() => fhirObservationToVitals({
+      code: { coding: [{ system: 'http://loinc.org', code: '2339-0' }] },
+      valueQuantity: {
+        value: 1,
+        system: 'http://unitsofmeasure.org',
+        code: 'Mg/dL',
+      },
+    })).toThrow(/case-sensitive UCUM code/i);
+  });
+
+  test.each(['<', '<=', '>=', '>'])('rejects the %s Quantity comparator', (comparator) => {
+    expect(() => fhirObservationToVitals({
+      code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
+      valueQuantity: { value: 40, comparator, code: '/min' },
+    })).toThrow(/exact Quantity value without a comparator/i);
   });
 
   test.each([
@@ -97,17 +151,17 @@ describe('fhirObservationToVitals', () => {
     ['unsupported source unit', { valueQuantity: { value: 88, code: 'kg' } }],
   ])('rejects a known vital with %s', (_label, measurement) => {
     expect(() => fhirObservationToVitals({
-      code: { coding: [{ code: '8867-4' }] },
+      code: { coding: loincCoding('8867-4') },
       ...measurement,
     })).toThrow(/FHIR Observation.*heart rate/i);
   });
 
   test('rejects a malformed known component instead of partially mapping the panel', () => {
     expect(() => fhirObservationToVitals({
-      code: { coding: [{ code: '85354-9' }] },
+      code: { coding: loincCoding('85354-9') },
       component: [
-        { code: { coding: [{ code: '8480-6' }] }, valueQuantity: { value: 120, code: 'mm[Hg]' } },
-        { code: { coding: [{ code: '8462-4' }] }, valueQuantity: { value: '80mmHg', code: 'mm[Hg]' } },
+        { code: { coding: loincCoding('8480-6') }, valueQuantity: { value: 120, code: 'mm[Hg]' } },
+        { code: { coding: loincCoding('8462-4') }, valueQuantity: { value: '80mmHg', code: 'mm[Hg]' } },
       ],
     })).toThrow(/FHIR Observation.*diastolic blood pressure/i);
   });
@@ -119,6 +173,48 @@ describe('fhirObservationToVitals', () => {
     });
     expect(out.mapped).toEqual([]);
     expect(out.unmapped).toEqual(['718-7']);
+  });
+
+  test('components without a LOINC identity are reported, not silently dropped', () => {
+    const out = fhirObservationToVitals({
+      code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }] },
+      component: [
+        { code: { coding: loincCoding('8480-6') }, valueQuantity: { value: 120, code: 'mm[Hg]' } },
+        {
+          code: { coding: [{ system: 'http://snomed.info/sct', code: '75367002' }] },
+          valueQuantity: { value: 42, code: '1' },
+        },
+      ],
+    });
+    expect(out.vitals).toEqual({ systolic_bp: 120 });
+    expect(out.unmapped).toEqual(['(missing or non-LOINC component code)']);
+  });
+
+  test('does not accept a lookalike coding system as LOINC', () => {
+    const out = fhirObservationToVitals({
+      code: {
+        coding: [{
+          system: 'https://example.invalid/not-loinc-but-says-loinc',
+          code: '8867-4',
+        }],
+      },
+      valueQuantity: { value: 88, code: '/min' },
+    });
+
+    expect(out.vitals).toEqual({});
+    expect(out.mapped).toEqual([]);
+    expect(out.unmapped).toEqual(['(missing or non-LOINC component code)']);
+  });
+
+  test('does not accept a systemless code as LOINC authority', () => {
+    const out = fhirObservationToVitals({
+      code: { coding: [{ code: '8867-4' }] },
+      valueQuantity: { value: 88, code: '/min' },
+    });
+
+    expect(out.vitals).toEqual({});
+    expect(out.mapped).toEqual([]);
+    expect(out.unmapped).toEqual(['(missing or non-LOINC component code)']);
   });
 });
 

@@ -172,6 +172,7 @@ describe('C6.1-B I09/I15 recovery contracts', () => {
     const resource = {
       resourceType: 'Observation',
       status: 'final',
+      category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
       subject: { reference: `Patient/${PATIENT_UID}` },
       effectiveDateTime: '2026-07-31T12:30:00+05:30',
       code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },

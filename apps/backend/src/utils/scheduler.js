@@ -383,6 +383,58 @@ export async function runAuditChainVerification() {
   return { tenantsChecked, breaks: totalBreaks, alerts };
 }
 
+export async function runFhirVitalEffectsRecoveryJob({ limitPerTenant = 25 } = {}) {
+  const tenantRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM tenants WHERE status = 'active' ORDER BY id`,
+  );
+  const tenantIds = [...new Set([
+    DEFAULT_TENANT_ID,
+    ...(Array.isArray(tenantRows) ? tenantRows.map(({ id }) => id).filter(Boolean) : []),
+  ])];
+  const { runInTenantContext } = await import('../lib/tenantContext.js');
+  const { reconcilePendingFhirVitalEffects } = await import(
+    '../services/import/patientDataImport.js'
+  );
+  const summary = {
+    tenants: tenantIds.length,
+    tenantsCompleted: 0,
+    tenantsFailed: 0,
+    scanned: 0,
+    claimedEffects: 0,
+    completedSets: 0,
+    busySets: 0,
+  };
+  const failures = [];
+  for (const tenantId of tenantIds) {
+    try {
+      const tenantSummary = await runInTenantContext(tenantId, () => (
+        reconcilePendingFhirVitalEffects({ tenantId, limit: limitPerTenant })
+      ));
+      summary.tenantsCompleted += 1;
+      summary.scanned += tenantSummary.scanned;
+      summary.claimedEffects += tenantSummary.claimedEffects;
+      summary.completedSets += tenantSummary.completedSets;
+      summary.busySets += tenantSummary.busySets;
+    } catch (error) {
+      summary.tenantsFailed += 1;
+      failures.push({ tenantId, error: error.message });
+      logger.error('fhir-vital-effects-recovery tenant failed', {
+        tenantId,
+        error: error.message,
+      });
+    }
+  }
+  if (failures.length > 0) {
+    const error = new Error(`FHIR vital effects recovery failed for ${failures.length} tenant(s)`);
+    error.code = 'FHIR_VITAL_EFFECT_RECOVERY_JOB_FAILED';
+    error.summary = summary;
+    error.failures = failures;
+    throw error;
+  }
+  logger.info('fhir-vital-effects-recovery complete', summary);
+  return summary;
+}
+
 /**
  * Drain the notification outbox: claim a batch of due PENDING/FAILED rows
  * (FOR UPDATE SKIP LOCKED), attempt delivery via the real send path, and mark
@@ -648,6 +700,10 @@ if (process.env.NODE_ENV !== 'test') {
     await runForEachTenant('notification-outbox-drain', tenantId => (
       drainNotificationOutbox({ tenantId, limit: 100 })
     ));
+  }));
+
+  registerCron('*/2 * * * *', withJobLock('fhir-vital-effects-recovery', async () => {
+    await runFhirVitalEffectsRecoveryJob({ limitPerTenant: 25 });
   }));
 
   registerCron('*/5 * * * *', withJobLock('biomed-cmms-maintenance-sweep', async () => {

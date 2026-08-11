@@ -81,6 +81,10 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  lockTenantPatientMergeStability,
+  PATIENT_MERGE_STABILITY_TIMEOUT_MS,
+} from '../../utils/patientMergeStabilityLock.js';
 import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { resolveMergedPatientUidSet } from '../clinical/mergedPatientReadUnion.js';
@@ -238,6 +242,7 @@ async function discoverMergeSweepTargets(tx) {
               SELECT 1 FROM pg_attribute t
               WHERE t.attrelid = c.oid AND t.attname = 'tenant_id' AND NOT t.attisdropped
             ) AS has_tenant_id,
+            has_column_privilege(current_user, c.oid, a.attnum, 'UPDATE') AS can_update,
             COALESCE((
               SELECT jsonb_agg(jsonb_build_object('proname', p.proname, 'prosrc', p.prosrc))
               FROM pg_trigger g
@@ -270,7 +275,8 @@ async function discoverMergeSweepTargets(tx) {
         column_name: row.column_name,
         is_uuid: row.is_uuid,
         has_tenant_id: row.has_tenant_id,
-        update_blocked: blockingTriggers.length > 0,
+        update_blocked: blockingTriggers.length > 0 || row.can_update !== true,
+        update_privilege_denied: row.can_update !== true,
         blocking_triggers: [...new Set(blockingTriggers)].sort(),
       };
     });
@@ -308,6 +314,7 @@ async function findUnsupportedProtectedHistory(tx, {
       unsupported.push({
         table: target.table_name,
         column: target.column_name,
+        update_privilege_denied: target.update_privilege_denied,
         blocking_triggers: target.blocking_triggers,
       });
     }
@@ -343,6 +350,7 @@ async function loadMergePatients(db, { tenantId, primaryUid, secondaryUid, forUp
             COALESCE(is_deleted, false) AS is_deleted
      FROM users
      WHERE tenant_id = $1::uuid AND uid IN ($2::uuid, $3::uuid)
+     ORDER BY uid
      ${forUpdate ? 'FOR UPDATE' : ''}`,
     tenantId, primaryUid, secondaryUid,
   );
@@ -1067,6 +1075,8 @@ export async function executeMerge({
       const primary = existing.primary_uid;
       const secondary = existing.secondary_uid;
 
+      await lockTenantPatientMergeStability(tx, tid);
+
       // Lock both patient rows and re-validate under the lock: both must
       // still be live PATIENT records and neither already merged away.
       const patients = await loadMergePatients(tx, {
@@ -1101,6 +1111,19 @@ export async function executeMerge({
           'PATIENT_MERGE_BOTH_ACTIVE_ADMISSIONS',
         );
       }
+
+      await tx.$executeRawUnsafe(
+        `SELECT
+           set_config('app.patient_merge_execution', 'on', true),
+           set_config('app.patient_merge_request_id', $1::text, true),
+           set_config('app.patient_merge_tenant_id', $2::text, true),
+           set_config('app.patient_merge_from_uid', $3::text, true),
+           set_config('app.patient_merge_to_uid', $4::text, true)`,
+        mid,
+        tid,
+        secondary,
+        primary,
+      );
 
       // Discover protected columns and prove read completeness before the
       // first mutation. Rows guarded by immutable/update-blocking triggers
@@ -1333,7 +1356,7 @@ export async function executeMerge({
 
       secondaryUidForRevocation = secondary;
       return executedRow;
-    });
+    }, { timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS });
   } catch (err) {
     // COMMIT-time constraint failures (deferred FKs, per-patient unique
     // rows like abha_profiles on both records) mean the two records still

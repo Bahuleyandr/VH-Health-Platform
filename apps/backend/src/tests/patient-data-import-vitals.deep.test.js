@@ -18,8 +18,16 @@
 
 import { jest } from '@jest/globals';
 
-import prisma from '../lib/prisma.js';
-import { importFhirBundle } from '../services/import/patientDataImport.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
+import {
+  importFhirBundle,
+  importFhirVitalObservation,
+  reconcilePendingFhirVitalEffects,
+} from '../services/import/patientDataImport.js';
+import {
+  lockTenantPatientMergeStability,
+  PATIENT_MERGE_STABILITY_TIMEOUT_MS,
+} from '../utils/patientMergeStabilityLock.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = hasDb ? describe : describe.skip;
@@ -28,6 +36,8 @@ jest.setTimeout(30_000);
 const TENANT = '00000000-0000-4000-8000-000000000001'; // literal default tenant
 const PATIENT = '00000000-0000-4000-8000-0000000f4151';
 const IMPORTER = '00000000-0000-4000-8000-0000000f4152';
+const MERGED_PATIENT_ALIAS = '00000000-0000-4000-8000-0000000f4153';
+const MERGE_RACE_PATIENT = '00000000-0000-4000-8000-0000000f4154';
 
 async function exec(sql, ...p) {
   return prisma.$executeRawUnsafe(sql, ...p);
@@ -41,7 +51,10 @@ function observationId(prefix, effective) {
   return `${prefix}-${new Date(effective).getTime()}`;
 }
 
-function heartRateBundle(effective, value, { id = observationId('obs-hr', effective) } = {}) {
+function heartRateBundle(effective, value, {
+  id = observationId('obs-hr', effective),
+  status = 'final',
+} = {}) {
   return {
     resourceType: 'Bundle',
     type: 'collection',
@@ -49,8 +62,8 @@ function heartRateBundle(effective, value, { id = observationId('obs-hr', effect
       resource: {
         resourceType: 'Observation',
         id,
-        status: 'final',
-        category: [{ coding: [{ code: 'vital-signs' }] }],
+        ...(status == null ? {} : { status }),
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
         code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
         subject: { reference: `Patient/${PATIENT}` },
         effectiveDateTime: effective,
@@ -73,7 +86,7 @@ function heightBundle(effective, value, {
         resourceType: 'Observation',
         id,
         status: 'final',
-        category: [{ coding: [{ code: 'vital-signs' }] }],
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
         code: { coding: [{ system: 'http://loinc.org', code: '8302-2' }] },
         subject: { reference: `Patient/${PATIENT}` },
         effectiveDateTime: effective,
@@ -92,26 +105,56 @@ function compositeNews2Bundle(effective, { idSuffix = '' } = {}) {
     { id: 'obs-hr-crit', code: '8867-4', value: 132, unit: 'beats/minute' },
     { id: 'obs-temp-normal', code: '8310-5', value: 37, unit: 'Cel' },
   ];
+  const memberEntries = observations.map(({ id, code, value, unit }) => ({
+    resource: {
+      resourceType: 'Observation',
+      id: `${id}-${timestampSuffix}${idSuffix}`,
+      status: 'final',
+      category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+      code: { coding: [{ system: 'http://loinc.org', code }] },
+      subject: { reference: `Patient/${PATIENT}` },
+      effectiveDateTime: effective,
+      valueQuantity: { value, unit },
+    },
+  }));
   return {
     resourceType: 'Bundle',
     type: 'collection',
-    entry: observations.map(({ id, code, value, unit }) => ({
+    entry: [{
       resource: {
         resourceType: 'Observation',
-        id: `${id}-${timestampSuffix}${idSuffix}`,
+        id: `obs-vitals-panel-${timestampSuffix}${idSuffix}`,
         status: 'final',
-        category: [{ coding: [{ code: 'vital-signs' }] }],
-        code: { coding: [{ system: 'http://loinc.org', code }] },
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+        code: { coding: [{ system: 'http://loinc.org', code: '85353-1' }] },
         subject: { reference: `Patient/${PATIENT}` },
         effectiveDateTime: effective,
-        valueQuantity: { value, unit },
+        hasMember: memberEntries.map(({ resource }) => ({ reference: `Observation/${resource.id}` })),
+        component: [{
+          code: { coding: [{ system: 'http://loinc.org', code: '3151-8' }] },
+          valueQuantity: {
+            value: 0,
+            system: 'http://unitsofmeasure.org',
+            code: 'L/min',
+          },
+        }],
       },
-    })),
+    }, ...memberEntries],
+  };
+}
+
+function ungroupedNews2Bundle(effective, { idSuffix = '' } = {}) {
+  const bundle = compositeNews2Bundle(effective, { idSuffix });
+  return {
+    ...bundle,
+    entry: bundle.entry.slice(1),
   };
 }
 
 function componentAndFahrenheitBundle(effective) {
   const timestampSuffix = new Date(effective).getTime();
+  const bloodPressureId = `obs-bp-panel-${timestampSuffix}`;
+  const temperatureId = `obs-temp-fahrenheit-${timestampSuffix}`;
   return {
     resourceType: 'Bundle',
     type: 'collection',
@@ -119,9 +162,22 @@ function componentAndFahrenheitBundle(effective) {
       {
         resource: {
           resourceType: 'Observation',
-          id: `obs-bp-panel-${timestampSuffix}`,
+          id: `obs-vitals-panel-${timestampSuffix}`,
           status: 'final',
-          category: [{ coding: [{ code: 'vital-signs' }] }],
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '85353-1' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: effective,
+          hasMember: [bloodPressureId, temperatureId]
+            .map((id) => ({ reference: `Observation/${id}` })),
+        },
+      },
+      {
+        resource: {
+          resourceType: 'Observation',
+          id: bloodPressureId,
+          status: 'final',
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
           code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }] },
           subject: { reference: `Patient/${PATIENT}` },
           effectiveDateTime: effective,
@@ -134,9 +190,9 @@ function componentAndFahrenheitBundle(effective) {
       {
         resource: {
           resourceType: 'Observation',
-          id: `obs-temp-fahrenheit-${timestampSuffix}`,
+          id: temperatureId,
           status: 'final',
-          category: [{ coding: [{ code: 'vital-signs' }] }],
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
           code: { coding: [{ system: 'http://loinc.org', code: '8310-5' }] },
           subject: { reference: `Patient/${PATIENT}` },
           effectiveDateTime: effective,
@@ -150,19 +206,62 @@ function componentAndFahrenheitBundle(effective) {
 async function cleanup() {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-    await tx.$executeRawUnsafe(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT);
-    await tx.$executeRawUnsafe(`DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`, PATIENT);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
   }).catch(() => {});
-  await exec(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM clinical_alerts WHERE patient_id = (SELECT id FROM users WHERE uid = $1::uuid)`, PATIENT).catch(() => {});
+  await exec(
+    `DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
+  await exec(
+    `DELETE FROM clinical_alerts
+      WHERE patient_id IN (SELECT id FROM users WHERE uid IN ($1::uuid, $2::uuid))`,
+    PATIENT,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
   // Append-only guarded tables — test-DB role is a superuser (accepted escape).
-  await exec(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+  await exec(
+    `DELETE FROM clinical_timeline_events WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
+  await exec(
+    `DELETE FROM clinical_audit_events WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
   await exec(`DELETE FROM fhir_vital_observation_set_resources WHERE tenant_id = $1::uuid`, TENANT).catch(() => {});
-  await exec(`DELETE FROM fhir_vital_observation_sets WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM fhir_vital_observation_receipts WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT, IMPORTER).catch(() => {});
+  await exec(
+    `DELETE FROM fhir_vital_observation_sets WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
+  await exec(
+    `DELETE FROM fhir_vital_observation_receipts WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
+  await exec(
+    `DELETE FROM vitals_chart WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
+  await exec(
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+    PATIENT,
+    IMPORTER,
+    MERGED_PATIENT_ALIAS,
+    MERGE_RACE_PATIENT,
+  ).catch(() => {});
 }
 
 d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
@@ -393,17 +492,24 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
 
     const committed = await query(
       `SELECT v.id, v.heart_rate, v.source_device,
-              COUNT(n.id)::integer AS news2_count
+              COUNT(n.id)::integer AS news2_count,
+              n.supplemental_o2, n.partial_score, n.missing_params
          FROM vitals_chart v
          LEFT JOIN news2_scores n ON n.vitals_chart_id = v.id
         WHERE v.patient_uid = $1::uuid
           AND v.recorded_at = $2::timestamptz
-        GROUP BY v.id, v.heart_rate, v.source_device`,
+        GROUP BY v.id, v.heart_rate, v.source_device,
+                 n.supplemental_o2, n.partial_score, n.missing_params`,
       PATIENT, new Date(observedAt),
     );
     expect(committed).toHaveLength(1);
     expect(Number(committed[0].heart_rate)).toBe(winnerIndex === 0 ? 80 : 81);
-    expect(committed[0].news2_count).toBe(1);
+    expect(committed[0]).toEqual(expect.objectContaining({
+      news2_count: 1,
+      supplemental_o2: null,
+      partial_score: true,
+      missing_params: expect.arrayContaining(['supplemental_o2']),
+    }));
 
     const receipts = await query(
       `SELECT
@@ -463,15 +569,1117 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('imports one same-instant FHIR vitals set as one composite NEWS2 12 high-risk assessment', async () => {
+  it('keeps supplemental oxygen unknown while persisting a lower-bound partial NEWS2', async () => {
+    const observedAt = new Date(Date.now() - 49 * 60 * 1000).toISOString();
+    const resourceId = `obs-no-oxygen-evidence-${Date.now()}`;
+    const result = await importFhirBundle(
+      heartRateBundle(observedAt, 72, { id: resourceId }),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+
+    expect(result).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+    const rows = await query(
+      `SELECT vitals.supplemental_o2,
+              score.supplemental_o2 AS score_supplemental_o2,
+              score.total_score,
+              score.partial_score,
+              score.missing_params
+         FROM vitals_chart AS vitals
+         JOIN news2_scores AS score ON score.vitals_chart_id = vitals.id
+        WHERE vitals.patient_uid = $1::uuid
+          AND vitals.recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows).toEqual([expect.objectContaining({
+      supplemental_o2: null,
+      score_supplemental_o2: null,
+      total_score: 0,
+      partial_score: true,
+      missing_params: expect.arrayContaining(['supplemental_o2']),
+    })]);
+  });
+
+  it('deduplicates a direct Observation retry onto the same durable row and completed effects', async () => {
+    const observedAt = new Date(Date.now() - 48 * 60 * 1000).toISOString();
+    const resource = heartRateBundle(observedAt, 132, {
+      id: `obs-direct-route-retry-${Date.now()}`,
+    }).entry[0].resource;
+
+    const first = await importFhirVitalObservation(resource, IMPORTER, { tenantId: TENANT });
+    const retry = await importFhirVitalObservation(structuredClone(resource), IMPORTER, { tenantId: TENANT });
+
+    expect(first).toEqual(expect.objectContaining({
+      status: 'imported',
+      deduplicated: false,
+      patientUid: PATIENT,
+    }));
+    expect(retry).toEqual(expect.objectContaining({
+      status: 'deduplicated',
+      deduplicated: true,
+      vitalsChartId: first.vitalsChartId,
+      setFingerprint: first.setFingerprint,
+    }));
+
+    const effectRows = await query(
+      `SELECT score.id AS news2_id, task.workflow_sla_instance_id
+         FROM news2_scores AS score
+         LEFT JOIN tasks AS task
+           ON task.tenant_id = score.tenant_id
+          AND task.related_resource_type = 'news2_score'
+          AND task.related_resource_id = score.id::text
+        WHERE score.vitals_chart_id = $1::integer
+          AND score.superseded_at IS NULL`,
+      first.vitalsChartId,
+    );
+    expect(effectRows).toHaveLength(1);
+    expect(effectRows[0].workflow_sla_instance_id).toEqual(expect.any(String));
+
+    // Recreate a post-commit failure window on the direct-Observation contract:
+    // the clinical row and receipts remain durable, but the downstream effects
+    // and their completion evidence are gone. The next HTTP-equivalent retry
+    // must restore the effects without creating another clinical row.
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = 'news2_score'
+            AND related_resource_id = $2::text`,
+        TENANT,
+        String(effectRows[0].news2_id),
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM workflow_sla_instances WHERE id = $1::uuid`,
+        effectRows[0].workflow_sla_instance_id,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_alerts
+          WHERE tenant_id = $1::uuid
+            AND patient_id = (SELECT id FROM users WHERE uid = $2::uuid)`,
+        TENANT,
+        PATIENT,
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE fhir_vital_observation_sets
+            SET news2_effects_completed_at = NULL,
+                anomaly_effects_completed_at = NULL
+          WHERE tenant_id = $1::uuid
+            AND vitals_chart_id = $2::integer`,
+        TENANT,
+        first.vitalsChartId,
+      );
+    });
+
+    const recoveryRetry = await importFhirVitalObservation(
+      structuredClone(resource),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+    expect(recoveryRetry).toEqual(expect.objectContaining({
+      status: 'deduplicated',
+      deduplicated: true,
+      vitalsChartId: first.vitalsChartId,
+      setFingerprint: first.setFingerprint,
+      clinicalEffectsReconciled: true,
+    }));
+    const rows = await query(
+      `SELECT COUNT(*)::integer AS vitals_count,
+              COUNT(score.id)::integer AS news2_count,
+              BOOL_AND(sets.news2_effects_completed_at IS NOT NULL) AS news2_complete,
+              BOOL_AND(sets.anomaly_effects_completed_at IS NOT NULL) AS anomaly_complete
+         FROM vitals_chart AS vitals
+         JOIN news2_scores AS score ON score.vitals_chart_id = vitals.id
+         JOIN fhir_vital_observation_sets AS sets ON sets.vitals_chart_id = vitals.id
+        WHERE vitals.patient_uid = $1::uuid
+          AND vitals.recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows).toEqual([{
+      vitals_count: 1,
+      news2_count: 1,
+      news2_complete: true,
+      anomaly_complete: true,
+    }]);
+
+    const recoveredEffects = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer
+            FROM tasks
+           WHERE tenant_id = $1::uuid
+             AND related_resource_type = 'news2_score'
+             AND related_resource_id = $2::text) AS task_count,
+         (SELECT COUNT(*)::integer
+            FROM clinical_alerts
+           WHERE tenant_id = $1::uuid
+             AND patient_id = (SELECT id FROM users WHERE uid = $3::uuid)) AS alert_count`,
+      TENANT,
+      String(effectRows[0].news2_id),
+      PATIENT,
+    );
+    expect(recoveredEffects[0].task_count).toBe(1);
+  });
+
+  it('returns a sanitized retryable service error when direct ingestion fails internally', async () => {
+    const observedAt = new Date(Date.now() - 47 * 60 * 1000).toISOString();
+    const resourceId = `obs-direct-internal-failure-${Date.now()}`;
+    const resource = heartRateBundle(observedAt, 74, { id: resourceId }).entry[0].resource;
+    const internalMarker = 'database-host-and-query-must-not-leak';
+
+    let caught;
+    try {
+      await importFhirVitalObservation(resource, IMPORTER, {
+        tenantId: TENANT,
+        beforeFhirVitalWrite: async () => {
+          throw new Error(internalMarker);
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toEqual(expect.objectContaining({
+      statusCode: 503,
+      code: 'FHIR_OBSERVATION_RECOVERY_UNAVAILABLE',
+    }));
+    expect(caught.message).not.toContain(internalMarker);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE tenant_id = $3::uuid AND resource_id = $4) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      TENANT,
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('returns retryable 409 while another direct replay owns the effect lease', async () => {
+    const observedAt = new Date(Date.now() - 46 * 60 * 1000).toISOString();
+    const resource = heartRateBundle(observedAt, 132, {
+      id: `obs-direct-effect-busy-${Date.now()}`,
+    }).entry[0].resource;
+    const first = await importFhirVitalObservation(resource, IMPORTER, { tenantId: TENANT });
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `UPDATE fhir_vital_observation_sets
+            SET news2_effects_completed_at = NULL,
+                anomaly_effects_completed_at = NULL,
+                news2_effects_claimed_at = clock_timestamp(),
+                news2_effects_claim_token = '00000000-0000-4000-8000-0000000f4191'::uuid,
+                anomaly_effects_claimed_at = clock_timestamp(),
+                anomaly_effects_claim_token = '00000000-0000-4000-8000-0000000f4192'::uuid
+          WHERE tenant_id = $1::uuid AND vitals_chart_id = $2::integer`,
+        TENANT,
+        first.vitalsChartId,
+      );
+    });
+
+    let caught;
+    try {
+      await importFhirVitalObservation(structuredClone(resource), IMPORTER, { tenantId: TENANT });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toEqual(expect.objectContaining({
+      statusCode: 409,
+      code: 'FHIR_OBSERVATION_EFFECTS_IN_PROGRESS',
+    }));
+
+    await exec(
+      `UPDATE fhir_vital_observation_sets
+          SET news2_effects_claimed_at = NULL,
+              news2_effects_claim_token = NULL,
+              anomaly_effects_claimed_at = NULL,
+              anomaly_effects_claim_token = NULL
+        WHERE tenant_id = $1::uuid AND vitals_chart_id = $2::integer`,
+      TENANT,
+      first.vitalsChartId,
+    );
+    const recovered = await importFhirVitalObservation(
+      structuredClone(resource),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+    expect(recovered).toEqual(expect.objectContaining({
+      status: 'deduplicated',
+      vitalsChartId: first.vitalsChartId,
+      clinicalEffectsReconciled: true,
+    }));
+  });
+
+  it.each([
+    ['missing', null],
+    ['registered', 'registered'],
+    ['preliminary', 'preliminary'],
+    ['cancelled', 'cancelled'],
+    ['entered-in-error', 'entered-in-error'],
+    ['unknown', 'unknown'],
+  ])('rejects %s Observation status before any clinical or receipt write', async (_label, status) => {
+    const statusOffset = ['missing', 'registered', 'preliminary', 'cancelled', 'entered-in-error', 'unknown']
+      .indexOf(_label);
+    const observedAt = new Date(Date.now() - (50 + statusOffset) * 60 * 1000).toISOString();
+    const bundle = heartRateBundle(observedAt, 72, {
+      id: `obs-status-${_label}-${Date.now()}`,
+      status,
+    });
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: 'FHIR_OBSERVATION_STATUS_NOT_CHARTABLE',
+    })]);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND observed_at = $2::timestamptz) AS receipts,
+         (SELECT COUNT(*)::integer FROM news2_scores
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS news2`,
+      PATIENT, new Date(observedAt),
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0, news2: 0 });
+  });
+
+  it('rejects issued-only data instead of treating release time as physiologic observation time', async () => {
+    const issuedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const bundle = heartRateBundle(issuedAt, 72, { id: `obs-issued-only-${Date.now()}` });
+    delete bundle.entry[0].resource.effectiveDateTime;
+    bundle.entry[0].resource.issued = issuedAt;
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: 'FHIR_OBSERVATION_TIMESTAMP_REQUIRED',
+    })]);
+    expect(result.imported).toBe(0);
+  });
+
+  it.each([
+    ['slash-formatted', '08/09/2026 10:30'],
+    ['timezone-less', '2026-08-09T10:30:00'],
+    ['non-leap February 29', '2025-02-29T10:30:00Z'],
+    ['February 30', '2026-02-30T10:30:00Z'],
+    ['February 31', '2026-02-31T10:30:00Z'],
+    ['April 31', '2026-04-31T10:30:00Z'],
+    ['sub-millisecond precision', '2026-08-09T10:30:00.1234Z'],
+  ])('rejects a %s effectiveDateTime before any clinical or receipt write', async (_label, observedAt) => {
+    const resourceId = `obs-invalid-time-${_label}-${Date.now()}`;
+    const beforeRows = await query(
+      `SELECT COUNT(*)::integer AS count FROM vitals_chart WHERE patient_uid = $1::uuid`,
+      PATIENT,
+    );
+    const result = await importFhirBundle(
+      heartRateBundle(observedAt, 72, { id: resourceId }),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: 'FHIR_OBSERVATION_TIMESTAMP_INVALID',
+    })]);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $2) AS receipts`,
+      PATIENT,
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: beforeRows[0].count, receipts: 0 });
+  });
+
+  it('canonicalizes equivalent Z and explicit-offset effectiveDateTime values for replay', async () => {
+    const observedAt = new Date(Date.now() - 30.5 * 60 * 1000);
+    observedAt.setMilliseconds(0);
+    const utcTimestamp = observedAt.toISOString();
+    const offsetTimestamp = new Date(observedAt.getTime() + 5.5 * 60 * 60 * 1000)
+      .toISOString()
+      .replace('Z', '+05:30');
+    const resourceId = `obs-offset-replay-${Date.now()}`;
+
+    const first = await importFhirBundle(
+      heartRateBundle(utcTimestamp, 72, { id: resourceId }),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+    const replay = await importFhirBundle(
+      heartRateBundle(offsetTimestamp, 72, { id: resourceId }),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+
+    expect(first).toEqual(expect.objectContaining({ imported: 1, deduplicated: 0, errors: [] }));
+    expect(replay).toEqual(expect.objectContaining({ imported: 0, deduplicated: 1, errors: [] }));
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      observedAt,
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 1, receipts: 1 });
+  });
+
+  it('rejects a supported code carried by a lookalike LOINC system', async () => {
+    const observedAt = new Date(Date.now() - 30.75 * 60 * 1000).toISOString();
+    const resourceId = `obs-lookalike-loinc-${Date.now()}`;
+    const bundle = heartRateBundle(observedAt, 72, { id: resourceId });
+    bundle.entry[0].resource.code.coding[0].system = 'https://example.invalid/not-loinc-but-says-loinc';
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({
+      imported: 0,
+      skipped: 1,
+      deduplicated: 0,
+      errors: [],
+    }));
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('rejects a recognized unit code carried by a non-UCUM system', async () => {
+    const observedAt = new Date(Date.now() - 30.875 * 60 * 1000).toISOString();
+    const resourceId = `obs-lookalike-ucum-${Date.now()}`;
+    const bundle = heartRateBundle(observedAt, 72, { id: resourceId });
+    bundle.entry[0].resource.valueQuantity = {
+      value: 72,
+      system: 'https://example.invalid/not-ucum',
+      code: '/min',
+    };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: 'FHIR_OBSERVATION_INVALID_UNIT',
+    })]);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('rejects a wrong-case code under the canonical case-sensitive UCUM system', async () => {
+    const observedAt = new Date(Date.now() - 30.9 * 60 * 1000).toISOString();
+    const resourceId = `obs-wrong-case-ucum-${Date.now()}`;
+    const bundle = heartRateBundle(observedAt, 1, { id: resourceId });
+    bundle.entry[0].resource.code.coding[0].code = '2339-0';
+    bundle.entry[0].resource.valueQuantity = {
+      value: 1,
+      system: 'http://unitsofmeasure.org',
+      code: 'Mg/dL',
+    };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: 'FHIR_OBSERVATION_INVALID_UNIT',
+    })]);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('does not accept vital-signs from a lookalike observation-category system', async () => {
+    const observedAt = new Date(Date.now() - 30.9375 * 60 * 1000).toISOString();
+    const resourceId = `obs-lookalike-vital-category-${Date.now()}`;
+    const bundle = heartRateBundle(observedAt, 72, { id: resourceId });
+    bundle.entry[0].resource.category[0].coding[0].system = 'https://example.invalid/observation-category';
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({
+      imported: 0,
+      skipped: 1,
+      deduplicated: 0,
+      errors: [],
+    }));
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it.each([
+    ['LOINC code', 'loinc', 0, (bundle) => { delete bundle.entry[0].resource.code.coding[0].system; }],
+    ['vital-signs category', 'category', 1, (bundle) => { delete bundle.entry[0].resource.category[0].coding[0].system; }],
+  ])('does not accept systemless %s authority', async (_label, suffix, offset, mutate) => {
+    const observedAt = new Date(Date.now() - (31.25 + offset / 16) * 60 * 1000).toISOString();
+    const resourceId = `obs-systemless-${suffix}-${Date.now()}`;
+    const bundle = heartRateBundle(observedAt, 72, { id: resourceId });
+    mutate(bundle);
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({
+      imported: 0,
+      skipped: 1,
+      deduplicated: 0,
+      errors: [],
+    }));
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it.each(['<', '<=', '>=', '>'])('rejects the %s Quantity comparator before any write', async (comparator) => {
+    const offset = ['<', '<=', '>=', '>'].indexOf(comparator);
+    const observedAt = new Date(Date.now() - (31 + offset / 16) * 60 * 1000).toISOString();
+    const resourceId = `obs-comparator-${offset}-${Date.now()}`;
+    const bundle = heartRateBundle(observedAt, 40, { id: resourceId });
+    bundle.entry[0].resource.valueQuantity.comparator = comparator;
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toEqual([expect.objectContaining({
+      code: 'FHIR_OBSERVATION_INVALID_VALUE',
+    })]);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('rejects an invalid-status composite authority before charting any final member', async () => {
+    const observedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-invalid-parent' });
+    bundle.entry[0].resource.status = 'entered-in-error';
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toHaveLength(6);
+    expect(result.errors.every(({ code }) => code === 'FHIR_OBSERVATION_STATUS_NOT_CHARTABLE')).toBe(true);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND observed_at = $2::timestamptz) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('rejects a hasMember authority missing the vital-signs category instead of splitting its children', async () => {
+    const observedAt = new Date(Date.now() - 31.5 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-missing-parent-category' });
+    delete bundle.entry[0].resource.category;
+
+    await expect(importFhirBundle(bundle, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+      code: 'FHIR_OBSERVATION_COMPOSITE_PARENT_INVALID',
+    });
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND observed_at = $2::timestamptz) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('skips a valid non-vital hasMember panel without aborting an importable vital in the Bundle', async () => {
+    const observedAt = new Date(Date.now() - 31.75 * 60 * 1000).toISOString();
+    const heartRate = heartRateBundle(observedAt, 76, { id: `obs-hr-with-lab-panel-${Date.now()}` });
+    const labChildId = `obs-lab-child-${Date.now()}`;
+    const bundle = {
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [{
+        resource: {
+          resourceType: 'Observation',
+          id: `obs-lab-panel-${Date.now()}`,
+          status: 'final',
+          category: [{ coding: [{ code: 'laboratory' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '24323-8' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: observedAt,
+          hasMember: [{ reference: `Observation/${labChildId}` }],
+        },
+      }, {
+        resource: {
+          resourceType: 'Observation',
+          id: labChildId,
+          status: 'final',
+          category: [{ coding: [{ code: 'laboratory' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '718-7' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: observedAt,
+          valueQuantity: { value: 12.1, code: 'g/dL' },
+        },
+      }, ...heartRate.entry],
+    };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result).toEqual(expect.objectContaining({ imported: 1, skipped: 2, errors: [] }));
+    const rows = await query(
+      `SELECT heart_rate FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows.map(({ heart_rate: heartRateValue }) => Number(heartRateValue))).toEqual([76]);
+  });
+
+  it('rejects a composite with an unsupported-only declared vital member without narrowing it', async () => {
+    const observedAt = new Date(Date.now() - 32 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-unknown-member' });
+    const unknownId = `obs-unknown-member-${Date.now()}`;
+    bundle.entry[0].resource.hasMember.push({ reference: `Observation/${unknownId}` });
+    bundle.entry.push({
+      resource: {
+        resourceType: 'Observation',
+        id: unknownId,
+        status: 'final',
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+        code: { coding: [{ system: 'http://loinc.org', code: '99999-9' }] },
+        subject: { reference: `Patient/${PATIENT}` },
+        effectiveDateTime: observedAt,
+        valueQuantity: { value: 42, code: '1' },
+      },
+    });
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toHaveLength(7);
+    expect(result.errors.some(({ code }) => (
+      code === 'FHIR_OBSERVATION_COMPOSITE_MEMBER_UNSUPPORTED'
+    ))).toBe(true);
+    const rows = await query(
+      `SELECT COUNT(*)::integer AS count FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0].count).toBe(0);
+  });
+
+  it('rejects unsupported components declared directly on a composite authority', async () => {
+    const observedAt = new Date(Date.now() - 32.5 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-unknown-parent-component' });
+    bundle.entry[0].resource.component = [{
+      code: { coding: [{ system: 'http://loinc.org', code: '99999-8' }] },
+      valueQuantity: { value: 42, system: 'http://unitsofmeasure.org', code: '1' },
+    }];
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toHaveLength(6);
+    expect(result.errors.some(({ code }) => code === 'FHIR_OBSERVATION_PARTIAL_COMPONENT_MAPPING')).toBe(true);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND observed_at = $2::timestamptz) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('rejects an unsupported authority component even when it repeats the panel LOINC', async () => {
+    const observedAt = new Date(Date.now() - 32.75 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-repeated-parent-code' });
+    bundle.entry[0].resource.component = [{
+      code: { coding: [{ system: 'http://loinc.org', code: '85353-1' }] },
+      valueQuantity: { value: 42, system: 'http://unitsofmeasure.org', code: '1' },
+    }];
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors).toHaveLength(6);
+    expect(result.errors.some(({ code }) => code === 'FHIR_OBSERVATION_PARTIAL_COMPONENT_MAPPING')).toBe(true);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND observed_at = $2::timestamptz) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it.each([
+    ['unknown panel', '99999-9', false],
+    ['ordinary vital used as a panel', '8867-4', true],
+  ])('rejects an %s hasMember authority before any write', async (_label, rootCode, withValue) => {
+    const observedAt = new Date(Date.now() - 32.875 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: `-${rootCode}` });
+    const parent = bundle.entry[0].resource;
+    parent.code.coding[0].code = rootCode;
+    parent.component = [];
+    if (withValue) parent.valueQuantity = { value: 72, code: '/min' };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
+    expect(result.errors.some(({ code }) => code === 'FHIR_OBSERVATION_COMPOSITE_PARENT_INVALID')).toBe(true);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND observed_at = $2::timestamptz) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('rejects duplicate composite authority identities instead of dropping one group', async () => {
+    const observedAt = new Date(Date.now() - 32.9375 * 60 * 1000).toISOString();
+    const first = compositeNews2Bundle(observedAt, { idSuffix: '-duplicate-a' });
+    const second = compositeNews2Bundle(observedAt, { idSuffix: '-duplicate-b' });
+    first.entry[0].resource.id = 'duplicate-composite-authority';
+    second.entry[0].resource.id = 'duplicate-composite-authority';
+    const bundle = {
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [...first.entry, ...second.entry],
+    };
+
+    await expect(importFhirBundle(bundle, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+      code: 'FHIR_OBSERVATION_AMBIGUOUS_COMPOSITE',
+    });
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND observed_at = $2::timestamptz) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('fails closed when a composite declares a member missing from the Bundle', async () => {
+    const observedAt = new Date(Date.now() - 33 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-missing-member' });
+    bundle.entry.pop();
+
+    await expect(importFhirBundle(bundle, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+      code: 'FHIR_OBSERVATION_COMPOSITE_REFERENCE_UNRESOLVED',
+    });
+    const rows = await query(
+      `SELECT COUNT(*)::integer AS count FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0].count).toBe(0);
+  });
+
+  it('never resolves a server-A relative member reference to a server-B fullUrl', async () => {
+    const observedAt = new Date(Date.now() - 34 * 60 * 1000).toISOString();
+    const bundle = heartRateBundle(observedAt, 72, { id: 'server-shared-observation' });
+    bundle.entry[0].fullUrl = 'https://server-b.example/fhir/Observation/server-shared-observation';
+    bundle.entry.unshift({
+      fullUrl: 'https://server-a.example/fhir/Observation/vitals-panel',
+      resource: {
+        resourceType: 'Observation',
+        id: 'vitals-panel',
+        status: 'final',
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+        code: { coding: [{ system: 'http://loinc.org', code: '85353-1' }] },
+        subject: { reference: `Patient/${PATIENT}` },
+        effectiveDateTime: observedAt,
+        hasMember: [{ reference: 'Observation/server-shared-observation' }],
+      },
+    });
+
+    await expect(importFhirBundle(bundle, IMPORTER, { tenantId: TENANT })).rejects.toMatchObject({
+      code: 'FHIR_OBSERVATION_COMPOSITE_REFERENCE_UNRESOLVED',
+    });
+    const rows = await query(
+      `SELECT COUNT(*)::integer AS count FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows[0].count).toBe(0);
+  });
+
+  it('resolves an absolute hasMember reference by exact fullUrl when logical ids collide', async () => {
+    const observedAt = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+    const serverA = heartRateBundle(observedAt, 70, { id: 'shared-fullurl-id' }).entry[0];
+    const serverB = heartRateBundle(observedAt, 150, { id: 'shared-fullurl-id' }).entry[0];
+    serverA.fullUrl = 'https://server-a.example/fhir/Observation/shared-fullurl-id';
+    serverB.fullUrl = 'https://server-b.example/fhir/Observation/shared-fullurl-id';
+    const bundle = {
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [{
+        fullUrl: 'https://server-a.example/fhir/Observation/vitals-panel-exact',
+        resource: {
+          resourceType: 'Observation',
+          id: 'vitals-panel-exact',
+          status: 'final',
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '85353-1' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: observedAt,
+          hasMember: [{ reference: serverA.fullUrl }],
+        },
+      }, serverA, serverB],
+    };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result.imported).toBe(2);
+    expect(result.errors).toEqual([expect.objectContaining({
+      id: 'shared-fullurl-id',
+      code: 'FHIR_OBSERVATION_RESOURCE_ID_CONFLICT',
+    })]);
+    const rows = await query(
+      `SELECT heart_rate FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows.map(({ heart_rate: heartRate }) => Number(heartRate))).toEqual([70]);
+  });
+
+  it('groups otherwise-unowned supported same-time Observations into one clinical row', async () => {
+    const observedAt = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+    const heartRate = heartRateBundle(observedAt, 78, { id: `obs-independent-hr-${Date.now()}` });
+    const height = heightBundle(observedAt, 171, { id: `obs-independent-height-${Date.now()}` });
+    const bundle = {
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [...heartRate.entry, ...height.entry],
+    };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result).toEqual(expect.objectContaining({ imported: 2, errors: [] }));
+    const rows = await query(
+      `SELECT heart_rate, height_cm, source_device
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz
+        ORDER BY id`,
+      PATIENT, new Date(observedAt),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows.map(({ heart_rate: heartRateValue, height_cm: heightValue }) => [
+      heartRateValue == null ? null : Number(heartRateValue),
+      heightValue == null ? null : Number(heightValue),
+    ])).toEqual([[78, 171]]);
+    expect(rows[0].source_device).toMatch(/^fhir-set:/);
+  });
+
+  it('keeps the Bundle patient-survivor snapshot stable while a merge waits to commit', async () => {
+    await exec(
+      `INSERT INTO users
+         (uid, phone, name, role, is_active, status, tenant_id, updated_at)
+       VALUES ($1::uuid, '8990333447', 'FHIR Merge Race Patient', 'PATIENT', true, 'active',
+               $2::uuid, NOW())`,
+      MERGE_RACE_PATIENT,
+      TENANT,
+    );
+    const observedAt = new Date(Date.now() - 35.5 * 60 * 1000).toISOString();
+    const heartRate = heartRateBundle(observedAt, 82, { id: `obs-premerge-hr-${Date.now()}` });
+    const height = heightBundle(observedAt, 168, { id: `obs-premerge-height-${Date.now()}` });
+    height.entry[0].resource.subject.reference = `Patient/${MERGE_RACE_PATIENT}`;
+
+    let mergeAttempt = null;
+    let mergeLockAcquired = false;
+    let observedMergeBlocked = false;
+    let signalMergeStarted;
+    const mergeStarted = new Promise((resolve) => { signalMergeStarted = resolve; });
+    let result;
+    try {
+      result = await importFhirBundle({
+        resourceType: 'Bundle',
+        type: 'collection',
+        entry: [...heartRate.entry, ...height.entry],
+      }, IMPORTER, {
+        tenantId: TENANT,
+        beforeFhirVitalWrite: async () => {
+          if (!mergeAttempt) {
+            mergeAttempt = setTenantTx(TENANT, async (tx) => {
+              signalMergeStarted();
+              await lockTenantPatientMergeStability(tx, TENANT);
+              mergeLockAcquired = true;
+              await tx.$executeRawUnsafe(
+                `UPDATE users
+                    SET is_active = false,
+                        status = 'merged',
+                        merged_into_uid = $1::uuid,
+                        updated_at = NOW()
+                  WHERE tenant_id = $2::uuid AND uid = $3::uuid`,
+                MERGE_RACE_PATIENT,
+                TENANT,
+                PATIENT,
+              );
+            }, { timeout: PATIENT_MERGE_STABILITY_TIMEOUT_MS });
+          }
+          await mergeStarted;
+          await new Promise((resolve) => setTimeout(resolve, 5_100));
+          observedMergeBlocked ||= !mergeLockAcquired;
+        },
+      });
+      await mergeAttempt;
+    } finally {
+      await mergeAttempt?.catch(() => {});
+      await exec(
+        `UPDATE users
+            SET is_active = true,
+                status = 'active',
+                merged_into_uid = NULL,
+                updated_at = NOW()
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+        TENANT,
+        PATIENT,
+      ).catch(() => {});
+    }
+
+    expect(observedMergeBlocked).toBe(true);
+    expect(mergeLockAcquired).toBe(true);
+    expect(result).toEqual(expect.objectContaining({ imported: 2, errors: [] }));
+    const rows = await query(
+      `SELECT patient_uid, heart_rate, height_cm
+         FROM vitals_chart
+        WHERE recorded_at = $1::timestamptz
+          AND patient_uid IN ($2::uuid, $3::uuid)
+        ORDER BY patient_uid`,
+      new Date(observedAt),
+      PATIENT,
+      MERGE_RACE_PATIENT,
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ patient_uid: PATIENT, heart_rate: expect.anything() }),
+      expect.objectContaining({ patient_uid: MERGE_RACE_PATIENT, height_cm: expect.anything() }),
+    ]));
+  });
+
+  it('groups same-time aliases only after resolving them to one active merge survivor', async () => {
+    await exec(
+      `INSERT INTO users
+         (uid, phone, name, role, is_active, status, tenant_id, merged_into_uid, updated_at)
+       VALUES ($1::uuid, '8990333446', 'Merged FHIR Alias', 'PATIENT', false, 'merged',
+               $2::uuid, $3::uuid, NOW())`,
+      MERGED_PATIENT_ALIAS,
+      TENANT,
+      PATIENT,
+    );
+    const observedAt = new Date(Date.now() - 36 * 60 * 1000).toISOString();
+    const heartRate = heartRateBundle(observedAt, 82, { id: `obs-alias-hr-${Date.now()}` });
+    heartRate.entry[0].resource.subject.reference = `Patient/${MERGED_PATIENT_ALIAS}`;
+    const height = heightBundle(observedAt, 169, { id: `obs-survivor-height-${Date.now()}` });
+
+    const result = await importFhirBundle({
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [...heartRate.entry, ...height.entry],
+    }, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({ imported: 2, errors: [] }));
+    const rows = await query(
+      `SELECT patient_uid, heart_rate, height_cm
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(expect.objectContaining({ patient_uid: PATIENT }));
+    expect([Number(rows[0].heart_rate), Number(rows[0].height_cm)]).toEqual([82, 169]);
+  });
+
+  it('rejects duplicate canonical fields in an implicit same-time group atomically', async () => {
+    const observedAt = new Date(Date.now() - 37 * 60 * 1000).toISOString();
+    const first = heartRateBundle(observedAt, 80, { id: `obs-implicit-hr-a-${Date.now()}` });
+    const second = heartRateBundle(observedAt, 92, { id: `obs-implicit-hr-b-${Date.now()}` });
+
+    const result = await importFhirBundle({
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [...first.entry, ...second.entry],
+    }, IMPORTER, { tenantId: TENANT });
+
+    expect(result.imported).toBe(0);
+    expect(result.errors).toHaveLength(2);
+    expect(result.errors.every(({ error }) => /same canonical vital field/i.test(error))).toBe(true);
+    const rows = await query(
+      `SELECT id FROM vitals_chart
+        WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('rejects a mixed supported/unsupported component Observation without consuming it', async () => {
+    const observedAt = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+    const resourceId = `obs-mixed-panel-${Date.now()}`;
+    const bundle = {
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [{
+        resource: {
+          resourceType: 'Observation',
+          id: resourceId,
+          status: 'final',
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: observedAt,
+          component: [
+            {
+              code: { coding: [{ system: 'http://loinc.org', code: '8480-6' }] },
+              valueQuantity: { value: 118, code: 'mm[Hg]' },
+            },
+            {
+              code: { coding: [{ system: 'http://loinc.org', code: '99999-9' }] },
+              valueQuantity: { value: 42, code: '1' },
+            },
+          ],
+        },
+      }],
+    };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result.errors).toEqual([expect.objectContaining({
+      id: resourceId,
+      code: 'FHIR_OBSERVATION_PARTIAL_COMPONENT_MAPPING',
+    })]);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT, new Date(observedAt), resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('rejects a mixed component Observation whose extra component has no LOINC identity', async () => {
+    const observedAt = new Date(Date.now() - 41 * 60 * 1000).toISOString();
+    const resourceId = `obs-mixed-non-loinc-${Date.now()}`;
+    const bundle = {
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [{
+        resource: {
+          resourceType: 'Observation',
+          id: resourceId,
+          status: 'final',
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }] },
+          subject: { reference: `Patient/${PATIENT}` },
+          effectiveDateTime: observedAt,
+          component: [
+            {
+              code: { coding: [{ system: 'http://loinc.org', code: '8480-6' }] },
+              valueQuantity: { value: 118, code: 'mm[Hg]' },
+            },
+            {
+              code: { coding: [{ system: 'http://snomed.info/sct', code: '75367002' }] },
+              valueQuantity: { value: 42, code: '1' },
+            },
+          ],
+        },
+      }],
+    };
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(result.errors).toEqual([expect.objectContaining({
+      id: resourceId,
+      code: 'FHIR_OBSERVATION_PARTIAL_COMPONENT_MAPPING',
+    })]);
+    const rows = await query(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM vitals_chart
+           WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz) AS vitals,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_receipts
+           WHERE patient_uid = $1::uuid AND resource_id = $3) AS receipts`,
+      PATIENT,
+      new Date(observedAt),
+      resourceId,
+    );
+    expect(rows[0]).toEqual({ vitals: 0, receipts: 0 });
+  });
+
+  it('imports the original ungrouped five-resource bundle as one lower-bound NEWS2 12 emergency assessment', async () => {
     const observedAt = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-    const result = await importFhirBundle(compositeNews2Bundle(observedAt), IMPORTER, { tenantId: TENANT });
+    const result = await importFhirBundle(ungroupedNews2Bundle(observedAt), IMPORTER, { tenantId: TENANT });
     expect(result.errors).toEqual([]);
     expect(result.imported).toBe(5);
 
     const rows = await query(
       `SELECT v.id, v.respiratory_rate, v.spo2, v.systolic_bp, v.heart_rate, v.temperature,
-              n.total_score, n.clinical_risk, n.escalation_action
+              v.supplemental_o2, v.o2_flow_rate,
+              n.id AS news2_id, n.supplemental_o2 AS score_supplemental_o2,
+              n.total_score, n.clinical_risk, n.escalation_action,
+              n.partial_score, n.missing_params
          FROM vitals_chart v
          JOIN news2_scores n ON n.vitals_chart_id = v.id
         WHERE v.patient_uid = $1::uuid
@@ -489,17 +1697,106 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
       rows[0].heart_rate,
       rows[0].temperature,
     ].map(Number)).toEqual([26, 88, 88, 132, 37]);
+    expect(rows[0].supplemental_o2).toBeNull();
+    expect(rows[0].score_supplemental_o2).toBeNull();
+    expect(rows[0].o2_flow_rate).toBeNull();
     expect(Number(rows[0].total_score)).toBe(12);
     expect(rows[0].clinical_risk).toBe('high');
     expect(rows[0].escalation_action).toMatch(/Emergency response/i);
-
-    const replay = await importFhirBundle(compositeNews2Bundle(observedAt), IMPORTER, { tenantId: TENANT });
-    expect(replay.errors).toEqual([]);
-    expect(replay.imported).toBe(0);
-    expect(replay.deduplicated).toBe(5);
-    expect(replay.observationPartitions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ status: 'deduplicated', resourceCount: 5 }),
+    expect(rows[0].partial_score).toBe(true);
+    expect(rows[0].missing_params).toEqual(expect.arrayContaining([
+      'consciousness',
+      'supplemental_o2',
     ]));
+
+    const completionBefore = await query(
+      `SELECT news2_effects_completed_at, anomaly_effects_completed_at
+         FROM fhir_vital_observation_sets
+        WHERE tenant_id = $1::uuid AND vitals_chart_id = $2::integer`,
+      TENANT, rows[0].id,
+    );
+    expect(completionBefore).toEqual([expect.objectContaining({
+      news2_effects_completed_at: expect.any(Date),
+      anomaly_effects_completed_at: expect.any(Date),
+    })]);
+    const taskBefore = await query(
+      `SELECT id, workflow_sla_instance_id
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'news2_score'
+          AND related_resource_id = $2::text`,
+      TENANT, String(rows[0].news2_id),
+    );
+    expect(taskBefore).toHaveLength(1);
+    const alertsBefore = await query(
+      `SELECT COUNT(*)::integer AS count
+         FROM clinical_alerts
+        WHERE tenant_id = $1::uuid
+          AND patient_id = (SELECT id FROM users WHERE uid = $2::uuid)`,
+      TENANT, PATIENT,
+    );
+    expect(alertsBefore[0].count).toBeGreaterThan(0);
+
+    // Model the two load-bearing post-commit writes having failed: the
+    // clinical row + NEWS2 score + receipt remain durable, but no task/alerts
+    // or completion evidence exists. Exact replay must repair, not suppress.
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `DELETE FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = 'news2_score'
+            AND related_resource_id = $2::text`,
+        TENANT, String(rows[0].news2_id),
+      );
+      if (taskBefore[0].workflow_sla_instance_id) {
+        await tx.$executeRawUnsafe(
+          `DELETE FROM workflow_sla_instances WHERE id = $1::uuid`,
+          taskBefore[0].workflow_sla_instance_id,
+        );
+      }
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_alerts
+          WHERE tenant_id = $1::uuid
+            AND patient_id = (SELECT id FROM users WHERE uid = $2::uuid)`,
+        TENANT, PATIENT,
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE fhir_vital_observation_sets
+            SET news2_effects_completed_at = NULL,
+                anomaly_effects_completed_at = NULL
+          WHERE tenant_id = $1::uuid AND vitals_chart_id = $2::integer`,
+        TENANT, rows[0].id,
+      );
+    });
+
+    const concurrentReplays = await Promise.all([
+      importFhirBundle(ungroupedNews2Bundle(observedAt), IMPORTER, { tenantId: TENANT }),
+      importFhirBundle(ungroupedNews2Bundle(observedAt), IMPORTER, { tenantId: TENANT }),
+    ]);
+    const reconciliationWinners = concurrentReplays.filter(({ observationPartitions }) => (
+      observationPartitions.some(({ clinicalEffectsReconciled }) => clinicalEffectsReconciled)
+    ));
+    expect(reconciliationWinners).toHaveLength(1);
+    expect(reconciliationWinners[0].errors).toEqual([]);
+    expect(reconciliationWinners[0].imported).toBe(0);
+    expect(reconciliationWinners[0].deduplicated).toBe(5);
+    expect(reconciliationWinners[0].observationPartitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        status: 'deduplicated',
+        resourceCount: 5,
+        clinicalEffectsReconciled: true,
+      }),
+    ]));
+    const losingReplay = concurrentReplays.find((result) => result !== reconciliationWinners[0]);
+    if (losingReplay.errors.length > 0) {
+      expect(losingReplay.errors).toHaveLength(5);
+      expect(losingReplay.errors.every(({ code }) => (
+        code === 'FHIR_OBSERVATION_EFFECTS_IN_PROGRESS'
+      ))).toBe(true);
+    } else {
+      expect(losingReplay.deduplicated).toBe(5);
+    }
     const afterReplay = await query(
       `SELECT v.id, v.source_device, n.id AS news2_id
          FROM vitals_chart v
@@ -510,9 +1807,32 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     );
     expect(afterReplay).toHaveLength(1);
     expect(afterReplay[0].source_device).toMatch(/^fhir-set:[0-9a-f]{64}$/);
+    const repairedEffects = await query(
+      `SELECT
+         sets.news2_effects_completed_at,
+         sets.anomaly_effects_completed_at,
+         (SELECT COUNT(*)::integer
+            FROM tasks
+           WHERE tenant_id = $1::uuid
+             AND related_resource_type = 'news2_score'
+             AND related_resource_id = $3::text) AS task_count,
+         (SELECT COUNT(*)::integer
+            FROM clinical_alerts
+           WHERE tenant_id = $1::uuid
+             AND patient_id = (SELECT id FROM users WHERE uid = $4::uuid)) AS alert_count
+        FROM fhir_vital_observation_sets AS sets
+       WHERE sets.tenant_id = $1::uuid AND sets.vitals_chart_id = $2::integer`,
+      TENANT, rows[0].id, String(rows[0].news2_id), PATIENT,
+    );
+    expect(repairedEffects).toEqual([expect.objectContaining({
+      news2_effects_completed_at: expect.any(Date),
+      anomaly_effects_completed_at: expect.any(Date),
+      task_count: 1,
+      alert_count: alertsBefore[0].count,
+    })]);
 
     const distinct = await importFhirBundle(
-      compositeNews2Bundle(observedAt, { idSuffix: '-distinct' }),
+      ungroupedNews2Bundle(observedAt, { idSuffix: '-distinct' }),
       IMPORTER,
       { tenantId: TENANT },
     );
@@ -533,11 +1853,208 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(distinctRows.map((row) => row.clinical_risk)).toEqual(['high', 'high']);
   });
 
+  it('scores explicit FHIR supplemental-oxygen evidence with the NEWS2 +2 modifier', async () => {
+    const observedAt = new Date(Date.now() - 2.5 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-on-oxygen' });
+    bundle.entry[0].resource.component[0].valueQuantity.value = 2;
+
+    const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+
+    expect(result).toEqual(expect.objectContaining({ imported: 6, errors: [] }));
+    const rows = await query(
+      `SELECT vitals.supplemental_o2, vitals.o2_flow_rate,
+              score.supplemental_o2 AS score_supplemental_o2,
+              score.total_score,
+              (SELECT COUNT(*)::integer
+                 FROM tasks
+                WHERE tenant_id = $1::uuid
+                  AND related_resource_type = 'news2_score'
+                  AND related_resource_id = score.id::text) AS task_count
+         FROM vitals_chart AS vitals
+         JOIN news2_scores AS score ON score.vitals_chart_id = vitals.id
+        WHERE vitals.tenant_id = $1::uuid
+          AND vitals.patient_uid = $2::uuid
+          AND vitals.recorded_at = $3::timestamptz`,
+      TENANT,
+      PATIENT,
+      new Date(observedAt),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(expect.objectContaining({
+      supplemental_o2: true,
+      score_supplemental_o2: true,
+      total_score: 14,
+      task_count: 1,
+    }));
+    expect(Number(rows[0].o2_flow_rate)).toBe(2);
+  });
+
+  it('backs off a poison recovery row so a later healthy set progresses with limit one', async () => {
+    const poisonAt = new Date(Date.now() - 12 * 60 * 1000).toISOString();
+    const healthyAt = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    const poisonImport = await importFhirBundle(
+      compositeNews2Bundle(poisonAt, { idSuffix: '-poison-sweep' }),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+    const healthyImport = await importFhirBundle(
+      compositeNews2Bundle(healthyAt, { idSuffix: '-healthy-sweep' }),
+      IMPORTER,
+      { tenantId: TENANT },
+    );
+    expect(poisonImport.errors).toEqual([]);
+    expect(healthyImport.errors).toEqual([]);
+
+    const sets = await query(
+      `SELECT sets.set_fingerprint, sets.vitals_chart_id, sets.observed_at, score.id AS news2_id
+         FROM fhir_vital_observation_sets AS sets
+         JOIN news2_scores AS score ON score.vitals_chart_id = sets.vitals_chart_id
+        WHERE sets.tenant_id = $1::uuid
+          AND sets.observed_at = ANY($2::timestamptz[])
+        ORDER BY sets.created_at, sets.set_fingerprint`,
+      TENANT,
+      [new Date(poisonAt), new Date(healthyAt)],
+    );
+    expect(sets).toHaveLength(2);
+    const poison = sets.find(({ observed_at: observedAt }) => (
+      new Date(observedAt).toISOString() === poisonAt
+    ));
+    const healthy = sets.find(({ observed_at: observedAt }) => (
+      new Date(observedAt).toISOString() === healthyAt
+    ));
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `UPDATE fhir_vital_observation_sets
+            SET news2_effects_completed_at = NULL,
+                anomaly_effects_completed_at = NULL,
+                news2_effects_claimed_at = NULL,
+                news2_effects_claim_token = NULL,
+                news2_effects_next_retry_at = NULL,
+                anomaly_effects_claimed_at = NULL,
+                anomaly_effects_claim_token = NULL,
+                anomaly_effects_next_retry_at = NULL
+          WHERE tenant_id = $1::uuid
+            AND set_fingerprint = ANY($2::varchar[])`,
+        TENANT,
+        sets.map(({ set_fingerprint: setFingerprint }) => setFingerprint),
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE news2_scores SET total_score = total_score + 1 WHERE id = $1::integer`,
+        poison.news2_id,
+      );
+    });
+
+    await expect(reconcilePendingFhirVitalEffects({ tenantId: TENANT, limit: 1 }))
+      .rejects.toMatchObject({ code: 'FHIR_VITAL_EFFECT_SWEEP_FAILED' });
+    const afterPoison = await query(
+      `SELECT news2_effects_next_retry_at,
+              news2_effects_completed_at,
+              anomaly_effects_completed_at
+         FROM fhir_vital_observation_sets
+        WHERE tenant_id = $1::uuid AND set_fingerprint = $2`,
+      TENANT,
+      poison.set_fingerprint,
+    );
+    expect(afterPoison).toEqual([expect.objectContaining({
+      news2_effects_next_retry_at: expect.any(Date),
+      news2_effects_completed_at: null,
+      anomaly_effects_completed_at: null,
+    })]);
+    expect(afterPoison[0].news2_effects_next_retry_at.getTime()).toBeGreaterThan(Date.now());
+
+    const healthySweep = await reconcilePendingFhirVitalEffects({ tenantId: TENANT, limit: 1 });
+    expect(healthySweep).toEqual(expect.objectContaining({
+      scanned: 1,
+      claimedEffects: 2,
+      completedSets: 1,
+      failedSets: 0,
+    }));
+    const afterHealthy = await query(
+      `SELECT news2_effects_completed_at, anomaly_effects_completed_at
+         FROM fhir_vital_observation_sets
+        WHERE tenant_id = $1::uuid AND set_fingerprint = $2`,
+      TENANT,
+      healthy.set_fingerprint,
+    );
+    expect(afterHealthy).toEqual([expect.objectContaining({
+      news2_effects_completed_at: expect.any(Date),
+      anomaly_effects_completed_at: expect.any(Date),
+    })]);
+  });
+
+  it('does not steal a live effect lease and reclaims it only after the crash lease expires', async () => {
+    const observedAt = new Date(Date.now() - 13 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-stale-lease' });
+    const imported = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    expect(imported.errors).toEqual([]);
+    const sets = await query(
+      `SELECT set_fingerprint, vitals_chart_id,
+              news2_effects_attempts, anomaly_effects_attempts
+         FROM fhir_vital_observation_sets
+        WHERE tenant_id = $1::uuid AND observed_at = $2::timestamptz`,
+      TENANT,
+      new Date(observedAt),
+    );
+    expect(sets).toHaveLength(1);
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `UPDATE fhir_vital_observation_sets
+            SET news2_effects_completed_at = NULL,
+                anomaly_effects_completed_at = NULL,
+                news2_effects_claimed_at = clock_timestamp(),
+                news2_effects_claim_token = '00000000-0000-4000-8000-000000000201'::uuid,
+                news2_effects_next_retry_at = NULL,
+                anomaly_effects_claimed_at = clock_timestamp(),
+                anomaly_effects_claim_token = '00000000-0000-4000-8000-000000000202'::uuid,
+                anomaly_effects_next_retry_at = NULL
+          WHERE tenant_id = $1::uuid AND set_fingerprint = $2`,
+        TENANT,
+        sets[0].set_fingerprint,
+      );
+    });
+
+    const liveLeaseSweep = await reconcilePendingFhirVitalEffects({ tenantId: TENANT, limit: 1 });
+    expect(liveLeaseSweep).toEqual(expect.objectContaining({ scanned: 0, claimedEffects: 0 }));
+    await exec(
+      `UPDATE fhir_vital_observation_sets
+          SET news2_effects_claimed_at = clock_timestamp() - INTERVAL '10 minutes',
+              anomaly_effects_claimed_at = clock_timestamp() - INTERVAL '10 minutes'
+        WHERE tenant_id = $1::uuid AND set_fingerprint = $2`,
+      TENANT,
+      sets[0].set_fingerprint,
+    );
+    const staleLeaseSweep = await reconcilePendingFhirVitalEffects({ tenantId: TENANT, limit: 1 });
+    expect(staleLeaseSweep).toEqual(expect.objectContaining({
+      scanned: 1,
+      claimedEffects: 2,
+      completedSets: 1,
+    }));
+    const completed = await query(
+      `SELECT news2_effects_completed_at, anomaly_effects_completed_at,
+              news2_effects_claim_token, anomaly_effects_claim_token,
+              news2_effects_attempts, anomaly_effects_attempts
+         FROM fhir_vital_observation_sets
+        WHERE tenant_id = $1::uuid AND set_fingerprint = $2`,
+      TENANT,
+      sets[0].set_fingerprint,
+    );
+    expect(completed).toEqual([expect.objectContaining({
+      news2_effects_completed_at: expect.any(Date),
+      anomaly_effects_completed_at: expect.any(Date),
+      news2_effects_claim_token: null,
+      anomaly_effects_claim_token: null,
+      news2_effects_attempts: Number(sets[0].news2_effects_attempts) + 1,
+      anomaly_effects_attempts: Number(sets[0].anomaly_effects_attempts) + 1,
+    })]);
+  });
+
   it('keeps component observations and source units inside the grouped bundle path', async () => {
     const observedAt = new Date(Date.now() - 3 * 60 * 1000).toISOString();
     const result = await importFhirBundle(componentAndFahrenheitBundle(observedAt), IMPORTER, { tenantId: TENANT });
     expect(result.errors).toEqual([]);
-    expect(result.imported).toBe(2);
+    expect(result.imported).toBe(3);
 
     const rows = await query(
       `SELECT systolic_bp, diastolic_bp, temperature
@@ -571,14 +2088,32 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     const first = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
     const replay = await importFhirBundle(replayBundle, IMPORTER, { tenantId: TENANT });
 
-    expect(first).toEqual(expect.objectContaining({ imported: 2, deduplicated: 0, errors: [] }));
-    expect(replay).toEqual(expect.objectContaining({ imported: 0, deduplicated: 2, errors: [] }));
+    expect(first).toEqual(expect.objectContaining({ imported: 3, deduplicated: 0, errors: [] }));
+    expect(replay).toEqual(expect.objectContaining({ imported: 0, deduplicated: 3, errors: [] }));
     const rows = await query(
       `SELECT id FROM vitals_chart
         WHERE patient_uid = $1::uuid AND recorded_at = $2::timestamptz`,
       PATIENT, new Date(observedAt),
     );
     expect(rows).toHaveLength(1);
+  });
+
+  it('deduplicates a panel replay whose member references change from relative to base-equivalent absolute', async () => {
+    const observedAt = new Date(Date.now() - 14 * 60 * 1000).toISOString();
+    const bundle = compositeNews2Bundle(observedAt, { idSuffix: '-reference-canonical' });
+    const baseUrl = 'https://reference-canonical.example/fhir';
+    for (const entry of bundle.entry) {
+      entry.fullUrl = `${baseUrl}/Observation/${entry.resource.id}`;
+    }
+    const replayBundle = structuredClone(bundle);
+    replayBundle.entry[0].resource.hasMember = replayBundle.entry.slice(1).map(({ fullUrl }) => ({
+      reference: fullUrl,
+    }));
+
+    const first = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
+    const replay = await importFhirBundle(replayBundle, IMPORTER, { tenantId: TENANT });
+    expect(first).toEqual(expect.objectContaining({ imported: 6, errors: [] }));
+    expect(replay).toEqual(expect.objectContaining({ imported: 0, deduplicated: 6, errors: [] }));
   });
 
   it('atomically claims concurrent replays and rejects a mixed superset without duplicating the clinical row', async () => {
@@ -589,13 +2124,20 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
       importFhirBundle(bundle, IMPORTER, { tenantId: TENANT }),
       importFhirBundle(bundle, IMPORTER, { tenantId: TENANT }),
     ]);
-    expect(left.errors).toEqual([]);
-    expect(right.errors).toEqual([]);
-    expect(left.imported + right.imported).toBe(5);
-    expect(left.deduplicated + right.deduplicated).toBe(5);
+    const initialResults = [left, right];
+    expect(initialResults.filter(({ imported }) => imported === 6)).toHaveLength(1);
+    const concurrentReplay = initialResults.find(({ imported }) => imported === 0);
+    if (concurrentReplay.errors.length > 0) {
+      expect(concurrentReplay.errors).toHaveLength(6);
+      expect(concurrentReplay.errors.every(({ code }) => (
+        code === 'FHIR_OBSERVATION_EFFECTS_IN_PROGRESS'
+      ))).toBe(true);
+    } else {
+      expect(concurrentReplay.deduplicated).toBe(6);
+    }
 
     const subset = structuredClone(bundle);
-    subset.entry = subset.entry.slice(0, 2);
+    subset.entry = subset.entry.slice(1, 3);
     const subsetResult = await importFhirBundle(subset, IMPORTER, { tenantId: TENANT });
     expect(subsetResult).toEqual(expect.objectContaining({ imported: 0, deduplicated: 2, errors: [] }));
 
@@ -605,21 +2147,24 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
         resourceType: 'Observation',
         id: 'obs-dbp-receipt',
         status: 'final',
-        category: [{ coding: [{ code: 'vital-signs' }] }],
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
         code: { coding: [{ system: 'http://loinc.org', code: '8462-4' }] },
         subject: { reference: `Patient/${PATIENT}` },
         effectiveDateTime: observedAt,
         valueQuantity: { value: 70, code: 'mm[Hg]' },
       },
     });
+    superset.entry[0].resource.hasMember.push({ reference: 'Observation/obs-dbp-receipt' });
     const supersetResult = await importFhirBundle(superset, IMPORTER, { tenantId: TENANT });
     expect(supersetResult).toEqual(expect.objectContaining({ imported: 0, deduplicated: 0 }));
-    expect(supersetResult.errors).toHaveLength(6);
-    expect(supersetResult.errors[0].error).toMatch(/cannot be partially augmented/i);
+    expect(supersetResult.errors).toHaveLength(7);
+    expect(supersetResult.errors[0]).toEqual(expect.objectContaining({
+      code: 'FHIR_OBSERVATION_RESOURCE_ID_CONFLICT',
+    }));
     expect(supersetResult.observationPartitions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         status: 'error',
-        resourceCount: 6,
+        resourceCount: 7,
       }),
     ]));
 
@@ -663,9 +2208,9 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
           AND sets.observed_at = $3::timestamptz`,
       TENANT, PATIENT, new Date(observedAt),
     );
-    expect(receipts[0].count).toBe(5);
+    expect(receipts[0].count).toBe(6);
     expect(sets[0].count).toBe(1);
-    expect(links[0].count).toBe(5);
+    expect(links[0].count).toBe(6);
   });
 
   it('rejects a malformed known same-time component before writing any part of the set', async () => {
@@ -675,10 +2220,10 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
 
     const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
     expect(result.imported).toBe(0);
-    expect(result.errors).toHaveLength(5);
+    expect(result.errors).toHaveLength(6);
     expect(result.errors.some(({ error }) => /finite numeric Quantity value/i.test(error))).toBe(true);
     expect(result.observationPartitions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ status: 'error', resourceCount: 5 }),
+      expect.objectContaining({ status: 'error', resourceCount: 6 }),
     ]));
 
     const rows = await query(
@@ -689,17 +2234,29 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('rejects ambiguous overlapping same-time sets before any partition can commit', async () => {
+  it('rejects duplicate fields inside an explicit composite before any member can commit', async () => {
     const observedAt = new Date(Date.now() - 7 * 60 * 1000).toISOString();
     const bundle = heartRateBundle(observedAt, 80);
     const second = structuredClone(bundle.entry[0]);
     second.resource.id = 'obs-hr-overlap';
     second.resource.valueQuantity.value = 92;
     bundle.entry.push(second);
+    bundle.entry.unshift({
+      resource: {
+        resourceType: 'Observation',
+        id: `obs-duplicate-panel-${Date.now()}`,
+        status: 'final',
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+        code: { coding: [{ system: 'http://loinc.org', code: '85353-1' }] },
+        subject: { reference: `Patient/${PATIENT}` },
+        effectiveDateTime: observedAt,
+        hasMember: bundle.entry.map(({ resource }) => ({ reference: `Observation/${resource.id}` })),
+      },
+    });
 
     const result = await importFhirBundle(bundle, IMPORTER, { tenantId: TENANT });
     expect(result.imported).toBe(0);
-    expect(result.errors).toHaveLength(2);
+    expect(result.errors).toHaveLength(3);
     expect(result.errors[0].error).toMatch(/same canonical vital field/i);
 
     const rows = await query(

@@ -107,16 +107,32 @@ describe('C-H1 — SpO2 = 100 is normal, never CRITICAL', () => {
     setTenantTxMock.mockReset();
     emitCodeBlueMock.mockReset();
     emitVitalAnomalyMock.mockReset();
-    queryRawMock
-      .mockResolvedValueOnce([{ age_years: 50, is_pregnant: false }])
-      .mockResolvedValue([]);
+    queryRawMock.mockImplementation(async (sql) => {
+      if (/FOR (?:NO KEY )?UPDATE/i.test(sql)) {
+        return [{
+          id: PATIENT_ID,
+          uid: 'a1111111-2222-4333-8444-555555550042',
+          is_active: true,
+          status: 'active',
+          merged_into_uid: null,
+          is_deleted: false,
+        }];
+      }
+      if (/DATE_PART|maternity_pregnancies/i.test(sql)) {
+        return [{ age_years: 50, is_pregnant: false }];
+      }
+      return [];
+    });
+    setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(__prismaDefaultMock));
 
     const alerts = await checkVitalAnomalies(PATIENT_ID, { oxygen_saturation: 100 }, {
       recordedBy: 'nurse-uid',
+      tenantId: DEFAULT_TENANT_ID,
     });
 
     expect(alerts).toEqual([]);
-    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(queryRawMock.mock.calls.some((call) => /INSERT INTO clinical_alerts/i.test(call[0]))).toBe(false);
     expect(emitCodeBlueMock).not.toHaveBeenCalled();
     expect(emitVitalAnomalyMock).not.toHaveBeenCalled();
   });

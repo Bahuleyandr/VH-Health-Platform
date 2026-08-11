@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { fhirObservationToVitals, obxResultsToVitals } from '../fhir/observationVitalsMapper.js';
+import { prepareFhirVitalObservation } from '../import/patientDataImport.js';
 import { parseHL7 } from '../hl7/hl7Parser.js';
 import { assertLateRecoveryVitalsBoundary } from '../emr/vitalsChartService.js';
 import { createTask } from '../workflow/taskService.js';
@@ -29,7 +30,7 @@ const I15_RECOVERY_KEYS = new Set([
 const VITAL_COLUMNS = Object.freeze([
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg', 'height_cm',
-  'gcs_score',
+  'gcs_score', 'o2_flow_rate',
 ]);
 
 function refuse(message, code = 'EXTERNAL_RECOVERY_ENVELOPE_REFUSED', details = undefined) {
@@ -283,9 +284,17 @@ export function validateI15FhirRecovery({ tenantId, apiClientId, resource, recov
   if (resource?.resourceType !== 'Observation') refuse('I15 recovery accepts FHIR Observation only');
   const patientUid = fhirPatientUid(resource);
   if (!patientUid) refuse('FHIR Observation subject must be Patient/{uuid}');
+  let prepared;
+  try {
+    prepared = prepareFhirVitalObservation(resource, {
+      requireMappedValue: true,
+      requireVitalCategory: true,
+    });
+  } catch (error) {
+    refuse(error?.message || 'I15 recovery contains an invalid FHIR vital Observation');
+  }
   const mapping = fhirObservationToVitals(resource);
-  if (Object.keys(mapping.vitals).length === 0) refuse('I15 recovery contains no mappable vital-sign LOINC');
-  const occurredAt = requireTimestamp(mapping.effective, 'FHIR Observation effectiveDateTime or issued');
+  const occurredAt = requireTimestamp(prepared.recordedAt, 'FHIR Observation effectiveDateTime');
   const resourceSha = canonicalResourceSha256(resource);
   if (requireSha(envelope.resource_sha256, 'resource_sha256') !== resourceSha) refuse('resource_sha256 is not canonical');
   const eventIdentity = requireText(envelope.event_identity, 'event_identity', 255);
@@ -350,6 +359,9 @@ export async function persistLateVitalsRecovery({
   );
   if (patientRows.length !== 1) throw AppError.notFound('Recovery patient not found', 'EXTERNAL_RECOVERY_PATIENT_NOT_FOUND');
   const vitals = normalizedVitals(command);
+  const supplementalO2 = Object.prototype.hasOwnProperty.call(vitals, 'o2_flow_rate')
+    ? Number(vitals.o2_flow_rate) > 0
+    : null;
   const source = interfaceFamily === 'I09' ? 'device' : 'fhir';
   assertLateRecoveryVitalsBoundary({
     interfaceFamily,
@@ -389,19 +401,20 @@ export async function persistLateVitalsRecovery({
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO vitals_chart
        (tenant_id, patient_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
-        spo2, respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm,
-        gcs_score, supplemental_o2, notes, recorded_by, recorded_at, source,
-        source_device, device_verified, triage_acuity,
-        recovery_inbox_id, recovery_interface_family)
-     VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-        $12, $13::integer, false, $14::text, $15::uuid, $16::timestamptz,
-        $17::text, $18::text, $19::boolean, NULL, $20::uuid, $21::text)
-     RETURNING id, tenant_id::text, patient_uid::text, heart_rate, systolic_bp,
-       diastolic_bp, temperature, spo2, respiratory_rate, blood_glucose,
-       pain_score, weight_kg, height_cm, gcs_score, supplemental_o2, notes,
-       recorded_by::text, recorded_at, source, source_device, device_verified,
-       triage_acuity, recovery_inbox_id::text, recovery_interface_family`,
+         spo2, respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm,
+         gcs_score, o2_flow_rate, supplemental_o2, notes, recorded_by, recorded_at, source,
+         source_device, device_verified, triage_acuity,
+         recovery_inbox_id, recovery_interface_family)
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+         $12, $13::integer, $14, $15::boolean, $16::text, $17::uuid, $18::timestamptz,
+         $19::text, $20::text, $21::boolean, NULL, $22::uuid, $23::text)
+      RETURNING id, tenant_id::text, patient_uid::text, heart_rate, systolic_bp,
+        diastolic_bp, temperature, spo2, respiratory_rate, blood_glucose,
+        pain_score, weight_kg, height_cm, gcs_score, o2_flow_rate, supplemental_o2, notes,
+        recorded_by::text, recorded_at, source, source_device, device_verified,
+        triage_acuity, recovery_inbox_id::text, recovery_interface_family`,
     tenantId, patientUid, ...values,
+    supplementalO2,
     `Late ${interfaceFamily} recovery observation (${(command.mapped || []).join(', ')})`,
     command.actor_uid || null, occurredAt, source,
     interfaceFamily === 'I09' ? command.device_code : command.api_client_id,

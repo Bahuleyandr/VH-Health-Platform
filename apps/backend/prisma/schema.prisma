@@ -5678,6 +5678,16 @@ model fhir_vital_observation_sets {
   observed_at                          DateTime                               @db.Timestamptz(6)
   imported_by                          String                                 @db.Uuid
   vitals_chart_id                      Int?
+  news2_effects_completed_at           DateTime?                              @db.Timestamptz(6)
+  anomaly_effects_completed_at         DateTime?                              @db.Timestamptz(6)
+  news2_effects_claimed_at             DateTime?                              @db.Timestamptz(6)
+  news2_effects_claim_token            String?                                @db.Uuid
+  news2_effects_attempts               Int                                    @default(0)
+  news2_effects_next_retry_at          DateTime?                              @db.Timestamptz(6)
+  anomaly_effects_claimed_at           DateTime?                              @db.Timestamptz(6)
+  anomaly_effects_claim_token          String?                                @db.Uuid
+  anomaly_effects_attempts             Int                                    @default(0)
+  anomaly_effects_next_retry_at        DateTime?                              @db.Timestamptz(6)
   created_at                           DateTime                               @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
   fhir_vital_observation_set_resources fhir_vital_observation_set_resources[]
   importer                             users                                  @relation("fhir_vital_observation_set_importer", fields: [tenant_id, imported_by], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_vital_observation_set_importer")
@@ -5688,6 +5698,7 @@ model fhir_vital_observation_sets {
   @@id([tenant_id, set_fingerprint])
   @@unique([tenant_id, vitals_chart_id], map: "ux_fhir_vital_observation_set_vitals")
   @@index([tenant_id, patient_uid, observed_at(sort: Desc)], map: "idx_fhir_vital_observation_sets_patient")
+  @@index([tenant_id, created_at, set_fingerprint], map: "idx_fhir_vital_observation_sets_pending_effects", where: raw("((vitals_chart_id IS NOT NULL) AND ((news2_effects_completed_at IS NULL) OR (anomaly_effects_completed_at IS NULL)))"))
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -7215,7 +7226,7 @@ model news2_scores {
   respiration_rate   Decimal?       @db.Decimal(6, 2)
   spo2               Decimal?       @db.Decimal(6, 2)
   spo2_scale         Int            @default(1)
-  supplemental_o2    Boolean        @default(false)
+  supplemental_o2    Boolean?       @default(false)
   temperature        Decimal?       @db.Decimal(5, 2)
   systolic_bp        Decimal?       @db.Decimal(6, 2)
   heart_rate         Decimal?       @db.Decimal(6, 2)

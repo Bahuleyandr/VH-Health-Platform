@@ -57,19 +57,29 @@ const { checkVitalAnomalies } = await import('../../utils/clinical/vitalSignMoni
 
 const PATIENT_ID = 7777;
 const PATIENT_UID = 'd0000000-1111-4222-8333-aaaaaaaa9912';
+const PATIENT_TENANT = 'd0000000-1111-4222-8333-aaaaaaaa9913';
 
 function setupPatient({ isPregnant }) {
   queryRawMock.mockReset();
   executeRawMock.mockReset();
-  // resolvePatientContext is one query returning {age_years, is_pregnant}.
-  // The cds_alerts mirror runs a follow-up users SELECT for uid; supply
-  // it second so it lands when the mirror actually fires.
-  queryRawMock
-    .mockResolvedValueOnce([{ age_years: 30, is_pregnant: isPregnant }])
-    .mockResolvedValueOnce([{ uid: PATIENT_UID }])
-    // Subsequent clinical_alerts INSERTs use $queryRawUnsafe too; an
-    // empty-array result is harmless for the INSERT pattern.
-    .mockResolvedValue([]);
+  let alertId = 7000;
+  queryRawMock.mockImplementation(async (sql) => {
+    if (/FOR (?:NO KEY )?UPDATE/i.test(sql)) {
+      return [{
+        id: PATIENT_ID,
+        uid: PATIENT_UID,
+        is_active: true,
+        status: 'active',
+        merged_into_uid: null,
+        is_deleted: false,
+      }];
+    }
+    if (/DATE_PART|maternity_pregnancies/i.test(sql)) {
+      return [{ age_years: 30, is_pregnant: isPregnant }];
+    }
+    if (/INSERT INTO clinical_alerts/i.test(sql)) return [{ id: ++alertId }];
+    return [];
+  });
   executeRawMock.mockResolvedValue(1);
 }
 
@@ -80,7 +90,7 @@ describe('checkVitalAnomalies — pregnancy BP mirror to cds_alerts (H D26)', ()
     const alerts = await checkVitalAnomalies(PATIENT_ID, {
       systolic_bp: 142,
       diastolic_bp: 91,
-    }, { recordedBy: 'nurse-uid' });
+    }, { recordedBy: 'nurse-uid', tenantId: PATIENT_TENANT });
 
     // The systolic+diastolic both trip the >139/89 WARNING (pregnancy
     // override), so two pregnancy-BP alerts fire. Both should mirror.
@@ -101,7 +111,7 @@ describe('checkVitalAnomalies — pregnancy BP mirror to cds_alerts (H D26)', ()
       systolic_bp: 145,
       diastolic_bp: 92,
       urine_albumin: '2+',
-    }, { recordedBy: 'nurse-uid' });
+    }, { recordedBy: 'nurse-uid', tenantId: PATIENT_TENANT });
 
     const cdsCalls = executeRawMock.mock.calls.filter((args) =>
       /INSERT INTO cds_alerts/.test(args[0]),
@@ -122,7 +132,7 @@ describe('checkVitalAnomalies — pregnancy BP mirror to cds_alerts (H D26)', ()
     const alerts = await checkVitalAnomalies(PATIENT_ID, {
       systolic_bp: 165,
       diastolic_bp: 105,
-    }, { recordedBy: 'nurse-uid' });
+    }, { recordedBy: 'nurse-uid', tenantId: PATIENT_TENANT });
 
     // High-BP alerts still land in clinical_alerts but cds_alerts must
     // NOT be touched — the pregnancy-BP mirror only fires for

@@ -45,6 +45,27 @@ const PATIENT_ID = 4321;
 const PATIENT_UID = '11111111-2222-4333-8444-555555555555';
 const PATIENT_TENANT = '22222222-2222-4222-8222-222222222222';
 
+function mockActivePatient({ repeatRows = [], alertId = 7001 } = {}) {
+  queryRawMock.mockImplementation(async (sql) => {
+    if (/FOR (?:NO KEY )?UPDATE/i.test(sql)) {
+      return [{
+        id: PATIENT_ID,
+        uid: PATIENT_UID,
+        is_active: true,
+        status: 'active',
+        merged_into_uid: null,
+        is_deleted: false,
+      }];
+    }
+    if (/DATE_PART|maternity_pregnancies/i.test(sql)) {
+      return [{ age_years: 55, is_pregnant: false }];
+    }
+    if (/acknowledged_at IS NULL/i.test(sql)) return repeatRows;
+    if (/INSERT INTO clinical_alerts/i.test(sql)) return [{ id: alertId }];
+    return [];
+  });
+}
+
 describe('checkVitalAnomalies device-source policy', () => {
   beforeEach(() => {
     queryRawMock.mockReset();
@@ -56,18 +77,17 @@ describe('checkVitalAnomalies device-source policy', () => {
     emitCodeBlueMock.mockReset();
     setTenantTxMock.mockImplementation((_tenantId, fn) => fn(prismaMock));
     enqueueCriticalResultTaskMock.mockResolvedValue({ created: true, taskId: 1 });
-    queryRawMock.mockResolvedValue([]);
+    mockActivePatient();
     executeRawMock.mockResolvedValue(1);
   });
 
   it('does not persist or fan out an uncorroborated device artifact breach', async () => {
-    queryRawMock.mockResolvedValueOnce([{ age_years: 55, is_pregnant: false }]);
-
     const alerts = await checkVitalAnomalies(
       PATIENT_ID,
       { oxygen_saturation: 80 },
       {
         source: 'device',
+        tenantId: PATIENT_TENANT,
         recordedBy: 'device-service-principal',
         artifactVerdicts: {
           oxygen_saturation: { corroborated: false, required: 2, window: 3 },
@@ -76,21 +96,20 @@ describe('checkVitalAnomalies device-source policy', () => {
     );
 
     expect(alerts).toEqual([]);
-    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
     expect(dispatchMock).not.toHaveBeenCalled();
     expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
   });
 
   it('suppresses an unacknowledged repeat device alert inside the configured window', async () => {
-    queryRawMock
-      .mockResolvedValueOnce([{ age_years: 55, is_pregnant: false }])
-      .mockResolvedValueOnce([{ id: 99 }]);
+    mockActivePatient({ repeatRows: [{ id: 99 }] });
 
     const alerts = await checkVitalAnomalies(
       PATIENT_ID,
       { oxygen_saturation: 80 },
       {
         source: 'device',
+        tenantId: PATIENT_TENANT,
         recordedBy: 'device-service-principal',
         suppressRepeats: true,
         suppressionWindows: { CRITICAL: 10 },
@@ -98,24 +117,22 @@ describe('checkVitalAnomalies device-source policy', () => {
     );
 
     expect(alerts).toEqual([]);
-    expect(queryRawMock.mock.calls[1][0]).toContain('acknowledged_at IS NULL');
-    expect(queryRawMock.mock.calls[1][4]).toBe(10);
-    expect(setTenantTxMock).not.toHaveBeenCalled();
+    const repeatCall = queryRawMock.mock.calls.find((call) => /acknowledged_at IS NULL/i.test(call[0]));
+    expect(repeatCall).toBeTruthy();
+    expect(repeatCall[4]).toBe(10);
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
     expect(dispatchMock).not.toHaveBeenCalled();
   });
 
   it('re-arms after acknowledgement and skips recorded_by push for device CRITICAL alerts', async () => {
-    queryRawMock
-      .mockResolvedValueOnce([{ age_years: 55, is_pregnant: false }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ uid: PATIENT_UID, tenant_id: PATIENT_TENANT }])
-      .mockResolvedValueOnce([{ id: 7001 }]);
+    mockActivePatient({ repeatRows: [], alertId: 7001 });
 
     const alerts = await checkVitalAnomalies(
       PATIENT_ID,
       { oxygen_saturation: 80 },
       {
         source: 'device',
+        tenantId: PATIENT_TENANT,
         recordedBy: 'device-service-principal',
         suppressRepeats: true,
         suppressionWindows: { CRITICAL: 10 },

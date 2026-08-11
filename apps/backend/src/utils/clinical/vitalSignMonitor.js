@@ -1,6 +1,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import Sentry from '../sentry.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../AppError.js';
 import { dispatch } from '../notifications/notificationDispatcher.js';
 import { emitVitalAnomaly, emitCodeBlue } from '../websocket/realtimeEmitter.js';
 // Results-inbox safety net (design docs/RESULTS_INBOX_ESCALATION_DESIGN.md §4.2):
@@ -51,6 +52,54 @@ const PAEDIATRIC_RANGES = {
   blood_glucose: { min: 60, max: 180, critical_min: 40, critical_max: 400, unit: 'mg/dL' },
 };
 
+async function lockActivePatientForAlert(tx, tenantId, patientId) {
+  const visited = new Set();
+  let lookupById = true;
+  let current = patientId;
+  for (let depth = 0; depth <= 16; depth += 1) {
+    const rows = lookupById
+      ? await tx.$queryRawUnsafe(
+        `SELECT id, uid::text AS uid, is_active, status,
+                merged_into_uid::text AS merged_into_uid,
+                COALESCE(is_deleted, false) AS is_deleted
+           FROM users
+          WHERE tenant_id = $1::uuid AND id = $2::int AND role = 'PATIENT'
+          FOR UPDATE`,
+        tenantId,
+        current,
+      )
+      : await tx.$queryRawUnsafe(
+        `SELECT id, uid::text AS uid, is_active, status,
+                merged_into_uid::text AS merged_into_uid,
+                COALESCE(is_deleted, false) AS is_deleted
+           FROM users
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid AND role = 'PATIENT'
+          FOR UPDATE`,
+        tenantId,
+        current,
+      );
+    const patient = rows[0];
+    if (!patient) throw AppError.notFound('Patient not found');
+    if (visited.has(patient.uid)) {
+      throw AppError.conflict('Patient merge survivor chain is cyclic', 'ALERT_PATIENT_MERGE_CHAIN_INVALID');
+    }
+    visited.add(patient.uid);
+    if (patient.merged_into_uid) {
+      lookupById = false;
+      current = patient.merged_into_uid;
+      continue;
+    }
+    if (patient.is_active !== true || patient.is_deleted || patient.status === 'merged') {
+      throw AppError.conflict(
+        'Patient is inactive and has no active merge survivor',
+        'ALERT_PATIENT_INACTIVE',
+      );
+    }
+    return patient;
+  }
+  throw AppError.conflict('Patient merge survivor chain is too deep', 'ALERT_PATIENT_MERGE_CHAIN_INVALID');
+}
+
 /**
  * Pregnancy-specific BP thresholds. Gestational hypertension is ≥140
  * systolic OR ≥90 diastolic; severe / pre-eclampsia is ≥160 / ≥110. Other
@@ -74,10 +123,10 @@ const PREGNANCY_BP_OVERRIDES = {
  * range table. Best-effort — if the lookup fails we fall back to adult
  * ranges (caller is unaffected, no exception escapes).
  */
-export async function resolvePatientContext(patientId) {
+export async function resolvePatientContext(patientId, { db = prisma, strict = false } = {}) {
   if (!patientId) return { isPaediatric: false, isPregnant: false };
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `SELECT
          CASE WHEN u.birthday IS NOT NULL THEN
            DATE_PART('year', AGE(NOW()::date, u.birthday))::int
@@ -101,6 +150,7 @@ export async function resolvePatientContext(patientId) {
     const isPregnant = row.is_pregnant === true;
     return { isPaediatric, isPregnant, ageYears };
   } catch (err) {
+    if (strict) throw err;
     logger.warn(`vitalSignMonitor: patient context lookup failed for patient=${patientId}: ${err.message}`);
     return { isPaediatric: false, isPregnant: false };
   }
@@ -188,36 +238,17 @@ export function normalizeTemperatureC(value, unit) {
   return num;
 }
 
-/**
- * Check vitals against reference ranges and generate alerts for abnormal values.
- * Call this after any vital sign is recorded.
- * @param {number} patientId - Patient DB ID
- * @param {Object} vitals - { heart_rate, systolic_bp, diastolic_bp, temperature, oxygen_saturation, ... }
- * @param {Object} context - { recordedBy, requestId, tenantId? } — tenantId,
- *   when supplied by a caller that already resolved the patient's tenant,
- *   scopes the alert persistence without a users lookup
- * @returns {Array} alerts - Array of generated alerts
- */
-export async function checkVitalAnomalies(patientId, vitals, context = {}) {
+function buildVitalAlerts(patientId, vitals, context, patientCtx) {
   const alerts = [];
-
-  const patientCtx = await resolvePatientContext(patientId);
   const ranges = pickRanges(patientCtx);
-
   for (const [vitalName, value] of Object.entries(vitals)) {
     if (value === null || !ranges[vitalName]) continue;
-
     const range = ranges[vitalName];
-    // Temperature thresholds are encoded in Celsius. Normalize the reading to
-    // Celsius (honoring an explicit `temperature_unit`, else inferring by
-    // range) before comparing — otherwise a Fahrenheit value (e.g. 100.4°F)
-    // is checked against Celsius limits and trips a false CRITICAL alert.
-    // Finding 2026-05-21-walk-in-opd-doctor-126619d3.
     const rawValue = vitalName === 'temperature'
       ? normalizeTemperatureC(value, vitals.temperature_unit)
       : value;
     const numValue = parseFloat(rawValue);
-    if (isNaN(numValue)) continue;
+    if (Number.isNaN(numValue)) continue;
 
     let severity = null;
     if (numValue <= range.critical_min || numValue >= range.critical_max) {
@@ -225,38 +256,30 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
     } else if (numValue < range.min || numValue > range.max) {
       severity = 'WARNING';
     }
+    if (!severity) continue;
 
-    if (severity) {
-      const cohortLabel = patientCtx.isPaediatric
-        ? `paediatric${patientCtx.ageYears != null ? `, age ${patientCtx.ageYears}y` : ''}`
-        : patientCtx.isPregnant
-          ? 'pregnant'
-          : 'adult';
-      const direction = numValue < range.min ? 'low' : 'high';
-      const isPreeclampsiaSignal = range.preeclampsia === true && direction === 'high';
-      const message = isPreeclampsiaSignal
-        ? `Pregnancy-induced hypertension: ${vitalName.replace(/_/g, ' ')} ${numValue}${range.unit} is ${severity === 'CRITICAL' ? 'critically high — possible severe pre-eclampsia' : 'high — recheck BP and dipstick urine for proteinuria'} (${cohortLabel} normal: ${range.min}-${range.max}${range.unit}).`
-        : `${vitalName.replace(/_/g, ' ')} ${numValue}${range.unit} is ${severity === 'CRITICAL' ? 'critically' : ''} ${direction} (${cohortLabel} normal: ${range.min}-${range.max}${range.unit})`;
-
-      const alert = {
-        patient_id: patientId,
-        vital_name: vitalName,
-        value: numValue,
-        unit: range.unit,
-        severity,
-        normal_range: `${range.min}-${range.max}`,
-        cohort: cohortLabel,
-        message,
-        recorded_by: context.recordedBy,
-        // D26 — flag the pregnancy-hypertension subset so it ALSO gets
-        // persisted to cds_alerts below. Without this, gestational HTN
-        // warnings landed only in clinical_alerts and never surfaced on
-        // the doctor's CDS dashboard, which is the screen they actually
-        // look at during the ANC visit. Finding b6dc4ea4.
-        is_pregnancy_bp_signal: isPreeclampsiaSignal,
-      };
-      alerts.push(alert);
-    }
+    const cohortLabel = patientCtx.isPaediatric
+      ? `paediatric${patientCtx.ageYears != null ? `, age ${patientCtx.ageYears}y` : ''}`
+      : patientCtx.isPregnant
+        ? 'pregnant'
+        : 'adult';
+    const direction = numValue < range.min ? 'low' : 'high';
+    const isPreeclampsiaSignal = range.preeclampsia === true && direction === 'high';
+    const message = isPreeclampsiaSignal
+      ? `Pregnancy-induced hypertension: ${vitalName.replace(/_/g, ' ')} ${numValue}${range.unit} is ${severity === 'CRITICAL' ? 'critically high — possible severe pre-eclampsia' : 'high — recheck BP and dipstick urine for proteinuria'} (${cohortLabel} normal: ${range.min}-${range.max}${range.unit}).`
+      : `${vitalName.replace(/_/g, ' ')} ${numValue}${range.unit} is ${severity === 'CRITICAL' ? 'critically' : ''} ${direction} (${cohortLabel} normal: ${range.min}-${range.max}${range.unit})`;
+    alerts.push({
+      patient_id: patientId,
+      vital_name: vitalName,
+      value: numValue,
+      unit: range.unit,
+      severity,
+      normal_range: `${range.min}-${range.max}`,
+      cohort: cohortLabel,
+      message,
+      recorded_by: context.recordedBy,
+      is_pregnancy_bp_signal: isPreeclampsiaSignal,
+    });
   }
 
   const systolic = vitals.systolic_bp == null ? null : Number(vitals.systolic_bp);
@@ -274,122 +297,95 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       cohort: 'pregnant',
       message: `Positive pre-eclampsia screen: BP ${systolic ?? '?'}/${diastolic ?? '?'} with urine protein ${vitals.urine_albumin}. Escalate for obstetric review and repeat BP/protein assessment.`,
       recorded_by: context.recordedBy,
-      // D26 — preeclampsia screen always belongs on the CDS dashboard.
       is_pregnancy_bp_signal: true,
     });
   }
+  return alerts;
+}
 
-  if (alerts.length > 0 && context.source === 'device') {
-    const filteredAlerts = [];
-    for (const alert of alerts) {
-      const artifactVerdict = context.artifactVerdicts?.[alert.vital_name];
-      if (artifactVerdict && artifactVerdict.corroborated === false) {
-        continue;
+/**
+ * Check vitals against reference ranges and generate alerts for abnormal values.
+ * Call this after any vital sign is recorded.
+ * @param {number} patientId - Patient DB ID
+ * @param {Object} vitals - { heart_rate, systolic_bp, diastolic_bp, temperature, oxygen_saturation, ... }
+ * @param {Object} context - { recordedBy, requestId, tenantId?, onClinicalAlertsPersisted? } — tenantId,
+ *   when supplied by a caller that already resolved the patient's tenant,
+ *   scopes the alert persistence without a users lookup. The optional
+ *   onClinicalAlertsPersisted hook runs in the same transaction as alert
+ *   persistence (or in an empty tenant transaction when there are no alerts).
+ * @returns {Array} alerts - Array of generated alerts
+ */
+export async function checkVitalAnomalies(patientId, vitals, context = {}) {
+  const contextTenantId = typeof context.tenantId === 'string' && context.tenantId.trim() !== ''
+    ? context.tenantId
+    : null;
+  let alertPatientTenantId = contextTenantId;
+  if (!alertPatientTenantId) {
+    const tenantRows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id::text AS tenant_id FROM users WHERE id = $1::int LIMIT 1`,
+      patientId,
+    );
+    alertPatientTenantId = tenantRows[0]?.tenant_id ?? null;
+  }
+  const persistTenantId = requireTenantId(alertPatientTenantId);
+  let alerts = [];
+  let persisted = [];
+  let classificationCompleted = false;
+  let patientCtx = { isPaediatric: false, isPregnant: false, ageYears: null };
+  let alertPatientUid = null;
+  try {
+    persisted = await setTenantTx(persistTenantId, async (tx) => {
+      const activePatient = await lockActivePatientForAlert(tx, persistTenantId, patientId);
+      alertPatientUid = activePatient.uid;
+      patientCtx = await resolvePatientContext(activePatient.id, { db: tx, strict: true });
+      alerts = buildVitalAlerts(activePatient.id, vitals, context, patientCtx);
+      classificationCompleted = true;
+
+      if (alerts.length > 0 && context.source === 'device') {
+        const filteredAlerts = [];
+        for (const alert of alerts) {
+          const artifactVerdict = context.artifactVerdicts?.[alert.vital_name];
+          if (artifactVerdict && artifactVerdict.corroborated === false) continue;
+          if (await hasOpenDeviceRepeat(alert, context, tx)) continue;
+          filteredAlerts.push(alert);
+        }
+        alerts = filteredAlerts;
       }
-      if (await hasOpenDeviceRepeat(alert, context)) {
-        continue;
+
+      const rows = [];
+      for (const alert of alerts) {
+        const alertRows = await tx.$queryRawUnsafe(
+          `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
+           VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())
+           RETURNING id`,
+          alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by,
+        );
+        rows.push({ alert, clinicalAlertId: alertRows[0]?.id ?? null });
       }
-      filteredAlerts.push(alert);
-    }
-    alerts.splice(0, alerts.length, ...filteredAlerts);
+      if (typeof context.onClinicalAlertsPersisted === 'function') {
+        await context.onClinicalAlertsPersisted({ tx, alerts: rows });
+      }
+      return rows;
+    });
+  } catch (persistErr) {
+    const hasCritical = !classificationCompleted
+      || alerts.some((alert) => alert.severity === 'CRITICAL');
+    const detail = alerts.map((alert) => `${alert.vital_name}=${alert.value} (${alert.severity})`).join(', ');
+    logger.error(
+      `${hasCritical ? 'vitalSignMonitor: CRITICAL clinical alert' : 'vitalSignMonitor: clinical alert'} persistence FAILED for patient ${patientId} [${detail}]: ${persistErr?.message}`,
+    );
+    Sentry.captureException(persistErr, {
+      level: hasCritical ? 'fatal' : 'error',
+      tags: {
+        subsystem: 'clinical_alerts',
+        ...(hasCritical ? { severity: 'CRITICAL' } : {}),
+      },
+      extra: { patientId, alerts: detail },
+    });
+    throw persistErr;
   }
 
-  // PATIENT SAFETY: Alerts are persisted ATOMICALLY — every clinical_alerts
-  // row for this vitals write commits together or not at all. The previous
-  // implementation INSERTed each alert in its own auto-committing statement and
-  // the caller downgraded a failure to a warn, so a second simultaneous CRITICAL
-  // vital could be dropped while the POST still returned 200. Now the fan-out
-  // runs inside ONE setTenantTx, and a CRITICAL-alert persistence failure is a
-  // high-severity error (Sentry + logger.error) that PROPAGATES to the caller —
-  // it is never silently lost.
   if (alerts.length > 0) {
-    const hasCritical = alerts.some((a) => a.severity === 'CRITICAL');
-
-    // Resolve the patient UUID + tenant ONCE for every consumer below: the
-    // cds_alerts mirror (uuid-keyed), the results-inbox producer hook, and —
-    // load-bearing for EVERY severity — the persistence transaction scope.
-    // clinical_alerts carries a tenant_id whose DEFAULT reads the
-    // `app.current_tenant_id` GUC, so wrapping the INSERT in
-    // setTenantTx(tenant) stamps the row with the PATIENT's tenant instead of
-    // the single-tenant fallback. Previously the tenant lookup ran only when
-    // a CRITICAL fired, so WARNING-only batches were persisted under the
-    // default tenant (or threw TENANT_CONTEXT_REQUIRED post-commit when the
-    // default-tenant fallback is disabled). A caller that already resolved
-    // the tenant (e.g. vitalsChartService.recordVitals) passes it via
-    // `context.tenantId` and wins; the users lookup is the fallback for
-    // callers that only hold the int patient_id.
-    const contextTenantId = typeof context.tenantId === 'string' && context.tenantId.trim() !== ''
-      ? context.tenantId
-      : null;
-    let alertPatientUid = null;
-    let alertPatientTenantId = contextTenantId;
-    // The uid is only consumed by the pregnancy CDS mirror and the CRITICAL
-    // fan-out; skip the lookup entirely when neither needs it AND the tenant
-    // is already known.
-    const needsUidLookup = hasCritical || alerts.some((a) => a.is_pregnancy_bp_signal);
-    if (needsUidLookup || !alertPatientTenantId) {
-      try {
-        const r = await prisma.$queryRawUnsafe(
-          `SELECT uid, tenant_id FROM users WHERE id = $1::int LIMIT 1`,
-          patientId,
-        );
-        alertPatientUid = r[0]?.uid ?? null;
-        alertPatientTenantId = alertPatientTenantId ?? r[0]?.tenant_id ?? null;
-      } catch (err) {
-        logger.warn(`vitalSignMonitor: patient uid/tenant lookup failed for alert persistence: ${err.message}`);
-        // Persistence still proceeds under the context/default tenant so a
-        // clinical alert is never dropped for a failed tenant lookup.
-      }
-    }
-    const persistTenantId = requireTenantId(alertPatientTenantId);
-
-    // ---- Phase 1: atomic persistence of the clinical_alerts fan-out ----
-    // Only the load-bearing safety rows live in the transaction so it stays
-    // clean (per the Phase 0/1/2 rule: NO swallowed best-effort calls inside a
-    // $transaction — a swallowed Prisma error would poison the tx). The
-    // cds_alerts mirror, realtime emits, notification dispatch, and the
-    // results-inbox enqueue are all post-commit (Phase 1.5) below.
-    let persisted;
-    try {
-      persisted = await setTenantTx(persistTenantId, async (tx) => {
-        const rows = [];
-        for (const alert of alerts) {
-          const alertRows = await tx.$queryRawUnsafe(
-            `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
-             VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())
-             RETURNING id`,
-            alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by,
-          );
-          rows.push({ alert, clinicalAlertId: alertRows[0]?.id ?? null });
-        }
-        return rows;
-      });
-    } catch (persistErr) {
-      // A CRITICAL vital alert must NEVER be silently lost. Escalate as a
-      // high-severity error (Sentry + logger.error) and re-throw so the caller
-      // (and monitoring) sees the failure instead of a swallowed warn / 200.
-      const detail = alerts.map((a) => `${a.vital_name}=${a.value} (${a.severity})`).join(', ');
-      if (hasCritical) {
-        logger.error(
-          `vitalSignMonitor: CRITICAL clinical alert persistence FAILED for patient ${patientId} [${detail}]: ${persistErr?.message}`,
-        );
-        Sentry.captureException(persistErr, {
-          level: 'fatal',
-          tags: { subsystem: 'clinical_alerts', severity: 'CRITICAL' },
-          extra: { patientId, alerts: detail },
-        });
-      } else {
-        logger.error(
-          `vitalSignMonitor: clinical alert persistence failed for patient ${patientId} [${detail}]: ${persistErr?.message}`,
-        );
-        Sentry.captureException(persistErr, {
-          level: 'error',
-          tags: { subsystem: 'clinical_alerts' },
-          extra: { patientId, alerts: detail },
-        });
-      }
-      throw persistErr;
-    }
 
     // ---- Phase 1.5: post-commit best-effort fan-out ----
     // The clinical_alerts rows are now durably committed. Each side effect
@@ -517,6 +513,7 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
               // The recording clinician is the natural first owner; null falls
               // the producer back to the DUTY role.
               orderingClinicianUid: null,
+              resolveMergedPatient: true,
             });
           } catch (enqueueErr) {
             logger.error(`vitalSignMonitor: results-inbox enqueue failed for critical alert (patient_id=${alert.patient_id}): ${enqueueErr?.message}`);
@@ -537,13 +534,13 @@ function isCodeBlueVital(name) {
   return CODE_BLUE_VITALS.has(name);
 }
 
-async function hasOpenDeviceRepeat(alert, context) {
+async function hasOpenDeviceRepeat(alert, context, db = prisma) {
   if (!context.suppressRepeats) return false;
   const windows = context.suppressionWindows || {};
   const fallback = alert.severity === 'CRITICAL' ? 10 : 30;
   const windowMinutes = Math.max(1, Math.min(Number.parseInt(windows[alert.severity] ?? fallback, 10) || fallback, 240));
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `SELECT id
          FROM clinical_alerts
         WHERE patient_id = $1::int

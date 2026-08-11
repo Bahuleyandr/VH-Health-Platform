@@ -25,12 +25,28 @@ describe('migration 656 static deploy-safety contract', () => {
     expect(migrationSql).toMatch(/CREATE TABLE IF NOT EXISTS public\.fhir_vital_observation_receipts/);
     expect(migrationSql).toMatch(/CREATE TABLE IF NOT EXISTS public\.fhir_vital_observation_sets/);
     expect(migrationSql).toMatch(/CREATE TABLE IF NOT EXISTS public\.fhir_vital_observation_set_resources/);
+    expect(migrationSql).toMatch(/ALTER COLUMN supplemental_o2 DROP NOT NULL/);
     expect(migrationSql).toMatch(/UNIQUE \(tenant_id, resource_fingerprint\)/);
+    expect(migrationSql).toMatch(/news2_effects_completed_at TIMESTAMPTZ\(6\)/);
+    expect(migrationSql).toMatch(/anomaly_effects_completed_at TIMESTAMPTZ\(6\)/);
+    expect(migrationSql).toMatch(/news2_effects_claim_token UUID/);
+    expect(migrationSql).toMatch(/anomaly_effects_claim_token UUID/);
+    expect(migrationSql).toMatch(/news2_effects_next_retry_at TIMESTAMPTZ\(6\)/);
+    expect(migrationSql).toMatch(/anomaly_effects_next_retry_at TIMESTAMPTZ\(6\)/);
+    expect(migrationSql).toMatch(/chk_fhir_vital_observation_set_effects_immutable/);
+    expect(migrationSql).toMatch(/chk_fhir_vital_observation_set_news2_claim/);
+    expect(migrationSql).toMatch(/chk_fhir_vital_observation_set_anomaly_claim/);
+    expect(migrationSql.match(/DEFERRABLE INITIALLY IMMEDIATE/g)).toHaveLength(4);
+    expect(migrationSql).toMatch(/fhir_vital_observation_set_scope_deferred/);
+    expect(migrationSql).toMatch(/app\.patient_merge_execution/);
+    expect(migrationSql).toMatch(/fhir_vital_observation_receipt_update_guard/);
+    expect(migrationSql).toMatch(/chk_fhir_vital_observation_receipt_immutable/);
+    expect(migrationSql).toMatch(/chk_fhir_vital_observation_receipt_scope_deferred/);
 
     expect(migrationSql).not.toMatch(/DROP INDEX public\./i);
-    expect(migrationSql.match(/NOT indisvalid/g)).toHaveLength(3);
-    expect(migrationSql.match(/ALTER INDEX public\.(?:idx|ux)_fhir_vital_observation_/g)).toHaveLength(3);
-    expect(migrationSql.match(/DROP INDEX CONCURRENTLY IF EXISTS public\.(?:idx|ux)_fhir_vital_\w+_invalid_rebuild/g)).toHaveLength(6);
+    expect(migrationSql.match(/NOT indisvalid/g)).toHaveLength(4);
+    expect(migrationSql.match(/ALTER INDEX public\.(?:idx|ux)_fhir_vital_observation_/g)).toHaveLength(4);
+    expect(migrationSql.match(/DROP INDEX CONCURRENTLY IF EXISTS public\.(?:idx|ux)_fhir_vital_\w+_invalid_rebuild/g)).toHaveLength(8);
     expect(migrationSql).toMatch(
       /CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_fhir_vital_observation_receipt_logical_resource/,
     );
@@ -40,6 +56,9 @@ describe('migration 656 static deploy-safety contract', () => {
     expect(migrationSql).toMatch(
       /CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fhir_vital_observation_sets_patient/,
     );
+    expect(migrationSql).toMatch(
+      /CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fhir_vital_observation_sets_pending_effects/,
+    );
   });
 });
 
@@ -48,6 +67,10 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
   const scratchName = `vh_p2_m656_${process.pid}_${Date.now().toString(36)}`;
   let admin;
   let scratch;
+  let scratchUrl;
+  const runtimeRole = `vh_p2_runtime_${process.pid}_${Date.now().toString(36)}`;
+  const migrationRuntimeRole = 'vhhealth_runtime';
+  let createdMigrationRuntimeRole = false;
 
   beforeAll(async () => {
     if (!/^[a-z0-9_]+$/.test(scratchName)) throw new Error('Unsafe scratch database name');
@@ -55,9 +78,17 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
     adminUrl.pathname = '/postgres';
     admin = new Client({ connectionString: adminUrl.toString() });
     await admin.connect();
+    const existingMigrationRuntimeRole = await admin.query(
+      `SELECT 1 FROM pg_roles WHERE rolname = $1`,
+      [migrationRuntimeRole],
+    );
+    if (existingMigrationRuntimeRole.rowCount === 0) {
+      await admin.query(`CREATE ROLE ${migrationRuntimeRole} NOLOGIN`);
+      createdMigrationRuntimeRole = true;
+    }
     await admin.query(`CREATE DATABASE ${scratchName}`);
 
-    const scratchUrl = new URL(sourceUrl);
+    scratchUrl = new URL(sourceUrl);
     scratchUrl.pathname = `/${scratchName}`;
     scratch = new Client({ connectionString: scratchUrl.toString() });
     await scratch.connect();
@@ -76,6 +107,18 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
         source_device VARCHAR(120),
         recorded_at TIMESTAMPTZ(6) NOT NULL
       );
+      CREATE TABLE public.news2_scores (
+        id SERIAL PRIMARY KEY,
+        supplemental_o2 BOOLEAN NOT NULL DEFAULT false
+      );
+      CREATE TABLE public.patient_merge_requests (
+        id SERIAL PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES public.tenants(id),
+        primary_uid UUID NOT NULL,
+        secondary_uid UUID,
+        status VARCHAR(20) NOT NULL,
+        continuity_disposition VARCHAR(32)
+      );
       CREATE FUNCTION public.app_current_tenant_id_uuid()
       RETURNS UUID LANGUAGE sql STABLE AS $$
         SELECT NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass')::uuid
@@ -87,6 +130,10 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
     await scratch?.end().catch(() => {});
     if (admin) {
       await admin.query(`DROP DATABASE IF EXISTS ${scratchName} WITH (FORCE)`).catch(() => {});
+      await admin.query(`DROP ROLE IF EXISTS ${runtimeRole}`).catch(() => {});
+      if (createdMigrationRuntimeRole) {
+        await admin.query(`DROP ROLE IF EXISTS ${migrationRuntimeRole}`).catch(() => {});
+      }
       await admin.end().catch(() => {});
     }
   });
@@ -142,6 +189,9 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
       await scratch.query(statement);
     }
     await scratch.query(
+      `GRANT UPDATE ON public.fhir_vital_observation_sets TO ${migrationRuntimeRole}`,
+    );
+    await scratch.query(
       `CREATE INDEX idx_fhir_vital_observation_sets_patient
          ON fhir_vital_observation_sets (tenant_id, patient_uid, observed_at DESC)`,
     );
@@ -188,6 +238,20 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
     expect(atCutPoint.rows[0].count).toBe(1);
 
     for (const statement of statements.slice(cutPoint + 1)) await scratch.query(statement);
+    const migrationOnlyPrivileges = await scratch.query(
+      `SELECT
+         has_table_privilege($1, 'public.fhir_vital_observation_sets', 'UPDATE') AS table_update,
+         has_column_privilege($1, 'public.fhir_vital_observation_sets', 'patient_uid', 'UPDATE') AS patient_update,
+         has_column_privilege($1, 'public.fhir_vital_observation_sets', 'vitals_chart_id', 'UPDATE') AS link_update,
+         has_column_privilege($1, 'public.fhir_vital_observation_sets', 'anomaly_effects_completed_at', 'UPDATE') AS effect_update`,
+      [migrationRuntimeRole],
+    );
+    expect(migrationOnlyPrivileges.rows[0]).toEqual({
+      table_update: false,
+      patient_update: true,
+      link_update: true,
+      effect_update: true,
+    });
 
     const tenantA = '00000000-0000-4000-8000-000000000101';
     const tenantB = '00000000-0000-4000-8000-000000000102';
@@ -298,10 +362,78 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
     );
     await expect(scratch.query(
       `UPDATE fhir_vital_observation_sets
+          SET news2_effects_completed_at = clock_timestamp()
+        WHERE tenant_id = $1 AND set_fingerprint = $2`,
+      [tenantA, setA],
+    )).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'chk_fhir_vital_observation_set_effects_linked',
+    });
+    await expect(scratch.query(
+      `UPDATE fhir_vital_observation_sets
+          SET news2_effects_claimed_at = clock_timestamp(),
+              news2_effects_claim_token = '00000000-0000-4000-8000-000000000101'::uuid
+        WHERE tenant_id = $1 AND set_fingerprint = $2`,
+      [tenantA, setA],
+    )).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'chk_fhir_vital_observation_set_effects_linked',
+    });
+    await expect(scratch.query(
+      `UPDATE fhir_vital_observation_sets
           SET vitals_chart_id = $3
         WHERE tenant_id = $1 AND set_fingerprint = $2`,
       [tenantA, setA, exactVitals.rows[0].id],
     )).resolves.toMatchObject({ rowCount: 1 });
+    await expect(scratch.query(
+      `UPDATE fhir_vital_observation_sets
+          SET news2_effects_claimed_at = clock_timestamp()
+        WHERE tenant_id = $1 AND set_fingerprint = $2`,
+      [tenantA, setA],
+    )).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'chk_fhir_vital_observation_set_news2_claim',
+    });
+    await expect(scratch.query(
+      `UPDATE fhir_vital_observation_sets
+          SET news2_effects_claimed_at = clock_timestamp(),
+              news2_effects_claim_token = '00000000-0000-4000-8000-000000000102'::uuid,
+              news2_effects_attempts = news2_effects_attempts + 1,
+              anomaly_effects_claimed_at = clock_timestamp(),
+              anomaly_effects_claim_token = '00000000-0000-4000-8000-000000000103'::uuid,
+              anomaly_effects_attempts = anomaly_effects_attempts + 1
+        WHERE tenant_id = $1 AND set_fingerprint = $2`,
+      [tenantA, setA],
+    )).resolves.toMatchObject({ rowCount: 1 });
+    await expect(scratch.query(
+      `UPDATE fhir_vital_observation_sets
+          SET news2_effects_completed_at = clock_timestamp(),
+              news2_effects_claimed_at = NULL,
+              news2_effects_claim_token = NULL,
+              anomaly_effects_completed_at = clock_timestamp(),
+              anomaly_effects_claimed_at = NULL,
+              anomaly_effects_claim_token = NULL
+        WHERE tenant_id = $1 AND set_fingerprint = $2`,
+      [tenantA, setA],
+    )).resolves.toMatchObject({ rowCount: 1 });
+    await expect(scratch.query(
+      `UPDATE fhir_vital_observation_sets
+          SET anomaly_effects_completed_at = NULL
+        WHERE tenant_id = $1 AND set_fingerprint = $2`,
+      [tenantA, setA],
+    )).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'chk_fhir_vital_observation_set_effects_immutable',
+    });
+    await expect(scratch.query(
+      `UPDATE fhir_vital_observation_sets
+          SET news2_effects_attempts = news2_effects_attempts + 1
+        WHERE tenant_id = $1 AND set_fingerprint = $2`,
+      [tenantA, setA],
+    )).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'chk_fhir_vital_observation_set_effects_immutable',
+    });
 
     const replacementVitals = await scratch.query(
       `INSERT INTO vitals_chart
@@ -369,12 +501,24 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
         ORDER BY index_class.relname`,
       [[
         'idx_fhir_vital_observation_receipts_patient',
+        'idx_fhir_vital_observation_sets_pending_effects',
         'idx_fhir_vital_observation_sets_patient',
         'ux_fhir_vital_observation_receipt_logical_resource',
       ]],
     );
 
     for (const statement of statements) await scratch.query(statement);
+    const oxygenEvidenceColumn = await scratch.query(
+      `SELECT is_nullable, column_default
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'news2_scores'
+          AND column_name = 'supplemental_o2'`,
+    );
+    expect(oxygenEvidenceColumn.rows).toEqual([{
+      is_nullable: 'YES',
+      column_default: 'false',
+    }]);
     const replayedIndexOids = await scratch.query(
       `SELECT index_class.relname, index_class.oid::text AS oid
          FROM pg_index index_state
@@ -383,11 +527,34 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
         ORDER BY index_class.relname`,
       [[
         'idx_fhir_vital_observation_receipts_patient',
+        'idx_fhir_vital_observation_sets_pending_effects',
         'idx_fhir_vital_observation_sets_patient',
         'ux_fhir_vital_observation_receipt_logical_resource',
       ]],
     );
     expect(replayedIndexOids.rows).toEqual(validIndexOids.rows);
+    const patientForeignKeys = await scratch.query(
+      `SELECT conname, condeferrable, condeferred
+         FROM pg_constraint
+        WHERE conname = ANY($1::text[])
+        ORDER BY conname`,
+      [[
+        'fk_fhir_vital_observation_receipt_patient',
+        'fk_fhir_vital_observation_set_patient',
+      ]],
+    );
+    expect(patientForeignKeys.rows).toEqual([
+      {
+        conname: 'fk_fhir_vital_observation_receipt_patient',
+        condeferrable: true,
+        condeferred: false,
+      },
+      {
+        conname: 'fk_fhir_vital_observation_set_patient',
+        condeferrable: true,
+        condeferred: false,
+      },
+    ]);
     const policies = await scratch.query(
       `SELECT COUNT(*)::integer AS count
          FROM pg_policy
@@ -399,5 +566,130 @@ d('migration 656 interrupted replay (isolated scratch database)', () => {
       ]],
     );
     expect(policies.rows[0].count).toBe(6);
+
+    const priorEnvironment = {
+      databaseUrl: process.env.DATABASE_URL,
+      databaseReadUrl: process.env.DATABASE_READ_URL,
+      runtimeRole: process.env.AUTH_TENANT_RLS_RUNTIME_ROLE,
+    };
+    let runtimePrisma;
+    try {
+      process.env.DATABASE_URL = scratchUrl.toString();
+      delete process.env.DATABASE_READ_URL;
+      process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = runtimeRole;
+      const runtimeModule = await import(`../lib/prisma.js?fhir-runtime-fence=${Date.now()}`);
+      runtimePrisma = runtimeModule.default;
+      await expect(runtimeModule.ensureTenantRlsRuntimeRoleGrants()).resolves.toEqual({
+        skipped: false,
+        role: runtimeRole,
+      });
+    } finally {
+      await runtimePrisma?.$disconnect().catch(() => {});
+      if (priorEnvironment.databaseUrl == null) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = priorEnvironment.databaseUrl;
+      if (priorEnvironment.databaseReadUrl == null) delete process.env.DATABASE_READ_URL;
+      else process.env.DATABASE_READ_URL = priorEnvironment.databaseReadUrl;
+      if (priorEnvironment.runtimeRole == null) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+      else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = priorEnvironment.runtimeRole;
+    }
+
+    const runtimePrivileges = await scratch.query(
+      `SELECT
+         has_table_privilege($1, 'public.fhir_vital_observation_receipts', 'SELECT') AS receipt_select,
+         has_table_privilege($1, 'public.fhir_vital_observation_receipts', 'INSERT') AS receipt_insert,
+         has_table_privilege($1, 'public.fhir_vital_observation_receipts', 'UPDATE') AS receipt_update,
+         has_column_privilege($1, 'public.fhir_vital_observation_receipts', 'patient_uid', 'UPDATE') AS receipt_patient_update,
+         has_table_privilege($1, 'public.fhir_vital_observation_receipts', 'DELETE') AS receipt_delete,
+         has_table_privilege($1, 'public.fhir_vital_observation_sets', 'SELECT') AS set_select,
+         has_table_privilege($1, 'public.fhir_vital_observation_sets', 'INSERT') AS set_insert,
+         has_table_privilege($1, 'public.fhir_vital_observation_sets', 'UPDATE') AS set_table_update,
+         has_column_privilege($1, 'public.fhir_vital_observation_sets', 'vitals_chart_id', 'UPDATE') AS set_link_update,
+         has_column_privilege($1, 'public.fhir_vital_observation_sets', 'patient_uid', 'UPDATE') AS set_patient_update,
+         has_table_privilege($1, 'public.fhir_vital_observation_sets', 'DELETE') AS set_delete,
+         has_table_privilege($1, 'public.fhir_vital_observation_set_resources', 'SELECT') AS link_select,
+         has_table_privilege($1, 'public.fhir_vital_observation_set_resources', 'INSERT') AS link_insert,
+         has_table_privilege($1, 'public.fhir_vital_observation_set_resources', 'UPDATE') AS link_update,
+         has_table_privilege($1, 'public.fhir_vital_observation_set_resources', 'DELETE') AS link_delete,
+         has_function_privilege($1, 'public.validate_fhir_vital_observation_set_link()', 'EXECUTE') AS set_guard_execute,
+         has_function_privilege($1, 'public.validate_fhir_vital_observation_receipt_update()', 'EXECUTE') AS receipt_guard_execute,
+         has_function_privilege($1, 'public.validate_fhir_vital_observation_receipt_scope_deferred()', 'EXECUTE') AS receipt_deferred_guard_execute,
+         has_function_privilege($1, 'public.validate_fhir_vital_observation_set_scope_deferred()', 'EXECUTE') AS deferred_guard_execute,
+         has_function_privilege($1, 'public.validate_fhir_vital_observation_resource_owner()', 'EXECUTE') AS link_guard_execute`,
+      [runtimeRole],
+    );
+    expect(runtimePrivileges.rows[0]).toEqual({
+      receipt_select: true,
+      receipt_insert: true,
+      receipt_update: false,
+      receipt_patient_update: true,
+      receipt_delete: false,
+      set_select: true,
+      set_insert: true,
+      set_table_update: false,
+      set_link_update: true,
+      set_patient_update: true,
+      set_delete: false,
+      link_select: true,
+      link_insert: true,
+      link_update: false,
+      link_delete: false,
+      set_guard_execute: false,
+      receipt_guard_execute: false,
+      receipt_deferred_guard_execute: false,
+      deferred_guard_execute: false,
+      link_guard_execute: false,
+    });
+
+    await scratch.query('BEGIN');
+    try {
+      await scratch.query(`SET LOCAL ROLE ${runtimeRole}`);
+      await scratch.query(`SELECT set_config('app.current_tenant_id', $1, true)`, [tenantA]);
+      await scratch.query(`SELECT set_config('app.patient_merge_execution', 'on', true)`);
+      await scratch.query(`SELECT set_config('app.patient_merge_request_id', '999999999', true)`);
+      await scratch.query(`SELECT set_config('app.patient_merge_tenant_id', $1, true)`, [tenantA]);
+      await scratch.query(`SELECT set_config('app.patient_merge_from_uid', $1, true)`, [patientA]);
+      await scratch.query(`SELECT set_config('app.patient_merge_to_uid', $1, true)`, [patientOther]);
+      await expect(scratch.query(
+        `UPDATE public.fhir_vital_observation_receipts
+            SET patient_uid = $3
+          WHERE tenant_id = $1 AND resource_fingerprint = $2`,
+        [tenantA, resourceFingerprint, patientOther],
+      )).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'chk_fhir_vital_observation_receipt_immutable',
+      });
+    } finally {
+      await scratch.query('ROLLBACK').catch(() => {});
+    }
+
+    await scratch.query('BEGIN');
+    try {
+      await scratch.query(`SET LOCAL ROLE ${runtimeRole}`);
+      await scratch.query(`SELECT set_config('app.current_tenant_id', $1, true)`, [tenantA]);
+      await expect(scratch.query(
+        `UPDATE public.fhir_vital_observation_receipts
+            SET patient_uid = $3
+          WHERE tenant_id = $1 AND resource_fingerprint = $2`,
+        [tenantA, resourceFingerprint, patientOther],
+      )).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'chk_fhir_vital_observation_receipt_immutable',
+      });
+    } finally {
+      await scratch.query('ROLLBACK');
+    }
+
+    await scratch.query('BEGIN');
+    try {
+      await scratch.query(`SET LOCAL ROLE ${runtimeRole}`);
+      await scratch.query(`SELECT set_config('app.current_tenant_id', $1, true)`, [tenantA]);
+      await expect(scratch.query(
+        `DELETE FROM public.fhir_vital_observation_receipts
+          WHERE tenant_id = $1 AND resource_fingerprint = $2`,
+        [tenantA, resourceFingerprint],
+      )).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await scratch.query('ROLLBACK');
+    }
   });
 });
