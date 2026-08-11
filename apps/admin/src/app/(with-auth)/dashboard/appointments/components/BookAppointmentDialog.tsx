@@ -143,6 +143,10 @@ export function BookAppointmentDialog({
       toast.error("Valid patient phone required");
       return;
     }
+    if (patientLookupStatus === "checking" || patientLookupStatus === "error") {
+      toast.error("Patient lookup must succeed before booking");
+      return;
+    }
     if (!patientId && patientName.trim().length < 2) {
       toast.error("Patient name required for new patients");
       return;

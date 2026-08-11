@@ -149,7 +149,7 @@ class DeepLinkService {
       case 'STEP_BADGE':
         return '/steps';
       case 'MEDICATION_REMINDER':
-        return '/home';
+        return '/reminders';
       default:
         if (kDebugMode) debugPrint('DeepLinkService: unknown type: $type');
         return null;

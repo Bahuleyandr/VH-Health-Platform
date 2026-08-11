@@ -1,21 +1,18 @@
 // src/components/CommandPalette.tsx
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
-import { Dialog, Transition } from "@headlessui/react";
-import { useRouter } from "next/navigation";
-import toast from "react-hot-toast";
 import {
-  HomeIcon,
-  UsersIcon,
-  UserIcon,
-  CalendarIcon,
-  PlusIcon,
   FileTextIcon,
   MoonIcon,
   RefreshIcon,
   SearchIcon,
 } from "@/components/icons";
+import { usePermissions } from "@/hooks/usePermissions";
+import { visibleNavSections } from "@/lib/navConfig";
+import { Dialog, Transition } from "@headlessui/react";
+import { useRouter } from "next/navigation";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 
 interface Command {
   id: string;
@@ -30,102 +27,57 @@ export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const router = useRouter();
+  const { rawRole, role, isSuperAdmin, hasAllPermissions } = usePermissions();
 
-  // Define available commands
-  const commands: Command[] = [
-    {
-      id: "go-dashboard",
-      name: "Go to Dashboard",
-      description: "Navigate to main dashboard",
-      icon: <HomeIcon className="w-5 h-5" />,
-      action: () => {
-        router.push("/dashboard");
-        setIsOpen(false);
+  const commands = useMemo<Command[]>(() => {
+    const navigation = visibleNavSections({
+      rawRole,
+      role,
+      isSuperAdmin,
+      hasAllPermissions,
+    }).flatMap((section) =>
+      section.items.map((item) => ({
+        id: `go-${item.href}`,
+        name: item.name,
+        description: section.title,
+        icon: <FileTextIcon className="w-5 h-5" />,
+        action: () => {
+          router.push(item.href);
+          setIsOpen(false);
+        },
+        keywords: [section.title, item.href.replaceAll("/", " ")],
+      })),
+    );
+
+    return [
+      ...navigation,
+      {
+        id: "toggle-theme",
+        name: "Toggle Dark Mode",
+        description: "Switch between light and dark theme",
+        icon: <MoonIcon className="w-5 h-5" />,
+        action: () => {
+          document.documentElement.classList.toggle("dark");
+          const isDark = document.documentElement.classList.contains("dark");
+          localStorage.setItem("theme", isDark ? "dark" : "light");
+          toast.success(`Switched to ${isDark ? "dark" : "light"} mode`);
+          setIsOpen(false);
+        },
+        keywords: ["dark", "light", "theme", "mode"],
       },
-      keywords: ["home", "main", "overview"],
-    },
-    {
-      id: "go-users",
-      name: "Go to Users",
-      description: "Manage users",
-      icon: <UsersIcon className="w-5 h-5" />,
-      action: () => {
-        router.push("/dashboard/users");
-        setIsOpen(false);
+      {
+        id: "refresh-data",
+        name: "Refresh Current Page",
+        description: "Reload data on current page",
+        icon: <RefreshIcon className="w-5 h-5" />,
+        action: () => {
+          window.location.reload();
+          setIsOpen(false);
+        },
+        keywords: ["reload", "update", "sync"],
       },
-      keywords: ["patients", "people", "accounts"],
-    },
-    {
-      id: "go-doctors",
-      name: "Go to Doctors",
-      description: "Manage doctors",
-      icon: <UserIcon className="w-5 h-5" />,
-      action: () => {
-        router.push("/dashboard/doctors");
-        setIsOpen(false);
-      },
-      keywords: ["physicians", "medical", "staff"],
-    },
-    {
-      id: "go-appointments",
-      name: "Go to Appointments",
-      description: "View appointments",
-      icon: <CalendarIcon className="w-5 h-5" />,
-      action: () => {
-        router.push("/dashboard/appointments");
-        setIsOpen(false);
-      },
-      keywords: ["calendar", "schedule", "bookings"],
-    },
-    {
-      id: "create-user",
-      name: "Create New User",
-      description: "Add a new user to the system",
-      icon: <PlusIcon className="w-5 h-5" />,
-      action: () => {
-        router.push("/dashboard/users?action=create");
-        setIsOpen(false);
-        toast.success("Opening create user form...");
-      },
-      keywords: ["add", "new", "patient"],
-    },
-    {
-      id: "generate-report",
-      name: "Generate Report",
-      description: "Create a new report",
-      icon: <FileTextIcon className="w-5 h-5" />,
-      action: () => {
-        router.push("/dashboard/reporting");
-        setIsOpen(false);
-      },
-      keywords: ["export", "analytics", "data"],
-    },
-    {
-      id: "toggle-theme",
-      name: "Toggle Dark Mode",
-      description: "Switch between light and dark theme",
-      icon: <MoonIcon className="w-5 h-5" />,
-      action: () => {
-        document.documentElement.classList.toggle("dark");
-        const isDark = document.documentElement.classList.contains("dark");
-        localStorage.setItem("theme", isDark ? "dark" : "light");
-        toast.success(`Switched to ${isDark ? "dark" : "light"} mode`);
-        setIsOpen(false);
-      },
-      keywords: ["dark", "light", "theme", "mode"],
-    },
-    {
-      id: "refresh-data",
-      name: "Refresh Current Page",
-      description: "Reload data on current page",
-      icon: <RefreshIcon className="w-5 h-5" />,
-      action: () => {
-        window.location.reload();
-        setIsOpen(false);
-      },
-      keywords: ["reload", "update", "sync"],
-    },
-  ];
+    ];
+  }, [rawRole, role, isSuperAdmin, hasAllPermissions, router]);
 
   // Filter commands based on search
   const filteredCommands = commands.filter((command) => {

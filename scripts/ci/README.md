@@ -64,6 +64,9 @@ Three things about it are load-bearing:
   `toApiV1Endpoint` rewrites and then prefixes (`/admin/users` is served as
   `/api/v1/users`); the mirror of that rewrite table is pinned against
   `apps/admin/src/lib/api/core.ts` by a test, so the two cannot drift silently.
+  Admin browser calls are also checked against the literal prefix table in
+  `apps/admin/src/app/api/proxy/[...path]/route.ts`; a backend operation is not
+  considered reachable when the runtime proxy would reject it first.
   Dart sends a bare suffix, because `ApiConfig.baseUrl` already ends in
   `/api/v1`.
 - **Dart extraction is anchored on the call site, never on literal shape.**

@@ -63,6 +63,8 @@ export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '
 
 export const SPEC_PATH = 'apps/backend/src/docs/openapi.json';
 export const ALLOWLIST_PATH = 'scripts/ci/client-path-allowlist.json';
+export const ADMIN_PROXY_ALLOWLIST_PATH =
+  'apps/admin/src/app/api/proxy/[...path]/route.ts';
 
 /** Placeholder every path parameter normalizes to, on both sides of the compare. */
 export const PARAM = '{param}';
@@ -550,6 +552,39 @@ export function isRuleExcluded(value) {
  */
 export function stripProxyPrefix(value) {
   return value.startsWith('/api/proxy/') ? value.slice('/api/proxy'.length) : value;
+}
+
+/** Parse the proxy's ALLOWED_PATH_PREFIXES array without importing Next.js. */
+export function parseProxyAllowedPrefixes(source) {
+  const code = stripComments(source, 'ts');
+  const declaration = /\bconst\s+ALLOWED_PATH_PREFIXES\b[^=]*=\s*\[/.exec(code);
+  if (!declaration) return [];
+  const start = declaration.index + declaration[0].length - 1;
+  const end = readBalanced(code, start, '[', ']');
+  return scanStringLiterals(code.slice(start + 1, end), 'ts')
+    .map((literal) => literal.value.trim().replace(/^\/+/, ''))
+    .filter(Boolean);
+}
+
+/** Mirror the proxy route's segment-boundary prefix comparison. */
+export function proxyAllowsRuntimePath(runtimePath, prefixes) {
+  const candidate = segmentsOf(runtimePath).join('/').replace(/^\/+/, '');
+  return prefixes.some((prefix) => {
+    const normalized = prefix.replace(/^\/+/, '');
+    const boundary = normalized.endsWith('/') ? normalized : `${normalized}/`;
+    return candidate === normalized || candidate.startsWith(boundary);
+  });
+}
+
+function adminHitUsesProxy(hit, file) {
+  if (hit.value.startsWith('/api/proxy/')) return true;
+  if (hit.via !== 'fetch' && hit.via !== 'window.fetch') return true;
+
+  const normalizedFile = file.split(sep).join('/');
+  return (
+    !normalizedFile.includes('/apps/admin/src/app/api/') &&
+    !normalizedFile.endsWith('/apps/admin/src/lib/proxyPermissions.ts')
+  );
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -1360,10 +1395,23 @@ export function loadEndpointMap(root = repoRoot) {
   return existsSync(file) ? parseEndpointMap(readFileSync(file, 'utf8')) : new Map();
 }
 
-export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist } = {}) {
+export function loadProxyAllowedPrefixes(root = repoRoot) {
+  const file = join(root, ADMIN_PROXY_ALLOWLIST_PATH);
+  if (!existsSync(file)) return [];
+  return parseProxyAllowedPrefixes(readFileSync(file, 'utf8'));
+}
+
+export function analyze({
+  root = repoRoot,
+  sources = SOURCES,
+  index,
+  allowlist,
+  proxyPrefixes,
+} = {}) {
   const specIndex = index || loadSpecIndex(root);
   const allow = allowlist || loadAllowlist(root);
   const endpointMap = loadEndpointMap(root);
+  const adminProxyPrefixes = proxyPrefixes || loadProxyAllowedPrefixes(root);
 
   const findings = [];
   const ambiguous = [];
@@ -1376,6 +1424,7 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
     ruleExcluded: 0,
     dynamicCallSites: 0,
     unresolvableLiterals: 0,
+    proxyBlocked: 0,
   };
   const perSource = [];
 
@@ -1478,6 +1527,19 @@ export function analyze({ root = repoRoot, sources = SOURCES, index, allowlist }
         }
 
         if (outcome) {
+          if (
+            source.kind === 'admin' &&
+            adminHitUsesProxy(hit, file) &&
+            outcome !== 'mountBases' &&
+            !effectiveCandidates.some((candidate) =>
+              proxyAllowsRuntimePath(candidate, adminProxyPrefixes),
+            )
+          ) {
+            findings.push({ ...record(path), reason: 'proxy' });
+            stats.proxyBlocked += 1;
+            sourceStats.findings += 1;
+            continue;
+          }
           stats[outcome] += 1;
           continue;
         }
@@ -1554,12 +1616,14 @@ function formatReport(result, { verbose }) {
 
   const missingPath = findings.filter((f) => f.reason === 'path');
   const wrongMethod = findings.filter((f) => f.reason === 'method');
+  const proxyBlocked = findings.filter((f) => f.reason === 'proxy');
 
   lines.push('');
   lines.push(
     `${findings.length} client call(s) do not resolve to a served operation in ${SPEC_PATH} ` +
-      `(${missingPath.length} unknown path, ${wrongMethod.length} unserved method). ` +
-      'These 404 at runtime.',
+      `(${missingPath.length} unknown path, ${wrongMethod.length} unserved method, ` +
+      `${proxyBlocked.length} blocked by the admin proxy). ` +
+      'These fail at runtime.',
   );
   lines.push('');
   for (const f of findings) {
@@ -1571,6 +1635,9 @@ function formatReport(result, { verbose }) {
     if (f.resolved !== f.called) lines.push(`    resolves ${f.resolved}`);
     if (f.reason === 'method') {
       lines.push(`    served   ${f.resolved} exists, but only for [${f.servedMethods.join(', ')}]`);
+    }
+    if (f.reason === 'proxy') {
+      lines.push(`    proxy    blocked by ${ADMIN_PROXY_ALLOWLIST_PATH}`);
     }
     lines.push(
       f.suggestion

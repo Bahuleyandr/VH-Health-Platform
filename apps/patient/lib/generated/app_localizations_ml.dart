@@ -3007,6 +3007,9 @@ class AppLocalizationsMl extends AppLocalizations {
   String get dashboardExploreSection => 'അന്വേഷിക്കുക';
 
   @override
+  String get dashboardCareToolsSection => 'പരിചരണ ഉപകരണങ്ങൾ';
+
+  @override
   String get dashboardTodaySection => 'ഇന്ന്';
 
   @override

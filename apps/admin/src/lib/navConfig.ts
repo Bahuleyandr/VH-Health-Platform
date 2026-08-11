@@ -16,7 +16,7 @@
 //   - Every non-parameterised page.tsx under (with-auth)/dashboard is either
 //     an exact NAV href or listed in NAV_EXCLUDED_PAGES with a reason.
 //   - Every NAV href points at an existing page (no dead links).
-//   - Nav gating must not be LOOSER than ROUTE_POLICY for the same path.
+//   - Nav gating must exactly mirror ROUTE_POLICY for the same path.
 //
 // Keep requiredPermissions flags in sync with the per-admin permission-flag
 // proxy enforcement in src/lib/proxyPermissions.ts (PR #828): the nav hides a
@@ -70,6 +70,13 @@ export type NavSection = {
   items: NavItem[];
 };
 
+export function visibleNavSections(context: NavVisibilityContext): NavSection[] {
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => isNavItemVisible(item, context)),
+  })).filter((section) => section.items.length > 0);
+}
+
 export const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Overview',
@@ -90,7 +97,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Operations',
     items: [
-      { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
+      { name: 'Appointments', href: '/dashboard/appointments' },
       { name: 'Queue Displays', href: '/dashboard/queue-displays', minRole: 'STAFF' },
       // AD-H2: Code Blue / Code STEMI live board (realtime staff:code-blue /
       // staff:code-stemi). Route policy allows all clinical staff (STAFF rank);
@@ -99,13 +106,13 @@ export const NAV_SECTIONS: NavSection[] = [
       // F1 (2026-08-10 audit): the SOS emergency console's only nav reference
       // lived in the phantom AdminNav. Route policy: any authenticated role.
       { name: 'Emergency / SOS', href: '/dashboard/sos' },
-      { name: 'Housekeeping', href: '/dashboard/housekeeping', minRole: 'HR' },
+      { name: 'Housekeeping', href: '/dashboard/housekeeping' },
       { name: 'Linen & Laundry', href: '/dashboard/linen-laundry', minRole: 'STAFF' },
       { name: 'CSSD', href: '/dashboard/cssd', minRole: 'STAFF' },
       { name: 'Cold Chain', href: '/dashboard/cold-chain', minRole: 'STAFF' },
       { name: 'Daily Ops Snapshot', href: '/dashboard/operations', requiredRole: 'ADMIN' },
       { name: 'BI Dashboards', href: '/dashboard/dashboards', requiredRole: 'ADMIN' },
-      { name: 'Devices', href: '/dashboard/devices', requiredRole: 'ADMIN' },
+      { name: 'Devices', href: '/dashboard/devices', minRole: 'STAFF' },
     ],
   },
   {
@@ -142,8 +149,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Discharge Summaries', href: '/dashboard/discharge-summaries', minRole: 'STAFF' },
       // Route policy: CLINICAL_LEAD (doctors and up).
       { name: 'Death Certification', href: '/dashboard/death-certification', minRole: 'DOCTOR' },
-      { name: 'Bed Management', href: '/dashboard/beds', requiredPermissions: ['departmentManagement'] },
-      { name: 'Consent', href: '/dashboard/consent', requiredPermissions: ['userManagement'] },
+      { name: 'Bed Management', href: '/dashboard/beds', minRole: 'STAFF' },
+      { name: 'Consent', href: '/dashboard/consent', minRole: 'STAFF' },
     ],
   },
   {
@@ -166,7 +173,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Overtime Approvals', href: '/dashboard/attendance/overtime', requiredPermissions: ['userManagement'] },
       { name: 'Attendance Bulk Correction', href: '/dashboard/attendance/bulk-correct', requiredPermissions: ['userManagement'] },
       { name: 'Leave Approvals', href: '/dashboard/leave-approvals', minRole: 'HR' },
-      { name: 'Shift Management', href: '/dashboard/shifts', minRole: 'HR' },
+      { name: 'Shift Management', href: '/dashboard/shifts', minRole: 'STAFF' },
       { name: 'Grievances (HR)', href: '/dashboard/grievances', minRole: 'HR' },
       { name: 'Incident Reports', href: '/dashboard/incidents', minRole: 'HR' },
       { name: 'Payroll & HR Comp', href: '/dashboard/payroll', requiredRole: 'ADMIN' },
@@ -186,7 +193,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
       { name: 'Pharmacy Inventory', href: '/dashboard/pharmacy/inventory', requiredPermissions: ['pharmacyAdminRoutes'] },
       { name: 'Drug Returns', href: '/dashboard/drug-returns', requiredRole: 'ADMIN' },
-      { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
+      { name: 'Notifications', href: '/dashboard/notifications', minRole: 'STAFF' },
       { name: 'Feedback', href: '/dashboard/feedback', requiredPermissions: ['userManagement'] },
       { name: 'Uploads', href: '/dashboard/uploads', requiredRole: 'ADMIN' },
     ],
@@ -212,7 +219,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { name: 'System Audit Log', href: '/dashboard/system-audit', requiredRole: 'ADMIN' },
       { name: 'Audit Explorer', href: '/dashboard/audit-explorer', requiredRole: 'ADMIN' },
       { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
-      { name: 'Attendance Audit', href: '/dashboard/attendance-audit', requiredRole: 'ADMIN' },
+      { name: 'Attendance Audit', href: '/dashboard/attendance-audit', minRole: 'HR' },
     ],
   },
   {

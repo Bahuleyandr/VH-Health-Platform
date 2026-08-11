@@ -11,6 +11,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/online_only_action_state.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -512,6 +513,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       title: s.labBookingsTitle,
       body: Column(
         children: [
+          RealtimeStatusBanner(
+            watchChannels: const {'staff:lab'},
+            deniedMessageKey: 's4.lib.realtime_status.stale',
+            fallbackPoll: () => _fetchBookings(showLoading: false),
+            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          ),
           Container(
             color: Theme.of(context).colorScheme.surface,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

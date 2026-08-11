@@ -3016,6 +3016,9 @@ class AppLocalizationsTa extends AppLocalizations {
   String get dashboardExploreSection => 'ஆராய்';
 
   @override
+  String get dashboardCareToolsSection => 'பராமரிப்புக் கருவிகள்';
+
+  @override
   String get dashboardTodaySection => 'இன்று';
 
   @override

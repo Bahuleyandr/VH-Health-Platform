@@ -9,6 +9,7 @@ import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/constrained_content.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -1512,6 +1513,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       body: ConstrainedContent(
         child: Column(
           children: [
+            RealtimeStatusBanner(
+              watchChannels: const {'staff:appointments'},
+              deniedMessageKey: 's4.lib.realtime_status.stale',
+              fallbackPoll: _load,
+              margin: const EdgeInsets.only(bottom: 12),
+            ),
             _buildToolbar(),
             Expanded(
               child: RefreshIndicator(
