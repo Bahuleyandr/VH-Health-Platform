@@ -9,6 +9,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/navigation/route_reachability.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
@@ -848,6 +849,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ),
 
+                        if (!isGuest)
+                          stagger(
+                            DashboardSection(
+                              label: l10n.dashboardCareToolsSection,
+                              accent: DashboardAccents.quickActions,
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  const gap = 10.0;
+                                  final itemWidth =
+                                      (constraints.maxWidth - gap) / 2;
+                                  return Wrap(
+                                    spacing: gap,
+                                    runSpacing: gap,
+                                    children: patientDashboardCareRoutes
+                                        .map(
+                                          (route) => SizedBox(
+                                            width: itemWidth,
+                                            child: _CareToolButton(
+                                              route: route,
+                                              label: _careToolLabel(
+                                                l10n,
+                                                route,
+                                              ),
+                                              icon: _careToolIcon(route),
+                                              onTap: () =>
+                                                  _openFeature(context, route),
+                                            ),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+
                         // ── Today ────────────────────────────────────────
                         if (hasTodaySection)
                           stagger(
@@ -943,6 +980,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// gentle nudge so the chip surfaces *something* useful.
   String? _formatLastVitalsLabel() {
     return null;
+  }
+
+  String _careToolLabel(AppLocalizations l10n, String route) {
+    return switch (route) {
+      '/chatbot' => l10n.symptomCheckerTitle,
+      '/calendar' => l10n.calendarFullAccess,
+      '/refill' => l10n.refillTitle,
+      '/family' => l10n.familyTitle,
+      '/reminders' => l10n.medicationRemindersTitle,
+      '/portal/maternity/timeline' => l10n.ancTimelineTitle,
+      _ => throw ArgumentError.value(route, 'route', 'Unknown care tool'),
+    };
+  }
+
+  IconData _careToolIcon(String route) {
+    return switch (route) {
+      '/chatbot' => LucideIcons.stethoscope,
+      '/calendar' => LucideIcons.calendarDays,
+      '/refill' => LucideIcons.refreshCcw,
+      '/family' => LucideIcons.users,
+      '/reminders' => LucideIcons.bellRing,
+      '/portal/maternity/timeline' => LucideIcons.baby,
+      _ => LucideIcons.circle,
+    };
+  }
+}
+
+class _CareToolButton extends StatelessWidget {
+  final String route;
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _CareToolButton({
+    required this.route,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      label: label,
+      child: Material(
+        color: colorScheme.surface.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          key: ValueKey('dashboard-care-tool-$route'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

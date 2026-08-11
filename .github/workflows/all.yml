@@ -110,6 +110,13 @@ jobs:
       notification_label: Full Stack Sweep / admin
     secrets: inherit
 
+  client-contract:
+    uses: ./.github/workflows/_reusable-client-contract.yml
+    with:
+      notify_on_failure: true
+      notification_label: Full Stack Sweep / client contract
+    secrets: inherit
+
   device-gateway-lint-and-test:
     uses: ./.github/workflows/_reusable-device-gateway-ci.yml
     with:

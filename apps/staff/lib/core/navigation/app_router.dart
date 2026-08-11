@@ -33,6 +33,7 @@ import '../../features/clinical_continuity/screens/paper_reconciliation_workbenc
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
 import '../../features/doctor/screens/prescriptions_screen.dart';
+import '../../features/doctor/screens/queue_screen.dart';
 import '../../features/opd/screens/op_doctor_workspace_screen.dart';
 import '../../features/opd/screens/op_nursing_dashboard_screen.dart';
 import '../../features/teleconsult/models/staff_teleconsult_route_args.dart';
@@ -527,9 +528,8 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/queue',
           name: 'queue',
-          redirect: (context, state) => '/appointments',
           pageBuilder: (context, state) =>
-              const NoTransitionPage(child: AppointmentsScreen()),
+              const NoTransitionPage(child: QueueScreen()),
         ),
         GoRoute(
           path: '/appointment-queue',

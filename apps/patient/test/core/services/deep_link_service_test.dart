@@ -104,7 +104,7 @@ void main() {
         'sos_alert': '/home',
         'feedback_reply': '/feedback-history',
         'step_reward': '/steps',
-        'medication_reminder': '/home',
+        'medication_reminder': '/reminders',
       };
 
       for (final entry in cases.entries) {

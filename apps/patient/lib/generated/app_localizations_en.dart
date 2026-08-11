@@ -2958,6 +2958,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dashboardExploreSection => 'Explore';
 
   @override
+  String get dashboardCareToolsSection => 'Care tools';
+
+  @override
   String get dashboardTodaySection => 'Today';
 
   @override

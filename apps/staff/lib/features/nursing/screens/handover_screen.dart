@@ -9,6 +9,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/prehospital_handover_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_context_chip.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
@@ -210,6 +211,12 @@ class _HandoverScreenState extends State<HandoverScreen>
       ),
       body: Column(
         children: [
+          RealtimeStatusBanner(
+            watchChannels: const {'staff:handovers'},
+            deniedMessageKey: 's4.lib.realtime_status.stale',
+            fallbackPoll: _refreshHandoverBoards,
+            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          ),
           if (hasContext)
             PatientContextChip(
               name: widget.prefillPatientRef,
@@ -227,6 +234,13 @@ class _HandoverScreenState extends State<HandoverScreen>
       controller: _tabController,
       children: [_buildWriteTab(), _buildRecentTab(), _buildAmbulanceTab()],
     );
+  }
+
+  Future<void> _refreshHandoverBoards() async {
+    await Future.wait([
+      _loadRecentNotes(),
+      _loadPrehospitalHandovers(showLoading: false),
+    ]);
   }
 
   Widget _buildWriteTab() {

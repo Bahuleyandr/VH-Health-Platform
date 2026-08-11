@@ -173,7 +173,11 @@ void main() {
       expect(ids, isNot(contains('prescriptions')));
       expect(ids, isNot(contains('investigation_results')));
       expect(ids, isNot(contains('front_office_workbench')));
-      expect(ids, isNot(contains('queue')));
+      expect(ids, contains('queue'));
+      expect(
+        feats.singleWhere((feature) => feature.id == 'queue').route,
+        '/queue',
+      );
       expect(ids, contains('cath_lab'));
       expect(
         RoleFeatures.getFeaturesForRole(
@@ -211,6 +215,8 @@ void main() {
         expect(ids, contains('clinical_ai_review_queue'));
         expect(ids, contains('cath_lab'));
         expect(ipIds, isNot(contains('cath_lab')));
+        expect(ids, contains('device_association'));
+        expect(ipIds, contains('device_association'));
         expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
       },
     );
@@ -245,6 +251,28 @@ void main() {
       );
       expect(opStaffIds, isNot(contains('admissions')));
       expect(opInchargeIds, isNot(contains('admissions')));
+      expect(opStaffIds, contains('device_association'));
+      expect(opInchargeIds, contains('device_association'));
+    });
+
+    test('orphaned clinical and housekeeping routes use canonical paths', () {
+      final admin = RoleFeatures.getFeaturesForRole(StaffRole.admin);
+      final housekeeping = RoleFeatures.getFeaturesForRole(
+        StaffRole.housekeepingIncharge,
+      );
+
+      expect(
+        admin
+            .singleWhere((feature) => feature.id == 'device_association')
+            .route,
+        '/devices/associate',
+      );
+      expect(
+        housekeeping
+            .singleWhere((feature) => feature.id == 'housekeeping_roster')
+            .route,
+        '/housekeeping-roster',
+      );
     });
 
     test('HR gets HR-specific features only, no clinical', () {
