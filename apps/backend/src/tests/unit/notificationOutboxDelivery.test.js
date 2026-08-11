@@ -51,7 +51,7 @@ jest.unstable_mockModule('../../services/notification/notificationDeliveryLedger
   applyProviderReceiptToCursor: applyProviderReceiptToCursorMock,
 }));
 
-const { deliverNotificationOutboxRow } = await import(
+const { deliverNotificationOutboxRow, resolveRecipientTokens } = await import(
   '../../utils/notifications/notificationOutboxDelivery.js'
 );
 const { __testing__: outboxInternals } = await import(
@@ -105,6 +105,26 @@ describe('notification outbox durable provider delivery', () => {
       ...input,
     }));
     applyProviderReceiptToCursorMock.mockResolvedValue({ state: 'ready' });
+  });
+
+  test('resolves push tokens only from FCM registries, never staff device-trust secrets', async () => {
+    queryRawUnsafeMock.mockImplementation(async (sql) => {
+      if (/FROM users\b/.test(sql)) return [{ t: 'users-fcm-token' }];
+      if (/FROM user_devices\b/.test(sql)) {
+        return [{ t: 'user-device-fcm-token' }, { t: 'users-fcm-token' }];
+      }
+      if (/FROM staff_devices\b/.test(sql)) return [{ t: 'device-trust-auth-secret' }];
+      return [];
+    });
+
+    await expect(resolveRecipientTokens('77', TENANT_ID)).resolves.toEqual([
+      'users-fcm-token',
+      'user-device-fcm-token',
+    ]);
+
+    const tokenQueries = queryRawUnsafeMock.mock.calls.map(([sql]) => sql);
+    expect(tokenQueries).toHaveLength(2);
+    expect(tokenQueries.join('\n')).not.toMatch(/staff_devices/i);
   });
 
   test('starts append-only attempts before dispatch and records each physical provider result', async () => {
@@ -235,7 +255,6 @@ describe('notification outbox durable provider delivery', () => {
     beginProviderAttemptsMock.mockResolvedValue([attempt('push')]);
     queryRawUnsafeMock
       .mockResolvedValueOnce([{ t: 'fcm-token' }])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     sendPushMock.mockResolvedValue({
       successCount: 0,

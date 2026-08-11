@@ -59,9 +59,10 @@ export async function resolveClinicalAlertRecipients(tenantId) {
   const recipients = [];
   for (const row of rows) {
     const id = Number(row?.id);
-    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
-    seen.add(id);
-    recipients.push({ id, uid: row.uid || null, phone: row.phone || null, role: row.role || null });
+    const uid = String(row?.uid || '').trim().toLowerCase();
+    if (!Number.isInteger(id) || id <= 0 || !UUID_RE.test(uid) || seen.has(uid)) continue;
+    seen.add(uid);
+    recipients.push({ id, uid, phone: row.phone || null, role: row.role || null });
   }
   return recipients;
 }
@@ -111,14 +112,14 @@ export async function queueClinicalAlertFanout(notification, {
       const row = await outbox.queue({
         ...intent,
         tenantId: tenantId || null,
-        recipientId: recipient.id,
+        recipientId: recipient.uid,
         recipientPhone: recipient.phone || null,
         data: { ...(intent.data || {}), recipient_role: recipient.role || null },
       }, { strict: true });
       if (row) queued += 1;
     } catch (err) {
       logger.warn('clinical-alert fan-out: outbox queue failed for recipient', {
-        tenant_id: tenantId || null, recipient_id: recipient.id, err: err?.message,
+        tenant_id: tenantId || null, recipient_uid: recipient.uid, err: err?.message,
       });
     }
   }

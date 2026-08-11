@@ -76,4 +76,51 @@ d('User directory authz (CAN-055)', () => {
     expect(subject).toBeDefined();
     expect(String(subject.phone)).toBe(N(SUBJECT_PHONE)); // unmasked for admin
   });
+
+  it('GET /users/search resolves — not shadowed by /users/:identifier', async () => {
+    // Regression: GET /search was registered AFTER GET /:identifier, so
+    // "search" was captured as an identifier and the advanced-search endpoint
+    // was unreachable (non-uuid identifier -> directory lookup miss).
+    const res = await client('ADMIN', { uid: 'c0de0102-0004-4c0d-8c0d-c0de01020004' })
+      .get('/api/v1/users/search?query=Directory%20Subject&limit=50');
+    expect(res.statusCode).toBe(200);
+    const users = res.body?.data?.users ?? [];
+    expect(Array.isArray(users)).toBe(true);
+    const subject = users.find((u) => u.uid === SUBJECT_UID);
+    expect(subject).toBeDefined();
+    expect(res.body?.data?.totalFound).toBeGreaterThanOrEqual(1);
+  });
+
+  it('GET /users/search returns an empty result set for a no-match query', async () => {
+    const res = await client('ADMIN', { uid: 'c0de0102-0004-4c0d-8c0d-c0de01020004' })
+      .get('/api/v1/users/search?query=zzz-no-such-user-zzz');
+    expect(res.statusCode).toBe(200);
+    expect(res.body?.data?.totalFound).toBe(0);
+    expect(res.body?.data?.users).toEqual([]);
+  });
+
+  it('ADMIN reaches /users/system-info before the /users/:identifier wildcard', async () => {
+    const res = await client('ADMIN', { uid: 'c0de0102-0004-4c0d-8c0d-c0de01020004' })
+      .get('/api/v1/users/system-info');
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body?.data?.database?.version).toEqual(expect.any(String));
+  });
+
+  it('non-admin staff cannot read database system information', async () => {
+    const res = await client('GENERAL_STAFF', {
+      uid: 'c0de0102-0003-4c0d-8c0d-c0de01020003',
+    }).get('/api/v1/users/system-info');
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('PATIENT cannot read database system information', async () => {
+    const res = await client('PATIENT', {
+      uid: PATIENT_UID,
+      phone: PATIENT_PHONE,
+    }).get('/api/v1/users/system-info');
+
+    expect(res.statusCode).toBe(403);
+  });
 });

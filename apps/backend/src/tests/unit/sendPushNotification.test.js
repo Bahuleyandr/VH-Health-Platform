@@ -6,7 +6,7 @@
  * module against the Firebase boundary itself. Push is a clinical-safety path
  * (Code Blue, critical vitals), so the behaviours that must survive an SDK
  * major are pinned here: which SDK entry point is called, the transient-error
- * retry, invalid-token deactivation, and the thrown error's shape.
+ * retry, FCM-token cleanup, and the thrown error's shape.
  *
  * Mocking 'firebase-admin/messaging' by that exact specifier is itself part of
  * the assertion — if the module ever imports the SDK a different way, the mock
@@ -199,7 +199,7 @@ describe('sendPushNotification — retry semantics', () => {
 describe('sendPushNotification — invalid token deactivation', () => {
   const flushDeferredCleanup = () => new Promise(resolve => setImmediate(() => setImmediate(resolve)));
 
-  it('clears permanently-failed tokens across every tenant', async () => {
+  it('clears permanently-failed tokens only from FCM registries across every tenant', async () => {
     queryRawUnsafeMock.mockResolvedValue([{ id: 'tenant-1' }, { id: 'tenant-2' }]);
     sendEachForMulticastMock.mockResolvedValue({
       successCount: 1,
@@ -215,17 +215,19 @@ describe('sendPushNotification — invalid token deactivation', () => {
     await flushDeferredCleanup();
 
     expect(setTenantMock).toHaveBeenCalledTimes(2);
-    // user_devices + staff_devices + users, per tenant.
-    expect(txQueryRawUnsafeMock).toHaveBeenCalledTimes(6);
+    // user_devices + users, per tenant. staff_devices.device_token is a
+    // device-trust credential and must never be mutated by FCM cleanup.
+    expect(txQueryRawUnsafeMock).toHaveBeenCalledTimes(4);
 
     // Tenants are cleaned concurrently (Promise.all), so the calls interleave —
     // assert the multiset, not the order.
     const tables = txQueryRawUnsafeMock.mock.calls.map(([sql]) => sql.match(/UPDATE (\w+)/)[1]);
     expect(tables.slice().sort()).toEqual([
-      'staff_devices', 'staff_devices',
       'user_devices', 'user_devices',
       'users', 'users',
     ]);
+    expect(txQueryRawUnsafeMock.mock.calls.map(([sql]) => sql).join('\n'))
+      .not.toMatch(/staff_devices/i);
 
     for (const [, tenantId, invalidTokens] of txQueryRawUnsafeMock.mock.calls) {
       expect(['tenant-1', 'tenant-2']).toContain(tenantId);

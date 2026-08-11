@@ -88,10 +88,8 @@ describeIfDb('R2 — broadcast clinical_alert duty-role fan-out', () => {
     }
     // The nurse is not in the fan-out audience.
     const recipientIds = rows.map(r => String(r.recipient_id));
-    const nurse = await prisma.$queryRawUnsafe(
-      `SELECT id FROM users WHERE uid = $1::uuid`, NURSE_A,
-    );
-    expect(recipientIds).not.toContain(String(nurse[0].id));
+    expect(new Set(recipientIds)).toEqual(new Set([DUTY_1, DUTY_2]));
+    expect(recipientIds).not.toContain(NURSE_A);
 
     // Re-running the same fan-out dedupes per recipient (immutable intents).
     const rerun = await queueClinicalAlertFanout({
@@ -161,8 +159,8 @@ describeIfDb('R2 — broadcast clinical_alert duty-role fan-out', () => {
       strict: true,
       outbox: { queue },
       resolveRecipients: async () => [
-        { id: 1, role: 'DUTY_DOCTOR' },
-        { id: 2, role: 'DUTY_DOCTOR' },
+        { id: 1, uid: DUTY_1, role: 'DUTY_DOCTOR' },
+        { id: 2, uid: DUTY_2, role: 'DUTY_DOCTOR' },
       ],
     })).rejects.toThrow('queued 1 of 2 notifications');
   });

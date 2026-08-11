@@ -166,6 +166,28 @@ describe('appointmentDocumentController relays AppError code + details over HTTP
     expect(response.body).not.toHaveProperty('code');
   });
 
+  test('record delete relays the scoped-lookup miss as 404, not 500', async () => {
+    // findPatientRecordWithExtraction returns no rows -> statusCode-404 Error;
+    // deletePatientRecord must relay it instead of the old blanket 500.
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    const response = await request(app)
+      .delete('/api/v1/appointments/patient/records/999999');
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body.success).toBe(false);
+    expect(response.body.message).toBe('Record not found');
+  });
+
+  test('record delete relays a malformed id as 400, not 500', async () => {
+    const response = await request(app)
+      .delete('/api/v1/appointments/patient/records/not-a-number');
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toBe('Invalid record id');
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
   test('records list relays a bare statusCode error byte-identically with no code key', async () => {
     // Staff caller with no patient identifier — the controller's own
     // 400-with-statusCode Error shape, relayed unchanged.
