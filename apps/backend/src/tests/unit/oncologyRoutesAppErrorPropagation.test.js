@@ -8,6 +8,16 @@ import { AppError } from '../../utils/AppError.js';
 // oncology handleFailure (previously `err.details ?? { code: err.code }`).
 
 const listProtocolsMock = jest.fn();
+const createToxicityEventMock = jest.fn();
+const resourceGuardRegistrations = [];
+
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  patientAccessGuard: jest.fn(() => (_req, _res, next) => next()),
+  patientAccessGuardForResource: jest.fn((recordType, options) => {
+    resourceGuardRegistrations.push({ recordType, options });
+    return (_req, _res, next) => next();
+  }),
+}));
 
 jest.unstable_mockModule('../../services/oncology/chemoService.js', () => ({
   createProtocol: jest.fn(),
@@ -36,7 +46,7 @@ jest.unstable_mockModule('../../services/oncology/oncologyCompletionService.js',
   listOncologyDiagnoses: jest.fn(),
   createStagingRecord: jest.fn(),
   signStagingRecord: jest.fn(),
-  createToxicityEvent: jest.fn(),
+  createToxicityEvent: createToxicityEventMock,
   listToxicityEvents: jest.fn(),
   signToxicityEvent: jest.fn(),
   createTumorBoardMeeting: jest.fn(),
@@ -63,6 +73,7 @@ app.use('/api/v1/oncology', oncologyRoutes);
 
 beforeEach(() => {
   listProtocolsMock.mockReset();
+  createToxicityEventMock.mockReset();
 });
 
 describe('oncology handleFailure relays AppError code + details', () => {
@@ -93,5 +104,38 @@ describe('oncology handleFailure relays AppError code + details', () => {
     expect(response.body.success).toBe(false);
     expect(response.body.message).toBe('Failed to list protocols');
     expect(response.body.message).not.toMatch(/ECONNREFUSED/);
+  });
+
+  test('toxicity creation keeps diagnosis authorization and relays patient mismatch honestly', async () => {
+    const diagnosisGuard = resourceGuardRegistrations.find(
+      ({ options }) => options.resourceType === 'oncology_diagnosis'
+        && options.requirePatientContext === true,
+    );
+    expect(diagnosisGuard.recordType).toBe('ONCOLOGY');
+    expect(diagnosisGuard.options.idSelector({ body: { diagnosis_id: 73 } })).toBe(73);
+
+    createToxicityEventMock.mockRejectedValueOnce(AppError.badRequest(
+      'Oncology diagnosis patient does not match toxicity patient',
+      'ONCOLOGY_TOXICITY_PATIENT_MISMATCH',
+    ));
+
+    const response = await request(app)
+      .post('/api/v1/oncology/toxicity-events')
+      .send({
+        patient_uid: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        diagnosis_id: 73,
+        toxicity_term: 'Nausea',
+        ctcae_grade: 2,
+      });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.code).toBe('ONCOLOGY_TOXICITY_PATIENT_MISMATCH');
+    expect(createToxicityEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        patientUid: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        diagnosisId: 73,
+      }),
+      expect.objectContaining({ actorRole: 'DOCTOR' }),
+    );
   });
 });

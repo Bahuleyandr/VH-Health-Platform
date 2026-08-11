@@ -164,6 +164,14 @@ async function assertPatientInTenant(db, tenantId, patientUid) {
   if (!rows.length) throw AppError.notFound('Patient not found', 'ONCOLOGY_PATIENT_NOT_FOUND');
 }
 
+function assertPatientMatchesLinkedResource(patientUid, linkedPatientUid, message, code) {
+  const patientIdentity = patientUid ? String(patientUid).trim().toLowerCase() : null;
+  const linkedPatientIdentity = linkedPatientUid ? String(linkedPatientUid).trim().toLowerCase() : null;
+  if (patientIdentity && linkedPatientIdentity && patientIdentity !== linkedPatientIdentity) {
+    throw AppError.badRequest(message, code);
+  }
+}
+
 async function getCompletionSettingRow(tenantId, db = prisma) {
   const rows = await db.$queryRawUnsafe(
     `SELECT tenant_id, enabled, enabled_at, enabled_by, owner_source_policy_ref,
@@ -367,9 +375,12 @@ export async function createOncologyDiagnosis({
     const report = await loadPathologyReport(tx, tenantId, pathologyReportId);
     const effectivePatientUid = patientUid || report?.patient_uid;
     await assertPatientInTenant(tx, tenantId, effectivePatientUid);
-    if (report && String(report.patient_uid) !== String(effectivePatientUid)) {
-      throw AppError.badRequest('Pathology report patient does not match diagnosis patient', 'ONCOLOGY_PATHOLOGY_PATIENT_MISMATCH');
-    }
+    assertPatientMatchesLinkedResource(
+      effectivePatientUid,
+      report?.patient_uid,
+      'Pathology report patient does not match diagnosis patient',
+      'ONCOLOGY_PATHOLOGY_PATIENT_MISMATCH',
+    );
     const flag = text(report?.malignancy_flag);
     if (report && !MALIGNANCY_FLAGS_FOR_DIAGNOSIS.has(flag)) {
       throw AppError.badRequest('Pathology malignancy flag is not eligible for oncology diagnosis creation', 'ONCOLOGY_PATHOLOGY_FLAG_NOT_MALIGNANT');
@@ -651,12 +662,19 @@ export async function createToxicityEvent({
   return setTenantTx(tenantOr(tenantId), async (tx) => {
     let effectivePatientUid = patientUid;
     let effectiveEncounterId = encounterId;
+    let diagnosis = null;
     if (diagnosisId) {
-      const diagnosis = await loadDiagnosis(tx, tenantId, diagnosisId);
+      diagnosis = await loadDiagnosis(tx, tenantId, diagnosisId);
       effectivePatientUid = effectivePatientUid || diagnosis.patient_uid;
       effectiveEncounterId = effectiveEncounterId || diagnosis.encounter_id;
     }
     await assertPatientInTenant(tx, tenantId, effectivePatientUid);
+    assertPatientMatchesLinkedResource(
+      effectivePatientUid,
+      diagnosis?.patient_uid,
+      'Oncology diagnosis patient does not match toxicity patient',
+      'ONCOLOGY_TOXICITY_PATIENT_MISMATCH',
+    );
     await assertChemoPlanForPatient(tx, tenantId, chemoLink.chemoPlanId, effectivePatientUid);
 
     const rows = await tx.$queryRawUnsafe(

@@ -23,6 +23,7 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TENANT_ID = DEFAULT_TENANT_ID;
 const PATIENT_UID = 'fa130000-0000-4000-8000-000000000001';
+const OTHER_PATIENT_UID = 'fa130000-0000-4000-8000-000000000004';
 const DOCTOR_UID = 'fa130000-0000-4000-8000-000000000002';
 const PATHOLOGIST_UID = 'fa130000-0000-4000-8000-000000000003';
 
@@ -48,8 +49,9 @@ async function cleanup() {
     `DELETE FROM tumor_board_meetings WHERE service_line = 'NL13TEST Oncology'`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM oncology_toxicity_events WHERE patient_uid = $1::uuid`,
+    `DELETE FROM oncology_toxicity_events WHERE patient_uid IN ($1::uuid, $2::uuid)`,
     PATIENT_UID,
+    OTHER_PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM oncology_staging_records WHERE patient_uid = $1::uuid`,
@@ -61,7 +63,7 @@ async function cleanup() {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events
-      WHERE patient_uid = $1::uuid
+      WHERE patient_uid IN ($1::uuid, $2::uuid)
         AND source_table IN (
           'oncology_diagnoses',
           'oncology_staging_records',
@@ -70,6 +72,7 @@ async function cleanup() {
           'tumor_board_recommendations'
         )`,
     PATIENT_UID,
+    OTHER_PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM chemo_administrations
@@ -105,10 +108,11 @@ async function cleanup() {
     PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
     PATIENT_UID,
     DOCTOR_UID,
     PATHOLOGIST_UID,
+    OTHER_PATIENT_UID,
   ).catch(() => {});
 }
 
@@ -116,9 +120,10 @@ async function seedFixture() {
   await prisma.$executeRawUnsafe(
     `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
      VALUES
-       ($1::uuid, '9199130001', 'NL13TEST Patient', 'PATIENT', true, $4::uuid, NOW()),
-       ($2::uuid, '9199130002', 'NL13TEST Doctor', 'DOCTOR', true, $4::uuid, NOW()),
-       ($3::uuid, '9199130003', 'NL13TEST Pathologist', 'PATHOLOGIST', true, $4::uuid, NOW())
+       ($1::uuid, '9199130001', 'NL13TEST Patient', 'PATIENT', true, $5::uuid, NOW()),
+       ($2::uuid, '9199130002', 'NL13TEST Doctor', 'DOCTOR', true, $5::uuid, NOW()),
+       ($3::uuid, '9199130003', 'NL13TEST Pathologist', 'PATHOLOGIST', true, $5::uuid, NOW()),
+       ($4::uuid, '9199130004', 'NL13TEST Other Patient', 'PATIENT', true, $5::uuid, NOW())
      ON CONFLICT (uid) DO UPDATE SET
        phone = EXCLUDED.phone,
        name = EXCLUDED.name,
@@ -129,6 +134,7 @@ async function seedFixture() {
     PATIENT_UID,
     DOCTOR_UID,
     PATHOLOGIST_UID,
+    OTHER_PATIENT_UID,
     TENANT_ID,
   );
 
@@ -315,6 +321,15 @@ d('NL-13 P3 oncology completion deep chain', () => {
 
     await expect(createToxicityEvent({
       tenantId: TENANT_ID,
+      patientUid: OTHER_PATIENT_UID,
+      diagnosisId: diagnosis.id,
+      toxicityTerm: 'Nausea',
+      ctcaeGrade: 2,
+    }, { actorUid: DOCTOR_UID, actorRole: 'DOCTOR' }))
+      .rejects.toMatchObject({ code: 'ONCOLOGY_TOXICITY_PATIENT_MISMATCH' });
+
+    await expect(createToxicityEvent({
+      tenantId: TENANT_ID,
       patientUid: PATIENT_UID,
       diagnosisId: diagnosis.id,
       toxicityTerm: 'Neuropathy',
@@ -324,7 +339,6 @@ d('NL-13 P3 oncology completion deep chain', () => {
 
     const toxicity = await createToxicityEvent({
       tenantId: TENANT_ID,
-      patientUid: PATIENT_UID,
       diagnosisId: diagnosis.id,
       toxicityTerm: 'Neuropathy',
       ctcaeGrade: 2,
