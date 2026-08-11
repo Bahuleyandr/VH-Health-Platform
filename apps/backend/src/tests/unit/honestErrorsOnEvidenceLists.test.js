@@ -211,3 +211,89 @@ describe('GET /devices/admin/list', () => {
     expect(queryRawUnsafe).not.toHaveBeenCalled();
   });
 });
+
+describe('GET /devices/my-devices', () => {
+  it('returns the caller devices when both identity and device queries succeed', async () => {
+    const device = {
+      device_id: 'self-device',
+      device_name: 'Ward tablet',
+      status: 'active',
+      fcm_token: 'test-fcm-token',
+    };
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        uid: ADMIN_UID,
+        phone: '+919999900000',
+        name: 'Admin One',
+        tenant_id: TENANT,
+      }])
+      .mockResolvedValueOnce([device]);
+
+    const response = await request(app).get('/api/v1/devices/my-devices');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.devices).toEqual([device]);
+    expect(response.body.data.totalDevices).toBe(1);
+  });
+
+  it('returns a 500 error on a generic DB fault — never an empty authoritative device list', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(new Error('Connection terminated unexpectedly'));
+
+    const response = await request(app).get('/api/v1/devices/my-devices');
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body.success).toBe(false);
+    expect(response.body.data).toBeUndefined();
+  });
+
+  it('a missing users relation fails loudly instead of masquerading as no devices', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(missingTableError('users'));
+
+    const response = await request(app).get('/api/v1/devices/my-devices');
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body.success).toBe(false);
+  });
+
+  it('narrows the non-production compatibility response to the exact missing device table', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        uid: ADMIN_UID,
+        phone: '+919999900000',
+        name: 'Admin One',
+        tenant_id: TENANT,
+      }])
+      .mockRejectedValueOnce(missingTableError('user_devices'));
+
+    const response = await request(app).get('/api/v1/devices/my-devices');
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.devices).toEqual([]);
+    expect(response.body.meta).toEqual({ table_missing: true });
+  });
+
+  it('fails closed on a missing device table in production', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        uid: ADMIN_UID,
+        phone: '+919999900000',
+        name: 'Admin One',
+        tenant_id: TENANT,
+      }])
+      .mockRejectedValueOnce(missingTableError('user_devices'));
+
+    try {
+      const response = await request(app).get('/api/v1/devices/my-devices');
+
+      expect(response.statusCode).toBe(500);
+      expect(response.body.success).toBe(false);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+});
