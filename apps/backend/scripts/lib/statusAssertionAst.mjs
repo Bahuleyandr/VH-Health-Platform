@@ -3,14 +3,17 @@ import { parse } from 'espree';
 import { classifyStatusSet } from './statusAssertionPolicy.mjs';
 
 function memberName(node) {
+  if (node?.type === 'ChainExpression') return memberName(node.expression);
   if (node?.type !== 'MemberExpression') return null;
   if (!node.computed && node.property?.type === 'Identifier') return node.property.name;
   if (node.computed && node.property?.type === 'Literal') return node.property.value;
   return null;
 }
 
-function numericLiteral(node) {
-  return node?.type === 'Literal' && Number.isFinite(node.value) ? node.value : null;
+function unwrapExpression(node) {
+  let current = node;
+  while (current?.type === 'ChainExpression') current = current.expression;
+  return current;
 }
 
 function expressionKey(node, source) {
@@ -18,7 +21,80 @@ function expressionKey(node, source) {
   return source.slice(node.range[0], node.range[1]).replace(/\s+/g, '');
 }
 
-function statusArrayAssertion(node) {
+function isScopeNode(node) {
+  return [
+    'Program',
+    'BlockStatement',
+    'StaticBlock',
+    'SwitchStatement',
+    'FunctionDeclaration',
+    'FunctionExpression',
+    'ArrowFunctionExpression',
+  ].includes(node?.type);
+}
+
+function collectConstBindings(ast) {
+  const byName = new Map();
+  visit(ast, [], (node, ancestors) => {
+    const declaration = ancestors.at(-1);
+    if (
+      node.type !== 'VariableDeclarator'
+      || node.id?.type !== 'Identifier'
+      || declaration?.type !== 'VariableDeclaration'
+      || declaration.kind !== 'const'
+      || !node.init
+    ) return;
+
+    const scope = [...ancestors].reverse().find(isScopeNode);
+    if (!scope) return;
+    const bindings = byName.get(node.id.name) || [];
+    bindings.push({ declaration: node, init: node.init, scope });
+    byName.set(node.id.name, bindings);
+  });
+  return byName;
+}
+
+function constBinding(identifier, bindings) {
+  if (identifier?.type !== 'Identifier') return null;
+  return (bindings.get(identifier.name) || [])
+    .filter(({ declaration, scope }) => (
+      isWithin(identifier, scope)
+      && declaration.range[0] < identifier.range[0]
+    ))
+    .sort((a, b) => {
+      const aSpan = a.scope.range[1] - a.scope.range[0];
+      const bSpan = b.scope.range[1] - b.scope.range[0];
+      return aSpan - bSpan || b.declaration.range[0] - a.declaration.range[0];
+    })[0] || null;
+}
+
+function numericValue(node, bindings, seen = new Set()) {
+  const expression = unwrapExpression(node);
+  if (expression?.type === 'Literal' && Number.isFinite(expression.value)) {
+    return expression.value;
+  }
+  if (expression?.type !== 'Identifier') return null;
+  const binding = constBinding(expression, bindings);
+  if (!binding || seen.has(binding)) return null;
+  const nextSeen = new Set(seen).add(binding);
+  return numericValue(binding.init, bindings, nextSeen);
+}
+
+function numericArray(node, bindings, seen = new Set()) {
+  const expression = unwrapExpression(node);
+  if (expression?.type === 'Identifier') {
+    const binding = constBinding(expression, bindings);
+    if (!binding || seen.has(binding)) return null;
+    return numericArray(binding.init, bindings, new Set(seen).add(binding));
+  }
+  if (expression?.type !== 'ArrayExpression') return null;
+  const codes = expression.elements
+    .map((element) => numericValue(element, bindings, seen))
+    .filter((code) => code != null);
+  return codes.length > 0 ? codes : null;
+}
+
+function statusArrayAssertion(node, bindings) {
   if (node?.type !== 'CallExpression' || memberName(node.callee) !== 'toContain') return null;
 
   const expectCall = node.callee.object;
@@ -29,10 +105,8 @@ function statusArrayAssertion(node) {
     || expectCall.callee.name !== 'expect'
   ) return null;
 
-  const array = expectCall.arguments[0];
-  if (array?.type !== 'ArrayExpression') return null;
-  const codes = array.elements.map(numericLiteral).filter((code) => code != null);
-  if (codes.length === 0) return null;
+  const codes = numericArray(expectCall.arguments[0], bindings);
+  if (!codes) return null;
 
   return { codes, actual: node.arguments[0] };
 }
@@ -46,16 +120,16 @@ function isWithin(node, container) {
   );
 }
 
-function comparedSuccess(test, actualKey, source) {
+function comparedSuccess(test, actualKey, source, bindings) {
   if (!test) return null;
   if (test.type === 'LogicalExpression') {
-    return comparedSuccess(test.left, actualKey, source)
-      || comparedSuccess(test.right, actualKey, source);
+    return comparedSuccess(test.left, actualKey, source, bindings)
+      || comparedSuccess(test.right, actualKey, source, bindings);
   }
   if (test.type !== 'BinaryExpression') return null;
 
-  const leftNumber = numericLiteral(test.left);
-  const rightNumber = numericLiteral(test.right);
+  const leftNumber = numericValue(test.left, bindings);
+  const rightNumber = numericValue(test.right, bindings);
   if (leftNumber >= 200 && leftNumber < 300 && expressionKey(test.right, source) === actualKey) {
     return { code: leftNumber, operator: test.operator };
   }
@@ -65,15 +139,42 @@ function comparedSuccess(test, actualKey, source) {
   return null;
 }
 
-function conditionalSuccessCode(ifNode, assertionNode, actualKey, source) {
-  const comparison = comparedSuccess(ifNode?.test, actualKey, source);
-  if (!comparison) return null;
-
-  if (['!=', '!=='].includes(comparison.operator) && isWithin(assertionNode, ifNode.consequent)) {
-    return comparison.code;
+function includedSuccess(test, actualKey, source, bindings) {
+  if (!test) return null;
+  if (test.type === 'LogicalExpression') {
+    return includedSuccess(test.left, actualKey, source, bindings)
+      || includedSuccess(test.right, actualKey, source, bindings);
   }
-  if (['==', '==='].includes(comparison.operator) && isWithin(assertionNode, ifNode.alternate)) {
-    return comparison.code;
+
+  const negated = test.type === 'UnaryExpression' && test.operator === '!';
+  const expression = unwrapExpression(negated ? test.argument : test);
+  if (expression?.type !== 'CallExpression' || memberName(expression.callee) !== 'includes') {
+    return null;
+  }
+  if (expressionKey(expression.arguments[0], source) !== actualKey) return null;
+  const codes = numericArray(expression.callee.object, bindings)
+    ?.filter((code) => code >= 200 && code < 300);
+  return codes?.length ? { codes, negated } : null;
+}
+
+function conditionalSuccessCodes(ifNode, assertionNode, actualKey, source, bindings) {
+  const comparison = comparedSuccess(ifNode?.test, actualKey, source, bindings);
+  if (comparison) {
+    if (['!=', '!=='].includes(comparison.operator) && isWithin(assertionNode, ifNode.consequent)) {
+      return [comparison.code];
+    }
+    if (['==', '==='].includes(comparison.operator) && isWithin(assertionNode, ifNode.alternate)) {
+      return [comparison.code];
+    }
+  }
+
+  const included = includedSuccess(ifNode?.test, actualKey, source, bindings);
+  if (!included) return null;
+  if (included.negated && isWithin(assertionNode, ifNode.consequent)) {
+    return included.codes;
+  }
+  if (!included.negated && isWithin(assertionNode, ifNode.alternate)) {
+    return included.codes;
   }
   return null;
 }
@@ -105,10 +206,11 @@ export function findMixedStatusAssertions(source) {
     loc: true,
     range: true,
   });
+  const bindings = collectConstBindings(ast);
   const findings = [];
 
   visit(ast, [], (node, ancestors) => {
-    const assertion = statusArrayAssertion(node);
+    const assertion = statusArrayAssertion(node, bindings);
     if (!assertion) return;
 
     let codes = assertion.codes;
@@ -118,9 +220,9 @@ export function findMixedStatusAssertions(source) {
     if (!policy.mixesServerFailure && !policy.mixesAuthOutcome) {
       const actualKey = expressionKey(assertion.actual, source);
       const enclosingIf = [...ancestors].reverse().find((ancestor) => ancestor.type === 'IfStatement');
-      const implicitSuccess = conditionalSuccessCode(enclosingIf, node, actualKey, source);
-      if (implicitSuccess != null) {
-        codes = [...new Set([implicitSuccess, ...codes])];
+      const implicitSuccess = conditionalSuccessCodes(enclosingIf, node, actualKey, source, bindings);
+      if (implicitSuccess) {
+        codes = [...new Set([...implicitSuccess, ...codes])];
         policy = classifyStatusSet(codes);
         kind = 'conditional_split';
       }

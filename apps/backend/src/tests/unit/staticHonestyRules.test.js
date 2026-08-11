@@ -1,8 +1,36 @@
 import { jest } from '@jest/globals';
-import { Linter } from 'eslint';
+import { Linter, RuleTester } from 'eslint';
 import noSuccessInCatch from '../../../scripts/eslint-rules/no-success-in-catch.mjs';
 import { findMixedStatusAssertions } from '../../../scripts/lib/statusAssertionAst.mjs';
 import { classifyStatusSet } from '../../../scripts/lib/statusAssertionPolicy.mjs';
+
+const noSuccessRuleTester = new RuleTester({
+  languageOptions: { ecmaVersion: 'latest', sourceType: 'module' },
+});
+
+noSuccessRuleTester.run('no-success-in-catch assigned aliases', noSuccessInCatch, {
+  valid: [
+    'function handler() { const success = () => null; try { work(); } catch { success(res); } }',
+  ],
+  invalid: [
+    {
+      code: 'const ok = success; function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'const ok = responseHelper.success; function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'let ok; ok = responseHelper.success; function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'function handler() { try { work(); } catch { (0, success)(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+  ],
+});
 
 describe('no-success-in-catch lint rule', () => {
   function lint(code) {
@@ -88,5 +116,45 @@ describe('mixed status assertion policy', () => {
     expect(findings).toEqual([
       expect.objectContaining({ codes: [200, 503], exempt: true }),
     ]);
+  });
+
+  it('resolves local const status sets, numeric aliases, and negated includes splits', () => {
+    const findings = findMixedStatusAssertions(`
+      test('bound set', () => {
+        const accepted = [200, 403];
+        expect(accepted).toContain(res.status);
+      });
+      test('bound numeric split', () => {
+        const ok = 200;
+        if (res.status !== ok) {
+          expect([401, 403]).toContain(res.status);
+        }
+      });
+      test('negated includes split', () => {
+        const successful = [200, 204];
+        if (!successful.includes(res.status)) {
+          const denied = [401, 403];
+          expect(denied).toContain(res.status);
+        }
+      });
+    `);
+
+    expect(findings).toEqual([
+      expect.objectContaining({ codes: [200, 403], kind: 'status_set', mixesAuthOutcome: true }),
+      expect.objectContaining({ codes: [200, 401, 403], kind: 'conditional_split', mixesAuthOutcome: true }),
+      expect.objectContaining({ codes: [200, 204, 401, 403], kind: 'conditional_split', mixesAuthOutcome: true }),
+    ]);
+  });
+
+  it('resolves the nearest lexical const binding instead of a shadowed outer set', () => {
+    const findings = findMixedStatusAssertions(`
+      const accepted = [200, 403];
+      test('shadowed', () => {
+        const accepted = [401, 403];
+        expect(accepted).toContain(res.status);
+      });
+    `);
+
+    expect(findings).toEqual([]);
   });
 });

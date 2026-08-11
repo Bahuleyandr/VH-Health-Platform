@@ -1,13 +1,18 @@
 function memberName(node) {
+  if (node?.type === 'ChainExpression') return memberName(node.expression);
   if (node?.type !== 'MemberExpression') return null;
   if (!node.computed && node.property?.type === 'Identifier') return node.property.name;
   if (node.computed && node.property?.type === 'Literal') return node.property.value;
   return null;
 }
 
-function isSuccessCall(node, successAliases) {
-  if (node.callee?.type === 'Identifier') return successAliases.has(node.callee.name);
-  return memberName(node.callee) === 'success';
+function unwrapExpression(node) {
+  let current = node;
+  while (current?.type === 'ChainExpression') current = current.expression;
+  if (current?.type === 'SequenceExpression') {
+    return unwrapExpression(current.expressions.at(-1));
+  }
+  return current;
 }
 
 function isPromiseCatchCallback(node) {
@@ -36,23 +41,65 @@ export default {
     },
   },
   create(context) {
-    const successAliases = new Set(['success']);
+    const sourceCode = context.sourceCode;
+    const successBindings = new Set();
+
+    function variableFor(identifier) {
+      if (identifier?.type !== 'Identifier') return null;
+      for (let scope = sourceCode.getScope(identifier); scope; scope = scope.upper) {
+        const variable = scope.set.get(identifier.name);
+        if (variable) return variable;
+      }
+      return null;
+    }
+
+    function resolvesToSuccess(expression) {
+      const node = unwrapExpression(expression);
+      if (node?.type === 'Identifier') {
+        const variable = variableFor(node);
+        return variable ? successBindings.has(variable) : node.name === 'success';
+      }
+      return memberName(node) === 'success';
+    }
+
+    function setDeclaredBinding(node, name, isSuccess) {
+      for (const variable of sourceCode.getDeclaredVariables(node)) {
+        if (variable.name !== name) continue;
+        if (isSuccess) successBindings.add(variable);
+        else successBindings.delete(variable);
+      }
+    }
+
     return {
       ImportSpecifier(node) {
-        if (node.imported?.name === 'success') successAliases.add(node.local.name);
+        if (node.imported?.name === 'success') {
+          setDeclaredBinding(node, node.local.name, true);
+        }
       },
       VariableDeclarator(node) {
-        if (node.id?.type !== 'ObjectPattern') return;
-        for (const property of node.id.properties) {
-          if (property.type !== 'Property') continue;
-          const key = property.computed ? property.key?.value : property.key?.name;
-          if (key === 'success' && property.value?.type === 'Identifier') {
-            successAliases.add(property.value.name);
+        if (node.id?.type === 'Identifier') {
+          setDeclaredBinding(node, node.id.name, resolvesToSuccess(node.init));
+          return;
+        }
+        if (node.id?.type === 'ObjectPattern') {
+          for (const property of node.id.properties) {
+            if (property.type !== 'Property') continue;
+            const key = property.computed ? property.key?.value : property.key?.name;
+            if (key === 'success' && property.value?.type === 'Identifier') {
+              setDeclaredBinding(node, property.value.name, true);
+            }
           }
         }
       },
+      AssignmentExpression(node) {
+        if (node.operator !== '=' || node.left?.type !== 'Identifier') return;
+        const variable = variableFor(node.left);
+        if (!variable) return;
+        if (resolvesToSuccess(node.right)) successBindings.add(variable);
+        else successBindings.delete(variable);
+      },
       CallExpression(node) {
-        if (!isSuccessCall(node, successAliases)) return;
+        if (!resolvesToSuccess(node.callee)) return;
         if (isPromiseCatchCallback(node)) {
           context.report({ node, messageId: 'fakeSuccess' });
           return;
