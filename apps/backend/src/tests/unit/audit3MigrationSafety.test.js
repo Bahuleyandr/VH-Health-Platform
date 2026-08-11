@@ -1,0 +1,250 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { splitStatements } from '../../utils/migrations/splitStatements.js';
+
+const migrationsDir = new URL('../../migrations/', import.meta.url);
+
+function migration(name) {
+  return readFileSync(new URL(name, migrationsDir), 'utf8');
+}
+
+function productionJavaScriptFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === 'tests') return [];
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return productionJavaScriptFiles(path);
+    return entry.isFile() && entry.name.endsWith('.js') ? [path] : [];
+  });
+}
+
+function expectInvalidConcurrentIndexRecovery(sql, indexName, temporaryName) {
+  const statements = splitStatements(sql);
+  const temporaryDrops = statements
+    .map((statement, index) => ({ statement, index }))
+    .filter(({ statement }) => statement.includes(
+      `DROP INDEX CONCURRENTLY IF EXISTS public.${temporaryName}`,
+    ));
+  const rename = statements.findIndex(
+    (statement) => statement.includes('to_regclass')
+      && statement.includes(indexName)
+      && statement.includes('NOT indisvalid')
+      && statement.includes(`RENAME TO ${temporaryName}`),
+  );
+  const create = statements.findIndex(
+    (statement) => statement.includes('CREATE')
+      && statement.includes('INDEX CONCURRENTLY IF NOT EXISTS')
+      && statement.includes(indexName),
+  );
+
+  expect(temporaryDrops).toHaveLength(2);
+  expect(rename).toBeGreaterThan(temporaryDrops[0].index);
+  expect(temporaryDrops[1].index).toBeGreaterThan(rename);
+  expect(create).toBeGreaterThan(temporaryDrops[1].index);
+}
+
+describe('Audit 3 migration deploy-safety contracts', () => {
+  test('647 warns on duplicate ABHA data and builds its index outside a transaction', () => {
+    const sql = migration('647_users_abha_number_tenant_unique.sql');
+
+    expect(sql).toContain('-- @no-transaction');
+    expect(sql).toContain('-- @statement_timeout: 0');
+    expect(sql).toMatch(/RAISE\s+WARNING/i);
+    expect(sql).not.toMatch(/RAISE\s+EXCEPTION/i);
+    expect(sql).toMatch(/CREATE\s+UNIQUE\s+INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+uniq_users_tenant_abha_number_canonical/i);
+  });
+
+  test('650 validates token-epoch checks after adding them NOT VALID', () => {
+    const sql = migration('650_token_epoch_issuance_gate.sql');
+
+    expect(sql).toContain('-- @no-transaction');
+    expect(sql).toContain('-- @statement_timeout: 0');
+    for (const constraint of [
+      'chk_users_token_epoch_nonnegative',
+      'chk_admins_token_epoch_nonnegative',
+    ]) {
+      expect(sql).toMatch(new RegExp(`ADD CONSTRAINT ${constraint}[\\s\\S]*?NOT VALID`, 'i'));
+      expect(sql).toMatch(new RegExp(`VALIDATE CONSTRAINT ${constraint}`, 'i'));
+      expect(sql).not.toMatch(new RegExp(`DROP CONSTRAINT IF EXISTS ${constraint}`, 'i'));
+    }
+  });
+
+  test('652 bounds both historical partial-score updates and avoids blocking index creation', () => {
+    const sql = migration('652_news2_rescore_supersede_partial.sql');
+
+    expect(sql).toContain('-- @no-transaction');
+    expect(sql).toContain('-- @statement_timeout: 0');
+    expect(sql).toMatch(/WHERE\s+n\.id\s*=\s*d\.id\s+AND\s+d\.present_count\s+BETWEEN\s+1\s+AND\s+5/i);
+    expect(sql).toMatch(/WHERE\s+n\.id\s*=\s*c\.id\s+AND\s+c\.present_count\s+BETWEEN\s+1\s+AND\s+5/i);
+    expect(sql).toMatch(/CREATE\s+INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+idx_news2_scores_vitals_chart/i);
+    expect(sql).not.toMatch(/DROP\s+INDEX(?!\s+CONCURRENTLY)/i);
+    for (const constraint of [
+      'fk_news2_scores_vitals_chart',
+      'fk_news2_scores_superseded_by',
+    ]) {
+      expect(sql).toMatch(new RegExp(`ADD CONSTRAINT ${constraint}[\\s\\S]*?NOT VALID`, 'i'));
+      expect(sql).toMatch(new RegExp(`VALIDATE CONSTRAINT ${constraint}`, 'i'));
+    }
+  });
+
+  test('653 validates its check and keeps ABHA uniqueness continuously enforced during the concurrent swap', () => {
+    const sql = migration('653_users_abha_verification_gate.sql');
+
+    expect(sql).toContain('-- @no-transaction');
+    expect(sql).toContain('-- @statement_timeout: 0');
+    expect(sql).toMatch(/ADD CONSTRAINT chk_users_abha_verification_status[\s\S]*?NOT VALID/i);
+    expect(sql).toMatch(/VALIDATE CONSTRAINT chk_users_abha_verification_status/i);
+    expect(sql).not.toMatch(/DROP CONSTRAINT IF EXISTS chk_users_abha_verification_status/i);
+    const build = sql.indexOf('CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uniq_users_tenant_abha_number_canonical_verified_build');
+    const drop = sql.indexOf('DROP INDEX CONCURRENTLY IF EXISTS uniq_users_tenant_abha_number_canonical');
+    const rename = sql.indexOf('RENAME TO uniq_users_tenant_abha_number_canonical');
+    expect(build).toBeGreaterThan(-1);
+    expect(drop).toBeGreaterThan(build);
+    expect(rename).toBeGreaterThan(drop);
+  });
+
+  test('648 and additive 655 keep ICU code-status history tenant-bound and fail-closed', () => {
+    const historical = migration('648_icu_flowsheet_bounds_code_status_history.sql');
+    const additive = migration('655_audit3_migration_deploy_safety.sql');
+
+    for (const sql of [historical, additive]) {
+      expect(sql).toContain('-- @no-transaction');
+      expect(sql).toContain('-- @statement_timeout: 0');
+      expect(sql).toMatch(/icu_code_status_history_explicit_context[\s\S]*?AS RESTRICTIVE/i);
+      expect(sql).toMatch(/FOREIGN KEY \(tenant_id, icu_admission_id\)[\s\S]*?REFERENCES public\.icu_admissions \(tenant_id, id\)[\s\S]*?ON DELETE RESTRICT/i);
+      expect(sql).toMatch(/FOREIGN KEY \(tenant_id\)[\s\S]*?REFERENCES public\.tenants \(id\)[\s\S]*?ON DELETE RESTRICT/i);
+      expect(sql).toMatch(/ALTER COLUMN tenant_id SET DEFAULT|tenant_id\s+UUID\s+NOT NULL\s+DEFAULT/i);
+
+      const statements = splitStatements(sql);
+      for (const policyName of [
+        'tenant_isolation',
+        'icu_code_status_history_explicit_context',
+      ]) {
+        const swaps = statements.filter(
+          (statement) => statement.includes(`DROP POLICY IF EXISTS ${policyName}`)
+            && statement.includes(`CREATE POLICY ${policyName}`),
+        );
+        expect(swaps).toHaveLength(1);
+      }
+      const atomicPolicyRepair = statements.filter(
+        (statement) => statement.includes('DROP POLICY IF EXISTS tenant_isolation')
+          && statement.includes('CREATE POLICY tenant_isolation')
+          && statement.includes(
+            'DROP POLICY IF EXISTS icu_code_status_history_explicit_context',
+          )
+          && statement.includes('CREATE POLICY icu_code_status_history_explicit_context'),
+      );
+      expect(atomicPolicyRepair).toHaveLength(1);
+      if (sql === additive) {
+        expect(statements.indexOf(atomicPolicyRepair[0])).toBeLessThanOrEqual(2);
+      }
+    }
+
+    for (const sql of [historical, additive]) {
+      expect(sql).not.toMatch(/DROP TRIGGER IF EXISTS trg_icu_code_status_history_append_only/i);
+      expect(sql).toMatch(/IF NOT EXISTS[\s\S]*?trg_icu_code_status_history_append_only/i);
+    }
+
+    expect(additive).toMatch(/VALIDATE CONSTRAINT fk_icu_code_status_history_tenant/i);
+    expect(additive).toMatch(/VALIDATE CONSTRAINT fk_icu_code_status_history_admission_tenant/i);
+
+    const addReplacement = additive.indexOf(
+      'ADD CONSTRAINT fk_icu_code_status_history_admission_tenant',
+    );
+    const validateReplacement = additive.indexOf(
+      'VALIDATE CONSTRAINT fk_icu_code_status_history_admission_tenant',
+    );
+    const dropLegacy = additive.indexOf(
+      'DROP CONSTRAINT IF EXISTS icu_code_status_history_icu_admission_id_fkey',
+    );
+    expect(addReplacement).toBeGreaterThan(-1);
+    expect(validateReplacement).toBeGreaterThan(addReplacement);
+    expect(dropLegacy).toBeGreaterThan(validateReplacement);
+  });
+
+  test('every concurrent index path repairs an interrupted invalid build', () => {
+    const historical647 = migration('647_users_abha_number_tenant_unique.sql');
+    const historical648 = migration('648_icu_flowsheet_bounds_code_status_history.sql');
+    const historical652 = migration('652_news2_rescore_supersede_partial.sql');
+    const historical653 = migration('653_users_abha_verification_gate.sql');
+    const additive = migration('655_audit3_migration_deploy_safety.sql');
+
+    expectInvalidConcurrentIndexRecovery(
+      historical647,
+      'uniq_users_tenant_abha_number_canonical',
+      'uniq_users_abha_canonical_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      historical648,
+      'ux_icu_admissions_tenant_id',
+      'ux_icu_admissions_tenant_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      historical648,
+      'idx_icu_code_status_history_admission',
+      'idx_icu_code_status_history_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      historical652,
+      'idx_news2_scores_vitals_chart',
+      'idx_news2_vitals_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      historical653,
+      'uniq_users_tenant_abha_number_canonical_verified_build',
+      'uniq_users_abha_verified_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      additive,
+      'ux_icu_admissions_tenant_id',
+      'ux_icu_admissions_tenant_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      additive,
+      'uniq_users_tenant_abha_number_canonical',
+      'uniq_users_abha_canonical_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      additive,
+      'uniq_users_tenant_abha_number_canonical_verified_build',
+      'uniq_users_abha_verified_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      additive,
+      'idx_news2_scores_vitals_chart',
+      'idx_news2_vitals_invalid_rebuild',
+    );
+  });
+
+  test('ICU history keeps deprecated write provenance without production patient-uid reads', () => {
+    const historical = migration('648_icu_flowsheet_bounds_code_status_history.sql');
+    const additive = migration('655_audit3_migration_deploy_safety.sql');
+    const productionSources = productionJavaScriptFiles(
+      fileURLToPath(new URL('../../', import.meta.url)),
+    ).map((path) => ({ path, source: readFileSync(path, 'utf8') }));
+    const productionSql = productionSources.flatMap(({ path, source }) => {
+      return [...source.matchAll(/`(?:\\.|[^`])*`/gs)]
+        .map((match) => ({ path, sql: match[0] }))
+        .filter(({ sql }) => /\bicu_code_status_history\b/i.test(sql));
+    });
+
+    expect(historical).toMatch(/patient_uid\s+UUID/i);
+    expect(additive).toMatch(/ADD COLUMN IF NOT EXISTS patient_uid UUID/i);
+    expect(additive).not.toMatch(/DROP COLUMN IF EXISTS patient_uid/i);
+    expect(historical).toMatch(/DEPRECATED immutable provenance/i);
+    expect(additive).toMatch(/DEPRECATED immutable provenance/i);
+
+    expect(productionSql).toHaveLength(2);
+    for (const { sql } of productionSql) {
+      expect(sql).toMatch(/^`\s*INSERT INTO icu_code_status_history/i);
+      expect(sql).toMatch(/\bpatient_uid\b/i);
+      expect(sql).not.toMatch(/\b(?:SELECT|FROM|JOIN|UPDATE|DELETE)\b/i);
+    }
+    for (const { source } of productionSources) {
+      expect(source).not.toMatch(
+        /\b(?:FROM|JOIN|UPDATE|DELETE\s+FROM)\s+(?:public\.)?icu_code_status_history\b/i,
+      );
+    }
+  });
+});

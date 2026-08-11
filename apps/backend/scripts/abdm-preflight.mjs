@@ -14,6 +14,7 @@
 
 import process from 'node:process';
 import pg from 'pg';
+import { checkCanonicalAbhaDuplicates } from './lib/abdmPreflight.mjs';
 
 const REQUIRED_ENV = ['ABDM_CLIENT_ID', 'ABDM_CLIENT_SECRET', 'ABDM_HIP_ID', 'ABDM_CALLBACK_URL'];
 const OPTIONAL_ENV = ['ABDM_GATEWAY_URL', 'ABDM_BRIDGE_URL', 'ABDM_HIP_NAME', 'ABDM_ENABLED'];
@@ -59,7 +60,8 @@ async function checkTables() {
     );
     const found = rows.map((r) => r.table_name);
     const missing = REQUIRED_TABLES.filter((t) => !found.includes(t));
-    return { found, missing };
+    const abhaDuplicates = await checkCanonicalAbhaDuplicates(client);
+    return { found, missing, abhaDuplicates };
   } finally {
     await client.end();
   }
@@ -87,6 +89,14 @@ if (tables.error) {
 } else {
   console.log(`  ✓ ${tables.found.length} abdm* tables present`);
   for (const t of tables.missing) console.log(`  ✗ missing expected table: ${t}`);
+  if (tables.abhaDuplicates.duplicateGroups === 0) {
+    console.log('  ✓ no duplicate canonical ABHA groups found within a tenant');
+  } else {
+    console.log(
+      `  ✗ BLOCKER ${tables.abhaDuplicates.duplicateGroups} duplicate canonical ABHA group(s) `
+      + `across ${tables.abhaDuplicates.duplicateRows} rows; reconcile before migration 647`,
+    );
+  }
 }
 
 console.log('\nKnown gaps:');
@@ -96,7 +106,9 @@ for (const gap of KNOWN_GAPS) {
 
 const blockers =
   env.missing.length
+  + (tables.error ? 1 : 0)
   + (tables.missing?.length || 0)
+  + (tables.abhaDuplicates?.duplicateGroups || 0)
   + KNOWN_GAPS.filter((g) => g.blocker).length;
 
 console.log(`\nVerdict: ${blockers === 0

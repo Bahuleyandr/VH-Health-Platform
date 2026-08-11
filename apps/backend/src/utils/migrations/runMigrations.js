@@ -2,8 +2,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Client as PgClient } from 'pg';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { parseMigrationDirectives } from '../../../scripts/lib/migrationDirectives.mjs';
 import { splitStatements } from './splitStatements.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,14 +33,6 @@ async function isPgvectorAvailable() {
     "SELECT 1 FROM pg_available_extensions WHERE name = 'vector' LIMIT 1",
   );
   return (Array.isArray(rows) ? rows : rows?.rows ?? []).length > 0;
-}
-
-async function rollbackBestEffort() {
-  try {
-    await prisma.$executeRawUnsafe('ROLLBACK');
-  } catch {
-    // The failed statement may not have left an open transaction on this connection.
-  }
 }
 
 function stripSqlComments(sql) {
@@ -130,20 +124,6 @@ function statementPreview(stmt) {
   return stripSqlComments(stmt).replace(/\s+/g, ' ').trim().slice(0, 180);
 }
 
-// Per-file scale-safety escape hatch (audit 2026-06-22 H5). Heavy DDL at real
-// hospital data volume — CREATE INDEX CONCURRENTLY, full-table backfills — can't
-// run inside the default single transaction (CONCURRENTLY is rejected in a tx
-// block) or under the hard 120s statement_timeout (a long build aborts → the pod
-// crashloops on the cutover deploy). A migration opts out with header comments:
-//   -- @no-transaction            run statements on the session (no wrapping tx)
-//   -- @statement_timeout: 0      raise/disable the per-statement timeout ('0' = off)
-// Both are optional and independent. Without them, behavior is unchanged.
-function parseMigrationDirectives(sql) {
-  const noTransaction = /^[ \t]*--[ \t]*@no-transaction\b/im.test(sql);
-  const m = sql.match(/^[ \t]*--[ \t]*@statement_timeout:[ \t]*(\S+)/im);
-  return { noTransaction, statementTimeout: m ? m[1].trim() : null };
-}
-
 // A Postgres time/interval value we are willing to inject into SET. Files are
 // repo-authored, but validate anyway (defense-in-depth): a bare integer (ms),
 // '0' (disabled), or an integer with a ms/s/min unit.
@@ -168,7 +148,35 @@ async function runStatements(client, statements) {
   }
 }
 
-async function executeMigrationFile(file, statements, directives = {}) {
+async function runPgStatements(client, statements) {
+  for (let index = 0; index < statements.length; index += 1) {
+    const stmt = statements[index];
+    if (isTransactionBoundaryStatement(stmt)) continue;
+    try {
+      await client.query(stmt);
+    } catch (err) {
+      err.migrationStatementIndex = index + 1;
+      err.migrationStatementPreview = statementPreview(stmt);
+      throw err;
+    }
+  }
+}
+
+async function createNoTransactionClient() {
+  const client = new PgClient({
+    connectionString: process.env.DATABASE_URL,
+    application_name: 'vhhealth-no-transaction-migrations',
+  });
+  await client.connect();
+  return client;
+}
+
+async function executeMigrationFile(
+  file,
+  statements,
+  directives = {},
+  noTransactionClientFactory = createNoTransactionClient,
+) {
   const timeout = safeStatementTimeout(directives.statementTimeout);
 
   if (directives.noTransaction) {
@@ -177,15 +185,14 @@ async function executeMigrationFile(file, statements, directives = {}) {
     // leaves the file partially applied and UNRECORDED, so a @no-transaction
     // migration MUST be written re-runnable (IF NOT EXISTS / CONCURRENTLY). The
     // file is recorded only after every statement succeeds.
-    await prisma.$executeRawUnsafe("SET lock_timeout = '15s'");
-    await prisma.$executeRawUnsafe(`SET statement_timeout = '${timeout}'`);
+    const client = await noTransactionClientFactory();
     try {
-      await runStatements(prisma, statements);
-      await prisma.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
+      await client.query("SET lock_timeout = '15s'");
+      await client.query(`SET statement_timeout = '${timeout}'`);
+      await runPgStatements(client, statements);
+      await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file]);
     } finally {
-      // Restore the runner's session default so later files aren't left uncapped.
-      await prisma.$executeRawUnsafe("SET statement_timeout = '120s'").catch(() => {});
-      await prisma.$executeRawUnsafe("SET lock_timeout = '15s'").catch(() => {});
+      await client.end().catch(() => {});
     }
     return;
   }
@@ -223,21 +230,10 @@ async function executeMigrationFile(file, statements, directives = {}) {
  * (verified 2026-05-01 — migrations 108-139 all silently failed and the
  * pod ran on a broken schema for an unknown number of restarts).
  */
-export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } = {}) {
-  // F-2 — bound how long the runner waits on a relation lock. Without
-  // this, an orphan idle-in-transaction connection (audit_log,
-  // workflow_resume, etc.) holding a row lock on a table the migration
-  // wants to ALTER causes the runner to hang indefinitely. With a
-  // 15s lock_timeout, the runner bails fast and surfaces a clear
-  // error so the operator can pg_terminate_backend() the orphan and
-  // restart. Hit twice during the 2026-05-09 deploy of E batch.
-  try {
-    await prisma.$executeRawUnsafe("SET lock_timeout = '15s'");
-    await prisma.$executeRawUnsafe("SET statement_timeout = '120s'");
-  } catch (err) {
-    logger.warn(`runMigrations: could not set lock/statement timeouts (${err?.message}); continuing with defaults`);
-  }
-
+export async function runMigrations({
+  migrationsDir = DEFAULT_MIGRATIONS_DIR,
+  noTransactionClientFactory = createNoTransactionClient,
+} = {}) {
   // Create migrations tracking table. DDL → $executeRawUnsafe.
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS _migrations (
@@ -293,12 +289,16 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
     logger.info(`Running migration: ${file} (${statements.length} statement${statements.length === 1 ? '' : 's'})${mode}${timeoutNote}`);
 
     try {
-      await executeMigrationFile(file, statements, directives);
+      await executeMigrationFile(
+        file,
+        statements,
+        directives,
+        noTransactionClientFactory,
+      );
       ran += 1;
       logger.info(`✅ Migration completed: ${file}`);
     } catch (err) {
       if (isOptionalPgvectorUnavailable(file, err)) {
-        await rollbackBestEffort();
         await prisma.$disconnect();
         skippedOptional += 1;
         logger.warn(`Skipping ${file}: pgvector is unavailable in this non-production database.`, {

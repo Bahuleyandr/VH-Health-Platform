@@ -362,7 +362,7 @@ COMMIT;`;
 
   // ---- scale-safety escape hatch (audit 2026-06-22 H5) ----------------------
 
-  it('runs a @no-transaction migration OUTSIDE a transaction (so CONCURRENTLY is legal)', async () => {
+  it('runs a @no-transaction migration on one dedicated session', async () => {
     const file = '999_test_concurrently.sql';
     fs.writeFileSync(
       path.join(tmpDir, file),
@@ -371,24 +371,33 @@ COMMIT;`;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_ix ON _test_x (id);`,
     );
 
-    await runMigrations({ migrationsDir: tmpDir });
+    const query = jest.fn().mockResolvedValue({ rows: [] });
+    const end = jest.fn().mockResolvedValue(undefined);
+    const noTransactionClientFactory = jest.fn().mockResolvedValue({ query, end });
+
+    await runMigrations({ migrationsDir: tmpDir, noTransactionClientFactory });
 
     // The whole point: this file must NOT be wrapped in prisma.$transaction.
     expect(transactionMock).not.toHaveBeenCalled();
+    expect(noTransactionClientFactory).toHaveBeenCalledTimes(1);
 
-    const calls = executeRawUnsafeMock.mock.calls.map((c) => c[0]);
-    // The heavy DDL ran on the plain session client (splitStatements keeps the
+    const prismaCalls = executeRawUnsafeMock.mock.calls.map((c) => c[0]);
+    const sessionCalls = query.mock.calls.map((c) => c[0]);
+    // The heavy DDL and all of its session settings ran on the same dedicated
+    // connection (splitStatements keeps the
     // leading directive comments as a prefix, so match on substring)...
-    expect(calls.some((s) => typeof s === 'string' && s.includes('CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_ix ON _test_x (id)'))).toBe(true);
+    expect(sessionCalls.some((s) => typeof s === 'string' && s.includes('CREATE INDEX CONCURRENTLY IF NOT EXISTS _test_ix ON _test_x (id)'))).toBe(true);
+    expect(prismaCalls.some((s) => typeof s === 'string' && s.includes('CREATE INDEX CONCURRENTLY'))).toBe(false);
     // ...with the timeout raised to the directive value (0 = uncapped, session-level)...
-    expect(calls).toContain("SET statement_timeout = '0'");
-    // ...and the runner default restored afterwards so later files stay capped.
-    expect(calls).toContain("SET statement_timeout = '120s'");
-    // ...and the file recorded.
-    const trackerInsert = executeRawUnsafeMock.mock.calls.find(
+    expect(sessionCalls).toContain("SET lock_timeout = '15s'");
+    expect(sessionCalls).toContain("SET statement_timeout = '0'");
+    // ...and the file recorded on that same session only after the DDL.
+    const trackerInsert = query.mock.calls.find(
       (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO _migrations'),
     );
-    expect(trackerInsert?.[1]).toBe(file);
+    expect(trackerInsert?.[1]).toEqual([file]);
+    expect(query.mock.calls.at(-1)).toEqual(trackerInsert);
+    expect(end).toHaveBeenCalledTimes(1);
   });
 
   it('honors @statement_timeout inside the transactional path (SET LOCAL)', async () => {

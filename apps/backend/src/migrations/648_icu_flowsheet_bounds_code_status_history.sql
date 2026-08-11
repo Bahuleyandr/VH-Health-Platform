@@ -1,5 +1,8 @@
 -- 648_icu_flowsheet_bounds_code_status_history.sql
 --
+-- @no-transaction
+-- @statement_timeout: 0
+--
 -- 2026-08-10 full re-review, findings H1 + CLIN-3 (ICU cluster):
 --
 -- 1. H1 — icu_flowsheet_entries and icu_assessments accepted unbounded
@@ -24,11 +27,6 @@
 -- recorded_at plausibility (future/backdate window) is enforced app-side
 -- only — a NOW()-relative CHECK would re-evaluate on later row rewrites and
 -- is not a stable table invariant.
-
-BEGIN;
-
-SET LOCAL lock_timeout = '10s';
-SET LOCAL statement_timeout = '120s';
 
 -- ────────────────────────────────────────────────────────────────────
 -- 1. Flowsheet bounds (mirrors ICU_FLOWSHEET_BOUNDS in
@@ -131,10 +129,30 @@ END $$;
 -- 2. Append-only code-status (DNR) history
 -- ────────────────────────────────────────────────────────────────────
 
+DROP INDEX CONCURRENTLY IF EXISTS public.ux_icu_admissions_tenant_invalid_rebuild;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+     WHERE indexrelid = to_regclass('public.ux_icu_admissions_tenant_id')
+       AND NOT indisvalid
+  ) THEN
+    ALTER INDEX public.ux_icu_admissions_tenant_id
+      RENAME TO ux_icu_admissions_tenant_invalid_rebuild;
+  END IF;
+END $$;
+DROP INDEX CONCURRENTLY IF EXISTS public.ux_icu_admissions_tenant_invalid_rebuild;
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_icu_admissions_tenant_id
+  ON public.icu_admissions (tenant_id, id);
+
 CREATE TABLE IF NOT EXISTS icu_code_status_history (
   id                   BIGSERIAL PRIMARY KEY,
-  tenant_id            UUID NOT NULL,
-  icu_admission_id     INTEGER NOT NULL REFERENCES icu_admissions(id) ON DELETE CASCADE,
+  tenant_id            UUID NOT NULL DEFAULT COALESCE(
+    NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass')::uuid,
+    '00000000-0000-4000-8000-000000000001'::uuid
+  ),
+  icu_admission_id     INTEGER NOT NULL,
   patient_uid          UUID,
   previous_code_status VARCHAR(20)
     CHECK (previous_code_status IS NULL
@@ -145,41 +163,121 @@ CREATE TABLE IF NOT EXISTS icu_code_status_history (
   changed_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_icu_code_status_history_admission
+COMMENT ON COLUMN public.icu_code_status_history.patient_uid IS
+  'DEPRECATED immutable provenance for rolling-write compatibility; resolve current patient identity through icu_admission_id';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.icu_code_status_history'::regclass
+       AND conname = 'fk_icu_code_status_history_tenant'
+  ) THEN
+    ALTER TABLE public.icu_code_status_history
+      ADD CONSTRAINT fk_icu_code_status_history_tenant
+      FOREIGN KEY (tenant_id)
+      REFERENCES public.tenants (id)
+      ON DELETE RESTRICT
+      NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.icu_code_status_history'::regclass
+       AND conname = 'fk_icu_code_status_history_admission_tenant'
+  ) THEN
+    ALTER TABLE public.icu_code_status_history
+      ADD CONSTRAINT fk_icu_code_status_history_admission_tenant
+      FOREIGN KEY (tenant_id, icu_admission_id)
+      REFERENCES public.icu_admissions (tenant_id, id)
+      ON DELETE RESTRICT
+      NOT VALID;
+  END IF;
+END $$;
+
+ALTER TABLE public.icu_code_status_history
+  VALIDATE CONSTRAINT fk_icu_code_status_history_tenant;
+ALTER TABLE public.icu_code_status_history
+  VALIDATE CONSTRAINT fk_icu_code_status_history_admission_tenant;
+
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_icu_code_status_history_invalid_rebuild;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+     WHERE indexrelid = to_regclass('public.idx_icu_code_status_history_admission')
+       AND NOT indisvalid
+  ) THEN
+    ALTER INDEX public.idx_icu_code_status_history_admission
+      RENAME TO idx_icu_code_status_history_invalid_rebuild;
+  END IF;
+END $$;
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_icu_code_status_history_invalid_rebuild;
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_icu_code_status_history_admission
   ON icu_code_status_history (tenant_id, icu_admission_id, changed_at DESC);
 
 -- Append-only: same guard + semantics as the canonical audit/timeline
 -- tables (migrations 324/599).
-DROP TRIGGER IF EXISTS trg_icu_code_status_history_append_only
-  ON icu_code_status_history;
-CREATE TRIGGER trg_icu_code_status_history_append_only
-  BEFORE UPDATE OR DELETE ON icu_code_status_history
-  FOR EACH ROW EXECUTE FUNCTION audit_append_only_guard();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid = 'public.icu_code_status_history'::regclass
+       AND tgname = 'trg_icu_code_status_history_append_only'
+       AND NOT tgisinternal
+  ) THEN
+    EXECUTE $trigger$
+      CREATE TRIGGER trg_icu_code_status_history_append_only
+      BEFORE UPDATE OR DELETE ON public.icu_code_status_history
+      FOR EACH ROW EXECUTE FUNCTION public.audit_append_only_guard()
+    $trigger$;
+  END IF;
+END $$;
 
--- Tenant RLS — canonical tenant_isolation policy (mirrors migration 304).
+-- Fail-closed tenant RLS — migration 609 is the current template. The
+-- permissive compatibility policy remains, but the restrictive policy makes
+-- an explicit, matching setTenant context mandatory for every operation.
 ALTER TABLE icu_code_status_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE icu_code_status_history FORCE ROW LEVEL SECURITY;
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'icu_code_status_history'
-       AND policyname = 'tenant_isolation'
-  ) THEN
-    CREATE POLICY tenant_isolation ON icu_code_status_history
-      USING (
-        current_setting('app.current_tenant_id', true) IS NULL
-        OR current_setting('app.current_tenant_id', true) = ''
-        OR current_setting('app.current_tenant_id', true) = 'bypass'
-        OR tenant_id = app_current_tenant_id_uuid()
-      )
-      WITH CHECK (
-        current_setting('app.current_tenant_id', true) IS NULL
-        OR current_setting('app.current_tenant_id', true) = ''
-        OR current_setting('app.current_tenant_id', true) = 'bypass'
-        OR tenant_id = app_current_tenant_id_uuid()
-      );
-  END IF;
+  EXECUTE 'DROP POLICY IF EXISTS tenant_isolation ON public.icu_code_status_history';
+  EXECUTE $policy$
+    CREATE POLICY tenant_isolation ON public.icu_code_status_history
+    AS PERMISSIVE
+    USING (
+      current_setting('app.current_tenant_id', true) IS NULL
+      OR current_setting('app.current_tenant_id', true) = ''
+      OR current_setting('app.current_tenant_id', true) = 'bypass'
+      OR tenant_id = public.app_current_tenant_id_uuid()
+    )
+    WITH CHECK (
+      current_setting('app.current_tenant_id', true) IS NULL
+      OR current_setting('app.current_tenant_id', true) = ''
+      OR current_setting('app.current_tenant_id', true) = 'bypass'
+      OR tenant_id = public.app_current_tenant_id_uuid()
+    )
+  $policy$;
+
+  EXECUTE 'DROP POLICY IF EXISTS icu_code_status_history_explicit_context ON public.icu_code_status_history';
+  EXECUTE $policy$
+    CREATE POLICY icu_code_status_history_explicit_context
+    ON public.icu_code_status_history
+    AS RESTRICTIVE
+    USING (
+      current_setting('app.current_tenant_id', true) IS NOT NULL
+      AND current_setting('app.current_tenant_id', true) <> ''
+      AND current_setting('app.current_tenant_id', true) <> 'bypass'
+      AND tenant_id = public.app_current_tenant_id_uuid()
+    )
+    WITH CHECK (
+      current_setting('app.current_tenant_id', true) IS NOT NULL
+      AND current_setting('app.current_tenant_id', true) <> ''
+      AND current_setting('app.current_tenant_id', true) <> 'bypass'
+      AND tenant_id = public.app_current_tenant_id_uuid()
+    )
+  $policy$;
 END $$;
 
 -- Baseline row per existing admission that has a code status on record, so
@@ -193,5 +291,3 @@ SELECT a.tenant_id, a.id, a.patient_uid, NULL, a.code_status,
    AND NOT EXISTS (
      SELECT 1 FROM icu_code_status_history h WHERE h.icu_admission_id = a.id
    );
-
-COMMIT;

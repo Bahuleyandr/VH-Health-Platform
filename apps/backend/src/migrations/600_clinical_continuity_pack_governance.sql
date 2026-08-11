@@ -4,8 +4,8 @@
 --
 -- This migration is additive and inert. It does not seed a policy, register a
 -- signing key, activate generation, serve a pack, or infer facility mappings.
--- Each statement is re-runnable because the boot runner commits no-transaction
--- migrations statement-by-statement while ci-setup-db wraps the same file.
+-- Each statement is re-runnable because both migration runners commit
+-- no-transaction migrations statement-by-statement.
 
 SET lock_timeout = '10s';
 SET statement_timeout = '60s';

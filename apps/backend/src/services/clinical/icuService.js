@@ -159,6 +159,8 @@ export async function createAdmission({ tenantId, actorUid = null, actorRole = n
     // flip, leaving the initial code-status order absent from its dedicated
     // append-only ledger. The authenticated actor is authoritative; a request
     // body cannot attribute the order to another user.
+    // patient_uid remains a deprecated provenance write until every pod in
+    // the rolling fleet has moved to admission-derived history reads/writes.
     await tx.$queryRawUnsafe(
       `INSERT INTO icu_code_status_history
          (tenant_id, icu_admission_id, patient_uid, previous_code_status,

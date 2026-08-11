@@ -1,5 +1,8 @@
 -- 652_news2_rescore_supersede_partial.sql
 --
+-- @no-transaction
+-- @statement_timeout: 0
+--
 -- 2026-08-10 independent-audit triage, findings R4 + NEWS2-divergence:
 --
 -- 1. R4 — correcting a vitals row (vitalsChartService.correctVitals) never
@@ -27,11 +30,6 @@
 --    nursing-assessment surface. Both tables now carry an explicit
 --    partial_score flag + the missing parameter list.
 
-BEGIN;
-
-SET LOCAL lock_timeout = '10s';
-SET LOCAL statement_timeout = '120s';
-
 ALTER TABLE news2_scores
   ADD COLUMN IF NOT EXISTS vitals_chart_id  INTEGER,
   ADD COLUMN IF NOT EXISTS superseded_by_id INTEGER,
@@ -44,14 +42,19 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_news2_scores_vitals_chart') THEN
     ALTER TABLE news2_scores
       ADD CONSTRAINT fk_news2_scores_vitals_chart
-      FOREIGN KEY (vitals_chart_id) REFERENCES vitals_chart(id) ON DELETE SET NULL;
+      FOREIGN KEY (vitals_chart_id) REFERENCES vitals_chart(id) ON DELETE SET NULL
+      NOT VALID;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_news2_scores_superseded_by') THEN
     ALTER TABLE news2_scores
       ADD CONSTRAINT fk_news2_scores_superseded_by
-      FOREIGN KEY (superseded_by_id) REFERENCES news2_scores(id) ON DELETE SET NULL;
+      FOREIGN KEY (superseded_by_id) REFERENCES news2_scores(id) ON DELETE SET NULL
+      NOT VALID;
   END IF;
 END $$;
+
+ALTER TABLE news2_scores VALIDATE CONSTRAINT fk_news2_scores_vitals_chart;
+ALTER TABLE news2_scores VALIDATE CONSTRAINT fk_news2_scores_superseded_by;
 
 -- Backfill the explicit partial marker for historical rows. Without this,
 -- every pre-migration partial score would be mislabeled as complete by the
@@ -77,7 +80,8 @@ UPDATE news2_scores n
          ELSE NULL
        END
  FROM derived d
- WHERE n.id = d.id;
+ WHERE n.id = d.id
+   AND d.present_count BETWEEN 1 AND 5;
 
 ALTER TABLE nursing_assessments
   ADD COLUMN IF NOT EXISTS partial_score  BOOLEAN NOT NULL DEFAULT FALSE,
@@ -106,12 +110,24 @@ UPDATE nursing_assessments n
          ELSE NULL
        END
   FROM counted c
- WHERE n.id = c.id;
+ WHERE n.id = c.id
+   AND c.present_count BETWEEN 1 AND 5;
 
 -- The correction path looks up live scores by their source vitals row.
-DROP INDEX IF EXISTS idx_news2_scores_vitals_chart;
-CREATE INDEX IF NOT EXISTS idx_news2_scores_vitals_chart
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_news2_vitals_invalid_rebuild;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+     WHERE indexrelid = to_regclass('public.idx_news2_scores_vitals_chart')
+       AND NOT indisvalid
+  ) THEN
+    ALTER INDEX public.idx_news2_scores_vitals_chart
+      RENAME TO idx_news2_vitals_invalid_rebuild;
+  END IF;
+END $$;
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_news2_vitals_invalid_rebuild;
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_news2_scores_vitals_chart
   ON news2_scores (vitals_chart_id)
   WHERE vitals_chart_id IS NOT NULL AND superseded_at IS NULL;
-
-COMMIT;

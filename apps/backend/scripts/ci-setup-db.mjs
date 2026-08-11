@@ -34,6 +34,8 @@ import {
   assertMigrationBatchSucceeded,
   assertMigrationTrackerReady,
 } from './lib/migrationBatchGuard.mjs';
+import { executeCiMigrationFile } from './lib/ciMigrationExecutor.mjs';
+import { parseMigrationDirectives } from './lib/migrationDirectives.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -152,54 +154,33 @@ for (const file of files) {
     continue;
   }
   const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
-  // Apply the file:
-  //   - baseline manages its own structure (creates _migrations itself) — run
-  //     as-is, then record in a follow-up insert that depends on the table
-  //     existing post-baseline.
-  //   - Files that begin with their own `BEGIN; ... COMMIT;` likewise manage
-  //     their own transaction — apply as-is.
-  //   - Everything else gets wrapped in BEGIN/COMMIT so the tracker insert
-  //     atomically lands with the schema delta.
+  // Apply the file. @no-transaction migrations run statement-by-statement so
+  // CREATE INDEX CONCURRENTLY remains legal; they must be idempotent because a
+  // mid-file failure can leave untracked statements committed. Other files use
+  // their own top-level transaction or the executor's transaction wrapper.
   const selfManaged = file === BASELINE_FILE || fileStartsWithBegin(sql);
+  const directives = parseMigrationDirectives(sql);
   try {
-    if (selfManaged) {
-      await client.query(sql);
-      await client.query(
-        'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-        [file]
-      );
-    } else {
-      await client.query('BEGIN');
-      try {
-        await client.query(sql);
-        await client.query(
-          'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-          [file]
-        );
-        await client.query('COMMIT');
-      } catch (innerErr) {
-        try {
-          await client.query('ROLLBACK');
-        } catch {
-          // ignore — transaction may already be aborted
-        }
-        throw innerErr;
-      }
-    }
-    logger.info(`  ✓ ${file}`);
+    const result = await executeCiMigrationFile({
+      client,
+      file,
+      sql,
+      baseline: file === BASELINE_FILE,
+      selfManaged: selfManaged && file !== BASELINE_FILE,
+    });
+    const timeoutNote = directives.statementTimeout
+      ? `, statement_timeout=${directives.statementTimeout}`
+      : '';
+    logger.info(`  ✓ ${file} (${result.mode}${timeoutNote})`);
     applied.add(file);
     appliedCount++;
   } catch (err) {
-    if (selfManaged) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        // best effort — the migration may have already closed its transaction
-      }
-    }
     const hint = err.hint ? ` Hint: ${err.hint}` : '';
+    const statement = err.migrationStatementIndex
+      ? ` statement ${err.migrationStatementIndex}: ${err.migrationStatementPreview || ''}`
+      : '';
     logger.info(
-      `  ! ${file} — ${err.code || ''} ${(err.message || '').split('\n')[0]}${hint}`
+      `  ! ${file}${statement} — ${err.code || ''} ${(err.message || '').split('\n')[0]}${hint}`
     );
     errors++;
     break;
