@@ -64,10 +64,8 @@ export const getHealthStatus = async (req, res) => {
     success(res, healthData, 'OTP service is healthy');
   } catch (err) {
     logger.error('OTP Health Check Error:', err);
-    success(res, {
-      status: 'degraded',
-      message: 'OTP service temporarily unavailable',
-      timestamp: new Date().toISOString()
-    }, 'OTP service status check');
+    error(res, 'OTP service temporarily unavailable', HTTP_STATUS.SERVICE_UNAVAILABLE, {
+      topLevel: { status: 'degraded' },
+    });
   }
 };

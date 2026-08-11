@@ -77,6 +77,7 @@ function makeRes() {
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
+  queryRawUnsafeMock.mockResolvedValue([]);
   verifyTokenMock.mockReset();
   verifyTokenMock.lastError = null;
   isTokenBlacklistedMock.mockReset();
@@ -158,6 +159,17 @@ describe('jwtMiddleware — revocation control flow', () => {
 // Claim derivation: Hasura claims, mfa_setup scope, optional fields
 // =====================================================================
 describe('jwtMiddleware — claim derivation', () => {
+  it('does not authenticate a uid-only token when the users.id lookup fails', async () => {
+    const uncachedUid = 'a0000000-0000-4000-8000-00000000f001';
+    verifyTokenMock.mockReturnValue({ uid: uncachedUid, role: 'DOCTOR' });
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('identity database unavailable'));
+    let nextCalled = false;
+
+    await expect(jwtMiddleware(makeReq(), makeRes(), () => { nextCalled = true; }))
+      .rejects.toThrow('identity database unavailable');
+    expect(nextCalled).toBe(false);
+  });
+
   it('derives uid/role/roles from Hasura custom claims', async () => {
     verifyTokenMock.mockReturnValue({
       'https://hasura.io/jwt/claims': {

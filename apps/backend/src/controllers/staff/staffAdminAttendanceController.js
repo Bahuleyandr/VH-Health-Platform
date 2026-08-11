@@ -94,7 +94,7 @@ export const getLateArrivals = async (req, res) => {
         s.employee_id,
         s.department,
         a.check_in_time,
-        a.check_in_time::time - '09:30:00'::time as late_by
+        (a.check_in_time::time - '09:30:00'::time)::text AS late_by
       FROM staff_attendance a
       JOIN staff s ON a.staff_id = s.id
       WHERE 
@@ -126,7 +126,7 @@ export const getEarlyDepartures = async (req, res) => {
         s.employee_id,
         s.department,
         a.check_out_time,
-        '17:00:00'::time - a.check_out_time::time as left_early_by
+        ('17:00:00'::time - a.check_out_time::time)::text AS left_early_by
       FROM staff_attendance a
       JOIN staff s ON a.staff_id = s.id
       WHERE 

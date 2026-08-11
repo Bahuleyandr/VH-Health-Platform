@@ -86,15 +86,21 @@ function deriveTenantId(req) {
  * is 'shadow'. For those, this returns the resolved mode; for legacy sites it
  * returns 'enforce' without any tenant lookup.
  *
- * Fail-safe: if mode resolution throws for a governed site, fall back to the
- * non-breaking 'shadow' default.
+ * If mode resolution throws for a governed site, return a real 500. Falling
+ * back to shadow could silently weaken a tenant whose stored mode is enforce.
  */
-async function resolveGuardMode(req, options) {
+async function resolveGuardMode(req, res, options) {
   if (!options?.careTeamModeGoverned) return CARE_TEAM_ENFORCEMENT_MODES.ENFORCE;
   try {
     return await resolveEnforcementModeForRequest(req);
-  } catch {
-    return CARE_TEAM_ENFORCEMENT_MODES.SHADOW;
+  } catch (err) {
+    logger.error('Care-team enforcement mode resolution failed:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Patient access check failed',
+      code: 'CARE_TEAM_MODE_UNAVAILABLE',
+    });
+    return null;
   }
 }
 
@@ -103,7 +109,8 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
     // Phase 0 — resolve the enforcement posture for THIS call site.
     // Legacy sites → 'enforce' (unchanged). Care-team-governed coverage →
     // per-tenant mode (default 'shadow').
-    const mode = await resolveGuardMode(req, options);
+    const mode = await resolveGuardMode(req, res, options);
+    if (mode === null) return;
 
     // 'off' — skip ABAC entirely. The passive phiAccessLogger mounted after
     // this guard in the chain still records the HIPAA access trail.
@@ -195,7 +202,8 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
   return async function patientAccessGuardForResourceMiddleware(req, res, next) {
     // Phase 0 — resolve the enforcement posture for THIS call site. Legacy
     // sites → 'enforce' (unchanged); care-team-governed → per-tenant mode.
-    const mode = await resolveGuardMode(req, { careTeamModeGoverned });
+    const mode = await resolveGuardMode(req, res, { careTeamModeGoverned });
+    if (mode === null) return;
 
     // 'off' — skip ABAC entirely; the downstream phiAccessLogger still runs.
     if (mode === CARE_TEAM_ENFORCEMENT_MODES.OFF) {

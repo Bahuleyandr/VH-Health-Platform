@@ -70,10 +70,8 @@ export function stopAllScheduledTasks() {
 // one connection cannot leak. The body itself still runs on the normal prisma
 // pool; the lock connection just sits idle holding the lock.
 //
-// Failure-open posture: if the lock connection can't be established (DB blip),
-// we fall back to running the job WITHOUT the cross-process guard rather than
-// silently skipping a sweep fleet-wide. The in-process Set still prevents
-// same-process overlap in that degraded window.
+// The lock is mandatory for mutating jobs. If its connection cannot be
+// established, the job must fail rather than run concurrently across workers.
 const ADVISORY_LOCK_NAMESPACE = 0x5648; // 'VH' — keeps our keyspace clear of other apps' hashtext() locks.
 
 function advisoryConnectionString() {
@@ -85,17 +83,15 @@ function advisoryConnectionString() {
 /**
  * Acquire a fleet-wide advisory lock for `jobName`, run `fn`, release the lock.
  * Returns true if the lock was acquired (job ran), false if another process
- * held it (job skipped). On connection failure, runs `fn` un-guarded and
- * returns true (fail-open — see note above).
+ * held it (job skipped). Missing configuration or connection failure rejects
+ * without running `fn`.
  *
  * Exported for tests (proves a second concurrent caller is skipped).
  */
 export async function withDbAdvisoryLock(jobName, fn) {
   const connectionString = advisoryConnectionString();
   if (!connectionString) {
-    // No DB configured (shouldn't happen in real runs) — run un-guarded.
-    await fn();
-    return true;
+    throw new Error(`Scheduler advisory lock database URL is required for ${jobName}`);
   }
 
   const client = new pg.Client({ connectionString });
@@ -104,12 +100,8 @@ export async function withDbAdvisoryLock(jobName, fn) {
     await client.connect();
     connected = true;
   } catch (err) {
-    logger.warn(
-      `Advisory-lock connection failed for ${jobName} — running without cross-process guard:`,
-      err.message,
-    );
-    await fn();
-    return true;
+    logger.error(`Advisory-lock connection failed for ${jobName}; job not run:`, err.message);
+    throw err;
   }
 
   let acquired = false;
@@ -333,25 +325,21 @@ import { runForEachTenant } from './tenantFanout.js';
  * transient error can't suppress checks for the others, and the cron tick
  * itself can't crash the scheduler.
  *
- * @returns {{ tenantsChecked:number, breaks:number, alerts:number }}
+ * @returns {{ tenantsChecked:number, breaks:number, alerts:number, verificationFailures:number }}
  */
 export async function runAuditChainVerification() {
-  // Discover active tenants; always include the default-tenant floor even if
-  // the tenants table is empty/unavailable (single-tenant prod today).
-  let tenantIds = [DEFAULT_TENANT_ID];
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT id FROM tenants WHERE status = 'active'`,
-    );
-    const ids = (Array.isArray(rows) ? rows : []).map((r) => r.id).filter(Boolean);
-    tenantIds = [...new Set([DEFAULT_TENANT_ID, ...ids])];
-  } catch (err) {
-    logger.warn(`audit-chain-verify: tenant discovery failed, defaulting to platform tenant: ${err.message}`);
-  }
+  // Discover every active tenant before claiming fleet-wide verification.
+  // The default tenant remains a floor only for a successful empty result.
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM tenants WHERE status = 'active'`,
+  );
+  const ids = (Array.isArray(rows) ? rows : []).map((r) => r.id).filter(Boolean);
+  const tenantIds = [...new Set([DEFAULT_TENANT_ID, ...ids])];
 
   let tenantsChecked = 0;
   let totalBreaks = 0;
   let alerts = 0;
+  let verificationFailures = 0;
   for (const tenantId of tenantIds) {
     try {
       const verdict = await verifyAuditChain({ tenantId });
@@ -377,10 +365,23 @@ export async function runAuditChainVerification() {
     } catch (err) {
       // A verifier exception for one tenant must not abort the whole sweep or
       // crash the scheduler. Surface it loudly but keep going.
+      verificationFailures += 1;
       logger.error(`audit-chain-verify: verification FAILED for tenant ${tenantId}: ${err.message}`, err);
     }
   }
-  return { tenantsChecked, breaks: totalBreaks, alerts };
+  const result = {
+    tenantsChecked,
+    breaks: totalBreaks,
+    alerts,
+    verificationFailures,
+  };
+  if (verificationFailures > 0) {
+    const error = new Error(`Audit-chain verification failed for ${verificationFailures} tenant(s)`);
+    error.code = 'AUDIT_CHAIN_VERIFICATION_INCOMPLETE';
+    error.result = result;
+    throw error;
+  }
+  return result;
 }
 
 export async function runFhirVitalEffectsRecoveryJob({ limitPerTenant = 25 } = {}) {
@@ -614,6 +615,7 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('*/30 * * * *', withJobLock('ledger-reconciliation', async () => {
     const tenants = await prisma.$queryRawUnsafe('SELECT id FROM tenants');
     let drift = 0;
+    let failures = 0;
     for (const t of tenants) {
       try {
         const tenantMode = await resolveLedgerModeForTenant(String(t.id));
@@ -621,10 +623,14 @@ if (process.env.NODE_ENV !== 'test') {
         await persistReconciliationCheck(String(t.id), r, tenantMode); // Phase 4-5 evidence row
         drift += r.mismatches.length + r.unwired.length + r.eventsDrift.length + (r.trialBalancePaise !== 0 ? 1 : 0);
       } catch (err) {
+        failures += 1;
         logger.error('ledger-reconciliation tenant failed', { tenantId: String(t.id), error: err.message });
       }
     }
-    logger.info('ledger-reconciliation sweep complete', { tenants: tenants.length, driftSignals: drift });
+    logger.info('ledger-reconciliation sweep complete', { tenants: tenants.length, driftSignals: drift, failures });
+    if (failures > 0) {
+      throw new Error(`Ledger reconciliation failed for ${failures} tenant(s)`);
+    }
   }));
 
   // 🗓️ Daily at 00:00 - Swagger validation
@@ -1338,7 +1344,7 @@ if (process.env.NODE_ENV !== 'test') {
     const { syncTrialsFromPublicRegistry } = await import('../services/ai/trialCatalogSyncService.js');
     const tenants = await prisma.$queryRawUnsafe(
       `SELECT id, region FROM tenants WHERE status = 'active'`
-    ).catch(() => []);
+    );
     let total = 0;
     for (const tenant of tenants) {
       try {
@@ -1371,7 +1377,7 @@ if (process.env.NODE_ENV !== 'test') {
       const { runInTenantContext } = await import('../lib/tenantContext.js');
       const tenants = await prisma.$queryRawUnsafe(
         `SELECT id FROM tenants WHERE status = 'active'`,
-      ).catch(() => []);
+      );
       const KB_TYPE_FOR_SOURCE = {
         formulary: 'formulary',
         antibiogram: 'antibiotic_policy',
@@ -1390,7 +1396,7 @@ if (process.env.NODE_ENV !== 'test') {
                  WHERE tenant_id = $1::uuid AND kb_type = $2 AND status = 'active'
                  ORDER BY updated_at DESC LIMIT 1`,
                 tenant.id, kbType,
-              ).catch(() => []);
+              );
               if (rows[0]) kbIds[src] = rows[0].id;
             }
           });

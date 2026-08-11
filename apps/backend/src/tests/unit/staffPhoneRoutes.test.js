@@ -19,6 +19,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     warn: jest.fn(),
+    error: jest.fn(),
   },
 }));
 
@@ -80,5 +81,14 @@ describe('staff phone routes', () => {
       check_out_time: null,
     });
     expect(res.body.data.shift.status).toBe('on_duty');
+  });
+
+  it('returns an error instead of zero counts when a home query fails', async () => {
+    queryRawUnsafe.mockRejectedValue(new Error('staff home database unavailable'));
+
+    const res = await request(makeApp()).get('/staff/phone/home');
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body.success).toBe(false);
   });
 });

@@ -11,11 +11,13 @@
 //                 hard alert.
 //
 // Stored in the existing tenants.settings JSONB column (no migration). Resolution
-// order (fail-safe to the default on any error — never throws into a money path):
+// order (a failed tenant lookup blocks the money path rather than selecting a
+// weaker mode):
 //   1. tenants.settings.ledger_authoritative_mode  (per-tenant authority)
 //   2. LEDGER_AUTHORITATIVE_MODE env var            (deployment-wide pin)
 //   3. DEFAULT_LEDGER_MODE ('shadow')
 import logger from '../../../logging/logger.js';
+import { AppError } from '../../../utils/AppError.js';
 import { getTenantById, requireTenantId } from '../../tenant/tenantService.js';
 
 export const LEDGER_AUTHORITATIVE_MODES = Object.freeze({
@@ -39,34 +41,58 @@ export function normalizeLedgerMode(value) {
   return VALID_MODES.has(text) ? text : null;
 }
 
-/** Deployment-wide override from the environment, if set to a valid mode; else null. */
+/** Normalize the deployment-wide override; the resolver rejects explicit invalid values. */
 export function envLedgerMode() {
   return normalizeLedgerMode(process.env.LEDGER_AUTHORITATIVE_MODE);
 }
 
 /**
  * Resolve the effective ledger-authoritative mode for a tenant id.
- * Fail-safe: returns the default on any error or missing tenant.
+ * A missing setting uses the documented shadow default. A lookup failure or
+ * missing tenant fails closed because silently selecting post-commit mode can
+ * weaken an enforce tenant's atomic money-write contract.
  * @param {string|null|undefined} tenantId
  * @returns {Promise<'off'|'shadow'|'enforce'>}
  */
 export async function resolveLedgerModeForTenant(tenantId) {
-  const fallback = envLedgerMode() || DEFAULT_LEDGER_MODE;
   const id = requireTenantId(tenantId);
   try {
+    const envValue = process.env.LEDGER_AUTHORITATIVE_MODE;
+    const fallback = envValue === undefined
+      ? DEFAULT_LEDGER_MODE
+      : normalizeLedgerMode(envValue);
+    if (!fallback) {
+      throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
+    }
+
     const tenant = await getTenantById(id);
+    if (!tenant) {
+      throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
+    }
     let parsed = tenant?.settings;
     if (typeof parsed === 'string') {
-      try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
+      }
     }
-    const raw = parsed && typeof parsed === 'object' ? parsed[LEDGER_MODE_SETTINGS_KEY] : null;
-    return normalizeLedgerMode(raw) || fallback;
+    const hasTenantSetting = parsed
+      && typeof parsed === 'object'
+      && Object.prototype.hasOwnProperty.call(parsed, LEDGER_MODE_SETTINGS_KEY);
+    if (!hasTenantSetting) return fallback;
+
+    const tenantMode = normalizeLedgerMode(parsed[LEDGER_MODE_SETTINGS_KEY]);
+    if (!tenantMode) {
+      throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
+    }
+    return tenantMode;
   } catch (err) {
-    // Never let a tenant-settings hiccup influence the money path — fall back.
-    logger.debug('ledger authoritative mode resolve fell back to default', {
-      tenantId: id, mode: fallback, error: err?.message,
+    logger.error('ledger authoritative mode resolution failed closed', {
+      tenantId: id, error: err?.message,
     });
-    return fallback;
+    if (err instanceof AppError && err.code === 'LEDGER_MODE_UNAVAILABLE') throw err;
+    throw AppError.internal('Ledger authoritative mode is unavailable', 'LEDGER_MODE_UNAVAILABLE');
   }
 }
 
@@ -77,7 +103,8 @@ export async function resolveLedgerModeForTenant(tenantId) {
  *   - postCommit (shadow):  post AFTER the tx commits, best-effort — a ledger
  *                 failure is logged but never breaks the money path (= today).
  *   - skip       (off):     do not post at all (emergency kill-switch).
- * Exactly one of the three booleans is true. Fail-safe to shadow (postCommit).
+ * Exactly one of the three booleans is true. Mode lookup failures reject before
+ * any money mutation can choose weaker wiring.
  * @param {string|null|undefined} tenantId
  * @returns {Promise<{mode:'off'|'shadow'|'enforce', sameTx:boolean, postCommit:boolean, skip:boolean}>}
  */

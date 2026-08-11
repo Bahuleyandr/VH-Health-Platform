@@ -29410,17 +29410,138 @@
       },
       "OwnTaxSummary": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": [
-          "financial_year"
+          "id",
+          "staff_uid",
+          "financial_year",
+          "total_basic",
+          "total_hra",
+          "total_da",
+          "total_special_allowance",
+          "total_transport_allowance",
+          "total_medical_allowance",
+          "total_overtime",
+          "total_bonus",
+          "total_arrears",
+          "total_gross",
+          "total_tds",
+          "total_pf",
+          "total_esi",
+          "total_professional_tax",
+          "total_advance_deductions",
+          "total_deductions",
+          "total_net",
+          "taxable_income",
+          "tax_payable",
+          "months_included",
+          "generated_at",
+          "created_at",
+          "updated_at"
         ],
         "properties": {
+          "id": {
+            "type": "integer"
+          },
           "financial_year": {
             "type": "string"
           },
           "staff_uid": {
             "type": "string",
             "format": "uuid",
+            "nullable": true
+          },
+          "total_income": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_basic": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_hra": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_da": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_special_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_transport_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_medical_allowance": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_overtime": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_bonus": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_arrears": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_gross": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_tds": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_pf": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_esi": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_professional_tax": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_advance_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "total_net": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxable_income": {
+            "type": "string",
+            "nullable": true
+          },
+          "tax_payable": {
+            "type": "string",
+            "nullable": true
+          },
+          "months_included": {
+            "type": "integer",
+            "nullable": true
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "pdf_key": {
+            "type": "string",
             "nullable": true
           },
           "status": {
@@ -29430,6 +29551,38 @@
           "pdf_url": {
             "type": "string",
             "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OwnTaxSummaryNotFoundResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
           }
         }
       },
@@ -126498,6 +126651,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OwnTaxSummaryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No issued payslips found for the requested financial year",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnTaxSummaryNotFoundResponse"
                 }
               }
             }

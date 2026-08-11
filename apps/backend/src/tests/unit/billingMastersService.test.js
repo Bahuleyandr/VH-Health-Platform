@@ -86,15 +86,15 @@ describe('upsertPayer', () => {
   });
 });
 
-describe('listPayers / listTpas degrade gracefully', () => {
-  it('listPayers returns empty on schema-missing', async () => {
+describe('listPayers / listTpas fail honestly', () => {
+  it('listPayers rejects on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "payers" does not exist'));
-    expect(await listPayers({ tenantId: TENANT })).toEqual({ payers: [], count: 0 });
+    await expect(listPayers({ tenantId: TENANT })).rejects.toThrow('payers');
   });
 
-  it('listTpas returns empty on schema-missing', async () => {
+  it('listTpas rejects on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tpas" does not exist'));
-    expect(await listTpas({ tenantId: TENANT })).toEqual({ tpas: [], count: 0 });
+    await expect(listTpas({ tenantId: TENANT })).rejects.toThrow('tpas');
   });
 });
 
@@ -129,6 +129,15 @@ describe('upsertTariffPlan default-demotion', () => {
     });
     expect(row.is_default).toBe(true);
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/SET is_default = false/);
+  });
+
+  it('does not create a second default when default demotion fails', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tariff_plans" does not exist'));
+
+    await expect(upsertTariffPlan({
+      tenantId: TENANT, planCode: 'X', displayName: 'Default plan', isDefault: true,
+    })).rejects.toThrow('tariff_plans');
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects effective_to before effective_from is fine: handled at DB CHECK; service accepts both null', async () => {
@@ -240,9 +249,9 @@ describe('linkPayerTariff + listPayerTariffLinks', () => {
     expect(row.is_primary).toBe(true);
   });
 
-  it('listPayerTariffLinks degrades on schema-missing', async () => {
+  it('listPayerTariffLinks rejects on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "payer_tariff_links" does not exist'));
-    expect(await listPayerTariffLinks({ tenantId: TENANT })).toEqual({ links: [], count: 0 });
+    await expect(listPayerTariffLinks({ tenantId: TENANT })).rejects.toThrow('payer_tariff_links');
   });
 });
 
@@ -291,24 +300,23 @@ describe('resolveServicePrice', () => {
     expect(sql).toMatch(/effective_to IS NULL OR ptl\.effective_to >= /);
   });
 
-  it('degrades to null on schema-missing', async () => {
+  it('rejects on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "payer_tariff_links" does not exist'));
-    const row = await resolveServicePrice({
+    await expect(resolveServicePrice({
       tenantId: TENANT, serviceCode: 'CONS_GP', payerId: 7,
-    });
-    expect(row).toBeNull();
+    })).rejects.toThrow('payer_tariff_links');
   });
 });
 
-describe('list helpers degrade on schema-missing', () => {
-  it('listTariffPlans / listTariffItems / listPackages / listPackageItems degrade', async () => {
+describe('list helpers fail honestly on schema-missing', () => {
+  it('listTariffPlans / listTariffItems / listPackages / listPackageItems reject', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tariff_plans" does not exist'));
-    expect(await listTariffPlans({ tenantId: TENANT })).toEqual({ plans: [], count: 0 });
+    await expect(listTariffPlans({ tenantId: TENANT })).rejects.toThrow('tariff_plans');
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tariff_items" does not exist'));
-    expect(await listTariffItems({ tenantId: TENANT, tariffPlanId: 1 })).toEqual({ items: [], count: 0 });
+    await expect(listTariffItems({ tenantId: TENANT, tariffPlanId: 1 })).rejects.toThrow('tariff_items');
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "packages" does not exist'));
-    expect(await listPackages({ tenantId: TENANT })).toEqual({ packages: [], count: 0 });
+    await expect(listPackages({ tenantId: TENANT })).rejects.toThrow('packages');
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "package_items" does not exist'));
-    expect(await listPackageItems({ tenantId: TENANT, packageId: 1 })).toEqual({ items: [], count: 0 });
+    await expect(listPackageItems({ tenantId: TENANT, packageId: 1 })).rejects.toThrow('package_items');
   });
 });

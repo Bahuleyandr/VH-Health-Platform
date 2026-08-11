@@ -622,7 +622,7 @@ export async function getCataractBiometryReadiness(schedule = {}, { tenantId, db
       GROUP BY eye`,
     tenantOr(tenantId || schedule.tenant_id),
     schedule.patient_uid,
-  ).catch(() => []);
+  );
   const presentEyes = new Set(rows.map((row) => row.eye));
   const missingEyes = expectedEyes.filter((eye) => !presentEyes.has(eye));
   if (!missingEyes.length) {

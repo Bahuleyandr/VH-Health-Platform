@@ -226,6 +226,23 @@ describe('patientAccessGuard — enforcement mode enforce', () => {
   });
 });
 
+describe('patientAccessGuard — enforcement mode resolution failure', () => {
+  it('returns 500 instead of silently downgrading an unknown tenant posture to shadow', async () => {
+    modeMock.mockRejectedValueOnce(new Error('tenant settings unavailable'));
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true })(unrelatedDoctorReq(), res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'CARE_TEAM_MODE_UNAVAILABLE',
+    }));
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+});
+
 describe('patientAccessGuard — non-breaking on a legitimate request', () => {
   it('a doctor WITH an active care-team relationship is allowed in every mode', async () => {
     for (const mode of ['shadow', 'enforce']) {

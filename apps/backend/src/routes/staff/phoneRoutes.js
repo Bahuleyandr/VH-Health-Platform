@@ -36,15 +36,6 @@ function todayRange() {
   return { start, end };
 }
 
-async function safeQuery(label, fn, fallback) {
-  try {
-    return await fn();
-  } catch (err) {
-    logger.warn(`Staff phone ${label} failed`, { error: err?.message || String(err) });
-    return fallback;
-  }
-}
-
 async function getAttendanceStatus(req) {
   const staffId = staffIdOf(req);
   const staffUid = staffUidOf(req);
@@ -142,41 +133,46 @@ async function pendingQueryCount(req) {
 }
 
 router.get('/phone/home', async (req, res) => {
-  const [attendance, unreadAlerts, unreadMessages, pendingQueries] = await Promise.all([
-    safeQuery('attendance summary', () => getAttendanceStatus(req), null),
-    safeQuery('alert count', () => unreadAlertCount(req), 0),
-    safeQuery('message count', () => unreadMessageCount(req), 0),
-    safeQuery('query count', () => pendingQueryCount(req), 0),
-  ]);
+  try {
+    const [attendance, unreadAlerts, unreadMessages, pendingQueries] = await Promise.all([
+      getAttendanceStatus(req),
+      unreadAlertCount(req),
+      unreadMessageCount(req),
+      pendingQueryCount(req),
+    ]);
 
-  return success(res, {
-    mode: 'staff_phone',
-    staff: {
-      uid: staffUidOf(req),
-      id: staffIdOf(req),
-      role: req.user?.role || null,
-    },
-    attendance,
-    shift: {
-      label: 'Today shift',
-      status: attendance?.is_checked_in ? 'on_duty' : 'not_checked_in',
-    },
-    counts: {
-      unread_alerts: unreadAlerts,
-      unread_messages: unreadMessages,
-      pending_queries: pendingQueries,
-      pending_reports: 0,
-    },
-    quick_actions: [
-      'attendance',
-      'message',
-      'incident_report',
-      'staff_grievance',
-      'raise_query',
-    ],
-    policy_version: getRolePolicyVersion(),
-    policy_hash: getRolePolicyHash(),
-  }, 'Staff phone home retrieved');
+    return success(res, {
+      mode: 'staff_phone',
+      staff: {
+        uid: staffUidOf(req),
+        id: staffIdOf(req),
+        role: req.user?.role || null,
+      },
+      attendance,
+      shift: {
+        label: 'Today shift',
+        status: attendance?.is_checked_in ? 'on_duty' : 'not_checked_in',
+      },
+      counts: {
+        unread_alerts: unreadAlerts,
+        unread_messages: unreadMessages,
+        pending_queries: pendingQueries,
+        pending_reports: 0,
+      },
+      quick_actions: [
+        'attendance',
+        'message',
+        'incident_report',
+        'staff_grievance',
+        'raise_query',
+      ],
+      policy_version: getRolePolicyVersion(),
+      policy_hash: getRolePolicyHash(),
+    }, 'Staff phone home retrieved');
+  } catch (err) {
+    logger.error('Staff phone home failed', err);
+    return error(res, 'Failed to retrieve staff phone home', 500);
+  }
 });
 
 router.get('/queries/my', async (req, res) => {

@@ -177,19 +177,16 @@ describe('Notification Authorization', () => {
   // notification endpoint via the general notification routes.
 
   describe('GET /api/v1/notifications/my — own notifications', () => {
-    it('should allow or safely reject PATIENT role on the own-notifications route', async () => {
+    it('allows PATIENT through RBAC and returns the exact missing-user contract', async () => {
       const res = await authRequest('get', '/api/v1/notifications/my', patientAToken);
 
-      // notificationRoutes includes PATIENT; with a usable token this may return
-      // 200, while validation/RBAC failures must still not become server errors.
-      expect([200, 400, 403]).toContain(res.statusCode);
+      expect(res.statusCode).toBe(404);
     });
 
-    it('should allow ADMIN role to access /my endpoint', async () => {
+    it('allows ADMIN through RBAC and returns the exact missing-user contract', async () => {
       const res = await authRequest('get', '/api/v1/notifications/my', staffToken);
 
-      // Admin passes RBAC. Without DB it may 500, but should not be 403.
-      expect(res.statusCode).not.toBe(403);
+      expect(res.statusCode).toBe(404);
     });
   });
 

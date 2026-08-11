@@ -24,7 +24,7 @@ export const getSystemHealth = async (req, res) => {
   // 2. R2 Storage
   try {
     // Just verify the module loads and S3 client is configured
-    const r2 = await import('../../utils/r2Storage.js').catch(() => null);
+    const r2 = await import('../../utils/r2Storage.js');
     if (r2 && r2.uploadFileToR2) {
       checks.r2_storage = { status: 'healthy', note: 'Module loaded' };
     } else {
@@ -38,7 +38,7 @@ export const getSystemHealth = async (req, res) => {
   try {
     // firebase-admin 14 dropped the namespace default export (no `.apps`);
     // the modular app entry point exposes the same registry via getApps().
-    const firebaseApp = await import('firebase-admin/app').catch(() => null);
+    const firebaseApp = await import('firebase-admin/app');
     if (firebaseApp && firebaseApp.getApps?.().length > 0) {
       checks.push_notifications = { status: 'healthy' };
     } else {

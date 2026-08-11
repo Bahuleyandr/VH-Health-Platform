@@ -46,11 +46,11 @@ describe('getCathQuickWinSettings', () => {
     expect(settings.followUpTemplates).toEqual([]);
   });
 
-  it('fails closed when the tenant lookup itself fails', async () => {
-    getTenantByIdMock.mockRejectedValue(new Error('db down'));
-    const settings = await getCathQuickWinSettings(TENANT);
-    expect(settings.consentType).toBeNull();
-    expect(settings.followUpTemplates).toEqual([]);
+  it('propagates tenant lookup faults instead of fabricating inert settings', async () => {
+    const lookupError = new Error('db down');
+    getTenantByIdMock.mockRejectedValue(lookupError);
+
+    await expect(getCathQuickWinSettings(TENANT)).rejects.toBe(lookupError);
   });
 
   it('parses owner-mapped consent type and order-set families', async () => {

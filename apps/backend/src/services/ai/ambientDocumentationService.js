@@ -20,7 +20,6 @@
 
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
@@ -39,10 +38,6 @@ const MAX_DURATION_SECONDS = 60 * 60; // 1 hour safety cap
 
 function resolveTenantId(options = {}) {
   return requireTenantId(options.tenantId);
-}
-
-function isMissingSchemaError(err) {
-  return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
 }
 
 function sourceHash(text) {
@@ -244,9 +239,7 @@ export async function createAmbientEncounter({
   const hasCritical = safetyFlags.some((f) => f.severity === 'critical');
 
   // Persist the encounter row.
-  let encounterId = null;
-  try {
-    const enc = await prisma.$queryRawUnsafe(
+  const enc = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ambient_encounters
          (tenant_id, patient_uid, admission_id, recording_started_at,
           recording_ended_at, duration_seconds, recorded_by, clinician_uid,
@@ -285,19 +278,12 @@ export async function createAmbientEncounter({
           source: diarization.source,
         },
       })
-    );
-    encounterId = enc[0]?.id || null;
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Ambient encounter persist failed', { error: err.message });
-    }
-  }
+  );
+  const encounterId = enc[0]?.id || null;
 
   // Save as a clinical_ai_generation so it flows through review + audit.
-  let generationId = null;
-  try {
-    const usage = aiResult.usage || {};
-    const gen = await prisma.$queryRawUnsafe(
+  const usage = aiResult.usage || {};
+  const gen = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_generations
          (tenant_id, patient_uid, admission_id, task_type, module_key, provider, model,
           prompt_version, source_hash, status, used_ai, safety_flags, citations, draft,
@@ -336,25 +322,19 @@ export async function createAmbientEncounter({
           ? (safetyFlags.find((f) => f.severity === 'critical')?.code || 'critical_defense_failure')
           : null,
       })
-    );
-    generationId = gen[0]?.id || null;
-    if (encounterId && generationId) {
-      await prisma.$queryRawUnsafe(
+  );
+  const generationId = gen[0]?.id || null;
+  if (encounterId && generationId) {
+    await prisma.$queryRawUnsafe(
         `UPDATE clinical_ambient_encounters SET generation_id = $2, updated_at = NOW() WHERE id = $1`,
         encounterId,
         generationId
-      ).catch(() => {});
-    }
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Ambient generation persist failed', { error: err.message });
-    }
+    );
   }
 
   // Review placeholder — clinician sign-off required.
   if (generationId) {
-    try {
-      await prisma.$queryRawUnsafe(
+    await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_ai_reviews
            (tenant_id, generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
          VALUES ($1::uuid, $2, $3, $4::uuid, $5, 'pending', $6::jsonb, NOW(), NOW())`,
@@ -368,12 +348,7 @@ export async function createAmbientEncounter({
           source: 'ambient_encounter',
           ambient_encounter_id: encounterId,
         })
-      );
-    } catch (err) {
-      if (!isMissingSchemaError(err)) {
-        logger.warn('Ambient review placeholder failed', { error: err.message });
-      }
-    }
+    );
   }
 
   return {
@@ -399,8 +374,7 @@ export async function createAmbientEncounter({
 export async function listAmbientEncounters({ tenantId = null, patientUid = null, limit = 50 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, tenant_id, patient_uid, admission_id, recording_started_at, recording_ended_at,
               duration_seconds, clinician_uid, recorded_by, stt_provider, stt_language,
               diarization_provider, speaker_count, transcript_status, generation_id, created_at
@@ -412,12 +386,8 @@ export async function listAmbientEncounters({ tenantId = null, patientUid = null
       tid,
       patientUid,
       safeLimit
-    );
-    return { encounters: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { encounters: [], count: 0 };
-    throw err;
-  }
+  );
+  return { encounters: rows, count: rows.length };
 }
 
 /**

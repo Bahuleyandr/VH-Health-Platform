@@ -65,10 +65,11 @@ describe('drift canary case management', () => {
     expect(params).toEqual(['tenant-1', 'discharge_summary', false, 500]);
   });
 
-  it('returns an empty list when canary tables are not migrated yet', async () => {
-    mockQueryRawUnsafe.mockRejectedValueOnce(new Error('relation "clinical_ai_canary_cases" does not exist'));
+  it('propagates a missing canary table instead of reporting an empty inventory', async () => {
+    const fault = new Error('relation "clinical_ai_canary_cases" does not exist');
+    mockQueryRawUnsafe.mockRejectedValueOnce(fault);
 
-    await expect(listCanaryCases({ tenantId: 'tenant-1' })).resolves.toEqual({ cases: [], count: 0 });
+    await expect(listCanaryCases({ tenantId: 'tenant-1' })).rejects.toBe(fault);
   });
 
   it('normalizes and saves canary case payloads', async () => {

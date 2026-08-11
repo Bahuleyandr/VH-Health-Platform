@@ -373,8 +373,7 @@ export const getEmergencyServices = async (req, res) => {
     success(res, { hospitals }, 'Emergency services');
   } catch (err) {
     logger.error('Emergency Services Error:', err);
-    // Graceful fallback if hospitals table doesn't exist
-    success(res, { hospitals: [] }, 'Emergency services (empty)');
+    error(res, 'Failed to load emergency services', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

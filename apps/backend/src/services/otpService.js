@@ -64,23 +64,16 @@ export class OTPService {
   // SEC-7: count failed verify attempts for this phone across ALL sessions
   // within the OTP lifetime. Returns true when the cross-session cap is hit.
   static async isPhoneVerifyLocked(phone) {
-    try {
-      const windowStart = new Date(Date.now() - (OTP_CONFIG.expirationMinutes * 60 * 1000));
-      const failedCount = await prisma.otp_logs.count({
-        where: {
-          phone,
-          action: 'verify',
-          success: false,
-          created_at: { gte: windowStart },
-        },
-      });
-      return failedCount >= CROSS_SESSION_MAX_FAILED_VERIFIES;
-    } catch (err) {
-      // Fail open on counter-read errors — the per-session cap + IP limiter
-      // still apply; a transient otp_logs read must not block legitimate login.
-      logger.warn('OTP cross-session counter read failed:', err.message);
-      return false;
-    }
+    const windowStart = new Date(Date.now() - (OTP_CONFIG.expirationMinutes * 60 * 1000));
+    const failedCount = await prisma.otp_logs.count({
+      where: {
+        phone,
+        action: 'verify',
+        success: false,
+        created_at: { gte: windowStart },
+      },
+    });
+    return failedCount >= CROSS_SESSION_MAX_FAILED_VERIFIES;
   }
 
   static async verifyOTP(phone, inputOtp, purpose = 'general') {
@@ -135,30 +128,26 @@ export class OTPService {
   }
 
   static async checkDailyLimit(phone) {
-    try {
-      const count = await prisma.otp_logs.count({
-        where: {
-          phone,
-          action: 'request',
-          success: true,
-          created_at: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-        },
-      });
-      return count < OTP_CONFIG.dailyLimit;
-    } catch { return true; }
+    const count = await prisma.otp_logs.count({
+      where: {
+        phone,
+        action: 'request',
+        success: true,
+        created_at: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      },
+    });
+    return count < OTP_CONFIG.dailyLimit;
   }
 
   static async checkResendCooldown(phone, purpose = 'general') {
-    try {
-      const last = await prisma.otp_sessions.findFirst({
-        where: { phone, purpose },
-        orderBy: { created_at: 'desc' },
-        select: { created_at: true },
-      });
-      if (!last) return true;
-      const cooldownMs = OTP_CONFIG.resendCooldownMinutes * 60 * 1000;
-      return Date.now() - new Date(last.created_at).getTime() >= cooldownMs;
-    } catch { return true; }
+    const last = await prisma.otp_sessions.findFirst({
+      where: { phone, purpose },
+      orderBy: { created_at: 'desc' },
+      select: { created_at: true },
+    });
+    if (!last) return true;
+    const cooldownMs = OTP_CONFIG.resendCooldownMinutes * 60 * 1000;
+    return Date.now() - new Date(last.created_at).getTime() >= cooldownMs;
   }
 
   static async logActivity(phone, purpose, action, success, failureReason = null, req) {

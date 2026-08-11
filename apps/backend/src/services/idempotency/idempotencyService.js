@@ -10,14 +10,9 @@
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import logger from '../../logging/logger.js';
 
 const RETENTION_HOURS = 24;
 const KEY_MAX_LEN = 200;
-
-function isMissingSchemaError(err) {
-  return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
-}
 
 function isUniqueViolation(err) {
   return /duplicate key value/i.test(String(err?.message || ''));
@@ -79,14 +74,7 @@ export async function claimIdempotencyKey({
     );
     return { state: 'claimed', id: inserted[0].id };
   } catch (err) {
-    if (!isUniqueViolation(err)) {
-      if (isMissingSchemaError(err)) {
-        // Substrate not migrated — fail open so endpoints still work.
-        logger.warn('idempotency_keys table missing, skipping idempotency check');
-        return { state: 'claimed', id: null, schemaMissing: true };
-      }
-      throw err;
-    }
+    if (!isUniqueViolation(err)) throw err;
   }
 
   // Existing row — fetch and decide. `is_expired` lets us refuse to replay a
@@ -164,8 +152,7 @@ export async function finaliseIdempotencyKey({
 }) {
   if (!id) return null;
   const cleanStatus = status === 'failed' ? 'failed' : 'complete';
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `UPDATE idempotency_keys
        SET status = $1, response_status = $2, response_body = $3::jsonb,
            updated_at = NOW()
@@ -175,12 +162,8 @@ export async function finaliseIdempotencyKey({
       responseStatus,
       responseBody !== undefined ? JSON.stringify(responseBody) : null,
       id,
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return rows[0] || null;
 }
 
 /**
@@ -193,16 +176,11 @@ export async function finaliseIdempotencyKey({
  */
 export async function releaseIdempotencyKey(id) {
   if (!id) return null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `DELETE FROM idempotency_keys WHERE id = $1 RETURNING id`,
       id,
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return rows[0] || null;
 }
 
 /**
@@ -210,8 +188,7 @@ export async function releaseIdempotencyKey(id) {
  * scheduler is available.
  */
 export async function expireOldIdempotencyKeys({ batchSize = 500 } = {}) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `UPDATE idempotency_keys
        SET status = 'expired', updated_at = NOW()
        WHERE id IN (
@@ -221,12 +198,8 @@ export async function expireOldIdempotencyKeys({ batchSize = 500 } = {}) {
        )
        RETURNING id`,
       Number(batchSize),
-    );
-    return { expired: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { expired: 0 };
-    throw err;
-  }
+  );
+  return { expired: rows.length };
 }
 
 export const __testing__ = { RETENTION_HOURS, KEY_MAX_LEN };

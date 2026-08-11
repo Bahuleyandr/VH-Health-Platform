@@ -1163,7 +1163,14 @@ export async function checkDeepModuleReadiness(moduleKey, {
     return verdict;
   }
 
-  const config = getProviderConfig(module, await getClinicalAiGuardrails().catch(() => null));
+  let guardrails;
+  try {
+    guardrails = await getClinicalAiGuardrails();
+  } catch (err) {
+    verdict.reason = `guardrails_lookup_failed:${err?.message || 'unknown'}`;
+    return verdict;
+  }
+  const config = getProviderConfig(module, guardrails);
   verdict.provider = config.provider;
   verdict.model = config.model;
   verdict.deepTier = normalizeTier(config.tier) === 'deep';

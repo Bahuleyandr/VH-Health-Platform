@@ -5,10 +5,11 @@
 // and raises a LOUD alert on any break. Proves:
 //   * an intact chain → no alert, no error log;
 //   * a tampered chain → error log + sendSecurityWebhook('AUDIT_CHAIN_TAMPERED');
-//   * a verifier exception for one tenant is swallowed (sweep continues, other
-//     tenants still checked) — the scheduler must never crash on a bad chain;
+//   * a verifier exception for one tenant does not stop the remaining checks,
+//     but the completed sweep rejects instead of reporting success;
 //   * it fans out over every active tenant plus the default-tenant floor;
-//   * tenant-discovery failure degrades to the default tenant only.
+//   * tenant-discovery failure aborts rather than pretending the default tenant
+//     was a complete fleet-wide verification.
 //
 // scheduler.js skips all cron registration under NODE_ENV==='test', so importing
 // it here registers nothing and leaks no timers.
@@ -19,6 +20,9 @@ const verifyAuditChainMock = jest.fn();
 const sendSecurityWebhookMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+const pgConnectMock = jest.fn();
+const pgEndMock = jest.fn();
+const pgQueryMock = jest.fn();
 
 jest.unstable_mockModule('../../services/clinical/documentIntegrityService.js', () => ({
   signDocumentTx: jest.fn(),
@@ -29,6 +33,15 @@ jest.unstable_mockModule('../../utils/securityWebhook.js', () => ({
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: loggerMock,
+}));
+jest.unstable_mockModule('pg', () => ({
+  default: {
+    Client: jest.fn(() => ({
+      connect: pgConnectMock,
+      end: pgEndMock,
+      query: pgQueryMock,
+    })),
+  },
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
@@ -49,7 +62,7 @@ jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
 
 const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 
-const { runAuditChainVerification } = await import('../../utils/scheduler.js');
+const { runAuditChainVerification, withDbAdvisoryLock } = await import('../../utils/scheduler.js');
 
 beforeEach(() => {
   verifyAuditChainMock.mockReset();
@@ -58,6 +71,9 @@ beforeEach(() => {
   loggerMock.info.mockReset();
   loggerMock.warn.mockReset();
   loggerMock.error.mockReset();
+  pgConnectMock.mockReset();
+  pgEndMock.mockReset();
+  pgQueryMock.mockReset();
 });
 
 function intact(tenantId) {
@@ -74,7 +90,7 @@ describe('runAuditChainVerification', () => {
 
     const r = await runAuditChainVerification();
 
-    expect(r).toEqual({ tenantsChecked: 1, breaks: 0, alerts: 0 });
+    expect(r).toEqual({ tenantsChecked: 1, breaks: 0, alerts: 0, verificationFailures: 0 });
     expect(sendSecurityWebhookMock).not.toHaveBeenCalled();
     expect(loggerMock.error).not.toHaveBeenCalled();
     expect(verifyAuditChainMock).toHaveBeenCalledWith({ tenantId: DEFAULT_TENANT });
@@ -86,7 +102,7 @@ describe('runAuditChainVerification', () => {
 
     const r = await runAuditChainVerification();
 
-    expect(r).toEqual({ tenantsChecked: 1, breaks: 2, alerts: 1 });
+    expect(r).toEqual({ tenantsChecked: 1, breaks: 2, alerts: 1, verificationFailures: 0 });
 
     expect(loggerMock.error).toHaveBeenCalledWith(
       'AUDIT CHAIN TAMPER DETECTED',
@@ -99,20 +115,24 @@ describe('runAuditChainVerification', () => {
     expect(details.reason).toMatch(/tamper detected/i);
   });
 
-  test('a verifier exception for one tenant does NOT abort the sweep', async () => {
+  test('a verifier exception checks remaining tenants, then rejects the sweep', async () => {
     // Two active tenants on top of the default. The first throws; the others
-    // must still be verified and the function must resolve (not reject).
+    // must still be verified before the function rejects the incomplete sweep.
     const T2 = '00000000-0000-4000-8000-0000000000a2';
     queryRawUnsafeMock.mockResolvedValueOnce([{ id: T2 }]);
     verifyAuditChainMock
       .mockRejectedValueOnce(new Error('connection reset')) // DEFAULT_TENANT throws
       .mockResolvedValueOnce(intact(T2));                    // T2 still checked
 
-    const r = await runAuditChainVerification();
-
-    // DEFAULT errored (not counted as checked), T2 checked intact.
-    expect(r.tenantsChecked).toBe(1);
-    expect(r.alerts).toBe(0);
+    await expect(runAuditChainVerification()).rejects.toMatchObject({
+      code: 'AUDIT_CHAIN_VERIFICATION_INCOMPLETE',
+      result: {
+        tenantsChecked: 1,
+        breaks: 0,
+        alerts: 0,
+        verificationFailures: 1,
+      },
+    });
     expect(loggerMock.error).toHaveBeenCalledWith(
       expect.stringContaining(`verification FAILED for tenant ${DEFAULT_TENANT}`),
       expect.any(Error),
@@ -144,16 +164,40 @@ describe('runAuditChainVerification', () => {
     expect(verifyAuditChainMock).toHaveBeenCalledTimes(1);
   });
 
-  test('tenant-discovery failure degrades to the default tenant only', async () => {
+  test('tenant-discovery failure aborts the fleet-wide verification', async () => {
     queryRawUnsafeMock.mockRejectedValueOnce(new Error('tenants table gone'));
-    verifyAuditChainMock.mockResolvedValueOnce(intact(DEFAULT_TENANT));
 
-    const r = await runAuditChainVerification();
+    await expect(runAuditChainVerification()).rejects.toThrow('tenants table gone');
+    expect(verifyAuditChainMock).not.toHaveBeenCalled();
+  });
+});
 
-    expect(r.tenantsChecked).toBe(1);
-    expect(verifyAuditChainMock).toHaveBeenCalledWith({ tenantId: DEFAULT_TENANT });
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      expect.stringContaining('tenant discovery failed'),
-    );
+describe('withDbAdvisoryLock', () => {
+  const originalSchedulerUrl = process.env.SCHEDULER_LOCK_DATABASE_URL;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    if (originalSchedulerUrl === undefined) delete process.env.SCHEDULER_LOCK_DATABASE_URL;
+    else process.env.SCHEDULER_LOCK_DATABASE_URL = originalSchedulerUrl;
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
+
+  test('does not run a mutating job without a configured lock database', async () => {
+    delete process.env.SCHEDULER_LOCK_DATABASE_URL;
+    delete process.env.DATABASE_URL;
+    const body = jest.fn();
+
+    await expect(withDbAdvisoryLock('mutation', body)).rejects.toThrow(/lock database URL is required/i);
+    expect(body).not.toHaveBeenCalled();
+  });
+
+  test('does not run a mutating job when the lock connection fails', async () => {
+    process.env.SCHEDULER_LOCK_DATABASE_URL = 'postgres://scheduler-lock.test/db';
+    pgConnectMock.mockRejectedValueOnce(new Error('lock database unavailable'));
+    const body = jest.fn();
+
+    await expect(withDbAdvisoryLock('mutation', body)).rejects.toThrow('lock database unavailable');
+    expect(body).not.toHaveBeenCalled();
   });
 });

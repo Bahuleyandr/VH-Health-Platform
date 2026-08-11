@@ -1158,23 +1158,28 @@ async function respondWithDischargeReadiness(req, res) {
     ...tenantOptions(req),
   });
 
+  let draft;
+  let aiDisabled = false;
   try {
-    const draft = await generateAdmissionAiDraft(
+    draft = await generateAdmissionAiDraft(
       admissionId,
       'discharge_readiness',
       req.user?.uid || null,
       req,
     );
-    success(res, attachRulesReadinessToDraft(draft, readiness), 'Discharge readiness draft generated');
   } catch (err) {
     if (!dischargeReadinessAiDisabled(err)) throw err;
+    aiDisabled = true;
+  }
 
-    success(
+  if (aiDisabled) {
+    return success(
       res,
       buildDischargeReadinessRulesResponse(readiness, 'clinical_ai_module_disabled'),
       'Discharge readiness checklist generated'
     );
   }
+  return success(res, attachRulesReadinessToDraft(draft, readiness), 'Discharge readiness draft generated');
 }
 
 router.post(

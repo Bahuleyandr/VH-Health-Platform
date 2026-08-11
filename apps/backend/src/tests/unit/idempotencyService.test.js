@@ -1,7 +1,7 @@
 /**
  * Phase E4 — idempotencyService unit tests.
  * Covers claim states (claimed / replay / in_flight / mismatch),
- * schema-missing fail-open, and finalisation.
+ * schema-missing fail-closed behavior, and finalisation.
  */
 
 import { jest } from '@jest/globals';
@@ -22,6 +22,7 @@ const {
   claimIdempotencyKey,
   expireOldIdempotencyKeys,
   finaliseIdempotencyKey,
+  releaseIdempotencyKey,
   hashRequestBody,
   isValidIdempotencyKey,
 } = await import('../../services/idempotency/idempotencyService.js');
@@ -119,15 +120,12 @@ describe('claimIdempotencyKey', () => {
     expect(out.state).toBe('mismatch');
   });
 
-  it('fails open on schema-missing', async () => {
+  it('fails closed on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "idempotency_keys" does not exist'));
-    const out = await claimIdempotencyKey({
+    await expect(claimIdempotencyKey({
       tenantId: TENANT, userUid: USER, requestKey: 'k1',
       requestMethod: 'POST', requestPath: '/x', requestBodyHash: null,
-    });
-    expect(out.state).toBe('claimed');
-    expect(out.schemaMissing).toBe(true);
-    expect(out.id).toBeNull();
+    })).rejects.toThrow('idempotency_keys');
   });
 });
 
@@ -148,6 +146,15 @@ describe('finaliseIdempotencyKey', () => {
     expect(await finaliseIdempotencyKey({ id: null })).toBeNull();
     expect(queryUnsafeMock).not.toHaveBeenCalled();
   });
+  it('propagates schema failure while finalising a real claim', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "idempotency_keys" does not exist'));
+    await expect(finaliseIdempotencyKey({ id: 1, responseStatus: 201 }))
+      .rejects.toThrow('idempotency_keys');
+  });
+  it('propagates schema failure while releasing a real claim', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "idempotency_keys" does not exist'));
+    await expect(releaseIdempotencyKey(1)).rejects.toThrow('idempotency_keys');
+  });
 });
 
 describe('expireOldIdempotencyKeys', () => {
@@ -156,8 +163,8 @@ describe('expireOldIdempotencyKeys', () => {
     const out = await expireOldIdempotencyKeys();
     expect(out.expired).toBe(3);
   });
-  it('degrades on schema-missing', async () => {
+  it('reports schema-missing as a failed sweep', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "idempotency_keys" does not exist'));
-    expect(await expireOldIdempotencyKeys()).toEqual({ expired: 0 });
+    await expect(expireOldIdempotencyKeys()).rejects.toThrow('idempotency_keys');
   });
 });

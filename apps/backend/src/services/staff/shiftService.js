@@ -8,7 +8,7 @@ async function resolveStaffIntId(staffId) {
   const users = await prisma.$queryRawUnsafe(
     'SELECT id FROM users WHERE uid = $1::uuid LIMIT 1',
     raw,
-  ).catch(() => []);
+  );
 
   return users[0]?.id ?? null;
 }

@@ -98,12 +98,7 @@ class DepartmentService {
       };
     } catch (error) {
       logger.error('Database error in getAvailableDepartments:', error);
-      return {
-        departments: [],
-        count: 0,
-        current_day: getCurrentDay(),
-        note: 'Could not retrieve available departments - table may not exist'
-      };
+      throw error;
     }
   }
 

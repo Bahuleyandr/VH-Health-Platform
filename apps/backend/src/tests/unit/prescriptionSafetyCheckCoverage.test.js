@@ -28,6 +28,9 @@ import { jest } from '@jest/globals';
 const queryRawUnsafeMock = jest.fn();
 const getUnifiedActiveAllergiesMock = jest.fn();
 const evaluateDrugKbMock = jest.fn();
+const isCompositionSearchEnabledMock = jest.fn();
+const enrichMedicationsWithCompositionMock = jest.fn();
+const resolveCompositionIdentitiesByCatalogIdsMock = jest.fn();
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryRawUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -54,6 +57,13 @@ jest.unstable_mockModule('../../services/clinical/allergySourceService.js', () =
 
 jest.unstable_mockModule('../../services/clinical/drugKnowledgeBaseService.js', () => ({
   evaluateDrugKb: evaluateDrugKbMock,
+}));
+jest.unstable_mockModule('../../services/pharmacy/compositionFeatureService.js', () => ({
+  isCompositionSearchEnabled: isCompositionSearchEnabledMock,
+}));
+jest.unstable_mockModule('../../services/pharmacy/compositionIdentityService.js', () => ({
+  enrichMedicationsWithComposition: enrichMedicationsWithCompositionMock,
+  resolveCompositionIdentitiesByCatalogIds: resolveCompositionIdentitiesByCatalogIdsMock,
 }));
 
 const { validatePrescriptionSafety } = await import(
@@ -96,6 +106,9 @@ function queueRaw(...sequence) {
 beforeEach(() => {
   noAllergies();
   defaultKb();
+  isCompositionSearchEnabledMock.mockReset().mockResolvedValue(false);
+  enrichMedicationsWithCompositionMock.mockReset().mockImplementation(async (_tenantId, medications) => medications);
+  resolveCompositionIdentitiesByCatalogIdsMock.mockReset().mockResolvedValue(new Map());
   queryRawUnsafeMock.mockReset().mockResolvedValue([]);
 });
 
@@ -404,31 +417,26 @@ describe('paediatric weight-based dose blockers', () => {
     expect(result.blockers.filter((b) => b.type?.startsWith('PAEDIATRIC'))).toHaveLength(0);
   });
 
-  it('skips silently when the paediatric weight query rejects (catch returns null)', async () => {
-    // age query ok (child), weight query throws → loadPaediatricContext catch
-    // logs a warning and returns null → paediatric block skipped, no failure.
+  it('fails closed when the paediatric weight query rejects', async () => {
     queueRaw([], [], [{ age_years: 3 }], new Error('weight query exploded'));
     const result = await validatePrescriptionSafety(106, [
       { name: 'Paracetamol', dose: '500 mg' },
     ]);
-    expect(result.blockers.filter((b) => b.type?.startsWith('PAEDIATRIC'))).toHaveLength(0);
-    // A swallowed context-lookup failure must not fail the whole check closed.
-    expect(result.blockers.filter((b) => b.type === 'SAFETY_CHECK_ERROR')).toHaveLength(0);
+    expect(result.safe).toBe(false);
+    expect(result.blockers.some((b) => b.type === 'SAFETY_CHECK_ERROR')).toBe(true);
   });
 });
 
-describe('context-loader catch blocks degrade gracefully (never fail closed)', () => {
-  it('treats a pregnancy-context query failure as no-pregnancy (not a 500)', async () => {
+describe('required clinical context loaders fail closed', () => {
+  it('does not treat a pregnancy-context query failure as no pregnancy', async () => {
     // #1 note, #2 dup, #3 age(>=12), #4 pregnancy REJECTS, #5 renal.
     queueRaw([], [], [{ age_years: 40 }], new Error('pregnancy query exploded'), [{ labs: [] }]);
     const result = await validatePrescriptionSafety(106, [{ name: 'Warfarin 5mg' }]);
-    // loadPregnancyContext catch → { activePregnancy:false, possiblePregnancy:false }
-    // so no pregnancy flag, and the overall check is not failed closed.
-    expect(result.warnings.filter((w) => String(w.type).startsWith('PREGNANCY'))).toHaveLength(0);
-    expect(result.blockers.filter((b) => b.type === 'SAFETY_CHECK_ERROR')).toHaveLength(0);
+    expect(result.safe).toBe(false);
+    expect(result.blockers.some((b) => b.type === 'SAFETY_CHECK_ERROR')).toBe(true);
   });
 
-  it('treats a renal-context query failure as no-evidence (not a 500)', async () => {
+  it('does not treat a renal-context query failure as no evidence', async () => {
     // #1 note, #2 dup, #3 age(>=12), #4 pregnancy, #5 renal REJECTS.
     queueRaw(
       [], [], [{ age_years: 60 }],
@@ -436,10 +444,8 @@ describe('context-loader catch blocks degrade gracefully (never fail closed)', (
       new Error('renal query exploded'),
     );
     const result = await validatePrescriptionSafety(106, [{ name: 'Ibuprofen 400mg' }]);
-    // loadRenalContext catch → { evidenceFound:false }. An NSAID with no renal
-    // evidence still surfaces a RENAL_EVIDENCE_MISSING warning, never a 500.
-    expect(result.blockers.filter((b) => b.type === 'SAFETY_CHECK_ERROR')).toHaveLength(0);
-    expect(result.warnings.some((w) => w.type === 'RENAL_EVIDENCE_MISSING')).toBe(true);
+    expect(result.safe).toBe(false);
+    expect(result.blockers.some((b) => b.type === 'SAFETY_CHECK_ERROR')).toBe(true);
   });
 });
 
@@ -744,38 +750,51 @@ describe('drug knowledge base findings classification (check 8)', () => {
     );
   });
 
-  it('swallows a missing patient_problems table (does-not-exist) without failing closed', async () => {
+  it('fails closed when the patient-problem evidence table is unavailable', async () => {
     const missing = new Error('relation "patient_problems" does not exist');
     queueRaw(
       [], [], [{ age_years: 40 }],
       [{ gender: 'male', is_pregnant: false, age_years: 40, has_ongoing_pregnancy: false }],
       [{ labs: [] }],
       [{ uid: '22222222-2222-2222-2222-222222222222', age_years: 40 }], // patient row
-      missing, // patient_problems → "does not exist" is caught
+      missing,
     );
     evaluateDrugKbMock.mockReset().mockResolvedValue({ kbAvailable: true, findings: [] });
     const result = await validatePrescriptionSafety(106, [{ name: 'Metformin' }]);
-    // The does-not-exist branch is swallowed → no SAFETY_CHECK_ERROR blocker.
-    expect(result.blockers.filter((b) => b.type === 'SAFETY_CHECK_ERROR')).toHaveLength(0);
-    expect(result.safe).toBe(true);
+    expect(result.safe).toBe(false);
+    expect(result.blockers.some((b) => b.type === 'DRUG_KB_CHECK_ERROR')).toBe(true);
   });
 
-  it('records a DRUG_KB_CHECK_ERROR warning when evaluateDrugKb throws', async () => {
+  it('blocks when the drug knowledge base evaluation throws', async () => {
     evaluateDrugKbMock.mockReset().mockRejectedValue(new Error('kb boom'));
     const result = await validatePrescriptionSafety(106, [{ name: 'Amoxicillin' }]);
-    expect(result.warnings).toEqual(
+    expect(result.blockers).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: 'DRUG_KB_CHECK_ERROR', severity: 'MODERATE' }),
+        expect.objectContaining({ type: 'DRUG_KB_CHECK_ERROR', severity: 'HIGH' }),
       ]),
     );
-    // A KB failure must NOT fail the whole check closed — legacy checks stand.
-    expect(result.safe).toBe(true);
+    expect(result.safe).toBe(false);
   });
 });
 
 // ---- Outer catch: fail-closed --------------------------------------------
 
 describe('outer catch — fail closed on safety-check failure', () => {
+  it('fails closed when enabled composition screening is unavailable', async () => {
+    isCompositionSearchEnabledMock.mockResolvedValueOnce(true);
+    enrichMedicationsWithCompositionMock.mockRejectedValueOnce(new Error('composition lookup exploded'));
+    queueRaw([], []);
+
+    const result = await validatePrescriptionSafety(
+      106,
+      [{ name: 'Amoxicillin', catalog_id: 10 }],
+      { tenantId: '00000000-0000-4000-8000-000000000001' },
+    );
+
+    expect(result.safe).toBe(false);
+    expect(result.blockers.some((b) => b.type === 'SAFETY_CHECK_ERROR')).toBe(true);
+  });
+
   it('returns safe:false with a SAFETY_CHECK_ERROR blocker when allergy fetch throws', async () => {
     // getUnifiedActiveAllergies is documented never to throw, but if it does
     // the outer try/catch must fail closed rather than silently pass.

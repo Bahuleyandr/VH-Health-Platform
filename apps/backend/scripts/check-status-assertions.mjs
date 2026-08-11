@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/check-status-assertions.mjs
 //
-// Ban "success-or-500" style status assertions in test files.
+// Ban status assertions that accept both success and a serious failure.
 //
 // Pattern: `expect([200, 500]).toContain(res.statusCode)` — an accepted-status
 // array that mixes a 5xx code with any non-5xx code. Such an assertion can
@@ -12,7 +12,9 @@
 // CLAUDE.md, Phase 0.5): "Tests assert exactly, never [200, 500]".
 //
 // What is flagged: any array literal containing BOTH a 5xx status (500-599)
-// and a non-5xx status, asserted via `.toContain(<expression>)`.
+// and a non-5xx status, or BOTH a 2xx status and 401/403, asserted via
+// `.toContain(<expression>)`. The AST pass also detects split forms such as
+// `if (res.status !== 200) expect([403, 404]).toContain(res.status)`.
 // `.not.toContain(...)` is the inverse (good) pattern and is skipped. An
 // all-5xx set (e.g. [500, 503]) is not mixing and is allowed.
 //
@@ -30,6 +32,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findMixedStatusAssertions } from './lib/statusAssertionAst.mjs';
 
 function walk(dir, acc = []) {
   for (const name of readdirSync(dir)) {
@@ -45,39 +48,29 @@ function walk(dir, acc = []) {
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const files = walk(join(scriptDir, '..', 'src'));
 
-// expect([ ... ]).toContain(<expression>)
-// The array body may span lines. `.not.toContain` is skipped by construction
-// (the pattern requires `)` directly followed by `.toContain`).
-const ASSERT_RE =
-  /expect\(\s*\[([^\]]*)\]\s*\)\s*\.toContain\(\s*[^)]*\)/g;
-
 let offenders = 0;
 let exemptions = 0;
 for (const file of files) {
   const src = readFileSync(file, 'utf8');
-  let m;
-  while ((m = ASSERT_RE.exec(src))) {
-    const codes = m[1]
-      .split(',')
-      .map((s) => Number.parseInt(s.trim(), 10))
-      .filter((n) => Number.isFinite(n));
-    if (codes.length === 0) continue;
-    const has5xx = codes.some((c) => c >= 500 && c < 600);
-    const hasNon5xx = codes.some((c) => c < 500 || c >= 600);
-    if (!(has5xx && hasNon5xx)) continue;
-
-    const lineNumber = src.slice(0, m.index).split('\n').length;
-    const lines = src.split('\n');
-    const assertLine = lines[lineNumber - 1] ?? '';
-    const prevLine = lines[lineNumber - 2] ?? '';
-    const marker = /\/\/\s*ban-exempt:\s*(\S.*)/;
-    if (marker.test(assertLine) || marker.test(prevLine)) {
+  let findings;
+  try {
+    findings = findMixedStatusAssertions(src);
+  } catch (err) {
+    console.error(`✗ ${file}:1 — status assertion AST parse failed: ${err.message}`);
+    offenders++;
+    continue;
+  }
+  for (const finding of findings) {
+    if (finding.exempt) {
       exemptions++;
       continue;
     }
     console.error(
-      `✗ ${file}:${lineNumber} — status set [${codes.join(', ')}] mixes 5xx with non-5xx; ` +
-        'a test that tolerates a server error can never fail on one. Assert the exact status ' +
+      `✗ ${file}:${finding.line} — status set [${finding.codes.join(', ')}] ` +
+        (finding.mixesServerFailure
+          ? 'mixes 5xx with non-5xx; '
+          : 'mixes success with an authentication/authorization failure; ') +
+        'a test that tolerates this failure cannot protect the contract. Assert the exact status ' +
         '(seed the data the route needs), or mark a deliberate contract with `// ban-exempt: <reason>`.'
     );
     offenders++;
@@ -86,12 +79,12 @@ for (const file of files) {
 
 if (offenders > 0) {
   console.error(
-    `\nFAIL: ${offenders} success-or-5xx status assertion(s) in test files.` +
+    `\nFAIL: ${offenders} mixed success/failure status assertion(s) in test files.` +
       (exemptions > 0 ? ` (${exemptions} ban-exempt assertion(s) skipped.)` : '')
   );
   process.exit(1);
 }
 console.log(
-  `✓ 0 success-or-5xx status assertions across ${files.length} test files.` +
+  `✓ 0 mixed success/failure status assertions across ${files.length} test files.` +
     (exemptions > 0 ? ` (${exemptions} ban-exempt assertion(s) allowed.)` : '')
 );

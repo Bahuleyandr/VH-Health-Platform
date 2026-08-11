@@ -38,7 +38,7 @@ router.get('/longitudinal-risk', async (req, res, next) => {
        ORDER BY r.admission_id, r.created_at DESC`,
       req.tenantId,
       band
-    ).catch(() => []);
+    );
     const bandOrder = { critical: 0, high: 1, medium: 2, low: 3 };
     const sorted = rows
       .sort((a, b) => (bandOrder[a.band] ?? 4) - (bandOrder[b.band] ?? 4))

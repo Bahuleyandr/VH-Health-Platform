@@ -65,9 +65,41 @@ describe('ledgerAuthoritativeMode.resolveLedgerModeForTenant', () => {
     await expect(resolveLedgerModeForTenant(TENANT)).resolves.toBe('enforce');
   });
 
-  it('ignores an invalid per-tenant value and falls back to default', async () => {
+  it('fails closed when stored settings JSON cannot be parsed', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: '{not-json' });
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
+  });
+
+  it('fails closed when an explicit per-tenant value is invalid', async () => {
     getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: { ledger_authoritative_mode: 'banana' } });
-    await expect(resolveLedgerModeForTenant(TENANT)).resolves.toBe('shadow');
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
+  });
+
+  it('does not confuse a present null tenant value with an absent setting', async () => {
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: { ledger_authoritative_mode: null } });
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
+  });
+
+  it('fails closed when an explicit environment value is invalid', async () => {
+    process.env.LEDGER_AUTHORITATIVE_MODE = 'banana';
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: {} });
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
+  });
+
+  it('does not confuse an explicitly empty environment value with an absent variable', async () => {
+    process.env.LEDGER_AUTHORITATIVE_MODE = '';
+    getTenantByIdMock.mockResolvedValueOnce({ id: TENANT, settings: {} });
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
   });
 
   it('uses the LEDGER_AUTHORITATIVE_MODE env var as the fallback when no tenant setting', async () => {
@@ -83,14 +115,18 @@ describe('ledgerAuthoritativeMode.resolveLedgerModeForTenant', () => {
     await expect(resolveLedgerModeForTenant(TENANT)).resolves.toBe('enforce');
   });
 
-  it('FAIL-SAFE: resolves to the default (shadow) when the tenant lookup throws', async () => {
+  it('fails closed when the tenant lookup throws instead of downgrading enforce to shadow', async () => {
     getTenantByIdMock.mockRejectedValueOnce(new Error('db down'));
-    await expect(resolveLedgerModeForTenant(TENANT)).resolves.toBe('shadow');
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
   });
 
-  it('FAIL-SAFE: resolves to default when the tenant row is missing', async () => {
+  it('fails closed when the tenant row is missing', async () => {
     getTenantByIdMock.mockResolvedValueOnce(null);
-    await expect(resolveLedgerModeForTenant(TENANT)).resolves.toBe('shadow');
+    await expect(resolveLedgerModeForTenant(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
+    });
   });
 });
 
@@ -116,10 +152,10 @@ describe('ledgerAuthoritativeMode.resolveLedgerWiring', () => {
     });
   });
 
-  it('FAIL-SAFE: lookup failure → shadow (post-commit), never sameTx', async () => {
+  it('lookup failure blocks the money path instead of selecting post-commit mode', async () => {
     getTenantByIdMock.mockRejectedValueOnce(new Error('db down'));
-    await expect(resolveLedgerWiring(TENANT)).resolves.toEqual({
-      mode: 'shadow', sameTx: false, postCommit: true, skip: false,
+    await expect(resolveLedgerWiring(TENANT)).rejects.toMatchObject({
+      code: 'LEDGER_MODE_UNAVAILABLE',
     });
   });
 });

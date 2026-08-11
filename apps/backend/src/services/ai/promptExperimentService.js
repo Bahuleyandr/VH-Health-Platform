@@ -15,16 +15,11 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 function resolveTenantId(options = {}) {
   return requireTenantId(options.tenantId);
-}
-
-function isMissingSchemaError(err) {
-  return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
 }
 
 function variantForHash(hash, splitA) {
@@ -35,8 +30,7 @@ function variantForHash(hash, splitA) {
 
 export async function getActiveExperimentForModule({ tenantId = null, moduleKey } = {}) {
   const tid = resolveTenantId({ tenantId });
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT e.id, e.tenant_id, e.module_key, e.name, e.variant_a_prompt_id, e.variant_b_prompt_id,
               e.traffic_split_a, e.status, e.started_at, e.metadata,
               pa.version AS variant_a_version, pa.system_prompt AS variant_a_system, pa.user_prompt_template AS variant_a_user,
@@ -51,12 +45,8 @@ export async function getActiveExperimentForModule({ tenantId = null, moduleKey 
        LIMIT 1`,
       tid,
       moduleKey
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return rows[0] || null;
 }
 
 /**
@@ -80,8 +70,7 @@ export async function pickVariant({ tenantId = null, moduleKey, hash }) {
 
 export async function recordAssignment({ tenantId = null, experimentId, generationId, variant }) {
   const tid = resolveTenantId({ tenantId });
-  try {
-    await prisma.$queryRawUnsafe(
+  await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_prompt_assignments
          (tenant_id, experiment_id, generation_id, variant)
        VALUES ($1::uuid, $2, $3, $4)
@@ -90,12 +79,7 @@ export async function recordAssignment({ tenantId = null, experimentId, generati
       experimentId,
       generationId,
       variant
-    );
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Experiment assignment insert failed', { experimentId, generationId, error: err.message });
-    }
-  }
+  );
 }
 
 export async function createExperiment({ tenantId = null, moduleKey, name, variantAPromptId, variantBPromptId, trafficSplitA = 0.5, startedBy = null } = {}) {
@@ -177,7 +161,7 @@ export async function getExperimentStats({ tenantId = null, experimentId } = {})
      GROUP BY a.variant`,
     tid,
     Number.parseInt(experimentId, 10)
-  ).catch(() => []);
+  );
 
   const stats = { A: null, B: null };
   for (const row of rows) {
@@ -228,7 +212,7 @@ export async function listExperiments({ tenantId = null, moduleKey = null, statu
     moduleKey,
     status,
     safeLimit
-  ).catch(() => []);
+  );
   return { experiments: rows, count: rows.length };
 }
 

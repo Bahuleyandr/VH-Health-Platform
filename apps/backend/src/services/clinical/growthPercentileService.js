@@ -10,7 +10,6 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import logger from '../../logging/logger.js';
 
 const VALID_METRICS = ['height_cm', 'weight_kg', 'head_circumference_cm', 'bmi'];
 const VALID_SEXES = ['M', 'F'];
@@ -19,7 +18,6 @@ const AVERAGE_MONTH_DAYS = 30.4375;
 const WHO_MAX_AGE_DAYS = Math.round(60 * AVERAGE_MONTH_DAYS);
 const IAP_MAX_AGE_DAYS = Math.round(18 * 365.25);
 const lmsCache = new Map();
-let loggedLmsLookupFailure = false;
 
 // Standard normal CDF (Abramowitz & Stegun approximation). Accurate to
 // ~7 decimals, which is plenty for percentile rendering.
@@ -115,8 +113,7 @@ function lmsCacheKey(dataset, sex, metric) {
 async function loadLmsRows(dataset, sex, metric) {
   const key = lmsCacheKey(dataset, sex, metric);
   if (lmsCache.has(key)) return lmsCache.get(key);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT age_days, l, m, s, source_version
          FROM growth_reference_lms
         WHERE dataset = $1
@@ -125,25 +122,18 @@ async function loadLmsRows(dataset, sex, metric) {
         ORDER BY age_days ASC`,
       dataset, sex, metric,
     );
-    const normalized = rows.map((row) => ({
-      age_days: Number(row.age_days),
-      L: numberFromDb(row.l),
-      M: numberFromDb(row.m),
-      S: numberFromDb(row.s),
-      source_version: row.source_version || null,
-    })).filter((row) => Number.isFinite(row.age_days)
-      && Number.isFinite(row.L)
-      && Number.isFinite(row.M)
-      && Number.isFinite(row.S));
-    lmsCache.set(key, normalized);
-    return normalized;
-  } catch (err) {
-    if (!loggedLmsLookupFailure) {
-      logger.warn(`growthPercentileService: growth_reference_lms lookup unavailable; using fallback where possible (${err?.message ?? err})`);
-      loggedLmsLookupFailure = true;
-    }
-    return [];
-  }
+  const normalized = rows.map((row) => ({
+    age_days: Number(row.age_days),
+    L: numberFromDb(row.l),
+    M: numberFromDb(row.m),
+    S: numberFromDb(row.s),
+    source_version: row.source_version || null,
+  })).filter((row) => Number.isFinite(row.age_days)
+    && Number.isFinite(row.L)
+    && Number.isFinite(row.M)
+    && Number.isFinite(row.S));
+  lmsCache.set(key, normalized);
+  return normalized;
 }
 
 function interpolateLms(rows, ageInDays) {
@@ -226,7 +216,6 @@ function computeApproximateWho({ sex, ageInDays, metric, value }) {
 
 export function clearGrowthReferenceCache() {
   lmsCache.clear();
-  loggedLmsLookupFailure = false;
 }
 
 export async function computePercentile({ sex, ageInDays, metric, value } = {}) {
@@ -309,14 +298,8 @@ export async function computeGrowthSnapshot({
     ['bmi', bmi],
   ]) {
     if (value === null || value === undefined || value === '') continue;
-    try {
-      const r = await computePercentile({ sex, ageInDays, metric, value: Number(value) });
-      if (r && r.percentile != null) metrics[metric] = r;
-    } catch (err) {
-      logger.warn(
-        `growthPercentileService: skipping ${metric} percentile (sex=${sex}, ageInDays=${ageInDays}, value=${value}): ${err?.message ?? err}`,
-      );
-    }
+    const r = await computePercentile({ sex, ageInDays, metric, value: Number(value) });
+    if (r && r.percentile != null) metrics[metric] = r;
   }
   if (Object.keys(metrics).length === 0) return null;
   return { sex, age_in_days: ageInDays, reference_dataset: datasetForAge(ageInDays), metrics };

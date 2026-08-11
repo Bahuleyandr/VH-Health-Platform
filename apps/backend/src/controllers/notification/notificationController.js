@@ -5,7 +5,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { notificationService } from '../../services/notification/notificationService.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export const notificationController = {
@@ -55,12 +55,7 @@ export const notificationController = {
       if (err.message.includes('Access denied')) {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
-      // Graceful fallback
-      success(res, {
-        notifications: [],
-        message: 'Notification system temporarily unavailable',
-        requestedBy: req.user?.uid
-      }, 'Notification service status');
+      error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 
@@ -101,19 +96,12 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in getMine:', err.message);
       if (err.message.includes('User not found')) {
-        return success(res, {
-          notifications: [],
-          count: 0,
-          unread_count: 0,
-          pagination: buildPagination(0, 1, 20),
-          requestedBy: req.user?.uid,
-          accessLevel: req.user?.role?.toUpperCase(),
-        }, 'Notifications fetched successfully');
+        return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
       }
       if (err.message.includes('Access denied')) {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
-      error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      return error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 
@@ -214,13 +202,7 @@ export const notificationController = {
       }, 'Notifications retrieved successfully');
     } catch (err) {
       logger.error('Error in getList:', err.message);
-      // Graceful fallback
-      success(res, {
-        notifications: [],
-        pagination: buildPagination(0, 1, 20),
-        message: 'Notification system temporarily unavailable',
-        requestedBy: req.user?.uid
-      }, 'Notification service status');
+      error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 
@@ -500,17 +482,7 @@ export const notificationController = {
       }, 'Notification statistics retrieved successfully');
     } catch (err) {
       logger.error('Error in getStats:', err.message);
-      // Graceful fallback
-      success(res, {
-        statistics: {
-          totals: { total_notifications: 0, unread_notifications: 0, read_notifications: 0 },
-          by_type: [],
-          by_priority: [],
-          daily_activity: []
-        },
-        message: 'Notification statistics temporarily unavailable',
-        generatedBy: req.user?.uid
-      }, 'Notification statistics service status');
+      error(res, 'Failed to retrieve notification statistics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
   },
 

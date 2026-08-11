@@ -366,7 +366,7 @@ async function resolveActor(user) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, uid FROM users WHERE uid = $1::uuid LIMIT 1`,
     user.uid
-  ).catch(() => []);
+  );
   return rows[0] || { id: Number(user?.id) || null, uid: user.uid };
 }
 
@@ -387,20 +387,7 @@ async function loadStaffPool({ tenantId, department }) {
       LIMIT ${STAFF_SCORE_LIMIT}`,
     tenantId,
     roles
-  ).catch(async (err) => {
-    if (!isMissingSchemaError(err)) throw err;
-    return prisma.$queryRawUnsafe(
-      `SELECT u.id, u.uid, u.name, u.role,
-              s.employee_id, s.department, s.position, s.designation
-         FROM users u
-         LEFT JOIN staff s ON s.user_id = u.uid
-        WHERE u.is_active = true
-          AND u.role = ANY($1::text[])
-        ORDER BY u.role, u.name
-        LIMIT ${STAFF_SCORE_LIMIT}`,
-      roles
-    );
-  });
+  );
   return rows || [];
 }
 
@@ -424,10 +411,7 @@ async function loadLeaveRows({ staffIds, startDate, endDate }) {
     staffIds,
     lookbackStart,
     endDate
-  ).catch((err) => {
-    if (isMissingSchemaError(err)) return [];
-    throw err;
-  });
+  );
 }
 
 async function loadRosterRequests({ staffIds, department, startDate, endDate }) {
@@ -447,10 +431,7 @@ async function loadRosterRequests({ staffIds, department, startDate, endDate }) 
     staffIds,
     startDate,
     endDate
-  ).catch((err) => {
-    if (isMissingSchemaError(err)) return [];
-    throw err;
-  });
+  );
 }
 
 async function loadRosterLoad({ staffIds, department, startDate }) {
@@ -472,10 +453,7 @@ async function loadRosterLoad({ staffIds, department, startDate }) {
     department,
     lookbackStart,
     startDate
-  ).catch((err) => {
-    if (isMissingSchemaError(err)) return [];
-    throw err;
-  });
+  );
   return new Map(rows.map((row) => [Number(row.staff_id), row]));
 }
 
@@ -689,9 +667,7 @@ async function insertAudit({ tenantId, runId, actor, action, reason = null, befo
     reason,
     JSON.stringify(before || {}),
     JSON.stringify(after || {})
-  ).catch((err) => {
-    if (!isMissingSchemaError(err)) throw err;
-  });
+  );
 }
 
 async function persistForecast({ tenantId, department, startDate, endDate, actor, scores, shiftRisks, summary, sourceBreakdown, aiResult, sourceHashValue }) {
@@ -702,9 +678,6 @@ async function persistForecast({ tenantId, department, startDate, endDate, actor
     sourceHashValue,
     sourceBreakdown,
     aiResult,
-  }).catch((err) => {
-    if (!isMissingSchemaError(err)) throw err;
-    return null;
   });
 
   const governanceState = aiResult?.usedAi ? 'ai' : 'fallback';
@@ -1027,7 +1000,7 @@ export async function getLatestRosterLeaveForecast({
           LIMIT 20`,
         tid,
         run.id
-      ).catch(() => []),
+      ),
     ]);
     const normalizedShiftRisks = shiftRisks.map(normalizeShiftRisk);
     return {
@@ -1144,9 +1117,7 @@ export async function reviewRosterLeaveForecast({
       normalizedDecision === 'accepted' ? 'accepted' : 'rejected',
       actor.uid,
       run.generation_id
-    ).catch((err) => {
-      if (!isMissingSchemaError(err)) throw err;
-    });
+    );
   }
   return run;
 }

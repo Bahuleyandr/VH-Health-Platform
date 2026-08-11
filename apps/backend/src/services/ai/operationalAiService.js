@@ -18,7 +18,6 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -76,7 +75,7 @@ export async function scoreNoShowRisk({ appointmentId, tenantId = null } = {}) {
          AND appointment_date >= CURRENT_DATE - INTERVAL '365 days'
          AND appointment_date < CURRENT_DATE`,
       apt.patient_id
-    ).catch(() => [{ total: 0, missed: 0 }]);
+    );
     const priorTotal = Number(history?.total || 0);
     const priorMissed = Number(history?.missed || 0);
     if (priorTotal >= 3) {
@@ -119,8 +118,7 @@ export async function scoreNoShowRisk({ appointmentId, tenantId = null } = {}) {
       ? 'Standard SMS reminder 24h prior is likely sufficient.'
       : 'No additional action required.';
 
-  try {
-    await prisma.$queryRawUnsafe(
+  await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_no_show_predictions
          (tenant_id, appointment_id, patient_uid, risk_score, band, contributors,
           recommended_action, scored_at)
@@ -132,12 +130,7 @@ export async function scoreNoShowRisk({ appointmentId, tenantId = null } = {}) {
       band,
       JSON.stringify(contributors),
       recommendation
-    );
-  } catch (err) {
-    if (!/does not exist|relation/i.test(String(err?.message || ''))) {
-      logger.warn('No-show prediction persist failed', { error: err.message });
-    }
-  }
+  );
 
   return {
     appointment_id: apt.id,
@@ -181,7 +174,7 @@ export async function predictOtCaseTime({ scheduleId, tenantId = null } = {}) {
        LIMIT 30`,
       schedule.surgeon,
       schedule.procedure_code
-    ).catch(() => []);
+    );
     contributors.source = 'surgeon_procedure';
   }
 
@@ -196,7 +189,7 @@ export async function predictOtCaseTime({ scheduleId, tenantId = null } = {}) {
        ORDER BY scheduled_date DESC
        LIMIT 60`,
       schedule.procedure_code
-    ).catch(() => []);
+    );
     contributors.source = 'procedure_code_only';
   }
 
@@ -211,7 +204,7 @@ export async function predictOtCaseTime({ scheduleId, tenantId = null } = {}) {
        ORDER BY scheduled_date DESC
        LIMIT 60`,
       schedule.procedure_name
-    ).catch(() => []);
+    );
     contributors.source = 'procedure_name_fallback';
   }
 
@@ -235,8 +228,7 @@ export async function predictOtCaseTime({ scheduleId, tenantId = null } = {}) {
     contributors.cold_start = true;
   }
 
-  try {
-    await prisma.$queryRawUnsafe(
+  await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_ot_duration_predictions
          (tenant_id, ot_schedule_id, procedure_name, predicted_minutes, confidence_pct,
           sample_size, contributors, scored_at)
@@ -249,12 +241,7 @@ export async function predictOtCaseTime({ scheduleId, tenantId = null } = {}) {
       confidence,
       sample.length,
       JSON.stringify(contributors)
-    );
-  } catch (err) {
-    if (!/does not exist|relation/i.test(String(err?.message || ''))) {
-      logger.warn('OT duration prediction persist failed', { error: err.message });
-    }
-  }
+  );
 
   return {
     ot_schedule_id: schedule.id,
@@ -302,7 +289,7 @@ export async function auditChargeCapture({ admissionId, tenantId = null } = {}) 
      WHERE encounter_id = (SELECT encounter_id FROM admissions WHERE id = $1 LIMIT 1)
        AND is_signed = true`,
     admission.id
-  ).catch(() => []);
+  );
 
   const noteText = notes.map((n) => JSON.stringify(n.content || {})).join(' \n ');
 
@@ -313,7 +300,7 @@ export async function auditChargeCapture({ admissionId, tenantId = null } = {}) 
      WHERE patient_uid = $1::uuid
        AND created_at >= NOW() - INTERVAL '60 days'`,
     admission.patient_uid
-  ).catch(() => []);
+  );
   const invoicedText = invoicedRows
     .map((row) => JSON.stringify(row.items || []))
     .join(' ')
@@ -340,9 +327,7 @@ export async function auditChargeCapture({ admissionId, tenantId = null } = {}) 
     }
   }
 
-  let savedId = null;
-  try {
-    const saved = await prisma.$queryRawUnsafe(
+  const saved = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_charge_capture_audits
          (tenant_id, admission_id, patient_uid, mentioned_codes, invoiced_codes,
           missed_codes, estimated_revenue_minor, scanned_at, metadata)
@@ -355,13 +340,8 @@ export async function auditChargeCapture({ admissionId, tenantId = null } = {}) 
       JSON.stringify(missed),
       estimatedRevenue,
       JSON.stringify({ note_sample_count: notes.length })
-    );
-    savedId = saved[0]?.id || null;
-  } catch (err) {
-    if (!/does not exist|relation/i.test(String(err?.message || ''))) {
-      logger.warn('Charge capture audit persist failed', { error: err.message });
-    }
-  }
+  );
+  const savedId = saved[0]?.id || null;
 
   return {
     audit_id: savedId,
@@ -378,8 +358,7 @@ export async function auditChargeCapture({ admissionId, tenantId = null } = {}) 
 export async function listChargeCaptureAudits({ tenantId = null, decision = null, limit = 50 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, admission_id, patient_uid, mentioned_codes, missed_codes,
               estimated_revenue_minor, reviewer_decision, reviewed_by, reviewed_at, scanned_at
        FROM clinical_ai_charge_capture_audits
@@ -390,12 +369,8 @@ export async function listChargeCaptureAudits({ tenantId = null, decision = null
       tid,
       decision,
       safeLimit
-    );
-    return { audits: rows, count: rows.length };
-  } catch (err) {
-    if (/does not exist/i.test(String(err?.message || ''))) return { audits: [], count: 0 };
-    throw err;
-  }
+  );
+  return { audits: rows, count: rows.length };
 }
 
 export async function decideChargeCaptureAudit({ auditId, decision, reviewerUid = null, tenantId = null } = {}) {

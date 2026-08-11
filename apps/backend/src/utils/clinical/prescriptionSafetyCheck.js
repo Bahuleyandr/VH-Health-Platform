@@ -186,15 +186,14 @@ function medicationConflictsWithAllergen(medName, allergen) {
 }
 
 /**
- * Best-effort patient context lookup for paediatric weight-based dosing.
+ * Required patient context lookup for paediatric weight-based dosing.
  * Reads age (DOB) + most-recent recorded weight. Returns null if either
  * piece is missing — the dose check then silently skips for this patient
  * rather than 500'ing or false-flagging.
  */
 async function loadPaediatricContext(patientId) {
   if (!patientId) return null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT
          CASE WHEN birthday IS NOT NULL THEN
            DATE_PART('year', AGE(NOW()::date, birthday))::int
@@ -202,12 +201,12 @@ async function loadPaediatricContext(patientId) {
        FROM users WHERE id = $1 LIMIT 1`,
       patientId,
     );
-    const ageYears = rows[0]?.age_years ?? null;
-    if (ageYears === null || ageYears >= 12) return null; // Not paediatric
-    // Most recent recorded weight from vitals_chart (joined via patient_uid).
-    // This won't fire for patients we never recorded vitals on; that's OK,
-    // dose check just skips silently in that case.
-    const weightRows = await prisma.$queryRawUnsafe(
+  const ageYears = rows[0]?.age_years ?? null;
+  if (ageYears === null || ageYears >= 12) return null; // Not paediatric
+  // Most recent recorded weight from vitals_chart (joined via patient_uid).
+  // This won't fire for patients we never recorded vitals on; that's OK,
+  // dose check just skips silently in that case.
+  const weightRows = await prisma.$queryRawUnsafe(
       `SELECT vc.weight_kg
          FROM vitals_chart vc
          JOIN users u ON u.uid = vc.patient_uid
@@ -215,13 +214,9 @@ async function loadPaediatricContext(patientId) {
         ORDER BY vc.recorded_at DESC NULLS LAST LIMIT 1`,
       patientId,
     );
-    const weightKg = weightRows[0]?.weight_kg ? Number(weightRows[0].weight_kg) : null;
-    if (!Number.isFinite(weightKg) || weightKg <= 0) return null;
-    return { ageYears, weightKg };
-  } catch (err) {
-    logger.warn(`prescriptionSafetyCheck: paediatric context lookup failed for patient=${patientId}: ${err.message}`);
-    return null;
-  }
+  const weightKg = weightRows[0]?.weight_kg ? Number(weightRows[0].weight_kg) : null;
+  if (!Number.isFinite(weightKg) || weightKg <= 0) return null;
+  return { ageYears, weightKg };
 }
 
 /**
@@ -446,8 +441,7 @@ function parseMedicationDays(med) {
 
 async function loadPregnancyContext(patientId) {
   if (!patientId) return { activePregnancy: false, possiblePregnancy: false };
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT u.gender,
               u.is_pregnant,
               u.pregnancy_lmp_date,
@@ -462,26 +456,21 @@ async function loadPregnancyContext(patientId) {
         LIMIT 1`,
       patientId,
     );
-    const row = rows[0] || {};
-    const gender = String(row.gender || '').toLowerCase();
-    const age = row.age_years == null ? null : Number(row.age_years);
-    const possiblePregnancy = ['female', 'f'].includes(gender) && (age == null || (age >= 10 && age <= 55));
-    return {
-      activePregnancy: Boolean(row.is_pregnant || row.has_ongoing_pregnancy),
-      possiblePregnancy,
-      ageYears: age,
-      lmpDate: row.pregnancy_lmp_date || null,
-    };
-  } catch (err) {
-    logger.warn(`prescriptionSafetyCheck: pregnancy context lookup failed for patient=${patientId}: ${err.message}`);
-    return { activePregnancy: false, possiblePregnancy: false };
-  }
+  const row = rows[0] || {};
+  const gender = String(row.gender || '').toLowerCase();
+  const age = row.age_years == null ? null : Number(row.age_years);
+  const possiblePregnancy = ['female', 'f'].includes(gender) && (age == null || (age >= 10 && age <= 55));
+  return {
+    activePregnancy: Boolean(row.is_pregnant || row.has_ongoing_pregnancy),
+    possiblePregnancy,
+    ageYears: age,
+    lmpDate: row.pregnancy_lmp_date || null,
+  };
 }
 
 async function loadRenalContext(patientId) {
   if (!patientId) return { evidenceFound: false };
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `WITH patient AS (
          SELECT id, uid FROM users WHERE id = $1 LIMIT 1
        ),
@@ -513,27 +502,23 @@ async function loadRenalContext(patientId) {
           FROM recent_labs`,
       patientId,
     );
-    const labs = Array.isArray(rows[0]?.labs) ? rows[0].labs : [];
-    const egfr = labs
+  const labs = Array.isArray(rows[0]?.labs) ? rows[0].labs : [];
+  const egfr = labs
       .filter((r) => /egfr|e-gfr/i.test(`${r.test_name || ''} ${r.test_code || ''}`))
       .map((r) => Number(r.value_numeric ?? r.value_text))
       .find((v) => Number.isFinite(v));
-    const creatinine = labs
+  const creatinine = labs
       .filter((r) => /creatinine|creat/i.test(`${r.test_name || ''} ${r.test_code || ''}`))
       .map((r) => Number(r.value_numeric ?? r.value_text))
       .find((v) => Number.isFinite(v));
-    return {
-      evidenceFound: labs.length > 0,
-      egfr: Number.isFinite(egfr) ? egfr : null,
-      creatinine: Number.isFinite(creatinine) ? creatinine : null,
-      impaired: (Number.isFinite(egfr) && egfr < 60) || (Number.isFinite(creatinine) && creatinine >= 1.5),
-      severe: (Number.isFinite(egfr) && egfr < 30) || (Number.isFinite(creatinine) && creatinine >= 2.5),
-      labs: labs.slice(0, 4),
-    };
-  } catch (err) {
-    logger.warn(`prescriptionSafetyCheck: renal context lookup failed for patient=${patientId}: ${err.message}`);
-    return { evidenceFound: false };
-  }
+  return {
+    evidenceFound: labs.length > 0,
+    egfr: Number.isFinite(egfr) ? egfr : null,
+    creatinine: Number.isFinite(creatinine) ? creatinine : null,
+    impaired: (Number.isFinite(egfr) && egfr < 60) || (Number.isFinite(creatinine) && creatinine >= 1.5),
+    severe: (Number.isFinite(egfr) && egfr < 30) || (Number.isFinite(creatinine) && creatinine >= 2.5),
+    labs: labs.slice(0, 4),
+  };
 }
 
 function checkPregnancyMedicationSafety(medications, context) {
@@ -936,16 +921,10 @@ export async function validatePrescriptionSafety(patientId, medications, options
     //     per-tenant composition-search flag is enabled. Legacy 2-arg callers
     //     (no options.tenantId) and disabled tenants skip this entirely.
     //
-    //     GUARDING: the whole block runs in its OWN inner try/catch that logs
-    //     a warning and CONTINUES (no SAFETY_CHECK_ERROR, no block). A missing
-    //     column/table/feature during a staggered deploy therefore silently
-    //     skips the composition checks while the deterministic allergy /
-    //     duplicate / dose / interaction logic above is untouched. Placed
-    //     after the name-based checks so those always run first, and the
-    //     allergy findings here DEDUP against the name-based ALLERGY_CONFLICT
-    //     for the same (medication, allergen) pair.
-    try {
-      if (tenantId && await isCompositionSearchEnabled(tenantId)) {
+    //     When enabled, composition screening is required evidence. Any lookup
+    //     fault reaches the outer fail-closed blocker rather than presenting
+    //     the deterministic floor as a complete safety verdict.
+    if (tenantId && await isCompositionSearchEnabled(tenantId)) {
         // -- Composition allergy --
         // enrichMedicationsWithComposition strips any client identity and
         // overlays the server-derived one from catalog_id. Never throws.
@@ -1123,13 +1102,6 @@ export async function validatePrescriptionSafety(patientId, medications, options
             }
           }
         }
-      }
-    } catch (compErr) {
-      // GUARD: composition screening is an enrichment, never a hard dependency.
-      // A missing column/table/feature (staggered deploy) or transient DB error
-      // must NOT push SAFETY_CHECK_ERROR and must NOT block prescribing — log
-      // and continue with the deterministic checks already run above.
-      logger.warn(`prescriptionSafetyCheck: composition screen skipped for patient=${patientId} tenant=${tenantId}: ${compErr.message}`);
     }
 
     // 3. Paediatric weight-based dose sanity check. Only fires for patients
@@ -1264,15 +1236,11 @@ export async function validatePrescriptionSafety(patientId, medications, options
       const patientUid = patientRows[0]?.uid || null;
       let activeProblems = [];
       if (patientUid) {
-        try {
-          activeProblems = await prisma.$queryRawUnsafe(
+        activeProblems = await prisma.$queryRawUnsafe(
             `SELECT icd10_code, title FROM patient_problems
               WHERE patient_uid = $1::uuid AND status = 'active'`,
             patientUid,
-          );
-        } catch (problemErr) {
-          if (!/does not exist/i.test(String(problemErr?.message || ''))) throw problemErr;
-        }
+        );
       }
       const kbResult = await evaluateDrugKb({
         medications,
@@ -1324,14 +1292,11 @@ export async function validatePrescriptionSafety(patientId, medications, options
         else warnings.push(issue);
       }
     } catch (kbErr) {
-      // KB evaluation must never weaken the floor checks above; treat an
-      // unexpected KB failure as its own loud warning, not a silent pass
-      // and not a full fail-closed (the deterministic checks already ran).
-      logger.error('Drug KB evaluation failed (continuing with legacy checks):', kbErr.message);
-      warnings.push({
+      logger.error('Drug KB evaluation failed (blocking prescription pending manual override):', kbErr.message);
+      blockers.push({
         type: 'DRUG_KB_CHECK_ERROR',
-        severity: 'MODERATE',
-        message: 'Drug knowledge-base screening failed — interactions beyond the built-in checks were not evaluated this time.',
+        severity: 'HIGH',
+        message: 'Drug knowledge-base screening failed — manual review and override are required before prescribing.',
       });
     }
 

@@ -83,7 +83,12 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
 
 const { getGeofenceBreaches, getTodayBreaks, requestRegularization } = await import('../../controllers/staff/attendanceController.js');
 const { getHealthStatus } = await import('../../controllers/auth/staffAuthController.js');
-const { getAttendanceAuditDashboard, getAttendanceHRActivity, getLeaveAuditTrail } = await import('../../controllers/staff/attendanceAuditController.js');
+const {
+  getAttendanceAuditDashboard,
+  getAttendanceHRActivity,
+  getAttendanceSLAReport,
+  getLeaveAuditTrail,
+} = await import('../../controllers/staff/attendanceAuditController.js');
 const { getMyOvertimeRequests } = await import('../../controllers/staff/overtimeController.js');
 const { getAuditDashboard, getAdminActivityReport, getReportAuditTrail } = await import('../../controllers/staff/reportAuditController.js');
 const {
@@ -104,6 +109,7 @@ const { getOnboardingStatus } = await import('../../controllers/staff/staffAdmin
 const { advancedStaffSearch } = await import('../../controllers/staff/staffAdminOperationsController.js');
 const {
   getAllAdvances,
+  getComplianceCalendar,
   getPayslipDetail,
   getPayrollRunDetail,
   getStaffSalaryConfig,
@@ -226,7 +232,7 @@ describe('staff operational endpoint drift guards', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('returns a clean no-data tax summary when no issued payslips exist', async () => {
+  it('returns 404 when no issued payslips exist instead of a synthetic zero summary', async () => {
     queryRawUnsafe.mockResolvedValueOnce([]);
     generateAnnualTaxSummary.mockRejectedValueOnce(new Error('No payslips found for this financial year'));
 
@@ -236,13 +242,21 @@ describe('staff operational endpoint drift guards', () => {
     await getMyTaxSummary(req, res);
 
     expect(generateAnnualTaxSummary).toHaveBeenCalledWith(staffUid, '2025-26');
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json.mock.calls[0][0].data).toMatchObject({
-      staff_uid: staffUid,
-      financial_year: '2025-26',
-      months_included: 0,
-      status: 'unavailable',
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json.mock.calls[0][0]).toMatchObject({
+      success: false,
+      message: 'No issued payslips found for this financial year',
     });
+  });
+
+  it('does not mark payroll compliance deadlines pending when the evidence query fails', async () => {
+    queryRawUnsafe.mockRejectedValueOnce(new Error('payroll run store unavailable'));
+    const res = makeRes();
+
+    await getComplianceCalendar({}, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ success: false });
   });
 
   it('maps attendance anomalies to existing CTE columns', async () => {
@@ -618,25 +632,22 @@ describe('staff operational endpoint drift guards', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('uses leave_applications and array fallbacks for attendance audit reads', async () => {
+  it('uses leave_applications and reports attendance audit query failures honestly', async () => {
     queryRawUnsafe.mockRejectedValue(new Error('missing relation'));
-    const res = makeRes();
+    const dashboardRes = makeRes();
+    const activityRes = makeRes();
+    const slaRes = makeRes();
 
-    await getAttendanceAuditDashboard({}, res);
-    await getAttendanceHRActivity({ query: { days: '30' } }, res);
+    await getAttendanceAuditDashboard({}, dashboardRes);
+    await getAttendanceHRActivity({ query: { days: '30' } }, activityRes);
+    await getAttendanceSLAReport({ query: { days: '30' } }, slaRes);
 
     const combinedSql = queryRawUnsafe.mock.calls.map(([sql]) => sql).join('\n');
     expect(combinedSql).toContain('FROM leave_applications');
     expect(combinedSql).not.toContain('FROM leave_requests');
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json.mock.calls.at(-1)[0].data).toMatchObject({
-      actors: [],
-      leave_detail: [],
-      regularization_detail: [],
-      dispute_detail: [],
-      overtime_detail: [],
-      bulk_corrections: [],
-    });
+    expect(dashboardRes.status).toHaveBeenCalledWith(500);
+    expect(activityRes.status).toHaveBeenCalledWith(500);
+    expect(slaRes.status).toHaveBeenCalledWith(500);
   });
 
   it('accepts the legacy type query alias for HR staff reports', async () => {

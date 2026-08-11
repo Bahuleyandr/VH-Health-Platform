@@ -1577,30 +1577,65 @@ export const schemas = {
   },
   RaiseQueryResponse: envelope('RaiseQueryResult'),
 
-  // ---- getMyTaxSummary GET /payroll/tax-summary. THREE divergent branches:
+  // ---- getMyTaxSummary GET /payroll/tax-summary. Two success branches:
   //   (A) existing annual_tax_summaries row → every total_* is a Decimal column
   //       → STRING; status is the DB column value; + pdf_url (signed | null).
-  //   (B) freshly generateAnnualTaxSummary'd → a subset object.
-  //   (C) 'unavailable' (no issued payslips) → JS NUMBER literals (total_income:0
-  //       etc) + the SYNTHETIC status const 'unavailable' (NOT a DB enum value) +
-  //       pdf_url:null.
-  // Because branches mix string (A) and number (C) for the same total_* keys and
-  // 'unavailable' is not a DB status, this is deliberately LOOSE
-  // (additionalProperties:true) with a permissive untyped status (string|null,
-  // NO enum so it accepts both 'draft'/'approved' AND 'unavailable') and the
-  // total_* fields left to additionalProperties (string|number both pass).
-  // required minimal [financial_year] (the only key present in every branch). ----
+  //   (B) freshly generateAnnualTaxSummary'd → the same core fields without
+  //       total_income, pdf_key, status, or pdf_url. No issued payslips is a 404. ----
   OwnTaxSummary: {
-    type: 'object', additionalProperties: true,
-    required: ['financial_year'],
+    type: 'object', additionalProperties: false,
+    required: [
+      'id', 'staff_uid', 'financial_year', 'total_basic', 'total_hra', 'total_da',
+      'total_special_allowance', 'total_transport_allowance',
+      'total_medical_allowance', 'total_overtime', 'total_bonus', 'total_arrears',
+      'total_gross', 'total_tds', 'total_pf', 'total_esi',
+      'total_professional_tax', 'total_advance_deductions', 'total_deductions',
+      'total_net', 'taxable_income', 'tax_payable', 'months_included',
+      'generated_at', 'created_at', 'updated_at',
+    ],
     properties: {
+      id: { type: 'integer' },
       financial_year: { type: 'string' },
       staff_uid: { type: 'string', format: 'uuid', nullable: true },
+      total_income: { type: MT, nullable: true },
+      total_basic: { type: MT, nullable: true },
+      total_hra: { type: MT, nullable: true },
+      total_da: { type: MT, nullable: true },
+      total_special_allowance: { type: MT, nullable: true },
+      total_transport_allowance: { type: MT, nullable: true },
+      total_medical_allowance: { type: MT, nullable: true },
+      total_overtime: { type: MT, nullable: true },
+      total_bonus: { type: MT, nullable: true },
+      total_arrears: { type: MT, nullable: true },
+      total_gross: { type: MT, nullable: true },
+      total_tds: { type: MT, nullable: true },
+      total_pf: { type: MT, nullable: true },
+      total_esi: { type: MT, nullable: true },
+      total_professional_tax: { type: MT, nullable: true },
+      total_advance_deductions: { type: MT, nullable: true },
+      total_deductions: { type: MT, nullable: true },
+      total_net: { type: MT, nullable: true },
+      taxable_income: { type: MT, nullable: true },
+      tax_payable: { type: MT, nullable: true },
+      months_included: { type: 'integer', nullable: true },
+      generated_at: { type: 'string', format: 'date-time', nullable: true },
+      pdf_key: { type: 'string', nullable: true },
       status: { type: 'string', nullable: true },
       pdf_url: { type: 'string', nullable: true },
+      created_at: { type: 'string', format: 'date-time', nullable: true },
+      updated_at: { type: 'string', format: 'date-time', nullable: true },
     },
   },
   OwnTaxSummaryResponse: envelope('OwnTaxSummary'),
+  OwnTaxSummaryNotFoundResponse: {
+    type: 'object', additionalProperties: false,
+    required: ['success', 'message'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      requestId: { type: 'string' },
+    },
+  },
 
   // ---- hr-self-service request bodies. submit-declaration HAS a destructured
   // body with the 14 numeric amounts + rent_receipt_provided + notes (financial_year
@@ -1700,7 +1735,19 @@ export const operations = {
   'GET /api/v1/staff/hr/payroll/advances': { response: 'OwnAdvancesResponse' },
   'GET /api/v1/staff/hr/payroll/declarations': { response: 'MyDeclarationsResponse' },
   'GET /api/v1/staff/hr/payroll/queries': { response: 'MyPayslipQueriesResponse' },
-  'GET /api/v1/staff/hr/payroll/tax-summary': { response: 'OwnTaxSummaryResponse' },
+  'GET /api/v1/staff/hr/payroll/tax-summary': {
+    response: 'OwnTaxSummaryResponse',
+    additionalResponses: {
+      404: {
+        description: 'No issued payslips found for the requested financial year',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/OwnTaxSummaryNotFoundResponse' },
+          },
+        },
+      },
+    },
+  },
   'POST /api/v1/staff/hr/payroll/declarations/submit': { request: 'SubmitDeclarationRequest', response: 'SubmitDeclarationResponse' },
   'POST /api/v1/staff/hr/payroll/queries/raise': { request: 'RaiseQueryRequest', response: 'RaiseQueryResponse' },
   // ---- GET /api/v1/staff/hr/payroll/my-payslips/{id}/download — INTENTIONALLY

@@ -180,7 +180,7 @@ export const getRateLimiter = (profileName = 'default', {
     // falling back to the hardcoded profile max. Reads the 60s tenant cache;
     // when no tenant is resolved yet, the override is null → profile default.
     max: async (req) => {
-      const override = await getRateLimitOverride(req?.tenantId, profileName).catch(() => null);
+      const override = await getRateLimitOverride(req?.tenantId, profileName);
       const max = override?.max;
       return Number.isFinite(max) && max > 0 ? max : profile.max;
     },

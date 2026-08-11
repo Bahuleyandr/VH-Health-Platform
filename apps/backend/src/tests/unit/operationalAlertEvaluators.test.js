@@ -143,6 +143,14 @@ describe('evaluateNoShow (appointment_no_show_predictor)', () => {
     const candidates = await evaluate({ tenantId: TENANT, now: NOW });
     expect(candidates).toHaveLength(0);
   });
+
+  it('propagates a scoring fault instead of treating the appointment as low risk', async () => {
+    const fault = new Error('no-show evidence unavailable');
+    mockQueryRawUnsafe.mockResolvedValueOnce([{ id: 1 }]);
+    mockScoreNoShowRisk.mockRejectedValueOnce(fault);
+
+    await expect(evaluate({ tenantId: TENANT, now: NOW })).rejects.toBe(fault);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -182,6 +190,13 @@ describe('evaluateInventoryBridge (inventory_intelligence)', () => {
     mockQueryRawUnsafe.mockResolvedValueOnce([]);
     const candidates = await evaluate({ tenantId: TENANT, now: NOW });
     expect(candidates).toHaveLength(0);
+  });
+
+  it('propagates inventory evidence faults instead of returning no alerts', async () => {
+    const fault = new Error('inventory forecast table unavailable');
+    mockQueryRawUnsafe.mockRejectedValueOnce(fault);
+
+    await expect(evaluate({ tenantId: TENANT, now: NOW })).rejects.toBe(fault);
   });
 });
 
@@ -223,6 +238,16 @@ describe('evaluateOtOverrun (ot_case_time_predictor)', () => {
 
     const candidates = await evaluate({ tenantId: TENANT, now: NOW });
     expect(candidates).toHaveLength(0);
+  });
+
+  it('propagates prediction faults instead of substituting scheduled minutes', async () => {
+    const fault = new Error('duration model unavailable');
+    mockQueryRawUnsafe.mockResolvedValueOnce([
+      { id: 22, ot_room: 'OT-3', estimated_duration: 120 },
+    ]);
+    mockPredictOtCaseTime.mockRejectedValueOnce(fault);
+
+    await expect(evaluate({ tenantId: TENANT, now: NOW })).rejects.toBe(fault);
   });
 });
 
