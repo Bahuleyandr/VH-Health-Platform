@@ -14,12 +14,9 @@
 //   clinical_alerts INSERT must still have happened and checkVitalAnomalies
 //   must resolve with the generated alerts.
 //
-// Query order for a CRITICAL non-pregnant vital (verified against the code):
-//   Q1 resolvePatientContext  -> [{ age_years, is_pregnant:false }]
-//   Q2 uid + tenant lookup    -> [{ uid, tenant_id }]   (runs because CRITICAL fired)
-//   Q3 clinical_alerts INSERT -> [{ id }]
-//   default                   -> []
-// (No pregnancy cds_alerts uid lookup runs — the patient is not pregnant.)
+// The patient tenant is resolved before the transaction. The transaction
+// then locks the active merge survivor, resolves that survivor's cohort, and
+// persists the alert before the post-commit results-inbox fan-out.
 
 import { jest } from '@jest/globals';
 
@@ -76,15 +73,26 @@ function mockCriticalNonPregnant({ withTenant = true } = {}) {
   loggerErrorMock.mockReset();
   loggerWarnMock.mockReset();
   enqueueCriticalResultTaskMock.mockResolvedValue({ created: true, taskId: 1, slaInstanceId: 's1' });
-  queryRawMock
-    // Q1 resolvePatientContext
-    .mockResolvedValueOnce([{ age_years: 50, is_pregnant: false }])
-    // Q2 uid + tenant lookup (runs because a CRITICAL alert fired)
-    .mockResolvedValueOnce([{ uid: PATIENT_UID, tenant_id: withTenant ? PATIENT_TENANT : null }])
-    // Q3 clinical_alerts INSERT
-    .mockResolvedValueOnce([{ id: CLINICAL_ALERT_ID }])
-    // any further reads
-    .mockResolvedValue([]);
+  queryRawMock.mockImplementation(async (sql) => {
+    if (/SELECT\s+tenant_id::text\s+AS\s+tenant_id\s+FROM\s+users/i.test(sql)) {
+      return [{ tenant_id: withTenant ? PATIENT_TENANT : null }];
+    }
+    if (/FOR (?:NO KEY )?UPDATE/i.test(sql)) {
+      return [{
+        id: PATIENT_ID,
+        uid: PATIENT_UID,
+        is_active: true,
+        status: 'active',
+        merged_into_uid: null,
+        is_deleted: false,
+      }];
+    }
+    if (/DATE_PART|maternity_pregnancies/i.test(sql)) {
+      return [{ age_years: 50, is_pregnant: false }];
+    }
+    if (/INSERT INTO clinical_alerts/i.test(sql)) return [{ id: CLINICAL_ALERT_ID }];
+    return [];
+  });
   executeRawMock.mockResolvedValue(1);
 }
 
@@ -99,11 +107,11 @@ describe('checkVitalAnomalies — results-inbox producer hook (FU3 tenant + FU2 
     expect(alerts.length).toBeGreaterThanOrEqual(1);
     expect(alerts[0].severity).toBe('CRITICAL');
 
-    // The uid+tenant lookup selected tenant_id.
-    const uidLookup = queryRawMock.mock.calls.find((args) =>
-      /SELECT\s+uid,\s*tenant_id\s+FROM\s+users/i.test(args[0]),
+    // The tenant lookup scoped the transaction before the survivor lock.
+    const tenantLookup = queryRawMock.mock.calls.find((args) =>
+      /SELECT\s+tenant_id::text\s+AS\s+tenant_id\s+FROM\s+users/i.test(args[0]),
     );
-    expect(uidLookup).toBeTruthy();
+    expect(tenantLookup).toBeTruthy();
 
     // The producer was called once, scoped to the patient's tenant + the
     // clinical_alert id, NOT the hardcoded default tenant.

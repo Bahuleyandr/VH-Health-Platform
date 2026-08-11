@@ -82,12 +82,30 @@ function resetAll() {
   emitCodeBlueMock.mockReset();
   enqueueCriticalResultTaskMock.mockResolvedValue({ created: true });
   executeRawMock.mockResolvedValue(1);
-  // Pre-loop lookups on plain prisma:
-  //   Q1 resolvePatientContext, Q2 uid + tenant (CRITICAL fired)
-  queryRawMock
-    .mockResolvedValueOnce([{ age_years: 50, is_pregnant: false }])
-    .mockResolvedValueOnce([{ uid: PATIENT_UID, tenant_id: PATIENT_TENANT }])
-    .mockResolvedValue([]);
+  queryRawMock.mockResolvedValue([{ tenant_id: PATIENT_TENANT }]);
+}
+
+function mockActivePatientAndAlertIds(...alertIds) {
+  let nextAlert = 0;
+  txQueryRawMock.mockImplementation(async (sql) => {
+    if (/FOR (?:NO KEY )?UPDATE/i.test(sql)) {
+      return [{
+        id: PATIENT_ID,
+        uid: PATIENT_UID,
+        is_active: true,
+        status: 'active',
+        merged_into_uid: null,
+        is_deleted: false,
+      }];
+    }
+    if (/DATE_PART|maternity_pregnancies/i.test(sql)) {
+      return [{ age_years: 50, is_pregnant: false }];
+    }
+    if (/INSERT INTO clinical_alerts/i.test(sql)) {
+      return [{ id: alertIds[nextAlert++] }];
+    }
+    return [];
+  });
 }
 
 describe('checkVitalAnomalies — atomic clinical_alerts persistence (C-2)', () => {
@@ -96,9 +114,7 @@ describe('checkVitalAnomalies — atomic clinical_alerts persistence (C-2)', () 
     // setTenantTx runs the callback against the tx client.
     setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(__txClient));
     // Each tx INSERT returns a new alert id.
-    txQueryRawMock
-      .mockResolvedValueOnce([{ id: 1001 }])
-      .mockResolvedValueOnce([{ id: 1002 }]);
+    mockActivePatientAndAlertIds(1001, 1002);
 
     const alerts = await checkVitalAnomalies(PATIENT_ID, {
       heart_rate: 190,        // CRITICAL (>= 180)
@@ -141,5 +157,40 @@ describe('checkVitalAnomalies — atomic clinical_alerts persistence (C-2)', () 
 
     // The failure was NOT downgraded to a benign warn-and-continue.
     expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('records replay completion inside the same transaction as the clinical alerts', async () => {
+    resetAll();
+    const completionHook = jest.fn(async ({ tx, alerts }) => {
+      expect(tx).toBe(__txClient);
+      expect(alerts).toEqual([expect.objectContaining({ clinicalAlertId: 1001 })]);
+    });
+    setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(__txClient));
+    mockActivePatientAndAlertIds(1001);
+
+    await checkVitalAnomalies(PATIENT_ID, { heart_rate: 190 }, {
+      recordedBy: 'nurse-uid',
+      onClinicalAlertsPersisted: completionHook,
+    });
+
+    expect(completionHook).toHaveBeenCalledTimes(1);
+    expect(txQueryRawMock.mock.invocationCallOrder[0])
+      .toBeLessThan(completionHook.mock.invocationCallOrder[0]);
+    expect(enqueueCriticalResultTaskMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates a replay-completion failure before post-commit fan-out', async () => {
+    resetAll();
+    const completionFailure = new Error('receipt completion failed');
+    setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(__txClient));
+    mockActivePatientAndAlertIds(1001);
+
+    await expect(checkVitalAnomalies(PATIENT_ID, { heart_rate: 190 }, {
+      recordedBy: 'nurse-uid',
+      onClinicalAlertsPersisted: async () => { throw completionFailure; },
+    })).rejects.toBe(completionFailure);
+
+    expect(enqueueCriticalResultTaskMock).not.toHaveBeenCalled();
+    expect(emitVitalAnomalyMock).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@
 // runs twice) — those three properties are exactly what this file pins.
 
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -106,6 +107,15 @@ describe('run-ci-jest.mjs shard wiring (integration, instant-exit paths)', () =>
     const res = runRunner({ JEST_CI_SHARD: '4/3' });
     expect(res.status).toBe(1);
     expect(`${res.stdout}${res.stderr}`).toMatch(/JEST_CI_SHARD index must be within 1\.\.3/);
+  });
+
+  test('keeps the memory-heavy FHIR server suite in mandatory isolation', () => {
+    const runnerSource = readFileSync(runnerPath, 'utf8');
+    const mandatoryBlock = runnerSource.match(
+      /const mandatoryIsolatedTestPatterns = \[([\s\S]*?)\];/,
+    )?.[1];
+
+    expect(mandatoryBlock).toContain("'fhir-server.deep.test.js'");
   });
 
   test('JEST_CI_SHARD combined with the chunk window exits 1 (silent chunk loss refused)', () => {

@@ -212,6 +212,7 @@ describeIfDb('C6.1-B I09/I15 late vitals recovery', () => {
       'OBR|1|||85354-9|||20260731123000+0530',
       'OBX|1|NM|8867-4^Heart rate||88|/min',
       'OBX|2|NM|2708-6^SpO2||91|%',
+      'OBX|3|NM|3151-8^Oxygen flow rate||2|L/min',
     ].join('\r');
     const duplicateKey = i09DuplicateKey({
       tenantId: TENANT_ID,
@@ -292,6 +293,7 @@ describeIfDb('C6.1-B I09/I15 late vitals recovery', () => {
     });
     const evidence = await setTenantTx(TENANT_ID, (tx) => tx.$queryRawUnsafe(
       `SELECT v.id, EXTRACT(EPOCH FROM v.recorded_at)::text AS recorded_epoch,
+              v.o2_flow_rate, v.supplemental_o2,
               v.source, v.device_verified, v.triage_acuity,
               v.recovery_inbox_id::text, m.raw_message, m.raw_message_sha256,
               t.status AS task_status, t.workflow_sla_instance_id,
@@ -323,7 +325,9 @@ describeIfDb('C6.1-B I09/I15 late vitals recovery', () => {
       sla_completion_semantics: 'none',
       timeline_count: 1,
       audit_count: 1,
+      supplemental_o2: true,
     });
+    expect(Number(evidence[0].o2_flow_rate)).toBe(2);
     expect(Number(evidence[0].recorded_epoch) * 1000)
       .toBe(Date.parse('2026-07-31T07:00:00.000Z'));
     await expect(enqueueExternalRecoveryItem(operation(prepared)))
@@ -340,8 +344,15 @@ describeIfDb('C6.1-B I09/I15 late vitals recovery', () => {
       status: 'final',
       subject: { reference: `Patient/${PATIENT_UID}` },
       effectiveDateTime: '2026-07-31T12:45:00+05:30',
-      code: { coding: [{ system: 'http://loinc.org', code: '9279-1' }] },
-      valueQuantity: { value: 24, unit: '/min' },
+      category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+      code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }] },
+      component: [{
+        code: { coding: [{ system: 'http://loinc.org', code: '9279-1' }] },
+        valueQuantity: { value: 24, code: '/min' },
+      }, {
+        code: { coding: [{ system: 'http://loinc.org', code: '3151-8' }] },
+        valueQuantity: { value: 2, system: 'http://unitsofmeasure.org', code: 'L/min' },
+      }],
     };
     const eventIdentity = `event-${SUFFIX}`;
     const duplicateKey = lengthPrefixedSha256([
@@ -403,6 +414,7 @@ describeIfDb('C6.1-B I09/I15 late vitals recovery', () => {
     });
     const rows = await setTenantTx(TENANT_ID, (tx) => tx.$queryRawUnsafe(
       `SELECT source, device_verified, triage_acuity, respiratory_rate,
+              o2_flow_rate, supplemental_o2,
               EXTRACT(EPOCH FROM recorded_at)::text AS recorded_epoch,
               recovery_interface_family
          FROM vitals_chart
@@ -415,8 +427,10 @@ describeIfDb('C6.1-B I09/I15 late vitals recovery', () => {
       device_verified: null,
       triage_acuity: null,
       recovery_interface_family: 'I15',
+      supplemental_o2: true,
     });
     expect(Number(rows[0].respiratory_rate)).toBe(24);
+    expect(Number(rows[0].o2_flow_rate)).toBe(2);
     expect(Number(rows[0].recorded_epoch) * 1000)
       .toBe(Date.parse('2026-07-31T07:15:00.000Z'));
   }, 60_000);

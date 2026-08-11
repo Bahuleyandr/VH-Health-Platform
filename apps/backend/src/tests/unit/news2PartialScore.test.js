@@ -34,6 +34,28 @@ describe('NEWS2 partial scoring (MEDIUM §4)', () => {
     expect(out.totalScore).toBe(3);
     expect(out.partial).toBe(true);
     expect(out.anyParamThree).toBe(true);
+    expect(out.scores.supplemental_o2).toBeUndefined();
+    expect(out.missingParams).toContain('supplemental_o2');
+  });
+
+  test('unknown supplemental oxygen is missing evidence, not fabricated room air', () => {
+    const out = calculateNEWS2({
+      respiration_rate: 26,
+      spo2: 88,
+      temperature: 37,
+      systolic_bp: 88,
+      heart_rate: 132,
+    });
+
+    expect(out.totalScore).toBe(12);
+    expect(out.clinicalRisk).toBe('high');
+    expect(out.escalationAction).toMatch(/Emergency response/i);
+    expect(out.partial).toBe(true);
+    expect(out.scores.supplemental_o2).toBeUndefined();
+    expect(out.missingParams).toEqual(expect.arrayContaining([
+      'consciousness',
+      'supplemental_o2',
+    ]));
   });
 
   test('a complete vitals set scores fully and is not flagged partial', () => {
@@ -45,6 +67,7 @@ describe('NEWS2 partial scoring (MEDIUM §4)', () => {
       systolic_bp: 95,
       heart_rate: 130,
       consciousness: 'A',
+      supplemental_o2: false,
     });
     expect(out.partial).toBe(false);
     expect(out.missingParams).toEqual([]);

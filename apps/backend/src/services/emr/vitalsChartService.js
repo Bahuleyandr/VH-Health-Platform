@@ -36,7 +36,7 @@ const VITAL_CORRECTION_FIELDS = [
 // notes/pain-score-only correction changes no scoring input and skips it.
 const VITAL_RESCORE_FIELDS = new Set([
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
-  'respiratory_rate', 'consciousness', 'supplemental_o2',
+  'respiratory_rate', 'consciousness', 'supplemental_o2', 'o2_flow_rate',
 ]);
 
 export function assertLateRecoveryVitalsBoundary({
@@ -124,6 +124,43 @@ async function resolvePatientForVitals(patientUid, patientId) {
     throw AppError.badRequest('patient_id must reference a patient');
   }
   return { id: user.id, uid: String(user.uid), role: user.role };
+}
+
+async function lockActivePatientForVitals(tx, patientUid, tenantId) {
+  const visited = new Set();
+  let currentUid = patientUid;
+  for (let depth = 0; depth <= 16; depth += 1) {
+    if (visited.has(currentUid)) {
+      throw AppError.conflict('Patient merge survivor chain is cyclic', 'VITALS_PATIENT_MERGE_CHAIN_INVALID');
+    }
+    visited.add(currentUid);
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id, uid::text AS uid, role, tenant_id::text AS tenant_id,
+              is_active, status, merged_into_uid::text AS merged_into_uid,
+              COALESCE(is_deleted, false) AS is_deleted
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+        FOR UPDATE`,
+      tenantId,
+      currentUid,
+    );
+    const patient = rows[0];
+    if (!patient) throw AppError.notFound('Patient not found');
+    if (patient.merged_into_uid) {
+      currentUid = patient.merged_into_uid;
+      continue;
+    }
+    if (patient.is_active !== true || patient.is_deleted || patient.status === 'merged') {
+      throw AppError.conflict(
+        'Patient is inactive and has no active merge survivor',
+        'VITALS_PATIENT_INACTIVE',
+      );
+    }
+    return patient;
+  }
+  throw AppError.conflict('Patient merge survivor chain is too deep', 'VITALS_PATIENT_MERGE_CHAIN_INVALID');
 }
 
 async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcuity, triagePriority = null }) {
@@ -268,6 +305,18 @@ const VITAL_SELECT = {
   recorded_by: true,
   recorded_at: true,
 };
+
+function anomalyVitalsForCheck(vitals) {
+  const values = {};
+  if (vitals.heart_rate != null) values.heart_rate = vitals.heart_rate;
+  if (vitals.systolic_bp != null) values.systolic_bp = vitals.systolic_bp;
+  if (vitals.diastolic_bp != null) values.diastolic_bp = vitals.diastolic_bp;
+  if (vitals.temperature != null) values.temperature = vitals.temperature;
+  if (vitals.spo2 != null) values.oxygen_saturation = vitals.spo2;
+  if (vitals.respiratory_rate != null) values.respiratory_rate = vitals.respiratory_rate;
+  if (vitals.urine_albumin != null) values.urine_albumin = vitals.urine_albumin;
+  return values;
+}
 
 const IO_SELECT = {
   id: true,
@@ -450,7 +499,12 @@ async function attachGrowthToVitalsRows(rows, patientUid) {
   return rows;
 }
 
-export async function recordVitals(data, { beforeWrite = null, beforeCommit = null } = {}) {
+export async function recordVitals(data, {
+  beforeWrite = null,
+  beforeCommit = null,
+  onNews2EffectsCompleted = null,
+  onClinicalAlertsPersisted = null,
+} = {}) {
   const {
     tenant_id, tenantId,
     patient_uid, patient_id, visit_id, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
@@ -468,13 +522,23 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
   } = data;
 
   const normalizedSource = ['staff', 'device', 'fhir', 'patient_app'].includes(source) ? source : 'staff';
+  const hasO2FlowEvidence = o2_flow_rate !== undefined && o2_flow_rate !== null;
+  const derivedSupplementalO2 = hasO2FlowEvidence ? Number(o2_flow_rate) > 0 : supplemental_o2;
+  if (hasO2FlowEvidence
+    && supplemental_o2 !== undefined
+    && supplemental_o2 !== null
+    && Boolean(supplemental_o2) !== derivedSupplementalO2) {
+    throw AppError.badRequest('supplemental_o2 must agree with o2_flow_rate');
+  }
+  const supplementalO2Known = normalizedSource !== 'fhir'
+    || (derivedSupplementalO2 !== undefined && derivedSupplementalO2 !== null);
 
   if ((!patient_uid && !patient_id) || !recorded_by) {
     throw AppError.badRequest('patient_uid or patient_id and recorded_by are required');
   }
 
-  const patientUser = await resolvePatientForVitals(patient_uid, patient_id);
-  const resolvedPatientUid = patientUser.uid;
+  let patientUser = await resolvePatientForVitals(patient_uid, patient_id);
+  let resolvedPatientUid = patientUser.uid;
   const rawRequestedTenantId = tenant_id || tenantId || null;
   const requestedTenantId = normalizeTenantId(rawRequestedTenantId);
   const patientTenantId = normalizeTenantId(patientUser.tenant_id);
@@ -518,7 +582,7 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
 
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
     respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score,
-    fhr, fundal_height_cm, normalizedAcuity,
+    o2_flow_rate, fhr, fundal_height_cm, normalizedAcuity,
     normalizedAlbumin, normalizedSugar, normalizedKetones];
   if (vitalValues.every((v) => v === undefined || v === null)) {
     throw AppError.badRequest('At least one vital sign measurement is required');
@@ -578,8 +642,10 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
   let news2Persisted = null;
   let beforeWriteResult = null;
   const record = await setTenantTx(requireTenantId(resolvedTenantId), async (tx) => {
+    patientUser = await lockActivePatientForVitals(tx, resolvedPatientUid, resolvedTenantId);
+    resolvedPatientUid = patientUser.uid;
     if (beforeWrite) {
-      beforeWriteResult = await beforeWrite({ tx });
+      beforeWriteResult = await beforeWrite({ tx, patient: patientUser });
     }
 
     const row = await tx.vitals_chart.create({
@@ -600,7 +666,7 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
         weight_kg: weight_kg ?? null,
         height_cm: height_cm ?? null,
         gcs_score: gcs_score ?? null,
-        supplemental_o2: supplemental_o2 ?? false,
+        supplemental_o2: supplementalO2Known ? Boolean(derivedSupplementalO2) : null,
         o2_flow_rate: o2_flow_rate ?? null,
         consciousness: consciousness ?? null,
         // OB-specific fields. See finding
@@ -682,7 +748,7 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
       systolic_bp,
       heart_rate,
       consciousness,
-      supplemental_o2: supplemental_o2 || false,
+      supplemental_o2: supplementalO2Known ? Boolean(derivedSupplementalO2) : null,
     }, recorded_by, { db: tx, spo2Scale, vitalsChartId: row.id });
 
     if (beforeCommit) {
@@ -707,6 +773,9 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
       { tenantId: resolvedTenantId },
     );
   }
+  if (typeof onNews2EffectsCompleted === 'function') {
+    await onNews2EffectsCompleted({ vitals: record, news2: news2Result });
+  }
 
   let triage = null;
   if (normalizedAcuity != null) {
@@ -723,18 +792,9 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
   const alertOptionsForCheck = beforeWriteResult?.alertOptions ?? alertOptions;
 
   try {
-    const vitalsForCheck = {};
-    if (heart_rate != null) vitalsForCheck.heart_rate = heart_rate;
-    if (systolic_bp != null) vitalsForCheck.systolic_bp = systolic_bp;
-    if (diastolic_bp != null) vitalsForCheck.diastolic_bp = diastolic_bp;
-    // Pass the Celsius-normalized temperature (same value stored to the row),
-    // NOT the raw caller value — the alert engine's thresholds are Celsius, so
-    // a raw Fahrenheit reading would trip a false CRITICAL hyperthermia alert.
-    // Finding 2026-05-21-walk-in-opd-doctor-126619d3.
-    if (normalizedTemperature != null) vitalsForCheck.temperature = normalizedTemperature;
-    if (spo2 != null) vitalsForCheck.oxygen_saturation = spo2;
-    if (respiratory_rate != null) vitalsForCheck.respiratory_rate = respiratory_rate;
-    if (normalizedAlbumin != null) vitalsForCheck.urine_albumin = normalizedAlbumin;
+    // Use the stored, Celsius-normalized row values. A raw Fahrenheit reading
+    // must never reach the Celsius threshold table.
+    const vitalsForCheck = anomalyVitalsForCheck(record);
 
     if (Object.keys(vitalsForCheck).length > 0) {
       // clinical_alerts.patient_id is an INT FK to users(id) — resolve uuid→int.
@@ -756,8 +816,13 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
           // monitor's own users lookup previously ran only for CRITICALs,
           // default-stamping warning-only batches).
           tenantId: resolvedTenantId,
+          onClinicalAlertsPersisted,
         });
       }
+    } else if (typeof onClinicalAlertsPersisted === 'function') {
+      await setTenantTx(resolvedTenantId, async (tx) => {
+        await onClinicalAlertsPersisted({ tx, alerts: [] });
+      });
     }
   } catch (err) {
     // checkVitalAnomalies persists the clinical_alerts fan-out atomically and
@@ -804,6 +869,131 @@ export async function recordVitals(data, { beforeWrite = null, beforeCommit = nu
   logger.info(`Vitals recorded: id=${record.id}, patient=${resolvedPatientUid}, by=${recorded_by}`);
 
   return { vitals: record, news2: news2Result, alerts: alerts || [], growth, triage };
+}
+
+export async function reconcileRecordedVitalsEffects({
+  tenantId,
+  vitalsChartId,
+  news2Pending = false,
+  anomalyPending = false,
+  onNews2EffectsCompleted = null,
+  onClinicalAlertsPersisted = null,
+  beforeClinicalEffects = null,
+} = {}) {
+  const resolvedTenantId = requireTenantId(tenantId);
+  const resolvedVitalsChartId = parseOptionalPositiveInt(vitalsChartId, 'vitals_chart_id');
+  const rows = await setTenantTx(resolvedTenantId, async (tx) => tx.$queryRawUnsafe(
+    `SELECT vitals.id,
+            vitals.patient_uid,
+            vitals.heart_rate,
+            vitals.systolic_bp,
+            vitals.diastolic_bp,
+            vitals.temperature,
+            vitals.spo2,
+            vitals.respiratory_rate,
+            vitals.supplemental_o2,
+            vitals.consciousness,
+            vitals.urine_albumin,
+            patient.id AS patient_id,
+            recorder.id AS recorded_by_id,
+            score.id AS news2_id,
+            score.spo2_scale,
+            score.total_score,
+            score.clinical_risk
+       FROM vitals_chart AS vitals
+       JOIN users AS patient
+         ON patient.tenant_id = vitals.tenant_id
+        AND patient.uid = vitals.patient_uid
+       LEFT JOIN users AS recorder
+         ON recorder.tenant_id = vitals.tenant_id
+        AND recorder.uid = vitals.recorded_by
+       LEFT JOIN LATERAL (
+         SELECT id, spo2_scale, total_score, clinical_risk
+           FROM news2_scores
+          WHERE tenant_id = vitals.tenant_id
+            AND vitals_chart_id = vitals.id
+            AND superseded_at IS NULL
+          ORDER BY id DESC
+          LIMIT 1
+       ) AS score ON TRUE
+      WHERE vitals.tenant_id = $1::uuid
+        AND vitals.id = $2::integer
+        AND vitals.source = 'fhir'
+      LIMIT 1`,
+    resolvedTenantId,
+    resolvedVitalsChartId,
+  ));
+  const row = rows[0];
+  if (!row) {
+    throw AppError.internal(
+      'Committed FHIR vitals row could not be loaded for clinical-effect reconciliation.',
+      'FHIR_VITAL_EFFECTS_SOURCE_MISSING',
+    );
+  }
+  if (typeof beforeClinicalEffects === 'function') {
+    await beforeClinicalEffects({ vitals: row });
+  }
+
+  let news2Reconciled = false;
+  if (news2Pending) {
+    const computed = news2Service.calculateNEWS2({
+      respiration_rate: row.respiratory_rate,
+      spo2: row.spo2,
+      temperature: row.temperature,
+      systolic_bp: row.systolic_bp,
+      heart_rate: row.heart_rate,
+      consciousness: row.consciousness,
+      supplemental_o2: row.supplemental_o2,
+    }, { spo2Scale: Number(row.spo2_scale || 1) });
+    if (computed.scorable) {
+      if (!row.news2_id || Number(row.total_score) !== computed.totalScore) {
+        throw AppError.internal(
+          'Committed FHIR vitals NEWS2 state is missing or inconsistent.',
+          'FHIR_VITAL_EFFECTS_NEWS2_INCONSISTENT',
+        );
+      }
+      await news2Service.escalateNews2(
+        row.patient_uid,
+        {
+          id: row.news2_id,
+          total_score: Number(row.total_score),
+          clinical_risk: row.clinical_risk,
+        },
+        computed,
+        { tenantId: resolvedTenantId },
+      );
+    }
+    if (typeof onNews2EffectsCompleted === 'function') {
+      await onNews2EffectsCompleted({
+        vitals: { id: row.id, patient_uid: row.patient_uid },
+        news2: row.news2_id ? { id: row.news2_id } : null,
+      });
+    }
+    news2Reconciled = true;
+  }
+
+  let alerts = [];
+  if (anomalyPending) {
+    const vitalsForCheck = anomalyVitalsForCheck(row);
+    if (Object.keys(vitalsForCheck).length > 0) {
+      alerts = await checkVitalAnomalies(row.patient_id, vitalsForCheck, {
+        recordedBy: row.recorded_by_id ?? null,
+        source: 'fhir',
+        tenantId: resolvedTenantId,
+        onClinicalAlertsPersisted,
+      });
+    } else if (typeof onClinicalAlertsPersisted === 'function') {
+      await setTenantTx(resolvedTenantId, async (tx) => {
+        await onClinicalAlertsPersisted({ tx, alerts: [] });
+      });
+    }
+  }
+
+  return {
+    news2Reconciled,
+    anomalyReconciled: anomalyPending,
+    alertCount: alerts.length,
+  };
 }
 
 export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
@@ -945,6 +1135,11 @@ export async function correctVitals(vitalsId, data) {
         : changes[field];
     }
   }
+  if (Object.prototype.hasOwnProperty.call(updateData, 'o2_flow_rate')) {
+    updateData.supplemental_o2 = updateData.o2_flow_rate == null
+      ? null
+      : Number(updateData.o2_flow_rate) > 0;
+  }
   if (Object.prototype.hasOwnProperty.call(updateData, 'notes')) {
     updateData.notes = stripNul(updateData.notes);
   }
@@ -1046,11 +1241,11 @@ export async function correctVitals(vitalsId, data) {
         systolic_bp: row.systolic_bp,
         heart_rate: row.heart_rate,
         consciousness: row.consciousness,
-        supplemental_o2: row.supplemental_o2 || false,
+        supplemental_o2: row.supplemental_o2,
       }, corrected_by, { db: tx, spo2Scale, vitalsChartId: row.id });
       // Always retire the score derived from the pre-correction values. If
-      // the correction removed the final scorable parameter, persistNews2
-      // correctly returns null, but the old score must not remain live.
+      // the correction removed the final scorable parameter, no replacement
+      // is created, but the old score must not remain live.
       await news2Service.supersedeNews2ForVitalsRow(
         row.id,
         persisted?.record.id ?? null,

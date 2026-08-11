@@ -71,9 +71,12 @@ export async function resolveSpo2ScaleForPatient(patientUid, { db } = {}) {
  */
 export function calculateNEWS2(vitals, options = {}) {
   const {
-    supplemental_o2 = false,
+    supplemental_o2,
     consciousness,
   } = vitals;
+  const supplementalO2Known = supplemental_o2 !== undefined
+    && supplemental_o2 !== null
+    && supplemental_o2 !== '';
   const spo2Scale = normalizeSpo2Scale(options.spo2Scale ?? vitals.spo2_scale) ?? 1;
 
   // Partial scoring (audit 2026-06-18 §4): score a parameter ONLY when a usable
@@ -112,7 +115,7 @@ export function calculateNEWS2(vitals, options = {}) {
     if (spo2Value <= 83) scores.spo2 = 3;
     else if (spo2Value <= 85) scores.spo2 = 2;
     else if (spo2Value <= 87) scores.spo2 = 1;
-    else if (spo2Value <= 92 || !supplemental_o2) scores.spo2 = 0;
+    else if (spo2Value <= 92 || !supplementalO2Known || !supplemental_o2) scores.spo2 = 0;
     else if (spo2Value <= 94) scores.spo2 = 1;
     else if (spo2Value <= 96) scores.spo2 = 2;
     else scores.spo2 = 3;
@@ -158,7 +161,8 @@ export function calculateNEWS2(vitals, options = {}) {
   // core parameter is present (a lone "on O2" with no vitals isn't a score).
   const anyCorePresent = NEWS2_CORE_PARAMS.some((p) => p in scores);
   if (anyCorePresent) {
-    scores.supplemental_o2 = supplemental_o2 ? 2 : 0;
+    if (supplementalO2Known) scores.supplemental_o2 = supplemental_o2 ? 2 : 0;
+    else missingParams.push('supplemental_o2');
   }
 
   const totalScore = Object.values(scores).reduce((sum, v) => sum + v, 0);
@@ -265,7 +269,7 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
     vitals.respiration_rate ?? null,
     vitals.spo2 ?? null,
     spo2Scale,
-    vitals.supplemental_o2 || false,
+    vitals.supplemental_o2 ?? null,
     vitals.temperature ?? null,
     vitals.systolic_bp ?? null,
     vitals.heart_rate ?? null,
@@ -385,6 +389,7 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
         summary: redLabel ? `${escalationAction} [${redLabel}]` : escalationAction,
         // No single ordering clinician for a ward vital → DUTY-role fallback.
         orderingClinicianUid: null,
+        resolveMergedPatient: true,
       });
     } catch (err) {
       logger.error(`NEWS2 escalation FAILED for patient ${patientUid} (score=${totalScore}, trigger=${triggerLabel}): ${err.message}`);

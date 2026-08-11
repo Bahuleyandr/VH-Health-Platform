@@ -652,17 +652,30 @@ export function isTenantTransactionClient(value) {
  * @param {boolean} [options.readOnly=false] route to the read replica when
  *   DATABASE_READ_URL is configured; primary otherwise (no-op when unset).
  * @param {string} [options.isolationLevel] Prisma transaction isolation level.
+ * @param {number} [options.maxWait] maximum milliseconds to acquire a transaction.
+ * @param {number} [options.timeout] maximum milliseconds for the interactive transaction.
  */
 export async function setTenantTx(
   tenantId,
   fn,
-  { superAdmin = false, readOnly = false, isolationLevel = undefined } = {},
+  {
+    superAdmin = false,
+    readOnly = false,
+    isolationLevel = undefined,
+    maxWait = undefined,
+    timeout = undefined,
+  } = {},
 ) {
   if (!superAdmin && !tenantId) {
     throw new Error('setTenantTx requires tenantId (or { superAdmin: true } to bypass)');
   }
   const gucValue = superAdmin ? 'bypass' : tenantId;
   const client = pickTenantClient({ readOnly });
+  const transactionOptions = {
+    ...(isolationLevel ? { isolationLevel } : {}),
+    ...(maxWait == null ? {} : { maxWait }),
+    ...(timeout == null ? {} : { timeout }),
+  };
 
   // Mark the context so the prisma proxy's auto-wrapper does NOT re-wrap raw
   // queries that already run inside this transaction (would recurse and nest
@@ -674,7 +687,7 @@ export async function setTenantTx(
       client,
       gucValue,
       fn,
-      isolationLevel ? { isolationLevel } : undefined,
+      Object.keys(transactionOptions).length > 0 ? transactionOptions : undefined,
     ),
     { superAdmin, inSetTenant: true },
   );
@@ -1172,6 +1185,84 @@ BEGIN
         GRANT USAGE, SELECT
           ON SEQUENCE public.hl7_inbound_recovery_receipts_id_seq
           TO ${role};
+      END IF;
+      -- Migration 656 receipts and resource links are append-only. The set
+      -- row permits only the fenced claim/link/completion state transitions.
+      IF pg_catalog.to_regclass('public.fhir_vital_observation_receipts') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON TABLE public.fhir_vital_observation_receipts
+          FROM ${role};
+        GRANT SELECT, INSERT
+          ON TABLE public.fhir_vital_observation_receipts
+          TO ${role};
+        GRANT UPDATE (patient_uid)
+          ON TABLE public.fhir_vital_observation_receipts
+          TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.fhir_vital_observation_sets') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON TABLE public.fhir_vital_observation_sets
+          FROM ${role};
+        GRANT SELECT, INSERT
+          ON TABLE public.fhir_vital_observation_sets
+          TO ${role};
+        GRANT UPDATE (
+          patient_uid,
+          vitals_chart_id,
+          news2_effects_completed_at,
+          anomaly_effects_completed_at,
+          news2_effects_claimed_at,
+          news2_effects_claim_token,
+          news2_effects_attempts,
+          news2_effects_next_retry_at,
+          anomaly_effects_claimed_at,
+          anomaly_effects_claim_token,
+          anomaly_effects_attempts,
+          anomaly_effects_next_retry_at
+        ) ON TABLE public.fhir_vital_observation_sets TO ${role};
+      END IF;
+      IF pg_catalog.to_regclass('public.fhir_vital_observation_set_resources') IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON TABLE public.fhir_vital_observation_set_resources
+          FROM ${role};
+        GRANT SELECT, INSERT
+          ON TABLE public.fhir_vital_observation_set_resources
+          TO ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.validate_fhir_vital_observation_receipt_update()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.validate_fhir_vital_observation_receipt_update()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.validate_fhir_vital_observation_receipt_scope_deferred()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.validate_fhir_vital_observation_receipt_scope_deferred()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.validate_fhir_vital_observation_set_link()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.validate_fhir_vital_observation_set_link()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.validate_fhir_vital_observation_set_scope_deferred()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.validate_fhir_vital_observation_set_scope_deferred()
+          FROM ${role};
+      END IF;
+      IF pg_catalog.to_regprocedure(
+        'public.validate_fhir_vital_observation_resource_owner()'
+      ) IS NOT NULL THEN
+        REVOKE ALL PRIVILEGES
+          ON FUNCTION public.validate_fhir_vital_observation_resource_owner()
+          FROM ${role};
       END IF;
       IF pg_catalog.to_regclass('public.clinical_continuity_policy_versions') IS NOT NULL THEN
         REVOKE INSERT, UPDATE, DELETE, TRUNCATE

@@ -17,6 +17,14 @@ const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
 const I05_SEED_PAYLOAD = 'MSH|^~\\&|VH|SEED|BACKEND|SEED|20260802000000||ADT^A01|VH-SEED-I05|P|2.5';
 const I05_SEED_PAYLOAD_HASH = createHash('sha256').update(I05_SEED_PAYLOAD, 'utf8').digest('hex');
+const FHIR_VITAL_SEED_OBSERVED_AT = new Date('2026-05-04T09:00:00.000Z');
+const FHIR_VITAL_SEED_RESOURCE_ID = 'vh-seed-heart-rate';
+const FHIR_VITAL_SEED_RESOURCE_FINGERPRINT = `fhir:${createHash('sha256')
+  .update('vhhealth:seed:fhir-vital:heart-rate', 'utf8')
+  .digest('hex')}`;
+const FHIR_VITAL_SEED_SET_FINGERPRINT = `fhir-set:${createHash('sha256')
+  .update(FHIR_VITAL_SEED_RESOURCE_FINGERPRINT, 'utf8')
+  .digest('hex')}`;
 // Continuity authorization and replay remain inert until their approval gates
 // are satisfied. Synthetic credentials or immutable receipts would violate
 // those activation boundaries.
@@ -88,6 +96,12 @@ const MANUAL_SEED_TABLES = new Set([
   'lab_critical_alert_reconciliation_receipts',
   'lab_oru_ingest_messages',
   'lab_result_ingest_commands',
+  // FHIR vital receipts are immutable, mutually linked provenance. The generic
+  // walker cannot create a valid array payload, fingerprint, or same-scope
+  // receipt -> set -> vitals graph, so seed one coherent completed import below.
+  'fhir_vital_observation_receipts',
+  'fhir_vital_observation_sets',
+  'fhir_vital_observation_set_resources',
   'insurance_claim_caps',
   // Pillar-D workflow tables — domain CHECKs the auto-seeder can't
   // satisfy (ordered time windows, slot holds, XOR dosing, FDI tooth
@@ -5806,6 +5820,92 @@ async function seedClinicalContinuityTables() {
   }
 }
 
+async function seedFhirVitalObservationReceiptGraph() {
+  const ctx = await getCoreRefs();
+  if (!ctx.patient?.uid || !ctx.staff?.uid) {
+    throw new Error('FHIR vital receipt seed requires patient and staff fixtures');
+  }
+
+  const existingVitals = await first(
+    'vitals_chart',
+    'id',
+    `tenant_id = $1::uuid
+      AND patient_uid = $2::uuid
+      AND source = 'fhir'
+      AND source_device = $3
+      AND recorded_at = $4::timestamptz`,
+    [
+      DEFAULT_TENANT_ID,
+      ctx.patient.uid,
+      FHIR_VITAL_SEED_SET_FINGERPRINT,
+      FHIR_VITAL_SEED_OBSERVED_AT,
+    ],
+  );
+  let vitalsChartId = existingVitals?.id;
+  if (!vitalsChartId) {
+    const insertedVitals = await client.query(
+      `INSERT INTO vitals_chart
+         (tenant_id, patient_uid, heart_rate, supplemental_o2, source,
+          source_device, recorded_by, recorded_at)
+       VALUES ($1::uuid, $2::uuid, 80, FALSE, 'fhir', $3, $4::uuid, $5::timestamptz)
+       RETURNING id`,
+      [
+        DEFAULT_TENANT_ID,
+        ctx.patient.uid,
+        FHIR_VITAL_SEED_SET_FINGERPRINT,
+        ctx.staff.uid,
+        FHIR_VITAL_SEED_OBSERVED_AT,
+      ],
+    );
+    vitalsChartId = insertedVitals.rows[0].id;
+  }
+
+  await client.query(
+    `INSERT INTO fhir_vital_observation_receipts
+       (tenant_id, resource_fingerprint, patient_uid, resource_id, observed_at, loinc_codes)
+     VALUES ($1::uuid, $2, $3::uuid, $4, $5::timestamptz, $6::text[])
+     ON CONFLICT (tenant_id, resource_fingerprint) DO NOTHING`,
+    [
+      DEFAULT_TENANT_ID,
+      FHIR_VITAL_SEED_RESOURCE_FINGERPRINT,
+      ctx.patient.uid,
+      FHIR_VITAL_SEED_RESOURCE_ID,
+      FHIR_VITAL_SEED_OBSERVED_AT,
+      ['8867-4'],
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO fhir_vital_observation_sets
+       (tenant_id, set_fingerprint, patient_uid, observed_at, imported_by,
+        vitals_chart_id, news2_effects_completed_at, anomaly_effects_completed_at,
+        news2_effects_attempts, anomaly_effects_attempts)
+     VALUES ($1::uuid, $2, $3::uuid, $4::timestamptz, $5::uuid,
+             $6, $4::timestamptz, $4::timestamptz, 1, 1)
+     ON CONFLICT (tenant_id, set_fingerprint) DO NOTHING`,
+    [
+      DEFAULT_TENANT_ID,
+      FHIR_VITAL_SEED_SET_FINGERPRINT,
+      ctx.patient.uid,
+      FHIR_VITAL_SEED_OBSERVED_AT,
+      ctx.staff.uid,
+      vitalsChartId,
+    ],
+  );
+
+  await client.query(
+    `INSERT INTO fhir_vital_observation_set_resources
+       (tenant_id, set_fingerprint, resource_fingerprint)
+     VALUES ($1::uuid, $2, $3)
+     ON CONFLICT (tenant_id, set_fingerprint, resource_fingerprint) DO NOTHING`,
+    [
+      DEFAULT_TENANT_ID,
+      FHIR_VITAL_SEED_SET_FINGERPRINT,
+      FHIR_VITAL_SEED_RESOURCE_FINGERPRINT,
+    ],
+  );
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
@@ -5821,6 +5921,7 @@ try {
   await seedHl7OutboundDeliveryEvidence();
   await seedReferralClosedLoopGraph();
   const { seeded, failed } = await seedRemainingTables();
+  await seedFhirVitalObservationReceiptGraph();
   await seedInteropHl7v2DeliveryReceipt();
   await seedEdClosureRecoveryEvidence();
   await seedInsuranceClaimCaps();

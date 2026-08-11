@@ -43,7 +43,10 @@
 // Requires a reachable Postgres (DATABASE_URL). Skipped if none configured.
 
 import { randomUUID } from 'crypto';
-import prisma, { setTenantTx } from '../lib/prisma.js';
+import prisma, {
+  ensureTenantRlsRuntimeRoleGrants,
+  setTenantTx,
+} from '../lib/prisma.js';
 import {
   requestMerge,
   approveMerge,
@@ -51,6 +54,8 @@ import {
   __testing__ as mergeTesting,
 } from '../services/patient/patientMergeService.js';
 import { lookupByIdentifier } from '../services/patient/patientIdentifierService.js';
+import { importFhirBundle } from '../services/import/patientDataImport.js';
+import { reconcileRecordedVitalsEffects } from '../services/emr/vitalsChartService.js';
 import {
   listWorkflowSlaInstances,
   readCanonicalPatientTimeline,
@@ -68,6 +73,8 @@ const d = DB ? describe : describe.skip;
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const MARK = `PMERGE-${process.pid}-${Date.now()}`;
+const RUNTIME_ROLE = `vh_p2_merge_${process.pid}_${Date.now().toString(36)}`;
+const PRIOR_RUNTIME_ROLE = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
 
 const REQUESTER = randomUUID();
 const APPROVER = randomUUID();
@@ -84,6 +91,8 @@ const seeded = {
   workflowSlaIds: [],
   patientAccessAuditIds: [],
   eventOutboxIds: [],
+  fhirSetFingerprints: [],
+  fhirVitalsIds: [],
 };
 
 let phoneSeq = 0;
@@ -129,6 +138,90 @@ async function seedChart(patient) {
   );
   seeded.appointmentIds.push(appointmentRows[0].id);
   return { admissionId, investigationId: investigationRows[0].id, appointmentId: appointmentRows[0].id };
+}
+
+async function seedFhirVitalReceiptSet(patient) {
+  const fingerprintSuffix = randomUUID().replaceAll('-', '').padEnd(64, '0');
+  const setFingerprint = `fhir-set:${fingerprintSuffix}`;
+  const resourceFingerprint = `fhir:${randomUUID().replaceAll('-', '').padEnd(64, '0')}`;
+  const observedAt = new Date();
+  const vitalsRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO vitals_chart
+       (tenant_id, patient_uid, heart_rate, source, source_device, recorded_by, recorded_at)
+     VALUES ($1::uuid, $2::uuid, 82, 'fhir', $3, $2::uuid, $4::timestamptz)
+     RETURNING id`,
+    TENANT,
+    patient.uid,
+    setFingerprint,
+    observedAt,
+  );
+  const vitalsChartId = vitalsRows[0].id;
+  seeded.fhirVitalsIds.push(vitalsChartId);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO fhir_vital_observation_receipts
+       (tenant_id, resource_fingerprint, patient_uid, resource_id, observed_at, loinc_codes)
+     VALUES ($1::uuid, $2, $3::uuid, $4, $5::timestamptz, ARRAY['8867-4']::text[])`,
+    TENANT,
+    resourceFingerprint,
+    patient.uid,
+    `${MARK}-fhir-observation`,
+    observedAt,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO fhir_vital_observation_sets
+       (tenant_id, set_fingerprint, patient_uid, observed_at, imported_by,
+        vitals_chart_id, news2_effects_completed_at, anomaly_effects_completed_at)
+     VALUES ($1::uuid, $2, $3::uuid, $4::timestamptz, $3::uuid,
+             $5::integer, clock_timestamp(), clock_timestamp())`,
+    TENANT,
+    setFingerprint,
+    patient.uid,
+    observedAt,
+    vitalsChartId,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO fhir_vital_observation_set_resources
+       (tenant_id, set_fingerprint, resource_fingerprint)
+     VALUES ($1::uuid, $2, $3)`,
+    TENANT,
+    setFingerprint,
+    resourceFingerprint,
+  );
+  seeded.fhirSetFingerprints.push(setFingerprint);
+  return { setFingerprint, resourceFingerprint, vitalsChartId, observedAt };
+}
+
+function criticalFhirVitalBundle(patientUid, observedAt, resourceId) {
+  return {
+    resourceType: 'Bundle',
+    type: 'collection',
+    entry: [{
+      resource: {
+        resourceType: 'Observation',
+        id: resourceId,
+        status: 'final',
+        category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+        code: { coding: [{ system: 'http://loinc.org', code: '85354-9' }] },
+        subject: { reference: `Patient/${patientUid}` },
+        effectiveDateTime: observedAt.toISOString(),
+        component: [
+          ['9279-1', 26, '/min'],
+          ['2708-6', 88, '%'],
+          ['8480-6', 88, 'mm[Hg]'],
+          ['8867-4', 132, '/min'],
+          ['8310-5', 37, 'Cel'],
+          ['3151-8', 0, 'L/min'],
+        ].map(([code, value, unit]) => ({
+          code: { coding: [{ system: 'http://loinc.org', code }] },
+          valueQuantity: {
+            value,
+            system: 'http://unitsofmeasure.org',
+            code: unit,
+          },
+        })),
+      },
+    }],
+  };
 }
 
 async function seedIcuAdmission(patient) {
@@ -259,6 +352,46 @@ async function approvedMergeRequest(primary, secondary) {
 
 async function cleanup() {
   if (!DB) return;
+  if (seeded.fhirSetFingerprints.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM fhir_vital_observation_set_resources
+        WHERE tenant_id = $1::uuid AND set_fingerprint = ANY($2::varchar[])`,
+      TENANT,
+      seeded.fhirSetFingerprints,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM fhir_vital_observation_sets
+        WHERE tenant_id = $1::uuid AND set_fingerprint = ANY($2::varchar[])`,
+      TENANT,
+      seeded.fhirSetFingerprints,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM fhir_vital_observation_receipts
+        WHERE tenant_id = $1::uuid AND resource_id LIKE $2`,
+      TENANT,
+      `${MARK}%`,
+    );
+  }
+  if (seeded.fhirVitalsIds.length) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM news2_scores WHERE vitals_chart_id = ANY($1::int[])`,
+      seeded.fhirVitalsIds,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events
+        WHERE source_table = 'vitals_chart' AND source_id = ANY($1::text[])`,
+      seeded.fhirVitalsIds.map(String),
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events
+        WHERE resource_table = 'vitals_chart' AND resource_id = ANY($1::text[])`,
+      seeded.fhirVitalsIds.map(String),
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM vitals_chart WHERE id = ANY($1::int[])`,
+      seeded.fhirVitalsIds,
+    );
+  }
   if (seeded.eventOutboxIds.length) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM event_outbox WHERE id = ANY($1::bigint[])`, seeded.eventOutboxIds,
@@ -269,14 +402,30 @@ async function cleanup() {
       `DELETE FROM patient_access_audit_log WHERE id = ANY($1::int[])`, seeded.patientAccessAuditIds,
     );
   }
-  if (seeded.taskIds.length) {
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM tasks WHERE id = ANY($1::int[])`, seeded.taskIds,
-    );
+  if (seeded.taskIds.length || seeded.workflowSlaIds.length) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      if (seeded.taskIds.length) {
+        await tx.$executeRawUnsafe(
+          `DELETE FROM tasks WHERE id = ANY($1::int[])`, seeded.taskIds,
+        );
+      }
+      if (seeded.workflowSlaIds.length) {
+        await tx.$executeRawUnsafe(
+          `DELETE FROM workflow_sla_instances WHERE id = ANY($1::uuid[])`, seeded.workflowSlaIds,
+        );
+      }
+    });
   }
-  if (seeded.workflowSlaIds.length) {
+  if (seeded.userUids.length) {
     await prisma.$executeRawUnsafe(
-      `DELETE FROM workflow_sla_instances WHERE id = ANY($1::uuid[])`, seeded.workflowSlaIds,
+      `DELETE FROM clinical_alerts
+        WHERE patient_id IN (SELECT id FROM users WHERE uid = ANY($1::uuid[]))`,
+      seeded.userUids,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM cds_alerts WHERE patient_uid = ANY($1::uuid[])`,
+      seeded.userUids,
     );
   }
   await prisma.$executeRawUnsafe(
@@ -348,9 +497,40 @@ async function cleanup() {
 }
 
 d('patient merge execution (deep)', () => {
-  afterAll(async () => {
-    await cleanup();
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES
+         ($1::uuid, $4::uuid, $5, $8, 'STAFF', true, 'active', NOW()),
+         ($2::uuid, $4::uuid, $6, $9, 'STAFF', true, 'active', NOW()),
+         ($3::uuid, $4::uuid, $7, $10, 'STAFF', true, 'active', NOW())`,
+      REQUESTER,
+      APPROVER,
+      EXECUTOR,
+      TENANT,
+      `+9197${String(process.pid).padStart(8, '0').slice(-8)}1`,
+      `+9197${String(process.pid).padStart(8, '0').slice(-8)}2`,
+      `+9197${String(process.pid).padStart(8, '0').slice(-8)}3`,
+      `${MARK}-requester`,
+      `${MARK}-approver`,
+      `${MARK}-executor`,
+    );
+    seeded.userUids.push(REQUESTER, APPROVER, EXECUTOR);
+    process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = RUNTIME_ROLE;
+    const grantResult = await ensureTenantRlsRuntimeRoleGrants();
+    if (grantResult.error) throw new Error(grantResult.error);
   });
+
+  afterAll(async () => {
+    try {
+      await cleanup();
+    } finally {
+      if (PRIOR_RUNTIME_ROLE == null) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+      else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = PRIOR_RUNTIME_ROLE;
+      await prisma.$executeRawUnsafe(`DROP OWNED BY ${RUNTIME_ROLE}`).catch(() => {});
+      await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${RUNTIME_ROLE}`).catch(() => {});
+    }
+  }, 30_000);
 
   test('migration 634 pin: composite patient_uid FKs are all deferrable', async () => {
     const rows = await prisma.$queryRawUnsafe(
@@ -369,6 +549,485 @@ d('patient merge execution (deep)', () => {
     // impossible (parent/child cannot re-point in separate statements).
     // New migrations must declare such FKs DEFERRABLE INITIALLY IMMEDIATE.
     expect(rows.map((row) => row.conname)).toEqual([]);
+  });
+
+  test('FHIR receipt ownership rolls back with a failed merge and moves atomically on retry', async () => {
+    const primary = await seedPatient('primary-fhir-receipt');
+    const secondary = await seedPatient('secondary-fhir-receipt');
+    const fhir = await seedFhirVitalReceiptSet(secondary);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO abha_profiles (tenant_id, patient_uid, abha_id)
+       VALUES ($1::uuid, $2::uuid, $3), ($1::uuid, $4::uuid, $5)`,
+      TENANT,
+      primary.uid,
+      `${MARK}-FHIR-ABHA-P`,
+      secondary.uid,
+      `${MARK}-FHIR-ABHA-S`,
+    );
+    const request = await approvedMergeRequest(primary, secondary);
+
+    await expect(executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR }))
+      .rejects.toMatchObject({ statusCode: 409, code: 'PATIENT_MERGE_DATA_CONFLICT' });
+    const afterRollback = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT patient_uid::text FROM fhir_vital_observation_receipts
+           WHERE tenant_id = $1::uuid AND resource_fingerprint = $2) AS receipt_patient_uid,
+         (SELECT patient_uid::text FROM fhir_vital_observation_sets
+           WHERE tenant_id = $1::uuid AND set_fingerprint = $3) AS set_patient_uid,
+         (SELECT patient_uid::text FROM vitals_chart WHERE id = $4::integer) AS vitals_patient_uid,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_set_resources
+           WHERE tenant_id = $1::uuid AND set_fingerprint = $3) AS link_count`,
+      TENANT,
+      fhir.resourceFingerprint,
+      fhir.setFingerprint,
+      fhir.vitalsChartId,
+    );
+    expect(afterRollback).toEqual([{
+      receipt_patient_uid: secondary.uid,
+      set_patient_uid: secondary.uid,
+      vitals_patient_uid: secondary.uid,
+      link_count: 1,
+    }]);
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM abha_profiles WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      TENANT,
+      primary.uid,
+    );
+    const executed = await executeMerge({ tenantId: TENANT, id: request.id, executorUid: EXECUTOR });
+    expect(executed.status).toBe('executed');
+    const afterRetry = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT patient_uid::text FROM fhir_vital_observation_receipts
+           WHERE tenant_id = $1::uuid AND resource_fingerprint = $2) AS receipt_patient_uid,
+         (SELECT patient_uid::text FROM fhir_vital_observation_sets
+           WHERE tenant_id = $1::uuid AND set_fingerprint = $3) AS set_patient_uid,
+         (SELECT patient_uid::text FROM vitals_chart WHERE id = $4::integer) AS vitals_patient_uid,
+         (SELECT COUNT(*)::integer FROM fhir_vital_observation_set_resources
+           WHERE tenant_id = $1::uuid AND set_fingerprint = $3) AS link_count`,
+      TENANT,
+      fhir.resourceFingerprint,
+      fhir.setFingerprint,
+      fhir.vitalsChartId,
+    );
+    expect(afterRetry).toEqual([{
+      receipt_patient_uid: primary.uid,
+      set_patient_uid: primary.uid,
+      vitals_patient_uid: primary.uid,
+      link_count: 1,
+    }]);
+
+    const correctedReplay = await importFhirBundle({
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [{
+        resource: {
+          resourceType: 'Observation',
+          id: `${MARK}-fhir-observation`,
+          status: 'corrected',
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
+          subject: { reference: `Patient/${secondary.uid}` },
+          effectiveDateTime: fhir.observedAt.toISOString(),
+          valueQuantity: { value: 96, code: '/min' },
+        },
+      }],
+    }, primary.uid, { tenantId: TENANT });
+    expect(correctedReplay).toEqual(expect.objectContaining({
+      imported: 0,
+      deduplicated: 0,
+      errors: [expect.objectContaining({
+        code: 'FHIR_OBSERVATION_RESOURCE_ID_CONFLICT',
+      })],
+    }));
+    const fragmentedRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::integer AS count
+         FROM vitals_chart
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND source = 'fhir'`,
+      TENANT,
+      secondary.uid,
+    );
+    expect(fragmentedRows[0].count).toBe(0);
+  });
+
+  test('FHIR import revalidates the active survivor inside its write transaction', async () => {
+    const primary = await seedPatient('primary-fhir-race');
+    const secondary = await seedPatient('secondary-fhir-race');
+    const request = await approvedMergeRequest(primary, secondary);
+    const observedAt = new Date(Date.now() - 20 * 60 * 1000);
+    observedAt.setMilliseconds(0);
+    const resourceId = `${MARK}-fhir-race-observation`;
+    let signalResolved;
+    let releaseWrite;
+    const patientResolved = new Promise((resolve) => { signalResolved = resolve; });
+    const writeGate = new Promise((resolve) => { releaseWrite = resolve; });
+    const importPromise = importFhirBundle({
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [{
+        resource: {
+          resourceType: 'Observation',
+          id: resourceId,
+          status: 'final',
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
+          subject: { reference: `Patient/${secondary.uid}` },
+          effectiveDateTime: observedAt.toISOString(),
+          valueQuantity: { value: 84, code: '/min' },
+        },
+      }],
+    }, EXECUTOR, {
+      tenantId: TENANT,
+      beforeFhirVitalWrite: async () => {
+        signalResolved();
+        await writeGate;
+      },
+    });
+
+    await patientResolved;
+    let mergeSettled = false;
+    const mergePromise = executeMerge({
+      tenantId: TENANT,
+      id: request.id,
+      executorUid: EXECUTOR,
+    }).finally(() => { mergeSettled = true; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(mergeSettled).toBe(false);
+    } finally {
+      releaseWrite();
+    }
+    const [imported, executed] = await Promise.all([importPromise, mergePromise]);
+    expect(executed.status).toBe('executed');
+    expect(imported).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+
+    const ownership = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT patient_uid::text
+            FROM fhir_vital_observation_receipts
+           WHERE tenant_id = $1::uuid AND resource_id = $2) AS receipt_patient_uid,
+         (SELECT patient_uid::text
+            FROM fhir_vital_observation_sets
+           WHERE tenant_id = $1::uuid
+             AND set_fingerprint = (
+               SELECT set_fingerprint
+                 FROM fhir_vital_observation_set_resources
+                WHERE tenant_id = $1::uuid
+                  AND resource_fingerprint = (
+                    SELECT resource_fingerprint
+                      FROM fhir_vital_observation_receipts
+                     WHERE tenant_id = $1::uuid AND resource_id = $2
+                  )
+             )) AS set_patient_uid,
+         (SELECT patient_uid::text
+            FROM vitals_chart
+           WHERE tenant_id = $1::uuid AND source = 'fhir'
+             AND recorded_at = $3::timestamptz) AS vitals_patient_uid,
+         (SELECT COUNT(*)::integer
+            FROM vitals_chart
+           WHERE tenant_id = $1::uuid AND patient_uid = $4::uuid
+             AND source = 'fhir' AND recorded_at = $3::timestamptz) AS secondary_rows`,
+      TENANT,
+      resourceId,
+      observedAt,
+      secondary.uid,
+    );
+    expect(ownership[0]).toEqual({
+      receipt_patient_uid: primary.uid,
+      set_patient_uid: primary.uid,
+      vitals_patient_uid: primary.uid,
+      secondary_rows: 0,
+    });
+    const importedRows = await prisma.$queryRawUnsafe(
+      `SELECT sets.set_fingerprint, sets.vitals_chart_id
+         FROM fhir_vital_observation_receipts AS receipt
+         JOIN fhir_vital_observation_set_resources AS link
+           ON link.tenant_id = receipt.tenant_id
+          AND link.resource_fingerprint = receipt.resource_fingerprint
+         JOIN fhir_vital_observation_sets AS sets
+           ON sets.tenant_id = link.tenant_id
+          AND sets.set_fingerprint = link.set_fingerprint
+        WHERE receipt.tenant_id = $1::uuid AND receipt.resource_id = $2`,
+      TENANT,
+      resourceId,
+    );
+    seeded.fhirSetFingerprints.push(importedRows[0].set_fingerprint);
+    seeded.fhirVitalsIds.push(importedRows[0].vitals_chart_id);
+  });
+
+  test('FHIR effect recovery cannot create late tasks or alerts on a merged-away identity', async () => {
+    const primary = await seedPatient('primary-fhir-effect-race');
+    const secondary = await seedPatient('secondary-fhir-effect-race');
+    const request = await approvedMergeRequest(primary, secondary);
+    const observedAt = new Date(Date.now() - 19 * 60 * 1000);
+    observedAt.setMilliseconds(0);
+    const resourceId = `${MARK}-fhir-effect-race-observation`;
+    const initial = await importFhirBundle(
+      criticalFhirVitalBundle(secondary.uid, observedAt, resourceId),
+      EXECUTOR,
+      { tenantId: TENANT },
+    );
+    expect(initial).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+    const sourceRows = await prisma.$queryRawUnsafe(
+      `SELECT sets.set_fingerprint, sets.vitals_chart_id, score.id AS news2_id
+         FROM fhir_vital_observation_receipts AS receipt
+         JOIN fhir_vital_observation_set_resources AS link
+           ON link.tenant_id = receipt.tenant_id
+          AND link.resource_fingerprint = receipt.resource_fingerprint
+         JOIN fhir_vital_observation_sets AS sets
+           ON sets.tenant_id = link.tenant_id
+          AND sets.set_fingerprint = link.set_fingerprint
+         JOIN news2_scores AS score ON score.vitals_chart_id = sets.vitals_chart_id
+        WHERE receipt.tenant_id = $1::uuid AND receipt.resource_id = $2`,
+      TENANT,
+      resourceId,
+    );
+    expect(sourceRows).toHaveLength(1);
+    const source = sourceRows[0];
+    seeded.fhirSetFingerprints.push(source.set_fingerprint);
+    seeded.fhirVitalsIds.push(source.vitals_chart_id);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      const taskRows = await tx.$queryRawUnsafe(
+        `DELETE FROM tasks
+          WHERE tenant_id = $1::uuid
+            AND related_resource_type = 'news2_score'
+            AND related_resource_id = $2::text
+        RETURNING workflow_sla_instance_id::text AS workflow_sla_instance_id`,
+        TENANT,
+        String(source.news2_id),
+      );
+      const workflowIds = taskRows
+        .map(({ workflow_sla_instance_id: id }) => id)
+        .filter(Boolean);
+      if (workflowIds.length) {
+        await tx.$executeRawUnsafe(
+          `DELETE FROM workflow_sla_instances WHERE id = ANY($1::uuid[])`,
+          workflowIds,
+        );
+      }
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_alerts
+          WHERE patient_id IN ($1::int, $2::int)`,
+        primary.id,
+        secondary.id,
+      );
+    });
+
+    let signalLoaded;
+    let releaseEffects;
+    const effectsLoaded = new Promise((resolve) => { signalLoaded = resolve; });
+    const effectsGate = new Promise((resolve) => { releaseEffects = resolve; });
+    const recoveryPromise = reconcileRecordedVitalsEffects({
+      tenantId: TENANT,
+      vitalsChartId: source.vitals_chart_id,
+      news2Pending: true,
+      anomalyPending: true,
+      beforeClinicalEffects: async () => {
+        signalLoaded();
+        await effectsGate;
+      },
+    });
+
+    await effectsLoaded;
+    try {
+      const executed = await executeMerge({
+        tenantId: TENANT,
+        id: request.id,
+        executorUid: EXECUTOR,
+      });
+      expect(executed.status).toBe('executed');
+    } finally {
+      releaseEffects();
+    }
+    await expect(recoveryPromise).resolves.toEqual(expect.objectContaining({
+      news2Reconciled: true,
+      anomalyReconciled: true,
+    }));
+
+    const ownership = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM tasks
+           WHERE tenant_id = $1::uuid
+             AND related_resource_type = 'news2_score'
+             AND related_resource_id = $2::text
+             AND patient_uid = $3::uuid) AS primary_tasks,
+         (SELECT COUNT(*)::integer FROM tasks
+           WHERE tenant_id = $1::uuid
+             AND related_resource_type = 'news2_score'
+             AND related_resource_id = $2::text
+             AND patient_uid = $4::uuid) AS secondary_tasks,
+         (SELECT COUNT(*)::integer FROM clinical_alerts
+           WHERE patient_id = $5::int) AS primary_alerts,
+         (SELECT COUNT(*)::integer FROM clinical_alerts
+           WHERE patient_id = $6::int) AS secondary_alerts`,
+      TENANT,
+      String(source.news2_id),
+      primary.uid,
+      secondary.uid,
+      primary.id,
+      secondary.id,
+    );
+    expect(ownership[0]).toEqual({
+      primary_tasks: 1,
+      secondary_tasks: 0,
+      primary_alerts: 2,
+      secondary_alerts: 0,
+    });
+    const createdTasks = await prisma.$queryRawUnsafe(
+      `SELECT id, workflow_sla_instance_id::text AS workflow_sla_instance_id
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = 'news2_score'
+          AND related_resource_id = $2::text`,
+      TENANT,
+      String(source.news2_id),
+    );
+    seeded.taskIds.push(...createdTasks.map(({ id }) => id));
+    seeded.workflowSlaIds.push(...createdTasks
+      .map(({ workflow_sla_instance_id: id }) => id)
+      .filter(Boolean));
+  });
+
+  test('FHIR anomaly recovery reclassifies against the active survivor cohort after a merge', async () => {
+    const primary = await seedPatient('primary-fhir-pregnancy-effect-race');
+    const secondary = await seedPatient('secondary-fhir-pregnancy-effect-race');
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET is_pregnant = true WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      primary.uid,
+    );
+    const request = await approvedMergeRequest(primary, secondary);
+    const observedAt = new Date(Date.now() - 18 * 60 * 1000);
+    observedAt.setMilliseconds(0);
+    const resourceId = `${MARK}-fhir-pregnancy-effect-race-observation`;
+    const initial = await importFhirBundle({
+      resourceType: 'Bundle',
+      type: 'collection',
+      entry: [{
+        resource: {
+          resourceType: 'Observation',
+          id: resourceId,
+          status: 'final',
+          category: [{ coding: [{
+            system: 'http://terminology.hl7.org/CodeSystem/observation-category',
+            code: 'vital-signs',
+          }] }],
+          code: { coding: [{ system: 'http://loinc.org', code: '8480-6' }] },
+          subject: { reference: `Patient/${secondary.uid}` },
+          effectiveDateTime: observedAt.toISOString(),
+          valueQuantity: {
+            value: 145,
+            system: 'http://unitsofmeasure.org',
+            code: 'mm[Hg]',
+          },
+        },
+      }],
+    }, EXECUTOR, { tenantId: TENANT });
+    expect(initial).toEqual(expect.objectContaining({ imported: 1, errors: [] }));
+
+    const sourceRows = await prisma.$queryRawUnsafe(
+      `SELECT sets.set_fingerprint, sets.vitals_chart_id
+         FROM fhir_vital_observation_receipts AS receipt
+         JOIN fhir_vital_observation_set_resources AS link
+           ON link.tenant_id = receipt.tenant_id
+          AND link.resource_fingerprint = receipt.resource_fingerprint
+         JOIN fhir_vital_observation_sets AS sets
+           ON sets.tenant_id = link.tenant_id
+          AND sets.set_fingerprint = link.set_fingerprint
+        WHERE receipt.tenant_id = $1::uuid AND receipt.resource_id = $2`,
+      TENANT,
+      resourceId,
+    );
+    expect(sourceRows).toHaveLength(1);
+    const source = sourceRows[0];
+    seeded.fhirSetFingerprints.push(source.set_fingerprint);
+    seeded.fhirVitalsIds.push(source.vitals_chart_id);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+      await tx.$executeRawUnsafe(
+        `UPDATE fhir_vital_observation_sets
+            SET anomaly_effects_completed_at = NULL,
+                anomaly_effects_claimed_at = NULL,
+                anomaly_effects_claim_token = NULL,
+                anomaly_effects_next_retry_at = NULL
+          WHERE tenant_id = $1::uuid AND set_fingerprint = $2`,
+        TENANT,
+        source.set_fingerprint,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_alerts WHERE patient_id IN ($1::int, $2::int)`,
+        primary.id,
+        secondary.id,
+      );
+    });
+
+    let signalLoaded;
+    let releaseEffects;
+    const effectsLoaded = new Promise((resolve) => { signalLoaded = resolve; });
+    const effectsGate = new Promise((resolve) => { releaseEffects = resolve; });
+    const recoveryPromise = reconcileRecordedVitalsEffects({
+      tenantId: TENANT,
+      vitalsChartId: source.vitals_chart_id,
+      anomalyPending: true,
+      beforeClinicalEffects: async () => {
+        signalLoaded();
+        await effectsGate;
+      },
+      onClinicalAlertsPersisted: async ({ tx }) => {
+        await tx.$executeRawUnsafe(
+          `UPDATE fhir_vital_observation_sets
+              SET anomaly_effects_completed_at = clock_timestamp()
+            WHERE tenant_id = $1::uuid
+              AND set_fingerprint = $2
+              AND vitals_chart_id = $3::integer
+              AND anomaly_effects_completed_at IS NULL`,
+          TENANT,
+          source.set_fingerprint,
+          source.vitals_chart_id,
+        );
+      },
+    });
+
+    await effectsLoaded;
+    try {
+      const executed = await executeMerge({
+        tenantId: TENANT,
+        id: request.id,
+        executorUid: EXECUTOR,
+      });
+      expect(executed.status).toBe('executed');
+    } finally {
+      releaseEffects();
+    }
+    await expect(recoveryPromise).resolves.toEqual(expect.objectContaining({
+      anomalyReconciled: true,
+      alertCount: 1,
+    }));
+
+    const evidence = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::integer FROM clinical_alerts
+           WHERE patient_id = $1::int
+             AND vital_name = 'systolic_bp'
+             AND message LIKE 'Pregnancy-induced hypertension:%') AS primary_pregnancy_alerts,
+         (SELECT COUNT(*)::integer FROM clinical_alerts
+           WHERE patient_id = $2::int) AS secondary_alerts,
+         (SELECT anomaly_effects_completed_at IS NOT NULL
+            FROM fhir_vital_observation_sets
+           WHERE tenant_id = $3::uuid AND set_fingerprint = $4) AS anomaly_completed`,
+      primary.id,
+      secondary.id,
+      TENANT,
+      source.set_fingerprint,
+    );
+    expect(evidence).toEqual([{
+      primary_pregnancy_alerts: 1,
+      secondary_alerts: 0,
+      anomaly_completed: true,
+    }]);
   });
 
   test('executed merge moves the whole chart, deactivates the secondary, keeps identifiers resolvable, and emits the canonical pair', async () => {

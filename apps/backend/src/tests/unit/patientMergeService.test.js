@@ -15,10 +15,12 @@ import { jest } from '@jest/globals';
 const queryUnsafeMock = jest.fn();
 const executeUnsafeMock = jest.fn();
 const transactionMock = jest.fn();
+const setTenantTxMock = jest.fn();
 const reassignIdentifiersMock = jest.fn();
 const recordTimelineEventMock = jest.fn();
 const recordClinicalAuditEventMock = jest.fn();
 const revokeAllUserTokensMock = jest.fn();
+const lockTenantPatientMergeStabilityMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryUnsafeMock,
@@ -31,7 +33,7 @@ const __prismaTxMock = {
 };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
-  setTenantTx: async (_tenantId, fn) => transactionMock(fn),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaTxMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaTxMock),
   pickTenantClient: () => __prismaDefaultMock,
@@ -45,6 +47,10 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   revokeAllUserTokens: revokeAllUserTokensMock,
+}));
+jest.unstable_mockModule('../../utils/patientMergeStabilityLock.js', () => ({
+  lockTenantPatientMergeStability: lockTenantPatientMergeStabilityMock,
+  PATIENT_MERGE_STABILITY_TIMEOUT_MS: 300_000,
 }));
 
 const {
@@ -93,15 +99,15 @@ BEGIN
   RETURN NEW;
 END;`;
 const SWEEP_TARGETS = [
-  { table_name: 'admissions', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, update_triggers: [] },
-  { table_name: 'investigations', column_name: 'patient_id', is_uuid: false, has_tenant_id: true, update_triggers: [] },
-  { table_name: 'investigations', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, update_triggers: [] },
+  { table_name: 'admissions', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, can_update: true, update_triggers: [] },
+  { table_name: 'investigations', column_name: 'patient_id', is_uuid: false, has_tenant_id: true, can_update: true, update_triggers: [] },
+  { table_name: 'investigations', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, can_update: true, update_triggers: [] },
   {
-    table_name: 'clinical_timeline_events', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true,
+    table_name: 'clinical_timeline_events', column_name: 'patient_uid', is_uuid: true, has_tenant_id: true, can_update: true,
     update_triggers: [{ proname: 'audit_append_only_guard', prosrc: APPEND_ONLY_GUARD_SRC }],
   },
   {
-    table_name: 'medical_records', column_name: 'patient_uid', is_uuid: true, has_tenant_id: false,
+    table_name: 'medical_records', column_name: 'patient_uid', is_uuid: true, has_tenant_id: false, can_update: true,
     update_triggers: [{ proname: 'touch_updated_at', prosrc: TOUCH_TRIGGER_SRC }],
   },
 ];
@@ -111,11 +117,14 @@ beforeEach(() => {
   queryUnsafeMock.mockReset();
   executeUnsafeMock.mockReset();
   transactionMock.mockReset();
+  setTenantTxMock.mockReset();
   reassignIdentifiersMock.mockReset();
   recordTimelineEventMock.mockReset();
   recordClinicalAuditEventMock.mockReset();
   revokeAllUserTokensMock.mockReset();
+  lockTenantPatientMergeStabilityMock.mockReset();
   transactionMock.mockImplementation(async (cb) => cb(__prismaTxMock));
+  setTenantTxMock.mockImplementation(async (_tenantId, fn) => transactionMock(fn));
   executeUnsafeMock.mockResolvedValue(1);
   recordTimelineEventMock.mockResolvedValue({ id: 'tl-1' });
   recordClinicalAuditEventMock.mockResolvedValue({ id: 'audit-1' });
@@ -416,11 +425,18 @@ describe('executeMerge', () => {
       expect.any(Object),
       { tenantId: TENANT, primaryUid: PRIMARY, secondaryUid: SECONDARY, mergeRequestId: 9 },
     );
+    expect(lockTenantPatientMergeStabilityMock).toHaveBeenCalledWith(__prismaTxMock, TENANT);
+    expect(setTenantTxMock).toHaveBeenCalledWith(
+      TENANT,
+      expect.any(Function),
+      { timeout: 300_000 },
+    );
 
     const executeSqls = executeUnsafeMock.mock.calls.map((call) => call[0]);
+    expect(executeSqls[0]).toMatch(/set_config\('app\.patient_merge_execution', 'on', true\)/);
     // Constraints deferred before the sweep so composite patient_uid FKs
     // check at COMMIT.
-    expect(executeSqls[0]).toMatch(/SET CONSTRAINTS ALL DEFERRED/);
+    expect(executeSqls).toContainEqual(expect.stringMatching(/SET CONSTRAINTS ALL DEFERRED/));
     // uuid sweep carries a tenant predicate + uuid params.
     const admissionsCall = executeUnsafeMock.mock.calls.find((call) => /UPDATE admissions/.test(call[0]));
     expect(admissionsCall[0]).toMatch(/tenant_id = \$3::uuid/);

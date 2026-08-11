@@ -41,6 +41,44 @@ import { lockResultsInboxResourceTx } from './resultsInboxResourceLock.js';
 // this module is linked). Resolving at call time defers it past full eval.
 import { ROLES } from '../../utils/roleHelpers.js';
 
+async function lockActivePatientUidForResult(tx, tenantId, patientUid) {
+  if (!patientUid) return null;
+  const visited = new Set();
+  let currentUid = patientUid;
+  for (let depth = 0; depth <= 16; depth += 1) {
+    if (visited.has(currentUid)) {
+      throw AppError.conflict('Patient merge survivor chain is cyclic', 'RESULT_PATIENT_MERGE_CHAIN_INVALID');
+    }
+    visited.add(currentUid);
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT uid::text AS uid, is_active, status,
+              merged_into_uid::text AS merged_into_uid,
+              COALESCE(is_deleted, false) AS is_deleted
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+        FOR UPDATE`,
+      tenantId,
+      currentUid,
+    );
+    const patient = rows[0];
+    if (!patient) throw AppError.notFound('Patient not found');
+    if (patient.merged_into_uid) {
+      currentUid = patient.merged_into_uid;
+      continue;
+    }
+    if (patient.is_active !== true || patient.is_deleted || patient.status === 'merged') {
+      throw AppError.conflict(
+        'Patient is inactive and has no active merge survivor',
+        'RESULT_PATIENT_INACTIVE',
+      );
+    }
+    return patient.uid;
+  }
+  throw AppError.conflict('Patient merge survivor chain is too deep', 'RESULT_PATIENT_MERGE_CHAIN_INVALID');
+}
+
 // severity → task priority. Unknown/absent severity defaults to 'high' (a
 // result that reached this producer is at least abnormal).
 const SEVERITY_PRIORITY = Object.freeze({
@@ -429,6 +467,7 @@ async function createCriticalResultTask({
  * @param {object} [params.extraMetadata]     extra task metadata keys (e.g. reopen provenance).
  * @param {object} [params.tx]                existing tenant transaction for atomic clinical writes.
  * @param {boolean} [params.strict]            rethrow producer failures when the caller owns the transaction.
+ * @param {boolean} [params.resolveMergedPatient] lock and resolve patient ownership in the producer transaction.
  * @returns {Promise<{created:boolean, taskId:(number|null), slaInstanceId:(string|number|null), error?:string}>}
  */
 export async function enqueueCriticalResultTask({
@@ -447,10 +486,14 @@ export async function enqueueCriticalResultTask({
   exactNamedOwner = false,
   tx: callerTx = null,
   strict = false,
+  resolveMergedPatient = false,
 } = {}) {
   const resourceIdStr = resourceId == null ? null : String(resourceId);
   try {
     const produce = async (tx) => {
+      if (resolveMergedPatient && patientUid) {
+        patientUid = await lockActivePatientUidForResult(tx, tenantId, patientUid);
+      }
       await lockResultsInboxResourceTx({
         tx,
         tenantId,

@@ -44,6 +44,7 @@ const existingRow = {
   temperature: null,
   consciousness: null,
   supplemental_o2: false,
+  o2_flow_rate: 0,
   notes: null,
   recorded_by: NURSE_UID,
   recorded_at: new Date(),
@@ -199,5 +200,35 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     expect(escalateNews2Mock).not.toHaveBeenCalled();
     // Anomaly re-check still runs — it is not gated on NEWS2 scorability.
     expect(checkVitalAnomaliesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('derives oxygen therapy state and re-scores when FHIR oxygen flow is corrected', async () => {
+    resetAll();
+    const fhirRow = {
+      ...existingRow,
+      source: 'fhir',
+      spo2: 94,
+      supplemental_o2: true,
+      o2_flow_rate: 2,
+    };
+    findUniqueMock.mockResolvedValue(fhirRow);
+    updateMock.mockImplementation(async ({ data }) => ({ ...fhirRow, ...data }));
+
+    await correctVitals(VITALS_ID, {
+      corrected_by: NURSE_UID,
+      tenantId: TENANT_ID,
+      o2_flow_rate: 0,
+    });
+
+    expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ o2_flow_rate: 0, supplemental_o2: false }),
+    }));
+    expect(persistNews2Mock).toHaveBeenCalledWith(
+      PATIENT_UID,
+      expect.objectContaining({ supplemental_o2: false }),
+      NURSE_UID,
+      expect.objectContaining({ db: __txClient, vitalsChartId: VITALS_ID }),
+    );
+    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, 909, { db: __txClient });
   });
 });

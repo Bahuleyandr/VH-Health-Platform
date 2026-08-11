@@ -33,7 +33,7 @@ const PLATFORM_JWT_PLACEHOLDER = 'platform.jwt.placeholder';
 
 const queryRawUnsafeMock = jest.fn();
 const verifyAccessTokenMock = jest.fn();
-const recordVitalsMock = jest.fn();
+const ingestFhirVitalObservationMock = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
@@ -57,8 +57,8 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   requireTenantId: (tenantId) => tenantId || TENANT_A,
 }));
 
-jest.unstable_mockModule('../../services/emr/vitalsChartService.js', () => ({
-  recordVitals: recordVitalsMock,
+jest.unstable_mockModule('../../services/fhir/fhirVitalObservationIngestService.js', () => ({
+  ingestFhirVitalObservation: ingestFhirVitalObservationMock,
 }));
 
 jest.unstable_mockModule('../../services/clinical/problemListService.js', () => ({
@@ -164,8 +164,10 @@ function installObservationQueryMock() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  recordVitalsMock.mockResolvedValue({
-    vitals: { id: 501, recorded_at: '2026-07-09T10:00:00.000Z' },
+  ingestFhirVitalObservationMock.mockResolvedValue({
+    vitalsChartId: 501,
+    patientUid: PATIENT_A,
+    recordedAt: '2026-06-11T10:00:00.000Z',
   });
   installObservationQueryMock();
 });
@@ -246,18 +248,22 @@ describe('FHIR SMART-on-FHIR scope enforcement', () => {
         .send({
           resourceType: 'Observation',
           status: 'final',
+          category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
           code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
           subject: { reference: `Patient/${PATIENT_A}` },
+          effectiveDateTime: '2026-06-11T10:00:00.000Z',
           valueQuantity: { value: 72, unit: 'beats/min' },
         });
       expect(res.status).toBe(201);
       expect(res.body.resourceType).toBe('Observation');
-      expect(recordVitalsMock).toHaveBeenCalledWith(expect.objectContaining({
-        patient_uid: PATIENT_A,
-        tenant_id: TENANT_A,
-        recorded_by: ACTOR_UID,
-        source: 'fhir',
-      }));
+      expect(ingestFhirVitalObservationMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceType: 'Observation',
+          subject: { reference: `Patient/${PATIENT_A}` },
+        }),
+        ACTOR_UID,
+        { tenantId: TENANT_A },
+      );
     });
   });
 
