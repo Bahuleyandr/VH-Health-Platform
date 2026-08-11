@@ -25,8 +25,8 @@ describe('Audit 3 dead-surface guard', () => {
     expect(route).not.toContain("../../controllers/pharmacyController.js");
   });
 
-  it('preserves the deploy-held executive digest data surfaces', () => {
-    const migration = read('../../migrations/466_exec_digest_benchmark_pack.sql');
+  it('retires the deploy-held executive digest data surfaces', () => {
+    const migration = read('../../migrations/660_retire_exec_digest_benchmark_pack.sql');
     const schema = read('../../../prisma/schema.prisma');
     const tables = [
       'analytics_exec_digest_settings',
@@ -36,8 +36,8 @@ describe('Audit 3 dead-surface guard', () => {
     ];
 
     for (const table of tables) {
-      expect(migration).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
-      expect(schema).toContain(`model ${table} {`);
+      expect(migration).toContain(`DROP TABLE IF EXISTS ${table};`);
+      expect(schema).not.toContain(`model ${table} {`);
     }
   });
 
