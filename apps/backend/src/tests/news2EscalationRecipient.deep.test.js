@@ -28,13 +28,24 @@ async function query(sql, ...p) {
   return Array.isArray(r) ? r : [];
 }
 
+async function cleanupTasks() {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`,
+      PATIENT,
+    );
+  }).catch(() => {});
+}
+
 d('NEWS2 escalation reaches an assigned recipient (audit W1-H4)', () => {
   beforeAll(async () => {
     // Clear any task left by a prior/aborted run for this patient — an open task
     // for this score would make the producer idempotently skip (created:false,
     // no error), which is a safe no-op for the service but defeats this test's
     // "a fresh task is created" intent. Self-isolating, not stale-state-dependent.
-    await exec(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+    await cleanupTasks();
     await exec(
       `INSERT INTO users (uid, phone, name, role, is_active, status, tenant_id, updated_at)
        VALUES ($1::uuid, '8990111222', 'NEWS2 Test Patient', 'PATIENT', true, 'active', $2::uuid, NOW())
@@ -45,15 +56,15 @@ d('NEWS2 escalation reaches an assigned recipient (audit W1-H4)', () => {
   });
 
   afterAll(async () => {
-    await exec(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+    await cleanupTasks();
     await exec(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60_000);
 
   it('a NEWS2 >= 7 produces an assigned, ack-tracked task (assignee or role)', async () => {
     await escalateNews2(
       PATIENT,
-      { id: 987654 },
+      { id: 987654, recorded_at: new Date() },
       { totalScore: 8, clinicalRisk: 'high', escalationAction: 'Urgent clinical review', scores: {}, anyParamThree: true },
       { tenantId: TENANT },
     );

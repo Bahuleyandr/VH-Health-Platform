@@ -883,7 +883,8 @@ async function loadPatientClinicalFields({
   const newsRows = await tx.$queryRawUnsafe(
     `/* continuity:news2 */
      SELECT DISTINCT ON (patient_uid)
-            patient_uid, total_score, clinical_risk, recorded_at
+            patient_uid, total_score, clinical_risk, escalation_action,
+            partial_score, missing_params, recorded_at
       FROM news2_scores
       WHERE tenant_id = $1::uuid
         AND patient_uid = ANY($2::uuid[])
@@ -1278,10 +1279,17 @@ async function loadPatientClinicalFields({
 
     const news = newsByUid.get(uid);
     if (news) {
+      const partial = news.partial_score === true;
       target.news2 = known({
         score: news.total_score,
-        clinical_risk: news.clinical_risk,
-        display: news.total_score,
+        clinical_risk: partial ? null : news.clinical_risk,
+        escalation_action: partial ? null : news.escalation_action,
+        partial_score: partial,
+        missing_params: Array.isArray(news.missing_params) ? news.missing_params : [],
+        risk_band_available: !partial,
+        display: partial
+          ? `NEWS2 ${news.total_score} (partial; risk band unavailable)`
+          : `NEWS2 ${news.total_score}${news.clinical_risk ? ` (${String(news.clinical_risk).replace(/_/g, ' ')})` : ''}`,
       }, news.recorded_at, 'news2_scores');
     }
 

@@ -511,6 +511,7 @@ export async function recordVitals(data, {
     triage_acuity, acuity, triage_priority,
     temperature_unit, temperature_route, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
     height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
+    spo2_scale, spo2Scale,
     recorded_at, observed_at,
     fhr, fundal_height_cm,
     urine_albumin, urine_sugar, urine_ketones,
@@ -579,6 +580,13 @@ export async function recordVitals(data, {
   const normalizedAcuity = normalizedAcuitySignal?.level ?? null;
   const normalizedTriagePriority = normalizedAcuitySignal?.priority ?? null;
   const normalizedRecordedAt = normalizeRecordedAt(recorded_at ?? observed_at);
+  const explicitSpo2Scale = spo2_scale ?? spo2Scale;
+  const normalizedExplicitSpo2Scale = explicitSpo2Scale === undefined || explicitSpo2Scale === null || explicitSpo2Scale === ''
+    ? null
+    : news2Service.normalizeSpo2Scale(explicitSpo2Scale);
+  if (explicitSpo2Scale !== undefined && explicitSpo2Scale !== null && explicitSpo2Scale !== '' && normalizedExplicitSpo2Scale === null) {
+    throw AppError.badRequest('spo2_scale must be 1 or 2');
+  }
 
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
     respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score,
@@ -717,6 +725,7 @@ export async function recordVitals(data, {
         verification_status: row.source === 'device' ? 'unverified' : 'verified',
       },
       afterState: row,
+      occurredAt: row.recorded_at,
       // Canonical timeline convention (docs/CANONICAL_CLINICAL_TIMELINE.md):
       // device-synced observations are labelled unverified until reviewed.
       tags: row.source === 'device' ? ['vitals', 'device-synced', 'unverified'] : ['vitals'],
@@ -738,7 +747,8 @@ export async function recordVitals(data, {
     // abort the atomic write rather than potentially under-score a Scale-2
     // patient; the resolved scale is passed as options.spo2Scale, the channel
     // that wins over any caller-supplied per-reading value.
-    const spo2Scale = await news2Service.resolveSpo2ScaleForPatient(resolvedPatientUid, { db: tx });
+    const resolvedSpo2Scale = normalizedExplicitSpo2Scale
+      ?? await news2Service.resolveSpo2ScaleForPatient(resolvedPatientUid, { db: tx });
     // vitalsChartId links the score to its source row (migration 652) so a
     // later correction of this row can find and supersede this score.
     news2Persisted = await news2Service.persistNews2(resolvedPatientUid, {
@@ -749,7 +759,12 @@ export async function recordVitals(data, {
       heart_rate,
       consciousness,
       supplemental_o2: supplementalO2Known ? Boolean(derivedSupplementalO2) : null,
-    }, recorded_by, { db: tx, spo2Scale, vitalsChartId: row.id });
+    }, recorded_by, {
+      db: tx,
+      spo2Scale: resolvedSpo2Scale,
+      vitalsChartId: row.id,
+      recordedAt: row.recorded_at,
+    });
 
     if (beforeCommit) {
       await beforeCommit({
@@ -796,7 +811,7 @@ export async function recordVitals(data, {
     // must never reach the Celsius threshold table.
     const vitalsForCheck = anomalyVitalsForCheck(record);
 
-    if (Object.keys(vitalsForCheck).length > 0) {
+    if (Object.keys(vitalsForCheck).length > 0 && news2Service.isNews2EscalationFresh(record.recorded_at)) {
       // clinical_alerts.patient_id is an INT FK to users(id) — resolve uuid→int.
       // recorded_by is uuid; clinical_alerts.created_by is int FK — same resolution.
       const recorderUser = await prisma.users.findUnique({
@@ -817,6 +832,7 @@ export async function recordVitals(data, {
           // default-stamping warning-only batches).
           tenantId: resolvedTenantId,
           onClinicalAlertsPersisted,
+          sourceVitalsChartId: record.id,
         });
       }
     } else if (typeof onClinicalAlertsPersisted === 'function') {
@@ -1242,14 +1258,19 @@ export async function correctVitals(vitalsId, data) {
         heart_rate: row.heart_rate,
         consciousness: row.consciousness,
         supplemental_o2: row.supplemental_o2,
-      }, corrected_by, { db: tx, spo2Scale, vitalsChartId: row.id });
+      }, corrected_by, {
+        db: tx,
+        spo2Scale,
+        vitalsChartId: row.id,
+        recordedAt: row.recorded_at,
+      });
       // Always retire the score derived from the pre-correction values. If
       // the correction removed the final scorable parameter, no replacement
       // is created, but the old score must not remain live.
       await news2Service.supersedeNews2ForVitalsRow(
         row.id,
         persisted?.record.id ?? null,
-        { db: tx },
+        { db: tx, tenantId: resolvedTenantId, correctedBy: corrected_by },
       );
     }
 
@@ -1276,7 +1297,7 @@ export async function correctVitals(vitalsId, data) {
       if (updated.spo2 != null) vitalsForCheck.oxygen_saturation = Number(updated.spo2);
       if (updated.respiratory_rate != null) vitalsForCheck.respiratory_rate = Number(updated.respiratory_rate);
 
-      if (Object.keys(vitalsForCheck).length > 0) {
+      if (Object.keys(vitalsForCheck).length > 0 && news2Service.isNews2EscalationFresh(updated.recorded_at)) {
         const [patientRow, correctorRow] = await Promise.all([
           prisma.users.findUnique({ where: { uid: updated.patient_uid }, select: { id: true } }),
           prisma.users.findUnique({ where: { uid: corrected_by }, select: { id: true } }),
@@ -1286,6 +1307,7 @@ export async function correctVitals(vitalsId, data) {
             recordedBy: correctorRow?.id ?? null,
             source: updated.source,
             tenantId: resolvedTenantId,
+            sourceVitalsChartId: updated.id,
           });
         }
       }

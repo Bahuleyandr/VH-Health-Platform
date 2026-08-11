@@ -505,6 +505,35 @@ describe('ward and paediatric patient fields', () => {
     });
   });
 
+  it('renders a partial NEWS2 without a reassuring risk band or routine action', async () => {
+    const tx = fakeTx(occupiedWardResponders({
+      news2: [{
+        patient_uid: PATIENT_UID,
+        total_score: 0,
+        clinical_risk: 'low',
+        escalation_action: 'Routine monitoring every 12 hours',
+        partial_score: true,
+        missing_params: ['temperature', 'systolic_bp'],
+        recorded_at: new Date('2026-07-29T05:10:00.000Z'),
+      }],
+    }));
+    const result = await produceFacilityContinuityPacks({
+      tx,
+      tenantId: TENANT_ID,
+      facilityId: FACILITY_ID,
+      policy: policyFor(occupiedWardCoverage()),
+    });
+
+    expect(result.packs[0].patients[0].news2.value).toMatchObject({
+      score: 0,
+      clinical_risk: null,
+      escalation_action: null,
+      partial_score: true,
+      risk_band_available: false,
+      display: expect.stringMatching(/partial.*risk band unavailable/i),
+    });
+  });
+
   it.each([
     [
       'allergy',

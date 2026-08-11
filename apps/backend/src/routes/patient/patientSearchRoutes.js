@@ -15,11 +15,20 @@ import { patientAccessGuard, phiAccessLogger } from '../../middleware/phiAccessM
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { singleUpload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { PATIENT_REGISTRY_WRITE_ROLES } from '../../config/patientAccessRoles.js';
+import { CLINICAL_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { readCanonicalPatientTimeline } from '../../services/clinical/canonicalClinicalPlatformService.js';
+import { updatePatientSpo2Scale } from '../../services/clinical/news2Service.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+const guardClinicalNews2ScaleWrite = patientAccessGuard('NEWS2_SPO2_SCALE', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  careTeamModeGoverned: true,
+});
 
 // Patient name lookup is PHI access (returns who exists in the system).
 // Apply the standard HIPAA audit logger so every search is recorded
@@ -73,6 +82,41 @@ router.post(
   validateFileContent,
   phiAccessLogger('PATIENT_CREATE'),
   createPatient,
+);
+
+router.patch(
+  '/:uid/news2-spo2-scale',
+  requireRole(...CLINICAL_STAFF_ROUTE_ROLES),
+  rejectMobileClinicalWrite,
+  requireIdempotencyKey({ required: true, scope: 'patient_news2_spo2_scale' }),
+  guardClinicalNews2ScaleWrite,
+  phiAccessLogger('PATIENT_NEWS2_SPO2_SCALE_UPDATE'),
+  async (req, res, next) => {
+    try {
+      const updated = await updatePatientSpo2Scale({
+        tenantId: req.tenantId || req.user?.tenant_id,
+        patientUid: req.params.uid,
+        spo2Scale: req.body?.spo2_scale ?? req.body?.spo2Scale,
+        actorUid: req.user.uid,
+        actorRole: req.user.role,
+        idempotencyKey: req.idempotencyClaim?.requestKey || req.get('idempotency-key'),
+        requestId: req.id || null,
+        ipAddress: req.ip || null,
+      });
+      logPhiAccess({
+        userId: req.user.uid,
+        userRole: req.user.role,
+        patientId: req.params.uid,
+        recordType: 'patient_news2_spo2_scale',
+        action: 'UPDATE',
+        ip: req.ip,
+        requestId: req.id,
+      });
+      return success(res, updated, 'Patient NEWS2 SpO2 scale updated');
+    } catch (err) {
+      return next(err);
+    }
+  },
 );
 
 router.put(

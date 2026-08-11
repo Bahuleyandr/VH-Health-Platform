@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { getHospitalNumberMap } from '../patient/patientIdentifierService.js';
+import { presentNews2Record } from '../clinical/news2Service.js';
 
 const DEFAULT_LIMIT = 250;
 const MAX_LIMIT = 1000;
@@ -320,20 +321,25 @@ async function getTimelineNews2(patientUid, dateFrom, dateTo, tenantId = null) {
       total_score: true,
       clinical_risk: true,
       escalation_action: true,
+      partial_score: true,
+      missing_params: true,
       recorded_by: true,
       recorded_at: true,
     },
     orderBy: { recorded_at: 'desc' },
   }));
 
-  return rows.map((row) => ({
-    event_type: 'vitals',
-    sub_type: 'news2',
-    id: row.id,
-    summary: `NEWS2 ${row.total_score} (${row.clinical_risk || 'risk unknown'})`,
-    timestamp: normalizeTime(row.recorded_at),
-    payload: row,
-  }));
+  return rows.map((row) => {
+    const presented = presentNews2Record(row);
+    return {
+      event_type: 'vitals',
+      sub_type: 'news2',
+      id: row.id,
+      summary: presented.display,
+      timestamp: normalizeTime(row.recorded_at),
+      payload: presented,
+    };
+  });
 }
 
 async function getTimelineVitals(patientUid, dateFrom, dateTo, tenantId = null) {

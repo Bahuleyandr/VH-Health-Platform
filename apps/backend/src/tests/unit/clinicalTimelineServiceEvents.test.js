@@ -47,6 +47,33 @@ beforeEach(() => {
 });
 
 describe('clinical timeline event ledger', () => {
+  it('renders an incomplete NEWS2 as partial without a reassuring risk band', async () => {
+    prismaMock.news2_scores.findMany.mockResolvedValueOnce([
+      {
+        id: 81,
+        total_score: 0,
+        clinical_risk: 'low',
+        escalation_action: 'Routine monitoring every 12 hours',
+        partial_score: true,
+        missing_params: ['temperature', 'systolic_bp', 'heart_rate', 'consciousness'],
+        recorded_at: new Date('2026-08-11T04:00:00.000Z'),
+      },
+    ]);
+
+    const timeline = await getPatientTimeline(PATIENT_UID);
+    const news2 = timeline.find((event) => event.sub_type === 'news2');
+
+    expect(news2.summary).toMatch(/partial/i);
+    expect(news2.summary).toMatch(/risk band unavailable/i);
+    expect(news2.summary).not.toMatch(/low|routine.*12/i);
+    expect(news2.payload).toMatchObject({
+      partial_score: true,
+      clinical_risk: null,
+      escalation_action: null,
+      risk_band_available: false,
+    });
+  });
+
   it('promotes OP note appointment_id and includes referrals as timeline events', async () => {
     prismaMock.clinical_notes.findMany.mockResolvedValueOnce([
       {

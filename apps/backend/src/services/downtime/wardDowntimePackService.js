@@ -125,9 +125,12 @@ export function buildWardPackHtml(pack) {
       `<tr><td>${esc(o.order_type)}</td><td>${esc(o.summary)}</td><td>${esc(o.priority || '')}</td><td>${esc(o.status || '')}</td></tr>`).join('')
       || '<tr><td colspan="4">No active orders</td></tr>';
     const v = bed.latest_vitals || null;
+    const news2Display = v?.news2_partial_score
+      ? `NEWS2 partial score ${v.news2 ?? '—'} — risk band unavailable${Array.isArray(v.news2_missing_params) && v.news2_missing_params.length ? `; missing ${v.news2_missing_params.join(', ')}` : ''}`
+      : `NEWS2 ${v?.news2 ?? '—'}${v?.news2_clinical_risk ? ` (${String(v.news2_clinical_risk).replace(/_/g, ' ')})` : ''}`;
     const vitals = v
       ? `BP ${esc(v.bp ?? '—')} · HR ${esc(v.heart_rate ?? '—')} · RR ${esc(v.respiratory_rate ?? '—')} · ` +
-        `SpO₂ ${esc(v.spo2 ?? '—')} · T ${esc(v.temperature ?? '—')} · NEWS2 ${esc(v.news2 ?? '—')} (${fmtTime(v.recorded_at)})`
+        `SpO₂ ${esc(v.spo2 ?? '—')} · T ${esc(v.temperature ?? '—')} · ${esc(news2Display)} (${fmtTime(v.recorded_at)})`
       : 'No vitals recorded';
     return `
   <section class="bed">
@@ -295,15 +298,24 @@ async function collectBedEntry(bed, { tenantId } = {}) {
       : Promise.resolve([]),
     patientUid
       ? prisma.$queryRawUnsafe(
-        `SELECT (systolic_bp::text || '/' || diastolic_bp::text) AS bp,
+        `SELECT (vc.systolic_bp::text || '/' || vc.diastolic_bp::text) AS bp,
                 heart_rate, respiratory_rate, spo2,
                 temperature, recorded_at,
-                (SELECT n.total_score FROM news2_scores n
-                  WHERE n.patient_uid = vc.patient_uid
-                    AND n.tenant_id = vc.tenant_id
-                    AND n.superseded_at IS NULL
-                  ORDER BY n.created_at DESC LIMIT 1) AS news2
+                n.total_score AS news2,
+                n.clinical_risk AS news2_clinical_risk,
+                n.partial_score AS news2_partial_score,
+                n.missing_params AS news2_missing_params
            FROM vitals_chart vc
+           LEFT JOIN LATERAL (
+             SELECT score.total_score, score.clinical_risk,
+                    score.partial_score, score.missing_params
+               FROM news2_scores score
+              WHERE score.patient_uid = vc.patient_uid
+                AND score.tenant_id = vc.tenant_id
+                AND score.superseded_at IS NULL
+              ORDER BY score.recorded_at DESC, score.id DESC
+              LIMIT 1
+           ) n ON TRUE
           WHERE vc.patient_uid = $1::uuid
             AND vc.tenant_id = $2::uuid
           ORDER BY vc.recorded_at DESC NULLS LAST

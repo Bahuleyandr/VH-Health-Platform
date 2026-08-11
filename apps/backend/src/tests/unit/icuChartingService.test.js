@@ -31,6 +31,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 
 const {
   closeIcuDeviceAssociationsForAdmission,
+  getIcuChartView,
   linkDeviceObservation,
   recordScoringOutput,
   startLinePresence
@@ -141,6 +142,40 @@ describe('icuChartingService', () => {
     expect(queryRawMock.mock.calls.map(([sql]) => sql).join('\n')).not.toMatch(
       /device_presence_logs/
     );
+  });
+
+  it('suppresses reassuring copy for partial NEWS2 scores in the ICU chart', async () => {
+    queryRawMock.mockImplementation(async (sql) => {
+      if (/FROM icu_admissions/.test(sql)) return [admission()];
+      if (/FROM news2_scores/.test(sql)) {
+        return [{
+          id: 71,
+          patient_uid: PATIENT,
+          recorded_at: new Date('2026-07-09T10:00:00.000Z'),
+          total_score: 0,
+          clinical_risk: 'low',
+          escalation_action: 'Routine monitoring every 12 hours',
+          partial_score: true,
+          missing_params: ['temperature', 'systolic_bp'],
+        }];
+      }
+      return [];
+    });
+
+    const result = await getIcuChartView({
+      tenantId: TENANT,
+      icuAdmissionId: 12,
+      at: '2026-07-09T12:00:00.000Z',
+    });
+
+    expect(result.news2_scores[0]).toMatchObject({
+      total_score: 0,
+      clinical_risk: null,
+      escalation_action: null,
+      partial_score: true,
+      risk_band_available: false,
+      display: expect.stringMatching(/partial.*risk band unavailable/i),
+    });
   });
 
   it('fails score output closed when protocol reference or reviewer is missing', async () => {

@@ -57,8 +57,15 @@ function expectedConstraintDefinition() {
 async function cleanup() {
   const patientRows = await query(`SELECT id FROM users WHERE uid = $1::uuid`, PATIENT);
   const patientId = patientRows[0]?.id ?? null;
-  await exec(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`,
+      PATIENT,
+    );
+  }).catch(() => {});
+  await exec(`DELETE FROM cds_alerts WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
   if (patientId != null) {
     await exec(`DELETE FROM clinical_alerts WHERE patient_id = $1::int`, patientId).catch(() => {});
   }
@@ -226,5 +233,113 @@ d('R5/R4 — plausibility floors + correction re-score (real Postgres)', () => {
     expect(scores[0].id).toBe(originalScoreId);
     expect(scores[0].superseded_by_id).toBeNull();
     expect(scores[0].superseded_at).not.toBeNull();
+  });
+
+  it('P4: correction atomically resolves source alerts and supersedes both acknowledgement tasks', async () => {
+    const recorded = await recordVitals({
+      patient_uid: PATIENT,
+      recorded_by: NURSE,
+      spo2: 8,
+      respiratory_rate: 16,
+    });
+    const vitalsId = recorded.vitals.id;
+    const originalScoreId = recorded.news2.id;
+    const patientRows = await query(`SELECT id FROM users WHERE uid = $1::uuid`, PATIENT);
+
+    const alertsBefore = await query(
+      `SELECT id, acknowledged, acknowledged_at, source_vitals_chart_id
+         FROM clinical_alerts
+        WHERE patient_id = $1::int
+          AND source_vitals_chart_id = $2::int
+        ORDER BY id`,
+      patientRows[0].id,
+      vitalsId,
+    );
+    expect(alertsBefore.length).toBeGreaterThanOrEqual(1);
+    expect(alertsBefore.every((row) => row.acknowledged === false)).toBe(true);
+
+    const cdsBefore = await query(
+      `INSERT INTO cds_alerts
+         (patient_uid, alert_type, severity, title, description, source_data, tenant_id)
+       VALUES ($1::uuid, 'NEWS2_DETERIORATION', 'critical', 'Stale NEWS2 alert',
+               'Derived from the pre-correction score', $2::jsonb, $3::uuid)
+       RETURNING id, acknowledged`,
+      PATIENT,
+      JSON.stringify({
+        news2_score_id: String(originalScoreId),
+        vitals_chart_id: vitalsId,
+      }),
+      TENANT,
+    );
+    expect(cdsBefore).toHaveLength(1);
+    expect(cdsBefore[0].acknowledged).toBe(false);
+
+    const oldTasks = await query(
+      `SELECT id, related_resource_type, related_resource_id, workflow_sla_instance_id
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+          AND (
+            (related_resource_type = 'news2_score' AND related_resource_id = $2::text)
+            OR
+            (related_resource_type = 'clinical_alert' AND related_resource_id = ANY($3::text[]))
+          )`,
+      TENANT,
+      String(originalScoreId),
+      alertsBefore.map((row) => String(row.id)),
+    );
+    expect(oldTasks.length).toBeGreaterThanOrEqual(2);
+
+    await correctVitals(vitalsId, {
+      corrected_by: NURSE,
+      tenantId: TENANT,
+      spo2: 98,
+    });
+
+    const alertsAfter = await query(
+      `SELECT acknowledged, acknowledged_at
+         FROM clinical_alerts
+        WHERE source_vitals_chart_id = $1::int`,
+      vitalsId,
+    );
+    expect(alertsAfter).toHaveLength(alertsBefore.length);
+    expect(alertsAfter.every((row) => row.acknowledged === true && row.acknowledged_at)).toBe(true);
+
+    const cdsAfter = await query(
+      `SELECT acknowledged, ack_at
+         FROM cds_alerts
+        WHERE id = $1::int`,
+      cdsBefore[0].id,
+    );
+    expect(cdsAfter).toHaveLength(1);
+    expect(cdsAfter[0].acknowledged).toBe(true);
+    expect(cdsAfter[0].ack_at).not.toBeNull();
+
+    const tasksAfter = await query(
+      `SELECT id, status, completed_at, metadata, workflow_sla_instance_id
+         FROM tasks
+        WHERE id = ANY($1::int[])
+        ORDER BY id`,
+      oldTasks.map((row) => Number(row.id)),
+    );
+    expect(tasksAfter).toHaveLength(oldTasks.length);
+    for (const task of tasksAfter) {
+      expect(task.status).toBe('completed');
+      expect(task.completed_at).not.toBeNull();
+      expect(task.metadata).toMatchObject({ supersession_reason: 'superseded_by_correction' });
+    }
+
+    const slas = await query(
+      `SELECT status, completed_at, metadata
+         FROM workflow_sla_instances
+        WHERE id = ANY($1::uuid[])`,
+      oldTasks.map((row) => String(row.workflow_sla_instance_id)),
+    );
+    expect(slas).toHaveLength(oldTasks.length);
+    for (const sla of slas) {
+      expect(sla.status).toBe('completed');
+      expect(sla.completed_at).not.toBeNull();
+      expect(sla.metadata).toMatchObject({ supersession_reason: 'superseded_by_correction' });
+    }
   });
 });

@@ -22,6 +22,12 @@ const recordCanonicalMock = jest.fn();
 const resolveSpo2ScaleMock = jest.fn();
 const persistNews2Mock = jest.fn();
 const escalateNews2Mock = jest.fn();
+const isNews2EscalationFreshMock = jest.fn();
+const normalizeSpo2ScaleMock = jest.fn((value) => {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  const numericValue = Number(value);
+  return numericValue === 1 || numericValue === 2 ? numericValue : null;
+});
 
 const PATIENT_UID = 'a1111111-2222-4333-8444-555555550003';
 const PATIENT_TENANT = '55555555-5555-4555-8555-555555555555';
@@ -71,9 +77,11 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent: recordCanonicalMock,
 }));
 jest.unstable_mockModule('../../services/clinical/news2Service.js', () => ({
+  normalizeSpo2Scale: normalizeSpo2ScaleMock,
   resolveSpo2ScaleForPatient: resolveSpo2ScaleMock,
   persistNews2: persistNews2Mock,
   escalateNews2: escalateNews2Mock,
+  isNews2EscalationFresh: isNews2EscalationFreshMock,
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID,
@@ -91,6 +99,7 @@ function resetAll() {
   resolveSpo2ScaleMock.mockReset();
   persistNews2Mock.mockReset();
   escalateNews2Mock.mockReset();
+  isNews2EscalationFreshMock.mockReset().mockReturnValue(true);
   vitalsCreateMock.mockClear();
   __txClient.$executeRawUnsafe.mockClear();
   __txClient.$queryRawUnsafe.mockReset();
@@ -138,11 +147,32 @@ describe('recordVitals — NEWS2 SpO2 scale wiring (C-M7)', () => {
     const [uid, vitals, , options] = persistNews2Mock.mock.calls[0];
     expect(uid).toBe(PATIENT_UID);
     expect(vitals.spo2).toBe(96);
-    // The resolved patient-level scale travels via options.spo2Scale — the
-    // channel that wins over any per-reading vitals.spo2_scale. The created
-    // vitals row's id rides along so a later correction can find and
-    // supersede this score (migration 652 linkage).
-    expect(options).toEqual({ db: __txClient, spo2Scale: 2, vitalsChartId: 321 });
+    // Absent an explicit bedside scale, the patient-level value is used. The
+    // source observation time and vitals id travel with the derived score.
+    expect(options).toEqual({
+      db: __txClient,
+      spo2Scale: 2,
+      vitalsChartId: 321,
+      recordedAt: expect.any(Date),
+    });
+  });
+
+  it('honors an explicit bedside scale without consulting the patient default', async () => {
+    resetAll();
+
+    await recordVitals({ ...baseWrite, spo2: 88, spo2_scale: 1 });
+
+    expect(resolveSpo2ScaleMock).not.toHaveBeenCalled();
+    expect(persistNews2Mock.mock.calls[0][3]).toEqual(expect.objectContaining({ spo2Scale: 1 }));
+  });
+
+  it.each([3, true, [2]])('rejects invalid explicit bedside scale %p before opening a transaction', async (spo2Scale) => {
+    resetAll();
+
+    await expect(recordVitals({ ...baseWrite, spo2: 88, spo2_scale: spo2Scale }))
+      .rejects.toMatchObject({ statusCode: 400 });
+
+    expect(setTenantTxMock).not.toHaveBeenCalled();
   });
 
   it('rolls back instead of persisting vitals with an unresolved scoring scale', async () => {

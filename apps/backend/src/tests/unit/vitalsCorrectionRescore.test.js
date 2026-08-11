@@ -23,6 +23,7 @@ const resolveSpo2ScaleMock = jest.fn();
 const persistNews2Mock = jest.fn();
 const supersedeMock = jest.fn();
 const escalateNews2Mock = jest.fn();
+const isNews2EscalationFreshMock = jest.fn();
 
 const PATIENT_UID = 'a1111111-2222-4333-8444-555555550003';
 const NURSE_UID = 'b2222222-3333-4444-8555-666666660004';
@@ -89,6 +90,7 @@ jest.unstable_mockModule('../../services/clinical/news2Service.js', () => ({
   persistNews2: persistNews2Mock,
   supersedeNews2ForVitalsRow: supersedeMock,
   escalateNews2: escalateNews2Mock,
+  isNews2EscalationFresh: isNews2EscalationFreshMock,
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID,
@@ -106,6 +108,7 @@ function resetAll() {
   persistNews2Mock.mockReset();
   supersedeMock.mockReset();
   escalateNews2Mock.mockReset();
+  isNews2EscalationFreshMock.mockReset().mockReturnValue(true);
   findUniqueMock.mockReset();
   updateMock.mockReset();
   auditCreateMock.mockReset();
@@ -149,11 +152,20 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     expect(vitals.spo2).toBe(88);
     expect(vitals.respiration_rate).toBe(16);
     expect(recordedBy).toBe(NURSE_UID);
-    expect(options).toEqual({ db: __txClient, spo2Scale: 1, vitalsChartId: VITALS_ID });
+    expect(options).toEqual({
+      db: __txClient,
+      spo2Scale: 1,
+      vitalsChartId: VITALS_ID,
+      recordedAt: existingRow.recorded_at,
+    });
 
     // Prior live scores for the row are stamped superseded by the new score,
     // atomically with the insert (same tx).
-    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, 909, { db: __txClient });
+    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, 909, {
+      db: __txClient,
+      tenantId: TENANT_ID,
+      correctedBy: NURSE_UID,
+    });
 
     // Escalation runs post-commit against the NEW score.
     expect(escalateNews2Mock).toHaveBeenCalledTimes(1);
@@ -196,7 +208,11 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     });
 
     expect(persistNews2Mock).toHaveBeenCalledTimes(1);
-    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, null, { db: __txClient });
+    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, null, {
+      db: __txClient,
+      tenantId: TENANT_ID,
+      correctedBy: NURSE_UID,
+    });
     expect(escalateNews2Mock).not.toHaveBeenCalled();
     // Anomaly re-check still runs — it is not gated on NEWS2 scorability.
     expect(checkVitalAnomaliesMock).toHaveBeenCalledTimes(1);
