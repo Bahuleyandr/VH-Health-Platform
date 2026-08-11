@@ -29,17 +29,43 @@ wrapAutoRBAC(router, 'userSelfRoutes', {
   ]
 });
 
+// Database/system metadata is admin-only and this static one-segment path must
+// be registered before the directory router's GET /:identifier wildcard.
+wrapRoutes(
+  router,
+  ['ADMIN'],
+  {
+    get: [
+      ['/system-info', async (_req, res) => {
+        const { AdminUserService } = await import('../../services/user/adminUserService.js');
+        const systemInfo = await AdminUserService.getSystemInfo();
+        res.json({
+          success: true,
+          data: systemInfo,
+          message: 'System information retrieved successfully'
+        });
+      }]
+    ]
+  },
+  {
+    requireUID: true,
+    requirePhone: false
+  }
+);
+
+// Lookup routes - accessible to staff. Mounted BEFORE the directory router:
+// userRoutes' GET /:identifier would otherwise capture "lookup" as an
+// identifier, making GET /users/lookup unreachable (uuid-cast 500).
+wrapAutoRBAC(router, 'lookupRoutes', {
+  use: [
+    ['/lookup', lookupRoutes]
+  ]
+});
+
 // User directory routes (list/get/search/role/department) — staff/admin only.
 wrapAutoRBAC(router, 'userRoutes', {
   use: [
     ['/', userRoutes]
-  ]
-});
-
-// Lookup routes - accessible to staff
-wrapAutoRBAC(router, 'lookupRoutes', {
-  use: [
-    ['/lookup', lookupRoutes]
   ]
 });
 
@@ -57,16 +83,5 @@ wrapRoutes(
     requirePhone: false
   }
 );
-
-// Public system info route
-router.get('/system-info', async (req, res) => {
-  const { AdminUserService } = await import('../../services/user/adminUserService.js');
-  const systemInfo = await AdminUserService.getSystemInfo();
-  res.json({
-    success: true,
-    data: systemInfo,
-    message: 'System information retrieved successfully'
-  });
-});
 
 export default router;

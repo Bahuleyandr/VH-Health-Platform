@@ -53,4 +53,22 @@ d('Legacy lookup OR-predicate (CAN-056)', () => {
     expect(users.length).toBe(1);
     expect(users[0].uid).toBe(U1);
   });
+
+  it('GET /users/lookup (root) resolves — not shadowed by /users/:identifier', async () => {
+    // Regression: userRoutes' GET /:identifier used to be registered before
+    // the /lookup mount, so "lookup" was captured as an identifier and the
+    // root lookup endpoint 500'd on the uuid cast. It must behave exactly
+    // like /lookup/advanced.
+    const res = await staff().get(`/api/v1/users/lookup?phone=${P1}`);
+    expect(res.statusCode).toBe(200);
+    const users = res.body?.data?.users ?? [];
+    expect(users.length).toBe(1);
+    expect(users[0].uid).toBe(U1);
+  });
+
+  it('GET /users/lookup (root) returns zero users for a nonexistent phone', async () => {
+    const res = await staff().get(`/api/v1/users/lookup?phone=${NONEXISTENT}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body?.data?.totalFound ?? res.body?.data?.users?.length).toBe(0);
+  });
 });
