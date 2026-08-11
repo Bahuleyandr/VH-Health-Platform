@@ -20370,6 +20370,13 @@
               }
             ]
           },
+          "spo2_scale": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ]
+          },
           "respiratory_rate": {
             "oneOf": [
               {

@@ -2322,6 +2322,7 @@ export const schemas = {
       temperature: { oneOf: [{ type: 'number' }, { type: 'string' }] },
       temperature_route: { type: 'string', enum: TEMPERATURE_ROUTE },
       spo2: { oneOf: [{ type: 'number' }, { type: 'string' }] },
+      spo2_scale: { type: 'integer', enum: [1, 2] },
       respiratory_rate: { oneOf: [{ type: 'number' }, { type: 'string' }] },
       consciousness: { type: 'string', enum: CONSCIOUSNESS },
       notes: { type: 'string' },
