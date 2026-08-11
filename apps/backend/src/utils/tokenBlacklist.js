@@ -50,7 +50,7 @@ export class RevocationWriteUnavailableError extends Error {
  * @param {string} jti - JWT ID to blacklist
  * @param {number} expiresAt - Token expiry as Unix timestamp (seconds)
  * @param {string} [reason] - Why the token was blacklisted (e.g. 'logout', 'refresh_rotation')
- * @param {{requireEvidence?: boolean, userId?: string}} [opts] - When `requireEvidence` is true
+ * @param {{requireEvidence?: boolean, userId?: string, sessionFamilyId?: string, stableDeviceId?: string}} [opts] - When `requireEvidence` is true
  *   (audit F10), the DB write is awaited inline instead of fired-and-forgotten,
  *   and a `RevocationWriteUnavailableError` is thrown unless the durable DB
  *   persisted the entry — callers that must not claim success on a silent
@@ -61,7 +61,12 @@ export async function blacklistToken(
   jti,
   expiresAt,
   reason = 'logout',
-  { requireEvidence = false, userId = null } = {},
+  {
+    requireEvidence = false,
+    userId = null,
+    sessionFamilyId = null,
+    stableDeviceId = null,
+  } = {},
 ) {
   if (!jti) return requireEvidence ? null : undefined;
 
@@ -122,15 +127,17 @@ export async function blacklistToken(
     );
   }
 
-  // A durable single-token revocation must also tear down the live socket that
-  // authenticated with that jti. Scope the event by jti so a device logout
-  // does not close sibling devices belonging to the same user.
+  // A durable single-token revocation must also tear down the live socket for
+  // that login session. The family/device selectors survive access rotation
+  // and WS-ticket exchange; jti remains the fallback for legacy callers.
   if (userId) {
     try {
       const { pushSessionRevoked } = await import('./websocket/wsServer.js');
       pushSessionRevoked(String(userId), {
         reason,
         jti: String(jti),
+        ...(sessionFamilyId ? { sessionFamilyId: String(sessionFamilyId) } : {}),
+        ...(stableDeviceId ? { stableDeviceId: String(stableDeviceId) } : {}),
         at: new Date(now * 1000).toISOString(),
       });
     } catch (err) {

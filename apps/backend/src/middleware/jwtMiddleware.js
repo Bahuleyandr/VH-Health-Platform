@@ -250,6 +250,7 @@ export default async function jwtMiddleware(req, res, next) {
   // null; the gate middleware then rejects with a clear "please re-login" 403.
   const deviceType = decoded.deviceType ?? null;
   const stableDeviceId = decoded.stableDeviceId ?? null;
+  const sessionFamilyId = decoded.sessionFamilyId ?? null;
 
   // 2FA step-up claim — stamped only by the admin MFA challenge-verify path
   // (mfaVerifyChallenge). Carried through so `requireSuperAdminStepUp` can scope
@@ -270,6 +271,7 @@ export default async function jwtMiddleware(req, res, next) {
     scope,
     deviceType,
     stableDeviceId,
+    sessionFamilyId,
     tokenExpiresAt: decoded.exp
       ? new Date(decoded.exp * 1000).toISOString()
       : null,

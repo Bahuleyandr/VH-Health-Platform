@@ -159,6 +159,25 @@ describe('jwtMiddleware — revocation control flow', () => {
 // Claim derivation: Hasura claims, mfa_setup scope, optional fields
 // =====================================================================
 describe('jwtMiddleware — claim derivation', () => {
+  it('surfaces the stable session and device selectors for logout and WS tickets', async () => {
+    verifyTokenMock.mockReturnValue({
+      uid: UID,
+      role: 'PATIENT',
+      id: 42,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
+    });
+    const req = makeReq();
+    const res = makeRes();
+
+    await jwtMiddleware(req, res, () => {});
+
+    expect(req.user).toMatchObject({
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
+    });
+  });
+
   it('does not authenticate a uid-only token when the users.id lookup fails', async () => {
     const uncachedUid = 'a0000000-0000-4000-8000-00000000f001';
     verifyTokenMock.mockReturnValue({ uid: uncachedUid, role: 'DOCTOR' });

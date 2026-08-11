@@ -109,7 +109,10 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({ 
 // delegates to (dedup of the old inline _generateRefreshToken). Mirror the real
 // helper here — stamp type:'refresh' and forward to generateToken — so the C-9
 // assertions below (refresh token minted with type:'refresh') still hold.
-const mockIssueSession = jest.fn().mockResolvedValue({ accessToken: 'session-access-token' });
+const mockIssueSession = jest.fn().mockResolvedValue({
+  accessToken: 'session-access-token',
+  sessionFamilyId: 'session-family-1',
+});
 const mockGenerateRefreshToken = jest.fn((payload) => mockGenerateToken({ ...payload, type: 'refresh' }, '30d'));
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: mockIssueSession,
@@ -199,7 +202,10 @@ beforeEach(() => {
   // Re-establish stable default behaviours cleared by clearAllMocks.
   mockGenerateToken.mockReturnValue('mock-jwt-token');
   mockIssueSetupToken.mockReturnValue('mock-setup-token');
-  mockIssueSession.mockResolvedValue({ accessToken: 'session-access-token' });
+  mockIssueSession.mockResolvedValue({
+    accessToken: 'session-access-token',
+    sessionFamilyId: 'session-family-1',
+  });
   mockBcryptHash.mockResolvedValue('hashed-value');
   mockIsTokenBlacklisted.mockResolvedValue(false);
   mockIsLegacyPhoneAuthAllowed.mockReturnValue(false);
@@ -1019,7 +1025,14 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
   });
 
   it('accepts a type:refresh token: blacklists its jti, mints new access + refresh tokens', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, deviceType: 'ios', type: 'refresh' });
+    mockVerifyToken.mockReturnValue({
+      uid: 'u1',
+      jti: 'jti-1',
+      exp: 9999999999,
+      deviceType: 'ios',
+      type: 'refresh',
+      sessionFamilyId: 'session-family-1',
+    });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 7, phone: '+91', name: 'A', role: 'PATIENT' });
 
@@ -1029,13 +1042,23 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
       requireEvidence: true,
     });
     expect(mockIssueSession).toHaveBeenCalledWith(
-      expect.objectContaining({ userUid: 'u1', deviceType: 'ios', pushRevoked: false }),
+      expect.objectContaining({
+        userUid: 'u1',
+        deviceType: 'ios',
+        pushRevoked: false,
+        sessionFamilyId: 'session-family-1',
+      }),
     );
     expect(res.token).toBe('session-access-token');
     // A rotated refresh token (type:'refresh', 30d) is returned to the client.
     expect(res.refreshToken).toBe('mock-jwt-token');
     expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ uid: 'u1', role: 'PATIENT', type: 'refresh' }),
+      expect.objectContaining({
+        uid: 'u1',
+        role: 'PATIENT',
+        type: 'refresh',
+        sessionFamilyId: 'session-family-1',
+      }),
       '30d',
     );
     expect(res.user).toMatchObject({ uid: 'u1', id: 7, role: 'PATIENT' });

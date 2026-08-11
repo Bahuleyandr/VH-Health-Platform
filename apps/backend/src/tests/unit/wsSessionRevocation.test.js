@@ -20,15 +20,25 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
-  verifyToken: (token) => ({
-    sub: 'user-1',
-    id: 42,
-    role: 'PATIENT',
-    tenant_id: 'tenant-1',
-    iat: 1000,
-    token_epoch: 3,
-    jti: token,
-  }),
+  verifyToken: (token) => {
+    const sessions = {
+      'pre-refresh-access': { sessionFamilyId: 'family-a', stableDeviceId: 'device-a' },
+      'browser-ticket': { sessionFamilyId: 'family-a', stableDeviceId: 'device-a', scope: 'ws' },
+      'sibling-access': { sessionFamilyId: 'family-b', stableDeviceId: 'device-b' },
+      'sibling-ticket': { sessionFamilyId: 'family-b', stableDeviceId: 'device-b', scope: 'ws' },
+      'legacy-ticket': { sessionFamilyId: 'legacy-access', scope: 'ws' },
+    };
+    return {
+      sub: 'user-1',
+      id: 42,
+      role: 'PATIENT',
+      tenant_id: 'tenant-1',
+      iat: 1000,
+      token_epoch: 3,
+      jti: token,
+      ...sessions[token],
+    };
+  },
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
@@ -125,5 +135,92 @@ describe('session revocation WebSocket closure', () => {
     expect(revokedSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     expect(siblingSocket.close).not.toHaveBeenCalled();
     expect(siblingSocket.readyState).toBe(1);
+  });
+
+  it('closes an ordinary-JWT socket by its stable session after access-token rotation', async () => {
+    initWebSocket({});
+    const rotatedSessionSocket = new FakeSocket();
+    const siblingSocket = new FakeSocket();
+    serverInstance.clients.add(rotatedSessionSocket);
+    serverInstance.clients.add(siblingSocket);
+    serverInstance.emit('connection', rotatedSessionSocket, {
+      url: '/ws?token=pre-refresh-access',
+      headers: {},
+    });
+    serverInstance.emit('connection', siblingSocket, {
+      url: '/ws?token=sibling-access',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    pushSessionRevoked('user-1', {
+      reason: 'logout',
+      jti: 'post-refresh-access',
+      sessionFamilyId: 'family-a',
+      stableDeviceId: 'device-a',
+    });
+
+    expect(rotatedSessionSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(siblingSocket.close).not.toHaveBeenCalled();
+  });
+
+  it('closes a browser-ticket socket by its parent session while a sibling stays open', async () => {
+    initWebSocket({});
+    const rotatedSessionTicketSocket = new FakeSocket();
+    const siblingTicketSocket = new FakeSocket();
+    serverInstance.clients.add(rotatedSessionTicketSocket);
+    serverInstance.clients.add(siblingTicketSocket);
+    serverInstance.emit('connection', rotatedSessionTicketSocket, {
+      url: '/ws?token=browser-ticket',
+      headers: {},
+    });
+    serverInstance.emit('connection', siblingTicketSocket, {
+      url: '/ws?token=sibling-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    pushSessionRevoked('user-1', {
+      reason: 'logout',
+      jti: 'post-refresh-access',
+      sessionFamilyId: 'family-a',
+      stableDeviceId: 'device-a',
+    });
+
+    expect(rotatedSessionTicketSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(siblingTicketSocket.close).not.toHaveBeenCalled();
+  });
+
+  it('closes ordinary and ticket sockets for a legacy access-token session', async () => {
+    initWebSocket({});
+    const ordinarySocket = new FakeSocket();
+    const ticketSocket = new FakeSocket();
+    const siblingSocket = new FakeSocket();
+    serverInstance.clients.add(ordinarySocket);
+    serverInstance.clients.add(ticketSocket);
+    serverInstance.clients.add(siblingSocket);
+    serverInstance.emit('connection', ordinarySocket, {
+      url: '/ws?token=legacy-access',
+      headers: {},
+    });
+    serverInstance.emit('connection', ticketSocket, {
+      url: '/ws?token=legacy-ticket',
+      headers: {},
+    });
+    serverInstance.emit('connection', siblingSocket, {
+      url: '/ws?token=sibling-access',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    pushSessionRevoked('user-1', {
+      reason: 'logout',
+      jti: 'legacy-access',
+      sessionFamilyId: 'legacy-access',
+    });
+
+    expect(ordinarySocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(ticketSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(siblingSocket.close).not.toHaveBeenCalled();
   });
 });

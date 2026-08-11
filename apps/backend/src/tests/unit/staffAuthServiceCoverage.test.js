@@ -938,6 +938,8 @@ describe('logoutStaff', () => {
     const out = await StaffAuthService.logoutStaff('uid', null, REQ, {
       accessTokenJti: 'jti-123',
       accessTokenExpiresAt: expiresAt,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: INSTALLATION_ID,
     });
 
     expect(out).toMatchObject({ success: true, accessTokenRevoked: true });
@@ -945,7 +947,12 @@ describe('logoutStaff', () => {
       'jti-123',
       expiresAt,
       'logout',
-      { requireEvidence: true, userId: 'uid' },
+      {
+        requireEvidence: true,
+        userId: 'uid',
+        sessionFamilyId: 'session-family-1',
+        stableDeviceId: INSTALLATION_ID,
+      },
     );
   });
 
@@ -1097,9 +1104,20 @@ describe('token generators', () => {
   });
 
   it('generateRefreshToken stamps type:refresh + 30d + the mint-time token_epoch (R1)', async () => {
-    await StaffAuthService.generateRefreshToken({ id: 42, uid: 'u', role: 'DOCTOR' });
+    await StaffAuthService.generateRefreshToken(
+      { id: 42, uid: 'u', role: 'DOCTOR' },
+      INSTALLATION_ID,
+      0,
+      'staff-session-family',
+    );
     expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'refresh', token_epoch: 0 }), '30d'
+      expect.objectContaining({
+        type: 'refresh',
+        token_epoch: 0,
+        stableDeviceId: INSTALLATION_ID,
+        sessionFamilyId: 'staff-session-family',
+      }),
+      '30d'
     );
   });
 

@@ -306,7 +306,11 @@ describe('admin OIDC SSO broker', () => {
     setTenantMock.mockImplementation(async (_tenantId, fn) => fn({ $queryRawUnsafe: queryRawUnsafe }));
     issueAccessTokenAndClaimSession.mockImplementation(async ({ tokenPayload }) => {
       issuedPayload = tokenPayload;
-      return { accessToken: 'vh-access-token' };
+      return {
+        accessToken: 'vh-access-token',
+        tokenEpoch: 0,
+        sessionFamilyId: 'sso-session-family',
+      };
     });
     generateRefreshToken.mockReturnValue('vh-refresh-token');
     global.fetch = jest.fn();
@@ -343,6 +347,9 @@ describe('admin OIDC SSO broker', () => {
       tenant_id: TENANT_A,
     });
     expect(issuedPayload.mfa).toBeUndefined();
+    expect(generateRefreshToken).toHaveBeenCalledWith(expect.objectContaining({
+      sessionFamilyId: 'sso-session-family',
+    }));
     expect(auditEvents.map((event) => event.eventType)).toEqual([
       'SSO_START',
       'SSO_ASSERTION_ACCEPTED',

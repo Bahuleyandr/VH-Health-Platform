@@ -126,4 +126,27 @@ describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => 
     expect(decodePayload(result.accessToken).token_epoch).toBe(7);
     expect(result.tokenEpoch).toBe(7);
   });
+
+  it('generates one stable session family and preserves an explicitly supplied family on refresh', async () => {
+    const uid = 'a7777777-7777-4777-8777-777777777777';
+    const first = await issueAccessTokenAndClaimSession({
+      userUid: uid,
+      tokenPayload: { uid, role: 'PATIENT', tenant_id: SEEDED_TENANT },
+      tokenEpoch: 0,
+    });
+
+    expect(first.sessionFamilyId).toEqual(expect.any(String));
+    expect(decodePayload(first.accessToken).sessionFamilyId).toBe(first.sessionFamilyId);
+
+    const rotated = await issueAccessTokenAndClaimSession({
+      userUid: uid,
+      tokenPayload: { uid, role: 'PATIENT', tenant_id: SEEDED_TENANT },
+      tokenEpoch: 0,
+      sessionFamilyId: first.sessionFamilyId,
+      pushRevoked: false,
+    });
+
+    expect(rotated.sessionFamilyId).toBe(first.sessionFamilyId);
+    expect(decodePayload(rotated.accessToken).sessionFamilyId).toBe(first.sessionFamilyId);
+  });
 });

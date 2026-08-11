@@ -277,11 +277,18 @@ describe('tokenBlacklist blacklistToken (single-token revoke, audit F10)', () =>
     await blacklistToken('jti-1', future, 'logout', {
       requireEvidence: true,
       userId: UUID_USER,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
     });
 
     expect(pushSessionRevokedMock).toHaveBeenCalledWith(
       UUID_USER,
-      expect.objectContaining({ reason: 'logout', jti: 'jti-1' }),
+      expect.objectContaining({
+        reason: 'logout',
+        jti: 'jti-1',
+        sessionFamilyId: 'session-family-1',
+        stableDeviceId: 'device-1',
+      }),
     );
   });
 });

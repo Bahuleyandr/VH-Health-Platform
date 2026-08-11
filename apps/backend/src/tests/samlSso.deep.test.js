@@ -441,7 +441,11 @@ describe('SAML SSO broker', () => {
     }));
     issueAccessTokenAndClaimSession.mockImplementation(async (args) => {
       issuedArgs = args;
-      return { accessToken: 'vh-access-token' };
+      return {
+        accessToken: 'vh-access-token',
+        tokenEpoch: 0,
+        sessionFamilyId: 'sso-session-family',
+      };
     });
     generateRefreshToken.mockReturnValue('vh-refresh-token');
     staffRefreshToken.mockReturnValue('vh-staff-refresh-token');
@@ -462,6 +466,9 @@ describe('SAML SSO broker', () => {
       tenant_id: TENANT_A,
     });
     expect(issuedArgs.tokenPayload.mfa).toBeUndefined();
+    expect(generateRefreshToken).toHaveBeenCalledWith(expect.objectContaining({
+      sessionFamilyId: 'sso-session-family',
+    }));
     expect(auditEvents.map((event) => event.eventType)).toEqual([
       'SSO_START',
       'SSO_ASSERTION_ACCEPTED',
@@ -486,6 +493,12 @@ describe('SAML SSO broker', () => {
       stableDeviceId: STAFF_INSTALLATION_ID,
       tokenPayload: expect.objectContaining({ tenant_id: TENANT_A, role: 'NURSING_STAFF' }),
     }));
+    expect(staffRefreshToken).toHaveBeenCalledWith(
+      expect.any(Object),
+      STAFF_INSTALLATION_ID,
+      0,
+      'sso-session-family',
+    );
     expect(executeRawUnsafe.mock.calls.some((call) => String(call[0]).includes('INSERT INTO staff_auth_sessions'))).toBe(true);
   });
 

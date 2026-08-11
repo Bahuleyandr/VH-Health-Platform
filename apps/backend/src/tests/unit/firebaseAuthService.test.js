@@ -68,7 +68,8 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       email_verified: true
     });
     issueAccessTokenAndClaimSessionMock.mockResolvedValue({
-      accessToken: 'vh-jwt-token'
+      accessToken: 'vh-jwt-token',
+      sessionFamilyId: 'firebase-session-family'
     });
     generateRefreshTokenMock.mockReturnValue('vh-refresh-token');
     ensureHospitalNumberMock.mockResolvedValue('VH-000123');
@@ -126,7 +127,8 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
         uid: insertedUser.uid,
         id: insertedUser.id,
         phone: insertedUser.phone,
-        role: 'PATIENT'
+        role: 'PATIENT',
+        sessionFamilyId: 'firebase-session-family'
       })
     );
     expect(result).toMatchObject({

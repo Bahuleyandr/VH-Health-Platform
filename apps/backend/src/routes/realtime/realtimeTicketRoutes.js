@@ -37,6 +37,11 @@ router.post('/ticket', (req, res) => {
         tenant_id: tenantId,
         tenantId,
         scope: 'ws',
+        // Bind this one-minute credential to the parent login session. Its own
+        // jti is intentionally unique, so jti-only logout targeting cannot
+        // identify the access-token session that minted it.
+        sessionFamilyId: user.sessionFamilyId || user.jti,
+        ...(user.stableDeviceId ? { stableDeviceId: user.stableDeviceId } : {}),
       },
       TICKET_TTL,
     );

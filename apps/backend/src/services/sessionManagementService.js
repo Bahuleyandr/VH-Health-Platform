@@ -149,7 +149,7 @@ export async function listActiveSessions(userUid, currentToken = {}) {
  *
  * @param {string} userUid
  * @param {string} jti
- * @param {{jti?: string, expiresAt?: Date|string|number}} [currentToken]
+ * @param {{jti?: string, expiresAt?: Date|string|number, sessionFamilyId?: string, stableDeviceId?: string}} [currentToken]
  * @returns {Promise<{success: boolean, code?: string, message: string}>}
  */
 export async function revokeSession(userUid, jti, currentToken = {}) {
@@ -191,6 +191,14 @@ export async function revokeSession(userUid, jti, currentToken = {}) {
     await blacklistToken(jti, expiresAtSeconds, 'session_revoked', {
       requireEvidence: true,
       userId: String(userUid),
+      // Only the currently presented token proves these stable selectors.
+      // A registry row for another jti does not retain its family/device bind.
+      ...(currentToken.jti === jti && currentToken.sessionFamilyId
+        ? { sessionFamilyId: currentToken.sessionFamilyId }
+        : {}),
+      ...(currentToken.jti === jti && currentToken.stableDeviceId
+        ? { stableDeviceId: currentToken.stableDeviceId }
+        : {}),
     });
   } catch (err) {
     if (err instanceof RevocationWriteUnavailableError) {

@@ -185,7 +185,10 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   // Generate our JWT token + register it as this user's single active session.
   // Any previously-active patient access token for this user is blacklisted
   // and a `session:revoked` event is pushed to that user_uid's WS sockets.
-  const { accessToken } = await issueAccessTokenAndClaimSession({
+  const {
+    accessToken,
+    sessionFamilyId,
+  } = await issueAccessTokenAndClaimSession({
     userUid: user.uid,
     tokenPayload: {
       uid: user.uid,
@@ -208,6 +211,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     id: user.id,
     phone: user.phone,
     role: user.role,
+    sessionFamilyId,
     tokenEpoch,
     realm: 'user',
   });
@@ -351,7 +355,11 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
   ]);
 
   // Generate new token with Firebase UID + register as the single active session.
-  const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
+  const {
+    accessToken,
+    tokenEpoch,
+    sessionFamilyId,
+  } = await issueAccessTokenAndClaimSession({
     userUid: user.uid,
     tokenPayload: {
       uid: user.uid,
@@ -371,6 +379,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     id: user.id,
     phone: user.phone,
     role: user.role,
+    sessionFamilyId,
     tokenEpoch,
     realm: 'user',
   });
@@ -674,7 +683,11 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
   const user = insertResult[0];
 
   // Generate token + register as the user's single active session.
-  const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+  const {
+    accessToken: token,
+    tokenEpoch,
+    sessionFamilyId,
+  } = await issueAccessTokenAndClaimSession({
     userUid: user.uid,
     tokenPayload: {
       uid: user.uid,
@@ -693,6 +706,7 @@ export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => 
     id: user.id,
     phone: user.phone,
     role: user.role,
+    sessionFamilyId,
     tokenEpoch,
     realm: 'user',
   });

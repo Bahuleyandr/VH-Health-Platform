@@ -565,7 +565,11 @@ export const mfaSetupConfirm = async (req, res) => {
     });
     if (!admin) return error(res, 'Admin not found after enrollment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
 
-    const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+    const {
+      accessToken: token,
+      tokenEpoch,
+      sessionFamilyId,
+    } = await issueAccessTokenAndClaimSession({
       userUid: admin.uid,
       tokenPayload: {
         uid: admin.uid,
@@ -585,6 +589,7 @@ export const mfaSetupConfirm = async (req, res) => {
     const refreshToken = await generateRefreshToken({
       uid: admin.uid,
       role: String(admin.role).toUpperCase(),
+      sessionFamilyId,
       tokenEpoch,
       realm: 'admin',
     });
@@ -698,7 +703,11 @@ export const mfaVerifyChallenge = async (req, res) => {
       challengeToken
     );
 
-    const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+    const {
+      accessToken: token,
+      tokenEpoch,
+      sessionFamilyId,
+    } = await issueAccessTokenAndClaimSession({
       userUid: admin.uid,
       tokenPayload: {
         uid: admin.uid,
@@ -717,6 +726,7 @@ export const mfaVerifyChallenge = async (req, res) => {
     const refreshToken = await generateRefreshToken({
       uid: admin.uid,
       role: String(admin.role).toUpperCase(),
+      sessionFamilyId,
       tokenEpoch,
       realm: 'admin',
     });

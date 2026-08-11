@@ -39,6 +39,7 @@ describe('loginSessionHelper.generateRefreshToken', () => {
       id: 42,
       phone: '+919876543210',
       role: 'PATIENT',
+      sessionFamilyId: 'session-family-1',
     });
     const payload = decode(token);
 
@@ -53,6 +54,7 @@ describe('loginSessionHelper.generateRefreshToken', () => {
     // R1: the mint-time token generation is stamped so the refresh endpoints
     // can refuse tokens minted under an older epoch at issuance time.
     expect(payload.token_epoch).toBe(0);
+    expect(payload.sessionFamilyId).toBe('session-family-1');
   });
 
   it('uses the long refresh expiry (30 days), not the short access TTL', async () => {

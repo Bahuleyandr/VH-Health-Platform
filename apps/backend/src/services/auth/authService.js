@@ -164,7 +164,11 @@ export class AuthService {
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
       };
-      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken: token,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: String(tokenPayload.uid),
         tokenPayload,
         req,
@@ -178,6 +182,7 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        sessionFamilyId,
         tokenEpoch,
         realm: 'user',
       });
@@ -219,7 +224,11 @@ export class AuthService {
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
       };
-      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken: token,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: String(tokenPayload.uid),
         tokenPayload,
         req,
@@ -232,6 +241,7 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        sessionFamilyId,
         tokenEpoch,
         realm: 'user',
       });
@@ -419,7 +429,11 @@ export class AuthService {
       // this admin. Any previously-active admin session is blacklisted and a
       // `session:revoked` event is pushed to that admin's WS sockets — so a
       // second browser tab / device is bounced to login.
-      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken: token,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: admin.uid,
         tokenPayload: {
           uid: admin.uid,
@@ -441,6 +455,7 @@ export class AuthService {
       const refreshToken = await this._generateRefreshToken({
         uid: admin.uid,
         role: String(admin.role).toUpperCase(),
+        sessionFamilyId,
         tokenEpoch,
         realm: 'admin',
       });
@@ -1030,8 +1045,26 @@ export class AuthService {
   // through one source of truth (no duplicated `type:'refresh'` / expiry logic
   // that could drift). See audit 2026-06-18 C-9. Async since the R1 epoch
   // stamp: the helper reads the identity's current token_epoch at mint time.
-  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm }) {
-    return generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm });
+  static _generateRefreshToken({
+    uid,
+    id,
+    phone,
+    role,
+    stableDeviceId,
+    sessionFamilyId,
+    tokenEpoch,
+    realm,
+  }) {
+    return generateRefreshToken({
+      uid,
+      id,
+      phone,
+      role,
+      stableDeviceId,
+      sessionFamilyId,
+      tokenEpoch,
+      realm,
+    });
   }
 
   static async refreshToken(token, req) {
@@ -1119,6 +1152,11 @@ export class AuthService {
       const stableDeviceId = decoded.stableDeviceId
         ? String(decoded.stableDeviceId).toLowerCase()
         : null;
+      // Refresh credentials and every access token rotated from them retain
+      // one stable selector. Legacy refresh tokens fall back to their own jti,
+      // which is stable for the remainder of that rotation and is stamped onto
+      // both newly issued credentials below.
+      const priorSessionFamilyId = decoded.sessionFamilyId || decoded.jti || null;
       if (stableDeviceId) {
         const suppliedInstallationId = String(
           req?.body?.installationId || ''
@@ -1167,7 +1205,10 @@ export class AuthService {
       // instead of the refreshed one, and the booted device would survive.
       // `pushRevoked: false` because this is the same logical session — the
       // device must NOT receive its own session:revoked event.
-      const { accessToken: newToken } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken: newToken,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: identity.uid,
         tokenPayload: admin
           ? {
@@ -1188,6 +1229,7 @@ export class AuthService {
         expiresIn: admin ? SECURITY_CONFIG.jwt.adminExpiry : undefined,
         deviceType: decoded.deviceType,
         stableDeviceId,
+        sessionFamilyId: priorSessionFamilyId,
         req,
         pushRevoked: false,
         tokenEpoch: currentEpoch,
@@ -1201,6 +1243,7 @@ export class AuthService {
         phone: user?.phone,
         role: identity.role,
         stableDeviceId,
+        sessionFamilyId,
         // Same epoch we just gated on — avoids a second durable-store read.
         tokenEpoch: currentEpoch,
         realm: admin ? 'admin' : 'user',
@@ -1252,14 +1295,10 @@ export class AuthService {
       await blacklistToken(decoded.jti, decoded.exp, 'logout', { requireEvidence: true });
     }
 
-    // A login mints an access token AND a sibling refresh token with
-    // independent jti values and no shared session-family id. Blacklisting
-    // only the presented token therefore leaves its sibling valid — a copied
-    // refresh token could still be rotated into a fresh session after a
-    // "successful" logout (Sol Ultra #19). Revoke every token for this
-    // identity so both credentials (and any other active session) are cut
-    // off. NOTE: this makes logout end all of the user's sessions; a
-    // per-device model would require a session-family id on both tokens.
+    // Access and refresh credentials now share a session-family id, but the
+    // generic logout endpoint has no durable per-family refresh-token ledger.
+    // Preserve its established all-device semantics so a copied refresh token
+    // cannot rotate after a successful logout.
     // R1: revokeAllUserTokens also bumps the identity's token_epoch, so the
     // sibling refresh token (and any other pre-logout refresh credential) is
     // refused at the refresh endpoint's issuance-time gate — and a retained
@@ -1591,7 +1630,11 @@ export class AuthService {
         // default-tenant fallback, so it never blocks a login.
         tenant_id: await resolveTenantIdForUid(user.uid),
       };
-      const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken: token,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: String(tokenPayload.uid),
         tokenPayload,
         req,
@@ -1607,6 +1650,7 @@ export class AuthService {
         id: user.id,
         phone: user.phone,
         role: user.role,
+        sessionFamilyId,
         tokenEpoch,
         realm: 'user',
       });

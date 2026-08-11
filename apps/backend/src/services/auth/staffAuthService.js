@@ -268,7 +268,11 @@ export class StaffAuthService {
         { platform: deviceType },
       );
 
-      const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: staff.uid,
         tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
@@ -276,7 +280,12 @@ export class StaffAuthService {
         stableDeviceId,
         req,
       });
-      const refreshToken = await this.generateRefreshToken(staff, stableDeviceId, tokenEpoch);
+      const refreshToken = await this.generateRefreshToken(
+        staff,
+        stableDeviceId,
+        tokenEpoch,
+        sessionFamilyId,
+      );
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_LOGIN', 'Staff login successful', req);
@@ -493,7 +502,13 @@ export class StaffAuthService {
         }),
       ]);
 
-      const sessionToken = await this.generateRefreshToken(staff, stableDeviceId);
+      const accessClaims = verifyToken(authResult.accessToken);
+      const sessionToken = await this.generateRefreshToken(
+        staff,
+        stableDeviceId,
+        accessClaims?.token_epoch,
+        accessClaims?.sessionFamilyId,
+      );
       await this.createSession(userId, deviceId, sessionToken, req);
 
       await this.logActivity(staff.uid, 'DEVICE_REGISTERED',
@@ -581,7 +596,11 @@ export class StaffAuthService {
 
       await this.logAuthAttempt(deviceAndStaff.employee_id, 'QUICK_LOGIN', true, null, authMethod, req);
 
-      const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: deviceAndStaff.uid,
         tokenPayload: {
           id: deviceAndStaff.staff_id,
@@ -593,7 +612,12 @@ export class StaffAuthService {
         stableDeviceId,
         req,
       });
-      const refreshToken = await this.generateRefreshToken(deviceAndStaff, stableDeviceId, tokenEpoch);
+      const refreshToken = await this.generateRefreshToken(
+        deviceAndStaff,
+        stableDeviceId,
+        tokenEpoch,
+        sessionFamilyId,
+      );
 
       await this.createSession(deviceAndStaff.staff_id, deviceAndStaff.device_id, refreshToken, req);
       await query('UPDATE staff_devices SET last_used = NOW() WHERE id = $1', [deviceAndStaff.internal_device_id]);
@@ -748,6 +772,7 @@ export class StaffAuthService {
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
         deviceType,
         stableDeviceId,
+        sessionFamilyId: decoded.sessionFamilyId || decoded.jti,
         req,
         pushRevoked: false,
         tokenEpoch: currentEpoch,
@@ -893,7 +918,11 @@ export class StaffAuthService {
         platform: deviceType,
       });
 
-      const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: staff.uid,
         tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
@@ -901,7 +930,12 @@ export class StaffAuthService {
         stableDeviceId,
         req,
       });
-      const refreshToken = await this.generateRefreshToken(staff, stableDeviceId, tokenEpoch);
+      const refreshToken = await this.generateRefreshToken(
+        staff,
+        stableDeviceId,
+        tokenEpoch,
+        sessionFamilyId,
+      );
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_PIN_LOGIN', 'Staff login with PIN successful', req);
@@ -948,7 +982,12 @@ export class StaffAuthService {
     staffUid,
     deviceToken,
     req,
-    { accessTokenJti = null, accessTokenExpiresAt = null } = {},
+    {
+      accessTokenJti = null,
+      accessTokenExpiresAt = null,
+      sessionFamilyId = null,
+      stableDeviceId = null,
+    } = {},
   ) {
     let revocationError = null;
     let allDevices = false;
@@ -975,6 +1014,8 @@ export class StaffAuthService {
           await blacklistToken(accessTokenJti, accessTokenExpiresAt, 'logout', {
             requireEvidence: true,
             userId: String(staffUid),
+            ...(sessionFamilyId ? { sessionFamilyId } : {}),
+            ...(stableDeviceId ? { stableDeviceId } : {}),
           });
         }
         if (allDevices) {
@@ -1135,7 +1176,7 @@ export class StaffAuthService {
     return generateToken({ id: staff.id, uid: staff.uid, role: staff.role }, SECURITY_CONFIG.jwt.staffAccessExpiry);
   }
 
-  static async generateRefreshToken(staff, stableDeviceId, tokenEpoch) {
+  static async generateRefreshToken(staff, stableDeviceId, tokenEpoch, sessionFamilyId) {
     // Refresh tokens get a longer expiry (30 days).
     // R1: stamped with the identity's current token_epoch at mint time —
     // refreshStaffSession refuses refresh tokens from an older epoch, so a
@@ -1149,6 +1190,7 @@ export class StaffAuthService {
       type: 'refresh',
       token_epoch: epoch,
       ...(stableDeviceId ? { stableDeviceId } : {}),
+      ...(sessionFamilyId ? { sessionFamilyId } : {}),
     }, '30d');
   }
 
