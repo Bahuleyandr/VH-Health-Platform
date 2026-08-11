@@ -25,9 +25,10 @@ jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
   logPhiAccess: jest.fn(),
 }));
 
+const loggerWarnMock = jest.fn();
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
-    warn: jest.fn(),
+    warn: loggerWarnMock,
     error: jest.fn(),
     info: jest.fn(),
     debug: jest.fn(),
@@ -41,7 +42,10 @@ jest.unstable_mockModule('../../services/security/careTeamEnforcement.js', () =>
   resolveEnforcementModeForRequest: modeMock,
 }));
 
-const { patientAccessGuard } = await import('../../middleware/phiAccessMiddleware.js');
+const {
+  patientAccessGuard,
+  patientAccessGuardForResource,
+} = await import('../../middleware/phiAccessMiddleware.js');
 
 const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 const ACTOR_UID = '22222222-2222-4222-8222-222222222222';
@@ -49,6 +53,7 @@ const ACTOR_UID = '22222222-2222-4222-8222-222222222222';
 afterEach(() => {
   prismaMock.$queryRawUnsafe.mockReset();
   prismaMock.$executeRawUnsafe.mockReset();
+  loggerWarnMock.mockReset();
   modeMock.mockReset();
   modeMock.mockResolvedValue('shadow');
 });
@@ -128,6 +133,54 @@ describe('patientAccessGuard — enforcement mode shadow', () => {
     expect(metadata.shadow_mode).toBe(true);
   });
 
+  it('allows and audits a required patient context that cannot be resolved', async () => {
+    modeMock.mockResolvedValue('shadow');
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuard('ONCOLOGY_DIAGNOSIS', {
+      careTeamModeGoverned: true,
+      patientSelector: async () => null,
+      requirePatientContext: true,
+    })(unrelatedDoctorReq(), res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Patient access audit file fallback:',
+      expect.objectContaining({
+        access_decision: 'deny',
+        patient_unresolved: true,
+        shadow_mode: true,
+      }),
+    );
+  });
+
+  it('allows an unresolved resource and records the would-be denial', async () => {
+    modeMock.mockResolvedValue('shadow');
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+    const next = jest.fn();
+    const res = resStub();
+    const req = unrelatedDoctorReq();
+    req.params = { id: '404' };
+
+    await patientAccessGuardForResource('ONCOLOGY_DIAGNOSIS', {
+      resourceType: 'oncology_diagnosis',
+      careTeamModeGoverned: true,
+    })(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'Patient access audit file fallback:',
+      expect.objectContaining({
+        access_decision: 'deny',
+        patient_unresolved: true,
+        shadow_mode: true,
+      }),
+    );
+  });
+
   it('FAILS OPEN (next called, no 500) when the engine throws an unexpected error', async () => {
     modeMock.mockResolvedValue('shadow');
     // Patient resolve throws a non-schema-missing error.
@@ -193,6 +246,53 @@ describe('patientAccessGuard — non-breaking on a legitimate request', () => {
       prismaMock.$queryRawUnsafe.mockReset();
       prismaMock.$executeRawUnsafe.mockReset();
     }
+  });
+
+  it('allows an enforce-mode oncology write derived from a tenant-scoped pathology report', async () => {
+    modeMock.mockResolvedValue('enforce');
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 15, uid: PATIENT_UID }]) // pathology report owner
+      .mockResolvedValueOnce([{ id: 15, uid: PATIENT_UID }]) // canonical patient
+      .mockResolvedValueOnce([{ id: 4, care_team_id: 5 }]); // care-team relationship
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+    const next = jest.fn();
+    const res = resStub();
+    const req = unrelatedDoctorReq();
+    req.params = { id: '73' };
+
+    await patientAccessGuardForResource('ONCOLOGY', {
+      resourceType: 'pathology_report',
+      careTeamModeGoverned: true,
+      requirePatientContext: true,
+    })(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('FROM ap_reports');
+  });
+
+  it('keeps direct patient context valid when an optional derived resource is absent', async () => {
+    modeMock.mockResolvedValue('enforce');
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 15, uid: PATIENT_UID }]) // canonical patient
+      .mockResolvedValueOnce([{ id: 4, care_team_id: 5 }]); // care-team relationship
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+    const next = jest.fn();
+    const res = resStub();
+    const req = unrelatedDoctorReq();
+    req.query = {};
+    req.body = { patient_uid: PATIENT_UID };
+
+    await patientAccessGuardForResource('ONCOLOGY', {
+      resourceType: 'pathology_report',
+      idSelector: (request) => request.body?.pathology_report_id,
+      careTeamModeGoverned: true,
+      requirePatientContext: true,
+    })(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('FROM users');
   });
 });
 
