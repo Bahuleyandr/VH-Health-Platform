@@ -268,6 +268,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   late final ScrollController _queuePanelScrollController;
   int _loadGeneration = 0;
   bool _hasLoadedAppointments = false;
+  bool _isStale = false;
 
   bool get _canBookAppointments => !_doctorScoped;
   bool get _doctorWorkspaceMode => widget.workspaceMode && _doctorScoped;
@@ -395,6 +396,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         setState(() {
           _appointmentsByDate = byDate;
           _hasLoadedAppointments = true;
+          _isStale = false;
           _error = null;
           _doctorScoped = doctorScoped;
           _currentStaffId = int.tryParse(doctorId ?? '');
@@ -414,6 +416,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           if (!_hasLoadedAppointments &&
               (!preserveLastKnownData || _appointmentsByDate.isEmpty)) {
             _error = e.toString().replaceFirst('Exception: ', '');
+          } else if (_hasLoadedAppointments) {
+            _isStale = true;
           }
         });
       }
@@ -450,6 +454,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _updateStatus(String id, String status) async {
+    if (_isStale) return;
     try {
       await ScheduleApiService.updateAppointmentStatus(id, status);
       if (!mounted) return;
@@ -468,6 +473,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _rescheduleAppointment(StaffAppointment appointment) async {
+    if (_isStale) return;
     final id = appointment.id;
     final s = AppStrings.of(context);
     if (id == null) {
@@ -489,6 +495,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       ),
     );
     if (request == null) return;
+    if (_isStale) return;
 
     try {
       await ScheduleApiService.rescheduleAppointmentInPlace(
@@ -528,6 +535,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _createAppointment() async {
+    if (_isStale) return;
     final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final patientPhoneCtrl = TextEditingController();
@@ -684,6 +692,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 '${appointmentTime.hour.toString().padLeft(2, '0')}:${appointmentTime.minute.toString().padLeft(2, '0')}';
 
             Future<void> submit() async {
+              if (_isStale) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(s.lookup('s4.lib.realtime_status.stale')),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+                return;
+              }
               if (!formKey.currentState!.validate()) return;
               if (!appointmentPatientLookupCanSubmit(
                 currentPhone: patientPhoneCtrl.text,
@@ -1469,7 +1486,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               _CalendarModePill(scopeLabel: _scopeLabel),
               if (_canBookAppointments)
                 FilledButton.icon(
-                  onPressed: _createAppointment,
+                  onPressed: _isStale ? null : _createAppointment,
                   icon: const Icon(Icons.add, size: 18),
                   label: const AppText('s4.lib.appointments.book_op'),
                   style: FilledButton.styleFrom(
@@ -1485,6 +1502,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   void _openAppointmentActions(StaffAppointment appointment) {
+    if (_isStale) return;
     if (_doctorScoped) {
       _openAppointmentPatient(appointment);
       return;
@@ -1700,6 +1718,27 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               margin: const EdgeInsets.only(bottom: 12),
             ),
             _buildToolbar(),
+            if (_isStale)
+              Card(
+                key: const Key('appointments-stale-data-banner'),
+                color: AppTheme.warningAmber.withValues(alpha: 0.12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cloud_off),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.realtime_status.stale'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _load,

@@ -393,7 +393,18 @@ describe('createFollowUp', () => {
 
   it('books a scheduled appointment when discharge follow-up has doctor and due_at', async () => {
     queryUnsafeMock
-      .mockResolvedValueOnce([{ id: 10, phone: '9000011111', name: 'Deep Patient' }])
+      .mockResolvedValueOnce([{
+        id: 10,
+        uid: PATIENT,
+        phone: '9000011111',
+        name: 'Deep Patient',
+        role: 'PATIENT',
+        is_active: true,
+        status: 'active',
+        is_deleted: false,
+        deleted_at: null,
+        merged_into_uid: null,
+      }])
       .mockResolvedValueOnce([{ id: 20, name: 'Dr Rao', department: 'General Medicine' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 30 }])
@@ -419,11 +430,51 @@ describe('createFollowUp', () => {
     expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
     expect(row.status).toBe('scheduled');
     expect(row.appointment_id).toBe(30);
+    const patientLock = queryUnsafeMock.mock.calls[0][0];
+    expect(patientLock).toMatch(/role = 'PATIENT'/);
+    expect(patientLock).toMatch(/is_active = TRUE/i);
+    expect(patientLock).toMatch(/merged_into_uid IS NULL/i);
+    expect(patientLock).toMatch(/FOR UPDATE/i);
     expect(queryUnsafeMock.mock.calls.some((c) => /INSERT INTO appointments/i.test(c[0]))).toBe(true);
     const followUpInsert = queryUnsafeMock.mock.calls.find((c) => /INSERT INTO follow_up_plans/i.test(c[0]));
     expect(followUpInsert[11]).toBe(30);
     expect(followUpInsert[12]).toBe('scheduled');
     expect(followUpInsert[15]).toBe('scheduled');
+  });
+
+  it.each([
+    ['inactive', { is_active: false, status: 'inactive', merged_into_uid: null }],
+    ['merged', {
+      is_active: true,
+      status: 'active',
+      merged_into_uid: '33333333-3333-4333-8333-333333333333',
+    }],
+  ])('does not insert a scheduled follow-up for an %s patient', async (_label, state) => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 10,
+        uid: PATIENT,
+        phone: '9000011111',
+        name: 'Unsafe Patient',
+        role: 'PATIENT',
+        is_active: state.is_active,
+        status: state.status,
+        is_deleted: false,
+        deleted_at: null,
+        merged_into_uid: state.merged_into_uid,
+      }]);
+
+    await expect(createFollowUp({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      doctorUid: DOCTOR,
+      originKind: 'discharge',
+      dueAt: '2026-05-20T04:30:00.000Z',
+      reason: 'Post-discharge review',
+    })).rejects.toMatchObject({ code: 'APPOINTMENT_PATIENT_UNAVAILABLE' });
+
+    expect(queryUnsafeMock.mock.calls.some((c) => /INSERT INTO appointments/i.test(c[0]))).toBe(false);
+    expect(queryUnsafeMock.mock.calls.some((c) => /INSERT INTO follow_up_plans/i.test(c[0]))).toBe(false);
   });
 });
 

@@ -158,6 +158,11 @@ describe('patientSearchController search', () => {
     expect(sql).toContain('u.uid = $1::uuid');
     expect(sql).toContain('u.tenant_id = $2::uuid');
     expect(sql).toContain("u.role = 'PATIENT'");
+    expect(sql).toContain('u.is_active = true');
+    expect(sql).toContain("LOWER(BTRIM(COALESCE(u.status, ''))) = 'active'");
+    expect(sql).toContain('u.is_deleted IS FALSE');
+    expect(sql).toContain('u.deleted_at IS NULL');
+    expect(sql).toContain('u.merged_into_uid IS NULL');
     expect(uidParam).toBe(PATIENT_UID);
     expect(tenantParam).toBe(TENANT_ID);
   });

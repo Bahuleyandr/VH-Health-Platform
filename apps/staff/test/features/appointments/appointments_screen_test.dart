@@ -147,7 +147,27 @@ void main() {
     await tester.pump();
 
     expect(find.text('Last Known Calendar Patient'), findsWidgets);
-    expect(find.textContaining('temporary outage'), findsNothing);
+    expect(
+      find.byKey(const Key('appointments-stale-data-banner')),
+      findsOneWidget,
+    );
+    final book = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Book OP'),
+    );
+    expect(book.onPressed, isNull);
+
+    generation = 0;
+    await refresh.onRefresh();
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('appointments-stale-data-banner')),
+      findsNothing,
+    );
+    final refreshedBook = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Book OP'),
+    );
+    expect(refreshedBook.onPressed, isNotNull);
   });
 
   group('appointment calendar helpers', () {
