@@ -19,7 +19,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { fetchAdminAPI, postJSON, putJSON } from "@/lib/api";
+import { fetchAdminAPI, postJSON, postJSONEnvelope, putJSON } from "@/lib/api";
 import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
 
 type BloodRequest = {
@@ -367,7 +367,13 @@ function NewRequestTab() {
   const [created, setCreated] = useState(false);
 
   const create = useMutation({
-    mutationFn: () => postJSON("/api/v1/blood-bank/request", form),
+    mutationFn: ({ payload, idempotencyKey }: { payload: typeof form; idempotencyKey: string }) =>
+      postJSONEnvelope(
+        "/api/v1/blood-bank/request",
+        payload,
+        true,
+        { "Idempotency-Key": idempotencyKey },
+      ),
     onSuccess: () => {
       setCreated(true);
       setForm({ patient_uid: "", blood_group: "O+", component: "prbc", units: 1, clinical_indication: "" });
@@ -382,7 +388,7 @@ function NewRequestTab() {
       return;
     }
     setCreated(false);
-    create.mutate();
+    create.mutate({ payload: form, idempotencyKey: crypto.randomUUID() });
   };
 
   return (

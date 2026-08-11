@@ -239,6 +239,7 @@ d('Blood-bank donor processing cycle', () => {
 
     const req = await authClient('DOCTOR')
       .post('/api/v1/blood-bank/request')
+      .set('Idempotency-Key', `n63-request-${RUN}`)
       .send({
         patient_uid: patientUid,
         blood_group: 'O+',

@@ -11,7 +11,8 @@ void main() {
   testWidgets('submits a selected patient using the backend 201 contract', (
     tester,
   ) async {
-    final gateway = _FakeBloodBankGateway();
+    final transport = _FakeBloodBankTransport();
+    final gateway = ApiBloodBankGateway(transport);
     const patient = BloodRequestPatient(
       uid: 'a9999999-9999-4999-8999-999999999a03',
       name: 'Blood Test Patient',
@@ -72,7 +73,9 @@ void main() {
     await tester.tap(submit);
     await tester.pumpAndSettle();
 
-    expect(gateway.submitted?.toJson(), {
+    expect(transport.posts, hasLength(1));
+    expect(transport.posts.single.path, '/blood-bank/request');
+    expect(transport.posts.single.body, {
       'patient_uid': 'a9999999-9999-4999-8999-999999999a03',
       'blood_group': 'O+',
       'units': 2,
@@ -84,20 +87,18 @@ void main() {
   });
 }
 
-class _FakeBloodBankGateway implements BloodBankGateway {
-  BloodRequestPayload? submitted;
+class _FakeBloodBankTransport implements BloodBankTransport {
+  final posts = <({String path, Map<String, dynamic>? body})>[];
 
   @override
-  Future<ApiResponse> createRequest(BloodRequestPayload payload) async {
-    submitted = payload;
+  Future<ApiResponse> post(String path, {Map<String, dynamic>? body}) async {
+    posts.add((path: path, body: body));
     return const ApiResponse(statusCode: 201, isSuccess: true, data: {});
   }
 
   @override
-  Future<ApiResponse> getInventory() async =>
-      const ApiResponse(statusCode: 200, isSuccess: true, data: []);
-
-  @override
-  Future<ApiResponse> getIssuedUnits() async =>
-      const ApiResponse(statusCode: 200, isSuccess: true, data: []);
+  Future<ApiResponse> get(
+    String path, {
+    Map<String, String>? queryParameters,
+  }) async => const ApiResponse(statusCode: 200, isSuccess: true, data: []);
 }

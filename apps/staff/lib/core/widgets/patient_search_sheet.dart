@@ -163,7 +163,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || query != _lastQuery) return;
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
@@ -327,7 +327,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
               // One-tap patient summary (roadmap E5) — opens the
               // allergies/meds/problems/vitals/pending-results sheet
               // WITHOUT leaving the current screen.
-              if (PatientSearchSheet.summaryOpener != null)
+              if (!widget.pickOnly && PatientSearchSheet.summaryOpener != null)
                 IconButton(
                   tooltip: AppStrings.of(context).summaryTooltip,
                   icon: const Icon(Icons.assignment_ind_outlined),

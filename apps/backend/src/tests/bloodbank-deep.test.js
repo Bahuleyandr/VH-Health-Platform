@@ -5,6 +5,7 @@
 // columns — they don't exist on blood_requests; the service folds reactions into notes).
 
 import { generateTestToken } from './testClient.js';
+import { randomUUID } from 'node:crypto';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
@@ -19,7 +20,7 @@ function mkClient(role, uid, intId) {
   const token = generateTestToken(role, { uid, id: intId });
   return {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
-    post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`).set('Idempotency-Key', `bloodbank-test-${randomUUID()}`),
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
 }
@@ -245,6 +246,68 @@ describe('Bloodbank lifecycle — deep integration', () => {
         verification_override_reason: 'Legacy unit-less request fixture — bedside scan not possible',
       });
       expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe('request retry safety', () => {
+    it('replays a lost 201 without duplicating the request or canonical events', async () => {
+      const idempotencyKey = `bloodbank-lost-2xx-${randomUUID()}`;
+      const clinicalIndication = `Lost 2xx replay regression ${randomUUID()}`;
+      const payload = {
+        patient_uid: PATIENT_UID,
+        blood_group: 'O+',
+        component: 'prbc',
+        units: 1,
+        urgency: 'urgent',
+        clinical_indication: clinicalIndication,
+      };
+
+      const first = await doctor.post('/api/v1/blood-bank/request')
+        .set('Idempotency-Key', idempotencyKey)
+        .send(payload);
+      expect(first.statusCode).toBe(201);
+
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const claims = await prisma.$queryRawUnsafe(
+          `SELECT status FROM idempotency_keys
+            WHERE request_key = $1 AND request_path = '/api/v1/blood-bank/request'`,
+          idempotencyKey,
+        );
+        if (claims[0]?.status === 'complete') break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+
+      const retry = await doctor.post('/api/v1/blood-bank/request')
+        .set('Idempotency-Key', idempotencyKey)
+        .send(payload);
+      expect(retry.statusCode).toBe(201);
+      expect(retry.body).toEqual(first.body);
+
+      const requests = await prisma.$queryRawUnsafe(
+        `SELECT id FROM blood_requests
+          WHERE patient_uid = $1::uuid AND clinical_indication = $2`,
+        PATIENT_UID,
+        clinicalIndication,
+      );
+      expect(requests).toHaveLength(1);
+
+      const timelineEvents = await prisma.$queryRawUnsafe(
+        `SELECT id FROM clinical_timeline_events
+          WHERE source_table = 'blood_requests'
+            AND source_id = $1
+            AND event_type = 'transfusion.requested'`,
+        String(requests[0].id),
+      );
+      expect(timelineEvents).toHaveLength(1);
+
+      const auditEvents = await prisma.$queryRawUnsafe(
+        `SELECT id FROM clinical_audit_events
+          WHERE resource_table = 'blood_requests'
+            AND resource_id = $1
+            AND action = 'transfusion.requested'`,
+        String(requests[0].id),
+      );
+      expect(auditEvents).toHaveLength(1);
     });
   });
 

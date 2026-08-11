@@ -77,6 +77,14 @@ jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
   emitBloodBankEvent: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../services/idempotency/idempotencyService.js', () => ({
+  claimIdempotencyKey: jest.fn(async () => ({ state: 'claimed', id: null })),
+  finaliseIdempotencyKey: jest.fn(),
+  hashRequestBody: jest.fn(() => 'request-body-hash'),
+  isValidIdempotencyKey: jest.fn(() => true),
+  releaseIdempotencyKey: jest.fn(),
+}));
+
 const { default: bloodBankRoutes } = await import('../../routes/bloodbank/bloodBankRoutes.js');
 
 const capturedErrors = [];
@@ -107,6 +115,23 @@ beforeEach(() => {
 });
 
 describe('blood-bank routes relay AppError code + details', () => {
+  test('requires a stable idempotency key before creating a blood request', async () => {
+    const response = await request(app)
+      .post('/api/v1/blood-bank/request')
+      .send({
+        patient_uid: '22222222-2222-4222-8222-222222222222',
+        blood_group: 'O+',
+        units: 2,
+        component: 'prbc',
+        clinical_indication: 'Symptomatic anaemia Hb 6.2',
+      });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toBe('Idempotency-Key header is required for this endpoint');
+    expect(response.body.details).toEqual({ scope: 'blood_bank_request' });
+    expect(createRequestMock).not.toHaveBeenCalled();
+  });
+
   test('plain isOperational site: AppError carries code + details over HTTP', async () => {
     createRequestMock.mockRejectedValueOnce(AppError.conflict(
       'An identical blood request is already pending for this patient',
@@ -116,6 +141,7 @@ describe('blood-bank routes relay AppError code + details', () => {
 
     const response = await request(app)
       .post('/api/v1/blood-bank/request')
+      .set('Idempotency-Key', 'bloodbank-route-app-error-test')
       .send({
         patient_uid: '22222222-2222-4222-8222-222222222222',
         blood_group: 'O+',

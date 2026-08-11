@@ -1,11 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import BloodBankPage from "@/app/(with-auth)/dashboard/blood-bank/page";
+import { postJSONEnvelope } from "@/lib/api";
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn().mockResolvedValue({ data: [] }),
   postJSON: jest.fn().mockResolvedValue({}),
+  postJSONEnvelope: jest.fn().mockResolvedValue({ success: true, data: {} }),
   putJSON: jest.fn().mockResolvedValue({}),
 }));
 
@@ -45,5 +47,31 @@ describe("<BloodBankPage />", () => {
     renderWithQuery(<BloodBankPage />);
     const ind = await screen.findByTestId("blood-bank-realtime-indicator");
     expect(ind).toHaveTextContent("Live");
+  });
+
+  it("creates a blood request with the route's required idempotency key", async () => {
+    renderWithQuery(<BloodBankPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Request" }));
+    fireEvent.change(screen.getByPlaceholderText("Patient UID"), {
+      target: { value: "a9999999-9999-4999-8999-999999999a03" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Clinical indication"), {
+      target: { value: "Symptomatic anaemia Hb 6.2" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create Request" }));
+
+    await waitFor(() => expect(postJSONEnvelope).toHaveBeenCalledTimes(1));
+    expect(postJSONEnvelope).toHaveBeenCalledWith(
+      "/api/v1/blood-bank/request",
+      expect.objectContaining({
+        patient_uid: "a9999999-9999-4999-8999-999999999a03",
+        clinical_indication: "Symptomatic anaemia Hb 6.2",
+      }),
+      true,
+      {
+        "Idempotency-Key": expect.stringMatching(/^[A-Za-z0-9_\-:.]{1,200}$/),
+      },
+    );
   });
 });
