@@ -111,20 +111,22 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(roleBoundary).toBeGreaterThan(seedBoundary);
   });
 
-  test('rolls back self-managed failures, stops the loop, and keeps explicit skips non-fatal', () => {
+  test('delegates migration execution, stops on failure, and keeps explicit skips non-fatal', () => {
     const skipBranch = runnerSource.indexOf('if (SKIP_MIGRATIONS.has(file))');
     const skipContinue = runnerSource.indexOf('continue;', skipBranch);
     const migrationTry = runnerSource.indexOf('try {', skipBranch);
+    const executorCall = runnerSource.indexOf(
+      'const result = await executeCiMigrationFile({',
+      migrationTry,
+    );
     const errorIncrement = runnerSource.indexOf('errors++;', migrationTry);
     const failureBreak = runnerSource.indexOf('break;', errorIncrement);
-    const rollback = runnerSource.lastIndexOf("await client.query('ROLLBACK')", errorIncrement);
 
     expect(skipBranch).toBeGreaterThan(-1);
     expect(skipContinue).toBeGreaterThan(skipBranch);
     expect(migrationTry).toBeGreaterThan(skipContinue);
-    expect(errorIncrement).toBeGreaterThan(migrationTry);
-    expect(rollback).toBeGreaterThan(migrationTry);
-    expect(rollback).toBeLessThan(errorIncrement);
+    expect(executorCall).toBeGreaterThan(migrationTry);
+    expect(errorIncrement).toBeGreaterThan(executorCall);
     expect(failureBreak).toBeGreaterThan(errorIncrement);
   });
 

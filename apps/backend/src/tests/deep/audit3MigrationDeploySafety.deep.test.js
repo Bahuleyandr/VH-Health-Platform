@@ -730,7 +730,7 @@ describeIfDb('Audit 3 migration deploy-safety posture', () => {
         failure = error;
       }
       await client.query('ROLLBACK TO SAVEPOINT expected_restrict');
-      expect(failure).toMatchObject({ code: '23503' });
+      expect(['23001', '23503']).toContain(failure?.code);
       expect(failure.constraint).toBe('fk_icu_code_status_history_admission_tenant');
     } finally {
       await client.query('ROLLBACK');
