@@ -3,15 +3,45 @@ import { HEALTH_MESSAGES } from '../../config/healthConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { computeGrowthSnapshot } from '../../services/clinical/growthPercentileService.js';
+import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import * as patientHealthService from '../../services/health/patientHealthService.js';
-import { normaliseTemperatureRoute } from '../../utils/clinical/temperatureRoute.js';
+import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
 let vitalsSourceColumnsSupported;
+
+const STRICT_DECIMAL_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+function strictNumberOrUndefined(value, field, { integer = false } = {}) {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (typeof value === 'boolean' || typeof value === 'object') {
+    throw AppError.badRequest(`${field} must be a number`);
+  }
+  const text = String(value).trim();
+  if (text === '') return undefined;
+  if (!STRICT_DECIMAL_PATTERN.test(text)) {
+    throw AppError.badRequest(`${field} must be a number`);
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed)) {
+    throw AppError.badRequest(`${field} must be a finite number`);
+  }
+  if (integer && !Number.isInteger(parsed)) {
+    throw AppError.badRequest(`${field} must be an integer`);
+  }
+  return parsed;
+}
+
+function strictPositiveInteger(value, field) {
+  const parsed = strictNumberOrUndefined(value, field, { integer: true });
+  if (parsed === undefined || parsed <= 0) {
+    throw AppError.badRequest(`${field} must be a positive integer`);
+  }
+  return parsed;
+}
 
 async function hasVitalsSourceColumns() {
   if (vitalsSourceColumnsSupported !== undefined) {
@@ -292,6 +322,7 @@ export async function recordStaffVitals(req, res) {
       patient_id,
       vital_signs = {},
       measurements = {},
+      notes,
       admission_id,
       admissionId,
       encounter_id,
@@ -301,13 +332,11 @@ export async function recordStaffVitals(req, res) {
       return error(res, 'patient_id is required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    if (req.user?.role === 'PATIENT' && String(req.user?.id) !== String(patient_id)) {
-      return error(res, 'Access denied — patients can only record their own vitals', HTTP_STATUS.FORBIDDEN);
-    }
+    const patientId = strictPositiveInteger(patient_id, 'patient_id');
 
-    const patientId = Number.parseInt(patient_id, 10);
-    if (!Number.isInteger(patientId) || patientId <= 0) {
-      return error(res, 'patient_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+    if (!tenantId) {
+      throw AppError.badRequest('Tenant context is required');
     }
 
     // Inpatient encounter linkage. Without these, ward vitals float free
@@ -316,11 +345,7 @@ export async function recordStaffVitals(req, res) {
     const admissionIdRaw = admission_id ?? admissionId;
     let admissionIdValue = null;
     if (admissionIdRaw !== undefined && admissionIdRaw !== null && admissionIdRaw !== '') {
-      const parsedAdmission = Number.parseInt(admissionIdRaw, 10);
-      if (!Number.isInteger(parsedAdmission) || parsedAdmission <= 0) {
-        return error(res, 'admission_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
-      }
-      admissionIdValue = parsedAdmission;
+      admissionIdValue = strictPositiveInteger(admissionIdRaw, 'admission_id');
     }
     const encounterIdRaw = encounter_id ?? encounterId;
     let encounterIdValue = null;
@@ -333,69 +358,100 @@ export async function recordStaffVitals(req, res) {
     }
 
     const patient = await prisma.$queryRawUnsafe(
-      'SELECT id, uid, birthday, gender FROM users WHERE id = $1 AND COALESCE(is_active, true) = true LIMIT 1',
-      patientId
+      `SELECT id, uid, birthday, gender, tenant_id, role
+         FROM users
+        WHERE id = $1
+          AND tenant_id = $2::uuid
+          AND COALESCE(is_active, true) = true
+        LIMIT 1`,
+      patientId,
+      tenantId,
     );
     if (patient.length === 0) {
       return error(res, HEALTH_MESSAGES.PATIENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
     }
+    if (patient[0].role !== 'PATIENT') {
+      return error(res, 'patient_id must identify a patient', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const vitalSigns = vital_signs && typeof vital_signs === 'object' ? vital_signs : {};
     const measurementValues = measurements && typeof measurements === 'object' ? measurements : {};
-    const numberOrNull = (value, parser = Number.parseFloat) => {
-      if (value === null || value === undefined || value === '') return null;
-      const parsed = parser(String(value), 10);
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-
-    const bloodPressure = vitalSigns.blood_pressure || vitalSigns.bloodPressure || null;
-    const heartRate = numberOrNull(
+    const bloodPressure = vitalSigns.blood_pressure ?? vitalSigns.bloodPressure;
+    if (bloodPressure != null && (typeof bloodPressure !== 'object' || Array.isArray(bloodPressure))) {
+      throw AppError.badRequest('blood_pressure must be an object');
+    }
+    const systolicBp = strictNumberOrUndefined(bloodPressure?.systolic, 'systolic_bp');
+    const diastolicBp = strictNumberOrUndefined(bloodPressure?.diastolic, 'diastolic_bp');
+    const heartRate = strictNumberOrUndefined(
       vitalSigns.heart_rate ?? vitalSigns.heartRate ?? vitalSigns.pulse,
-      Number.parseInt
+      'heart_rate',
     );
-    const temperature = numberOrNull(vitalSigns.temperature);
-    const bloodSugar = numberOrNull(
+    const temperature = strictNumberOrUndefined(vitalSigns.temperature, 'temperature');
+    const bloodSugar = strictNumberOrUndefined(
       vitalSigns.blood_sugar ?? vitalSigns.bloodSugar,
-      Number.parseInt
+      'blood_glucose',
     );
-    const spO2 = numberOrNull(vitalSigns.spo2 ?? vitalSigns.spO2, Number.parseInt);
-    const weight = numberOrNull(measurementValues.weight);
-    // height isn't a patient_vitals column, but the nurse may still send it
-    // in measurements — read it so the growth percentile can use it.
-    const heightCm = numberOrNull(measurementValues.height_cm ?? measurementValues.height);
+    const spO2 = strictNumberOrUndefined(
+      vitalSigns.spo2 ?? vitalSigns.spO2,
+      'spo2',
+    );
+    const weight = strictNumberOrUndefined(measurementValues.weight, 'weight');
+    const heightCm = strictNumberOrUndefined(
+      measurementValues.height_cm ?? measurementValues.height,
+      'height_cm',
+    );
 
     // Temperature route (axillary/oral/rectal/tympanic) — axillary runs
     // ~0.5 C below oral, so the route changes a paediatric fever band.
     // Finding: 2026-05-09-pediatric-opd-nurse-no-temperature-route-field.
-    const routeResult = normaliseTemperatureRoute(
-      vitalSigns.temperature_route ?? vitalSigns.temperatureRoute
-    );
-    if (routeResult.error) {
-      return error(res, routeResult.error, HTTP_STATUS.BAD_REQUEST);
-    }
-    const temperatureRoute = routeResult.value;
-
-    if (!bloodPressure && heartRate == null && temperature == null &&
+    if (systolicBp == null && diastolicBp == null && heartRate == null && temperature == null &&
         bloodSugar == null && weight == null && spO2 == null) {
       return error(res, 'At least one vital sign or measurement is required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO patient_vitals
-         (patient_uid, blood_pressure, heart_rate, temperature, temperature_route, blood_sugar, weight, spo2, source, admission_id, encounter_id)
-       VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, $8, 'manual', $9, $10::uuid)
-       RETURNING id, recorded_at, source, admission_id, encounter_id`,
-      patient[0].uid,
-      bloodPressure ? JSON.stringify(bloodPressure) : null,
-      heartRate,
+    let canonicalEncounterId = encounterIdValue;
+    if (admissionIdValue != null) {
+      const admissions = await prisma.$queryRawUnsafe(
+        `SELECT encounter_id, patient_uid
+           FROM admissions
+          WHERE id = $1
+            AND tenant_id = $2::uuid
+          LIMIT 1`,
+        admissionIdValue,
+        tenantId,
+      );
+      const admission = admissions[0] ?? null;
+      if (!admission || String(admission.patient_uid) !== String(patient[0].uid)) {
+        throw AppError.notFound('Admission not found for patient');
+      }
+      if (!admission.encounter_id) {
+        throw AppError.badRequest('admission_id has no encounter_id');
+      }
+      if (canonicalEncounterId && canonicalEncounterId !== String(admission.encounter_id)) {
+        throw AppError.badRequest('encounter_id does not match admission_id');
+      }
+      canonicalEncounterId = String(admission.encounter_id);
+    }
+
+    const result = await vitalsChartService.recordVitals({
+      tenant_id: tenantId,
+      patient_uid: String(patient[0].uid),
+      patient_id: patientId,
+      encounter_id: canonicalEncounterId,
+      heart_rate: heartRate,
+      systolic_bp: systolicBp,
+      diastolic_bp: diastolicBp,
       temperature,
-      temperatureRoute,
-      bloodSugar,
-      weight,
-      spO2,
-      admissionIdValue,
-      encounterIdValue,
-    );
+      temperature_unit: vitalSigns.temperature_unit ?? vitalSigns.temperatureUnit ?? 'F',
+      temperature_route: vitalSigns.temperature_route ?? vitalSigns.temperatureRoute,
+      spo2: spO2,
+      blood_glucose: bloodSugar,
+      weight_kg: weight,
+      height_cm: heightCm,
+      notes,
+      recorded_by: req.user?.uid,
+      source: 'staff',
+    });
 
     logPhiAccess({
       userId: req.user?.uid,
@@ -404,154 +460,132 @@ export async function recordStaffVitals(req, res) {
       recordType: 'STAFF_RECORDED_VITALS',
       action: 'CREATE',
       ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
-      requestId: req.id
+      requestId: req.id,
+      tenantId,
     });
 
-    // Paediatric growth percentile — compute WHO percentiles from the
-    // weight/height the nurse just entered so the value surfaces in this
-    // same response instead of requiring a separate growth-chart POST.
-    // Best-effort: never blocks the vitals save. Findings:
-    //   2026-05-09-pediatric-opd-nurse-growth-chart-not-linked-to-vitals
-    //   2026-05-11-pediatric-opd-nurse-4354eb08
-    let growth = null;
-    try {
-      growth = await computeGrowthSnapshot({
-        gender: patient[0].gender,
-        birthday: patient[0].birthday,
-        weightKg: weight,
-        heightCm,
-      });
-    } catch (err) {
-      logger.warn('Growth percentile computation failed', { error: err.message });
-    }
-
     success(res, {
-      id: result[0].id,
+      id: result.vitals.id,
       patientId: patient[0].id,
       patientUid: patient[0].uid,
-      recordedAt: result[0].recorded_at,
-      source: result[0].source || 'manual',
-      admissionId: result[0].admission_id ?? null,
-      encounterId: result[0].encounter_id ?? null,
-      growth,
+      recordedAt: result.vitals.recorded_at,
+      source: result.vitals.source || 'staff',
+      admissionId: admissionIdValue,
+      encounterId: result.vitals.encounter_uid ?? result.vitals.encounter_id ?? null,
+      growth: result.growth ?? null,
+      news2: result.news2 ?? null,
+      alerts: result.alerts ?? [],
     }, 'Vitals recorded successfully');
   } catch (err) {
-    logger.error('Record staff vitals error:', err);
-    error(res, 'Failed to record vitals', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to record vitals');
   }
 }
 
-// Correction window for staff-recorded vitals. A nurse should be able
-// to fix a transposed BP / glucose / heart rate within a few minutes
-// of recording (data entered under time pressure during a vitals round
-// or pre-op holding area). Outside the window, a correction has to go
-// through a clinical-note addendum rather than silently overwriting
-// the row.
-const VITALS_EDIT_WINDOW_MS = 5 * 60 * 1000;
-
 /**
- * PUT /health/records/:id — Correct a staff-recorded vital sign row
- * within the 5-minute edit window. Accepts the same shape as
- * POST /health/records (vital_signs / measurements). Returns 403 with
- * `EDIT_WINDOW_EXPIRED` once the window has closed.
+ * PUT /health/records/:id — compatibility adapter for the canonical vitals
+ * correction service. The ID returned by POST /health/records is a
+ * vitals_chart ID; keeping correction on the same canonical row preserves its
+ * NEWS2 re-score, timeline, clinical audit, tenant, and five-minute window.
  */
 export async function updateStaffVitals(req, res) {
   try {
-    const vitalId = Number.parseInt(req.params.id, 10);
-    if (!Number.isInteger(vitalId) || vitalId <= 0) {
-      return error(res, 'vital id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
-    }
+    const vitalId = strictPositiveInteger(req.params.id, 'vital id');
 
-    const existingRows = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, recorded_at
-         FROM patient_vitals
-        WHERE id = $1
-        LIMIT 1`,
-      vitalId,
-    );
-    if (existingRows.length === 0) {
-      return error(res, 'Vital record not found', HTTP_STATUS.NOT_FOUND);
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+    if (!tenantId) {
+      throw AppError.badRequest('Tenant context is required');
     }
-    const existing = existingRows[0];
-
-    const recordedAtMs = new Date(existing.recorded_at).getTime();
-    if (!Number.isFinite(recordedAtMs)) {
-      return error(res, 'Vital record has no recorded_at timestamp', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-    }
-    if (Date.now() - recordedAtMs > VITALS_EDIT_WINDOW_MS) {
-      return error(
-        res,
-        'Edit window expired — corrections beyond 5 minutes must be filed as a clinical-note addendum',
-        HTTP_STATUS.FORBIDDEN,
-        { code: 'EDIT_WINDOW_EXPIRED', recordedAt: existing.recorded_at },
-      );
-    }
-
     const body = req.body || {};
     const vitalSigns = body.vital_signs && typeof body.vital_signs === 'object' ? body.vital_signs : {};
     const measurementValues = body.measurements && typeof body.measurements === 'object' ? body.measurements : {};
-    const numberOrNull = (value, parser = Number.parseFloat) => {
-      if (value === null || value === undefined || value === '') return undefined;
-      const parsed = parser(String(value), 10);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    };
-
     const bloodPressure = vitalSigns.blood_pressure ?? vitalSigns.bloodPressure;
-    const heartRate = numberOrNull(
+    if (bloodPressure != null && (typeof bloodPressure !== 'object' || Array.isArray(bloodPressure))) {
+      throw AppError.badRequest('blood_pressure must be an object');
+    }
+    const systolicBp = bloodPressure == null
+      ? undefined
+      : strictNumberOrUndefined(bloodPressure.systolic, 'systolic_bp');
+    const diastolicBp = bloodPressure == null
+      ? undefined
+      : strictNumberOrUndefined(bloodPressure.diastolic, 'diastolic_bp');
+    const heartRate = strictNumberOrUndefined(
       vitalSigns.heart_rate ?? vitalSigns.heartRate ?? vitalSigns.pulse,
-      Number.parseInt,
+      'heart_rate',
     );
-    const temperature = numberOrNull(vitalSigns.temperature);
-    const bloodSugar = numberOrNull(
+    const temperature = strictNumberOrUndefined(vitalSigns.temperature, 'temperature');
+    const bloodSugar = strictNumberOrUndefined(
       vitalSigns.blood_sugar ?? vitalSigns.bloodSugar,
-      Number.parseInt,
+      'blood_glucose',
     );
-    const spO2 = numberOrNull(vitalSigns.spo2 ?? vitalSigns.spO2, Number.parseInt);
-    const weight = numberOrNull(measurementValues.weight);
-
-    const updates = [];
-    const params = [];
-    const pushSet = (column, value, cast = '') => {
-      params.push(value);
-      updates.push(`${column} = $${params.length}${cast}`);
-    };
-    if (bloodPressure !== undefined) {
-      pushSet('blood_pressure', bloodPressure ? JSON.stringify(bloodPressure) : null, '::jsonb');
-    }
-    if (heartRate !== undefined) pushSet('heart_rate', heartRate);
-    if (temperature !== undefined) pushSet('temperature', temperature);
-    if (bloodSugar !== undefined) pushSet('blood_sugar', bloodSugar);
-    if (weight !== undefined) pushSet('weight', weight);
-    if (spO2 !== undefined) pushSet('spo2', spO2);
-
-    if (updates.length === 0) {
-      return error(res, 'At least one vital field is required to correct', HTTP_STATUS.BAD_REQUEST);
-    }
-
-    params.push(vitalId);
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE patient_vitals
-          SET ${updates.join(', ')}
-        WHERE id = $${params.length}
-        RETURNING id, patient_uid, blood_pressure, heart_rate, temperature,
-                  blood_sugar, weight, spo2, recorded_at, source`,
-      ...params,
+    const spO2 = strictNumberOrUndefined(
+      vitalSigns.spo2 ?? vitalSigns.spO2,
+      'spo2',
     );
+    const weight = strictNumberOrUndefined(measurementValues.weight, 'weight');
+    const heightCm = strictNumberOrUndefined(
+      measurementValues.height_cm ?? measurementValues.height,
+      'height_cm',
+    );
+
+    const corrected = await vitalsChartService.correctVitals(vitalId, {
+      ...(bloodPressure === null ? { systolic_bp: null, diastolic_bp: null } : {}),
+      ...(systolicBp !== undefined ? { systolic_bp: systolicBp } : {}),
+      ...(diastolicBp !== undefined ? { diastolic_bp: diastolicBp } : {}),
+      ...(heartRate !== undefined ? { heart_rate: heartRate } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(bloodSugar !== undefined ? { blood_glucose: bloodSugar } : {}),
+      ...(weight !== undefined ? { weight_kg: weight } : {}),
+      ...(heightCm !== undefined ? { height_cm: heightCm } : {}),
+      ...(spO2 !== undefined ? { spo2: spO2 } : {}),
+      ...(Object.prototype.hasOwnProperty.call(body, 'notes') ? { notes: body.notes } : {}),
+      temperature_unit: vitalSigns.temperature_unit ?? vitalSigns.temperatureUnit ?? 'F',
+      corrected_by: req.user?.uid,
+      actor_role: req.user?.role,
+      ip_address: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+      tenantId,
+    });
 
     logPhiAccess({
       userId: req.user?.uid,
       userRole: req.user?.role,
-      patientId: existing.patient_uid,
+      patientId: corrected.patient_uid,
       recordType: 'STAFF_RECORDED_VITALS',
       action: 'UPDATE',
       ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
       requestId: req.id,
+      tenantId,
     });
 
-    success(res, result[0], 'Vital record corrected');
+    const temperatureF = corrected.temperature == null
+      ? null
+      : (Number(corrected.temperature) * 9) / 5 + 32;
+    success(res, {
+      id: corrected.id,
+      patient_uid: corrected.patient_uid,
+      blood_pressure: corrected.systolic_bp == null && corrected.diastolic_bp == null
+        ? null
+        : {
+            systolic: corrected.systolic_bp == null ? null : Number(corrected.systolic_bp),
+            diastolic: corrected.diastolic_bp == null ? null : Number(corrected.diastolic_bp),
+          },
+      heart_rate: corrected.heart_rate == null ? null : Number(corrected.heart_rate),
+      temperature: temperatureF,
+      blood_sugar: corrected.blood_glucose == null ? null : Number(corrected.blood_glucose),
+      weight: corrected.weight_kg == null ? null : Number(corrected.weight_kg),
+      spo2: corrected.spo2 == null ? null : Number(corrected.spo2),
+      recorded_at: corrected.recorded_at,
+      source: corrected.source,
+    }, 'Vital record corrected');
   } catch (err) {
-    logger.error('Update staff vitals error:', err);
-    error(res, 'Failed to correct vital record', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    if (err?.statusCode === HTTP_STATUS.CONFLICT && /correction window has expired/i.test(err.message)) {
+      return error(
+        res,
+        'Edit window expired — corrections beyond 5 minutes must be filed as a clinical-note addendum',
+        HTTP_STATUS.FORBIDDEN,
+        { code: 'EDIT_WINDOW_EXPIRED' },
+      );
+    }
+    return relayAppError(res, err, 'Failed to correct vital record');
   }
 }
 

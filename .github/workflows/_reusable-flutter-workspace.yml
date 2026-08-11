@@ -40,6 +40,9 @@ jobs:
           node --test scripts/check-docs-plugin-versions.test.mjs
           node scripts/check-docs-plugin-versions.mjs
 
+      - name: Vital bounds generated-contract drift
+        run: node scripts/generate-vital-bounds.mjs --check
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           # Pin the exact Flutter (Dart) version so `dart format` is

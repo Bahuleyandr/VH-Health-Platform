@@ -1,13 +1,14 @@
 // src/routes/emr/vitalsRoutes.js
 import express from 'express';
 import { validationResult } from 'express-validator';
-import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { vitalsValidator } from '../../validators/sharedValidators.js';
+import { guardClinicalVitalsWrite, guardVitalsResourceWrite } from './vitalsRouteGuards.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -20,20 +21,12 @@ const router = express.Router();
 const guardClinicalView = patientAccessGuard('VITAL_SIGN', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
 });
-const guardClinicalWrite = patientAccessGuard('VITAL_SIGN', {
-  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
-});
-const guardVitalsResourceWrite = patientAccessGuardForResource('VITAL_SIGN', {
-  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
-  resourceType: 'vitals',
-  idParam: 'vitalsId',
-});
 
 // ===================================================================
 // POST /emr/vitals — Record vitals
 // ===================================================================
 
-router.post('/vitals', rejectMobileClinicalWrite, ...vitalsValidator, validate, guardClinicalWrite, async (req, res, next) => {
+router.post('/vitals', rejectMobileClinicalWrite, ...vitalsValidator, validate, guardClinicalVitalsWrite, async (req, res, next) => {
   try {
     const {
       patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
@@ -238,7 +231,7 @@ router.get('/vitals/:patientUid/chart', guardClinicalView, async (req, res, next
 // POST /emr/io — Record intake/output
 // ===================================================================
 
-router.post('/io', rejectMobileClinicalWrite, guardClinicalWrite, async (req, res, next) => {
+router.post('/io', rejectMobileClinicalWrite, guardClinicalVitalsWrite, async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description } = req.body;
 

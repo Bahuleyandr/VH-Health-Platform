@@ -11,6 +11,7 @@ export function runFlutterStage() {
   // .github/workflows/_reusable-flutter-workspace.yml.
   run(process.execPath, ['--test', 'scripts/check-docs-plugin-versions.test.mjs']);
   run(process.execPath, ['scripts/check-docs-plugin-versions.mjs']);
+  run(process.execPath, ['scripts/generate-vital-bounds.mjs', '--check']);
 
   run('dart', ['pub', 'get']);
   run('dart', ['run', 'melos', 'bootstrap']);
