@@ -10,8 +10,16 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { assertSyntheticSeedTarget } from '../apps/backend/scripts/lib/testDataSeedGuard.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
+assertSyntheticSeedTarget({
+  connectionString,
+  scriptName: 'seed-local-hands-on-hospital-data.mjs',
+  allowNonTestOverride: false,
+});
+
 const requireFromBackend = createRequire(
   path.join(__dirname, '..', 'apps', 'backend', 'package.json')
 );
@@ -25,27 +33,6 @@ const {
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const SEED_TAG = 'vh_hands_on_seed';
-const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
-
-function guard() {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'seed-local-hands-on-hospital-data.mjs refuses synthetic data when NODE_ENV=production.'
-    );
-  }
-  if (!connectionString) {
-    throw new Error('DATABASE_URL or TEST_DATABASE_URL is required.');
-  }
-  const url = new URL(connectionString);
-  const host = url.hostname.toLowerCase();
-  const db = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-  if (!['127.0.0.1', 'localhost', '::1'].includes(host) || db !== 'vhhealth_test') {
-    throw new Error(
-      `Refusing to seed non-local test DB (${host}/${db}). ` +
-        'Use the local vhhealth_test database.'
-    );
-  }
-}
 
 const patients = [
   {
@@ -983,7 +970,6 @@ async function addAudit(client, actorUid, action, resource, resourceId, metadata
 }
 
 async function main() {
-  guard();
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {

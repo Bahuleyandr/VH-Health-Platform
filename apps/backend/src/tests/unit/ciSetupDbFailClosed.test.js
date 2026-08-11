@@ -35,13 +35,15 @@ const directSeedSources = [
   source: readFileSync(new URL(`../../../scripts/${name}`, import.meta.url), 'utf8'),
 }));
 
-const rootLocalToolSources = [
-  'seed-dev-env.mjs',
-  'seed-local-hands-on-hospital-data.mjs',
-].map((name) => ({
+const rootLocalToolSources = ['seed-dev-env.mjs'].map((name) => ({
   name,
   source: readFileSync(new URL(`../../../../../scripts/${name}`, import.meta.url), 'utf8'),
 }));
+
+const localHandsOnSeedSource = readFileSync(
+  new URL('../../../../../scripts/seed-local-hands-on-hospital-data.mjs', import.meta.url),
+  'utf8',
+);
 
 const qaTenantSeedSource = readFileSync(
   new URL('../../../../../scripts/seed-qa-tenant.mjs', import.meta.url),
@@ -366,6 +368,24 @@ describe('test-data seed safety boundary', () => {
 
   test.each(rootLocalToolSources)('$name refuses production use', ({ source }) => {
     expect(source).toContain("process.env.NODE_ENV === 'production'");
+  });
+
+  test('the local hands-on seed rejects target overrides before loading pg', () => {
+    const guardCall = localHandsOnSeedSource.indexOf('assertSyntheticSeedTarget({');
+    const pgLoad = localHandsOnSeedSource.indexOf("const pg = requireFromBackend('pg');");
+
+    expect(localHandsOnSeedSource).toContain(
+      "import { assertSyntheticSeedTarget } from '../apps/backend/scripts/lib/testDataSeedGuard.mjs';",
+    );
+    expect(localHandsOnSeedSource).toContain('allowNonTestOverride: false');
+    expect(guardCall).toBeGreaterThan(-1);
+    expect(pgLoad).toBeGreaterThan(guardCall);
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'postgresql://localhost:55432/vhhealth_test?host=db.internal',
+      env: { NODE_ENV: 'test' },
+      scriptName: 'seed-local-hands-on-hospital-data.mjs',
+      allowNonTestOverride: false,
+    })).toThrow('must not use connection-target query parameters');
   });
 
   test('the QA tenant seed applies the shared structural guard before constructing a client', () => {
