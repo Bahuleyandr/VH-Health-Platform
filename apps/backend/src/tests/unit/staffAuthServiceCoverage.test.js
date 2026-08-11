@@ -347,6 +347,23 @@ describe('changeOwnPassword', () => {
     const out = await StaffAuthService.changeOwnPassword('uid', 'old', 'newpw', req);
     expect(out).toEqual({ success: true });
     expect(mockBcryptHash).toHaveBeenCalledWith('newpw', 10);
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      requireEvidence: true,
+      reason: 'password_changed',
+    });
+  });
+
+  it('does not report password-change success when durable revocation fails', async () => {
+    read(/SELECT id, uid, role, encrypted_password/, [{
+      id: 42,
+      uid: 'uid',
+      encrypted_password: 'h',
+    }]);
+    mockBcryptCompare.mockResolvedValue(true);
+    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(StaffAuthService.changeOwnPassword('uid', 'old', 'newpw', REQ))
+      .rejects.toThrow('durable store unavailable');
   });
 });
 
@@ -667,6 +684,19 @@ describe('setupPin', () => {
     expect(mockBcryptHash).toHaveBeenCalledWith('1234', 10);
   });
 
+  it('revokes existing sessions when an enrolled PIN is replaced', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
+    read(/SELECT pin_hash FROM staff_devices/, [{ pin_hash: 'old-pin-hash' }]);
+
+    await StaffAuthService.setupPin('uid', 'tok', '5678');
+
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      requireEvidence: true,
+      reason: 'pin_changed',
+    });
+  });
+
   it('throws (catch path) when the user is not found', async () => {
     read(/SELECT id FROM users WHERE uid/, []);
     await expect(StaffAuthService.setupPin('uid', 'tok', '1234')).rejects.toThrow('Staff not found');
@@ -867,7 +897,7 @@ describe('logoutStaff', () => {
       'jti-123',
       expiresAt,
       'logout',
-      { requireEvidence: true },
+      { requireEvidence: true, userId: 'uid' },
     );
   });
 
@@ -954,9 +984,14 @@ describe('admin methods', () => {
   });
 
   it('adminResetPin nulls device PINs and reports affected count', async () => {
+    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
     read(/UPDATE staff_devices SET pin_hash = NULL[\s\S]*RETURNING/, [{ id: 1 }, { id: 2 }]);
     const out = await StaffAuthService.adminResetPin(42, 'admin-uid', REQ);
     expect(out).toMatchObject({ success: true, devicesAffected: 2 });
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      requireEvidence: true,
+      reason: 'pin_reset',
+    });
   });
 
   it('adminForceLogout surfaces DB errors (catch path)', async () => {

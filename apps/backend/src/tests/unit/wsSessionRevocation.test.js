@@ -20,13 +20,13 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
-  verifyToken: () => ({
+  verifyToken: (token) => ({
     sub: 'user-1',
     role: 'PATIENT',
     tenant_id: 'tenant-1',
     iat: 1000,
     token_epoch: 3,
-    jti: 'access-jti',
+    jti: token,
   }),
 }));
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
@@ -101,5 +101,28 @@ describe('session revocation WebSocket closure', () => {
     }));
     expect(socket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     await Promise.resolve();
+  });
+
+  it('closes only the socket authenticated by a device-scoped revoked jti', async () => {
+    initWebSocket({});
+    const revokedSocket = new FakeSocket();
+    const siblingSocket = new FakeSocket();
+    serverInstance.clients.add(revokedSocket);
+    serverInstance.clients.add(siblingSocket);
+    serverInstance.emit('connection', revokedSocket, {
+      url: '/ws?token=revoked-jti',
+      headers: {},
+    });
+    serverInstance.emit('connection', siblingSocket, {
+      url: '/ws?token=sibling-jti',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    pushSessionRevoked('user-1', { reason: 'logout', jti: 'revoked-jti' });
+
+    expect(revokedSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(siblingSocket.close).not.toHaveBeenCalled();
+    expect(siblingSocket.readyState).toBe(1);
   });
 });

@@ -106,10 +106,9 @@ export async function resolveTenantIdForUid(uid) {
  * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
  * @param {number} [identity.tokenEpoch] - pre-resolved current epoch (skips the DB read).
  * @param {string} [identity.realm] - identity store owning the subject (`user` or `admin`).
- * @param {boolean} [identity.mfa] - whether the admin session completed MFA step-up.
  * @returns {Promise<string>} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
  */
-export async function generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa }) {
+export async function generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm }) {
   const epoch = tokenEpoch ?? await getCurrentTokenEpoch(uid);
   return generateToken(
     {
@@ -120,7 +119,6 @@ export async function generateRefreshToken({ uid, id, phone, role, stableDeviceI
       type: 'refresh',
       token_epoch: epoch,
       ...(realm ? { realm } : {}),
-      ...(mfa === true ? { mfa: true } : {}),
       ...(stableDeviceId ? { stableDeviceId } : {}),
     },
     SECURITY_CONFIG.jwt.refreshExpiry,

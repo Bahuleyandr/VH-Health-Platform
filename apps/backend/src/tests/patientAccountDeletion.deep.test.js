@@ -1,6 +1,8 @@
 import { jest } from '@jest/globals';
 import { randomUUID } from 'node:crypto';
 
+jest.setTimeout(30000);
+
 const verifyIdTokenMock = jest.fn();
 const revokeRefreshTokensMock = jest.fn();
 
@@ -13,7 +15,7 @@ jest.unstable_mockModule('../utils/firebaseAdmin.js', () => ({
   }
 }));
 
-const { default: prisma } = await import('../lib/prisma.js');
+const { default: prisma, setTenant } = await import('../lib/prisma.js');
 const { UserService } = await import('../services/user/userService.js');
 const { authenticateWithFirebase } = await import('../services/auth/firebaseAuthService.js');
 
@@ -59,14 +61,16 @@ async function seedPatient() {
     firebaseUid
   );
 
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO user_devices (
-       user_uid, tenant_id, device_id, device_name, platform, fcm_token, last_active, updated_at
-     )
-     VALUES ($1::uuid, $2::uuid, $3, 'Test phone', 'android', 'fcm-before-delete', NOW(), NOW())`,
-    uid,
-    DEFAULT_TENANT,
-    `device-${uid}`
+  await setTenant(DEFAULT_TENANT, (tx) =>
+    tx.$executeRawUnsafe(
+      `INSERT INTO user_devices (
+         user_uid, tenant_id, device_id, device_name, platform, fcm_token, last_active, updated_at
+       )
+       VALUES ($1::uuid, $2::uuid, $3, 'Test phone', 'android', 'fcm-before-delete', NOW(), NOW())`,
+      uid,
+      DEFAULT_TENANT,
+      `device-${uid}`
+    )
   );
 
   return rows[0];
@@ -76,8 +80,9 @@ async function cleanupPatient(uid) {
   await prisma
     .$executeRawUnsafe('DELETE FROM admissions WHERE patient_uid = $1::uuid', uid)
     .catch(() => {});
-  await prisma
-    .$executeRawUnsafe('DELETE FROM user_devices WHERE user_uid = $1::uuid', uid)
+  await setTenant(DEFAULT_TENANT, (tx) =>
+    tx.$executeRawUnsafe('DELETE FROM user_devices WHERE user_uid = $1::uuid', uid)
+  )
     .catch(() => {});
   await prisma
     .$executeRawUnsafe('DELETE FROM invalidated_tokens WHERE jti = $1', `user:${uid}`)
@@ -179,14 +184,20 @@ d('patient account deletion', () => {
       `user:${patient.uid}`
     );
     expect(revokeRows).toHaveLength(1);
-    // revokeAllUserTokens writes its default reason since the durable-store
-    // revocation rework (db78cc56): the account-deletion path passes no
-    // per-call reason, so the marker row carries 'revoke_all'.
-    expect(revokeRows[0].reason).toBe('revoke_all');
+    expect(revokeRows[0].reason).toBe('account_deleted');
 
-    const deviceRows = await prisma.$queryRawUnsafe(
-      `SELECT fcm_token FROM user_devices WHERE user_uid = $1::uuid`,
+    const epochRows = await prisma.$queryRawUnsafe(
+      'SELECT token_epoch, token_epoch_bumped_at FROM users WHERE uid = $1::uuid',
       patient.uid
+    );
+    expect(Number(epochRows[0].token_epoch)).toBe(1);
+    expect(epochRows[0].token_epoch_bumped_at).toBeTruthy();
+
+    const deviceRows = await setTenant(DEFAULT_TENANT, (tx) =>
+      tx.$queryRawUnsafe(
+        `SELECT fcm_token FROM user_devices WHERE user_uid = $1::uuid`,
+        patient.uid
+      )
     );
     expect(deviceRows).toEqual([expect.objectContaining({ fcm_token: null })]);
 

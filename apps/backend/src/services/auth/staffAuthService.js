@@ -405,6 +405,11 @@ export class StaffAuthService {
       WHERE uid = $1::uuid
     `, [staffUid, newHash]);
 
+    await revokeAllUserTokens(String(staffUid), {
+      requireEvidence: true,
+      reason: 'password_changed',
+    });
+
     await this.logActivity(staffUid, 'STAFF_PASSWORD_CHANGED', 'Staff changed own password', req, {
       deviceType: req?.user?.deviceType || null,
     });
@@ -613,8 +618,18 @@ export class StaffAuthService {
     try {
       // ✅ FIX: Uses the new helper method to reduce duplication.
       const internalDeviceId = await this._verifyDeviceOwnership(staffUid, deviceToken);
+      const previous = await query(
+        'SELECT pin_hash FROM staff_devices WHERE id = $1',
+        [internalDeviceId],
+      );
       const pinHash = await bcrypt.hash(pin, 10);
       await query('UPDATE staff_devices SET pin_hash = $1 WHERE id = $2', [pinHash, internalDeviceId]);
+      if (previous.rows[0]?.pin_hash) {
+        await revokeAllUserTokens(staffUid, {
+          requireEvidence: true,
+          reason: 'pin_changed',
+        });
+      }
       return { success: true, message: 'PIN setup successfully' };
     } catch (error) {
       logger.error('PIN setup error:', error);
@@ -937,7 +952,10 @@ export class StaffAuthService {
       // rolled back, leaving the strongest partial result we can achieve.
       try {
         if (accessTokenJti && accessTokenExpiresAt) {
-          await blacklistToken(accessTokenJti, accessTokenExpiresAt, 'logout', { requireEvidence: true });
+          await blacklistToken(accessTokenJti, accessTokenExpiresAt, 'logout', {
+            requireEvidence: true,
+            userId: String(staffUid),
+          });
         }
         if (allDevices) {
           await revokeAllUserTokens(String(staffUid), { requireEvidence: true, reason: 'logout' });
@@ -1033,10 +1051,19 @@ export class StaffAuthService {
 
   static async adminResetPin(staffId, adminUid, req) {
     try {
+      const identity = await query(
+        'SELECT uid FROM users WHERE id = $1 LIMIT 1',
+        [staffId],
+      );
+      if (identity.rows.length === 0) throw new Error('Staff not found');
       const result = await query(
         'UPDATE staff_devices SET pin_hash = NULL WHERE staff_id = $1 AND is_active = true RETURNING id',
         [staffId]
       );
+      await revokeAllUserTokens(String(identity.rows[0].uid), {
+        requireEvidence: true,
+        reason: 'pin_reset',
+      });
       // ✅ FIX: Uses the logActivity helper for consistency.
       await this.logActivity(adminUid, 'ADMIN_RESET_PIN', `Reset PIN for staff ${staffId}`, req, { affectedStaffId: staffId, devicesAffected: result.rowCount });
       return { success: true, message: 'PIN reset successfully', devicesAffected: result.rowCount };

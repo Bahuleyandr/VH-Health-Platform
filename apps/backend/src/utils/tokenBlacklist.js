@@ -50,14 +50,19 @@ export class RevocationWriteUnavailableError extends Error {
  * @param {string} jti - JWT ID to blacklist
  * @param {number} expiresAt - Token expiry as Unix timestamp (seconds)
  * @param {string} [reason] - Why the token was blacklisted (e.g. 'logout', 'refresh_rotation')
- * @param {{requireEvidence?: boolean}} [opts] - When `requireEvidence` is true
+ * @param {{requireEvidence?: boolean, userId?: string}} [opts] - When `requireEvidence` is true
  *   (audit F10), the DB write is awaited inline instead of fired-and-forgotten,
- *   and a `RevocationWriteUnavailableError` is thrown if NEITHER store
+ *   and a `RevocationWriteUnavailableError` is thrown unless the durable DB
  *   persisted the entry — callers that must not claim success on a silent
  *   revocation failure (e.g. logout) opt into this. Default false preserves
  *   the original best-effort behaviour for every other existing caller.
  */
-export async function blacklistToken(jti, expiresAt, reason = 'logout', { requireEvidence = false } = {}) {
+export async function blacklistToken(
+  jti,
+  expiresAt,
+  reason = 'logout',
+  { requireEvidence = false, userId = null } = {},
+) {
   if (!jti) return requireEvidence ? null : undefined;
 
   const now = Math.floor(Date.now() / 1000);
@@ -115,6 +120,22 @@ export async function blacklistToken(jti, expiresAt, reason = 'logout', { requir
       'Durable revocation store (database) did not accept the blacklist entry',
       { redis: redisError, database: databaseError, redisPersisted },
     );
+  }
+
+  // A durable single-token revocation must also tear down the live socket that
+  // authenticated with that jti. Scope the event by jti so a device logout
+  // does not close sibling devices belonging to the same user.
+  if (userId) {
+    try {
+      const { pushSessionRevoked } = await import('./websocket/wsServer.js');
+      pushSessionRevoked(String(userId), {
+        reason,
+        jti: String(jti),
+        at: new Date(now * 1000).toISOString(),
+      });
+    } catch (err) {
+      logger.warn('Single-token session:revoked push failed:', err.message);
+    }
   }
 
   return Object.freeze({
@@ -207,30 +228,43 @@ export async function revokeAllUserTokens(userId, { requireEvidence = false, rea
       // can never diverge. The uid lives in exactly one of users/admins, so
       // the two bump CTEs together touch at most one row.
       const rows = await prisma.$queryRawUnsafe(`
-        WITH marker AS (
-          INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
-          VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
-          ON CONFLICT (jti) DO UPDATE SET
-            expires_at = EXCLUDED.expires_at,
-            reason = EXCLUDED.reason,
-            created_at = EXCLUDED.created_at
-          RETURNING created_at
-        ), bump_users AS (
+        WITH bump_users AS (
           UPDATE users
-             SET token_epoch = token_epoch + 1,
+             SET token_epoch = COALESCE(token_epoch, 0) + 1,
                  token_epoch_bumped_at = NOW()
            WHERE uid = $3::uuid
           RETURNING uid
         ), bump_admins AS (
           UPDATE admins
-             SET token_epoch = token_epoch + 1,
+             SET token_epoch = COALESCE(token_epoch, 0) + 1,
                  token_epoch_bumped_at = NOW()
            WHERE uid = $3::uuid
           RETURNING uid
+        ), epoch_count AS (
+          SELECT (
+            (SELECT COUNT(*) FROM bump_users)::int
+            + (SELECT COUNT(*) FROM bump_admins)::int
+          ) AS epoch_rows
+        ), marker AS (
+          INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+          SELECT $1, NOW() + INTERVAL '30 days', $2, NOW()
+            FROM epoch_count
+           WHERE epoch_rows >= 1
+          ON CONFLICT (jti) DO UPDATE SET
+            expires_at = EXCLUDED.expires_at,
+            reason = EXCLUDED.reason,
+            created_at = EXCLUDED.created_at
+          RETURNING created_at
         )
         SELECT (SELECT EXTRACT(EPOCH FROM created_at)::double precision FROM marker) AS revoked_at,
-               (SELECT COUNT(*) FROM bump_users)::int + (SELECT COUNT(*) FROM bump_admins)::int AS epoch_rows
+               epoch_rows
+          FROM epoch_count
+         WHERE epoch_rows >= 1
       `, `user:${userId}`, reason, String(userId));
+      const epochRows = Number(rows[0]?.epoch_rows);
+      if (!Number.isFinite(epochRows) || epochRows < 1) {
+        throw new Error('Durable revoke-all did not bump an identity token epoch');
+      }
       revokedAt = Number(rows[0]?.revoked_at);
     } else {
       const rows = await prisma.$queryRawUnsafe(`
@@ -353,16 +387,16 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
   // Redis is a POSITIVE cache only (same contract as isTokenBlacklisted): a
   // hit proves revocation, but a clean miss is NOT proof of absence — the
   // committed Redis manifest runs allkeys-lru, so the marker can be evicted
-  // while the durable invalidated_tokens row still stands (R12). Epoch-stamped
-  // UUID tokens deliberately skip this timestamp shortcut: a fresh token can
-  // share its integer-second iat with the revoke marker, while its matching
-  // durable epoch proves it was minted after that revocation.
+  // while the durable invalidated_tokens row still stands (R12). Redis does
+  // not carry the identity epoch-bump timestamp needed to disambiguate a
+  // freshly minted epoch-stamped token from a same-second revocation marker,
+  // so those tokens always use the durable predicate below.
   try {
     const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
-    if ((!isUuidIdentity || !hasTokenEpoch)
-      && result
+    if (result
       && result.revokedAt
-      && result.revokedAt >= tokenIssuedAt) {
+      && !hasTokenEpoch
+      && result.revokedAt >= Number(tokenIssuedAt)) {
       return true;
     }
   } catch {
@@ -374,25 +408,29 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
     const mintedEpoch = hasTokenEpoch ? Number(tokenEpoch) : 0;
     const result = isUuidIdentity
       ? await prisma.$queryRawUnsafe(
-          `SELECT 1
-             WHERE (
-               $4::boolean = FALSE
-               AND EXISTS (
+          `WITH identity AS (
+             SELECT COALESCE(MAX(state.token_epoch), 0)::int AS token_epoch,
+                    MAX(state.token_epoch_bumped_at) AS token_epoch_bumped_at
+               FROM (
+                 SELECT token_epoch, token_epoch_bumped_at FROM users WHERE uid = $3::uuid
+                 UNION ALL
+                 SELECT token_epoch, token_epoch_bumped_at FROM admins WHERE uid = $3::uuid
+               ) AS state
+           )
+           SELECT 1
+             FROM identity
+            WHERE EXISTS (
                SELECT 1
                  FROM invalidated_tokens
                 WHERE jti = $1
                   AND expires_at > NOW()
                   AND created_at >= to_timestamp($2)
+                  AND (
+                    NOT $4::boolean
+                    OR created_at > COALESCE(identity.token_epoch_bumped_at, '-infinity'::timestamptz)
+                  )
                )
-             )
-                OR COALESCE((
-                  SELECT MAX(identity.token_epoch)
-                    FROM (
-                      SELECT token_epoch FROM users WHERE uid = $3::uuid
-                      UNION ALL
-                      SELECT token_epoch FROM admins WHERE uid = $3::uuid
-                    ) AS identity
-                ), 0) > $5
+               OR identity.token_epoch > $5
              LIMIT 1`,
           `user:${userId}`,
           issuedAt,

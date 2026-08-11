@@ -472,6 +472,11 @@ export class AuthService {
         data: { password_hash: newHash, password_changed_at: new Date() },
       });
 
+      await revokeAllUserTokens(String(adminId), {
+        requireEvidence: true,
+        reason: 'password_changed',
+      });
+
       return { message: 'Password changed successfully' };
     } catch (error) {
       logger.error('Change admin password error:', error);
@@ -583,7 +588,7 @@ export class AuthService {
       // ── Phase 1 (transaction): rotate the password and burn the OTP
       // atomically, scoped so the OTP can only be consumed once even under
       // concurrent requests (used=false guard in the conditional update).
-      return await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
         const burned = await tx.password_reset_otps.updateMany({
           where: { id: otpRecord.id, used: false },
           data: { used: true },
@@ -598,6 +603,11 @@ export class AuthService {
 
         return { message: 'Password reset successfully' };
       });
+      await revokeAllUserTokens(String(admin.uid), {
+        requireEvidence: true,
+        reason: 'password_reset',
+      });
+      return result;
     } catch (error) {
       logger.error('Admin reset password error:', error);
       throw error;
@@ -1005,8 +1015,8 @@ export class AuthService {
   // through one source of truth (no duplicated `type:'refresh'` / expiry logic
   // that could drift). See audit 2026-06-18 C-9. Async since the R1 epoch
   // stamp: the helper reads the identity's current token_epoch at mint time.
-  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa }) {
-    return generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa });
+  static _generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm }) {
+    return generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm });
   }
 
   static async refreshToken(token, req) {
@@ -1131,7 +1141,9 @@ export class AuthService {
       // cannot be replayed. For tokens already past exp, blacklistToken
       // short-circuits.
       if (decoded.jti && decoded.exp) {
-        await blacklistToken(decoded.jti, decoded.exp, 'refresh_rotation');
+        await blacklistToken(decoded.jti, decoded.exp, 'refresh_rotation', {
+          requireEvidence: true,
+        });
       }
 
       // Mint a fresh access token *and* rotate the user_active_sessions row
@@ -1150,7 +1162,6 @@ export class AuthService {
               sub: admin.uid,
               iss: 'vh-health-backend',
               aud: 'vh-health-admin',
-              ...(decoded.mfa === true ? { mfa: true } : {}),
               ...(admin.tenant_id ? { tenant_id: admin.tenant_id } : {}),
             }
           : {
@@ -1178,7 +1189,6 @@ export class AuthService {
         // Same epoch we just gated on — avoids a second durable-store read.
         tokenEpoch: currentEpoch,
         realm: admin ? 'admin' : 'user',
-        mfa: admin && decoded.mfa === true,
       });
 
       const result = {

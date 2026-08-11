@@ -8,6 +8,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as authController from '../../controllers/auth/authController.js';
 import { otpRateLimiter, authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { error } from '../../utils/responseHelper.js';
 import { phoneValidator, phoneOtpValidator } from '../../validators/auth/authValidator.js';
 
@@ -24,7 +25,8 @@ const handleValidation = (req, res, next) => {
   next();
 };
 
-// Public Authentication Routes - no RBAC required
+// Authentication entry routes. Protected operations attach jwtAuth inline;
+// credential-entry routes remain public and apply their own abuse controls.
 // NOTE: Patients should use Firebase auth instead (/api/v1/auth/firebase/*)
 wrapRoutesWithValidation(
   router,
@@ -63,7 +65,7 @@ wrapRoutesWithValidation(
       ['/refresh-token', authRateLimiter, authController.refreshToken],
 
       // Logout (works for all auth methods)
-      ['/logout', authController.logout],
+      ['/logout', authRateLimiter, jwtAuth, authController.logout],
       
       // Legacy routes (backward compatibility - deprecated)
       [

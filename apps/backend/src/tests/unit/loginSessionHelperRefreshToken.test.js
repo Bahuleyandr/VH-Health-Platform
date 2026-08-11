@@ -61,11 +61,13 @@ describe('loginSessionHelper.generateRefreshToken', () => {
     expect(exp - iat).toBe(30 * 24 * 60 * 60);
   });
 
-  it('omits id and phone when they are not supplied (admin-shape payload)', async () => {
+  it('omits id, phone, and MFA step-up when they are not supplied (admin-shape payload)', async () => {
     const token = await generateRefreshToken({
       uid: 'admin-uuid',
       role: 'ADMIN',
       realm: 'admin',
+      // Even a caller that presents the old flag must not turn a 30-day
+      // refresh credential into renewable proof of a one-time TOTP step-up.
       mfa: true,
     });
     const payload = decode(token);
@@ -74,7 +76,7 @@ describe('loginSessionHelper.generateRefreshToken', () => {
     expect(payload.sub).toBe('admin-uuid');
     expect(payload.role).toBe('ADMIN');
     expect(payload.realm).toBe('admin');
-    expect(payload.mfa).toBe(true);
+    expect(payload.mfa).toBeUndefined();
     expect(payload.id).toBeUndefined();
     expect(payload.phone).toBeUndefined();
   });

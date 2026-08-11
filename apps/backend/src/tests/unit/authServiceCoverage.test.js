@@ -554,6 +554,26 @@ describe('AuthService.adminResetPassword', () => {
     expect(mockPrisma.password_reset_otps.updateMany).toHaveBeenCalledWith({
       where: { id: 77, used: false }, data: { used: true },
     });
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('a1', {
+      requireEvidence: true,
+      reason: 'password_reset',
+    });
+  });
+
+  it('does not report reset success when durable session revocation fails', async () => {
+    mockPrisma.admins.findFirst.mockResolvedValue({ uid: 'a1' });
+    mockPrisma.password_reset_otps.findFirst.mockResolvedValue({
+      id: 77,
+      otp: '$2b$10$storedhash',
+      attempts: 0,
+    });
+    mockBcryptCompare.mockResolvedValue(true);
+    mockPrisma.password_reset_otps.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.admins.update.mockResolvedValue({});
+    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(AuthService.adminResetPassword('root', '246813', 'NewPass1!'))
+      .rejects.toThrow('durable store unavailable');
   });
 
   it('accepts a legacy plaintext OTP row (=== fallback)', async () => {
@@ -624,6 +644,20 @@ describe('AuthService.changeAdminPassword', () => {
     expect(mockPrisma.admins.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ password_hash: 'hashed-value' }) }),
     );
+    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('admin-1', {
+      requireEvidence: true,
+      reason: 'password_changed',
+    });
+  });
+
+  it('does not report password-change success when durable revocation fails', async () => {
+    mockPrisma.admins.findUnique.mockResolvedValue({ password_hash: '$2b$10$old' });
+    mockBcryptCompare.mockResolvedValue(true);
+    mockPrisma.admins.update.mockResolvedValue({});
+    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(AuthService.changeAdminPassword('admin-1', 'old', 'new'))
+      .rejects.toThrow('durable store unavailable');
   });
 
   it('throws when the admin is not found', async () => {
@@ -932,7 +966,9 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
 
     const res = await AuthService.refreshToken('tok', { ip: '1.1.1.1' });
 
-    expect(mockBlacklistToken).toHaveBeenCalledWith('jti-1', 9999999999, 'refresh_rotation');
+    expect(mockBlacklistToken).toHaveBeenCalledWith('jti-1', 9999999999, 'refresh_rotation', {
+      requireEvidence: true,
+    });
     expect(mockIssueSession).toHaveBeenCalledWith(
       expect.objectContaining({ userUid: 'u1', deviceType: 'ios', pushRevoked: false }),
     );
@@ -946,6 +982,29 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
     expect(res.user).toMatchObject({ uid: 'u1', id: 7, role: 'PATIENT' });
   });
 
+  it('does not mint rotated credentials when durable refresh revocation fails', async () => {
+    mockVerifyToken.mockReturnValue({
+      uid: 'u1',
+      jti: 'jti-1',
+      exp: 9999999999,
+      type: 'refresh',
+    });
+    mockIsTokenBlacklisted.mockResolvedValue(false);
+    mockPrisma.users.findUnique.mockResolvedValue({
+      uid: 'u1',
+      id: 7,
+      phone: '+91',
+      name: 'A',
+      role: 'PATIENT',
+    });
+    mockBlacklistToken.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(AuthService.refreshToken('tok', { body: {} }))
+      .rejects.toThrow('durable store unavailable');
+    expect(mockIssueSession).not.toHaveBeenCalled();
+    expect(mockGenerateRefreshToken).not.toHaveBeenCalled();
+  });
+
   it('rotates an admin-realm refresh token against admins and preserves admin claims', async () => {
     const adminUid = '550e8400-e29b-41d4-a716-446655440001';
     mockVerifyToken.mockReturnValue({
@@ -955,6 +1014,8 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
       type: 'refresh',
       realm: 'admin',
       role: 'ADMIN',
+      // Legacy refresh tokens minted before P9 carried this indefinitely.
+      mfa: true,
       token_epoch: 0,
       deviceType: 'web',
     });
@@ -982,11 +1043,13 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
         role: 'ADMIN',
       }),
     }));
+    expect(mockIssueSession.mock.calls.at(-1)[0].tokenPayload.mfa).toBeUndefined();
     expect(mockGenerateRefreshToken).toHaveBeenCalledWith(expect.objectContaining({
       uid: adminUid,
       realm: 'admin',
       tokenEpoch: 0,
     }));
+    expect(mockGenerateRefreshToken.mock.calls.at(-1)[0].mfa).toBeUndefined();
     expect(res.admin).toMatchObject({ uid: adminUid, username: 'root', role: 'ADMIN' });
     expect(res.user).toBeUndefined();
   });

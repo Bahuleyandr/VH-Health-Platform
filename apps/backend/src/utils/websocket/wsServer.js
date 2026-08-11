@@ -28,7 +28,7 @@ export function closeWsFanout() {
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
 const clients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, role: string, tenantId?: string, channels: Set<string> }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, role: string, tenantId?: string, jti?: string, channels: Set<string> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -180,7 +180,7 @@ async function authenticateAndRegister(ws, token) {
   // Register client
   if (!clients.has(userId)) clients.set(userId, new Set());
   clients.get(userId).add(ws);
-  socketMeta.set(ws, { userId, role, tenantId, channels: new Set() });
+  socketMeta.set(ws, { userId, role, tenantId, jti: decoded.jti ?? null, channels: new Set() });
 
   logger.info(`🔌 WS connected: user=${userId} role=${role || 'unknown'}`);
 
@@ -331,10 +331,12 @@ function deliverUserLocal(userId, event, data, tenantId) {
   if (!sockets) return;
   const payload = JSON.stringify({ event, data });
   const isRevocation = event === SESSION_REVOKED_EVENT;
+  const revokedJti = isRevocation && data?.jti ? String(data.jti) : null;
   // Copy: closing a socket mutates `sockets` via the ws 'close' handler.
   for (const ws of [...sockets]) {
     const meta = socketMeta.get(ws);
     if (!tenantMatches(meta?.tenantId, tenantId)) continue;
+    if (revokedJti && String(meta?.jti || '') !== revokedJti) continue;
     const open = ws.readyState === 1;
     if (open) {
       if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {

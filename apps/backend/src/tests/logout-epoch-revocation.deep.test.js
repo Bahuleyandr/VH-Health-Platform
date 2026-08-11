@@ -27,6 +27,7 @@
 //     node_modules/jest/bin/jest.js --runInBand src/tests/logout-epoch-revocation.deep.test.js
 
 import http from 'http';
+import { randomUUID } from 'node:crypto';
 import express from 'express';
 import request from 'supertest';
 import WebSocket from 'ws';
@@ -36,7 +37,12 @@ import authRoutes from '../routes/auth/authRoutes.js';
 import { AuthService } from '../services/auth/authService.js';
 import { generateRefreshToken } from '../services/auth/loginSessionHelper.js';
 import { generateToken } from '../utils/jwtUtils.js';
-import { getCurrentTokenEpoch } from '../utils/tokenBlacklist.js';
+import {
+  blacklistToken,
+  getCurrentTokenEpoch,
+  isUserTokensRevoked,
+  revokeAllUserTokens,
+} from '../utils/tokenBlacklist.js';
 import {
   initWebSocket,
   closeWebSocket,
@@ -77,7 +83,7 @@ async function cleanupPatient(uid) {
  * epoch 0 and is (correctly) refused at the WS handshake — the fail-closed
  * legacy-token contract from the issuance-gate work, not a bug.
  */
-async function accessTokenFor(user) {
+async function accessTokenFor(user, jti = null) {
   const epoch = await getCurrentTokenEpoch(String(user.uid));
   return generateToken(
     {
@@ -86,6 +92,7 @@ async function accessTokenFor(user) {
       role: 'PATIENT',
       tenant_id: DEFAULT_TENANT,
       token_epoch: epoch,
+      ...(jti ? { jti } : {}),
     },
     '1h',
   );
@@ -145,6 +152,54 @@ describe('R1 — refresh token retained across logout is refused at issuance', (
     });
     const freshRotation = await AuthService.refreshToken(freshRefresh, { body: {} });
     expect(freshRotation.token).toBeTruthy();
+  });
+});
+
+describe('P9 — durable revoke-all evidence stays honest', () => {
+  let user;
+
+  beforeAll(async () => {
+    user = await createPatient('44');
+  });
+
+  afterAll(async () => {
+    await cleanupPatient(user?.uid);
+  });
+
+  it('applies a durable watermark to an epoch-stamped token', async () => {
+    const issuedAt = Math.floor(Date.now() / 1000) - 5;
+    const tokenEpoch = await getCurrentTokenEpoch(String(user.uid));
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
+       VALUES ($1, NOW() + INTERVAL '1 hour', 'watermark_test', NOW())
+       ON CONFLICT (jti) DO UPDATE SET
+         expires_at = EXCLUDED.expires_at,
+         reason = EXCLUDED.reason,
+         created_at = EXCLUDED.created_at
+       RETURNING jti`,
+      `user:${user.uid}`,
+    );
+
+    await expect(
+      isUserTokensRevoked(String(user.uid), issuedAt, tokenEpoch),
+    ).resolves.toBe(true);
+  });
+
+  it('fails closed without writing a marker when no identity epoch row exists', async () => {
+    const missingUid = randomUUID();
+
+    await expect(
+      revokeAllUserTokens(missingUid, {
+        requireEvidence: true,
+        reason: 'missing_identity_test',
+      }),
+    ).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
+
+    const markers = await prisma.$queryRawUnsafe(
+      'SELECT jti FROM invalidated_tokens WHERE jti = $1',
+      `user:${missingUid}`,
+    );
+    expect(markers).toEqual([]);
   });
 });
 
@@ -240,6 +295,34 @@ describe('R14 — logout and revoke-all close the revoked session WebSockets', (
     expect(closed.code).toBe(4001);
     expect(frames.some((f) => f.event === 'session:revoked')).toBe(true);
   });
+
+  it('a device-scoped logout closes only the socket authenticated by that jti', async () => {
+    const revokedJti = randomUUID();
+    const siblingJti = randomUUID();
+    const revoked = await connect(await accessTokenFor(user, revokedJti));
+    const sibling = await connect(await accessTokenFor(user, siblingJti));
+    const closePromise = waitForClose(revoked.ws);
+
+    try {
+      await blacklistToken(
+        revokedJti,
+        Math.floor(Date.now() / 1000) + 3600,
+        'logout',
+        { requireEvidence: true, userId: String(user.uid) },
+      );
+
+      await expect(closePromise).resolves.toMatchObject({ code: 4001 });
+      expect(revoked.frames.some((frame) => frame.event === 'session:revoked')).toBe(true);
+      expect(sibling.ws.readyState).toBe(WebSocket.OPEN);
+      expect(sibling.frames.some((frame) => frame.event === 'session:revoked')).toBe(false);
+    } finally {
+      sibling.ws.close();
+      await prisma.$executeRawUnsafe(
+        'DELETE FROM invalidated_tokens WHERE jti = $1',
+        revokedJti,
+      ).catch(() => {});
+    }
+  });
 });
 
 describe('R12 — logout fails closed (non-2xx) when the durable DB write fails', () => {
@@ -255,6 +338,32 @@ describe('R12 — logout fails closed (non-2xx) when the durable DB write fails'
 
   afterAll(async () => {
     await cleanupPatient(user?.uid);
+  });
+
+  it('rejects logout without an authenticated bearer', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/logout')
+      .set('X-Forwarded-For', '203.0.113.76')
+      .send({});
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body?.success).toBe(false);
+  });
+
+  it('throttles repeated unauthenticated logout attempts', async () => {
+    const statuses = [];
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const res = await request(app)
+        .post('/api/v1/auth/logout')
+        .set('X-Forwarded-For', '198.51.100.176')
+        .send({});
+      statuses.push(res.statusCode);
+    }
+
+    expect(statuses[0]).toBe(401);
+    expect(statuses).toContain(429);
+    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.filter((status) => status === 401)).toHaveLength(5);
   });
 
   it('returns 500 (not fake success) when Postgres rejects the revocation write', async () => {

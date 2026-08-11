@@ -186,10 +186,12 @@ export async function revokeSession(userUid, jti, currentToken = {}) {
   }
 
   try {
-    // requireEvidence awaits the durable write and throws when NEITHER Redis
-    // nor the DB accepted it, so this cannot report a revocation that did not
-    // persist (audit P12).
-    await blacklistToken(jti, expiresAtSeconds, 'session_revoked', { requireEvidence: true });
+    // requireEvidence awaits the durable DB write, so this cannot report a
+    // revocation backed only by the evictable Redis cache (audit P12).
+    await blacklistToken(jti, expiresAtSeconds, 'session_revoked', {
+      requireEvidence: true,
+      userId: String(userUid),
+    });
   } catch (err) {
     if (err instanceof RevocationWriteUnavailableError) {
       logger.error('Session revocation not persisted — no revocation store accepted it', {

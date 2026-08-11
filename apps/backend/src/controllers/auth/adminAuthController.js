@@ -13,6 +13,7 @@ import {
   issueAccessTokenAndClaimSession,
   resolveTenantIdForUid,
 } from '../../services/auth/loginSessionHelper.js';
+import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   generateTotpSetup,
@@ -453,6 +454,11 @@ export const mfaDisable = async (req, res) => {
       },
     });
 
+    await revokeAllUserTokens(String(adminId), {
+      requireEvidence: true,
+      reason: 'mfa_disabled',
+    });
+
     logger.info('Admin MFA disabled', { adminId });
     return success(res, { enabled: false }, 'MFA disabled');
   } catch (err) {
@@ -575,7 +581,6 @@ export const mfaSetupConfirm = async (req, res) => {
       role: String(admin.role).toUpperCase(),
       tokenEpoch,
       realm: 'admin',
-      mfa: true,
     });
 
     logger.info('Admin MFA enrolled via first-time setup', { adminId });
@@ -708,7 +713,6 @@ export const mfaVerifyChallenge = async (req, res) => {
       role: String(admin.role).toUpperCase(),
       tokenEpoch,
       realm: 'admin',
-      mfa: true,
     });
 
     logger.info('Admin MFA challenge verified', { adminId, viaBackup: !!useBackupCode });

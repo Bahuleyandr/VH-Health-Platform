@@ -45,6 +45,16 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({
   getHealthStatus: jest.fn(),
 }));
 
+const revokeAllUserTokensMock = jest.fn().mockResolvedValue({
+  database: { persisted: true },
+});
+jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  blacklistToken: jest.fn(),
+  getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
+  isTokenBlacklisted: jest.fn().mockResolvedValue(false),
+  revokeAllUserTokens: revokeAllUserTokensMock,
+}));
+
 // ── Import the service under test (after mocks) ─────────────────────
 // NOTE: securityConfig is intentionally NOT mocked here so we exercise the real
 // SECURITY_CONFIG.otp.maxAttemptsPerPhone that the password-reset lock now
@@ -123,6 +133,10 @@ describe('AuthService.adminResetPassword', () => {
     expect(whereArg).toHaveProperty('user_id', ADMIN_UID);
     expect(whereArg).not.toHaveProperty('otp');
     expect(whereArg.used).toBe(false);
+    expect(revokeAllUserTokensMock).toHaveBeenCalledWith(ADMIN_UID, {
+      requireEvidence: true,
+      reason: 'password_reset',
+    });
   });
 
   it('succeeds with the correct OTP within the window and marks it used', async () => {

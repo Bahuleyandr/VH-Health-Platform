@@ -7,7 +7,6 @@ import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { AppError } from '../../utils/AppError.js';
-import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { encryptColumn, searchableHash } from '../../services/security/phiColumnEncryption.js';
 
 const USER_SELECT = {
@@ -159,16 +158,32 @@ async function verifyFreshFirebaseReauthToken(firebaseIdToken, user, { now = new
 
 async function persistRevokeAllUserTokens(userUid, tx = prisma) {
   if (!userUid) return;
-  await tx.$executeRawUnsafe(
+  const epochRows = await tx.$executeRawUnsafe(
+    `UPDATE users
+        SET token_epoch = COALESCE(token_epoch, 0) + 1,
+            token_epoch_bumped_at = NOW()
+      WHERE uid = $1::uuid`,
+    String(userUid)
+  );
+  if (Number(epochRows) < 1) {
+    throw new Error('Account deletion could not persist the token epoch bump');
+  }
+  const markerRows = await tx.$queryRawUnsafe(
     `INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
      VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
      ON CONFLICT (jti) DO UPDATE SET
        expires_at = EXCLUDED.expires_at,
        reason = EXCLUDED.reason,
-       created_at = EXCLUDED.created_at`,
+       created_at = EXCLUDED.created_at
+     RETURNING EXTRACT(EPOCH FROM created_at)::double precision AS revoked_at`,
     `user:${userUid}`,
     'account_deleted'
   );
+  const revokedAt = Number(markerRows[0]?.revoked_at);
+  if (!Number.isFinite(revokedAt)) {
+    throw new Error('Account deletion could not persist the revocation marker');
+  }
+  return revokedAt;
 }
 
 async function revokeFirebaseRefreshTokens(firebaseUid) {
@@ -768,7 +783,7 @@ export class UserService {
     const sanitizedIp = normalizeClientIp(ipAddress);
     const idempotencyKey = `patient-account-deletion:${user.uid}`;
 
-    await setTenantTx(user.tenant_id, async tx => {
+    const revokedAt = await setTenantTx(user.tenant_id, async tx => {
       await tx.$executeRawUnsafe(
         `UPDATE user_devices
             SET fcm_token = NULL,
@@ -844,10 +859,21 @@ export class UserService {
         idempotencyKey
       );
 
-      await persistRevokeAllUserTokens(user.uid, tx);
+      return persistRevokeAllUserTokens(user.uid, tx);
     });
 
-    await revokeAllUserTokens(user.uid);
+    try {
+      const { pushSessionRevoked } = await import('../../utils/websocket/wsServer.js');
+      pushSessionRevoked(String(user.uid), {
+        reason: 'account_deleted',
+        at: new Date(revokedAt * 1000).toISOString()
+      });
+    } catch (err) {
+      logger.warn('Account-deletion session:revoked push failed', {
+        uid: user.uid,
+        error: err?.message
+      });
+    }
     await revokeFirebaseRefreshTokens(tombstoneFirebaseUid);
 
     logger.info('Patient account deleted via self-service', {
