@@ -215,6 +215,13 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
       });
 
       if (!patient?.uid && allowNoPatientResource) return next();
+      if (patient?.uid) {
+        req.phiContext = {
+          ...req.phiContext,
+          patientId: patient.id ?? req.phiContext?.patientId ?? null,
+          patientUid: patient.uid,
+        };
+      }
 
       const decision = await authorizePatientAccessRequest(req, {
         policyCode: policyCode || policyCodeForRecordType(recordType),

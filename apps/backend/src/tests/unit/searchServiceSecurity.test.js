@@ -21,7 +21,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { searchUsers, searchAppointments } = await import('../../utils/search/searchService.js');
+const { searchUsers, searchDoctors, searchGlobal } = await import('../../utils/search/searchService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 
@@ -56,15 +56,33 @@ describe('global search security', () => {
     }));
   });
 
-  it('tenant-scopes appointment search', async () => {
+  it('tenant-scopes doctors directly and never borrows a cross-tenant user contact', async () => {
     queryUnsafeMock.mockResolvedValueOnce([]);
 
-    await searchAppointments('follow', 10, { tenantId: TENANT, role: 'ADMIN' });
+    await searchDoctors('on', 20, { tenantId: TENANT, role: 'RECEPTIONIST' });
 
     const [sql, searchParam, tenantParam, limitParam] = queryUnsafeMock.mock.calls[0];
-    expect(sql).toContain('tenant_id = $2::uuid');
-    expect(searchParam).toBe('follow:*');
+    expect(sql).toContain('d.tenant_id = $2::uuid');
+    expect(sql).toContain('u.tenant_id = d.tenant_id');
+    expect(sql).not.toContain('DEFAULT_TENANT_ID');
+    expect(sql).not.toContain('COALESCE(u.tenant_id');
+    expect(searchParam).toBe('%on%');
     expect(tenantParam).toBe(TENANT);
-    expect(limitParam).toBe(10);
+    expect(limitParam).toBe(20);
+  });
+
+  it('global search never queries or returns appointment reason/notes', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const result = await searchGlobal('follow', 10, { tenantId: TENANT, role: 'ADMIN' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    for (const [sql] of queryUnsafeMock.mock.calls) {
+      expect(sql).not.toMatch(/\bappointments\b/i);
+      expect(sql).not.toMatch(/\breason\b|\bnotes\b/i);
+    }
+    expect(result).toEqual({ total: 0, results: [] });
   });
 });

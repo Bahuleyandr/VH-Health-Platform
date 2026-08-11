@@ -955,7 +955,12 @@ app.use('/api/v1/devices', deviceRoutes);
 
 app.use('/api/v1/feedback', patientRateLimiter, feedbackRoutes);
 app.use('/api/v1/sos', patientRateLimiter, sosRoutes);
-app.use('/api/v1/search', searchRoutes);
+app.use(
+  '/api/v1/search',
+  requireRole(...PATIENT_LOOKUP_ROLES),
+  phiAccessLogger('PATIENT_SEARCH'),
+  searchRoutes,
+);
 
 // GDPR Data Export + Erasure
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
@@ -1252,11 +1257,11 @@ app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICE
 
 // Oncology/chemo foundations (roadmap D1) — protocols, BSA dosing, cycle
 // scheduling, two-person administration verification, cumulative ceilings.
-// CAN-046/047/048: specialty clinical modules previously had role RBAC + PHI
-// logging but NO patient-relationship guard, so any in-role clinician could
-// read/mutate arbitrary patients. Mount the care-team-governed guard (shadow
-// by default → telemetry now, real 403 once the tenant flips to 'enforce').
-app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_WORKFLOW', { careTeamModeGoverned: true }), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+// Patient-owned oncology routes carry child-level patient/resource guards so
+// generic :id parameters resolve to the owning patient before the care-team
+// decision. Tenant-wide protocols, settings, and operational boards remain
+// role-gated without pretending a patient context exists.
+app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ONCOLOGY'), oncologyRoutes);
 
 // NL-13 P4 — nuclear-medicine & radiotherapy COORDINATION (integrate-only). Referrals,
 // external plan/fraction references, nuclear-medicine orders + radioisotope administration,

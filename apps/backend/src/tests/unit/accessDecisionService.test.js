@@ -1170,6 +1170,38 @@ describe('accessDecisionService', () => {
     expect(prismaMock.$queryRawUnsafe.mock.calls[3][0]).toContain('FROM radiology_orders');
   });
 
+  it('resolves every patient-owned oncology resource through a tenant-scoped join', async () => {
+    const resourceTypes = [
+      ['chemo_treatment_plan', 'chemo_treatment_plans', 73],
+      ['chemo_cycle', 'chemo_cycles', 73],
+      ['chair_booking', 'chair_bookings', 73],
+      ['chemo_administration', 'chemo_administrations', 73],
+      ['oncology_diagnosis', 'oncology_diagnoses', '73'],
+      ['oncology_staging_record', 'oncology_staging_records', '73'],
+      ['oncology_toxicity_event', 'oncology_toxicity_events', '73'],
+      ['tumor_board_case', 'tumor_board_cases', '73'],
+      ['tumor_board_recommendation', 'tumor_board_recommendations', '73'],
+    ];
+    prismaMock.$queryRawUnsafe.mockResolvedValue(patientLookup());
+
+    for (const [resourceType] of resourceTypes) {
+      const patient = await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+        resourceType,
+        resourceId: '73',
+      });
+      expect(patient).toEqual({ id: 15, uid: PATIENT_UID });
+    }
+
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(resourceTypes.length);
+    resourceTypes.forEach(([, table, expectedId], index) => {
+      const [sql, tenantId, resourceId] = prismaMock.$queryRawUnsafe.mock.calls[index];
+      expect(sql).toContain(`FROM ${table}`);
+      expect(sql).toContain('tenant_id = $1::uuid');
+      expect(tenantId).toBe('00000000-0000-4000-8000-000000000001');
+      expect(resourceId).toBe(expectedId);
+    });
+  });
+
   // Explainer-source resolvers added for the clinical-AI patient-explainer
   // IDOR guards (#7). Each must tenant-scope the lookup and join the
   // explainer's source table back to the owning patient.

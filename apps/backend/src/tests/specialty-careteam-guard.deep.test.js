@@ -1,10 +1,10 @@
 // Specialty-module care-team guards (CAN-046/047/048/049/050/051).
 //
-// Oncology/dental/ophthalmology/dietary/research/pcpndt now mount a
-// care-team-governed patientAccessGuard. The guard is shadow by default
-// (non-breaking) and returns a real 403 once the tenant/env flips to 'enforce'.
-// This proves the wiring on oncology: an unrelated clinician is denied under
-// enforce and passes under shadow.
+// Oncology uses child-level patient/resource guards; the sibling specialty
+// modules use parent guards. All are shadow by default (non-breaking) and
+// return a real 403 once the tenant/env flips to 'enforce'. This proves the
+// oncology wiring: an unrelated clinician is denied under enforce and passes
+// under shadow.
 import { generateTestToken, API_KEY } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
@@ -14,9 +14,7 @@ const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_U
 const d = DB_CONFIGURED ? describe : describe.skip;
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const PATIENT = 'c0de0246-0000-4000-8000-0000000007a1';
-// A body-patient route: the parent-mounted guard can read body.patient_uid
-// (path-param routes like /patients/:uid/* share the CAN-039/020 parent-guard
-// limitation and need child-level guards — tracked as follow-up).
+// A body-patient route protected by the oncology child-level guard.
 const PATH = '/api/v1/oncology/protocols/00000000-0000-4000-8000-0000000000ff/plans';
 
 function doctor() {
