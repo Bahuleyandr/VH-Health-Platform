@@ -500,22 +500,30 @@ async function loadShiftsForStaff({ tenantId, staffUid, windowStart, windowEnd }
   });
 }
 
-async function loadPtoDays({ staffUid, windowStart, windowEnd }) {
-  // leave_requests is keyed by staff_id (integer). Resolve staff_uid → id first.
+async function loadPtoDays({ tenantId, staffUid, windowStart, windowEnd }) {
+  // leave_applications is keyed by tenant_id + staff_id (integer). Resolve the
+  // tenant-bound staff uid to users.id before loading approved evidence.
   const idRows = await prisma.$queryRawUnsafe(
-      `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+      `SELECT id
+       FROM users
+       WHERE tenant_id = $1::uuid
+         AND uid = $2::uuid
+       LIMIT 1`,
+      tenantId,
       staffUid
   );
   const staffId = idRows && idRows[0] ? toNumber(idRows[0].id, null) : null;
   if (!staffId) return 0;
   const rows = await prisma.$queryRawUnsafe(
       `SELECT start_date, end_date, status
-       FROM leave_requests
-       WHERE staff_id = $1
-         AND status IN ('approved', 'taken', 'completed')
-         AND end_date >= $2::date
-         AND start_date <= $3::date
+       FROM leave_applications
+       WHERE tenant_id = $1::uuid
+         AND staff_id = $2::int
+         AND LOWER(status) IN ('approved', 'taken', 'completed')
+         AND end_date >= $3::date
+         AND start_date <= $4::date
        LIMIT 200`,
+      tenantId,
       staffId,
       windowStart.toISOString().slice(0, 10),
       windowEnd.toISOString().slice(0, 10)
@@ -730,6 +738,7 @@ export async function evaluateStaffBurnout({
     windowEnd,
   });
   const ptoDaysTaken = await loadPtoDays({
+    tenantId,
     staffUid: safeUid,
     windowStart,
     windowEnd,
@@ -764,7 +773,7 @@ export async function evaluateStaffBurnout({
   }
   if (ptoDaysTaken > 0) {
     citations.push({
-      source_type: 'leave_requests',
+      source_type: 'leave_applications',
       source_id: safeUid,
       label: `Leave/PTO records (${roundTo(ptoDaysTaken, 1)} days in window)`,
       timestamp: windowStart.toISOString(),

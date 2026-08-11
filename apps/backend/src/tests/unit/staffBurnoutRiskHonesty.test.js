@@ -8,6 +8,7 @@ const controls = {
   burnoutReviewError: null,
   clinicalReviewError: null,
   listError: null,
+  ptoRows: [],
 };
 
 const queryRawUnsafeMock = jest.fn(async (sql) => {
@@ -25,10 +26,15 @@ const queryRawUnsafeMock = jest.fn(async (sql) => {
     if (controls.shiftsError) throw controls.shiftsError;
     return [];
   }
-  if (query.includes('SELECT id FROM users')) return [{ id: 1 }];
+  if (query.includes('SELECT id') && query.includes('FROM users')) return [{ id: 1 }];
   if (query.includes('FROM leave_requests')) {
+    const err = new Error('relation "leave_requests" does not exist');
+    err.code = '42P01';
+    throw err;
+  }
+  if (query.includes('FROM leave_applications')) {
     if (controls.ptoError) throw controls.ptoError;
-    return [];
+    return controls.ptoRows;
   }
   if (query.includes('FROM clinical_ai_prompts')) return [];
   if (query.includes('INSERT INTO clinical_ai_generations')) {
@@ -82,7 +88,7 @@ const staffUid = '00000000-0000-4000-8000-0000000000b1';
 
 describe('staff burnout evidence and persistence failures', () => {
   beforeEach(() => {
-    Object.keys(controls).forEach((key) => { controls[key] = null; });
+    Object.keys(controls).forEach((key) => { controls[key] = key === 'ptoRows' ? [] : null; });
     queryRawUnsafeMock.mockClear();
   });
 
@@ -104,5 +110,32 @@ describe('staff burnout evidence and persistence failures', () => {
 
     await expect(listStaffBurnoutReviews({ tenantId: req.tenantId }))
       .rejects.toThrow('review list unavailable');
+  });
+
+  test('loads tenant-scoped PTO evidence from canonical leave applications', async () => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setUTCDate(today.getUTCDate() - 1);
+    controls.ptoRows = [{
+      start_date: yesterday.toISOString().slice(0, 10),
+      end_date: today.toISOString().slice(0, 10),
+      status: 'approved',
+    }];
+
+    const result = await evaluateStaffBurnout({ req, staffUid });
+
+    const identityCall = queryRawUnsafeMock.mock.calls.find(([sql]) => (
+      String(sql).includes('SELECT id') && String(sql).includes('FROM users')
+    ));
+    expect(String(identityCall?.[0])).toContain('tenant_id = $1::uuid');
+    expect(identityCall?.slice(1)).toEqual([req.tenantId, staffUid]);
+
+    const leaveCall = queryRawUnsafeMock.mock.calls.find(([sql]) => String(sql).includes('FROM leave_applications'));
+    expect(String(leaveCall?.[0])).toContain('tenant_id = $1::uuid');
+    expect(leaveCall?.slice(1, 3)).toEqual([req.tenantId, 1]);
+    expect(queryRawUnsafeMock.mock.calls.some(([sql]) => String(sql).includes('FROM leave_requests'))).toBe(false);
+    expect(result.source_citations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source_type: 'leave_applications' }),
+    ]));
   });
 });
