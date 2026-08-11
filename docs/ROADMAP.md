@@ -1,6 +1,6 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Last reconciled: 2026-06-29.**
+**Single source of truth for pending work. Last reconciled: 2026-08-11.**
 
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
@@ -9,15 +9,22 @@ remediation plans/work-order, the execution log, and the tenant-RLS gap
 analysis). Those source docs are now in [`archive/`](archive/) — see
 [§8](#8-archived-source-docs).
 
-**Code/CI state:** `main` @ `bf9d225a`; GitHub CI (Backend + Smoke E2E +
-Canonical) green; the S-tier program (WS0–WS8) and the full multi-tenancy
-program are **code-complete**. **[§0](#0--engineering-remediation-backlog-2026-06-22-codebase-audit) is the front of queue** — the 2026-06-22 full-codebase audit found real engineering work (13 adversarially-confirmed High findings) that ranks **ahead** of the operator/external gates in §1–§8 (which remain the go-live-execution + external/procurement tail). Step-by-step execution runbooks remain **live at `docs/`** (linked inline).
+**Code/CI state:** reconciled against GitHub `main` @ `9bcdb6563`.
+**[§0A](#0a--engineering-remediation-backlog-2026-08-11-full-platform-audit-code) is the front of queue.**
+The earlier §0 and S-tier completion statements are historical delivery records;
+they do not close findings discovered by the 2026-08-11 full-platform audit.
+Operator/external gates in §1–§8 remain active and step-by-step runbooks remain
+live under `docs/`.
 
 > **2026-07-05 — next chapter:** §0's engineering backlog (Tier 0/1/2) is complete.
 > The forward **build** program now lives in
 > [`NEXT_LEVEL_ROADMAP.md`](NEXT_LEVEL_ROADMAP.md) (enterprise-grade programs
 > NL-1–NL-12, waves A–D); its §2 absorbs this file's remaining T2/§5/§6 code items.
 > §§1–4 of THIS file remain the authoritative operator/go-live track.
+>
+> **2026-08-11 correction:** a new cross-stack audit found one P0 production
+> hazard and multiple High trust/wiring defects. §0A supersedes the statement
+> above as the current engineering front of queue until its exit gate is met.
 
 ## Legend
 
@@ -27,6 +34,87 @@ program are **code-complete**. **[§0](#0--engineering-remediation-backlog-2026-
 | `[EXTERNAL]` | Third-party / government engagement (certification, pen test, audit). |
 | `[PROCUREMENT]` | Hardware or commercial-license purchase. |
 | `[CODE]` | Genuinely-unwritten code. Deferred-by-design / customer-pull unless flagged otherwise. |
+
+---
+
+## 0A — Engineering remediation backlog (2026-08-11 full-platform audit) `[CODE]`
+
+Front of queue. Point-in-time evidence, ratings, exact source surfaces, and the
+upgrade sequence are in
+[`archive/audits/PLATFORM_AUDIT_2026-08-11.md`](archive/audits/PLATFORM_AUDIT_2026-08-11.md).
+Work is delivered as severity-ordered, one-invariant PRs: failing regression,
+minimal fix, focused gate, canonical gate, review, merge, then ledger update.
+Off-main work is not counted as fixed.
+
+### P0 — contain before broader rollout
+
+- [ ] **AUG11-C1 — production seed fail-closed + live consequence check.** Add
+  manifest and script-level production refusal; prove a production-mode scratch
+  migration creates no test identities. Operator: inspect/disable seeded
+  identities, revoke sessions, rotate exposed credentials, and review retained
+  migration Job logs.
+- [ ] **AUG11-H1 — owner-only migrations.** Runtime workers must perform
+  read-only migration-tip/checksum verification under the declared NOCREATE
+  role. Validate the live runtime role/grants and six-worker boot after PreSync.
+
+### P1 — trust boundaries, PHI, and durable truth
+
+- [ ] **AUG11-H2/H3 — search and care-team enforcement.** Purpose-specific
+  search RBAC, minimum PHI, mandatory resolved-patient context, resource-to-
+  patient resolvers, and PHI audit coverage.
+- [ ] **AUG11-H12/M1/M2 — route and failure honesty.** Complete the static-route
+  reachability sweep; stop device, audit-log, system-log, and export failures
+  from returning authoritative empty success. PR #841 already fixed user
+  `/search` and `/system-info`; remaining routes and failures are open.
+- [ ] **AUG11-H10/H11 — retry safety.** Server-side idempotency for messaging
+  and a fenced durable recovery drain/stale-lease path for every interface.
+- [ ] **AUG11-H4/H5 — patient auth and health sync.** Authenticated profile
+  completion; source-enum alignment; independent durable cursors; partial-
+  failure retry; idempotent sample ingestion.
+- [ ] **AUG11-H6/H7/H8/H9 — staff clinical wiring.** Finish the Code Blue
+  client lifecycle, typed blood-bank request, complete logout reset, and
+  server-authoritative alert acknowledgement. PR #844 closed the backend Code
+  Blue token-source defect only.
+- [ ] **AUG11-H14/M9 — admin and notification truth.** Replace pathology
+  proxy/fallback behavior with an authoritative typed workflow and consolidate
+  live notification state into one owner.
+
+### P1 — jobs and tenant correctness
+
+- [ ] **AUG11-M3 — appointment reminders.** Delete or repair the broken legacy
+  daily path; preserve tenant context, correct sender/status/schema semantics,
+  and prove exactly-once behavior in two tenants.
+- [ ] **AUG11-M4 — payroll/salary jobs.** Keep multi-tenant activation gated
+  until fan-out and every write/FK are explicitly tenant-safe.
+
+### P2 — privacy, lifecycle, and activation blockers
+
+- [ ] **AUG11-M5/M6/M7/M8 — patient lifecycle/privacy.** Reconcile walk
+  sessions, make token state authoritative, use shared pinned transports, and
+  minimize lock-screen notification content.
+- [ ] **AUG11-H13/M10/M11/M12 — held delivery surfaces.** Resolve signed image
+  digests, Staff Web token/offline storage, device-gateway empty readiness, and
+  global spool limits before activation. Holds remain fail-closed.
+
+### P3 — simplify, delete, and upgrade
+
+- [ ] One shared Flutter HTTP/auth transport and one notification state owner
+  per app; remove raw-client and duplicate-provider paths after migration.
+- [ ] Delete superseded reminder code, unreachable route handlers, unused
+  queues, and unowned held code only after provenance and activation decisions
+  are recorded.
+- [ ] Add release-gated fault injection, two-tenant behavior, logout/account-
+  switch, browser activation, and client/backend contract matrices.
+- [ ] Execute staged Node/database, Flutter, admin/Next.js, and infrastructure
+  upgrades only after P0/P1 contracts stabilize; do not mix framework majors
+  with clinical behavior changes.
+
+### §0A exit gate
+
+Every audit ID is merged and linked to regression evidence; focused plus
+canonical gates are green; live-impact checks have operator receipts; held
+surfaces remain inactive or have separate activation approval; the audit rating
+is reissued against the then-current `main`.
 
 ---
 

@@ -10,6 +10,8 @@ operations.
 | Topic | Document |
 | --- | --- |
 | **Go-live critical path (operator sequence)** | [`GO_LIVE_CRITICAL_PATH.md`](GO_LIVE_CRITICAL_PATH.md) |
+| **Current engineering remediation queue** | [`ROADMAP.md#0a--engineering-remediation-backlog-2026-08-11-full-platform-audit-code`](ROADMAP.md#0a--engineering-remediation-backlog-2026-08-11-full-platform-audit-code) |
+| 2026-08-11 full-platform audit (evidence snapshot) | [`archive/audits/PLATFORM_AUDIT_2026-08-11.md`](archive/audits/PLATFORM_AUDIT_2026-08-11.md) |
 | Release gate | [`RELEASE_READINESS.md`](RELEASE_READINESS.md) |
 | Deployment runbook | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) |
 | India go-live readiness | [`india-deployment-readiness.md`](india-deployment-readiness.md) |
@@ -27,6 +29,7 @@ were consolidated into it on 2026-06-22 and moved to [`archive/`](archive/).
 | Topic | Document | Notes |
 | --- | --- | --- |
 | Pending work (consolidated) | [`ROADMAP.md`](ROADMAP.md) | What's left + links to the live runbooks; **start here** |
+| Current audit evidence | [`archive/audits/PLATFORM_AUDIT_2026-08-11.md`](archive/audits/PLATFORM_AUDIT_2026-08-11.md) | Point-in-time findings and rating; status is maintained in `ROADMAP.md` |
 | Pilot staff workflow scenarios | [`PILOT_STAFF_WORKFLOW_SCENARIOS.md`](PILOT_STAFF_WORKFLOW_SCENARIOS.md) | Real-world workflow coverage for pilot |
 | Archived planning docs | [`archive/`](archive/) | Point-in-time roadmaps / logs (provenance only) |
 
