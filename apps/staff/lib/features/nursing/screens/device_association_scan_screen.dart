@@ -16,7 +16,7 @@ typedef DeviceAssociator =
 typedef DeviceAssociationDisconnector =
     Future<Map<String, dynamic>> Function(int id);
 
-enum _DeviceAssocStep { scanPatient, scanDevice, review }
+enum _DeviceAssocStep { scanPatient, scanDevice, review, associated }
 
 class DeviceAssociationScanScreen extends StatefulWidget {
   const DeviceAssociationScanScreen({
@@ -88,7 +88,7 @@ class _DeviceAssociationScanScreenState
         _step = _DeviceAssocStep.scanDevice;
       } else if (_step == _DeviceAssocStep.scanDevice) {
         _deviceCode = value;
-        _associate();
+        _step = _DeviceAssocStep.review;
       }
     });
     Future.delayed(const Duration(milliseconds: 700), () {
@@ -148,7 +148,7 @@ class _DeviceAssociationScanScreenState
           content: Text(AppStrings.of(context).lookup('device_assoc.saved')),
         ),
       );
-      setState(() => _step = _DeviceAssocStep.review);
+      setState(() => _step = _DeviceAssocStep.associated);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -187,7 +187,8 @@ class _DeviceAssociationScanScreenState
       title: s.lookup('device_assoc.title'),
       body: Column(
         children: [
-          if (_step != _DeviceAssocStep.review)
+          if (_step == _DeviceAssocStep.scanPatient ||
+              _step == _DeviceAssocStep.scanDevice)
             Expanded(
               flex: 3,
               child: MobileScanner(
@@ -203,6 +204,7 @@ class _DeviceAssociationScanScreenState
                 _StepPanel(step: _step, patientUid: _patientUid),
                 const SizedBox(height: 16),
                 if (_step == _DeviceAssocStep.scanDevice) _devicePicker(s),
+                if (_step == _DeviceAssocStep.review) _reviewPanel(s),
                 if (_busy) const LinearProgressIndicator(),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
@@ -245,11 +247,61 @@ class _DeviceAssociationScanScreenState
         FilledButton.icon(
           onPressed: selectedCode == null || selectedCode.isEmpty || _busy
               ? null
-              : _associate,
+              : () => setState(() => _step = _DeviceAssocStep.review),
           icon: const Icon(Icons.link),
           label: const AppText('device_assoc.title'),
         ),
       ],
+    );
+  }
+
+  Widget _reviewPanel(AppStrings s) {
+    final device = _devices.cast<Map<String, dynamic>?>().firstWhere(
+      (row) => row?['device_code']?.toString() == _deviceCode,
+      orElse: () => null,
+    );
+    final deviceLabel = device?['display_name']?.toString().trim();
+    final code = _deviceCode ?? '';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              s.lookup('device_assoc.review'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(_patientUid ?? ''),
+            Text(
+              deviceLabel == null || deviceLabel.isEmpty
+                  ? code
+                  : '$deviceLabel - $code',
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => setState(() {
+                          _deviceCode = null;
+                          _step = _DeviceAssocStep.scanDevice;
+                        }),
+                  child: Text(s.actionCancel),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _busy ? null : _associate,
+                  child: Text(s.actionConfirm),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -296,6 +348,7 @@ class _StepPanel extends StatelessWidget {
       _DeviceAssocStep.scanPatient => 'device_assoc.scan_patient',
       _DeviceAssocStep.scanDevice => 'device_assoc.scan_device',
       _DeviceAssocStep.review => 'device_assoc.review',
+      _DeviceAssocStep.associated => 'device_assoc.saved',
     };
     return Card(
       child: ListTile(

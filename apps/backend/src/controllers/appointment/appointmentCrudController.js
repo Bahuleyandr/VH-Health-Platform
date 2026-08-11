@@ -139,6 +139,7 @@ export const createAppointment = async (req, res) => {
 
     const appointmentData = {
       patient_id: req.body.patient_id,
+      patient_phone: patientPhone,
       doctor_id: req.body.doctor_id,
       appointment_date: appointmentDate,
       appointment_time: appointmentTime,

@@ -9,6 +9,7 @@ import { AppError } from '../../utils/AppError.js';
 
 const listUnverifiedDeviceVitalsMock = jest.fn();
 const ingestSequencedDeviceVitalsRecoveryMock = jest.fn();
+const associateDevicePatientMock = jest.fn();
 
 jest.unstable_mockModule('../../services/emr/deviceVitalsService.js', () => ({
   ingestDeviceVitals: jest.fn(),
@@ -24,7 +25,7 @@ jest.unstable_mockModule('../../services/devices/deviceRegistryService.js', () =
 }));
 
 jest.unstable_mockModule('../../services/devices/deviceAssociationService.js', () => ({
-  associateDevicePatient: jest.fn(),
+  associateDevicePatient: associateDevicePatientMock,
   disconnectAssociation: jest.fn(),
   listAssociations: jest.fn(),
 }));
@@ -47,6 +48,7 @@ app.use('/api/v1/devices', deviceVitalsRoutes);
 beforeEach(() => {
   listUnverifiedDeviceVitalsMock.mockReset();
   ingestSequencedDeviceVitalsRecoveryMock.mockReset();
+  associateDevicePatientMock.mockReset();
 });
 
 describe('device vitals handleFailure relays AppError code + details', () => {
@@ -103,5 +105,36 @@ describe('device vitals handleFailure relays AppError code + details', () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.body.code).toBe('EXTERNAL_RECOVERY_MARKER_MISSING');
+  });
+
+  test.each(['PATIENT', 'DEVICE_GATEWAY', 'WEBHOOK_CLIENT', 'UNKNOWN_ROLE'])(
+    '%s cannot create a bedside device association',
+    async (role) => {
+      const response = await request(app)
+        .post('/api/v1/devices/associations')
+        .set('x-test-role', role)
+        .send({
+          patient_uid: '22222222-2222-4222-8222-222222222222',
+          device_code: 'MON-1',
+        });
+
+      expect(response.statusCode).toBe(403);
+      expect(associateDevicePatientMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test('an intended nursing operator can create a bedside device association', async () => {
+    associateDevicePatientMock.mockResolvedValueOnce({ id: 9 });
+
+    const response = await request(app)
+      .post('/api/v1/devices/associations')
+      .set('x-test-role', 'NURSING_STAFF')
+      .send({
+        patient_uid: '22222222-2222-4222-8222-222222222222',
+        device_code: 'MON-1',
+      });
+
+    expect(response.statusCode).toBe(201);
+    expect(associateDevicePatientMock).toHaveBeenCalledTimes(1);
   });
 });
