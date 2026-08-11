@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:vhhealth/core/services/patient_notification_privacy.dart';
 
 typedef NotificationPayloadHandler = void Function(String payload);
 
@@ -116,7 +117,7 @@ class NotificationScheduler {
     if (title.trim().isEmpty && body.trim().isEmpty) return;
 
     final safePayload = <String, String>{};
-    for (final entry in payload.entries) {
+    for (final entry in patientNotificationPayload(payload).entries) {
       final value = entry.value;
       if (value == null) continue;
       safePayload[entry.key] = value.toString();

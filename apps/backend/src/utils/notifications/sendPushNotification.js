@@ -1,5 +1,6 @@
 // src\utils\notifications\sendPushNotification.js"
 
+import { randomUUID } from 'node:crypto';
 import { getMessaging } from 'firebase-admin/messaging';
 import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -7,6 +8,26 @@ import { sendToUser } from '../websocket/wsServer.js';
 
 const PRIVATE_LOCK_SCREEN_TITLE = 'VH Health';
 const PRIVATE_LOCK_SCREEN_BODY = 'You have a new update. Open the app to view it.';
+const PRIVATE_NOTIFICATION_ROUTE = '/notifications';
+const PRIVATE_NOTIFICATION_ACTION = 'open_notification_inbox';
+
+/**
+ * @typedef {Object} PrivatePushEnvelope
+ * @property {string} notification_id
+ * @property {string} route
+ * @property {string} action
+ * @property {string} click_action
+ */
+
+/** @returns {PrivatePushEnvelope} */
+function createPrivatePushEnvelope() {
+  return {
+    notification_id: `push_${randomUUID()}`,
+    route: PRIVATE_NOTIFICATION_ROUTE,
+    action: PRIVATE_NOTIFICATION_ACTION,
+    click_action: 'FLUTTER_NOTIFICATION_CLICK',
+  };
+}
 
 /**
  * Send a Firebase multicast message with retry logic for transient errors.
@@ -64,14 +85,14 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
   // Android's system tray renders them directly. Their display copy is always
   // privacy-minimized; authenticated app surfaces retain the detailed copy.
   const isHigh = priority === 'high';
-  const transportData = { ...data };
-  if (isHigh) {
-    transportData.title = title;
-    transportData.body = body;
-  } else {
-    delete transportData.title;
-    delete transportData.body;
-  }
+  const transportData = isHigh
+    ? {
+        ...data,
+        title,
+        body,
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+      }
+    : createPrivatePushEnvelope();
   const multicastMessage = {
     tokens: tokenArray,
     ...(isHigh
@@ -82,10 +103,7 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
             body: PRIVATE_LOCK_SCREEN_BODY,
           },
         }),
-    data: {
-      ...transportData,
-      click_action: 'FLUTTER_NOTIFICATION_CLICK',
-    },
+    data: transportData,
     ...(isHigh
       ? {
           android: {
