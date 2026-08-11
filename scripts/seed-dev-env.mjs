@@ -18,6 +18,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('seed-dev-env.mjs refuses to write development secrets when NODE_ENV=production.');
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
 

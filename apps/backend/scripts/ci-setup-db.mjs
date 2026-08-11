@@ -36,6 +36,7 @@ import {
 } from './lib/migrationBatchGuard.mjs';
 import { executeCiMigrationFile } from './lib/ciMigrationExecutor.mjs';
 import { parseMigrationDirectives } from './lib/migrationDirectives.mjs';
+import { assertCiSetupSeedPolicy } from './lib/testDataSeedGuard.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -46,6 +47,11 @@ if (!DATABASE_URL) {
   logger.error('DATABASE_URL not set');
   process.exit(1);
 }
+
+const skipSeedsArg = process.argv.includes('--skip-seeds');
+const skipSeedsEnv = process.env.CI_DB_SKIP_SEEDS === '1';
+assertCiSetupSeedPolicy({ skipSeedsArg, skipSeedsEnv });
+const skipSeeds = skipSeedsArg || skipSeedsEnv;
 
 // Migrations that the memory file notes will fully fail — skip to keep noise down.
 const SKIP_MIGRATIONS = new Set([
@@ -198,8 +204,6 @@ await assertMigrationBatchSucceeded({ errors, client, logger });
 // migration chain, and locally-seeded rows there would collide with the
 // logical-replication initial copy (duplicate keys → wedged subscription)
 // or linger as phantom rows the publisher never had.
-const skipSeeds =
-  process.argv.includes('--skip-seeds') || process.env.CI_DB_SKIP_SEEDS === '1';
 if (skipSeeds) {
   logger.info('→ Seeds skipped (--skip-seeds / CI_DB_SKIP_SEEDS=1)\n');
 } else {
@@ -242,19 +246,23 @@ if (skipSeeds) {
 // smoke-e2e, the docker guardrails) would leave the roles absent/ungranted and
 // the RLS-posture suites fail with `42501 permission denied for table
 // clinical_audit_events`.
-try {
-  const { rows: su } = await client.query(
-    'SELECT rolsuper FROM pg_roles WHERE rolname = current_user'
-  );
-  if (su[0]?.rolsuper) {
-    const { provisionRlsTestRoles } = await import('./provision-rls-test-roles.mjs');
-    await provisionRlsTestRoles({ connectionString: DATABASE_URL });
-    logger.info('→ RLS test roles provisioned.\n');
-  } else {
-    logger.info('→ RLS test-role provisioning skipped (connection is not a superuser).\n');
+if (skipSeeds) {
+  logger.info('→ RLS test-role provisioning skipped (seed-free setup).\n');
+} else {
+  try {
+    const { rows: su } = await client.query(
+      'SELECT rolsuper FROM pg_roles WHERE rolname = current_user'
+    );
+    if (su[0]?.rolsuper) {
+      const { provisionRlsTestRoles } = await import('./provision-rls-test-roles.mjs');
+      await provisionRlsTestRoles({ connectionString: DATABASE_URL });
+      logger.info('→ RLS test roles provisioned.\n');
+    } else {
+      logger.info('→ RLS test-role provisioning skipped (connection is not a superuser).\n');
+    }
+  } catch (err) {
+    logger.info(`  ! RLS test-role provisioning failed (non-fatal): ${err.message}\n`);
   }
-} catch (err) {
-  logger.info(`  ! RLS test-role provisioning failed (non-fatal): ${err.message}\n`);
 }
 
 await client.end();

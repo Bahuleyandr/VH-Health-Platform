@@ -28,6 +28,11 @@ const SEED_TAG = 'vh_hands_on_seed';
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
 
 function guard() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'seed-local-hands-on-hospital-data.mjs refuses synthetic data when NODE_ENV=production.'
+    );
+  }
   if (!connectionString) {
     throw new Error('DATABASE_URL or TEST_DATABASE_URL is required.');
   }

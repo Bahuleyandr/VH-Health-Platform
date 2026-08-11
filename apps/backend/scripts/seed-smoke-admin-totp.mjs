@@ -25,6 +25,7 @@
 import pg from 'pg';
 import { generateSecret } from 'otplib';
 import { encryptSecret } from '../src/utils/totpUtils.js';
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -35,6 +36,11 @@ if (!process.env.TOTP_ENCRYPTION_KEY) {
   process.stderr.write('seed-smoke-admin-totp: TOTP_ENCRYPTION_KEY not set\n');
   process.exit(1);
 }
+
+assertSyntheticSeedTarget({
+  connectionString: DATABASE_URL,
+  scriptName: 'seed-smoke-admin-totp.mjs',
+});
 
 const secret = generateSecret();
 const encryptedSecret = encryptSecret(secret);

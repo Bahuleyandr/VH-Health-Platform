@@ -19,6 +19,7 @@
 //   node scripts/seed-sprint-fixtures.mjs
 
 import pg from 'pg';
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const SEED_TAG = 'vh_sprint_seed';
@@ -33,21 +34,10 @@ if (!connectionString) {
   throw new Error('DATABASE_URL or TEST_DATABASE_URL is required.');
 }
 
-function isLocalDatabase(urlText) {
-  try {
-    const url = new URL(urlText);
-    const host = url.hostname.toLowerCase();
-    return ['127.0.0.1', 'localhost', '::1'].includes(host);
-  } catch {
-    return false;
-  }
-}
-
-if (!isLocalDatabase(connectionString) && process.env.VH_ALLOW_NON_TEST_DATA_SEED !== 'true') {
-  throw new Error(
-    'Refusing to seed a non-local database. Set VH_ALLOW_NON_TEST_DATA_SEED=true to override.',
-  );
-}
+assertSyntheticSeedTarget({
+  connectionString,
+  scriptName: 'seed-sprint-fixtures.mjs',
+});
 
 const client = new pg.Client({ connectionString });
 await client.connect();

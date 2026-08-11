@@ -377,7 +377,11 @@ function applyMigrationsAsOwner() {
       // objects (migration 310's per-table ALTER ... SET DEFAULT needs owner).
       // The owner carries BYPASSRLS for THIS phase only (see setOwnerBypassRls
       // + the cutover-risk note above) — stripped before the runtime proofs.
-      env: { ...process.env, DATABASE_URL: OWNER_URL },
+      env: {
+        ...process.env,
+        DATABASE_URL: OWNER_URL,
+        CI_DB_SKIP_SEEDS: '1',
+      },
       stdio: 'inherit',
     },
   );

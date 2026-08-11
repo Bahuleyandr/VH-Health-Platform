@@ -17,8 +17,15 @@
 // Usage: node scripts/seed-clinical-ai-preflight-reviewers.mjs [--tenant <uuid>]
 // Needs DATABASE_URL. Safe on the smoke/test DB only — creates synthetic users.
 
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
+
 process.env.JWT_SECRET ||= 'cli-only-not-a-secret';
 process.env.API_KEY ||= 'cli-only';
+
+assertSyntheticSeedTarget({
+  connectionString: process.env.DATABASE_URL || process.env.TEST_DATABASE_URL,
+  scriptName: 'seed-clinical-ai-preflight-reviewers.mjs',
+});
 
 const args = process.argv.slice(2);
 const tenantFlag = args.indexOf('--tenant');

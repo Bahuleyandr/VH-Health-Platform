@@ -5,6 +5,7 @@
 
 import pg from 'pg';
 import { fileURLToPath } from 'node:url';
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -200,17 +201,6 @@ export const LEGACY_DEMO_BED_NUMBERS = [
   'DLX-004',
   'DC-001',
 ];
-
-function isLocalTestDatabase(urlText) {
-  try {
-    const url = new URL(urlText);
-    const host = url.hostname.toLowerCase();
-    const database = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-    return ['127.0.0.1', 'localhost', '::1'].includes(host) && database === 'vhhealth_test';
-  } catch {
-    return false;
-  }
-}
 
 function tariffNote({ ward, roomType, rate }) {
   const base = `${ward.building}; floor ${ward.floor}; room type: ${roomType}`;
@@ -454,11 +444,10 @@ async function main() {
   if (!connectionString) {
     throw new Error('DATABASE_URL or TEST_DATABASE_URL is required.');
   }
-  if (!isLocalTestDatabase(connectionString) && process.env.VH_ALLOW_NON_TEST_DATA_SEED !== 'true') {
-    throw new Error(
-      'Refusing to seed a non-local test database. Use local vhhealth_test or set VH_ALLOW_NON_TEST_DATA_SEED=true.'
-    );
-  }
+  assertSyntheticSeedTarget({
+    connectionString,
+    scriptName: 'seed-current-bed-structure.mjs',
+  });
 
   const client = new pg.Client({ connectionString });
   await client.connect();

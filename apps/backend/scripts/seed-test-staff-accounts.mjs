@@ -20,10 +20,17 @@
 // format; do NOT switch to `EMP1004`-style or the client won't even POST.
 
 import bcrypt from 'bcrypt';
-import prisma from '../src/lib/prisma.js';
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
 
 const DEFAULT_TEST_STAFF_PASSWORD = ['test', '1234'].join('');
 const PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || DEFAULT_TEST_STAFF_PASSWORD;
+const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
+assertSyntheticSeedTarget({
+  connectionString,
+  scriptName: 'seed-test-staff-accounts.mjs',
+});
+
+const { default: prisma } = await import('../src/lib/prisma.js');
 
 // One per StaffRole enum value in apps/staff/lib/core/config/role_config.dart.
 // EMP-1001..1003 are kept in the table for documentation; this script
@@ -636,14 +643,12 @@ async function main() {
     console.log(`│ ${r.emp.padEnd(8)} │ ${r.role.padEnd(15)} │ ${r.action.padEnd(8)} │`);
   }
   console.log('└──────────┴─────────────────┴──────────┘');
-  console.log(`\nAll accounts use password: ${PASSWORD}`);
+  console.log('\nSeed password is configured through VH_TEST_STAFF_PASSWORD and is not printed.');
   console.log('Login via: POST /api/v1/auth/staff/login { employeeId, password }\n');
 }
 
-main()
-  .then(() => prisma.$disconnect())
-  .catch(async err => {
-    console.error('Seed failed:', err);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+try {
+  await main();
+} finally {
+  await prisma.$disconnect();
+}

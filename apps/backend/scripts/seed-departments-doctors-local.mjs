@@ -1,8 +1,15 @@
 import logger from '../src/logging/logger.js';
 import pg from 'pg';
 import { randomUUID } from 'crypto';
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
 
-const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
+assertSyntheticSeedTarget({
+  connectionString,
+  scriptName: 'seed-departments-doctors-local.mjs',
+});
+
+const client = new pg.Client({ connectionString });
 await client.connect();
 
 const DEPARTMENTS = [

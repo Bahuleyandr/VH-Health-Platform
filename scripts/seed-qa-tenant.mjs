@@ -21,26 +21,22 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertSyntheticSeedTarget } from '../apps/backend/scripts/lib/testDataSeedGuard.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const requireFromBackend = createRequire(
   path.join(__dirname, '..', 'apps', 'backend', 'package.json')
 );
 const pg = requireFromBackend('pg');
+const connectionString = process.env.DATABASE_URL;
+assertSyntheticSeedTarget({
+  connectionString,
+  scriptName: 'seed-qa-tenant.mjs',
+  allowedDatabaseNames: ['vhhealth_test', 'vhhealth_qa'],
+  allowNonTestOverride: false,
+});
 
 const QA_TAG = 'qa_seed';
-
-const guard = () => {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL not set');
-  // Best-effort safety net (qa-reset.mjs already enforced the full guardrails).
-  if (!/(?:127\.0\.0\.1|localhost)/.test(url)) {
-    throw new Error(`refusing to seed: DATABASE_URL host is not loopback (${url})`);
-  }
-  if (!/vhhealth_test|vhhealth_qa/.test(url)) {
-    throw new Error(`refusing to seed: DATABASE_URL does not target a QA test DB (${url})`);
-  }
-};
 
 async function getOrCreateUnicodePatient(client) {
   const phone = '+919900000091';
@@ -132,8 +128,7 @@ async function ensureLongStringPatient(client) {
 }
 
 async function main() {
-  guard();
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const client = new pg.Client({ connectionString });
   await client.connect();
   try {
     const patient = await getOrCreateUnicodePatient(client);
