@@ -8,6 +8,7 @@ const queryMock = jest.fn();
 const executeMock = jest.fn();
 const setTenantTxMock = jest.fn();
 const canonicalMock = jest.fn();
+const supersedeTaskMock = jest.fn();
 
 const tx = {
   $queryRawUnsafe: queryMock,
@@ -24,9 +25,14 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: canonicalMock,
 }));
+jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  supersedeAcknowledgementTaskFromTrustedWorkflow: supersedeTaskMock,
+}));
 
 const {
+  getPatientNEWS2History,
   presentNews2Record,
+  supersedeNews2ForVitalsRow,
   updatePatientSpo2Scale,
 } = await import('../../services/clinical/news2Service.js');
 
@@ -65,6 +71,115 @@ describe('P4 NEWS2 presentation contract', () => {
       escalation_action: 'Urgent review',
       risk_band_available: true,
     }));
+  });
+
+  it('never labels a latest partial score as stable or decreasing', async () => {
+    queryMock.mockReset().mockResolvedValueOnce([
+      {
+        id: 2,
+        total_score: 1,
+        partial_score: true,
+        missing_params: ['temperature'],
+        superseded_at: null,
+      },
+      {
+        id: 1,
+        total_score: 8,
+        partial_score: false,
+        missing_params: null,
+        superseded_at: null,
+      },
+    ]);
+
+    await expect(getPatientNEWS2History(PATIENT, 10)).resolves.toMatchObject({
+      trend: null,
+      trend_available: false,
+      trend_reason: 'latest_score_partial',
+    });
+  });
+});
+
+describe('P4 correction consequence reconciliation', () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+    executeMock.mockReset().mockResolvedValue(1);
+    supersedeTaskMock.mockReset().mockResolvedValue({ status: 'superseded' });
+  });
+
+  it('SpO2 8→88 keeps the warning alert but supersedes its old critical task/SLA and CDS state', async () => {
+    queryMock.mockImplementation(async (sql, _tenantId, _oldScoreIds, alertIds) => {
+      if (/FROM news2_scores/.test(sql)) return [{ id: 701 }];
+      if (/FROM clinical_alerts/.test(sql)) {
+        return [{
+          id: 17,
+          vital_name: 'oxygen_saturation',
+          vital_value: 8,
+          severity: 'CRITICAL',
+        }];
+      }
+      if (/UPDATE cds_alerts/.test(sql)) return [{ id: 23 }];
+      if (/FROM tasks/.test(sql)) {
+        return alertIds?.includes('17')
+          ? [{
+            id: 29,
+            related_resource_type: 'clinical_alert',
+            related_resource_id: '17',
+            workflow_sla_instance_id: '44444444-4444-4444-8444-444444444444',
+          }]
+          : [];
+      }
+      return [];
+    });
+
+    const result = await supersedeNews2ForVitalsRow(42, 909, {
+      db: tx,
+      tenantId: TENANT,
+      correctedBy: ACTOR,
+      patientId: 88,
+      deferNews2TaskRetirement: true,
+      replacementNews2: {
+        totalScore: 3,
+        clinicalRisk: 'low_to_medium',
+        severity: 'warning',
+        title: 'NEWS2 3 — low to medium',
+        description: 'Urgent review',
+      },
+      currentVitalAnomalies: [{
+        patient_id: 88,
+        vital_name: 'oxygen_saturation',
+        value: 88,
+        severity: 'WARNING',
+        message: 'oxygen saturation 88% remains abnormal',
+        recorded_by: 55,
+      }],
+    });
+
+    const alertUpdate = executeMock.mock.calls.find(([sql]) => /UPDATE clinical_alerts/.test(sql));
+    expect(alertUpdate).toEqual([
+      expect.any(String),
+      [17],
+      88,
+      'WARNING',
+      'oxygen saturation 88% remains abnormal',
+      TENANT,
+    ]);
+    expect(supersedeTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: 29,
+      relatedResourceType: 'clinical_alert',
+      relatedResourceId: '17',
+      workflowSlaInstanceId: '44444444-4444-4444-8444-444444444444',
+      supersessionReason: 'superseded_by_correction',
+      tx,
+    }));
+    const cdsUpdate = queryMock.mock.calls.find(([sql]) => /UPDATE cds_alerts/.test(sql));
+    expect(cdsUpdate).toEqual(expect.arrayContaining(['warning']));
+    expect(result).toMatchObject({
+      alertsResolved: 0,
+      alertsReconciled: 1,
+      cdsAlertsReconciled: 1,
+      tasksSuperseded: 1,
+      activeAlertIdsByVitalName: { oxygen_saturation: 17 },
+    });
   });
 });
 

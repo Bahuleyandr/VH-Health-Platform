@@ -160,6 +160,10 @@ function resetAll() {
 }
 
 describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('SpO2 98→88: re-scores on the tx with corrected values, supersedes, escalates, re-checks anomalies', async () => {
     resetAll();
 
@@ -259,6 +263,68 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     expect(supersedeMock).not.toHaveBeenCalled();
     expect(escalateNews2Mock).not.toHaveBeenCalled();
     expect(checkVitalAnomaliesMock).not.toHaveBeenCalled();
+  });
+
+  it('returns a replay of the SpO2 8→88 correction as a no-op after the five-minute window', async () => {
+    resetAll();
+    const now = Date.parse('2026-08-12T00:00:00.000Z');
+    const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
+    findUniqueMock.mockResolvedValue({
+      ...existingRow,
+      spo2: 88,
+      recorded_at: new Date(now - (10 * 60 * 1000)),
+      created_at: new Date(now - (10 * 60 * 1000)),
+    });
+    __txClient.$queryRawUnsafe.mockResolvedValueOnce([{ effective_state_unchanged: true }]);
+
+    await expect(correctVitals(VITALS_ID, {
+      corrected_by: NURSE_UID,
+      tenantId: TENANT_ID,
+      spo2: 88,
+    })).resolves.toMatchObject({ id: VITALS_ID, spo2: 88 });
+
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(recordCanonicalMock).not.toHaveBeenCalled();
+    expect(supersedeMock).not.toHaveBeenCalled();
+    dateNow.mockRestore();
+  });
+
+  it('allows a genuine mutation exactly at five minutes', async () => {
+    resetAll();
+    const now = Date.parse('2026-08-12T00:00:00.000Z');
+    const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
+    findUniqueMock.mockResolvedValue({
+      ...existingRow,
+      recorded_at: new Date(now - (5 * 60 * 1000)),
+      created_at: new Date(now - (5 * 60 * 1000)),
+    });
+
+    await expect(correctVitals(VITALS_ID, {
+      corrected_by: NURSE_UID,
+      tenantId: TENANT_ID,
+      spo2: 88,
+    })).resolves.toMatchObject({ id: VITALS_ID, spo2: 88 });
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    dateNow.mockRestore();
+  });
+
+  it('rejects a genuine mutation one millisecond after five minutes', async () => {
+    resetAll();
+    const now = Date.parse('2026-08-12T00:00:00.000Z');
+    const dateNow = jest.spyOn(Date, 'now').mockReturnValue(now);
+    findUniqueMock.mockResolvedValue({
+      ...existingRow,
+      recorded_at: new Date(now - (5 * 60 * 1000) - 1),
+      created_at: new Date(now - (5 * 60 * 1000) - 1),
+    });
+
+    await expect(correctVitals(VITALS_ID, {
+      corrected_by: NURSE_UID,
+      tenantId: TENANT_ID,
+      spo2: 88,
+    })).rejects.toMatchObject({ statusCode: 409 });
+    expect(updateMock).not.toHaveBeenCalled();
+    dateNow.mockRestore();
   });
 
   it('retires the stale score when the corrected row has no scorable NEWS2 parameter', async () => {

@@ -377,7 +377,7 @@ export async function supersedeNews2ForVitalsRow(
   }
 
   const existingAlertRows = await client.$queryRawUnsafe(
-    `SELECT id, vital_name
+    `SELECT id, vital_name, severity
        FROM clinical_alerts
       WHERE tenant_id = $1::uuid
         AND source_vitals_chart_id = $2::int
@@ -392,11 +392,19 @@ export async function supersedeNews2ForVitalsRow(
     currentVitalAnomalies.map((alert) => [String(alert.vital_name), alert]),
   );
   const activeAlertIdsByVitalName = {};
+  const demotedCriticalAlertIds = [];
 
   for (const [vitalName, alert] of currentByVitalName) {
     const existingForVital = existingAlertRows.filter((row) => row.vital_name === vitalName);
     if (existingForVital.length > 0) {
       const ids = existingForVital.map((row) => Number(row.id));
+      if (String(alert.severity).toUpperCase() !== 'CRITICAL') {
+        demotedCriticalAlertIds.push(
+          ...existingForVital
+            .filter((row) => String(row.severity).toUpperCase() === 'CRITICAL')
+            .map((row) => Number(row.id)),
+        );
+      }
       await client.$executeRawUnsafe(
         `UPDATE clinical_alerts
             SET vital_value = $2,
@@ -449,7 +457,10 @@ export async function supersedeNews2ForVitalsRow(
       resolvedAlertIds,
     );
   }
-  const resolvedAlertIdTexts = resolvedAlertIds.map(String);
+  const retiredAlertTaskIdTexts = [...new Set([
+    ...resolvedAlertIds,
+    ...demotedCriticalAlertIds,
+  ])].map(String);
 
   let cdsRows;
   let cdsAlertsReconciled = 0;
@@ -518,7 +529,7 @@ export async function supersedeNews2ForVitalsRow(
       FOR UPDATE`,
     tenantId,
     oldScoreIds,
-    resolvedAlertIdTexts,
+    retiredAlertTaskIdTexts,
     deferNews2TaskRetirement,
   );
   if (tasks.length > 0) {
@@ -841,6 +852,15 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
 
   // Build trend from last 10 scores (oldest to newest)
   const recentScores = rows.filter((row) => row.superseded_at == null).slice(0, 10).reverse();
+  const latestScore = recentScores[recentScores.length - 1];
+  if (latestScore?.partial_score === true) {
+    return {
+      scores: rows.map(presentNews2Record),
+      trend: null,
+      trend_available: false,
+      trend_reason: 'latest_score_partial',
+    };
+  }
   let trend = 'stable';
   if (recentScores.length >= 2) {
     const latest = recentScores[recentScores.length - 1].total_score;

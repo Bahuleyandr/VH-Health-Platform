@@ -937,6 +937,7 @@ export async function reconcileRecordedVitalsEffects({
             vitals.supplemental_o2,
             vitals.consciousness,
             vitals.urine_albumin,
+            vitals.recorded_at,
             patient.id AS patient_id,
             recorder.id AS recorded_by_id,
             score.id AS news2_id,
@@ -1001,6 +1002,8 @@ export async function reconcileRecordedVitalsEffects({
           id: row.news2_id,
           total_score: Number(row.total_score),
           clinical_risk: row.clinical_risk,
+          recorded_at: row.recorded_at,
+          vitals_chart_id: row.id,
         },
         computed,
         { tenantId: resolvedTenantId },
@@ -1008,7 +1011,7 @@ export async function reconcileRecordedVitalsEffects({
     }
     if (typeof onNews2EffectsCompleted === 'function') {
       await onNews2EffectsCompleted({
-        vitals: { id: row.id, patient_uid: row.patient_uid },
+        vitals: { id: row.id, patient_uid: row.patient_uid, recorded_at: row.recorded_at },
         news2: row.news2_id ? { id: row.news2_id } : null,
       });
     }
@@ -1018,11 +1021,13 @@ export async function reconcileRecordedVitalsEffects({
   let alerts = [];
   if (anomalyPending) {
     const vitalsForCheck = anomalyVitalsForCheck(row);
-    if (Object.keys(vitalsForCheck).length > 0) {
+    const isFresh = news2Service.isNews2EscalationFresh(row.recorded_at);
+    if (isFresh && Object.keys(vitalsForCheck).length > 0) {
       alerts = await checkVitalAnomalies(row.patient_id, vitalsForCheck, {
         recordedBy: row.recorded_by_id ?? null,
         source: 'fhir',
         tenantId: resolvedTenantId,
+        sourceVitalsChartId: row.id,
         onClinicalAlertsPersisted,
       });
     } else if (typeof onClinicalAlertsPersisted === 'function') {
@@ -1239,18 +1244,10 @@ export async function correctVitals(vitalsId, data) {
     });
     if (!existing) throw AppError.notFound('Vitals record not found');
 
-    const recordedAt = existing.recorded_at ?? existing.created_at;
-    if (!recordedAt) {
-      throw AppError.conflict('Vitals record cannot be corrected without a recorded timestamp');
-    }
-    if (Date.now() - new Date(recordedAt).getTime() > VITAL_CORRECTION_WINDOW_MS) {
-      throw AppError.conflict('Vitals correction window has expired');
-    }
-
     // Exact retries (including a retry under a fresh receipt key) stop before
-    // the detail UPDATE, audit/canonical revision, NEWS2 append, or alert/task
-    // reconciliation. The FOR UPDATE lock makes concurrent identical patches
-    // collapse after the winner commits.
+    // expiry enforcement, the detail UPDATE, audit/canonical revision, NEWS2
+    // append, or alert/task reconciliation. The FOR UPDATE lock makes
+    // concurrent identical patches collapse after the winner commits.
     if (guardRows[0].effective_state_unchanged === true) {
       const noOpRow = { ...existing };
       delete noOpRow.created_at;
@@ -1265,6 +1262,14 @@ export async function correctVitals(vitalsId, data) {
         replacementNeedsTask: false,
         correctionApplied: false,
       };
+    }
+
+    const recordedAt = existing.recorded_at ?? existing.created_at;
+    if (!recordedAt) {
+      throw AppError.conflict('Vitals record cannot be corrected without a recorded timestamp');
+    }
+    if (Date.now() - new Date(recordedAt).getTime() > VITAL_CORRECTION_WINDOW_MS) {
+      throw AppError.conflict('Vitals correction window has expired');
     }
 
     const row = await tx.vitals_chart.update({
