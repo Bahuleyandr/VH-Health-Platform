@@ -260,6 +260,10 @@ router.post('/health-sync', async (req, res) => {
             duration_seconds = EXCLUDED.duration_seconds,
             is_active = false,
             reward_eligible = true
+          WHERE EXCLUDED.recorded_at_source >= COALESCE(
+            step_sessions.recorded_at_source,
+            '-infinity'::timestamptz
+          )
           RETURNING id, source_day, steps, distance_meters, sleep_minutes, active_energy_kcal`,
         uid,
         source,

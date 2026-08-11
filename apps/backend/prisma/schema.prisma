@@ -7936,8 +7936,11 @@ model patient_vitals {
   tenant_id          String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   admission_id       Int?
   encounter_id       String?   @db.Uuid
+  source_record_id   String?   @db.VarChar(180)
+  source_record_hash String?   @db.Char(64)
   tenants            tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_vitals_tenant")
 
+  @@unique([tenant_id, patient_uid, source, source_record_id], map: "ux_patient_vitals_wearable_receipt", where: raw("(source_record_id IS NOT NULL)"))
   @@index([patient_uid, source, recorded_at_source(sort: Desc)], map: "idx_patient_vitals_source_time")
   @@index([tenant_id], map: "idx_patient_vitals_tenant_id")
   @@index([admission_id], map: "idx_patient_vitals_admission_id", where: raw("(admission_id IS NOT NULL)"))

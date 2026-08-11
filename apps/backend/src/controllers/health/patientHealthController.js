@@ -7,7 +7,9 @@ import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import * as patientHealthService from '../../services/health/patientHealthService.js';
+import { recordPatientWearableVital } from '../../services/health/patientWearableVitalsService.js';
 import { AppError } from '../../utils/AppError.js';
+import { assertVitalPlausibility, RECORDED_AT_MAX_FUTURE_MS } from '../../utils/clinical/vitalPlausibility.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 
@@ -229,7 +231,18 @@ export async function recordPatientVitals(req, res) {
       return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
     }
 
-    const { bloodPressure, heartRate, temperature, bloodSugar, weight, spO2, mood, source, recordedAtSource } = req.body;
+    const {
+      bloodPressure,
+      heartRate,
+      temperature,
+      bloodSugar,
+      weight,
+      spO2,
+      mood,
+      source,
+      sourceRecordId,
+      recordedAtSource,
+    } = req.body;
 
     // At least one vital OR a mood must be provided (mood alone is a valid
     // check-in submission from the dashboard check-in modal).
@@ -247,7 +260,7 @@ export async function recordPatientVitals(req, res) {
 
     // Validate source tag. Accept only known wearable origins so invalid
     // values don't pollute the sync-status map.
-    const allowedSources = ['manual', 'healthkit', 'google_fit'];
+    const allowedSources = ['manual', 'healthkit', 'health_connect', 'google_fit'];
     const sourceNorm = source ? String(source).toLowerCase() : 'manual';
     if (!allowedSources.includes(sourceNorm)) {
       return error(res, `source must be one of: ${allowedSources.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
@@ -257,6 +270,99 @@ export async function recordPatientVitals(req, res) {
       : null;
     if (recordedAtSource && isNaN(recordedAtSourceTs?.getTime())) {
       return error(res, 'recordedAtSource must be a valid ISO-8601 timestamp', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const isWearable = sourceNorm !== 'manual';
+    if (isWearable && !recordedAtSourceTs) {
+      return error(res, 'recordedAtSource is required for wearable vitals', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    if (isWearable) {
+      const normalizedHeartRate = strictNumberOrUndefined(heartRate, 'heartRate', { integer: true });
+      const normalizedTemperature = strictNumberOrUndefined(temperature, 'temperature');
+      const normalizedBloodSugar = strictNumberOrUndefined(bloodSugar, 'bloodSugar', { integer: true });
+      const normalizedWeight = strictNumberOrUndefined(weight, 'weight');
+      const normalizedSpO2 = strictNumberOrUndefined(spO2, 'spO2', { integer: true });
+      let normalizedBloodPressure = null;
+      if (bloodPressure != null) {
+        if (typeof bloodPressure !== 'object' || Array.isArray(bloodPressure)) {
+          throw AppError.badRequest('bloodPressure must be an object');
+        }
+        normalizedBloodPressure = {
+          systolic: strictNumberOrUndefined(bloodPressure.systolic, 'bloodPressure.systolic'),
+          diastolic: strictNumberOrUndefined(bloodPressure.diastolic, 'bloodPressure.diastolic'),
+        };
+      }
+
+      const hasWearableVital = [
+        normalizedBloodPressure?.systolic,
+        normalizedBloodPressure?.diastolic,
+        normalizedHeartRate,
+        normalizedTemperature,
+        normalizedBloodSugar,
+        normalizedWeight,
+        normalizedSpO2,
+      ].some(value => value !== undefined && value !== null);
+      if (!hasWearableVital) {
+        throw AppError.badRequest('At least one wearable vital sign is required');
+      }
+      if (normalizedWeight !== undefined && (normalizedWeight <= 0 || normalizedWeight > 600)) {
+        throw AppError.badRequest('weight must be between 0 and 600 kg');
+      }
+
+      assertVitalPlausibility({
+        heart_rate: normalizedHeartRate,
+        systolic_bp: normalizedBloodPressure?.systolic,
+        diastolic_bp: normalizedBloodPressure?.diastolic,
+        temperature: normalizedTemperature,
+        blood_glucose: normalizedBloodSugar,
+        spo2: normalizedSpO2,
+      });
+      if (recordedAtSourceTs.getTime() - Date.now() > RECORDED_AT_MAX_FUTURE_MS) {
+        throw AppError.badRequest('recordedAtSource cannot be in the future');
+      }
+
+      const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+      const wearable = await recordPatientWearableVital({
+        tenantId,
+        patientUid: uid,
+        actorRole: req.user?.role,
+        bloodPressure: normalizedBloodPressure,
+        heartRate: normalizedHeartRate,
+        temperature: normalizedTemperature,
+        bloodSugar: normalizedBloodSugar,
+        weight: normalizedWeight,
+        spO2: normalizedSpO2,
+        source: sourceNorm,
+        sourceRecordId,
+        recordedAtSource: recordedAtSourceTs,
+      });
+
+      logPhiAccess({
+        userId: uid,
+        userRole: req.user?.role,
+        patientId: uid,
+        recordType: 'PATIENT_VITALS',
+        action: wearable.created ? 'CREATE' : 'REPLAY',
+        ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+        requestId: req.id,
+        tenantId,
+      });
+
+      if (wearable.created) {
+        pointService.awardVitalsPoints(uid, tenantId).catch(err =>
+          logger.warn('Gamification: vitals point award failed', { error: err.message })
+        );
+      }
+
+      return success(res, {
+        id: wearable.row.id,
+        recordedAt: wearable.row.recorded_at,
+        source: wearable.row.source,
+        sourceRecordId: wearable.row.source_record_id,
+        recordedAtSource: wearable.row.recorded_at_source,
+        syncReceipt: wearable.receipt,
+      }, wearable.duplicate ? 'Vitals already recorded' : 'Vitals recorded successfully');
     }
 
     const baseParams = [
@@ -312,7 +418,7 @@ export async function recordPatientVitals(req, res) {
     }, 'Vitals recorded successfully');
   } catch (err) {
     logger.error('Record vitals error:', err);
-    error(res, 'Failed to record vitals', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to record vitals');
   }
 }
 

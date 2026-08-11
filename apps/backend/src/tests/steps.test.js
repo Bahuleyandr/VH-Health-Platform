@@ -1,4 +1,19 @@
 import testClient, { AUTH_TOKEN, API_KEY, generateTestToken, authClient } from './testClient.js';
+import prisma from '../lib/prisma.js';
+
+const HEALTH_SYNC_TEST_UID = '550e8400-e29b-41d4-a716-446655440000';
+const HEALTH_SYNC_TEST_DAY = '2001-03-04';
+
+async function clearHealthSyncFreshnessFixture() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM step_sessions
+      WHERE user_uid = $1::uuid
+        AND source = 'oura'
+        AND source_day = $2::date`,
+    HEALTH_SYNC_TEST_UID,
+    HEALTH_SYNC_TEST_DAY,
+  );
+}
 
 describe('Steps / Gamification API', () => {
 
@@ -73,12 +88,59 @@ describe('Steps / Gamification API', () => {
   });
 
   describe('POST /api/v1/steps/health-sync', () => {
+    afterEach(clearHealthSyncFreshnessFixture);
+
     it('should reject missing daily summaries', async () => {
       const res = await testClient()
         .post('/api/v1/steps/health-sync')
         .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
         .send({ source: 'health_connect' });
       expect(res.statusCode).toBe(400);
+    });
+
+    it('does not let an older concurrent summary overwrite a fresher day', async () => {
+      await clearHealthSyncFreshnessFixture();
+      const client = testClient();
+      const newer = await client
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send({
+          source: 'oura',
+          days: [{
+            date: HEALTH_SYNC_TEST_DAY,
+            steps: 1200,
+            lastSampleAt: '2001-03-04T23:00:00.000Z',
+          }],
+        });
+      expect(newer.statusCode).toBe(200);
+
+      const stale = await client
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send({
+          source: 'oura',
+          days: [{
+            date: HEALTH_SYNC_TEST_DAY,
+            steps: 100,
+            lastSampleAt: '2001-03-04T12:00:00.000Z',
+          }],
+        });
+      expect(stale.statusCode).toBe(200);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT steps, recorded_at_source
+           FROM step_sessions
+          WHERE user_uid = $1::uuid
+            AND source = 'oura'
+            AND source_day = $2::date`,
+        HEALTH_SYNC_TEST_UID,
+        HEALTH_SYNC_TEST_DAY,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ steps: 1200 });
+      expect(rows[0].recorded_at_source.toISOString()).toBe(
+        '2001-03-04T23:00:00.000Z',
+      );
     });
   });
 
