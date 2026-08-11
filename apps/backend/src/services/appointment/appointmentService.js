@@ -5,7 +5,6 @@ import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appointmentWorkflowController.js';
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
@@ -15,6 +14,7 @@ import {
   recordAppointmentCreatedEvidenceTx,
   transitionAppointment,
 } from './appointmentLifecycleService.js';
+import { lockAppointmentPatientIdentity } from './appointmentPatientIdentityService.js';
 
 export class AppointmentService {
   async validateUser(userId, requiredRole = null, tenantId = null) {
@@ -125,6 +125,7 @@ export class AppointmentService {
       actorRole = null,
       ignoreConflicts = false,
       source = 'book',
+      requirePatientPhoneMatch = false,
     } = options;
     const visitType = visit_type
       ? String(visit_type).trim().toUpperCase()
@@ -140,56 +141,17 @@ export class AppointmentService {
     try {
       const bookingResult = await setTenantTx(requireTenantId(tenant_id), async (tx) => {
         // Resolve patient phone and, when specified, doctor routing metadata.
-        const [pRows, resolvedDoctor] = await Promise.all([
-          tx.$queryRaw`
-            SELECT id, uid, phone, name, role, is_active, status,
-                   is_deleted, deleted_at, merged_into_uid
-              FROM users
-             WHERE id = ${parseInt(patient_id)}
-               AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
-             LIMIT 1
-             FOR SHARE
-          `,
+        const [patient, resolvedDoctor] = await Promise.all([
+          lockAppointmentPatientIdentity(tx, {
+            tenantId: tenant_id,
+            patientId: patient_id,
+            expectedPhone: patient_phone,
+            requirePhoneMatch: requirePatientPhoneMatch,
+          }),
           hasDoctorId
             ? resolveDoctorRef(tx, doctor_id, { tenantId: tenant_id })
             : Promise.resolve(null),
         ]);
-        const patient = pRows[0];
-        if (!patient) {
-          const err = new Error('Patient not found');
-          err.statusCode = 400;
-          throw err;
-        }
-        if (
-          String(patient.role || '').trim().toUpperCase() !== 'PATIENT'
-          || patient.is_active !== true
-          || String(patient.status || '').trim().toLowerCase() !== 'active'
-          || patient.is_deleted !== false
-          || patient.deleted_at !== null
-          || patient.merged_into_uid !== null
-        ) {
-          throw AppError.conflict(
-            'Patient is no longer available for appointment booking',
-            'APPOINTMENT_PATIENT_UNAVAILABLE',
-          );
-        }
-        if (patient_phone) {
-          const requestedPhone = normalizePhone(patient_phone);
-          const storedPhone = normalizePhone(patient.phone);
-          const requestedLast10 = requestedPhone?.replace(/\D/g, '').slice(-10);
-          const storedLast10 = storedPhone?.replace(/\D/g, '').slice(-10);
-          if (
-            !requestedPhone
-            || !isValidPhone(requestedPhone)
-            || !storedLast10
-            || requestedLast10 !== storedLast10
-          ) {
-            throw AppError.conflict(
-              'patient_id and patient_phone identify different patients',
-              'APPOINTMENT_PATIENT_ID_PHONE_MISMATCH',
-            );
-          }
-        }
         const patientPhone = patient.phone ?? '';
         const patientName = patient.name ?? null;
         bookedPatientUid = patient.uid ?? null;
@@ -238,7 +200,7 @@ export class AppointmentService {
             reason, notes, status, department, visit_type, created_by,
             admin_override, override_reason, tenant_id, created_at, updated_at
           ) VALUES (
-            ${patientPhone}, ${parseInt(patient_id)}, ${patientName},
+            ${patientPhone}, ${Number(patient.id)}, ${patientName},
             ${resolvedDoctorId ? parseInt(resolvedDoctorId, 10) : null}, ${doctorName},
             ${appointment_date}::date, ${appointment_time},
             ${reason ?? null}, ${notes ?? null},

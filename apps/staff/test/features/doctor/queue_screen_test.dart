@@ -129,15 +129,14 @@ void main() {
   testWidgets('transient refresh failure retains last-known queue data', (
     tester,
   ) async {
-    var scheduledCalls = 0;
+    var failRefresh = false;
     Future<Map<String, dynamic>> loader({
       required String date,
       required String status,
       required int limit,
     }) async {
       if (status != 'scheduled') return {'appointments': <dynamic>[]};
-      scheduledCalls++;
-      if (scheduledCalls > 1) throw Exception('temporary outage');
+      if (failRefresh) throw Exception('temporary outage');
       return {
         'appointments': [
           {
@@ -157,10 +156,27 @@ void main() {
     await tester.pump();
     expect(find.text('Last Known Patient'), findsOneWidget);
 
+    failRefresh = true;
     await tester.tap(find.byIcon(Icons.refresh));
     await tester.pump();
     await tester.pump();
 
     expect(find.text('Last Known Patient'), findsOneWidget);
+    expect(find.byKey(const Key('queue-stale-data-banner')), findsOneWidget);
+    final callNext = tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, 'Call Next Patient'),
+    );
+    expect(callNext.onPressed, isNull);
+
+    failRefresh = false;
+    await tester.tap(find.byIcon(Icons.refresh));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('queue-stale-data-banner')), findsNothing);
+    final refreshedCallNext = tester.widget<ElevatedButton>(
+      find.widgetWithText(ElevatedButton, 'Call Next Patient'),
+    );
+    expect(refreshedCallNext.onPressed, isNotNull);
   });
 }

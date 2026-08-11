@@ -90,6 +90,7 @@ class _QueueScreenState extends State<QueueScreen> {
   Duration _elapsed = Duration.zero;
   int _loadGeneration = 0;
   bool _hasLoadedQueue = false;
+  bool _isStale = false;
 
   @override
   void initState() {
@@ -179,6 +180,7 @@ class _QueueScreenState extends State<QueueScreen> {
           _current = inProgressList.isNotEmpty ? inProgressList.first : null;
           _completed = completedList;
           _hasLoadedQueue = true;
+          _isStale = false;
           _loading = false;
           _error = null;
           // If there's an in-progress appointment and we don't have a start time, start now
@@ -196,6 +198,8 @@ class _QueueScreenState extends State<QueueScreen> {
         setState(() {
           if (!_hasLoadedQueue) {
             _error = e.toString().replaceFirst('Exception: ', '');
+          } else {
+            _isStale = true;
           }
           _loading = false;
         });
@@ -204,7 +208,7 @@ class _QueueScreenState extends State<QueueScreen> {
   }
 
   Future<void> _callNext() async {
-    if (_waiting.isEmpty) return;
+    if (_isStale || _waiting.isEmpty) return;
     final next = _waiting.first;
     final id = next['_id']?.toString() ?? next['id']?.toString() ?? '';
     if (id.isEmpty) return;
@@ -229,7 +233,7 @@ class _QueueScreenState extends State<QueueScreen> {
   }
 
   Future<void> _completeCurrent() async {
-    if (_current == null) return;
+    if (_isStale || _current == null) return;
     final id =
         _current!['_id']?.toString() ?? _current!['id']?.toString() ?? '';
     if (id.isEmpty) return;
@@ -334,6 +338,27 @@ class _QueueScreenState extends State<QueueScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (_isStale) ...[
+                    Card(
+                      key: const Key('queue-stale-data-banner'),
+                      color: AppTheme.warningAmber.withValues(alpha: 0.12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.cloud_off),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                s.lookup('s4.lib.realtime_status.stale'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   // Current consultation
                   if (_current != null) ...[
                     _SectionHeader(
@@ -344,7 +369,7 @@ class _QueueScreenState extends State<QueueScreen> {
                       appointment: _current!,
                       elapsed: _elapsed,
                       formatDuration: _formatDuration,
-                      onComplete: _completeCurrent,
+                      onComplete: _isStale ? null : _completeCurrent,
                       onTap: () => _showPatientDetails(_current!),
                     ),
                     const SizedBox(height: 16),
@@ -358,7 +383,7 @@ class _QueueScreenState extends State<QueueScreen> {
                         width: double.infinity,
                         height: 48,
                         child: ElevatedButton.icon(
-                          onPressed: _callNext,
+                          onPressed: _isStale ? null : _callNext,
                           icon: const Icon(Icons.campaign, color: Colors.white),
                           label: Text(
                             s.queueCallNextPatient,
@@ -405,7 +430,7 @@ class _QueueScreenState extends State<QueueScreen> {
                                   Icons.play_arrow,
                                   color: AppTheme.primaryBlue,
                                 ),
-                                onPressed: _callNext,
+                                onPressed: _isStale ? null : _callNext,
                                 tooltip: s.queueCallTooltip,
                               )
                             : null,
@@ -486,7 +511,7 @@ class _CurrentConsultationCard extends StatelessWidget {
   final Map<String, dynamic> appointment;
   final Duration elapsed;
   final String Function(Duration) formatDuration;
-  final VoidCallback onComplete;
+  final VoidCallback? onComplete;
   final VoidCallback onTap;
 
   const _CurrentConsultationCard({

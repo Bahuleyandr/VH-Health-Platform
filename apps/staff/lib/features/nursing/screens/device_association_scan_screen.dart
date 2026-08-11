@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/patient_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -15,6 +18,8 @@ typedef DeviceAssociator =
     });
 typedef DeviceAssociationDisconnector =
     Future<Map<String, dynamic>> Function(int id);
+typedef DeviceAssociationPatientLoader =
+    Future<Map<String, dynamic>?> Function(String patientUid);
 
 enum _DeviceAssocStep { scanPatient, scanDevice, review, associated }
 
@@ -25,6 +30,7 @@ class DeviceAssociationScanScreen extends StatefulWidget {
     this.patientName,
     this.loadDevices,
     this.loadAssociations,
+    this.loadPatientIdentity,
     this.associateDevice,
     this.disconnectAssociation,
   });
@@ -33,6 +39,7 @@ class DeviceAssociationScanScreen extends StatefulWidget {
   final String? patientName;
   final ClinicalDeviceLoader? loadDevices;
   final DeviceAssociationLoader? loadAssociations;
+  final DeviceAssociationPatientLoader? loadPatientIdentity;
   final DeviceAssociator? associateDevice;
   final DeviceAssociationDisconnector? disconnectAssociation;
 
@@ -51,6 +58,10 @@ class _DeviceAssociationScanScreenState
   String? _error;
   List<Map<String, dynamic>> _devices = const [];
   List<Map<String, dynamic>> _associations = const [];
+  Map<String, dynamic>? _verifiedPatient;
+  bool _patientIdentityLoading = false;
+  String? _patientIdentityError;
+  int _patientIdentityGeneration = 0;
 
   final MobileScannerController _scannerController = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -64,7 +75,10 @@ class _DeviceAssociationScanScreenState
         ? _DeviceAssocStep.scanPatient
         : _DeviceAssocStep.scanDevice;
     _loadDevices();
-    if (_patientUid != null) _loadAssociations();
+    if (_patientUid != null) {
+      unawaited(_verifyPatientIdentity(_patientUid!));
+      _loadAssociations();
+    }
   }
 
   @override
@@ -85,7 +99,11 @@ class _DeviceAssociationScanScreenState
       _error = null;
       if (_step == _DeviceAssocStep.scanPatient) {
         _patientUid = value;
+        _verifiedPatient = null;
+        _patientIdentityError = null;
         _step = _DeviceAssocStep.scanDevice;
+        unawaited(_verifyPatientIdentity(value));
+        unawaited(_loadAssociations());
       } else if (_step == _DeviceAssocStep.scanDevice) {
         _deviceCode = value;
         _step = _DeviceAssocStep.review;
@@ -103,6 +121,72 @@ class _DeviceAssociationScanScreenState
       if (mounted) setState(() => _devices = rows);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  String? _boundedIdentityText(dynamic value, int maxLength) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isEmpty) return null;
+    return text.length <= maxLength ? text : text.substring(0, maxLength);
+  }
+
+  Future<Map<String, dynamic>?> _loadAuthoritativePatient(
+    String patientUid,
+  ) async {
+    final injected = widget.loadPatientIdentity;
+    if (injected != null) return injected(patientUid);
+    final matches = await PatientApiService.search(patientUid, limit: 2);
+    return matches.cast<Map<String, dynamic>?>().firstWhere(
+      (patient) =>
+          patient?['uid']?.toString().trim().toLowerCase() ==
+          patientUid.trim().toLowerCase(),
+      orElse: () => null,
+    );
+  }
+
+  Future<void> _verifyPatientIdentity(String patientUid) async {
+    final generation = ++_patientIdentityGeneration;
+    if (mounted) {
+      setState(() {
+        _patientIdentityLoading = true;
+        _patientIdentityError = null;
+        _verifiedPatient = null;
+      });
+    }
+    try {
+      final patient = await _loadAuthoritativePatient(patientUid);
+      final name = _boundedIdentityText(patient?['name'], 160);
+      final hospitalNumber = _boundedIdentityText(
+        patient?['hospital_number'],
+        80,
+      );
+      final resolvedUid = patient?['uid']?.toString().trim().toLowerCase();
+      if (patient == null ||
+          resolvedUid != patientUid.trim().toLowerCase() ||
+          name == null ||
+          hospitalNumber == null) {
+        throw StateError('Patient identity could not be verified');
+      }
+      if (!mounted || generation != _patientIdentityGeneration) return;
+      setState(() {
+        _verifiedPatient = {
+          'uid': resolvedUid,
+          'name': name,
+          'hospital_number': hospitalNumber,
+        };
+        _patientIdentityLoading = false;
+        _patientIdentityError = null;
+      });
+    } catch (e) {
+      if (!mounted || generation != _patientIdentityGeneration) return;
+      setState(() {
+        _verifiedPatient = null;
+        _patientIdentityLoading = false;
+        _patientIdentityError = e
+            .toString()
+            .replaceFirst('Exception: ', '')
+            .replaceFirst('Bad state: ', '');
+      });
     }
   }
 
@@ -124,7 +208,12 @@ class _DeviceAssociationScanScreenState
   Future<void> _associate() async {
     final patientUid = _patientUid;
     final deviceCode = _deviceCode;
-    if (patientUid == null || deviceCode == null) return;
+    if (patientUid == null ||
+        deviceCode == null ||
+        _verifiedPatient?['uid']?.toString().toLowerCase() !=
+            patientUid.toLowerCase()) {
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -273,7 +362,46 @@ class _DeviceAssociationScanScreenState
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text(_patientUid ?? ''),
+            if (_patientIdentityLoading)
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(s.labelLoading),
+                ],
+              )
+            else if (_verifiedPatient != null) ...[
+              Text(
+                _verifiedPatient!['name'].toString(),
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              Text(
+                s.format('s4.dynamic.bed_board.semantic.hospital_id', {
+                  'id': _verifiedPatient!['hospital_number'],
+                }),
+              ),
+            ] else ...[
+              Text(
+                _patientIdentityError ??
+                    s.lookup(
+                      's4.lib.appointments.could_not_check_registry_new_patient_available',
+                    ),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: _patientUid == null
+                      ? null
+                      : () => _verifyPatientIdentity(_patientUid!),
+                  child: Text(s.actionRetry),
+                ),
+              ),
+            ],
             Text(
               deviceLabel == null || deviceLabel.isEmpty
                   ? code
@@ -294,7 +422,12 @@ class _DeviceAssociationScanScreenState
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
-                  onPressed: _busy ? null : _associate,
+                  onPressed:
+                      _busy ||
+                          _patientIdentityLoading ||
+                          _verifiedPatient == null
+                      ? null
+                      : _associate,
                   child: Text(s.actionConfirm),
                 ),
               ],

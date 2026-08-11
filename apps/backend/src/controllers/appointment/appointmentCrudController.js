@@ -210,6 +210,7 @@ export const createAppointment = async (req, res) => {
       actorUid: req.user?.uid || null,
       actorId: req.user?.id || null,
       actorRole: req.user?.role || null,
+      requirePatientPhoneMatch: req.user?.role !== 'PATIENT',
     });
     const hydratedAppointment =
       (await appointmentQueryService.getAppointmentById(appointment.id, tenantId)) || appointment;

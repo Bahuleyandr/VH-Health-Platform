@@ -15,6 +15,7 @@ import { AppError } from '../../utils/AppError.js';
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const setTenantTxMock = jest.fn();
+const txQueryRawUnsafeMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
@@ -117,7 +118,7 @@ jest.unstable_mockModule('../../services/appointment/appointmentTeleconsultState
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   DEFAULT_TENANT_ID: TENANT_ID,
   getTenantById: jest.fn(async () => ({ id: TENANT_ID, settings: {} })),
-  requireTenantId: (req) => req.tenantId,
+  requireTenantId: (value) => typeof value === 'string' ? value : value.tenantId,
   resolveTenantOrThrow: (req) => req.tenantId,
 }));
 
@@ -128,16 +129,135 @@ app.use(express.json());
 app.use((req, _res, next) => {
   req.id = 'test-request-id';
   req.tenantId = TENANT_ID;
-  req.user = { id: 7, uid: '11111111-1111-4111-8111-111111111111', role: 'RECEPTIONIST', name: 'Front Desk' };
+  req.user = {
+    id: 7,
+    uid: '11111111-1111-4111-8111-111111111111',
+    role: 'RECEPTIONIST',
+    name: 'Front Desk',
+    tenant_id: TENANT_ID,
+  };
   next();
 });
 app.use('/api/v1/appointments', workflowRoutes);
 
 beforeEach(() => {
   setTenantTxMock.mockReset();
+  txQueryRawUnsafeMock.mockReset();
+  setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn({
+    $queryRawUnsafe: txQueryRawUnsafeMock,
+    $executeRawUnsafe: jest.fn(),
+  }));
 });
 
 describe('appointmentWorkflowController relays AppError code + details over HTTP', () => {
+  test.each([
+    ['missing from the authenticated tenant', []],
+    ['from another tenant', [{
+      id: 123,
+      uid: '22222222-2222-4222-8222-222222222222',
+      phone: '+919876543210',
+      name: 'Other Tenant Patient',
+      role: 'PATIENT',
+      is_active: true,
+      status: 'active',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: null,
+      tenant_id: '99999999-9999-4999-8999-999999999999',
+    }]],
+    ['inactive', [{
+      id: 123,
+      uid: '22222222-2222-4222-8222-222222222222',
+      phone: '+919876543210',
+      name: 'Inactive Patient',
+      role: 'PATIENT',
+      is_active: false,
+      status: 'inactive',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: null,
+      tenant_id: TENANT_ID,
+    }]],
+    ['merged', [{
+      id: 123,
+      uid: '22222222-2222-4222-8222-222222222222',
+      phone: '+919876543210',
+      name: 'Merged Patient',
+      role: 'PATIENT',
+      is_active: true,
+      status: 'active',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: '33333333-3333-4333-8333-333333333333',
+      tenant_id: TENANT_ID,
+    }]],
+  ])('walk-in rejects an explicit patient who is %s before any appointment mutation', async (_label, patientRows) => {
+    txQueryRawUnsafeMock.mockResolvedValueOnce(patientRows);
+
+    const response = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-tenant-id', '99999999-9999-4999-8999-999999999999')
+      .send({
+        patient_id: 123,
+        patient_phone: '9876543210',
+        department: 'General Medicine',
+      });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.success).toBe(false);
+    expect(response.body.details.code).toBe('APPOINTMENT_PATIENT_UNAVAILABLE');
+    expect(txQueryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    const [sql, tenantId, patientId] = txQueryRawUnsafeMock.mock.calls[0];
+    expect(sql).toContain("role = 'PATIENT'");
+    expect(sql).toContain('is_active = TRUE');
+    expect(sql).toContain('merged_into_uid IS NULL');
+    expect(sql).toContain('FOR UPDATE');
+    expect(tenantId).toBe(TENANT_ID);
+    expect(patientId).toBe(123);
+    expect(sql).not.toContain('INSERT INTO appointments');
+  });
+
+  test('walk-in rejects caller-phone drift from the locked canonical patient before mutation', async () => {
+    txQueryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 123,
+      uid: '22222222-2222-4222-8222-222222222222',
+      phone: '+919999999999',
+      name: 'Canonical Patient',
+      role: 'PATIENT',
+      is_active: true,
+      status: 'active',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: null,
+      tenant_id: TENANT_ID,
+    }]);
+
+    const response = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .send({
+        patient_id: 123,
+        patient_phone: '9876543210',
+        department: 'General Medicine',
+      });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.details.code).toBe('APPOINTMENT_PATIENT_ID_PHONE_MISMATCH');
+    expect(txQueryRawUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('walk-in with an explicit patient id fails closed when caller phone is absent', async () => {
+    const response = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .send({
+        patient_id: 123,
+        department: 'General Medicine',
+      });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.details.code).toBe('APPOINTMENT_PATIENT_PHONE_REQUIRED');
+    expect(txQueryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
   test('confirm relays an AppError with code and details (409)', async () => {
     setTenantTxMock.mockRejectedValueOnce(AppError.conflict(
       'Cannot confirm a cancelled appointment',
