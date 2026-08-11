@@ -116,4 +116,10 @@ void main() {
       2,
     );
   });
+
+  test('app root forwards lifecycle changes to the biometric grant owner', () {
+    final source = File('lib/main.dart').readAsStringSync();
+
+    expect(source, contains('BiometricGate.handleAppLifecycleState(state)'));
+  });
 }

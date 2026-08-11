@@ -352,6 +352,62 @@ void main() {
   );
 
   testWidgets(
+    'app-wide backgrounding clears a grant after its gate was disposed',
+    (tester) async {
+      var checks = 0;
+      Widget gated(String label) => _wrap(
+        BiometricGate(
+          authCheck: (_) async {
+            checks++;
+            return true;
+          },
+          graceScopeKey: 'patient-a',
+          builder: (_) => Text(label),
+        ),
+      );
+
+      await tester.pumpWidget(gated('first-phi'));
+      await tester.pumpAndSettle();
+      expect(checks, 1);
+
+      await tester.pumpWidget(_wrap(const Text('home')));
+      await tester.pumpAndSettle();
+
+      BiometricGate.handleAppLifecycleState(AppLifecycleState.paused);
+
+      await tester.pumpWidget(gated('notification-phi'));
+      await tester.pumpAndSettle();
+
+      expect(checks, 2);
+      expect(find.text('notification-phi'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'app-wide inactive hook preserves an in-flight biometric prompt',
+    (tester) async {
+      final pendingCheck = Completer<bool>();
+      await tester.pumpWidget(
+        _wrap(
+          BiometricGate(
+            authCheck: (_) => pendingCheck.future,
+            graceScopeKey: 'patient-a',
+            builder: (_) => const Text('phi-content'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      BiometricGate.handleAppLifecycleState(AppLifecycleState.inactive);
+      pendingCheck.complete(true);
+      await tester.pumpAndSettle();
+
+      expect(find.text('phi-content'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'backgrounding a lone in-flight prompt invalidates its result and waits '
     'to re-prompt in the foreground',
     (tester) async {

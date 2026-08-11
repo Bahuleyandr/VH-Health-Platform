@@ -95,6 +95,22 @@ class BiometricGate extends StatefulWidget {
     _unlockGeneration++;
   }
 
+  /// Invalidates process-wide unlock state when the app leaves the foreground,
+  /// even if no biometric-gated route is currently mounted.
+  static void handleAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.inactive:
+        if (_promptInFlight) return;
+        clearUnlockState();
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        clearUnlockState();
+      case AppLifecycleState.resumed:
+        return;
+    }
+  }
+
   @visibleForTesting
   static void debugResetUnlockState() {
     clearUnlockState();
