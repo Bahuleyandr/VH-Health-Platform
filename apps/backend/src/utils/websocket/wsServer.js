@@ -179,13 +179,36 @@ async function authenticateAndRegister(ws, token) {
 
   // Check if all user tokens were revoked (force-logout)
   if (decoded.iat) {
-    const revoked = await isUserTokensRevoked(
-      revocationOwnerUid,
-      decoded.iat,
-      decoded.token_epoch,
-    );
-    if (revoked) {
-      ws.close(4001, 'All sessions revoked');
+    try {
+      const ownerRevoked = await isUserTokensRevoked(
+        revocationOwnerUid,
+        decoded.iat,
+        decoded.token_epoch,
+      );
+      if (ownerRevoked) {
+        ws.close(4001, 'All sessions revoked');
+        return;
+      }
+
+      // A delegated ticket is authorized as the dependent but owned by the
+      // guardian session. Either identity's later revoke-all must stop the
+      // handshake. The guardian's token_epoch is not meaningful for the
+      // dependent, so that second check uses the durable timestamp predicate.
+      const ownerIsSubject = revocationOwnerUid.toLowerCase() === userId.toLowerCase();
+      if (!ownerIsSubject) {
+        const subjectRevoked = await isUserTokensRevoked(userId, decoded.iat, undefined);
+        if (subjectRevoked) {
+          ws.close(4001, 'All sessions revoked');
+          return;
+        }
+      }
+    } catch (err) {
+      logger.error('WS denied (fail closed): revocation store unreachable', {
+        error: err?.message,
+        userId,
+        revocationOwnerUid,
+      });
+      ws.close(1013, 'Authentication unavailable');
       return;
     }
   }

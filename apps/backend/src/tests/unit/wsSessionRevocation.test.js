@@ -101,6 +101,11 @@ class FakeSocket extends EventEmitter {
 }
 
 describe('session revocation WebSocket closure', () => {
+  beforeEach(() => {
+    isUserTokensRevokedMock.mockReset();
+    isUserTokensRevokedMock.mockResolvedValue(false);
+  });
+
   afterEach(async () => {
     await closeWsFanout();
     await closeWebSocket();
@@ -248,7 +253,6 @@ describe('session revocation WebSocket closure', () => {
 
   it('keeps delegated delivery scoped to the dependent but revokes by guardian session', async () => {
     initWebSocket({});
-    isUserTokensRevokedMock.mockClear();
     const delegatedSocket = new FakeSocket();
     const siblingDependentSocket = new FakeSocket();
     const siblingGuardianSocket = new FakeSocket();
@@ -259,7 +263,10 @@ describe('session revocation WebSocket closure', () => {
     });
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(isUserTokensRevokedMock).toHaveBeenLastCalledWith('guardian-1', 1000, 3);
+    expect(isUserTokensRevokedMock.mock.calls).toEqual([
+      ['guardian-1', 1000, 3],
+      ['dependent-1', 1000, undefined],
+    ]);
     serverInstance.clients.add(siblingDependentSocket);
     serverInstance.clients.add(siblingGuardianSocket);
     serverInstance.emit('connection', siblingDependentSocket, {
@@ -295,5 +302,103 @@ describe('session revocation WebSocket closure', () => {
     expect(delegatedSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     expect(siblingDependentSocket.close).not.toHaveBeenCalled();
     expect(siblingGuardianSocket.close).not.toHaveBeenCalled();
+  });
+
+  it('rejects a delegated handshake when the authenticated owner was revoked', async () => {
+    isUserTokensRevokedMock.mockImplementation(async (uid) => uid === 'guardian-1');
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=delegated-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(isUserTokensRevokedMock.mock.calls).toEqual([
+      ['guardian-1', 1000, 3],
+    ]);
+    expect(socket.close).toHaveBeenCalledWith(4001, 'All sessions revoked');
+  });
+
+  it('rejects a delegated handshake when the effective dependent was revoked', async () => {
+    isUserTokensRevokedMock.mockImplementation(async (uid) => uid === 'dependent-1');
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=delegated-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(isUserTokensRevokedMock.mock.calls).toEqual([
+      ['guardian-1', 1000, 3],
+      ['dependent-1', 1000, undefined],
+    ]);
+    expect(socket.close).toHaveBeenCalledWith(4001, 'All sessions revoked');
+  });
+
+  it('accepts a delegated handshake only after both revoke-all identities are clean', async () => {
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=delegated-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(isUserTokensRevokedMock.mock.calls).toEqual([
+      ['guardian-1', 1000, 3],
+      ['dependent-1', 1000, undefined],
+    ]);
+    expect(socket.close).not.toHaveBeenCalled();
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({
+      event: 'connected',
+      userId: 'dependent-1',
+    }));
+  });
+
+  it('checks a direct socket identity once when owner and subject are equal', async () => {
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=access-token',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(isUserTokensRevokedMock.mock.calls).toEqual([
+      ['user-1', 1000, 3],
+    ]);
+    expect(socket.close).not.toHaveBeenCalled();
+  });
+
+  it('fails a delegated handshake closed when either durable lookup is unavailable', async () => {
+    isUserTokensRevokedMock.mockImplementation(async (uid) => {
+      if (uid === 'dependent-1') throw new Error('durable store down');
+      return false;
+    });
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=delegated-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(isUserTokensRevokedMock.mock.calls).toEqual([
+      ['guardian-1', 1000, 3],
+      ['dependent-1', 1000, undefined],
+    ]);
+    expect(socket.close).toHaveBeenCalledWith(1013, 'Authentication unavailable');
   });
 });
