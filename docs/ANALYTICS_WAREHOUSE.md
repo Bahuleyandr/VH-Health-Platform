@@ -108,7 +108,8 @@ its own roadmap item with its own review.
 ```bash
 # scratch DB with the full chain applied (per apps/backend/CLAUDE.md):
 cd apps/backend && set DATABASE_URL=postgresql://postgres@127.0.0.1:55432/vhhealth_drift_fresh ^
-  && node scripts/ci-setup-db.mjs
+  && set CI_DB_SKIP_SEEDS=1 ^
+  && node scripts/ci-setup-db.mjs --skip-seeds
 # then:
 cd ../../infra/kubernetes/optional/analytics-warehouse/dbt
 set DBT_PG_HOST=127.0.0.1& set DBT_PG_PORT=55432& set DBT_PG_USER=postgres& set DBT_PG_DBNAME=vhhealth_drift_fresh

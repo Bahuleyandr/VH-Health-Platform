@@ -9,6 +9,7 @@ import {
 } from '../src/services/pathways/inpatientPathwayDefinition.js';
 import { CLINICAL_CONTINUITY_SEED_FIXTURE } from './lib/clinicalContinuitySeedFixture.mjs';
 import { INTENTIONALLY_EMPTY_SEED_TABLES } from '../src/db/seedCoveragePolicy.js';
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
@@ -202,23 +203,10 @@ if (!connectionString) {
   throw new Error('DATABASE_URL or TEST_DATABASE_URL is required.');
 }
 
-function isLocalTestDatabase(urlText) {
-  try {
-    const url = new URL(urlText);
-    const host = url.hostname.toLowerCase();
-    const database = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-    return ['127.0.0.1', 'localhost', '::1'].includes(host) && database === 'vhhealth_test';
-  } catch {
-    return false;
-  }
-}
-
-if (!isLocalTestDatabase(connectionString) && process.env.VH_ALLOW_NON_TEST_DATA_SEED !== 'true') {
-  throw new Error(
-    'Refusing to seed a non-local test database. Use a local vhhealth_test database, ' +
-    'or set VH_ALLOW_NON_TEST_DATA_SEED=true for an intentional disposable CI database.'
-  );
-}
+assertSyntheticSeedTarget({
+  connectionString,
+  scriptName: 'seed-comprehensive-test-data.mjs',
+});
 
 const client = new pg.Client({ connectionString });
 await client.connect();

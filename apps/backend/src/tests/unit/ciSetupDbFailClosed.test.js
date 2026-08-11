@@ -1,14 +1,52 @@
 import { readFileSync } from 'node:fs';
 
 import { jest } from '@jest/globals';
+import pg from 'pg';
 
 import {
   assertMigrationBatchSucceeded,
   assertMigrationTrackerReady,
 } from '../../../scripts/lib/migrationBatchGuard.mjs';
+import {
+  assertCiSetupSeedPolicy,
+  assertSyntheticSeedTarget,
+} from '../../../scripts/lib/testDataSeedGuard.mjs';
 
 const runnerSource = readFileSync(
   new URL('../../../scripts/ci-setup-db.mjs', import.meta.url),
+  'utf8',
+);
+const migrationJobSource = readFileSync(
+  new URL('../../../../../infra/kubernetes/apps/backend/migration-job.yaml', import.meta.url),
+  'utf8',
+);
+
+const directSeedSources = [
+  'seed-clinical-ai-preflight-reviewers.mjs',
+  'seed-comprehensive-test-data.mjs',
+  'seed-current-bed-structure.mjs',
+  'seed-departments-doctors-local.mjs',
+  'seed-icd10-local.mjs',
+  'seed-smoke-admin-totp.mjs',
+  'seed-sprint-fixtures.mjs',
+  'seed-test-staff-accounts.mjs',
+].map((name) => ({
+  name,
+  source: readFileSync(new URL(`../../../scripts/${name}`, import.meta.url), 'utf8'),
+}));
+
+const rootLocalToolSources = ['seed-dev-env.mjs'].map((name) => ({
+  name,
+  source: readFileSync(new URL(`../../../../../scripts/${name}`, import.meta.url), 'utf8'),
+}));
+
+const localHandsOnSeedSource = readFileSync(
+  new URL('../../../../../scripts/seed-local-hands-on-hospital-data.mjs', import.meta.url),
+  'utf8',
+);
+
+const qaTenantSeedSource = readFileSync(
+  new URL('../../../../../scripts/seed-qa-tenant.mjs', import.meta.url),
   'utf8',
 );
 
@@ -143,5 +181,231 @@ describe('ci-setup-db migration failure boundary', () => {
     expect(smokeSource).toContain(
       'missing tracker rejected before migration or seed mutation',
     );
+  });
+});
+
+describe('test-data seed safety boundary', () => {
+  test('production setup refuses seeds even when the non-test override is present', () => {
+    const env = {
+      NODE_ENV: 'production',
+      VH_ALLOW_NON_TEST_DATA_SEED: 'true',
+    };
+
+    expect(() => assertCiSetupSeedPolicy({
+      skipSeedsArg: false,
+      skipSeedsEnv: false,
+      env,
+    })).toThrow(
+      'Production database setup requires --skip-seeds and CI_DB_SKIP_SEEDS=1',
+    );
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'postgresql://postgres@127.0.0.1:5432/vhhealth_test',
+      env,
+      scriptName: 'seed-test-staff-accounts.mjs',
+    })).toThrow('refuses synthetic data when NODE_ENV=production');
+  });
+
+  test('production setup accepts only the explicit seed-free path', () => {
+    expect(() => assertCiSetupSeedPolicy({
+      skipSeedsArg: true,
+      skipSeedsEnv: true,
+      env: { NODE_ENV: 'production', CI_DB_SKIP_SEEDS: '1' },
+    })).not.toThrow();
+  });
+
+  test('direct seeds require a local vhhealth_test database or a non-production override', () => {
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'postgresql://postgres@localhost:5432/vhhealth_test',
+      env: { NODE_ENV: 'test' },
+      scriptName: 'seed-test-staff-accounts.mjs',
+    })).not.toThrow();
+
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'postgresql://postgres@db.internal:5432/vhhealth',
+      env: { NODE_ENV: 'development' },
+      scriptName: 'seed-test-staff-accounts.mjs',
+    })).toThrow('requires local vhhealth_test');
+
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'postgresql://postgres@db.internal:5432/vhhealth_ci?schema=public&sslmode=require',
+      env: {
+        NODE_ENV: 'test',
+        VH_ALLOW_NON_TEST_DATA_SEED: 'true',
+      },
+      scriptName: 'seed-test-staff-accounts.mjs',
+    })).not.toThrow();
+
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'postgresql://postgres@localhost:5432/vhhealth_test?host=prod-db',
+      env: {
+        NODE_ENV: 'test',
+        VH_ALLOW_NON_TEST_DATA_SEED: 'true',
+      },
+      scriptName: 'seed-test-staff-accounts.mjs',
+    })).toThrow('must not use connection-target query parameters');
+
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'not a postgres URL',
+      env: {
+        NODE_ENV: 'test',
+        VH_ALLOW_NON_TEST_DATA_SEED: 'true',
+      },
+      scriptName: 'seed-test-staff-accounts.mjs',
+    })).toThrow('requires a valid PostgreSQL connection URL');
+  });
+
+  test('QA seed targets require an exact PostgreSQL loopback host and QA database name', () => {
+    const qaSeedOptions = {
+      env: { NODE_ENV: 'qa' },
+      scriptName: 'seed-qa-tenant.mjs',
+      allowedDatabaseNames: ['vhhealth_test', 'vhhealth_qa'],
+      allowNonTestOverride: false,
+    };
+
+    for (const connectionString of [
+      'postgresql://qa_writer@127.0.0.1:55432/vhhealth_test',
+      'postgres://qa_writer@localhost:55432/vhhealth_qa',
+      'postgresql://qa_writer@[::1]:55432/vhhealth_test',
+    ]) {
+      expect(() => assertSyntheticSeedTarget({
+        ...qaSeedOptions,
+        connectionString,
+      })).not.toThrow();
+    }
+
+    const misleadingUserinfoTarget = [
+      'postgresql://',
+      ['local', 'host'].join(''),
+      ':',
+      ['vhhealth', '_test'].join(''),
+      '@db.internal:5432/vhhealth',
+    ].join('');
+
+    for (const connectionString of [
+      misleadingUserinfoTarget,
+      'postgresql://qa_writer@localhost:55432/vhhealth_test_backup',
+    ]) {
+      expect(() => assertSyntheticSeedTarget({
+        ...qaSeedOptions,
+        connectionString,
+      })).toThrow('requires local vhhealth_test or vhhealth_qa');
+    }
+
+    for (const connectionString of [
+      'https://localhost/vhhealth_test',
+      'not a postgres URL',
+      'postgresql://qa_writer@localhost:55432/vhhealth_test ',
+    ]) {
+      expect(() => assertSyntheticSeedTarget({
+        ...qaSeedOptions,
+        connectionString,
+      })).toThrow('requires a valid PostgreSQL connection URL');
+    }
+
+    const hostOverride = 'postgresql://qa_writer@localhost:55432/vhhealth_test?host=remote-db';
+    expect(new pg.Client({ connectionString: hostOverride }).connectionParameters.host).toBe(
+      'remote-db',
+    );
+
+    for (const query of [
+      'host=remote-db',
+      'HOST=remote-db',
+      'hostaddr=10.0.0.8',
+      'host%61ddr=10.0.0.8',
+      'port=5432',
+      'db=vhhealth',
+      'database=vhhealth',
+      'dbname=vhhealth',
+      'service=production',
+      'servicefile=%2Fetc%2Fpostgresql%2Fpg_service.conf',
+    ]) {
+      expect(() => assertSyntheticSeedTarget({
+        ...qaSeedOptions,
+        connectionString: `postgresql://qa_writer@localhost:55432/vhhealth_test?${query}`,
+      })).toThrow('must not use connection-target query parameters');
+    }
+
+    expect(() => assertSyntheticSeedTarget({
+      ...qaSeedOptions,
+      connectionString: 'postgresql://qa_writer@db.internal:5432/vhhealth_qa',
+      env: {
+        NODE_ENV: 'qa',
+        VH_ALLOW_NON_TEST_DATA_SEED: 'true',
+      },
+    })).toThrow('requires local vhhealth_test or vhhealth_qa');
+  });
+
+  test('the production migration Job carries both independent skip controls', () => {
+    expect(migrationJobSource).toContain('node scripts/ci-setup-db.mjs --skip-seeds');
+    expect(migrationJobSource).toMatch(
+      /- name: CI_DB_SKIP_SEEDS\s+value: ["']1["']/,
+    );
+  });
+
+  test('setup checks production seed policy before connecting to the database', () => {
+    const guard = runnerSource.indexOf('assertCiSetupSeedPolicy({');
+    const connect = runnerSource.indexOf('await client.connect()');
+
+    expect(guard).toBeGreaterThan(-1);
+    expect(connect).toBeGreaterThan(guard);
+  });
+
+  test('seed-free setup also skips RLS test-role provisioning', () => {
+    expect(runnerSource).toContain(
+      "logger.info('→ RLS test-role provisioning skipped (seed-free setup).\\n')",
+    );
+    const roleBoundary = runnerSource.indexOf('// Provision the non-owner RLS test roles');
+    const skipBranch = runnerSource.indexOf('if (skipSeeds) {', roleBoundary);
+    const provisionCall = runnerSource.indexOf('await provisionRlsTestRoles(', roleBoundary);
+
+    expect(skipBranch).toBeGreaterThan(roleBoundary);
+    expect(provisionCall).toBeGreaterThan(skipBranch);
+  });
+
+  test.each(directSeedSources)('$name enforces the shared direct-seed guard', ({ source }) => {
+    expect(source).toContain('assertSyntheticSeedTarget({');
+  });
+
+  test.each(rootLocalToolSources)('$name refuses production use', ({ source }) => {
+    expect(source).toContain("process.env.NODE_ENV === 'production'");
+  });
+
+  test('the local hands-on seed rejects target overrides before loading pg', () => {
+    const guardCall = localHandsOnSeedSource.indexOf('assertSyntheticSeedTarget({');
+    const pgLoad = localHandsOnSeedSource.indexOf("const pg = requireFromBackend('pg');");
+
+    expect(localHandsOnSeedSource).toContain(
+      "import { assertSyntheticSeedTarget } from '../apps/backend/scripts/lib/testDataSeedGuard.mjs';",
+    );
+    expect(localHandsOnSeedSource).toContain('allowNonTestOverride: false');
+    expect(guardCall).toBeGreaterThan(-1);
+    expect(pgLoad).toBeGreaterThan(guardCall);
+    expect(() => assertSyntheticSeedTarget({
+      connectionString: 'postgresql://localhost:55432/vhhealth_test?host=db.internal',
+      env: { NODE_ENV: 'test' },
+      scriptName: 'seed-local-hands-on-hospital-data.mjs',
+      allowNonTestOverride: false,
+    })).toThrow('must not use connection-target query parameters');
+  });
+
+  test('the QA tenant seed applies the shared structural guard before constructing a client', () => {
+    const guardCall = qaTenantSeedSource.indexOf('assertSyntheticSeedTarget({');
+    const clientConstruction = qaTenantSeedSource.indexOf('new pg.Client({');
+
+    expect(qaTenantSeedSource).toContain(
+      "import { assertSyntheticSeedTarget } from '../apps/backend/scripts/lib/testDataSeedGuard.mjs';",
+    );
+    expect(qaTenantSeedSource).toContain("allowedDatabaseNames: ['vhhealth_test', 'vhhealth_qa']");
+    expect(qaTenantSeedSource).toContain('allowNonTestOverride: false');
+    expect(guardCall).toBeGreaterThan(-1);
+    expect(clientConstruction).toBeGreaterThan(guardCall);
+  });
+
+  test('the test-staff seed never writes its password to logs', () => {
+    const staffSeed = directSeedSources.find(
+      ({ name }) => name === 'seed-test-staff-accounts.mjs',
+    ).source;
+
+    expect(staffSeed).not.toContain('All accounts use password: ${PASSWORD}');
   });
 });

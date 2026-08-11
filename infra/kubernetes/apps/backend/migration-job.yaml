@@ -214,11 +214,13 @@ spec:
               echo ">> db:ensure-pgvector (CREATE EXTENSION IF NOT EXISTS vector)"
               npm run db:ensure-pgvector
               echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql, tracker-driven)"
-              node scripts/ci-setup-db.mjs
+              node scripts/ci-setup-db.mjs --skip-seeds
               echo ">> migrations complete"
           env:
             - name: NODE_ENV
               value: "production"
+            - name: CI_DB_SKIP_SEEDS
+              value: "1"
             # Override DATABASE_URL with the superuser/owner DSN for migrations
             # ONLY (INF-4/INF-8). Takes precedence over the envFrom value below.
             # The Deployment keeps the vhhealth_runtime DATABASE_URL; this Job

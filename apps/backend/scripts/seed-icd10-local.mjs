@@ -1,9 +1,16 @@
 import logger from '../src/logging/logger.js';
 import pg from 'pg';
 import { ICD10_SEED_DATA } from '../src/services/emr/icd10SeedData.js';
+import { assertSyntheticSeedTarget } from './lib/testDataSeedGuard.mjs';
+
+const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
+assertSyntheticSeedTarget({
+  connectionString,
+  scriptName: 'seed-icd10-local.mjs',
+});
 
 const client = new pg.Client({
-  connectionString: process.env.DATABASE_URL,
+  connectionString,
 });
 
 await client.connect();

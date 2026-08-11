@@ -86,8 +86,9 @@ ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl apply -k infra/kubern
 scp -r infra/onprem/vh-public-edge dalekdefender:~/.cache/
 ssh dalekdefender "cd ~/.cache/vh-public-edge && docker compose up -d && tailscale serve --bg --https=8444 http://localhost:30093"
 
-# 8) Seed test staff accounts (after backend is up).
-ssh dalekdefender "sudo kubectl -n vhhealth exec deploy/vhhealth-backend -- node --import dotenv/config scripts/seed-test-staff-accounts.mjs"
+# 8) Provision QA identities through the approved onboarding path.
+# Synthetic seed scripts intentionally refuse NODE_ENV=production and must not
+# be run inside the production-parity backend pod.
 ```
 
 ## Smoke
