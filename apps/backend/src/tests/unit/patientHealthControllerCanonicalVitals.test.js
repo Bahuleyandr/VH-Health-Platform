@@ -31,7 +31,7 @@ jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
   logPhiAccess: logPhiAccessMock,
 }));
 
-const { recordStaffVitals, updateStaffVitals } = await import(
+const { recordPatientVitals, recordStaffVitals, updateStaffVitals } = await import(
   '../../controllers/health/patientHealthController.js'
 );
 
@@ -49,6 +49,49 @@ function responseDouble() {
     }),
   };
 }
+
+describe('recordPatientVitals wearable sources', () => {
+  beforeEach(() => {
+    queryRawMock.mockReset();
+    logPhiAccessMock.mockReset();
+  });
+
+  it('accepts Android Health Connect as a wearable source', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{ count: 2 }])
+      .mockResolvedValueOnce([{
+        id: 902,
+        recorded_at: new Date('2026-08-11T03:00:00.000Z'),
+        source: 'health_connect',
+        recorded_at_source: new Date('2026-08-11T02:59:00.000Z'),
+      }]);
+    const req = {
+      body: {
+        heartRate: 72,
+        source: 'health_connect',
+        recordedAtSource: '2026-08-11T02:59:00.000Z',
+      },
+      user: { uid: PATIENT_UID, role: 'PATIENT' },
+      tenantId: TENANT,
+      headers: {},
+      socket: { remoteAddress: '127.0.0.1' },
+      id: 'req-health-connect',
+    };
+    const res = responseDouble();
+
+    await recordPatientVitals(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toMatchObject({
+      id: 902,
+      source: 'health_connect',
+    });
+    expect(queryRawMock.mock.calls[1]).toEqual(expect.arrayContaining([
+      'health_connect',
+      new Date('2026-08-11T02:59:00.000Z'),
+    ]));
+  });
+});
 
 describe('recordStaffVitals canonical adapter', () => {
   beforeEach(() => {

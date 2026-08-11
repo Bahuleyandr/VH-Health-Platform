@@ -21,7 +21,9 @@ class HealthSyncService {
   HealthSyncService._();
   static final HealthSyncService instance = HealthSyncService._();
 
-  static const String _prefsLastSyncPrefix = 'health_sync_last_';
+  static const String _prefsLastVitalsSyncPrefix = 'health_sync_last_vitals_';
+  static const String _prefsLastActivitySyncPrefix =
+      'health_sync_last_activity_';
   static const Duration _foregroundInterval = Duration(minutes: 30);
   static const String backgroundTaskName = 'vhhealth.health_sync';
 
@@ -67,6 +69,8 @@ class HealthSyncService {
 
   final Health _health = Health();
   Timer? _periodicTimer;
+  Future<int>? _syncInFlight;
+  bool _lastSyncSucceeded = true;
   bool _permissionsGranted = false;
   bool _writePermissionsGranted = false;
   // True once we've surfaced the write-permission sheet to the user this
@@ -202,8 +206,29 @@ class HealthSyncService {
   ///
   /// Silent path — does **not** prompt for permissions. Background/resume
   /// callers rely on this behaviour to avoid spurious prompts.
-  Future<int> syncNow() async {
-    if (PatientOutageController.instance.blocksHospitalMutations) return 0;
+  Future<int> syncNow() {
+    final pendingSync = _syncInFlight;
+    if (pendingSync != null) return pendingSync;
+
+    final sync = _runSync();
+    _syncInFlight = sync;
+    return sync;
+  }
+
+  Future<int> _runSync() async {
+    try {
+      return await _performSync();
+    } finally {
+      _syncInFlight = null;
+    }
+  }
+
+  Future<int> _performSync() async {
+    _lastSyncSucceeded = true;
+    if (PatientOutageController.instance.blocksHospitalMutations) {
+      _lastSyncSucceeded = false;
+      return 0;
+    }
     if (!_isSupportedPlatform) return 0;
     var types = _availableReadTypes();
     if (types.isEmpty) return 0;
@@ -220,13 +245,29 @@ class HealthSyncService {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final sourceKey = '$_prefsLastSyncPrefix$_sourceTag';
-    final lastIso = prefs.getString(sourceKey);
+    final vitalsKey = '$_prefsLastVitalsSyncPrefix$_sourceTag';
+    final activityKey = '$_prefsLastActivitySyncPrefix$_sourceTag';
     final end = DateTime.now();
     final todayStart = DateTime(end.year, end.month, end.day);
-    final start = lastIso == null
-        ? todayStart.subtract(const Duration(days: 7))
+    final initialStart = todayStart.subtract(const Duration(days: 7));
+    // The legacy shared checkpoint advanced after partial failures, so it is
+    // deliberately not migrated; the first run safely replays seven days.
+    final vitalsCursor = _readCursor(prefs.getString(vitalsKey), end);
+    final activityCursor = _readCursor(prefs.getString(activityKey), end);
+    final candidateVitalsStart = vitalsCursor?.add(
+      const Duration(microseconds: 1),
+    );
+    final vitalsStart =
+        candidateVitalsStart == null ||
+            candidateVitalsStart.isBefore(initialStart)
+        ? initialStart
+        : candidateVitalsStart;
+    final activityStart = activityCursor == null
+        ? initialStart
         : todayStart.subtract(const Duration(days: 1));
+    final start = vitalsStart.isBefore(activityStart)
+        ? vitalsStart
+        : activityStart;
     if (!end.isAfter(start)) return 0;
 
     final List<HealthDataPoint> points;
@@ -237,20 +278,19 @@ class HealthSyncService {
         endTime: end,
       );
     } catch (e) {
+      _lastSyncSucceeded = false;
       if (kDebugMode) debugPrint('HealthSyncService: read failed: $e');
       return 0;
     }
-    if (points.isEmpty) {
-      await prefs.setString(sourceKey, end.toIso8601String());
-      return 0;
-    }
+    if (points.isEmpty) return 0;
 
     double? heartRate;
     double? spo2;
     double? weight;
     double? temperature;
     double steps = 0;
-    DateTime? latestSampleAt;
+    DateTime? latestVitalSampleAt;
+    DateTime? latestActivitySampleAt;
     DateTime? latestHeartRateAt;
     DateTime? latestSpo2At;
     DateTime? latestWeightAt;
@@ -266,20 +306,19 @@ class HealthSyncService {
       if (sourceDevice == null && p.sourceDeviceId.trim().isNotEmpty) {
         sourceDevice = p.sourceDeviceId.trim();
       }
-      final day = _dayKey(_isSleepType(p.type) ? p.dateTo : p.dateFrom);
-      final summary = daily.putIfAbsent(
-        day,
-        () => _DailyActivitySummary(date: day),
-      );
       if (_isSleepType(p.type)) {
+        if (p.dateTo.isBefore(activityStart)) continue;
+        final day = _dayKey(p.dateTo);
+        final summary = daily.putIfAbsent(
+          day,
+          () => _DailyActivitySummary(date: day),
+        );
         final minutes = p.dateTo.difference(p.dateFrom).inMinutes;
         if (minutes > 0) {
           summary.sleepMinutes += minutes;
           summary.trackLatest(p.dateTo);
         }
-        if (latestSampleAt == null || p.dateTo.isAfter(latestSampleAt)) {
-          latestSampleAt = p.dateTo;
-        }
+        latestActivitySampleAt = _laterOf(latestActivitySampleAt, p.dateTo);
         continue;
       }
 
@@ -287,51 +326,77 @@ class HealthSyncService {
       if (v == null) continue;
       switch (p.type) {
         case HealthDataType.HEART_RATE:
+          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
           if (latestHeartRateAt == null ||
               p.dateFrom.isAfter(latestHeartRateAt)) {
             heartRate = v;
             latestHeartRateAt = p.dateFrom;
           }
+          latestVitalSampleAt = _laterOf(latestVitalSampleAt, p.dateTo);
           break;
         case HealthDataType.BLOOD_OXYGEN:
+          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
           final pct = v <= 1.0 ? v * 100 : v;
           if (latestSpo2At == null || p.dateFrom.isAfter(latestSpo2At)) {
             spo2 = pct;
             latestSpo2At = p.dateFrom;
           }
+          latestVitalSampleAt = _laterOf(latestVitalSampleAt, p.dateTo);
           break;
         case HealthDataType.STEPS:
+          if (p.dateTo.isBefore(activityStart)) break;
+          final day = _dayKey(p.dateFrom);
+          final summary = daily.putIfAbsent(
+            day,
+            () => _DailyActivitySummary(date: day),
+          );
           steps += v;
           summary.steps += v.round();
           summary.trackLatest(p.dateTo);
+          latestActivitySampleAt = _laterOf(latestActivitySampleAt, p.dateTo);
           break;
         case HealthDataType.DISTANCE_DELTA:
         case HealthDataType.DISTANCE_WALKING_RUNNING:
+          if (p.dateTo.isBefore(activityStart)) break;
+          final day = _dayKey(p.dateFrom);
+          final summary = daily.putIfAbsent(
+            day,
+            () => _DailyActivitySummary(date: day),
+          );
           summary.distanceMeters += v;
           summary.trackLatest(p.dateTo);
+          latestActivitySampleAt = _laterOf(latestActivitySampleAt, p.dateTo);
           break;
         case HealthDataType.ACTIVE_ENERGY_BURNED:
+          if (p.dateTo.isBefore(activityStart)) break;
+          final day = _dayKey(p.dateFrom);
+          final summary = daily.putIfAbsent(
+            day,
+            () => _DailyActivitySummary(date: day),
+          );
           summary.activeEnergyKcal += v;
           summary.trackLatest(p.dateTo);
+          latestActivitySampleAt = _laterOf(latestActivitySampleAt, p.dateTo);
           break;
         case HealthDataType.WEIGHT:
+          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
           if (latestWeightAt == null || p.dateFrom.isAfter(latestWeightAt)) {
             weight = v;
             latestWeightAt = p.dateFrom;
           }
+          latestVitalSampleAt = _laterOf(latestVitalSampleAt, p.dateTo);
           break;
         case HealthDataType.BODY_TEMPERATURE:
+          if (!_isAfterCursor(p.dateTo, vitalsCursor)) break;
           if (latestTemperatureAt == null ||
               p.dateFrom.isAfter(latestTemperatureAt)) {
             temperature = v;
             latestTemperatureAt = p.dateFrom;
           }
+          latestVitalSampleAt = _laterOf(latestVitalSampleAt, p.dateTo);
           break;
         default:
           break;
-      }
-      if (latestSampleAt == null || p.dateTo.isAfter(latestSampleAt)) {
-        latestSampleAt = p.dateTo;
       }
     }
 
@@ -343,7 +408,8 @@ class HealthSyncService {
       'weight': ?weight,
       'temperature': ?temperature,
       'source': _sourceTag,
-      'recordedAtSource': (latestSampleAt ?? end).toIso8601String(),
+      if (latestVitalSampleAt != null)
+        'recordedAtSource': latestVitalSampleAt.toIso8601String(),
     };
 
     if (heartRate != null ||
@@ -354,12 +420,17 @@ class HealthSyncService {
         final resp = await ApiClient.post('/health/patient/vitals', body: body);
         if (resp.isSuccess) {
           updatedSurfaces += 1;
-        } else if (kDebugMode) {
-          debugPrint(
-            'HealthSyncService: vitals POST failed ${resp.statusCode}',
-          );
+          await _saveCursor(prefs, vitalsKey, latestVitalSampleAt!);
+        } else {
+          _lastSyncSucceeded = false;
+          if (kDebugMode) {
+            debugPrint(
+              'HealthSyncService: vitals POST failed ${resp.statusCode}',
+            );
+          }
         }
       } catch (e) {
+        _lastSyncSucceeded = false;
         if (kDebugMode) debugPrint('HealthSyncService: vitals POST error $e');
       }
     }
@@ -379,23 +450,52 @@ class HealthSyncService {
         );
         if (resp.isSuccess) {
           updatedSurfaces += 1;
-        } else if (kDebugMode) {
-          debugPrint(
-            'HealthSyncService: activity POST failed ${resp.statusCode}',
-          );
+          await _saveCursor(prefs, activityKey, latestActivitySampleAt!);
+        } else {
+          _lastSyncSucceeded = false;
+          if (kDebugMode) {
+            debugPrint(
+              'HealthSyncService: activity POST failed ${resp.statusCode}',
+            );
+          }
         }
       } catch (e) {
+        _lastSyncSucceeded = false;
         if (kDebugMode) debugPrint('HealthSyncService: activity POST error $e');
       }
     }
 
-    await prefs.setString(sourceKey, (latestSampleAt ?? end).toIso8601String());
     if (kDebugMode) {
       debugPrint(
         'HealthSyncService: synced ${points.length} points, steps=$steps, days=${days.length}, surfaces=$updatedSurfaces',
       );
     }
     return updatedSurfaces;
+  }
+
+  DateTime? _readCursor(String? value, DateTime end) {
+    final parsed = value == null ? null : DateTime.tryParse(value);
+    if (parsed == null || parsed.isAfter(end)) return null;
+    return parsed;
+  }
+
+  bool _isAfterCursor(DateTime sampleAt, DateTime? cursor) =>
+      cursor == null || sampleAt.isAfter(cursor);
+
+  DateTime _laterOf(DateTime? current, DateTime candidate) =>
+      current == null || candidate.isAfter(current) ? candidate : current;
+
+  Future<void> _saveCursor(
+    SharedPreferences prefs,
+    String key,
+    DateTime value,
+  ) async {
+    if (!await prefs.setString(key, value.toIso8601String())) {
+      _lastSyncSucceeded = false;
+      if (kDebugMode) {
+        debugPrint('HealthSyncService: failed to persist $key checkpoint');
+      }
+    }
   }
 
   double? _numeric(HealthValue v) {
@@ -671,10 +771,12 @@ class _DailyActivitySummary {
 void healthSyncBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
-      await HealthSyncService.instance.syncNow();
+      final service = HealthSyncService.instance;
+      await service.syncNow();
+      return service._lastSyncSucceeded;
     } catch (e) {
       if (kDebugMode) debugPrint('healthSyncBackgroundDispatcher failed: $e');
+      return false;
     }
-    return true; // never error — retry is implicit via the next scheduled tick
   });
 }

@@ -247,7 +247,7 @@ export async function recordPatientVitals(req, res) {
 
     // Validate source tag. Accept only known wearable origins so invalid
     // values don't pollute the sync-status map.
-    const allowedSources = ['manual', 'healthkit', 'google_fit'];
+    const allowedSources = ['manual', 'healthkit', 'health_connect', 'google_fit'];
     const sourceNorm = source ? String(source).toLowerCase() : 'manual';
     if (!allowedSources.includes(sourceNorm)) {
       return error(res, `source must be one of: ${allowedSources.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
