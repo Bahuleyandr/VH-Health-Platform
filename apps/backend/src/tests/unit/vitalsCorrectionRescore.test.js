@@ -336,6 +336,15 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
       NURSE_UID,
       expect.objectContaining({ db: __txClient, vitalsChartId: VITALS_ID }),
     );
-    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, 909, { db: __txClient });
+    expect(supersedeMock).toHaveBeenCalledWith(
+      VITALS_ID,
+      909,
+      expect.objectContaining({
+        db: __txClient,
+        tenantId: TENANT_ID,
+        correctedBy: NURSE_UID,
+        currentVitalAnomalies: expect.any(Array),
+      }),
+    );
   });
 });
