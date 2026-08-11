@@ -41,6 +41,22 @@ noSuccessRuleTester.run('no-success-in-catch assigned aliases', noSuccessInCatch
       code: 'let ok = error; function handler() { try { work(); } catch { ok(res, []); } } function maybe() { ok = responseHelper.success; }',
       errors: [{ messageId: 'fakeSuccess' }],
     },
+    {
+      code: 'const ok = flag ? responseHelper.success : error; function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'let ok; ({ success: ok } = responseHelper); function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'const ok = flag && responseHelper.success; function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'function handler(ok = responseHelper.success) { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
   ],
 });
 
@@ -196,5 +212,35 @@ describe('mixed status assertion policy', () => {
       expect.objectContaining({ codes: [200, 403], kind: 'status_set', mixesAuthOutcome: true }),
       expect.objectContaining({ codes: [200, 403], kind: 'status_set', mixesAuthOutcome: true }),
     ]);
+  });
+
+  it('tracks branched, defaulted, and mutated status sets', () => {
+    const findings = findMixedStatusAssertions(`
+      const conditional = flag ? [200, 403] : [401, 403];
+      expect(conditional).toContain(res.status);
+      const logical = flag && [200, 403];
+      expect(logical).toContain(res.status);
+      const pushed = [200];
+      pushed.push(403);
+      expect(pushed).toContain(res.status);
+      const unshifted = [403];
+      unshifted.unshift(200);
+      expect(unshifted).toContain(res.status);
+      const spliced = [200];
+      spliced.splice(1, 0, 403);
+      expect(spliced).toContain(res.status);
+      const aliased = [200];
+      const alias = aliased;
+      alias.push(403);
+      expect(aliased).toContain(res.status);
+      function defaulted(accepted = [200, 403]) {
+        expect(accepted).toContain(res.status);
+      }
+    `);
+
+    expect(findings).toHaveLength(7);
+    expect(findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ codes: expect.arrayContaining([200, 403]), mixesAuthOutcome: true }),
+    ]));
   });
 });

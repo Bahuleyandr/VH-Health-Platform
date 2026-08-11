@@ -15,6 +15,12 @@ function unwrapExpression(node) {
   return current;
 }
 
+function assignedIdentifier(pattern) {
+  if (pattern?.type === 'Identifier') return pattern;
+  if (pattern?.type === 'AssignmentPattern') return assignedIdentifier(pattern.left);
+  return null;
+}
+
 function isPromiseCatchCallback(node) {
   for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
     if (
@@ -57,6 +63,16 @@ export default {
 
     function resolvesToSuccess(expression) {
       const node = unwrapExpression(expression);
+      if (node?.type === 'ConditionalExpression') {
+        return resolvesToSuccess(node.consequent) || resolvesToSuccess(node.alternate);
+      }
+      if (node?.type === 'LogicalExpression') {
+        return resolvesToSuccess(node.left) || resolvesToSuccess(node.right);
+      }
+      if (node?.type === 'AssignmentExpression') return resolvesToSuccess(node.right);
+      if (node?.type === 'CallExpression' && memberName(node.callee) === 'bind') {
+        return resolvesToSuccess(node.callee.object);
+      }
       if (node?.type === 'Identifier') {
         const variable = variableFor(node);
         return variable ? successBindings.has(variable) : node.name === 'success';
@@ -88,19 +104,36 @@ export default {
           for (const property of node.id.properties) {
             if (property.type !== 'Property') continue;
             const key = property.computed ? property.key?.value : property.key?.name;
-            if (key === 'success' && property.value?.type === 'Identifier') {
+            const identifier = assignedIdentifier(property.value);
+            if (key === 'success' && identifier) {
               for (const variable of sourceCode.getDeclaredVariables(node)) {
-                if (variable.name === property.value.name) successBindings.add(variable);
+                if (variable.name === identifier.name) successBindings.add(variable);
               }
             }
           }
         }
       },
+      AssignmentPattern(node) {
+        const identifier = assignedIdentifier(node.left);
+        const variable = variableFor(identifier);
+        if (variable) aliasAssignments.push({ variable, expression: node.right });
+      },
       AssignmentExpression(node) {
-        if (node.operator !== '=' || node.left?.type !== 'Identifier') return;
-        const variable = variableFor(node.left);
-        if (!variable) return;
-        aliasAssignments.push({ variable, expression: node.right });
+        if (!['=', '&&=', '||=', '??='].includes(node.operator)) return;
+        if (node.left?.type === 'Identifier') {
+          const variable = variableFor(node.left);
+          if (variable) aliasAssignments.push({ variable, expression: node.right });
+          return;
+        }
+        if (node.operator !== '=' || node.left?.type !== 'ObjectPattern') return;
+        for (const property of node.left.properties) {
+          if (property.type !== 'Property') continue;
+          const key = property.computed ? property.key?.value : property.key?.name;
+          const identifier = assignedIdentifier(property.value);
+          if (key !== 'success' || !identifier) continue;
+          const variable = variableFor(identifier);
+          if (variable) successBindings.add(variable);
+        }
       },
       CallExpression(node) {
         if (isPromiseCatchCallback(node)) candidateCalls.push(node);

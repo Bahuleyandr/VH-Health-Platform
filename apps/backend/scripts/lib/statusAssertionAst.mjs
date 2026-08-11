@@ -66,6 +66,27 @@ function patternIdentifiers(pattern) {
   return [];
 }
 
+function parameterBindings(pattern) {
+  if (!pattern) return [];
+  if (pattern.type === 'Identifier') return [{ identifier: pattern, value: null }];
+  if (pattern.type === 'AssignmentPattern') {
+    if (pattern.left?.type === 'Identifier') {
+      return [{ identifier: pattern.left, value: pattern.right }];
+    }
+    return parameterBindings(pattern.left);
+  }
+  if (pattern.type === 'RestElement') return parameterBindings(pattern.argument);
+  if (pattern.type === 'ArrayPattern') return pattern.elements.flatMap(parameterBindings);
+  if (pattern.type === 'ObjectPattern') {
+    return pattern.properties.flatMap((property) => (
+      property.type === 'RestElement'
+        ? parameterBindings(property.argument)
+        : parameterBindings(property.value)
+    ));
+  }
+  return [];
+}
+
 function bindingFor(identifier, bindings) {
   if (identifier?.type !== 'Identifier') return null;
   return (bindings.get(identifier.name) || [])
@@ -85,7 +106,7 @@ function collectBindings(ast) {
     const namedBindings = byName.get(identifier.name) || [];
     let binding = namedBindings.find((candidate) => candidate.scope === scope);
     if (!binding) {
-      binding = { scope, values: [] };
+      binding = { scope, values: [], additions: [] };
       namedBindings.push(binding);
       byName.set(identifier.name, namedBindings);
     }
@@ -108,7 +129,9 @@ function collectBindings(ast) {
 
     if (isFunctionNode(node)) {
       for (const parameter of node.params) {
-        for (const identifier of patternIdentifiers(parameter)) register(identifier, node, null);
+        for (const { identifier, value } of parameterBindings(parameter)) {
+          register(identifier, node, value);
+        }
       }
       if (node.type === 'FunctionExpression' && node.id) register(node.id, node, null);
       if (node.type === 'FunctionDeclaration' && node.id) {
@@ -136,13 +159,71 @@ function collectBindings(ast) {
 
   visit(ast, [], (node) => {
     if (
-      node.type !== 'AssignmentExpression'
-      || node.operator !== '='
-      || node.left?.type !== 'Identifier'
-    ) return;
-    const binding = bindingFor(node.left, byName);
-    if (binding) binding.values.push(node.right);
+      node.type === 'AssignmentExpression'
+      && ['=', '&&=', '||=', '??='].includes(node.operator)
+    ) {
+      if (node.left?.type === 'Identifier') {
+        const binding = bindingFor(node.left, byName);
+        if (binding) binding.values.push(node.right);
+        return;
+      }
+      if (
+        node.operator === '='
+        && node.left?.type === 'MemberExpression'
+        && memberName(node.left) !== 'length'
+      ) {
+        const target = unwrapExpression(node.left.object);
+        const binding = bindingFor(target, byName);
+        if (binding) binding.additions.push(node.right);
+      }
+      return;
+    }
+
+    if (node.type !== 'CallExpression') return;
+    const callee = unwrapExpression(node.callee);
+    const mutation = memberName(callee);
+    if (!['push', 'unshift', 'splice'].includes(mutation)) return;
+    const target = unwrapExpression(callee.object);
+    const binding = bindingFor(target, byName);
+    if (!binding) return;
+    const additions = mutation === 'splice' ? node.arguments.slice(2) : node.arguments;
+    binding.additions.push(...additions);
   });
+
+  function directAliasBindings(expression) {
+    const node = unwrapExpression(expression);
+    if (node?.type === 'Identifier') {
+      const binding = bindingFor(node, byName);
+      return binding ? [binding] : [];
+    }
+    if (node?.type === 'ConditionalExpression') {
+      return [
+        ...directAliasBindings(node.consequent),
+        ...directAliasBindings(node.alternate),
+      ];
+    }
+    if (node?.type === 'LogicalExpression') {
+      return [...directAliasBindings(node.left), ...directAliasBindings(node.right)];
+    }
+    if (node?.type === 'AssignmentExpression') return directAliasBindings(node.right);
+    return [];
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const binding of [...byName.values()].flat()) {
+      if (!binding.additions.length) continue;
+      const targets = binding.values.flatMap(directAliasBindings);
+      for (const target of targets) {
+        for (const addition of binding.additions) {
+          if (target.additions.includes(addition)) continue;
+          target.additions.push(addition);
+          changed = true;
+        }
+      }
+    }
+  }
 
   return byName;
 }
@@ -151,6 +232,21 @@ function numericValues(node, bindings, seen = new Set()) {
   const expression = unwrapExpression(node);
   if (expression?.type === 'Literal' && Number.isFinite(expression.value)) {
     return [expression.value];
+  }
+  if (expression?.type === 'ConditionalExpression') {
+    return [...new Set([
+      ...numericValues(expression.consequent, bindings, seen),
+      ...numericValues(expression.alternate, bindings, seen),
+    ])];
+  }
+  if (expression?.type === 'LogicalExpression') {
+    return [...new Set([
+      ...numericValues(expression.left, bindings, seen),
+      ...numericValues(expression.right, bindings, seen),
+    ])];
+  }
+  if (expression?.type === 'AssignmentExpression') {
+    return numericValues(expression.right, bindings, seen);
   }
   if (expression?.type !== 'Identifier') return [];
   const binding = bindingFor(expression, bindings);
@@ -161,16 +257,48 @@ function numericValues(node, bindings, seen = new Set()) {
 
 function numericArray(node, bindings, seen = new Set()) {
   const expression = unwrapExpression(node);
+  if (expression?.type === 'ConditionalExpression' || expression?.type === 'LogicalExpression') {
+    const branches = expression.type === 'ConditionalExpression'
+      ? [expression.consequent, expression.alternate]
+      : [expression.left, expression.right];
+    const codes = branches.flatMap((branch) => numericArray(branch, bindings, seen) || []);
+    return codes.length > 0 ? [...new Set(codes)] : null;
+  }
+  if (expression?.type === 'AssignmentExpression') {
+    return numericArray(expression.right, bindings, seen);
+  }
   if (expression?.type === 'Identifier') {
     const binding = bindingFor(expression, bindings);
     if (!binding || seen.has(binding)) return null;
     const nextSeen = new Set(seen).add(binding);
-    const codes = binding.values.flatMap((value) => numericArray(value, bindings, nextSeen) || []);
+    const codes = [
+      ...binding.values.flatMap((value) => numericArray(value, bindings, nextSeen) || []),
+      ...binding.additions.flatMap((value) => (
+        value.type === 'SpreadElement'
+          ? numericArray(value.argument, bindings, nextSeen) || []
+          : numericValues(value, bindings, nextSeen)
+      )),
+    ];
+    return codes.length > 0 ? [...new Set(codes)] : null;
+  }
+  if (expression?.type === 'CallExpression' && memberName(expression.callee) === 'concat') {
+    const callee = unwrapExpression(expression.callee);
+    const codes = [
+      ...(numericArray(callee.object, bindings, seen) || []),
+      ...expression.arguments.flatMap((argument) => (
+        numericArray(argument.type === 'SpreadElement' ? argument.argument : argument, bindings, seen)
+        || numericValues(argument, bindings, seen)
+      )),
+    ];
     return codes.length > 0 ? [...new Set(codes)] : null;
   }
   if (expression?.type !== 'ArrayExpression') return null;
   const codes = expression.elements
-    .flatMap((element) => numericValues(element, bindings, seen));
+    .flatMap((element) => (
+      element?.type === 'SpreadElement'
+        ? numericArray(element.argument, bindings, seen) || []
+        : numericValues(element, bindings, seen)
+    ));
   return codes.length > 0 ? [...new Set(codes)] : null;
 }
 
