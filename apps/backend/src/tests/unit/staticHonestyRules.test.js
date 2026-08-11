@@ -29,6 +29,18 @@ noSuccessRuleTester.run('no-success-in-catch assigned aliases', noSuccessInCatch
       code: 'function handler() { try { work(); } catch { (0, success)(res, []); } }',
       errors: [{ messageId: 'fakeSuccess' }],
     },
+    {
+      code: 'let ok = responseHelper.success; if (flag) ok = error; function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'let ok = responseHelper.success; function unused() { ok = error; } function handler() { try { work(); } catch { ok(res, []); } }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
+    {
+      code: 'let ok = error; function handler() { try { work(); } catch { ok(res, []); } } function maybe() { ok = responseHelper.success; }',
+      errors: [{ messageId: 'fakeSuccess' }],
+    },
   ],
 });
 
@@ -153,8 +165,36 @@ describe('mixed status assertion policy', () => {
         const accepted = [401, 403];
         expect(accepted).toContain(res.status);
       });
+      const loopAccepted = [200, 403];
+      for (let loopAccepted = [401, 403]; flag;) {
+        expect(loopAccepted).toContain(res.status);
+        break;
+      }
     `);
 
     expect(findings).toEqual([]);
+  });
+
+  it('tracks mutable lexical status sets and respects parameter shadowing', () => {
+    const findings = findMixedStatusAssertions(`
+      test('mutable set', () => {
+        let accepted = [200, 403];
+        expect(accepted).toContain(res.status);
+      });
+      const accepted = [401, 403];
+      function check() {
+        let accepted = [200, 403];
+        expect(accepted).toContain(res.status);
+      }
+      const outerMixed = [200, 403];
+      function parameterShadow(outerMixed) {
+        expect(outerMixed).toContain(res.status);
+      }
+    `);
+
+    expect(findings).toEqual([
+      expect.objectContaining({ codes: [200, 403], kind: 'status_set', mixesAuthOutcome: true }),
+      expect.objectContaining({ codes: [200, 403], kind: 'status_set', mixesAuthOutcome: true }),
+    ]);
   });
 });

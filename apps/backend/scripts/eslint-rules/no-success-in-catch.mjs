@@ -43,6 +43,8 @@ export default {
   create(context) {
     const sourceCode = context.sourceCode;
     const successBindings = new Set();
+    const aliasAssignments = [];
+    const candidateCalls = [];
 
     function variableFor(identifier) {
       if (identifier?.type !== 'Identifier') return null;
@@ -62,23 +64,24 @@ export default {
       return memberName(node) === 'success';
     }
 
-    function setDeclaredBinding(node, name, isSuccess) {
+    function recordDeclaredAlias(node, name, expression) {
       for (const variable of sourceCode.getDeclaredVariables(node)) {
         if (variable.name !== name) continue;
-        if (isSuccess) successBindings.add(variable);
-        else successBindings.delete(variable);
+        aliasAssignments.push({ variable, expression });
       }
     }
 
     return {
       ImportSpecifier(node) {
         if (node.imported?.name === 'success') {
-          setDeclaredBinding(node, node.local.name, true);
+          for (const variable of sourceCode.getDeclaredVariables(node)) {
+            if (variable.name === node.local.name) successBindings.add(variable);
+          }
         }
       },
       VariableDeclarator(node) {
         if (node.id?.type === 'Identifier') {
-          setDeclaredBinding(node, node.id.name, resolvesToSuccess(node.init));
+          recordDeclaredAlias(node, node.id.name, node.init);
           return;
         }
         if (node.id?.type === 'ObjectPattern') {
@@ -86,7 +89,9 @@ export default {
             if (property.type !== 'Property') continue;
             const key = property.computed ? property.key?.value : property.key?.name;
             if (key === 'success' && property.value?.type === 'Identifier') {
-              setDeclaredBinding(node, property.value.name, true);
+              for (const variable of sourceCode.getDeclaredVariables(node)) {
+                if (variable.name === property.value.name) successBindings.add(variable);
+              }
             }
           }
         }
@@ -95,20 +100,30 @@ export default {
         if (node.operator !== '=' || node.left?.type !== 'Identifier') return;
         const variable = variableFor(node.left);
         if (!variable) return;
-        if (resolvesToSuccess(node.right)) successBindings.add(variable);
-        else successBindings.delete(variable);
+        aliasAssignments.push({ variable, expression: node.right });
       },
       CallExpression(node) {
-        if (!resolvesToSuccess(node.callee)) return;
-        if (isPromiseCatchCallback(node)) {
-          context.report({ node, messageId: 'fakeSuccess' });
-          return;
-        }
+        if (isPromiseCatchCallback(node)) candidateCalls.push(node);
         for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
           if (ancestor.type === 'CatchClause') {
-            context.report({ node, messageId: 'fakeSuccess' });
+            candidateCalls.push(node);
             return;
           }
+        }
+      },
+      'Program:exit'() {
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const { variable, expression } of aliasAssignments) {
+            if (successBindings.has(variable) || !resolvesToSuccess(expression)) continue;
+            successBindings.add(variable);
+            changed = true;
+          }
+        }
+
+        for (const node of new Set(candidateCalls)) {
+          if (resolvesToSuccess(node.callee)) context.report({ node, messageId: 'fakeSuccess' });
         }
       },
     };

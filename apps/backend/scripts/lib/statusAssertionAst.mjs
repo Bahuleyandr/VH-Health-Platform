@@ -13,6 +13,9 @@ function memberName(node) {
 function unwrapExpression(node) {
   let current = node;
   while (current?.type === 'ChainExpression') current = current.expression;
+  if (current?.type === 'SequenceExpression') {
+    return unwrapExpression(current.expressions.at(-1));
+  }
   return current;
 }
 
@@ -27,71 +30,148 @@ function isScopeNode(node) {
     'BlockStatement',
     'StaticBlock',
     'SwitchStatement',
+    'CatchClause',
+    'ForStatement',
+    'ForInStatement',
+    'ForOfStatement',
     'FunctionDeclaration',
     'FunctionExpression',
     'ArrowFunctionExpression',
   ].includes(node?.type);
 }
 
-function collectConstBindings(ast) {
-  const byName = new Map();
-  visit(ast, [], (node, ancestors) => {
-    const declaration = ancestors.at(-1);
-    if (
-      node.type !== 'VariableDeclarator'
-      || node.id?.type !== 'Identifier'
-      || declaration?.type !== 'VariableDeclaration'
-      || declaration.kind !== 'const'
-      || !node.init
-    ) return;
-
-    const scope = [...ancestors].reverse().find(isScopeNode);
-    if (!scope) return;
-    const bindings = byName.get(node.id.name) || [];
-    bindings.push({ declaration: node, init: node.init, scope });
-    byName.set(node.id.name, bindings);
-  });
-  return byName;
+function isFunctionNode(node) {
+  return [
+    'FunctionDeclaration',
+    'FunctionExpression',
+    'ArrowFunctionExpression',
+  ].includes(node?.type);
 }
 
-function constBinding(identifier, bindings) {
+function patternIdentifiers(pattern) {
+  if (!pattern) return [];
+  if (pattern.type === 'Identifier') return [pattern];
+  if (pattern.type === 'AssignmentPattern') return patternIdentifiers(pattern.left);
+  if (pattern.type === 'RestElement') return patternIdentifiers(pattern.argument);
+  if (pattern.type === 'ArrayPattern') {
+    return pattern.elements.flatMap(patternIdentifiers);
+  }
+  if (pattern.type === 'ObjectPattern') {
+    return pattern.properties.flatMap((property) => (
+      property.type === 'RestElement'
+        ? patternIdentifiers(property.argument)
+        : patternIdentifiers(property.value)
+    ));
+  }
+  return [];
+}
+
+function bindingFor(identifier, bindings) {
   if (identifier?.type !== 'Identifier') return null;
   return (bindings.get(identifier.name) || [])
-    .filter(({ declaration, scope }) => (
-      isWithin(identifier, scope)
-      && declaration.range[0] < identifier.range[0]
-    ))
+    .filter(({ scope }) => isWithin(identifier, scope))
     .sort((a, b) => {
       const aSpan = a.scope.range[1] - a.scope.range[0];
       const bSpan = b.scope.range[1] - b.scope.range[0];
-      return aSpan - bSpan || b.declaration.range[0] - a.declaration.range[0];
+      return aSpan - bSpan;
     })[0] || null;
 }
 
-function numericValue(node, bindings, seen = new Set()) {
+function collectBindings(ast) {
+  const byName = new Map();
+
+  function register(identifier, scope, value) {
+    if (identifier?.type !== 'Identifier' || !scope) return;
+    const namedBindings = byName.get(identifier.name) || [];
+    let binding = namedBindings.find((candidate) => candidate.scope === scope);
+    if (!binding) {
+      binding = { scope, values: [] };
+      namedBindings.push(binding);
+      byName.set(identifier.name, namedBindings);
+    }
+    if (value) binding.values.push(value);
+  }
+
+  visit(ast, [], (node, ancestors) => {
+    const parent = ancestors.at(-1);
+    if (node.type === 'VariableDeclarator' && parent?.type === 'VariableDeclaration') {
+      const scope = parent.kind === 'var'
+        ? [...ancestors].reverse().find((ancestor) => (
+          isFunctionNode(ancestor) || ancestor.type === 'Program'
+        ))
+        : [...ancestors].reverse().find(isScopeNode);
+      for (const identifier of patternIdentifiers(node.id)) {
+        register(identifier, scope, node.id.type === 'Identifier' ? node.init : null);
+      }
+      return;
+    }
+
+    if (isFunctionNode(node)) {
+      for (const parameter of node.params) {
+        for (const identifier of patternIdentifiers(parameter)) register(identifier, node, null);
+      }
+      if (node.type === 'FunctionExpression' && node.id) register(node.id, node, null);
+      if (node.type === 'FunctionDeclaration' && node.id) {
+        const outerScope = [...ancestors].reverse().find(isScopeNode);
+        register(node.id, outerScope, null);
+      }
+      return;
+    }
+
+    if (node.type === 'CatchClause') {
+      for (const identifier of patternIdentifiers(node.param)) register(identifier, node, null);
+      return;
+    }
+
+    if (node.type === 'ClassDeclaration' && node.id) {
+      const scope = [...ancestors].reverse().find(isScopeNode);
+      register(node.id, scope, null);
+      return;
+    }
+
+    if (node.type === 'ImportDeclaration') {
+      for (const specifier of node.specifiers) register(specifier.local, ast, null);
+    }
+  });
+
+  visit(ast, [], (node) => {
+    if (
+      node.type !== 'AssignmentExpression'
+      || node.operator !== '='
+      || node.left?.type !== 'Identifier'
+    ) return;
+    const binding = bindingFor(node.left, byName);
+    if (binding) binding.values.push(node.right);
+  });
+
+  return byName;
+}
+
+function numericValues(node, bindings, seen = new Set()) {
   const expression = unwrapExpression(node);
   if (expression?.type === 'Literal' && Number.isFinite(expression.value)) {
-    return expression.value;
+    return [expression.value];
   }
-  if (expression?.type !== 'Identifier') return null;
-  const binding = constBinding(expression, bindings);
-  if (!binding || seen.has(binding)) return null;
+  if (expression?.type !== 'Identifier') return [];
+  const binding = bindingFor(expression, bindings);
+  if (!binding || seen.has(binding)) return [];
   const nextSeen = new Set(seen).add(binding);
-  return numericValue(binding.init, bindings, nextSeen);
+  return [...new Set(binding.values.flatMap((value) => numericValues(value, bindings, nextSeen)))];
 }
 
 function numericArray(node, bindings, seen = new Set()) {
   const expression = unwrapExpression(node);
   if (expression?.type === 'Identifier') {
-    const binding = constBinding(expression, bindings);
+    const binding = bindingFor(expression, bindings);
     if (!binding || seen.has(binding)) return null;
-    return numericArray(binding.init, bindings, new Set(seen).add(binding));
+    const nextSeen = new Set(seen).add(binding);
+    const codes = binding.values.flatMap((value) => numericArray(value, bindings, nextSeen) || []);
+    return codes.length > 0 ? [...new Set(codes)] : null;
   }
   if (expression?.type !== 'ArrayExpression') return null;
   const codes = expression.elements
-    .map((element) => numericValue(element, bindings, seen))
-    .filter((code) => code != null);
-  return codes.length > 0 ? codes : null;
+    .flatMap((element) => numericValues(element, bindings, seen));
+  return codes.length > 0 ? [...new Set(codes)] : null;
 }
 
 function statusArrayAssertion(node, bindings) {
@@ -128,13 +208,15 @@ function comparedSuccess(test, actualKey, source, bindings) {
   }
   if (test.type !== 'BinaryExpression') return null;
 
-  const leftNumber = numericValue(test.left, bindings);
-  const rightNumber = numericValue(test.right, bindings);
-  if (leftNumber >= 200 && leftNumber < 300 && expressionKey(test.right, source) === actualKey) {
-    return { code: leftNumber, operator: test.operator };
+  const leftNumbers = numericValues(test.left, bindings)
+    .filter((code) => code >= 200 && code < 300);
+  const rightNumbers = numericValues(test.right, bindings)
+    .filter((code) => code >= 200 && code < 300);
+  if (leftNumbers.length && expressionKey(test.right, source) === actualKey) {
+    return { codes: leftNumbers, operator: test.operator };
   }
-  if (rightNumber >= 200 && rightNumber < 300 && expressionKey(test.left, source) === actualKey) {
-    return { code: rightNumber, operator: test.operator };
+  if (rightNumbers.length && expressionKey(test.left, source) === actualKey) {
+    return { codes: rightNumbers, operator: test.operator };
   }
   return null;
 }
@@ -161,10 +243,10 @@ function conditionalSuccessCodes(ifNode, assertionNode, actualKey, source, bindi
   const comparison = comparedSuccess(ifNode?.test, actualKey, source, bindings);
   if (comparison) {
     if (['!=', '!=='].includes(comparison.operator) && isWithin(assertionNode, ifNode.consequent)) {
-      return [comparison.code];
+      return comparison.codes;
     }
     if (['==', '==='].includes(comparison.operator) && isWithin(assertionNode, ifNode.alternate)) {
-      return [comparison.code];
+      return comparison.codes;
     }
   }
 
@@ -206,7 +288,7 @@ export function findMixedStatusAssertions(source) {
     loc: true,
     range: true,
   });
-  const bindings = collectConstBindings(ast);
+  const bindings = collectBindings(ast);
   const findings = [];
 
   visit(ast, [], (node, ancestors) => {
