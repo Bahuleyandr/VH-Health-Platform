@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jest } from '@jest/globals';
@@ -101,9 +102,29 @@ describe('P4 audited patient Scale-2 writer', () => {
       actorUid: ACTOR,
       beforeState: { news2_spo2_scale: 1 },
       afterState: { news2_spo2_scale: 2 },
-      timelineIdempotencyKey: expect.stringContaining('scale-change-1'),
-      auditIdempotencyKey: expect.stringContaining('scale-change-1'),
+      timelineIdempotencyKey: expect.stringMatching(/[0-9a-f]{64}$/),
+      auditIdempotencyKey: expect.stringMatching(/[0-9a-f]{64}$/),
     }), { db: tx, strict: true });
+  });
+
+  it('hashes the advertised 200-character request key into bounded canonical keys', async () => {
+    const requestKey = 'k'.repeat(200);
+    await updatePatientSpo2Scale({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      spo2Scale: 2,
+      actorUid: ACTOR,
+      actorRole: 'DOCTOR',
+      idempotencyKey: requestKey,
+    });
+
+    const event = canonicalMock.mock.calls[0][0];
+    const digest = createHash('sha256').update(requestKey, 'utf8').digest('hex');
+    expect(event.timelineIdempotencyKey.endsWith(digest)).toBe(true);
+    expect(event.auditIdempotencyKey.endsWith(digest)).toBe(true);
+    expect(event.timelineIdempotencyKey.length).toBeLessThanOrEqual(220);
+    expect(event.auditIdempotencyKey.length).toBeLessThanOrEqual(220);
+    expect(event.auditIdempotencyKey).not.toContain(requestKey);
   });
 
   it.each([0, 3, '2x', null, true, [2]])('rejects invalid scale %p before opening a transaction', async (spo2Scale) => {
@@ -141,5 +162,6 @@ describe('P4 read-surface and route wiring', () => {
     expect(source).toMatch(/requireIdempotencyKey\([^)]*patient_news2_spo2_scale/);
     expect(source).toMatch(/guardClinicalNews2ScaleWrite/);
     expect(source).toMatch(/updatePatientSpo2Scale/);
+    expect(source).not.toMatch(/guardClinicalNews2ScaleWrite[\s\S]{0,180}careTeamModeGoverned:\s*true/);
   });
 });

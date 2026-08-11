@@ -27,7 +27,6 @@ import { success } from '../../utils/responseHelper.js';
 const router = express.Router();
 const guardClinicalNews2ScaleWrite = patientAccessGuard('NEWS2_SPO2_SCALE', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
-  careTeamModeGoverned: true,
 });
 
 // Patient name lookup is PHI access (returns who exists in the system).

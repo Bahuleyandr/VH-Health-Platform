@@ -76,6 +76,7 @@ function resetAll() {
     band: params[5],
     partial_score: params[13],
     missing_params: params[14],
+    assessed_at_epoch_ms: Date.now(),
   }]));
   recordCanonicalMock.mockResolvedValue({ timeline: { id: 1 }, audit: { id: 2 } });
   enqueueCriticalResultTaskMock.mockResolvedValue({ created: true, task: { id: 7 } });

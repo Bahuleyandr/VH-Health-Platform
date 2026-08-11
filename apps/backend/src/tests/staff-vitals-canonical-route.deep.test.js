@@ -14,6 +14,9 @@ const OUTSIDER_UID = '00000000-0000-4000-8000-0000000c4e63';
 const KEY_PREFIX = `audit3-p3-staff-vitals-${process.pid}`;
 const RECORD_KEY = `${KEY_PREFIX}-record`;
 const CORRECTION_KEY = `${KEY_PREFIX}-correction`;
+const DIRECT_CORRECTION_KEY = `${KEY_PREFIX}-direct-correction`;
+const DIRECT_NOOP_KEY = `${KEY_PREFIX}-direct-noop`;
+const DIRECT_DISTINCT_KEY = `${KEY_PREFIX}-direct-distinct`;
 
 async function query(sql, ...params) {
   const rows = await prisma.$queryRawUnsafe(sql, ...params);
@@ -145,6 +148,38 @@ async function waitForHipaaCount(expected) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`HIPAA audit row count did not reach ${expected}`);
+}
+
+async function clinicalSideEffectCounts(vitalId, patientNumericId) {
+  const rows = await query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM audit_logs
+         WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'
+           AND resource = 'vitals_chart' AND resource_id = $2::text) AS corrections,
+       (SELECT COUNT(*)::int FROM news2_scores
+         WHERE vitals_chart_id = $2::int) AS news2,
+       (SELECT COUNT(*)::int FROM news2_scores
+         WHERE vitals_chart_id = $2::int AND superseded_at IS NULL) AS live_news2,
+       (SELECT COUNT(*)::int FROM clinical_timeline_events
+         WHERE patient_uid = $3::uuid AND source_table = 'vitals_chart'
+           AND source_id = $2::text AND event_type = 'vitals.corrected') AS correction_timeline,
+       (SELECT COUNT(*)::int FROM clinical_audit_events
+         WHERE patient_uid = $3::uuid AND resource_table = 'vitals_chart'
+           AND resource_id = $2::text AND action = 'vitals.corrected') AS correction_audit,
+       (SELECT COUNT(*)::int FROM clinical_alerts
+         WHERE patient_id = $4::int AND source_vitals_chart_id = $2::int) AS alerts,
+       (SELECT COUNT(*)::int FROM cds_alerts
+         WHERE patient_uid = $3::uuid) AS cds_alerts,
+       (SELECT COUNT(*)::int FROM tasks
+         WHERE patient_uid = $3::uuid) AS tasks,
+       (SELECT COUNT(*)::int FROM workflow_sla_instances
+         WHERE patient_uid = $3::uuid) AS sla_instances`,
+    NURSE_UID,
+    vitalId,
+    PATIENT_UID,
+    patientNumericId,
+  );
+  return rows[0];
 }
 
 async function grantNurseCareTeam() {
@@ -449,6 +484,79 @@ d('staff quick-vitals canonical route', () => {
       hipaa_creates: 1,
       hipaa_updates: 1,
       correction_receipts: 1,
+    });
+  });
+
+  it.each(['put', 'patch'])('requires a correction-scoped receipt on the direct EMR %s verb', async (method) => {
+    const response = await apiRequest(method, `/api/v1/emr/vitals/${vitalsId}`, {
+      role: 'NURSING_STAFF',
+      uid: NURSE_UID,
+      id: nurseId,
+      body: { heart_rate: 78 },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.message).toMatch(/Idempotency-Key header is required/);
+    expect(response.body.details).toMatchObject({ scope: 'emr_vitals_correction' });
+  });
+
+  it('collapses direct lost-2xx and fresh-key identical PATCH retries, while a distinct correction still appends', async () => {
+    const path = `/api/v1/emr/vitals/${vitalsId}`;
+    const body = { heart_rate: 78 };
+    const before = await clinicalSideEffectCounts(vitalsId, patientId);
+
+    const first = await apiRequest('patch', path, {
+      role: 'NURSING_STAFF', uid: NURSE_UID, id: nurseId,
+      key: DIRECT_CORRECTION_KEY, body,
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.body.data).toMatchObject({ id: vitalsId, heart_rate: '78' });
+    await waitForReceipt({ key: DIRECT_CORRECTION_KEY, method: 'PATCH', path });
+
+    // Simulate a lost 2xx: the client retries the exact key and receives the
+    // cached response without entering the correction handler.
+    const replay = await apiRequest('patch', path, {
+      role: 'NURSING_STAFF', uid: NURSE_UID, id: nurseId,
+      key: DIRECT_CORRECTION_KEY, body,
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.body).toEqual(first.body);
+
+    const afterFirst = await clinicalSideEffectCounts(vitalsId, patientId);
+    expect(afterFirst).toEqual({
+      ...before,
+      corrections: before.corrections + 1,
+      news2: before.news2 + 1,
+      correction_timeline: before.correction_timeline + 1,
+      correction_audit: before.correction_audit + 1,
+    });
+
+    // A fresh receipt key carrying the same effective PATCH must still no-op
+    // at the locked tenant transaction, before NEWS2 or obligation churn.
+    const noOp = await apiRequest('patch', path, {
+      role: 'NURSING_STAFF', uid: NURSE_UID, id: nurseId,
+      key: DIRECT_NOOP_KEY, body,
+    });
+    expect(noOp.statusCode).toBe(200);
+    expect(noOp.body.data).toEqual(first.body.data);
+    await waitForReceipt({ key: DIRECT_NOOP_KEY, method: 'PATCH', path });
+    expect(await clinicalSideEffectCounts(vitalsId, patientId)).toEqual(afterFirst);
+
+    const distinct = await apiRequest('patch', path, {
+      role: 'NURSING_STAFF', uid: NURSE_UID, id: nurseId,
+      key: DIRECT_DISTINCT_KEY, body: { heart_rate: 79 },
+    });
+    expect(distinct.statusCode).toBe(200);
+    expect(distinct.body.data).toMatchObject({ id: vitalsId, heart_rate: '79' });
+    await waitForReceipt({ key: DIRECT_DISTINCT_KEY, method: 'PATCH', path });
+
+    const afterDistinct = await clinicalSideEffectCounts(vitalsId, patientId);
+    expect(afterDistinct).toEqual({
+      ...afterFirst,
+      corrections: afterFirst.corrections + 1,
+      news2: afterFirst.news2 + 1,
+      correction_timeline: afterFirst.correction_timeline + 1,
+      correction_audit: afterFirst.correction_audit + 1,
     });
   });
 });

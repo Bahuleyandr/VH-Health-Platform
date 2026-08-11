@@ -1,4 +1,5 @@
 // src/services/clinical/news2Service.js
+import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -343,7 +344,15 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
 export async function supersedeNews2ForVitalsRow(
   vitalsChartId,
   replacementScoreId,
-  { db, tenantId = null, correctedBy = null } = {},
+  {
+    db,
+    tenantId = null,
+    correctedBy = null,
+    currentVitalAnomalies = [],
+    patientId = null,
+    deferNews2TaskRetirement = false,
+    replacementNews2 = null,
+  } = {},
 ) {
   if (!vitalsChartId) return {
     scoresSuperseded: 0,
@@ -367,35 +376,133 @@ export async function supersedeNews2ForVitalsRow(
     throw AppError.internal('NEWS2 correction consequence cleanup requires tenant and correcting actor');
   }
 
-  const alertRows = await client.$queryRawUnsafe(
-    `UPDATE clinical_alerts
-        SET acknowledged = TRUE,
-            acknowledged_at = COALESCE(acknowledged_at, NOW())
+  const existingAlertRows = await client.$queryRawUnsafe(
+    `SELECT id, vital_name
+       FROM clinical_alerts
       WHERE tenant_id = $1::uuid
         AND source_vitals_chart_id = $2::int
         AND COALESCE(acknowledged, FALSE) = FALSE
-      RETURNING id`,
+        AND acknowledged_at IS NULL
+      ORDER BY id DESC
+      FOR UPDATE`,
     tenantId,
     Number(vitalsChartId),
   );
-  const alertIds = alertRows.map((row) => String(row.id));
-
-  const cdsRows = await client.$queryRawUnsafe(
-    `UPDATE cds_alerts
-        SET acknowledged = TRUE,
-            ack_at = COALESCE(ack_at, NOW())
-      WHERE tenant_id = $1::uuid
-        AND COALESCE(acknowledged, FALSE) = FALSE
-        AND alert_type = 'NEWS2_DETERIORATION'
-        AND (
-          source_data->>'news2_score_id' = ANY($2::text[])
-          OR source_data->>'vitals_chart_id' = $3::text
-        )
-      RETURNING id`,
-    tenantId,
-    oldScoreIds,
-    String(vitalsChartId),
+  const currentByVitalName = new Map(
+    currentVitalAnomalies.map((alert) => [String(alert.vital_name), alert]),
   );
+  const activeAlertIdsByVitalName = {};
+
+  for (const [vitalName, alert] of currentByVitalName) {
+    const existingForVital = existingAlertRows.filter((row) => row.vital_name === vitalName);
+    if (existingForVital.length > 0) {
+      const ids = existingForVital.map((row) => Number(row.id));
+      await client.$executeRawUnsafe(
+        `UPDATE clinical_alerts
+            SET vital_value = $2,
+                severity = $3,
+                message = $4
+          WHERE id = ANY($1::int[])
+            AND tenant_id = $5::uuid`,
+        ids,
+        alert.value,
+        alert.severity,
+        alert.message,
+        tenantId,
+      );
+      activeAlertIdsByVitalName[vitalName] = ids[0];
+      continue;
+    }
+
+    if (!patientId) {
+      throw AppError.internal('NEWS2 correction alert reconciliation requires patient identity');
+    }
+    const inserted = await client.$queryRawUnsafe(
+      `INSERT INTO clinical_alerts
+         (patient_id, alert_type, vital_name, vital_value, severity, message,
+          created_by, source_vitals_chart_id, tenant_id, created_at)
+       VALUES ($1::int, 'VITAL_ANOMALY', $2, $3, $4, $5, $6::int, $7::int, $8::uuid, NOW())
+       RETURNING id`,
+      Number(patientId),
+      vitalName,
+      alert.value,
+      alert.severity,
+      alert.message,
+      alert.recorded_by == null ? null : Number(alert.recorded_by),
+      Number(vitalsChartId),
+      tenantId,
+    );
+    activeAlertIdsByVitalName[vitalName] = Number(inserted[0].id);
+  }
+
+  const resolvedAlertIds = existingAlertRows
+    .filter((row) => !currentByVitalName.has(String(row.vital_name)))
+    .map((row) => Number(row.id));
+  if (resolvedAlertIds.length > 0) {
+    await client.$executeRawUnsafe(
+      `UPDATE clinical_alerts
+          SET acknowledged = TRUE,
+              acknowledged_at = COALESCE(acknowledged_at, NOW())
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::int[])`,
+      tenantId,
+      resolvedAlertIds,
+    );
+  }
+  const resolvedAlertIdTexts = resolvedAlertIds.map(String);
+
+  let cdsRows;
+  let cdsAlertsReconciled = 0;
+  if (deferNews2TaskRetirement && replacementNews2) {
+    cdsRows = await client.$queryRawUnsafe(
+      `UPDATE cds_alerts
+          SET severity = $4,
+              title = $5,
+              description = $6,
+              source_data = COALESCE(source_data, '{}'::jsonb) || jsonb_build_object(
+                'news2_score_id', $7::text,
+                'vitals_chart_id', $3::int,
+                'total_score', $8::int,
+                'clinical_risk', $9::text
+              )
+        WHERE tenant_id = $1::uuid
+          AND COALESCE(acknowledged, FALSE) = FALSE
+          AND alert_type = 'NEWS2_DETERIORATION'
+          AND (
+            source_data->>'news2_score_id' = ANY($2::text[])
+            OR source_data->>'vitals_chart_id' = $3::text
+          )
+        RETURNING id`,
+      tenantId,
+      oldScoreIds,
+      String(vitalsChartId),
+      replacementNews2.severity,
+      replacementNews2.title,
+      replacementNews2.description,
+      String(replacementScoreId),
+      Number(replacementNews2.totalScore),
+      replacementNews2.clinicalRisk,
+    );
+    cdsAlertsReconciled = cdsRows.length;
+    cdsRows = [];
+  } else {
+    cdsRows = await client.$queryRawUnsafe(
+      `UPDATE cds_alerts
+          SET acknowledged = TRUE,
+              ack_at = COALESCE(ack_at, NOW())
+        WHERE tenant_id = $1::uuid
+          AND COALESCE(acknowledged, FALSE) = FALSE
+          AND alert_type = 'NEWS2_DETERIORATION'
+          AND (
+            source_data->>'news2_score_id' = ANY($2::text[])
+            OR source_data->>'vitals_chart_id' = $3::text
+          )
+        RETURNING id`,
+      tenantId,
+      oldScoreIds,
+      String(vitalsChartId),
+    );
+  }
 
   const tasks = await client.$queryRawUnsafe(
     `SELECT id, related_resource_type, related_resource_id, workflow_sla_instance_id
@@ -403,14 +510,16 @@ export async function supersedeNews2ForVitalsRow(
       WHERE tenant_id = $1::uuid
         AND status IN ('open', 'overdue', 'in_progress', 'blocked')
         AND (
-          (related_resource_type = 'news2_score' AND related_resource_id = ANY($2::text[]))
-          OR
-          (related_resource_type = 'clinical_alert' AND related_resource_id = ANY($3::text[]))
+           (related_resource_type = 'news2_score' AND related_resource_id = ANY($2::text[])
+            AND $4::boolean = FALSE)
+           OR
+           (related_resource_type = 'clinical_alert' AND related_resource_id = ANY($3::text[]))
         )
       FOR UPDATE`,
     tenantId,
     oldScoreIds,
-    alertIds,
+    resolvedAlertIdTexts,
+    deferNews2TaskRetirement,
   );
   if (tasks.length > 0) {
     const { supersedeAcknowledgementTaskFromTrustedWorkflow } = await import('../workflow/taskService.js');
@@ -440,10 +549,68 @@ export async function supersedeNews2ForVitalsRow(
   );
   return {
     scoresSuperseded,
-    alertsResolved: alertRows.length,
+    alertsResolved: resolvedAlertIds.length,
+    alertsReconciled: Object.keys(activeAlertIdsByVitalName).length,
+    activeAlertIdsByVitalName,
     cdsAlertsResolved: cdsRows.length,
+    cdsAlertsReconciled,
     tasksSuperseded: tasks.length,
   };
+}
+
+/**
+ * Complete the safe hand-off from an old NEWS2 escalation task only after the
+ * replacement score's task has been durably created. If this cleanup fails,
+ * the old task remains open alongside the replacement; there is never a period
+ * in which a still-deteriorating patient has no acknowledgement owner.
+ */
+export async function retireSupersededNews2TasksAfterReplacement(
+  vitalsChartId,
+  { tenantId = null, correctedBy = null } = {},
+) {
+  if (!vitalsChartId) return { tasksSuperseded: 0 };
+  if (!tenantId || !correctedBy) {
+    throw AppError.internal('NEWS2 replacement task retirement requires tenant and correcting actor');
+  }
+  return setTenantTx(tenantId, async (tx) => {
+    const oldScores = await tx.$queryRawUnsafe(
+      `SELECT id::text AS id
+         FROM news2_scores
+        WHERE vitals_chart_id = $1::int
+          AND superseded_at IS NOT NULL`,
+      Number(vitalsChartId),
+    );
+    const oldScoreIds = oldScores.map((row) => String(row.id));
+    if (oldScoreIds.length === 0) return { tasksSuperseded: 0 };
+
+    const tasks = await tx.$queryRawUnsafe(
+      `SELECT id, related_resource_type, related_resource_id, workflow_sla_instance_id
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND status IN ('open', 'overdue', 'in_progress', 'blocked')
+          AND related_resource_type = 'news2_score'
+          AND related_resource_id = ANY($2::text[])
+        FOR UPDATE`,
+      tenantId,
+      oldScoreIds,
+    );
+    if (tasks.length > 0) {
+      const { supersedeAcknowledgementTaskFromTrustedWorkflow } = await import('../workflow/taskService.js');
+      for (const task of tasks) {
+        await supersedeAcknowledgementTaskFromTrustedWorkflow({
+          tenantId,
+          id: task.id,
+          relatedResourceType: task.related_resource_type,
+          relatedResourceId: task.related_resource_id,
+          workflowSlaInstanceId: task.workflow_sla_instance_id,
+          supersededByActorUid: correctedBy,
+          supersessionReason: 'superseded_by_correction',
+          tx,
+        });
+      }
+    }
+    return { tasksSuperseded: tasks.length };
+  });
 }
 
 // Resolve the patient's tenant for routing and canonical persistence when the
@@ -741,7 +908,12 @@ export async function updatePatientSpo2Scale({
     const updated = updatedRows[0];
     if (!updated) throw AppError.notFound('Patient not found');
 
-    const stableKey = String(idempotencyKey).slice(0, 160);
+    // The public contract accepts 200-character request keys, while the
+    // canonical timeline/audit columns are VARCHAR(220). Prefixing the raw key
+    // can exceed that limit, so use a fixed-width, collision-resistant digest.
+    const stableKey = createHash('sha256')
+      .update(String(idempotencyKey), 'utf8')
+      .digest('hex');
     await recordCanonicalClinicalEvent({
       tenantId: resolvedTenantId,
       patientUid,
@@ -773,6 +945,7 @@ export default {
   resolveSpo2ScaleForPatient,
   persistNews2,
   supersedeNews2ForVitalsRow,
+  retireSupersededNews2TasksAfterReplacement,
   escalateNews2,
   recordNEWS2,
   getPatientNEWS2History,

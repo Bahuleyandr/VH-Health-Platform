@@ -308,7 +308,7 @@ function buildVitalAlerts(patientId, vitals, context, patientCtx) {
  * Call this after any vital sign is recorded.
  * @param {number} patientId - Patient DB ID
  * @param {Object} vitals - { heart_rate, systolic_bp, diastolic_bp, temperature, oxygen_saturation, ... }
- * @param {Object} context - { recordedBy, requestId, tenantId?, sourceVitalsChartId?, onClinicalAlertsPersisted? } — tenantId,
+ * @param {Object} context - { recordedBy, requestId, tenantId?, sourceVitalsChartId?, classifyOnly?, onClinicalAlertsPersisted? } — tenantId,
  *   when supplied by a caller that already resolved the patient's tenant,
  *   scopes the alert persistence without a users lookup. The optional
  *   onClinicalAlertsPersisted hook runs in the same transaction as alert
@@ -316,6 +316,14 @@ function buildVitalAlerts(patientId, vitals, context, patientCtx) {
  * @returns {Array} alerts - Array of generated alerts
  */
 export async function checkVitalAnomalies(patientId, vitals, context = {}) {
+  if (context.classifyOnly) {
+    const patientCtx = await resolvePatientContext(patientId, {
+      db: context.db || prisma,
+      strict: context.strictPatientContext === true,
+    });
+    return buildVitalAlerts(patientId, vitals, context, patientCtx);
+  }
+
   const contextTenantId = typeof context.tenantId === 'string' && context.tenantId.trim() !== ''
     ? context.tenantId
     : null;
@@ -352,23 +360,33 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         alerts = filteredAlerts;
       }
 
-      const rows = [];
-      for (const alert of alerts) {
-        const alertRows = await tx.$queryRawUnsafe(
-          `INSERT INTO clinical_alerts
-             (patient_id, alert_type, vital_name, vital_value, severity, message,
-              created_by, source_vitals_chart_id, created_at)
-           VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, $7::int, NOW())
-           RETURNING id`,
-          alert.patient_id,
-          alert.vital_name,
-          alert.value,
-          alert.severity,
-          alert.message,
-          alert.recorded_by,
-          context.sourceVitalsChartId == null ? null : Number(context.sourceVitalsChartId),
-        );
-        rows.push({ alert, clinicalAlertId: alertRows[0]?.id ?? null });
+      const rows = context.persistedClinicalAlertIdsByVitalName
+        ? alerts.map((alert) => {
+          const clinicalAlertId = context.persistedClinicalAlertIdsByVitalName[alert.vital_name];
+          if (clinicalAlertId == null) {
+            throw new Error(`Missing reconciled clinical alert for ${alert.vital_name}`);
+          }
+          return { alert, clinicalAlertId };
+        })
+        : [];
+      if (!context.persistedClinicalAlertIdsByVitalName) {
+        for (const alert of alerts) {
+          const alertRows = await tx.$queryRawUnsafe(
+            `INSERT INTO clinical_alerts
+               (patient_id, alert_type, vital_name, vital_value, severity, message,
+                created_by, source_vitals_chart_id, created_at)
+             VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, $7::int, NOW())
+             RETURNING id`,
+            alert.patient_id,
+            alert.vital_name,
+            alert.value,
+            alert.severity,
+            alert.message,
+            alert.recorded_by,
+            context.sourceVitalsChartId == null ? null : Number(context.sourceVitalsChartId),
+          );
+          rows.push({ alert, clinicalAlertId: alertRows[0]?.id ?? null });
+        }
       }
       if (typeof context.onClinicalAlertsPersisted === 'function') {
         await context.onClinicalAlertsPersisted({ tx, alerts: rows });

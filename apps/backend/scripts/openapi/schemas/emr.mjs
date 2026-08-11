@@ -19,6 +19,18 @@
 // generic Success envelope.
 import { envelope, listEnvelope } from './_helpers.mjs';
 
+const idempotencyKeyParameter = {
+  name: 'Idempotency-Key',
+  in: 'header',
+  required: true,
+  schema: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 200,
+    pattern: '^[A-Za-z0-9_\\-:.]+$',
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Null-free const enums — EXACT casing from admissionService.js / the DB.
 // Spectral 6.16 CRASHES on a null enum value, so every array here is null-free;
@@ -2551,8 +2563,16 @@ const EMR_ONLY_OPS = [
   // Vitals — POST (record → {vitals,news2,alerts,growth,triage}, 201).
   ['POST /vitals', { request: 'EmrVitalsRequest', response: 'EmrVitalsRecordResponse' }],
   // Vitals correction — PUT + PATCH share correctVitals → corrected VitalRow.
-  ['PUT /vitals/{vitalsId}', { request: 'EmrVitalsCorrectionRequest', response: 'EmrVitalRowResponse' }],
-  ['PATCH /vitals/{vitalsId}', { request: 'EmrVitalsCorrectionRequest', response: 'EmrVitalRowResponse' }],
+  ['PUT /vitals/{vitalsId}', {
+    parameters: [idempotencyKeyParameter],
+    request: 'EmrVitalsCorrectionRequest',
+    response: 'EmrVitalRowResponse',
+  }],
+  ['PATCH /vitals/{vitalsId}', {
+    parameters: [idempotencyKeyParameter],
+    request: 'EmrVitalsCorrectionRequest',
+    response: 'EmrVitalRowResponse',
+  }],
   // Vitals reads — chart (LIST, paginated) / latest (nullable) / trend (LIST).
   ['GET /vitals/{patientUid}/chart', { response: 'EmrVitalChartResponse' }],
   ['GET /vitals/{patientUid}/latest', { response: 'EmrVitalLatestResponse' }],

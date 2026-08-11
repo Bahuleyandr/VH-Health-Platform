@@ -19,9 +19,11 @@ const usersFindUniqueMock = jest.fn();
 const setTenantTxMock = jest.fn();
 const checkVitalAnomaliesMock = jest.fn();
 const recordCanonicalMock = jest.fn();
+const currentCanonicalTransactionRevisionMock = jest.fn();
 const resolveSpo2ScaleMock = jest.fn();
 const persistNews2Mock = jest.fn();
 const supersedeMock = jest.fn();
+const retireSupersededTasksMock = jest.fn();
 const escalateNews2Mock = jest.fn();
 const isNews2EscalationFreshMock = jest.fn();
 
@@ -58,9 +60,10 @@ const auditCreateMock = jest.fn();
 
 const __txClient = {
   vitals_chart: { findUnique: findUniqueMock, update: updateMock },
+  users: { findUnique: usersFindUniqueMock },
   audit_logs: { create: auditCreateMock },
   $executeRawUnsafe: jest.fn().mockResolvedValue(1),
-  $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+  $queryRawUnsafe: jest.fn(),
 };
 
 const __prismaDefaultMock = {
@@ -84,11 +87,13 @@ jest.unstable_mockModule('../../services/clinical/growthPercentileService.js', (
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: recordCanonicalMock,
+  currentCanonicalTransactionRevision: currentCanonicalTransactionRevisionMock,
 }));
 jest.unstable_mockModule('../../services/clinical/news2Service.js', () => ({
   resolveSpo2ScaleForPatient: resolveSpo2ScaleMock,
   persistNews2: persistNews2Mock,
   supersedeNews2ForVitalsRow: supersedeMock,
+  retireSupersededNews2TasksAfterReplacement: retireSupersededTasksMock,
   escalateNews2: escalateNews2Mock,
   isNews2EscalationFresh: isNews2EscalationFreshMock,
 }));
@@ -104,14 +109,19 @@ function resetAll() {
   setTenantTxMock.mockReset();
   checkVitalAnomaliesMock.mockReset();
   recordCanonicalMock.mockReset();
+  currentCanonicalTransactionRevisionMock.mockReset().mockResolvedValue('321');
   resolveSpo2ScaleMock.mockReset();
   persistNews2Mock.mockReset();
   supersedeMock.mockReset();
+  retireSupersededTasksMock.mockReset();
   escalateNews2Mock.mockReset();
   isNews2EscalationFreshMock.mockReset().mockReturnValue(true);
   findUniqueMock.mockReset();
   updateMock.mockReset();
   auditCreateMock.mockReset();
+  __txClient.$queryRawUnsafe.mockReset().mockResolvedValue([{
+    effective_state_unchanged: false,
+  }]);
 
   usersFindUniqueMock.mockImplementation(async ({ where }) => {
     if (where?.uid === PATIENT_UID) return { id: 777 };
@@ -122,15 +132,31 @@ function resetAll() {
   findUniqueMock.mockResolvedValue({ ...existingRow });
   updateMock.mockImplementation(async ({ data }) => ({ ...existingRow, ...data }));
   auditCreateMock.mockResolvedValue({ id: 1 });
-  checkVitalAnomaliesMock.mockResolvedValue([]);
+  checkVitalAnomaliesMock.mockResolvedValue([{
+    patient_id: 777,
+    vital_name: 'oxygen_saturation',
+    value: 88,
+    severity: 'WARNING',
+    message: 'oxygen saturation 88% is low',
+    recorded_by: 55,
+  }]);
   recordCanonicalMock.mockResolvedValue({ timeline: { id: 1 }, audit: { id: 2 } });
   resolveSpo2ScaleMock.mockResolvedValue(1);
   persistNews2Mock.mockResolvedValue({
     record: { id: 909, total_score: 3 },
-    computed: { totalScore: 3, scores: { spo2: 3 }, anyParamThree: true },
+    computed: {
+      totalScore: 3,
+      clinicalRisk: 'low_medium',
+      escalationAction: 'Urgent clinical review',
+      scores: { spo2: 3 },
+      anyParamThree: true,
+    },
   });
   escalateNews2Mock.mockResolvedValue(undefined);
-  supersedeMock.mockResolvedValue(1);
+  supersedeMock.mockResolvedValue({
+    activeAlertIdsByVitalName: { oxygen_saturation: 17 },
+  });
+  retireSupersededTasksMock.mockResolvedValue({ tasksSuperseded: 1 });
 }
 
 describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', () => {
@@ -161,11 +187,20 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
 
     // Prior live scores for the row are stamped superseded by the new score,
     // atomically with the insert (same tx).
-    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, 909, {
+    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, 909, expect.objectContaining({
       db: __txClient,
       tenantId: TENANT_ID,
       correctedBy: NURSE_UID,
-    });
+      patientId: 777,
+      currentVitalAnomalies: expect.arrayContaining([
+        expect.objectContaining({ vital_name: 'oxygen_saturation', value: 88 }),
+      ]),
+    }));
+    expect(currentCanonicalTransactionRevisionMock).toHaveBeenCalledWith(__txClient);
+    expect(recordCanonicalMock).toHaveBeenCalledWith(expect.objectContaining({
+      timelineIdempotencyKey: `vitals_chart:${VITALS_ID}:corrected:tx:321`,
+      auditIdempotencyKey: `vitals_chart:${VITALS_ID}:audit:corrected:tx:321`,
+    }), { db: __txClient, strict: true });
 
     // Escalation runs post-commit against the NEW score.
     expect(escalateNews2Mock).toHaveBeenCalledTimes(1);
@@ -175,11 +210,17 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     expect(escOptions).toEqual({ tenantId: TENANT_ID });
 
     // Anomaly detection re-runs on the corrected values.
-    expect(checkVitalAnomaliesMock).toHaveBeenCalledTimes(1);
-    const [patientId, vitalsForCheck, context] = checkVitalAnomaliesMock.mock.calls[0];
+    expect(checkVitalAnomaliesMock).toHaveBeenCalledTimes(2);
+    const [patientId, vitalsForCheck, context] = checkVitalAnomaliesMock.mock.calls[1];
     expect(patientId).toBe(777);
     expect(vitalsForCheck.oxygen_saturation).toBe(88);
     expect(context.tenantId).toBe(TENANT_ID);
+    expect(context.persistedClinicalAlertIdsByVitalName).toEqual({ oxygen_saturation: 17 });
+    expect(checkVitalAnomaliesMock.mock.calls[0][2]).toEqual(expect.objectContaining({
+      db: __txClient,
+      classifyOnly: true,
+      strictPatientContext: true,
+    }));
   });
 
   it('a notes-only correction does NOT re-score, supersede, escalate, or re-check', async () => {
@@ -197,6 +238,29 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     expect(checkVitalAnomaliesMock).not.toHaveBeenCalled();
   });
 
+  it('returns an effective-state retry before update, canonical evidence, audit, or re-score', async () => {
+    resetAll();
+    __txClient.$queryRawUnsafe.mockResolvedValueOnce([{
+      effective_state_unchanged: true,
+    }]);
+
+    const result = await correctVitals(VITALS_ID, {
+      corrected_by: NURSE_UID,
+      tenantId: TENANT_ID,
+      spo2: 98,
+    });
+
+    expect(result).toMatchObject({ id: VITALS_ID, spo2: 98 });
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(auditCreateMock).not.toHaveBeenCalled();
+    expect(recordCanonicalMock).not.toHaveBeenCalled();
+    expect(currentCanonicalTransactionRevisionMock).not.toHaveBeenCalled();
+    expect(persistNews2Mock).not.toHaveBeenCalled();
+    expect(supersedeMock).not.toHaveBeenCalled();
+    expect(escalateNews2Mock).not.toHaveBeenCalled();
+    expect(checkVitalAnomaliesMock).not.toHaveBeenCalled();
+  });
+
   it('retires the stale score when the corrected row has no scorable NEWS2 parameter', async () => {
     resetAll();
     persistNews2Mock.mockResolvedValue(null);
@@ -208,14 +272,41 @@ describe('correctVitals — NEWS2 re-score on scoring-input corrections (R4)', (
     });
 
     expect(persistNews2Mock).toHaveBeenCalledTimes(1);
-    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, null, {
+    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, null, expect.objectContaining({
       db: __txClient,
       tenantId: TENANT_ID,
       correctedBy: NURSE_UID,
-    });
+      patientId: 777,
+    }));
     expect(escalateNews2Mock).not.toHaveBeenCalled();
     // Anomaly re-check still runs — it is not gated on NEWS2 scorability.
-    expect(checkVitalAnomaliesMock).toHaveBeenCalledTimes(1);
+    expect(checkVitalAnomaliesMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the reconciled alert durable when post-commit fan-out fails', async () => {
+    resetAll();
+    checkVitalAnomaliesMock
+      .mockResolvedValueOnce([{
+        patient_id: 777,
+        vital_name: 'oxygen_saturation',
+        value: 88,
+        severity: 'WARNING',
+        message: 'oxygen saturation remains low',
+        recorded_by: 55,
+      }])
+      .mockRejectedValueOnce(new Error('notification fabric unavailable'));
+
+    await expect(correctVitals(VITALS_ID, {
+      corrected_by: NURSE_UID,
+      tenantId: TENANT_ID,
+      spo2: 88,
+    })).rejects.toMatchObject({ statusCode: 500 });
+
+    expect(supersedeMock).toHaveBeenCalledWith(VITALS_ID, 909, expect.objectContaining({
+      currentVitalAnomalies: expect.arrayContaining([
+        expect.objectContaining({ vital_name: 'oxygen_saturation' }),
+      ]),
+    }));
   });
 
   it('derives oxygen therapy state and re-scores when FHIR oxygen flow is corrected', async () => {

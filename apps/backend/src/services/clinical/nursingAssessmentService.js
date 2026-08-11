@@ -48,6 +48,20 @@ export function scoreNews2(input, options = {}) {
   }, { spo2Scale: options.spo2Scale ?? raw.spo2_scale });
 
   const total = computed.totalScore;
+  if (computed.partial) {
+    return {
+      total_score: total,
+      band: null,
+      recommended_actions: null,
+      reassessmentMins: null,
+      partial: true,
+      missing: computed.missingParams,
+      risk_band_available: false,
+      display: `NEWS2 ${total} (partial; risk band unavailable; clinical review required)`,
+      computed,
+    };
+  }
+
   // Final band per NEWS2 protocol — a single red (=3) parameter forces high.
   let band;
   if (computed.anyParamThree || total >= 7) band = 'high';
@@ -72,7 +86,16 @@ export function scoreNews2(input, options = {}) {
   // scores/clinicalRisk/escalationAction) — recordAssessment needs it to
   // honor the scorable flag, persist the partial marker, and drive the same
   // escalateNews2 the vitals path uses (audit 2026-08-10 parity fix).
-  return { total_score: total, band, recommended_actions: recommendedActions, reassessmentMins, computed };
+  return {
+    total_score: total,
+    band,
+    recommended_actions: recommendedActions,
+    reassessmentMins,
+    partial: false,
+    missing: [],
+    risk_band_available: true,
+    computed,
+  };
 }
 
 // ── Braden ──────────────────────────────────────────────────────────
@@ -396,6 +419,8 @@ export async function listOverdueOrHighRisk({ tenantId, limit = 100 }) {
        FROM nursing_assessments na
       WHERE tenant_id = $1::uuid
         AND (
+          partial_score IS TRUE
+          OR
           band IN ('high', 'medium', 'high_risk', 'severe_risk', 'sepsis_likely', 'septic_shock_risk')
           OR (next_assessment_due_at IS NOT NULL AND next_assessment_due_at < NOW())
         )

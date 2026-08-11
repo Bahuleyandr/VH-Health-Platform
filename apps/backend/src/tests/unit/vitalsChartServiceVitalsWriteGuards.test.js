@@ -74,6 +74,7 @@ jest.unstable_mockModule('../../services/clinical/growthPercentileService.js', (
   computeGrowthSnapshot: jest.fn().mockResolvedValue(null),
 }));
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  currentCanonicalTransactionRevision: jest.fn().mockResolvedValue('1'),
   recordCanonicalClinicalEvent: recordCanonicalMock,
 }));
 jest.unstable_mockModule('../../services/clinical/news2Service.js', () => ({
