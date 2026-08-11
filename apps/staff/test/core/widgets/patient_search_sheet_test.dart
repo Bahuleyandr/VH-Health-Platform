@@ -143,4 +143,97 @@ void main() {
     expect(find.text('Blood Test Patient'), findsOneWidget);
     expect(find.text('stale backend failure'), findsNothing);
   });
+
+  testWidgets('changing the query immediately hides stale pick-only rows', (
+    tester,
+  ) async {
+    final nextSearch = Completer<List<Map<String, dynamic>>>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PatientSearchSheet(
+            pickOnly: true,
+            search: (query) async {
+              if (query == 'Blood') {
+                return const [
+                  {
+                    'uid': 'a9999999-9999-4999-8999-999999999a03',
+                    'name': 'Blood Test Patient',
+                  },
+                ];
+              }
+              return nextSearch.future;
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'Blood');
+    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Blood Test Patient'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Plasma');
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Blood Test Patient'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 201));
+    expect(find.text('Blood Test Patient'), findsNothing);
+  });
+
+  testWidgets('an earlier A response cannot replace a later A response', (
+    tester,
+  ) async {
+    final firstAlpha = Completer<List<Map<String, dynamic>>>();
+    final beta = Completer<List<Map<String, dynamic>>>();
+    final secondAlpha = Completer<List<Map<String, dynamic>>>();
+    var alphaCalls = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PatientSearchSheet(
+            search: (query) {
+              if (query == 'Alpha') {
+                alphaCalls += 1;
+                return alphaCalls == 1 ? firstAlpha.future : secondAlpha.future;
+              }
+              return beta.future;
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'Alpha');
+    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Beta');
+    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Alpha');
+    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump();
+
+    expect(alphaCalls, 2);
+
+    secondAlpha.complete(const [
+      {'uid': 'patient-current-alpha', 'name': 'Alpha Current'},
+    ]);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Alpha Current'), findsOneWidget);
+
+    firstAlpha.complete(const [
+      {'uid': 'patient-stale-alpha', 'name': 'Alpha Stale'},
+    ]);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alpha Current'), findsOneWidget);
+    expect(find.text('Alpha Stale'), findsNothing);
+  });
 }

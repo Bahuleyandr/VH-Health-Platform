@@ -105,6 +105,8 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   Timer? _debounce;
+  int _searchGeneration = 0;
+  int? _resultsGeneration;
   String _lastQuery = '';
   bool _loading = false;
   String? _error;
@@ -130,45 +132,66 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
   void _onChanged(String value) {
     _debounce?.cancel();
     final trimmed = value.trim();
-    if (!patientLookupQueryReady(trimmed)) {
-      setState(() {
-        _results = [];
-        _loading = false;
-        _error = null;
-        _lastQuery = trimmed;
-      });
-      return;
-    }
+    final generation = ++_searchGeneration;
+    final ready = patientLookupQueryReady(trimmed);
+    setState(() {
+      _results = [];
+      _resultsGeneration = null;
+      _loading = ready;
+      _error = null;
+      _lastQuery = trimmed;
+    });
+    if (!ready) return;
     _debounce = Timer(
       const Duration(milliseconds: 300),
-      () => _runSearch(trimmed),
+      () => unawaited(_runSearch(trimmed, generation)),
     );
   }
 
-  Future<void> _runSearch(String query) async {
-    if (query == _lastQuery && _loading) return;
-    _lastQuery = query;
+  void _onSubmitted(String value) {
+    _debounce?.cancel();
+    final trimmed = value.trim();
+    final generation = ++_searchGeneration;
+    final ready = patientLookupQueryReady(trimmed);
     setState(() {
-      _loading = true;
+      _results = [];
+      _resultsGeneration = null;
+      _loading = ready;
       _error = null;
+      _lastQuery = trimmed;
     });
+    if (ready) unawaited(_runSearch(trimmed, generation));
+  }
+
+  Future<void> _runSearch(String query, int generation) async {
+    if (!mounted || generation != _searchGeneration) return;
     try {
       final lookup = widget.search ?? PatientApiService.search;
       final rows = (await lookup(query))
           .where((patient) => patientMatchesLookupQuery(patient, query))
           .toList(growable: false);
-      if (!mounted || query != _lastQuery) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _results = rows;
+        _resultsGeneration = generation;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted || query != _lastQuery) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
+        _results = [];
+        _resultsGeneration = null;
         _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
     }
+  }
+
+  bool _resultIsCurrent(int generation) {
+    return generation == _searchGeneration &&
+        generation == _resultsGeneration &&
+        !_loading &&
+        _controller.text.trim() == _lastQuery;
   }
 
   Future<void> _openPatient(
@@ -238,11 +261,8 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
                     fillColor: AppTheme.backgroundGrey,
                   ),
                   textInputAction: TextInputAction.search,
-                  onChanged: (v) {
-                    setState(() {}); // refresh suffixIcon visibility
-                    _onChanged(v);
-                  },
-                  onSubmitted: (v) => _runSearch(v.trim()),
+                  onChanged: _onChanged,
+                  onSubmitted: _onSubmitted,
                 ),
               ),
 
@@ -275,7 +295,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
             : strings.lookup('s4.lib.patient_search_sheet.type_2_characters'),
       );
     }
-    if (_loading && _results.isEmpty) {
+    if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
@@ -289,6 +309,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
         }),
       );
     }
+    final resultsGeneration = _resultsGeneration;
     return ListView.separated(
       itemCount: _results.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
@@ -332,6 +353,10 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
                   tooltip: AppStrings.of(context).summaryTooltip,
                   icon: const Icon(Icons.assignment_ind_outlined),
                   onPressed: () {
+                    if (resultsGeneration == null ||
+                        !_resultIsCurrent(resultsGeneration)) {
+                      return;
+                    }
                     final uid = patientUidFrom(p);
                     if (uid.isEmpty) return;
                     PatientSearchSheet.summaryOpener!(
@@ -344,7 +369,13 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
               const Icon(Icons.chevron_right),
             ],
           ),
-          onTap: () => _openPatient(context, p),
+          onTap: () {
+            if (resultsGeneration == null ||
+                !_resultIsCurrent(resultsGeneration)) {
+              return;
+            }
+            unawaited(_openPatient(context, p));
+          },
         );
       },
     );
