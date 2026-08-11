@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import '../services/hr_api_service.dart';
@@ -111,7 +113,10 @@ class NotificationItem {
 class NotificationProvider extends ChangeNotifier {
   final List<NotificationItem> _notifications = [];
   bool _initialized = false;
+  Future<void>? _initializationFuture;
   String? _fcmToken;
+  String? _registeredPhone;
+  String? _registeredToken;
 
   List<NotificationItem> get notifications => List.unmodifiable(_notifications);
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
@@ -119,65 +124,91 @@ class NotificationProvider extends ChangeNotifier {
 
   /// Initialize FCM: request permission, get token, register device, listen
   Future<void> initialize() async {
-    if (_initialized) return;
-    _initialized = true;
-
     // FCM has no desktop implementation. On Windows/Linux/macOS the panel
     // is populated solely via the API-backed fetchNotifications() path —
-    // skip the FCM setup entirely rather than relying on the catch below.
-    if (isDesktopPlatform) return;
+    // skip the FCM setup entirely.
+    if (isDesktopPlatform) {
+      _initialized = true;
+      return;
+    }
+
+    if (_initialized) {
+      await _registerCurrentDevice();
+      return;
+    }
+
+    final pendingInitialization = _initializationFuture;
+    if (pendingInitialization != null) {
+      await pendingInitialization;
+      return;
+    }
+
+    final initialization = _initializeMessaging();
+    _initializationFuture = initialization;
 
     try {
-      final messaging = FirebaseMessaging.instance;
-
-      // Request permission
-      final settings = await messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        debugPrint('🔕 Notification permission denied');
-        return;
-      }
-
-      // Get FCM token
-      _fcmToken = await messaging.getToken();
-      debugPrint('🔔 FCM token: ${_fcmToken?.substring(0, 20)}...');
-
-      // Register device with backend
-      if (_fcmToken != null) {
-        await _registerDevice(_fcmToken!);
-      }
-
-      // Listen for token refresh
-      messaging.onTokenRefresh.listen((newToken) async {
-        _fcmToken = newToken;
-        await _registerDevice(newToken);
-      });
-
-      // Listen for foreground messages
-      FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+      await initialization;
     } catch (e) {
       debugPrint('❌ FCM init error: $e');
+    } finally {
+      if (identical(_initializationFuture, initialization)) {
+        _initializationFuture = null;
+      }
     }
   }
 
-  Future<void> _registerDevice(String token) async {
-    try {
-      final phone = await ApiConfig.getPhone();
-      if (phone == null || phone.isEmpty) {
-        debugPrint('⚠️ No phone saved — skipping device registration');
-        return;
-      }
+  Future<void> _initializeMessaging() async {
+    final messaging = FirebaseMessaging.instance;
 
-      final platform = Platform.isIOS ? 'ios' : 'android';
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      debugPrint('🔕 Notification permission denied');
+      _initialized = true;
+      return;
+    }
+
+    _fcmToken = await messaging.getToken();
+    await _registerCurrentDevice();
+
+    messaging.onTokenRefresh.listen((newToken) async {
+      _fcmToken = newToken;
+      await _registerCurrentDevice();
+    });
+
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+    _initialized = true;
+  }
+
+  Future<void> _registerCurrentDevice() async {
+    final token = _fcmToken;
+    if (token == null || token.isEmpty) return;
+
+    final phone = await ApiConfig.getPhone();
+    if (phone == null || phone.isEmpty) {
+      debugPrint('⚠️ No phone saved — skipping device registration');
+      return;
+    }
+
+    if (_registeredPhone == phone && _registeredToken == token) return;
+
+    try {
+      final platform = currentAppDeviceMode == AppDeviceMode.web
+          ? 'web'
+          : Platform.isIOS
+          ? 'ios'
+          : 'android';
       await HrApiService.registerDevice(
         phone: phone,
         fcmToken: token,
         platform: platform,
       );
+      _registeredPhone = phone;
+      _registeredToken = token;
       debugPrint('✅ Device registered for notifications');
     } catch (e) {
       debugPrint('❌ Device registration error: $e');

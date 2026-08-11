@@ -817,19 +817,18 @@ class HrApiService {
     required String fcmToken,
     required String platform,
   }) async {
-    try {
-      await ApiClient.post(
-        '/devices/register',
-        body: {
-          'phone': phone,
-          'fcmToken': fcmToken,
-          'deviceId': '${platform}_staff_${phone.hashCode}',
-          'deviceName': 'VHHealth Staff App',
-          'platform': platform,
-        },
-      );
-    } catch (e) {
-      debugPrint('HrApiService.registerDevice error: $e');
+    final response = await ApiClient.post(
+      '/devices/register',
+      body: {
+        'phone': phone,
+        'fcmToken': fcmToken,
+        'deviceId': '${platform}_staff_${phone.hashCode}',
+        'deviceName': 'VHHealth Staff App',
+        'platform': platform,
+      },
+    );
+    if (!response.isSuccess) {
+      throw Exception(response.failureMessage('Device registration failed'));
     }
   }
 
