@@ -425,8 +425,7 @@ export function computeBurnoutRiskScore(signals) {
 // ---------- DB loaders ----------------------------------------------------
 
 async function loadStaffInfo(staffUid) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT u.uid AS staff_uid, u.name, u.role,
               COALESCE(NULLIF(s.department, ''), NULL) AS department
        FROM users u
@@ -434,29 +433,8 @@ async function loadStaffInfo(staffUid) {
        WHERE u.uid = $1::uuid
        LIMIT 1`,
       staffUid
-    );
-    if (rows && rows[0]) return rows[0];
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.debug('Staff burnout: users+staff join failed; falling back to users-only', {
-        error: err.message,
-      });
-    }
-  }
-  // Fallback: legacy users table without staff join.
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT uid AS staff_uid, name, role, NULL::text AS department
-       FROM users
-       WHERE uid = $1::uuid
-       LIMIT 1`,
-      staffUid
-    );
-    return rows && rows[0] ? rows[0] : null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return rows && rows[0] ? rows[0] : null;
 }
 
 function classifyShiftType(startAt, endAt, shiftName = null) {
@@ -483,9 +461,8 @@ function classifyShiftType(startAt, endAt, shiftName = null) {
 async function loadShiftsForStaff({ tenantId, staffUid, windowStart, windowEnd }) {
   // Prefer staff_attendance (real clock-in/clock-out data). Join to the
   // legacy staff_shift_assignments + staff_shifts tables to classify
-  // shift_type (day/evening/night). If schema is missing, return [].
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  // shift_type (day/evening/night).
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT a.id,
               a.check_in_time AS start_at,
               a.check_out_time AS end_at,
@@ -508,35 +485,30 @@ async function loadShiftsForStaff({ tenantId, staffUid, windowStart, windowEnd }
       staffUid,
       windowStart.toISOString(),
       windowEnd.toISOString()
-    );
-    void tenantId;
-    return asArray(rows).map((row) => {
-      const shiftType = classifyShiftType(row.start_at, row.end_at, row.shift_name);
-      return {
-        id: row.id,
-        start_at: row.start_at,
-        end_at: row.end_at,
-        shift_type: shiftType,
-        shift_name: row.shift_name || null,
-        overtime_hours_recorded: toNumber(row.overtime_hours, 0),
-      };
-    });
-  } catch (err) {
-    if (isMissingSchemaError(err)) return [];
-    throw err;
-  }
+  );
+  void tenantId;
+  return asArray(rows).map((row) => {
+    const shiftType = classifyShiftType(row.start_at, row.end_at, row.shift_name);
+    return {
+      id: row.id,
+      start_at: row.start_at,
+      end_at: row.end_at,
+      shift_type: shiftType,
+      shift_name: row.shift_name || null,
+      overtime_hours_recorded: toNumber(row.overtime_hours, 0),
+    };
+  });
 }
 
 async function loadPtoDays({ staffUid, windowStart, windowEnd }) {
   // leave_requests is keyed by staff_id (integer). Resolve staff_uid → id first.
-  try {
-    const idRows = await prisma.$queryRawUnsafe(
+  const idRows = await prisma.$queryRawUnsafe(
       `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
       staffUid
-    );
-    const staffId = idRows && idRows[0] ? toNumber(idRows[0].id, null) : null;
-    if (!staffId) return 0;
-    const rows = await prisma.$queryRawUnsafe(
+  );
+  const staffId = idRows && idRows[0] ? toNumber(idRows[0].id, null) : null;
+  if (!staffId) return 0;
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT start_date, end_date, status
        FROM leave_requests
        WHERE staff_id = $1
@@ -547,24 +519,19 @@ async function loadPtoDays({ staffUid, windowStart, windowEnd }) {
       staffId,
       windowStart.toISOString().slice(0, 10),
       windowEnd.toISOString().slice(0, 10)
-    );
-    let totalDays = 0;
-    const wsMs = windowStart.getTime();
-    const weMs = windowEnd.getTime();
-    for (const row of asArray(rows)) {
-      if (!row.start_date || !row.end_date) continue;
-      const startMs = Math.max(wsMs, new Date(row.start_date).getTime());
-      const endMs = Math.min(weMs, new Date(row.end_date).getTime());
-      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) continue;
-      const days = (endMs - startMs) / (24 * 60 * 60 * 1000) + 1;
-      if (days > 0) totalDays += days;
-    }
-    return roundTo(totalDays, 2);
-  } catch (err) {
-    if (isMissingSchemaError(err)) return 0;
-    logger.debug('Staff burnout: PTO load failed', { error: err.message });
-    return 0;
+  );
+  let totalDays = 0;
+  const wsMs = windowStart.getTime();
+  const weMs = windowEnd.getTime();
+  for (const row of asArray(rows)) {
+    if (!row.start_date || !row.end_date) continue;
+    const startMs = Math.max(wsMs, new Date(row.start_date).getTime());
+    const endMs = Math.min(weMs, new Date(row.end_date).getTime());
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) continue;
+    const days = (endMs - startMs) / (24 * 60 * 60 * 1000) + 1;
+    if (days > 0) totalDays += days;
   }
+  return roundTo(totalDays, 2);
 }
 
 async function getActivePrompt(tenantId) {
@@ -599,8 +566,7 @@ async function insertGeneration({
   metadata,
 }) {
   const hasCritical = safetyFlags.some((flag) => flag.severity === 'critical');
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_generations
          (tenant_id, patient_uid, admission_id, task_type, module_key, provider, model,
           prompt_version, source_hash, status, used_ai, safety_flags, citations, draft,
@@ -628,20 +594,13 @@ async function insertGeneration({
       aiResult?.usage?.total_tokens || 0,
       aiResult?.estimatedCostMinor ?? 0,
       JSON.stringify(metadata || {})
-    );
-    return (rows && rows[0]) || null;
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Staff burnout generation persist failed', { error: err.message });
-    }
-    return null;
-  }
+  );
+  return (rows && rows[0]) || null;
 }
 
 async function createReviewPlaceholder({ tenantId, generationId, staffUid, module }) {
   if (!generationId) return null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_reviews
          (tenant_id, generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
        VALUES ($1::uuid, $2, $3, NULL, NULL, 'pending', $4::jsonb, NOW(), NOW())
@@ -658,14 +617,8 @@ async function createReviewPlaceholder({ tenantId, generationId, staffUid, modul
         decision_support_only: true,
         privacy_sensitive: true,
       })
-    );
-    return (rows && rows[0]) || null;
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Staff burnout review placeholder failed', { error: err.message });
-    }
-    return null;
-  }
+  );
+  return (rows && rows[0]) || null;
 }
 
 function normalizeReviewRow(row) {
@@ -704,8 +657,7 @@ async function insertBurnoutReview({
   safetyFlags,
   metadata,
 }) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_staff_burnout_reviews
          (tenant_id, staff_uid, department, role, window_days, window_start, window_end,
           total_hours, overtime_hours, night_shift_count, consecutive_night_shifts,
@@ -745,12 +697,8 @@ async function insertBurnoutReview({
       JSON.stringify(citations || []),
       JSON.stringify(safetyFlags || []),
       JSON.stringify(metadata || {})
-    );
-    return normalizeReviewRow((rows && rows[0]) || null);
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return normalizeReviewRow((rows && rows[0]) || null);
 }
 
 // ---------- Public API --------------------------------------------------
@@ -946,6 +894,9 @@ export async function evaluateStaffBurnout({
       privacy_sensitive: true,
     },
   });
+  if (!generation?.id) {
+    throw new Error('Staff burnout generation insert returned no id');
+  }
 
   const reviewRow = await insertBurnoutReview({
     tenantId,
@@ -962,7 +913,7 @@ export async function evaluateStaffBurnout({
     band,
     signals,
     recommendedActions,
-    generationId: generation?.id || null,
+    generationId: generation.id,
     citations: finalCitations,
     safetyFlags,
     metadata: {
@@ -975,28 +926,18 @@ export async function evaluateStaffBurnout({
   });
 
   if (!reviewRow) {
-    return {
-      review_id: null,
-      generation_id: generation?.id || null,
-      draft,
-      source_citations: finalCitations,
-      safety_flags: safetyFlags,
-      module_key: MODULE_KEY,
-      prompt_version: prompt.version || 'v1',
-      review_status: 'schema_unavailable',
-      reason: 'clinical_ai_staff_burnout_reviews_unavailable',
-      decision_support_only: true,
-      rules_authoritative: true,
-      privacy_sensitive: true,
-    };
+    throw new Error('Staff burnout review insert returned no id');
   }
 
   const clinicalReview = await createReviewPlaceholder({
     tenantId,
-    generationId: generation?.id || null,
+    generationId: generation.id,
     staffUid: safeUid,
     module,
   });
+  if (!clinicalReview?.id) {
+    throw new Error('Staff burnout clinical review insert returned no id');
+  }
 
   try {
     await publishEvent({
@@ -1008,7 +949,7 @@ export async function evaluateStaffBurnout({
         tenant_id: tenantId,
         staff_uid: safeUid,
         review_id: reviewRow.id,
-        generation_id: generation?.id || null,
+        generation_id: generation.id,
         risk_score: score,
         risk_band: band,
         signal_codes: signals.map((s) => s.code),
@@ -1021,8 +962,8 @@ export async function evaluateStaffBurnout({
 
   return {
     review_id: reviewRow.id,
-    generation_id: generation?.id || null,
-    clinical_review_id: clinicalReview?.id || null,
+    generation_id: generation.id,
+    clinical_review_id: clinicalReview.id,
     draft,
     review: reviewRow,
     source_citations: finalCitations,
@@ -1061,8 +1002,7 @@ export async function listStaffBurnoutReviews({
     ? cleanText(reviewerDecision).toLowerCase()
     : null;
 
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT r.id, r.tenant_id, r.staff_uid, r.department, r.role,
               r.window_days, r.window_start, r.window_end,
               r.total_hours, r.overtime_hours, r.night_shift_count,
@@ -1097,13 +1037,9 @@ export async function listStaffBurnoutReviews({
       normalizedBand,
       normalizedDecision,
       safeLimit
-    );
-    const normalized = asArray(rows).map(normalizeReviewRow);
-    return { reviews: normalized, count: normalized.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { reviews: [], count: 0 };
-    throw err;
-  }
+  );
+  const normalized = asArray(rows).map(normalizeReviewRow);
+  return { reviews: normalized, count: normalized.length };
 }
 
 export async function decideStaffBurnoutReview({

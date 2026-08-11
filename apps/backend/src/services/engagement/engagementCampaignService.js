@@ -1119,7 +1119,7 @@ export async function queueDueCampaignRecipients({ tenantId, campaignId, limit =
         campaignId,
         row.id,
         String(err?.message || err).slice(0, 500),
-      )).catch(() => {});
+      ));
     }
   }
 

@@ -38,18 +38,12 @@ async function resolveUserIdFromUid(uid) {
   if (uidToIdCache.has(uid)) return uidToIdCache.get(uid);
 
   let resolved = null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      'SELECT id FROM users WHERE uid = $1::uuid LIMIT 1',
-      uid
-    );
-    if (rows.length > 0 && Number.isInteger(rows[0].id)) {
-      resolved = rows[0].id;
-    }
-  } catch (err) {
-    // Bad uuid format / DB blip: don't fail the request, just leave id null.
-    logger.warn(`uid→id fallback lookup failed for ${uid}: ${err.message}`);
-    return null;
+  const rows = await prisma.$queryRawUnsafe(
+    'SELECT id FROM users WHERE uid = $1::uuid LIMIT 1',
+    uid
+  );
+  if (rows.length > 0 && Number.isInteger(rows[0].id)) {
+    resolved = rows[0].id;
   }
 
   if (uidToIdCache.size >= UID_TO_ID_CACHE_MAX) {

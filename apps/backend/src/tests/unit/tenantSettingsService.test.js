@@ -34,9 +34,11 @@ describe('tenantSettingsService', () => {
     expect(await getTenantSettings('t1')).toEqual({});
   });
 
-  it('returns {} (never throws) when the lookup rejects', async () => {
-    getTenantById.mockRejectedValue(new Error('db down'));
-    expect(await getTenantSettings('t1')).toEqual({});
+  it('propagates tenant lookup faults instead of fabricating empty settings', async () => {
+    const fault = new Error('db down');
+    getTenantById.mockRejectedValue(fault);
+    await expect(getTenantSettings('t1')).rejects.toBe(fault);
+    await expect(getRateLimitOverride('t1', 'patient')).rejects.toBe(fault);
   });
 
   it('getRateLimitOverride returns the profile override or null', async () => {

@@ -57,7 +57,7 @@ import { normalizeBrandKit } from './brandKitSchema.js';
 
 export async function getTenantSettings(tenantId) {
   if (!tenantId) return {};
-  const tenant = await getTenantById(tenantId).catch(() => null);
+  const tenant = await getTenantById(tenantId);
   const settings = tenant?.settings;
   return settings && typeof settings === 'object' ? settings : {};
 }

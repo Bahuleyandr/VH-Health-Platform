@@ -33,7 +33,7 @@ export const getPharmacyAnalytics = async () => {
       GROUP BY m.category
       ORDER BY request_count DESC
       LIMIT 10
-    `.catch(() => []),
+    `,
   ]);
 
   return {

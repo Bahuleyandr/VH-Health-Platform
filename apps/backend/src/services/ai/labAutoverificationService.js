@@ -346,8 +346,7 @@ function extractAbnormalFlag(row) {
 }
 
 async function loadInvestigation(investigationId) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, uid, patient_uid, phone, test_name, test_type, status,
               result_summary, results, structured_results, interpretation,
               conclusion, notes, requested_at, completed_at, created_at, updated_at
@@ -355,18 +354,13 @@ async function loadInvestigation(investigationId) {
        WHERE id = $1
        LIMIT 1`,
       investigationId
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return rows[0] || null;
 }
 
 async function loadPriorInvestigation({ investigationId, patientUid, testName }) {
   if (!patientUid || !testName) return null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, test_name, result_summary, results, structured_results,
               interpretation, conclusion, notes,
               COALESCE(completed_at, created_at, requested_at) AS recorded_at
@@ -379,12 +373,8 @@ async function loadPriorInvestigation({ investigationId, patientUid, testName })
       patientUid,
       cleanText(testName),
       investigationId
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return rows[0] || null;
 }
 
 async function getActivePrompt(tenantId) {
@@ -420,8 +410,7 @@ async function insertGeneration({
 }) {
   const usage = aiResult?.usage || {};
   const hasCritical = safetyFlags.some((flag) => flag.severity === 'critical');
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_generations
          (tenant_id, patient_uid, admission_id, task_type, module_key, provider, model,
           prompt_version, source_hash, status, used_ai, safety_flags, citations, draft,
@@ -453,20 +442,13 @@ async function insertGeneration({
       usage.provider_request_id || aiResult?.requestId || null,
       usage.finish_reason || aiResult?.finishReason || null,
       JSON.stringify(metadata || {})
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Lab autoverification generation persist failed', { error: err.message });
-    }
-    return null;
-  }
+  );
+  return rows[0] || null;
 }
 
 async function createReviewPlaceholder({ tenantId, generationId, patientUid, module }) {
   if (!generationId) return null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_reviews
          (tenant_id, generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
        VALUES ($1::uuid, $2, $3, $4::uuid, NULL, 'pending', $5::jsonb, NOW(), NOW())
@@ -482,14 +464,8 @@ async function createReviewPlaceholder({ tenantId, generationId, patientUid, mod
         rules_authoritative: true,
         decision_support_only: true,
       })
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Lab autoverification review placeholder failed', { error: err.message });
-    }
-    return null;
-  }
+  );
+  return rows[0] || null;
 }
 
 function normalizeReviewRow(row) {
@@ -530,8 +506,7 @@ async function insertAutoverification({
   safetyFlags,
   metadata,
 }) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_lab_autoverifications
          (tenant_id, investigation_id, patient_uid, generation_id, test_name,
           result_value, result_text, units, prior_value, prior_recorded_at,
@@ -571,12 +546,8 @@ async function insertAutoverification({
       JSON.stringify(citations || []),
       JSON.stringify(safetyFlags || []),
       JSON.stringify(metadata || {})
-    );
-    return normalizeReviewRow(rows[0]) || null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return normalizeReviewRow(rows[0]) || null;
 }
 
 function normalizeAiSummary(parsed, fallbackDraft) {
@@ -786,12 +757,15 @@ export async function evaluateInvestigation({ req = null, investigationId } = {}
       rules_authoritative: true,
     },
   });
+  if (!generation?.id) {
+    throw new Error('Lab autoverification generation insert returned no id');
+  }
 
   const reviewRow = await insertAutoverification({
     tenantId,
     investigationId: safeInvestigationId,
     patientUid,
-    generationId: generation?.id || null,
+    generationId: generation.id,
     testName,
     resultValue,
     resultText: resultText || null,
@@ -818,36 +792,18 @@ export async function evaluateInvestigation({ req = null, investigationId } = {}
   });
 
   if (!reviewRow) {
-    return {
-      review_id: null,
-      generation_id: generation?.id || null,
-      clinical_review_id: null,
-      draft,
-      source_citations: mergedCitations,
-      safety_flags: mergedSafetyFlags,
-      module_key: MODULE_KEY,
-      prompt_version: prompt.version || 'v1',
-      review_status: 'schema_unavailable',
-      reason: 'clinical_ai_lab_autoverifications_unavailable',
-      decision: decisionResult.decision,
-      critical_band: criticalBand,
-      ai_metadata: {
-        provider: aiResult.provider || 'template',
-        model: aiResult.model || null,
-        used_ai: Boolean(aiResult.usedAi),
-        usage: aiResult.usage || {},
-      },
-      rules_authoritative: true,
-      decision_support_only: true,
-    };
+    throw new Error('Lab autoverification review insert returned no id');
   }
 
   const clinicalReview = await createReviewPlaceholder({
     tenantId,
-    generationId: generation?.id || null,
+    generationId: generation.id,
     patientUid,
     module,
   });
+  if (!clinicalReview?.id) {
+    throw new Error('Lab autoverification clinical review insert returned no id');
+  }
 
   await publishEvent({
     eventType: 'clinical_ai.lab_autoverification_generated',
@@ -858,7 +814,7 @@ export async function evaluateInvestigation({ req = null, investigationId } = {}
       tenant_id: tenantId,
       investigation_id: safeInvestigationId,
       review_id: reviewRow.id,
-      generation_id: generation?.id || null,
+      generation_id: generation.id,
       test_name: testName,
       decision: decisionResult.decision,
       critical_band: criticalBand,
@@ -868,8 +824,8 @@ export async function evaluateInvestigation({ req = null, investigationId } = {}
 
   return {
     review_id: reviewRow.id,
-    generation_id: generation?.id || null,
-    clinical_review_id: clinicalReview?.id || null,
+    generation_id: generation.id,
+    clinical_review_id: clinicalReview.id,
     draft,
     review: reviewRow,
     source_citations: mergedCitations,
@@ -909,8 +865,7 @@ export async function listLabAutoverifications({
   const normalizedReviewer = reviewerDecision && REVIEWER_DECISIONS.has(cleanText(reviewerDecision).toLowerCase())
     ? cleanText(reviewerDecision).toLowerCase()
     : null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT r.id, r.tenant_id, r.investigation_id, r.patient_uid, u.name AS patient_name,
               r.generation_id, r.test_name, r.result_value, r.result_text, r.units,
               r.prior_value, r.prior_recorded_at, r.delta_pct,
@@ -943,13 +898,9 @@ export async function listLabAutoverifications({
       normalizedBand,
       normalizedReviewer,
       safeLimit
-    );
-    const normalized = rows.map(normalizeReviewRow);
-    return { autoverifications: normalized, count: normalized.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { autoverifications: [], count: 0 };
-    throw err;
-  }
+  );
+  const normalized = rows.map(normalizeReviewRow);
+  return { autoverifications: normalized, count: normalized.length };
 }
 
 export async function decideLabAutoverification({

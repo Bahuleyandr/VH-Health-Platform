@@ -43,6 +43,30 @@ describe('root OTPService verification hardening', () => {
     });
     expect(mockPrisma.otp_sessions.update).not.toHaveBeenCalled();
   });
+
+  it('does not bypass the cross-session verify cap when its counter is unavailable', async () => {
+    mockPrisma.otp_logs.count.mockRejectedValueOnce(new Error('counter unavailable'));
+
+    const result = await OTPService.verifyOTP('+919876543210', '123456', 'account_linking');
+
+    expect(result).toEqual({
+      valid: false,
+      reason: 'OTP verification temporarily unavailable',
+    });
+    expect(mockPrisma.otp_sessions.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('does not approve a daily request when its counter is unavailable', async () => {
+    mockPrisma.otp_logs.count.mockRejectedValueOnce(new Error('counter unavailable'));
+
+    await expect(OTPService.checkDailyLimit('+919876543210')).rejects.toThrow('counter unavailable');
+  });
+
+  it('does not approve a resend when its cooldown record is unavailable', async () => {
+    mockPrisma.otp_sessions.findFirst.mockRejectedValueOnce(new Error('session unavailable'));
+
+    await expect(OTPService.checkResendCooldown('+919876543210', 'login')).rejects.toThrow('session unavailable');
+  });
 });
 
 // Audit F10 companion (2026-08-09 VH Health full audit): a failed

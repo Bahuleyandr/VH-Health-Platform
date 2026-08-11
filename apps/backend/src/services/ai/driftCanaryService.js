@@ -266,14 +266,13 @@ export async function runCanary({ tenantId = null, scope = 'routine' } = {}) {
      ORDER BY started_at DESC
      LIMIT 1`,
     tid
-  ).catch(() => []);
+  );
   const baselinePct = baselineRows[0]
     ? Math.round((Number(baselineRows[0].pass_count) / Number(baselineRows[0].total_cases)) * 100)
     : null;
   const driftDetected = baselinePct !== null && baselinePct - passRatePct >= BASELINE_THRESHOLD_PCT;
 
-  try {
-    await prisma.$queryRawUnsafe(
+  await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_canary_runs
          (tenant_id, run_scope, total_cases, pass_count, fail_count, drift_detected,
           findings, slice_metrics, bias_signals, metadata, started_at, finished_at)
@@ -298,39 +297,7 @@ export async function runCanary({ tenantId = null, scope = 'routine' } = {}) {
           min_slice_samples: BIAS_MIN_SLICE_SAMPLES,
         },
       })
-    );
-  } catch (err) {
-    // The bias_signals / slice_metrics columns may not exist if migration
-    // 112 has not yet been applied. Retry without them so older deployments
-    // continue to record runs while the migration rolls out.
-    if (/column .* (slice_metrics|bias_signals) .*does not exist/i.test(String(err?.message || ''))) {
-      try {
-        await prisma.$queryRawUnsafe(
-          `INSERT INTO clinical_ai_canary_runs
-             (tenant_id, run_scope, total_cases, pass_count, fail_count, drift_detected,
-              findings, metadata, started_at, finished_at)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, NOW(), NOW())`,
-          tid,
-          scope,
-          findings.length,
-          passCount,
-          failCount,
-          driftDetected,
-          JSON.stringify(findings),
-          JSON.stringify({
-            pass_rate_pct: passRatePct,
-            baseline_pct: baselinePct,
-            drift_threshold_pct: BASELINE_THRESHOLD_PCT,
-            slice_metrics_skipped: 'migration_112_not_applied',
-          })
-        );
-      } catch (fallbackErr) {
-        logger.warn('Canary run fallback persist failed', { error: fallbackErr.message });
-      }
-    } else {
-      logger.warn('Canary run persist failed', { error: err.message });
-    }
-  }
+  );
 
   return {
     tenant_id: tid,
@@ -349,8 +316,7 @@ export async function runCanary({ tenantId = null, scope = 'routine' } = {}) {
 export async function listCanaryRuns({ tenantId = null, limit = 30 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const safeLimit = normalizeLimit(limit, 30, 200);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, run_scope, total_cases, pass_count, fail_count, drift_detected,
               metadata, started_at, finished_at,
               COALESCE(slice_metrics, '[]'::jsonb) AS slice_metrics,
@@ -361,29 +327,8 @@ export async function listCanaryRuns({ tenantId = null, limit = 30 } = {}) {
        LIMIT $2`,
       tid,
       safeLimit
-    );
-    return { runs: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { runs: [], count: 0 };
-    // Migration 112 not yet applied — fall back to the pre-S3 select.
-    if (/column .* (slice_metrics|bias_signals) .*does not exist/i.test(String(err?.message || ''))) {
-      const rows = await prisma.$queryRawUnsafe(
-        `SELECT id, run_scope, total_cases, pass_count, fail_count, drift_detected,
-                metadata, started_at, finished_at
-         FROM clinical_ai_canary_runs
-         WHERE tenant_id = $1::uuid
-         ORDER BY started_at DESC
-         LIMIT $2`,
-        tid,
-        safeLimit
-      );
-      return {
-        runs: rows.map((row) => ({ ...row, slice_metrics: [], bias_signals: [] })),
-        count: rows.length,
-      };
-    }
-    throw err;
-  }
+  );
+  return { runs: rows, count: rows.length };
 }
 
 export async function listCanaryCases({ tenantId = null, moduleKey = null, active = null, limit = 100 } = {}) {
@@ -403,8 +348,7 @@ export async function listCanaryCases({ tenantId = null, moduleKey = null, activ
     filters.push(`active = $${params.length}`);
   }
 
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, module_key, label, input_packet, expected_keys, expected_citations_min, active, created_at,
               COALESCE(slice_attributes, '{}'::jsonb) AS slice_attributes
        FROM clinical_ai_canary_cases
@@ -413,27 +357,8 @@ export async function listCanaryCases({ tenantId = null, moduleKey = null, activ
        LIMIT $${params.length + 1}`,
       ...params,
       safeLimit
-    );
-    return { cases: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { cases: [], count: 0 };
-    if (/column .* slice_attributes .*does not exist/i.test(String(err?.message || ''))) {
-      const rows = await prisma.$queryRawUnsafe(
-        `SELECT id, module_key, label, input_packet, expected_keys, expected_citations_min, active, created_at
-         FROM clinical_ai_canary_cases
-         WHERE ${filters.join(' AND ')}
-         ORDER BY active DESC, module_key, label
-         LIMIT $${params.length + 1}`,
-        ...params,
-        safeLimit
-      );
-      return {
-        cases: rows.map((row) => ({ ...row, slice_attributes: {} })),
-        count: rows.length,
-      };
-    }
-    throw err;
-  }
+  );
+  return { cases: rows, count: rows.length };
 }
 
 function normalizeSliceAttributes(value) {
@@ -515,21 +440,16 @@ export async function deactivateCanaryCase({ tenantId = null, id } = {}) {
   const caseId = Number.parseInt(id, 10);
   if (!caseId) throw AppError.badRequest('canary case id is required');
 
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `UPDATE clinical_ai_canary_cases
        SET active = false
        WHERE tenant_id = $1::uuid AND id = $2
        RETURNING id, module_key, label, input_packet, expected_keys, expected_citations_min, active, created_at`,
       tid,
       caseId
-    );
-    if (!rows[0]) throw AppError.notFound('Canary case not found');
-    return rows[0];
-  } catch (err) {
-    if (isMissingSchemaError(err)) throw AppError.notFound('Canary case table not available');
-    throw err;
-  }
+  );
+  if (!rows[0]) throw AppError.notFound('Canary case not found');
+  return rows[0];
 }
 
 export default {

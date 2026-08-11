@@ -34,10 +34,11 @@ let mockBudgetStatus = {
   token_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
   cost_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
 };
+const mockGetClinicalAiGuardrails = jest.fn(async () => mockGuardrails);
 
 jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
   getClinicalAiBudgetStatus: jest.fn(async () => mockBudgetStatus),
-  getClinicalAiGuardrails: jest.fn(async () => mockGuardrails),
+  getClinicalAiGuardrails: mockGetClinicalAiGuardrails,
   getClinicalAiModule: jest.fn(async () => mockModule),
   getClinicalAiUsageSummary: jest.fn(async () => ({
     window_days: 7,
@@ -196,6 +197,7 @@ describe('clinical AI provider client', () => {
       token_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
       cost_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
     };
+    mockGetClinicalAiGuardrails.mockReset().mockImplementation(async () => mockGuardrails);
     global.fetch = jest.fn();
     // logger.js is a module-scoped mock; clear call history each test so the
     // deep-fallback WARN assertions (and the "does NOT warn" negative) see a
@@ -1014,6 +1016,25 @@ describe('clinical AI provider client', () => {
   });
 
   describe('checkDeepModuleReadiness / assertDeepModuleLive (enablement gate)', () => {
+    it('fails closed when guardrails cannot be loaded', async () => {
+      mockModule = {
+        ...mockModule,
+        module_key: 'medication_reconciliation',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+      mockGetClinicalAiGuardrails.mockRejectedValueOnce(new Error('guardrails db unavailable'));
+
+      const verdict = await checkDeepModuleReadiness('medication_reconciliation', { smoke: false });
+
+      expect(verdict).toMatchObject({
+        ready: false,
+        provider: null,
+        model: null,
+      });
+      expect(verdict.reason).toBe('guardrails_lookup_failed:guardrails db unavailable');
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
     it('returns ready when the deep model is pulled and a smoke gen returns used_ai=true', async () => {
       process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
       process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';

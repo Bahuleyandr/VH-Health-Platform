@@ -42,13 +42,21 @@ jest.unstable_mockModule('../../services/cds/deteriorationEarlyWarningService.js
 // Mock prisma so the news2_scores INSERT is observable without a real DB.
 // setTenantTx runs its callback with a tx client backed by the same spy —
 // recordNEWS2 now wraps the persist + canonical emit in a tenant-scoped tx.
-const insertSpy = jest.fn(async () => [{
-  id: 4242, patient_uid: 'x', total_score: 0, clinical_risk: 'high',
-  recorded_by: 'y', recorded_at: new Date(), created_at: new Date(),
-}]);
+const dbControl = { tenantLookupError: null };
+const insertSpy = jest.fn(async (sql) => {
+  if (String(sql).includes('SELECT tenant_id::text AS tenant_id')) {
+    if (dbControl.tenantLookupError) throw dbControl.tenantLookupError;
+    return [{ tenant_id: '00000000-0000-4000-8000-0000000000a1' }];
+  }
+  return [{
+    id: 4242, patient_uid: 'x', total_score: 0, clinical_risk: 'high',
+    recorded_by: 'y', recorded_at: new Date(), created_at: new Date(),
+  }];
+});
+const setTenantTxSpy = jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: insertSpy }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: insertSpy },
-  setTenantTx: jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: insertSpy })),
+  setTenantTx: setTenantTxSpy,
 }));
 
 // Stub the canonical emit — this suite pins escalation loudness, not the
@@ -74,8 +82,19 @@ describe('NEWS2 escalation loudness + recipient (MEDIUM §4 / W1-H4)', () => {
   beforeEach(() => {
     inboxControl.throwError = null;
     inboxControl.result = { created: true, taskId: 99 };
+    dbControl.tenantLookupError = null;
     enqueueSpy.mockClear();
     insertSpy.mockClear();
+    setTenantTxSpy.mockClear();
+  });
+
+  test('tenant lookup fault rejects before writing under a default tenant', async () => {
+    dbControl.tenantLookupError = new Error('tenant lookup unavailable');
+
+    await expect(recordNEWS2('p-uid', CRITICAL_VITALS, 'r-uid'))
+      .rejects.toThrow('tenant lookup unavailable');
+    expect(setTenantTxSpy).not.toHaveBeenCalled();
+    expect(enqueueSpy).not.toHaveBeenCalled();
   });
 
   test('>=5: a producer THROW propagates (loud)', async () => {

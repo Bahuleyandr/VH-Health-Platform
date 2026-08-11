@@ -308,20 +308,17 @@ export async function supersedeNews2ForVitalsRow(vitalsChartId, replacementScore
   );
 }
 
-// Resolve the patient's tenant for routing a deterioration alert when the
-// caller did not pass one (the standalone NEWS2 path). Best-effort: a failed
-// lookup yields null and enqueueCriticalResultTask then surfaces the miss LOUDLY.
+// Resolve the patient's tenant for routing and canonical persistence when the
+// caller did not pass one (the standalone NEWS2 path). A database fault must
+// propagate; treating it as an absent tenant can misroute a clinical write to
+// the default tenant in compatibility-mode deployments.
 async function resolvePatientTenantId(patientUid) {
   if (!patientUid) return null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT tenant_id::text AS tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
-      patientUid,
-    );
-    return rows?.[0]?.tenant_id || null;
-  } catch {
-    return null;
-  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT tenant_id::text AS tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
+    patientUid,
+  );
+  return rows?.[0]?.tenant_id || null;
 }
 
 /**

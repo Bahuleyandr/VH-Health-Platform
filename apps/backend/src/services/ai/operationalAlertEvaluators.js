@@ -53,7 +53,7 @@ async function evaluateNoShow({ tenantId, now }) {
 
   let high = 0;
   for (const r of rows) {
-    const s = await scoreNoShowRisk({ appointmentId: r.id, tenantId }).catch(() => null);
+    const s = await scoreNoShowRisk({ appointmentId: r.id, tenantId });
     if (s && s.band === 'high') high += 1;
   }
 
@@ -86,9 +86,7 @@ async function evaluateInventoryBridge({ tenantId }) {
   // Pick the most-recent high/critical row per item_sku within last 3 days.
   // DISTINCT ON (item_sku) ordered by item_sku, created_at DESC gives the
   // latest row per SKU; the outer WHERE then keeps high/critical only.
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT item_sku, item_name, alert_category, severity,
               days_on_hand, next_expiry_date, summary,
               recommended_actions, source_citations
@@ -104,12 +102,7 @@ async function evaluateInventoryBridge({ tenantId }) {
          ORDER BY item_sku, created_at DESC
        ) latest`,
       tenantId
-    );
-  } catch (err) {
-    // Table may not exist in environments without mig 059 applied yet.
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -146,22 +139,16 @@ async function evaluateOtOverrun({ tenantId, now }) {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const ymd = tomorrow.toISOString().slice(0, 10);
 
-  let schedules;
-  try {
-    // NOTE: `ot_schedules` has no tenant_id column (platform-wide today), so
-    // this aggregates hospital-wide — correct for single-tenant. Add a tenant
-    // predicate before any multi-tenant cutover.
-    schedules = await prisma.$queryRawUnsafe(
+  // NOTE: `ot_schedules` has no tenant_id column (platform-wide today), so
+  // this aggregates hospital-wide — correct for single-tenant. Add a tenant
+  // predicate before any multi-tenant cutover.
+  const schedules = await prisma.$queryRawUnsafe(
       `SELECT id, ot_room, estimated_duration
        FROM ot_schedules
        WHERE scheduled_date = $1::date
          AND status NOT IN ('cancelled', 'completed')`,
       ymd
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!schedules || !schedules.length) return [];
 
@@ -177,8 +164,7 @@ async function evaluateOtOverrun({ tenantId, now }) {
   for (const [room, cases] of roomMap.entries()) {
     let totalPredicted = 0;
     for (const c of cases) {
-      // Call the producer; fall back to estimated_duration if it throws/cold-starts.
-      const pred = await predictOtCaseTime({ scheduleId: c.id, tenantId }).catch(() => null);
+      const pred = await predictOtCaseTime({ scheduleId: c.id, tenantId });
       const mins = pred?.predicted_minutes ?? (Number(c.estimated_duration) > 0 ? Number(c.estimated_duration) : 60);
       totalPredicted += mins;
     }
@@ -233,9 +219,7 @@ async function evaluateOtOverrun({ tenantId, now }) {
 // Rows within 3 days with risk_level in ('high','critical') surface as alerts.
 // Identity: medication_name (the unique drug being forecast).
 async function evaluatePharmacyStockoutBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (medication_name)
               medication_name, risk_level, forecast, created_at
        FROM clinical_ai_pharmacy_forecasts
@@ -244,11 +228,7 @@ async function evaluatePharmacyStockoutBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY medication_name, created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -287,9 +267,7 @@ async function evaluatePharmacyStockoutBridge({ tenantId }) {
 // + forecast_end date) — no per-component row identity. Dedupe by
 // forecast_start date (keep newest row per start date).
 async function evaluateBloodBankBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (forecast_start::date)
               id, forecast_start, forecast_end, risk_band,
               stockout_risks, recommendations, source_citations,
@@ -301,11 +279,7 @@ async function evaluateBloodBankBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY forecast_start::date, created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -342,9 +316,7 @@ async function evaluateBloodBankBridge({ tenantId }) {
 // forecast.available_beds from jsonb; if available_beds <= 2 → 'critical',
 // <= 5 → 'high'. Identity: ward.
 async function evaluateBedForecastBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (COALESCE(ward, 'hospital'))
               ward, forecast, forecast_window_hours, created_at
        FROM clinical_ai_bed_forecasts
@@ -352,11 +324,7 @@ async function evaluateBedForecastBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY COALESCE(ward, 'hospital'), created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -411,9 +379,7 @@ async function evaluateBedForecastBridge({ tenantId }) {
 // Threshold: priority_band in ('high','critical'). Identity: bed_id (or
 // COALESCE(bed_id::text, ward) when bed_id is null).
 async function evaluateHousekeepingTurnoverBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (COALESCE(bed_id::text, COALESCE(ward, 'unknown')))
               bed_id, ward, room_number, priority_band, priority_score,
               predicted_turnover_minutes, recommended_actions, source_citations,
@@ -425,11 +391,7 @@ async function evaluateHousekeepingTurnoverBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY COALESCE(bed_id::text, COALESCE(ward, 'unknown')), created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -468,9 +430,7 @@ async function evaluateHousekeepingTurnoverBridge({ tenantId }) {
 // Table uses risk_band (not severity), reviewer_decision (present).
 // Identity: staff_uid (dedupe to latest per staff member).
 async function evaluateBurnoutBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (staff_uid)
               staff_uid, department, role, risk_band, risk_score,
               total_hours, overtime_hours, recommended_actions, source_citations,
@@ -482,11 +442,7 @@ async function evaluateBurnoutBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY staff_uid, created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -527,9 +483,7 @@ async function evaluateBurnoutBridge({ tenantId }) {
 // Table has severity (present), reviewer_decision (present), summary (present).
 // Identity: block_label (the OR block identifier).
 async function evaluateOtBlockBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (COALESCE(block_label, surgeon_uid::text))
               block_label, surgeon_name, service_line, or_room,
               severity, recommendation, utilization_pct, overrun_count,
@@ -542,11 +496,7 @@ async function evaluateOtBlockBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY COALESCE(block_label, surgeon_uid::text), created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -586,9 +536,7 @@ async function evaluateOtBlockBridge({ tenantId }) {
 // Table uses risk_band (not severity), reviewer_decision (present).
 // Identity: device_code (or device_id when code is null).
 async function evaluateBiomedMaintenanceBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (COALESCE(device_code, device_id::text))
               device_id, device_code, risk_band, predicted_failure_risk_score,
               predicted_downtime_hours, recommended_actions, source_citations,
@@ -600,11 +548,7 @@ async function evaluateBiomedMaintenanceBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY COALESCE(device_code, device_id::text), created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -642,9 +586,7 @@ async function evaluateBiomedMaintenanceBridge({ tenantId }) {
 // Table has severity (present), reviewer_decision (present), summary (present).
 // Identity: item_sku.
 async function evaluateProcurementBridge({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (item_sku)
               item_sku, item_name, category, vendor_name, severity,
               opportunity_category, price_delta_pct, estimated_annual_savings,
@@ -656,11 +598,7 @@ async function evaluateProcurementBridge({ tenantId }) {
          AND created_at >= NOW() - INTERVAL '3 days'
        ORDER BY item_sku, created_at DESC`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -706,9 +644,7 @@ async function evaluateAcuityStaffingBridge({ tenantId, now }) {
   since.setHours(since.getHours() - 24);
   const sinceIso = since.toISOString();
 
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT unit, shift_label, total_deficit, severity, signals,
               recommended_actions, source_citations, summary, created_at
        FROM clinical_ai_acuity_staffing_forecasts
@@ -721,11 +657,7 @@ async function evaluateAcuityStaffingBridge({ tenantId, now }) {
          created_at DESC`,
       tenantId,
       sinceIso
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) {
     // No stored high/critical forecasts: run a lightweight live census check
@@ -780,9 +712,7 @@ async function _evaluateAcuityLive({ tenantId, now }) {
   since.setHours(since.getHours() - 24);
   const sinceIso = since.toISOString();
 
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (unit, shift_label)
               unit, shift_label, total_deficit, severity, census_total,
               signals, recommended_actions, source_citations, summary, created_at
@@ -792,11 +722,7 @@ async function _evaluateAcuityLive({ tenantId, now }) {
        ORDER BY unit, shift_label, created_at DESC`,
       tenantId,
       sinceIso
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
   if (!rows || !rows.length) return [];
 
   const candidates = [];
@@ -836,20 +762,14 @@ async function _evaluateAcuityLive({ tenantId, now }) {
 // summary (no PHI — incident description is not included).
 // Severity map: CRITICAL → critical, HIGH → high.
 async function evaluateQualityCaseReview({ tenantId }) {
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, severity
          FROM quality_incidents
         WHERE tenant_id = $1::uuid
           AND UPPER(severity) IN ('HIGH', 'CRITICAL')
           AND LOWER(status) NOT IN ('resolved', 'closed')`,
       tenantId
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 
@@ -890,9 +810,7 @@ async function evaluateReadmissionRca({ tenantId, now }) {
   cutoff.setDate(cutoff.getDate() - 14);
   const cutoffIso = cutoff.toISOString();
 
-  let rows;
-  try {
-    rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, prior_admission_id
          FROM admissions
         WHERE tenant_id = $1::uuid
@@ -900,11 +818,7 @@ async function evaluateReadmissionRca({ tenantId, now }) {
           AND admitted_at >= $2::timestamptz`,
       tenantId,
       cutoffIso
-    );
-  } catch (err) {
-    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
-    throw err;
-  }
+  );
 
   if (!rows || !rows.length) return [];
 

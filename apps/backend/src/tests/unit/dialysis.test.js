@@ -154,6 +154,12 @@ describe('Dialyzer reuse cycle rules', () => {
 });
 
 describe('Machine QA warn-only gate', () => {
+  it('does not misreport a lookup fault as a missing QA log', () => {
+    expect(buildMachineQaWarnings({ lookup_unavailable: true }, 'HD-00')).toEqual([
+      'Machine QA status unavailable for HD-00; manual verification required',
+    ]);
+  });
+
   it('warns when no same-day QA log exists', () => {
     expect(buildMachineQaWarnings(null, 'HD-01')).toEqual([
       'No same-day machine QA log for HD-01',

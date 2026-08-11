@@ -40,10 +40,6 @@ function resolveTenantId(options = {}) {
   return requireTenantId(options.tenantId);
 }
 
-function isMissingSchemaError(err) {
-  return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
-}
-
 function isUniqueViolation(err) {
   return /duplicate key value/i.test(String(err?.message || ''));
 }
@@ -224,19 +220,14 @@ export async function listPayers({
     filters.push(`payer_kind = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT ${PAYER_RETURNING} FROM payers
        WHERE ${filters.join(' AND ')}
        ORDER BY display_name
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
-    );
-    return { payers: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { payers: [], count: 0 };
-    throw err;
-  }
+  );
+  return { payers: rows, count: rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -327,19 +318,14 @@ export async function listTpas({
     filters.push(`parent_payer_id = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT ${TPA_RETURNING} FROM tpas
        WHERE ${filters.join(' AND ')}
        ORDER BY display_name
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
-    );
-    return { tpas: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { tpas: [], count: 0 };
-    throw err;
-  }
+  );
+  return { tpas: rows, count: rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -371,16 +357,12 @@ export async function upsertTariffPlan({
 
   // Demote other defaults if making this one the default + active.
   if (flagDefault && cleanStatus === 'active') {
-    try {
-      await prisma.$queryRawUnsafe(
+    await prisma.$queryRawUnsafe(
         `UPDATE tariff_plans
          SET is_default = false, updated_at = NOW()
          WHERE tenant_id = $1::uuid AND is_default = true AND status = 'active' AND plan_code <> $2`,
         tid, cleanCode,
-      );
-    } catch (err) {
-      if (!isMissingSchemaError(err)) throw err;
-    }
+    );
   }
 
   const args = [
@@ -434,19 +416,14 @@ export async function listTariffPlans({
     filters.push(`status = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT ${TARIFF_PLAN_RETURNING} FROM tariff_plans
        WHERE ${filters.join(' AND ')}
        ORDER BY is_default DESC, display_name
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
-    );
-    return { plans: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { plans: [], count: 0 };
-    throw err;
-  }
+  );
+  return { plans: rows, count: rows.length };
 }
 
 export async function upsertTariffItem({
@@ -532,19 +509,14 @@ export async function listTariffItems({
     filters.push(`service_kind = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT ${TARIFF_ITEM_RETURNING} FROM tariff_items
        WHERE ${filters.join(' AND ')}
        ORDER BY service_kind, service_code
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
-    );
-    return { items: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { items: [], count: 0 };
-    throw err;
-  }
+  );
+  return { items: rows, count: rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -629,19 +601,14 @@ export async function listPackages({
     filters.push(`base_specialty = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT ${PACKAGE_RETURNING} FROM packages
        WHERE ${filters.join(' AND ')}
        ORDER BY display_name
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
-    );
-    return { packages: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { packages: [], count: 0 };
-    throw err;
-  }
+  );
+  return { packages: rows, count: rows.length };
 }
 
 export async function addPackageItem({
@@ -686,8 +653,7 @@ export async function addPackageItem({
 export async function listPackageItems({ tenantId = null, packageId } = {}) {
   const tid = resolveTenantId({ tenantId });
   const pkgId = normalizeId(packageId, 'package_id');
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, tenant_id, package_id, service_code, service_kind,
               display_name, quantity, unit_price_minor, is_included,
               notes, metadata, created_at, updated_at
@@ -695,12 +661,8 @@ export async function listPackageItems({ tenantId = null, packageId } = {}) {
        WHERE tenant_id = $1::uuid AND package_id = $2
        ORDER BY service_kind, service_code`,
       tid, pkgId,
-    );
-    return { items: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { items: [], count: 0 };
-    throw err;
-  }
+  );
+  return { items: rows, count: rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -771,19 +733,14 @@ export async function listPayerTariffLinks({
     filters.push(`status = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT ${LINK_RETURNING} FROM payer_tariff_links
        WHERE ${filters.join(' AND ')}
        ORDER BY is_primary DESC, created_at DESC
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
-    );
-    return { links: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { links: [], count: 0 };
-    throw err;
-  }
+  );
+  return { links: rows, count: rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -827,8 +784,7 @@ export async function resolveServicePrice({
     params.push(date);
   }
 
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT ti.id AS tariff_item_id,
               ti.tariff_plan_id,
               ti.service_code,
@@ -855,12 +811,8 @@ export async function resolveServicePrice({
        ORDER BY ptl.is_primary DESC, tp.is_default DESC
        LIMIT 1`,
       ...params,
-    );
-    return rows[0] || null;
-  } catch (err) {
-    if (isMissingSchemaError(err)) return null;
-    throw err;
-  }
+  );
+  return rows[0] || null;
 }
 
 export const __testing__ = {

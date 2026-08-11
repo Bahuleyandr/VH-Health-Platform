@@ -41,10 +41,6 @@ function resolveTenantId(options = {}) {
   return requireTenantId(options.tenantId);
 }
 
-function isMissingSchemaError(err) {
-  return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
-}
-
 function daysBetween(startDate, endDate) {
   const start = new Date(`${startDate}T00:00:00Z`);
   const end = new Date(`${endDate}T00:00:00Z`);
@@ -471,41 +467,46 @@ async function inferHistoricalDemand({ tenantId, department, startDate, endDate 
     { code: 'evening', slots: 3 },
     { code: 'night', slots: 2 },
   ];
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT shift_code, AVG(shift_count)::numeric(10,2) AS avg_count
        FROM (
          SELECT
-           CASE
-             WHEN EXTRACT(HOUR FROM start_time) BETWEEN 7 AND 14 THEN 'morning'
-             WHEN EXTRACT(HOUR FROM start_time) BETWEEN 15 AND 22 THEN 'evening'
-             ELSE 'night'
-           END AS shift_code,
-           DATE(start_time) AS shift_date,
+            CASE
+              WHEN EXTRACT(HOUR FROM ss.start_time) BETWEEN 7 AND 14 THEN 'morning'
+              WHEN EXTRACT(HOUR FROM ss.start_time) BETWEEN 15 AND 22 THEN 'evening'
+              ELSE 'night'
+            END AS shift_code,
+           d.shift_date::date AS shift_date,
            COUNT(*) AS shift_count
-         FROM shifts
-         WHERE department = $1
-           AND start_time >= NOW() - INTERVAL '30 days'
-         GROUP BY shift_code, DATE(start_time)
+         FROM generate_series(
+                CURRENT_DATE - INTERVAL '29 days',
+                CURRENT_DATE,
+                INTERVAL '1 day'
+              ) AS d(shift_date)
+         JOIN staff_shift_assignments ssa
+           ON ssa.tenant_id = $1::uuid
+          AND ssa.effective_from <= d.shift_date::date
+          AND (ssa.effective_to IS NULL OR ssa.effective_to >= d.shift_date::date)
+         JOIN staff_shifts ss
+           ON ss.id = ssa.shift_id
+          AND ss.tenant_id = ssa.tenant_id
+          AND ss.is_active = true
+         WHERE ss.department = $2
+         GROUP BY shift_code, d.shift_date::date
        ) historical
        GROUP BY shift_code`,
+      tenantId,
       department
-    ).catch(() => []);
+    );
 
-    if (rows.length > 0) {
-      const map = new Map(rows.map((r) => [r.shift_code, Math.max(1, Math.round(Number(r.avg_count)))]));
-      return days.flatMap((date) => baseline.map((b) => ({
-        date,
-        shift_code: b.code,
-        slots_needed: map.get(b.code) ?? b.slots,
-      })));
-    }
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.debug('Historical demand inference skipped', { error: err.message });
-    }
+  if (rows.length > 0) {
+    const map = new Map(rows.map((r) => [r.shift_code, Math.max(1, Math.round(Number(r.avg_count)))]));
+    return days.flatMap((date) => baseline.map((b) => ({
+      date,
+      shift_code: b.code,
+      slots_needed: map.get(b.code) ?? b.slots,
+    })));
   }
-  void tenantId;
   return days.flatMap((date) => baseline.map((b) => ({
     date,
     shift_code: b.code,
@@ -529,21 +530,7 @@ async function loadStaffPool({ tenantId, department }) {
      ORDER BY s.name`,
     tenantId,
     department || ''
-  ).catch(async () => {
-    // Fallback for the legacy users table that may not have tenant_id /
-    // department columns yet.
-    return prisma.$queryRawUnsafe(
-      `SELECT uid AS staff_uid, name,
-              '[]'::jsonb AS preferred_shifts,
-              '{}'::date[] AS unavailable_dates,
-              5 AS max_shifts_per_week,
-              10 AS min_rest_hours
-       FROM users
-       WHERE is_active = true
-         AND role IN ('DOCTOR', 'NURSING_STAFF')
-       LIMIT 50`
-    ).catch(() => []);
-  });
+  );
   return rows.map((r) => ({
     staff_uid: r.staff_uid,
     name: r.name,
@@ -601,9 +588,7 @@ export async function generateRoster({
 
   const plan = planRoster({ demand, staff, strategy, timeoutMs: solverTimeoutMs });
 
-  let runId = null;
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO staff_roster_runs
          (tenant_id, department, start_date, end_date, requested_by, status,
           total_slots, filled_slots, coverage_gap_count, preference_conflict_count,
@@ -629,13 +614,8 @@ export async function generateRoster({
         solver_fallback_reason: plan.solver_fallback_reason || null,
         solver_metadata: plan.solver_metadata || null,
       })
-    );
-    runId = rows[0]?.id || null;
-  } catch (err) {
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Roster run persist failed', { error: err.message });
-    }
-  }
+  );
+  const runId = rows[0]?.id || null;
 
   return {
     run_id: runId,
@@ -682,8 +662,7 @@ export async function discardRoster({ runId, tenantId = null } = {}) {
 export async function listRosterRuns({ tenantId = null, department = null, status = null, limit = 30 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 30, 1), 200);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT id, department, start_date, end_date, status, total_slots, filled_slots,
               coverage_gap_count, preference_conflict_count, published_at, created_at
        FROM staff_roster_runs
@@ -696,12 +675,8 @@ export async function listRosterRuns({ tenantId = null, department = null, statu
       department,
       status,
       safeLimit
-    );
-    return { runs: rows, count: rows.length };
-  } catch (err) {
-    if (isMissingSchemaError(err)) return { runs: [], count: 0 };
-    throw err;
-  }
+  );
+  return { runs: rows, count: rows.length };
 }
 
 export default {

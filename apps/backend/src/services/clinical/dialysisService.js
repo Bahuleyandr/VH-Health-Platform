@@ -60,6 +60,7 @@ export function validateReuseRegisterInput(body = {}) {
 
 export function buildMachineQaWarnings(log, machineNo) {
   if (!machineNo) return ['Machine number missing; QA log cannot be matched'];
+  if (log?.lookup_unavailable === true) return [`Machine QA status unavailable for ${machineNo}; manual verification required`];
   if (!log) return [`No same-day machine QA log for ${machineNo}`];
   const warnings = [];
   if (log.warn_only !== true) warnings.push('Machine QA log is not marked warn-only');
@@ -169,7 +170,7 @@ async function getSameDayMachineQaLog(tenantId, machineNo, db = prisma) {
     tenantOr(tenantId), String(machineNo),
   ).catch((err) => {
     logger.warn('dialysis machine QA lookup failed', { tenantId, machineNo, error: err.message });
-    return [];
+    return [{ lookup_unavailable: true }];
   });
   return unwrap(rows) || null;
 }
@@ -182,10 +183,7 @@ async function getSessionBillingConfig(tenantId) {
       WHERE tenant_id = $1::uuid
       LIMIT 1`,
     tenantOr(tenantId),
-  ).catch((err) => {
-    logger.warn('dialysis billing settings lookup failed', { tenantId, error: err.message });
-    return [];
-  });
+  );
   return unwrap(rows) || null;
 }
 
@@ -907,7 +905,7 @@ async function maybeEmitDialysisBillingLine({ tenantId, session, actorUid = null
         LIMIT 1`,
       tenantOr(tenantId),
       String(session.id),
-    ).catch(() => []);
+    );
     if (duplicate.length) {
       return {
         status: 'already_emitted',

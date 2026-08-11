@@ -272,7 +272,7 @@ export async function createNote(data) {
       prisma.admissions.findFirst({ where: { encounter_id }, select: { id: true } }),
       prisma.emergency_visits.findFirst({ where: { encounter_id }, select: { id: true } }),
       prisma.patient_encounters?.findFirst
-        ? prisma.patient_encounters.findFirst({ where: { id: encounter_id }, select: { id: true } }).catch(() => null)
+        ? prisma.patient_encounters.findFirst({ where: { id: encounter_id }, select: { id: true } })
         : Promise.resolve(null),
     ]);
     if (!admissionEnc && !erEnc && !canonicalEnc) {
@@ -373,9 +373,6 @@ export async function createNote(data) {
           note_type,
           source: 'clinical_notes.create',
         },
-      }).catch((err) => {
-        logger.warn(`Canonical OP encounter ensure failed for appointment=${appointmentIdNum}: ${err?.message || err}`);
-        return null;
       });
       resolvedEncounterId = encounter?.id || null;
     }

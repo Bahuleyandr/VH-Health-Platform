@@ -334,18 +334,11 @@ export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid)
   if (rawEncounterId == null || rawEncounterId === '') return null;
   const raw = String(rawEncounterId).trim();
   if (UUID_RE.test(raw)) {
-    try {
-      const rows = await prisma.$queryRawUnsafe(
+    const rows = await prisma.$queryRawUnsafe(
         `SELECT id FROM admissions WHERE encounter_id = $1::uuid LIMIT 1`,
         raw,
-      );
-      if (rows.length) return Number(rows[0].id);
-    } catch (e) {
-      logger.warn('Radiology order: admissions lookup failed for encounter_id uuid', {
-        encounter_id: raw, patient_uid: patientUid, err: e?.message ?? String(e),
-      });
-      return null;
-    }
+    );
+    if (rows.length) return Number(rows[0].id);
     logger.warn('Radiology order: encounter_id uuid did not match any admission; storing null', {
       encounter_id: raw, patient_uid: patientUid,
     });
@@ -363,24 +356,15 @@ export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid)
 
 async function resolveCanonicalEncounterUuid(db, order) {
   if (!order?.encounter_id) return null;
-  try {
-    const rows = await db.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
       `SELECT encounter_id
          FROM admissions
         WHERE id = $1::int AND patient_uid = $2::uuid
         LIMIT 1`,
       Number(order.encounter_id),
       order.patient_uid,
-    );
-    return rows[0]?.encounter_id || null;
-  } catch (err) {
-    logger.warn('Radiology canonical encounter resolution failed', {
-      orderId: order.id,
-      encounter_id: order.encounter_id,
-      err: err?.message ?? String(err),
-    });
-    return null;
-  }
+  );
+  return rows[0]?.encounter_id || null;
 }
 
 async function emitRadiologyCanonicalEvent(db, order, eventType, {
@@ -1272,7 +1256,7 @@ class RadiologyService {
           WHERE tenant_id = $1::uuid AND radiology_order_id = $2::int`,
         scopedTenantId,
         requireIntId(id),
-      ).catch(() => []);
+      );
       if (metrics[0]) await maybeEmitTatAlert(tx, metrics[0]);
       return { ...row, diagnostic_generation: diagnosticGeneration };
     });
@@ -1471,9 +1455,7 @@ class RadiologyService {
 
     if (filters.emitAlerts !== false) {
       for (const metric of result.metrics.filter((row) => row.threshold_breached)) {
-        await setTenantTx(tenantId, (tx) => maybeEmitTatAlert(tx, metric)).catch((err) => {
-          logger.warn('Radiology TAT alert emission failed', { orderId: metric.radiology_order_id, err: err.message });
-        });
+        await setTenantTx(tenantId, (tx) => maybeEmitTatAlert(tx, metric));
       }
     }
     return result;

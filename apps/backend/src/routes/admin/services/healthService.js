@@ -26,12 +26,8 @@ export async function getModuleHealth() {
   const health = {};
 
   const exists = async (sql, ...params) => {
-    try {
-      const r = await prisma.$queryRawUnsafe(sql, ...params);
-      return r.length > 0;
-    } catch {
-      return false;
-    }
+    const r = await prisma.$queryRawUnsafe(sql, ...params);
+    return r.length > 0;
   };
 
   // Users

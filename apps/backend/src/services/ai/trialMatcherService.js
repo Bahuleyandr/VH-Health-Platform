@@ -10,7 +10,6 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -56,7 +55,7 @@ async function buildPatientProfile(patientUid) {
      WHERE patient_uid = $1::uuid
        AND status = 'active'`,
     patientUid
-  ).catch(() => []);
+  );
 
   return {
     uid: user?.uid || patientUid,
@@ -140,8 +139,7 @@ export async function matchPatientAgainstTrials({ patientUid, admissionId = null
 
   let persisted = 0;
   for (const row of scored) {
-    try {
-      await prisma.$queryRawUnsafe(
+    await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_trial_match_results
            (tenant_id, patient_uid, admission_id, trial_id, match_score, match_reasons, coordinator_decision, scored_at)
          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, 'pending', NOW())
@@ -152,13 +150,8 @@ export async function matchPatientAgainstTrials({ patientUid, admissionId = null
         row.trial.id,
         row.score,
         JSON.stringify(row.reasons)
-      );
-      persisted += 1;
-    } catch (err) {
-      if (!/does not exist/i.test(String(err?.message || ''))) {
-        logger.warn('Trial match persist failed', { trial: row.trial.nct_id, error: err.message });
-      }
-    }
+    );
+    persisted += 1;
   }
 
   return {
@@ -325,8 +318,7 @@ export async function upsertTrial({
 export async function listTrialMatches({ tenantId = null, decision = null, limit = 50 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
       `SELECT m.id, m.patient_uid, u.name AS patient_name, m.admission_id, m.trial_id,
               t.nct_id, t.title, t.phase, m.match_score, m.match_reasons, m.coordinator_decision,
               m.decided_by, m.decided_at, m.scored_at
@@ -340,12 +332,8 @@ export async function listTrialMatches({ tenantId = null, decision = null, limit
       tid,
       decision,
       safeLimit
-    );
-    return { matches: rows, count: rows.length };
-  } catch (err) {
-    if (/does not exist/i.test(String(err?.message || ''))) return { matches: [], count: 0 };
-    throw err;
-  }
+  );
+  return { matches: rows, count: rows.length };
 }
 
 export async function decideTrialMatch({ tenantId = null, matchId, decision, decidedBy = null } = {}) {
