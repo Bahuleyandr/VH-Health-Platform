@@ -29,8 +29,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   setTenant: setTenantMock,
 }));
 
+const loggerWarnMock = jest.fn();
 jest.unstable_mockModule('../../logging/logger.js', () => ({
-  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  default: { info: jest.fn(), warn: loggerWarnMock, error: jest.fn(), debug: jest.fn() },
 }));
 
 const sendToUserMock = jest.fn();
@@ -119,13 +120,27 @@ describe('sendPushNotification — guards', () => {
 });
 
 describe('sendPushNotification — message shape', () => {
-  it('normal priority uses the FCM notification block', async () => {
-    await sendPushNotification({ tokens: 'tok-1', title: 'T', body: 'B', data: { k: 'v' } });
+  it('normal priority replaces remote display copy with a private lock-screen envelope', async () => {
+    await sendPushNotification({
+      tokens: 'tok-1',
+      title: 'Investigation Report Ready',
+      body: 'Patient Alex: biopsy result is ready',
+      data: {
+        k: 'v',
+        title: 'Injected title',
+        body: 'Injected body',
+      },
+    });
 
     const message = sendEachForMulticastMock.mock.calls[0][0];
-    expect(message.notification).toEqual({ title: 'T', body: 'B' });
+    expect(message.notification).toEqual({
+      title: 'VH Health',
+      body: 'You have a new update. Open the app to view it.',
+    });
     expect(message.data).toEqual({ k: 'v', click_action: 'FLUTTER_NOTIFICATION_CLICK' });
-    expect(message.android).toBeUndefined();
+    expect(message.android).toEqual({
+      notification: { visibility: 'private' },
+    });
     expect(message.apns).toBeUndefined();
   });
 
@@ -233,6 +248,8 @@ describe('sendPushNotification — invalid token deactivation', () => {
       expect(['tenant-1', 'tenant-2']).toContain(tenantId);
       expect(invalidTokens).toEqual(['stale', 'bogus']);
     }
+    expect(loggerWarnMock.mock.calls.flat().join(' ')).not.toContain('stale');
+    expect(loggerWarnMock.mock.calls.flat().join(' ')).not.toContain('bogus');
   });
 
   it('leaves transiently-failed tokens alone', async () => {

@@ -133,6 +133,7 @@ class NotificationScheduler {
           channelDescription: _patientPushChannelDescription,
           importance: Importance.high,
           priority: Priority.high,
+          visibility: NotificationVisibility.private,
         ),
         iOS: DarwinNotificationDetails(),
       ),
