@@ -6,11 +6,13 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/services/deep_link_service.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/patient_notification_privacy.dart';
+import 'package:vhhealth/core/services/patient_notification_tap_gate.dart';
 
 class PushNotificationService {
   PushNotificationService._();
@@ -21,6 +23,10 @@ class PushNotificationService {
   static String? _currentPhone;
   static NotificationProvider? _notificationProvider;
   static bool _initialMessageHandled = false;
+  static final _notificationTapGate = PatientNotificationTapGate(
+    revalidateSession: () => PatientOutageController.instance.probeNow(),
+    navigate: AppRouter.router.go,
+  );
 
   static bool get _canUseMessaging {
     if (kIsWeb) return false;
@@ -34,24 +40,27 @@ class PushNotificationService {
     await NotificationScheduler.initialize();
 
     _messageSub ??= FirebaseMessaging.onMessage.listen(_handleForeground);
-    _messageOpenSub ??= FirebaseMessaging.onMessageOpenedApp.listen(
-      _routeRemoteMessage,
-    );
+    _messageOpenSub ??= FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      unawaited(_routeRemoteMessage(message));
+    });
   }
 
-  static Future<void> syncForSignedInUser({
+  static Future<bool> syncForSignedInUser({
     required String phone,
     NotificationProvider? notificationProvider,
+    bool routeInitialMessage = true,
   }) async {
-    if (!_canUseMessaging || phone.isEmpty || phone == 'guest') return;
+    if (!_canUseMessaging || phone.isEmpty || phone == 'guest') return false;
 
     _currentPhone = phone;
     _notificationProvider = notificationProvider;
     await configureHandlers();
-    await routeInitialMessageIfAny();
+    final initialMessageRouted = routeInitialMessage
+        ? await routeInitialMessageIfAny()
+        : false;
 
     final granted = await _requestNotificationPermission();
-    if (!granted) return;
+    if (!granted) return initialMessageRouted;
 
     try {
       final token = await FirebaseMessaging.instance.getToken();
@@ -69,6 +78,7 @@ class PushNotificationService {
       if (phone == null || phone.isEmpty || phone == 'guest') return;
       unawaited(_uploadToken(phone: phone, token: token));
     });
+    return initialMessageRouted;
   }
 
   static void clearSignedInUser() {
@@ -76,14 +86,15 @@ class PushNotificationService {
     _notificationProvider = null;
   }
 
-  static Future<void> routeInitialMessageIfAny() async {
-    if (!_canUseMessaging || _initialMessageHandled) return;
+  static Future<bool> routeInitialMessageIfAny() async {
+    if (!_canUseMessaging || _initialMessageHandled) return false;
     _initialMessageHandled = true;
     try {
       final initial = await FirebaseMessaging.instance.getInitialMessage();
-      if (initial != null) _routeRemoteMessage(initial);
+      return initial != null && await _routeRemoteMessage(initial);
     } catch (e) {
       if (kDebugMode) debugPrint('FCM initial message read failed: $e');
+      return false;
     }
   }
 
@@ -169,18 +180,15 @@ class PushNotificationService {
     }
   }
 
-  static void _routeRemoteMessage(RemoteMessage message) {
-    final route = routeFromPayload(normalizedPayload(message));
-    if (route != null) AppRouter.router.go(route);
-  }
+  static Future<bool> _routeRemoteMessage(RemoteMessage message) =>
+      _notificationTapGate.open(normalizedPayload(message));
 
   static void _handleLocalNotificationPayload(String payload) {
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map) return;
       final data = decoded.map((key, value) => MapEntry(key.toString(), value));
-      final route = routeFromPayload(data);
-      if (route != null) AppRouter.router.go(route);
+      unawaited(_notificationTapGate.open(data));
     } catch (e) {
       if (kDebugMode) debugPrint('Push notification payload rejected: $e');
     }

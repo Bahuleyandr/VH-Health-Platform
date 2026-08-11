@@ -206,16 +206,18 @@ class _LoginFormState extends State<LoginForm> {
         hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
       );
       if (!mounted) return;
-      await PushNotificationService.syncForSignedInUser(
-        phone: phone,
-        notificationProvider: context.read<NotificationProvider>(),
-      );
+      final notificationTapRouted =
+          await PushNotificationService.syncForSignedInUser(
+            phone: phone,
+            notificationProvider: context.read<NotificationProvider>(),
+            routeInitialMessage: !isNewUser,
+          );
       if (!mounted) return;
       // /profile-setup needs the phone via state.extra so the form's
       // submit can pass it to /complete-profile.
       if (isNewUser) {
         context.go('/profile-setup', extra: phone);
-      } else {
+      } else if (!notificationTapRouted) {
         context.go(_postLoginRoute);
       }
     } catch (e, st) {
@@ -338,15 +340,17 @@ class _LoginFormState extends State<LoginForm> {
           hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
         );
         if (!mounted) return;
-        await PushNotificationService.syncForSignedInUser(
-          phone: phoneNumber,
-          notificationProvider: context.read<NotificationProvider>(),
-        );
+        final notificationTapRouted =
+            await PushNotificationService.syncForSignedInUser(
+              phone: phoneNumber,
+              notificationProvider: context.read<NotificationProvider>(),
+              routeInitialMessage: targetRoute != '/profile-setup',
+            );
         if (!mounted) return;
 
         if (targetRoute == '/profile-setup') {
           context.go('/profile-setup', extra: phoneNumber);
-        } else {
+        } else if (!notificationTapRouted) {
           context.go(_postLoginRoute);
         }
       }

@@ -136,12 +136,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
         );
         if (!mounted) return;
-        await PushNotificationService.syncForSignedInUser(
-          phone: widget.phone,
-          notificationProvider: context.read<NotificationProvider>(),
-        );
+        final notificationTapRouted =
+            await PushNotificationService.syncForSignedInUser(
+              phone: widget.phone,
+              notificationProvider: context.read<NotificationProvider>(),
+            );
         if (!mounted) return;
-        context.go('/home');
+        if (!notificationTapRouted) context.go('/home');
       }
     }
     if (mounted) setState(() => _isSubmitting = false);
@@ -157,12 +158,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
     );
     if (!mounted) return;
-    await PushNotificationService.syncForSignedInUser(
-      phone: widget.phone,
-      notificationProvider: context.read<NotificationProvider>(),
-    );
+    final notificationTapRouted =
+        await PushNotificationService.syncForSignedInUser(
+          phone: widget.phone,
+          notificationProvider: context.read<NotificationProvider>(),
+        );
     if (!mounted) return;
-    context.go('/home');
+    if (!notificationTapRouted) context.go('/home');
   }
 
   String _formatDate(DateTime? date) => date == null
