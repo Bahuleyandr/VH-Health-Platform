@@ -588,10 +588,3 @@ export const requiresAuth = (endpoint: string): boolean =>
     if (route.endsWith("*")) return endpoint.startsWith(route.slice(0, -1));
     return endpoint === route;
   });
-
-// Endpoint mapping for legacy compatibility
-export const ENDPOINT_MAPPING: Record<string, string> = {
-  // Map old endpoints to new ones if needed
-  '/admin/upload/': '/admin/uploads/',
-  '/admin/staff/attendance/': '/admin/attendance/',
-};
