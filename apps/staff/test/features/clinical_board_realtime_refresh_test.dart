@@ -134,6 +134,48 @@ void main() {
     },
   );
 
+  testWidgets(
+    'theatre background refresh retains data on failure and clears the error on recovery',
+    (tester) async {
+      var loads = 0;
+      final controller = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(controller.close);
+
+      await _pumpTheatre(
+        tester,
+        TheatreScreen(
+          loadSchedule: ({required String date}) async {
+            loads += 1;
+            if (loads == 2) throw Exception('transient theatre outage');
+            return <Map<String, dynamic>>[
+              {
+                'id': loads,
+                'procedure_name': loads == 1
+                    ? 'Retained theatre case'
+                    : 'Recovered theatre case',
+                'status': 'scheduled',
+              },
+            ];
+          },
+          loadAvailability: (_) async => <Map<String, dynamic>>[],
+          realtimeEvents: (_) => controller.stream,
+        ),
+      );
+
+      expect(find.text('Retained theatre case'), findsOneWidget);
+      controller.add(_event('staff:or-board', 'status-changed'));
+      await tester.pump(const Duration(milliseconds: 401));
+      await tester.pump();
+      expect(find.text('Retained theatre case'), findsOneWidget);
+      expect(find.textContaining('transient theatre outage'), findsNothing);
+
+      controller.add(_event('staff:or-board', 'status-changed'));
+      await tester.pump(const Duration(milliseconds: 401));
+      await tester.pumpAndSettle();
+      expect(find.text('Recovered theatre case'), findsOneWidget);
+    },
+  );
+
   testWidgets('lab bookings subscribes to staff:lab and debounces nudges', (
     tester,
   ) async {
@@ -178,6 +220,42 @@ void main() {
     controller.add(_event('staff:lab', 'result-signed'));
     await tester.pump(const Duration(milliseconds: 500));
     expect(loads, 2);
+  });
+
+  testWidgets('lab background refresh retains the last-known booking', (
+    tester,
+  ) async {
+    var loads = 0;
+    final controller = StreamController<RealtimeEvent>.broadcast();
+    addTearDown(controller.close);
+
+    await _pumpLabBookings(
+      tester,
+      LabBookingsScreen(
+        loadBookings: () async {
+          loads += 1;
+          if (loads == 2) throw Exception('transient lab outage');
+          return <String, dynamic>{
+            'data': <Map<String, dynamic>>[
+              {
+                'id': 91,
+                'status': 'BOOKED',
+                'patient_name': 'Retained Lab Patient',
+                'test_names': <String>['CBC'],
+              },
+            ],
+          };
+        },
+        realtimeEvents: (_) => controller.stream,
+      ),
+    );
+
+    expect(find.text('Retained Lab Patient'), findsOneWidget);
+    controller.add(_event('staff:lab', 'result-pending'));
+    await tester.pump(const Duration(milliseconds: 401));
+    await tester.pump();
+    expect(find.text('Retained Lab Patient'), findsOneWidget);
+    expect(find.textContaining('transient lab outage'), findsNothing);
   });
 
   testWidgets(

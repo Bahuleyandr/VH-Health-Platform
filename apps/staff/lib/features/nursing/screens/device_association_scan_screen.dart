@@ -5,6 +5,17 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
+typedef ClinicalDeviceLoader = Future<List<Map<String, dynamic>>> Function();
+typedef DeviceAssociationLoader =
+    Future<List<Map<String, dynamic>>> Function({required String patientUid});
+typedef DeviceAssociator =
+    Future<Map<String, dynamic>> Function({
+      required String patientUid,
+      required String deviceCode,
+    });
+typedef DeviceAssociationDisconnector =
+    Future<Map<String, dynamic>> Function(int id);
+
 enum _DeviceAssocStep { scanPatient, scanDevice, review }
 
 class DeviceAssociationScanScreen extends StatefulWidget {
@@ -12,10 +23,18 @@ class DeviceAssociationScanScreen extends StatefulWidget {
     super.key,
     this.initialPatientUid,
     this.patientName,
+    this.loadDevices,
+    this.loadAssociations,
+    this.associateDevice,
+    this.disconnectAssociation,
   });
 
   final String? initialPatientUid;
   final String? patientName;
+  final ClinicalDeviceLoader? loadDevices;
+  final DeviceAssociationLoader? loadAssociations;
+  final DeviceAssociator? associateDevice;
+  final DeviceAssociationDisconnector? disconnectAssociation;
 
   @override
   State<DeviceAssociationScanScreen> createState() =>
@@ -79,7 +98,8 @@ class _DeviceAssociationScanScreenState
 
   Future<void> _loadDevices() async {
     try {
-      final rows = await MedicalApiService.listClinicalDevices();
+      final rows =
+          await (widget.loadDevices ?? MedicalApiService.listClinicalDevices)();
       if (mounted) setState(() => _devices = rows);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -90,9 +110,11 @@ class _DeviceAssociationScanScreenState
     final patientUid = _patientUid;
     if (patientUid == null) return;
     try {
-      final rows = await MedicalApiService.listDeviceAssociations(
-        patientUid: patientUid,
-      );
+      final rows = widget.loadAssociations == null
+          ? await MedicalApiService.listDeviceAssociations(
+              patientUid: patientUid,
+            )
+          : await widget.loadAssociations!(patientUid: patientUid);
       if (mounted) setState(() => _associations = rows);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -108,10 +130,17 @@ class _DeviceAssociationScanScreenState
       _error = null;
     });
     try {
-      await MedicalApiService.associateDevice(
-        patientUid: patientUid,
-        deviceCode: deviceCode,
-      );
+      if (widget.associateDevice == null) {
+        await MedicalApiService.associateDevice(
+          patientUid: patientUid,
+          deviceCode: deviceCode,
+        );
+      } else {
+        await widget.associateDevice!(
+          patientUid: patientUid,
+          deviceCode: deviceCode,
+        );
+      }
       await _loadAssociations();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -121,7 +150,7 @@ class _DeviceAssociationScanScreenState
       );
       setState(() => _step = _DeviceAssocStep.review);
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -130,7 +159,11 @@ class _DeviceAssociationScanScreenState
   Future<void> _disconnect(int id) async {
     setState(() => _busy = true);
     try {
-      await MedicalApiService.disconnectDeviceAssociation(id);
+      if (widget.disconnectAssociation == null) {
+        await MedicalApiService.disconnectDeviceAssociation(id);
+      } else {
+        await widget.disconnectAssociation!(id);
+      }
       await _loadAssociations();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -141,7 +174,7 @@ class _DeviceAssociationScanScreenState
         ),
       );
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -192,18 +225,31 @@ class _DeviceAssociationScanScreenState
         )
         ? _deviceCode
         : null;
-    return DropdownButtonFormField<String>(
-      initialValue: selectedCode,
-      items: _devices.map((device) {
-        final code = device['device_code']?.toString() ?? '';
-        final name = device['display_name']?.toString() ?? code;
-        return DropdownMenuItem(value: code, child: Text('$name - $code'));
-      }).toList(),
-      onChanged: (value) => setState(() => _deviceCode = value),
-      decoration: InputDecoration(
-        labelText: s.lookup('device_assoc.pick_device'),
-        border: const OutlineInputBorder(),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<String>(
+          initialValue: selectedCode,
+          items: _devices.map((device) {
+            final code = device['device_code']?.toString() ?? '';
+            final name = device['display_name']?.toString() ?? code;
+            return DropdownMenuItem(value: code, child: Text('$name - $code'));
+          }).toList(),
+          onChanged: (value) => setState(() => _deviceCode = value),
+          decoration: InputDecoration(
+            labelText: s.lookup('device_assoc.pick_device'),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: selectedCode == null || selectedCode.isEmpty || _busy
+              ? null
+              : _associate,
+          icon: const Icon(Icons.link),
+          label: const AppText('device_assoc.title'),
+        ),
+      ],
     );
   }
 

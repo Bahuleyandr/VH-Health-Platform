@@ -8,6 +8,12 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
+@visibleForTesting
+const queueInProgressFilterStatus = 'IN_PROGRESS';
+
+@visibleForTesting
+const queueInProgressUpdateStatus = 'IN_PROGRESS';
+
 class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key});
 
@@ -65,7 +71,7 @@ class _QueueScreenState extends State<QueueScreen> {
       );
       final inProgress = await ScheduleApiService.getAppointments(
         date: today,
-        status: 'in-progress',
+        status: queueInProgressFilterStatus,
         limit: 50,
       );
       final completed = await ScheduleApiService.getAppointments(
@@ -133,7 +139,10 @@ class _QueueScreenState extends State<QueueScreen> {
     if (id.isEmpty) return;
 
     try {
-      await ScheduleApiService.updateAppointmentStatus(id, 'in-progress');
+      await ScheduleApiService.updateAppointmentStatus(
+        id,
+        queueInProgressUpdateStatus,
+      );
       setState(() => _consultationStart = DateTime.now());
       unawaited(_load());
     } catch (e) {

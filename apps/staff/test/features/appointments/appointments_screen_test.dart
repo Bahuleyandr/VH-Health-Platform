@@ -5,6 +5,66 @@ import 'package:vhhealth_staff/features/appointments/screens/appointments_screen
 
 void main() {
   group('appointment calendar helpers', () {
+    test('patient lookup results are bound to the edited phone generation', () {
+      expect(
+        appointmentPatientLookupResultIsCurrent(
+          capturedGeneration: 4,
+          currentGeneration: 4,
+          capturedPhone: '+91 98765 43210',
+          currentPhone: '9876543210',
+        ),
+        isTrue,
+      );
+      expect(
+        appointmentPatientLookupResultIsCurrent(
+          capturedGeneration: 4,
+          currentGeneration: 5,
+          capturedPhone: '9876543210',
+          currentPhone: '9123456780',
+        ),
+        isFalse,
+      );
+    });
+
+    test('booking fails closed until the current phone lookup completes', () {
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '9876543210',
+          verifiedPhone: null,
+          lookupBusy: true,
+          lookupFailed: false,
+        ),
+        isFalse,
+      );
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '9876543210',
+          verifiedPhone: null,
+          lookupBusy: false,
+          lookupFailed: true,
+        ),
+        isFalse,
+      );
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '9123456780',
+          verifiedPhone: '9876543210',
+          lookupBusy: false,
+          lookupFailed: false,
+        ),
+        isFalse,
+      );
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '+91 98765 43210',
+          verifiedPhone: '9876543210',
+          lookupBusy: false,
+          lookupFailed: false,
+        ),
+        isTrue,
+      );
+    });
+
     test(
       'status filters include rescheduled visits for same-day traceability',
       () {

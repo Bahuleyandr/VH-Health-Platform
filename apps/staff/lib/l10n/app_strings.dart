@@ -6766,7 +6766,7 @@ class AppStrings {
           "Clear doctor or department filter",
       's4.lib.appointments.collapse_queue_panel': "Collapse queue panel",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "Could not check registry now; new-patient booking is available",
+          "Could not check registry; retry before booking",
       's4.lib.appointments.could_not_load_doctors': "Could not load doctors",
       's4.lib.appointments.create_appointment': "Create Appointment",
       's4.lib.appointments.creating': "Creating...",
@@ -13172,7 +13172,7 @@ class AppStrings {
           "डॉक्टर या विभाग फ़िल्टर साफ़ करें",
       's4.lib.appointments.collapse_queue_panel': "कतार पैनल को संक्षिप्त करें",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "अभी रजिस्ट्री जांच नहीं हो सकी; नए मरीज की बुकिंग उपलब्ध है",
+          "रजिस्ट्री जांच नहीं हो सकी; बुकिंग से पहले फिर कोशिश करें",
       's4.lib.appointments.could_not_load_doctors': "डॉक्टर लोड नहीं हो सके",
       's4.lib.appointments.create_appointment': "अपॉइंटमेंट बनाएं",
       's4.lib.appointments.creating': "बनाया जा रहा है...",
@@ -20089,7 +20089,7 @@ class AppStrings {
           "மருத்துவர் அல்லது துறை வடிகட்டியை அழிக்கவும்",
       's4.lib.appointments.collapse_queue_panel': "வரிசை பேனலைச் சுருக்கு",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "இப்போது பதிவேட்டைச் சரிபார்க்க முடியவில்லை; புதிய நோயாளி முன்பதிவு கிடைக்கிறது",
+          "பதிவேட்டைச் சரிபார்க்க முடியவில்லை; முன்பதிவு செய்வதற்கு முன் மீண்டும் முயற்சிக்கவும்",
       's4.lib.appointments.could_not_load_doctors':
           "மருத்துவர்களை ஏற்ற முடியவில்லை",
       's4.lib.appointments.create_appointment': "நியமனத்தை உருவாக்கவும்",
@@ -27088,7 +27088,7 @@ class AppStrings {
           "డాక్టర్ లేదా డిపార్ట్‌మెంట్ ఫిల్టర్‌ను క్లియర్ చేయండి",
       's4.lib.appointments.collapse_queue_panel': "క్యూ ప్యానెల్‌ను కుదించు",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "ఇప్పుడు రిజిస్ట్రీని తనిఖీ చేయలేకపోయాం; కొత్త రోగి బుకింగ్ అందుబాటులో ఉంది",
+          "రిజిస్ట్రీని తనిఖీ చేయలేకపోయాం; బుకింగ్‌కు ముందు మళ్లీ ప్రయత్నించండి",
       's4.lib.appointments.could_not_load_doctors':
           "వైద్యులను లోడ్ చేయలేకపోయాం",
       's4.lib.appointments.create_appointment': "అపాయింట్‌మెంట్ సృష్టించండి",

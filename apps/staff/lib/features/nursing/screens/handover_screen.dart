@@ -75,8 +75,11 @@ class _HandoverScreenState extends State<HandoverScreen>
       _refreshDebounce?.cancel();
       _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
         if (mounted) {
-          _loadRecentNotes();
-          _loadPrehospitalHandovers(showLoading: false);
+          _loadRecentNotes(showLoading: false);
+          _loadPrehospitalHandovers(
+            showLoading: false,
+            preserveLastKnownData: true,
+          );
         }
       });
     });
@@ -92,8 +95,8 @@ class _HandoverScreenState extends State<HandoverScreen>
     super.dispose();
   }
 
-  Future<void> _loadRecentNotes() async {
-    setState(() => _loadingNotes = true);
+  Future<void> _loadRecentNotes({bool showLoading = true}) async {
+    if (showLoading) setState(() => _loadingNotes = true);
     try {
       // Fetch recent handover notes via notifications or consultations
       final phone = await ApiConfig.getPhone();
@@ -117,7 +120,10 @@ class _HandoverScreenState extends State<HandoverScreen>
     }
   }
 
-  Future<void> _loadPrehospitalHandovers({bool showLoading = true}) async {
+  Future<void> _loadPrehospitalHandovers({
+    bool showLoading = true,
+    bool preserveLastKnownData = false,
+  }) async {
     if (showLoading && mounted) setState(() => _loadingPrehospital = true);
     try {
       final handovers =
@@ -125,7 +131,9 @@ class _HandoverScreenState extends State<HandoverScreen>
       if (mounted) setState(() => _prehospitalHandovers = handovers);
     } catch (e) {
       if (mounted) {
-        setState(() => _prehospitalHandovers = const []);
+        if (!preserveLastKnownData || _prehospitalHandovers.isEmpty) {
+          setState(() => _prehospitalHandovers = const []);
+        }
       }
     } finally {
       if (mounted) setState(() => _loadingPrehospital = false);
@@ -238,8 +246,11 @@ class _HandoverScreenState extends State<HandoverScreen>
 
   Future<void> _refreshHandoverBoards() async {
     await Future.wait([
-      _loadRecentNotes(),
-      _loadPrehospitalHandovers(showLoading: false),
+      _loadRecentNotes(showLoading: false),
+      _loadPrehospitalHandovers(
+        showLoading: false,
+        preserveLastKnownData: true,
+      ),
     ]);
   }
 
