@@ -49,7 +49,7 @@ const FY = '2098-99';
 // Unique uid / phone / employee_id prefixes so this suite never collides.
 // (Hex-only v4 UUIDs — 'pay…' literals are not valid UUIDs and 22P02 the cast.)
 const STAFF_UID = 'a0500001-0001-4d00-8d00-a05000000001'; // main GENERAL_STAFF: salary config + payslip + HR self-service
-const STAFF2_UID = 'a0500002-0002-4d00-8d00-a05000000002'; // fresh GENERAL_STAFF: no payslip → OwnTaxSummary 'unavailable'
+const STAFF2_UID = 'a0500002-0002-4d00-8d00-a05000000002'; // fresh GENERAL_STAFF: no payslip → tax summary 404
 const HR_UID = 'a0500003-0003-4d00-8d00-a05000000003'; // ADMIN-role HR signer (hr-sign)
 const ADMIN_UID = 'a0500004-0004-4d00-8d00-a05000000004'; // ADMIN-role admin signer (admin-sign) — distinct uid for SoD
 
@@ -119,7 +119,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
   let admin; // ADMIN signer (admin-sign side of dual control)
   let hr; // ADMIN-role HR signer (hr-sign side); distinct uid
   let staff; // GENERAL_STAFF token whose uid owns the seeded payslip
-  let staff2; // fresh GENERAL_STAFF token (no payslip) for the 'unavailable' tax branch
+  let staff2; // fresh GENERAL_STAFF token (no payslip) for the missing-summary contract
 
   let runId;
   let payslipId;
@@ -186,9 +186,8 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
 
     // Second staff also gets a config (so runPayroll produces a payslip for them
     // too — though we only need STAFF_UID's payslip; STAFF2 stays without an
-    // ISSUED payslip for the 'unavailable' tax branch by NOT issuing this run for
-    // them... they ARE in the run, but we drive the unavailable branch with a FY
-    // that has no payslips at all).
+    // ISSUED payslip for the missing-summary contract by NOT issuing this run for
+    // them. They are in the run, but the contract uses an FY with no payslips.
     const upsert2 = await admin.post(`${ADMIN_BASE}/payroll/salary/${STAFF2_UID}`).send({
       basic_salary: 25000, employee_id: 'PAYDEEP-002', department: 'General Medicine',
     });
@@ -636,7 +635,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
 
   // ════════════════════════════════════════════════════════════════════════
   // 6. HR self-service (STAFF token owning a payslip): the remaining GET shapes
-  //    + the populated/unavailable branches of the own-tax-summary endpoint.
+  //    + the populated and missing-summary branches of the own-tax-summary endpoint.
   //    (declarations/submit + queries/raise POSTs were exercised in test 5.)
   // ════════════════════════════════════════════════════════════════════════
   it('HR self-service: my-payslips / advances / declarations / queries / tax-summary validate their schemas', async () => {
@@ -689,15 +688,16 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     expect(taxPopulated.statusCode).toBe(200);
     assertResponse('GET', `${HR_BASE}/payroll/tax-summary`, taxPopulated.body);
     expect(taxPopulated.body.data.financial_year).toBe(populatedFY);
-    expect(taxPopulated.body.data.status).not.toBe('unavailable'); // has payslips
+    expect(typeof taxPopulated.body.data.total_net).toBe('string');
 
-    // GET /payroll/tax-summary 'unavailable' branch: a fresh staff with NO issued
-    // payslips → status 'unavailable', numeric-zero totals. Same schema (loose).
-    const taxUnavailable = await staff2.get(`${HR_BASE}/payroll/tax-summary?fy=2050-51`);
-    expect(taxUnavailable.statusCode).toBe(200);
-    assertResponse('GET', `${HR_BASE}/payroll/tax-summary`, taxUnavailable.body);
-    expect(taxUnavailable.body.data.status).toBe('unavailable');
-    expect(taxUnavailable.body.data.total_net).toBe(0); // JS number-zero branch
+    // A fresh staff member with no issued payslips has no authoritative summary.
+    const taxMissing = await staff2.get(`${HR_BASE}/payroll/tax-summary?fy=2050-51`);
+    expect(taxMissing.statusCode).toBe(404);
+    assertResponse('GET', `${HR_BASE}/payroll/tax-summary`, taxMissing.body, 404);
+    expect(taxMissing.body).toEqual(expect.objectContaining({
+      success: false,
+      message: 'No issued payslips found for this financial year',
+    }));
   });
 });
 

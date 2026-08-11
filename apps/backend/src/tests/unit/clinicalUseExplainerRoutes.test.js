@@ -33,6 +33,8 @@ const generateOpDifferentialRedFlagsMock = jest.fn();
 const generateOpFollowUpPlanMock = jest.fn();
 const generateOpReferralDraftMock = jest.fn();
 const auditMock = jest.fn();
+const TENANT = '00000000-0000-4000-8000-000000000001';
+const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 
 jest.unstable_mockModule('../../services/ai/patientExplainersService.js', () => ({
   generateInvoicePatientExplanation: generateInvoiceMock,
@@ -75,7 +77,14 @@ jest.unstable_mockModule('../../services/ai/workflowCheckpointStore.js', () => (
 jest.unstable_mockModule('../../services/ai/workflowGraphRunner.js', () => ({
   resumeWorkflow: jest.fn(),
 }));
-const __prismaDefaultMock = { $queryRawUnsafe: jest.fn(() => Promise.resolve([])) };
+const __prismaDefaultMock = {
+  $queryRawUnsafe: jest.fn((sql) => {
+    if (/\bFROM\s+tenants\b/i.test(String(sql))) {
+      return Promise.resolve([{ id: TENANT, settings: {} }]);
+    }
+    return Promise.resolve([]);
+  }),
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
   isTenantTransactionClient: () => true,
@@ -95,9 +104,6 @@ jest.unstable_mockModule('../../routes/admin/clinicalAi/shared.js', () => ({
 }));
 
 const router = (await import('../../routes/admin/clinicalAi/clinicalUseRoutes.js')).default;
-
-const TENANT = '00000000-0000-4000-8000-000000000001';
-const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 
 function makeApp({ role = 'DOCTOR', rawRole = null } = {}) {
   const app = express();
@@ -128,6 +134,7 @@ const sampleResult = {
 };
 
 beforeEach(() => {
+  __prismaDefaultMock.$queryRawUnsafe.mockClear();
   generateLabMock.mockReset().mockResolvedValue({ ...sampleResult, module_key: 'lab_patient_explanation' });
   generateRadiologyMock.mockReset().mockResolvedValue({ ...sampleResult, module_key: 'radiology_patient_explanation' });
   generateReportMock.mockReset().mockResolvedValue({ ...sampleResult });

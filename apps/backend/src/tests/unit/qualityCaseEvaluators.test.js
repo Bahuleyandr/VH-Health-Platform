@@ -117,12 +117,11 @@ describe('evaluateQualityCaseReview (quality_case_review)', () => {
     expect(candidates).toHaveLength(0);
   });
 
-  it('returns [] gracefully when table does not exist', async () => {
-    mockQueryRawUnsafe.mockRejectedValueOnce(
-      new Error('relation "quality_incidents" does not exist')
-    );
-    const candidates = await evaluate({ tenantId: TENANT, now: NOW });
-    expect(candidates).toHaveLength(0);
+  it('propagates a missing authoritative quality-incidents table', async () => {
+    const queryError = new Error('relation "quality_incidents" does not exist');
+    mockQueryRawUnsafe.mockRejectedValueOnce(queryError);
+
+    await expect(evaluate({ tenantId: TENANT, now: NOW })).rejects.toBe(queryError);
   });
 
   it('returns multiple candidates for multiple open incidents', async () => {
@@ -176,12 +175,11 @@ describe('evaluateReadmissionRca (rca_draft_generator)', () => {
     expect(candidates).toHaveLength(0);
   });
 
-  it('returns [] gracefully when table does not exist', async () => {
-    mockQueryRawUnsafe.mockRejectedValueOnce(
-      new Error('relation "admissions" does not exist')
-    );
-    const candidates = await evaluate({ tenantId: TENANT, now: NOW });
-    expect(candidates).toHaveLength(0);
+  it('propagates a missing authoritative admissions table', async () => {
+    const queryError = new Error('relation "admissions" does not exist');
+    mockQueryRawUnsafe.mockRejectedValueOnce(queryError);
+
+    await expect(evaluate({ tenantId: TENANT, now: NOW })).rejects.toBe(queryError);
   });
 
   it('returns multiple candidates for multiple readmissions', async () => {
