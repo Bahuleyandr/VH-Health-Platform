@@ -13,7 +13,10 @@
 // fallback). Self-skips without a DB.
 
 import prisma from '../lib/prisma.js';
-import { recordAssessment } from '../services/clinical/nursingAssessmentService.js';
+import {
+  recordAssessment,
+  scoreNews2,
+} from '../services/clinical/nursingAssessmentService.js';
 import { isNews2EscalationFresh } from '../services/clinical/news2Service.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -78,8 +81,20 @@ d('NEWS2 via nursing assessment escalates like the vitals path (audit 2026-08-10
       inputs: { rr: 26, spo2: 90, supplemental_o2: true, spo2_scale: 1 },
       assessed_by: NURSE,
     });
-    expect(saved.band).toBe('high');
+    expect(saved.band).toBeNull();
     expect(Number(saved.total_score)).toBe(8);
+    expect(saved.partial_score).toBe(true);
+    expect(saved.missing_params).toEqual(expect.arrayContaining([
+      'temperature',
+      'systolic_bp',
+      'heart_rate',
+      'consciousness',
+    ]));
+    expect(scoreNews2(saved.inputs)).toMatchObject({
+      band: null,
+      partial: true,
+      risk_band_available: false,
+    });
     expect(saved.assessed_at).toBeTruthy();
     expect(isNews2EscalationFresh(saved.assessed_at)).toBe(true);
 
