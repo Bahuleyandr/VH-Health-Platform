@@ -1126,8 +1126,7 @@ router.post(
       import('../../services/integrations/externalVitalsRecoveryService.js'),
     ]);
     const {
-      enqueueExternalRecoveryItem,
-      processNextItemTx,
+      enqueueAndProcessExternalRecoveryItem,
     } = recoveryService;
     const { validateI15FhirRecovery } = vitalsRecoveryService;
     const prepared = validateI15FhirRecovery({
@@ -1155,14 +1154,13 @@ router.post(
       },
       commandFingerprint: prepared.commandFingerprint,
     };
-    const queued = await enqueueExternalRecoveryItem(operation);
-    if (queued.held) {
+    const result = await enqueueAndProcessExternalRecoveryItem(operation);
+    if (result.held) {
       throw AppError.conflict(
         'Canonical I15 recovery marker is missing; owner reconciliation is required',
         'EXTERNAL_RECOVERY_MARKER_MISSING',
       );
     }
-    const result = queued.duplicate ? queued : await processNextItemTx(operation);
     return res.status(202).json({
       resourceType: 'Parameters',
       parameter: [{ name: 'recovery', valueString: JSON.stringify(result) }],

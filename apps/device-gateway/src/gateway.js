@@ -46,7 +46,7 @@ const SAFE_REASONS = new Set([
   'clock_skew', 'credential_refused', 'duplicate_conflict', 'foreign_pvc',
   'generation_mismatch', 'invalid_enrollment', 'marker_missing', 'not_replaying',
   'partition_mismatch', 'source_gap', 'source_identity_refused',
-  'source_time_ambiguous', 'spool_corrupt', 'token_mismatch',
+  'source_time_ambiguous', 'spool_corrupt', 'token_mismatch', 'legacy_disabled',
 ]);
 
 function safeReason(value, fallback = 'spool_corrupt') {
@@ -173,7 +173,7 @@ export class GatewayRuntime {
     spoolDir, backendClient, maxSpoolBytes = 50 * 1024 * 1024,
     controlIdTtlMs = 24 * 60 * 60 * 1000, maxControlIds = 100000,
     enrollments = [], clockEvidenceProvider = defaultClockEvidenceProvider,
-    stageHook = null,
+    stageHook = null, allowLegacy = false,
   }) {
     this.spoolDir = spoolDir;
     this.backendClient = backendClient;
@@ -184,6 +184,7 @@ export class GatewayRuntime {
     this.legacyAcceptQueues = new Map();
     this.controlIds = new Map();
     this.enrollments = enrollments.map(validateEnrollment);
+    this.allowLegacy = allowLegacy === true;
     this.clockEvidenceProvider = clockEvidenceProvider;
     this.stageHook = stageHook;
     this.partitionByEnrollment = new Map();
@@ -274,7 +275,7 @@ export class GatewayRuntime {
   }
 
   isReady() {
-    if (this.startupFault) return false;
+    if (this.startupFault || this.enrollments.length === 0) return false;
     return this.enrollments.every((enrollment) => this.partitionByEnrollment.has(this.enrollmentKey(enrollment)));
   }
 
@@ -354,7 +355,9 @@ export class GatewayRuntime {
         ? await this.acceptEnrolled(selection.enrollment, { message, meta, channel, sourceIp })
         : selection.listenerEnrolled
           ? (() => { throw Object.assign(new Error('source is not enrolled'), { code: 'SOURCE_NOT_ENROLLED' }); })()
-          : await this.acceptLegacy({ listener, sourceIp, message, meta, channel });
+          : this.allowLegacy
+            ? await this.acceptLegacy({ listener, sourceIp, message, meta, channel })
+            : (() => { throw Object.assign(new Error('legacy ingest is disabled'), { code: 'LEGACY_INGEST_DISABLED' }); })();
       const ref = result.partitionRef || sourceRef;
       mllpMessagesReceived.inc({ source_ref: ref, status: 'accepted' });
       gatewayAckLatency.observe({}, Number(process.hrtime.bigint() - started) / 1e9);
@@ -402,6 +405,7 @@ export class GatewayRuntime {
     if (err?.code === 'RECOVERY_MARKER_MISSING') return 'marker_missing';
     if (err?.code === 'SOURCE_IDENTITY_CHANGED') return 'source_identity_refused';
     if (err?.code === 'SOURCE_NOT_ENROLLED') return 'source_identity_refused';
+    if (err?.code === 'LEGACY_INGEST_DISABLED') return 'legacy_disabled';
     return 'spool_corrupt';
   }
 
@@ -1053,6 +1057,11 @@ export function enrollmentConfigFromEnv() {
   const parsed = JSON.parse(process.env.DEVICE_GATEWAY_I09_ENROLLMENTS || '[]');
   if (!Array.isArray(parsed)) throw new Error('DEVICE_GATEWAY_I09_ENROLLMENTS must be an array');
   return parsed.map(validateEnrollment);
+}
+
+export function legacyIngestEnabledFromEnv(env = process.env) {
+  return env.NODE_ENV !== 'production'
+    && String(env.DEVICE_GATEWAY_ALLOW_LEGACY || '').trim().toLowerCase() === 'true';
 }
 
 // The cold-chain HTTP listener is opt-in: it starts only when

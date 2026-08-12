@@ -689,10 +689,10 @@ model annual_review_reminders {
   created_at       DateTime?         @default(now()) @db.Timestamptz(6)
   tenant_id        String            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   salary_revisions salary_revisions? @relation(fields: [revision_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users            users?            @relation(fields: [staff_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  users            users?            @relation(fields: [tenant_id, staff_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_annual_review_reminders_staff_tenant")
   tenants          tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_annual_review_reminders_tenant")
 
-  @@unique([staff_uid, review_year])
+  @@unique([tenant_id, staff_uid, review_year], map: "ux_annual_review_reminders_tenant_staff_year")
   @@index([review_year], map: "idx_annual_review_year")
   @@index([tenant_id], map: "idx_annual_review_reminders_tenant_id")
 }
@@ -8051,6 +8051,7 @@ model payroll_runs {
   payslips                               payslips[]
 
   @@unique([tenant_id, month, year], map: "uniq_payroll_runs_tenant_month_year")
+  @@unique([tenant_id, id], map: "ux_payroll_runs_tenant_id")
   @@index([month, year], map: "idx_payroll_runs")
   @@index([status], map: "idx_payroll_runs_status")
   @@index([tenant_id], map: "idx_payroll_runs_tenant_id")
@@ -8143,12 +8144,12 @@ model payslips {
   advance_deductions         advance_deductions[]
   leave_encashments          leave_encashments[]
   payslip_queries            payslip_queries[]
+  payroll_runs               payroll_runs?        @relation(fields: [tenant_id, payroll_run_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_payroll_run_tenant")
+  users                      users?               @relation(fields: [tenant_id, staff_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_staff_tenant")
   tenants                    tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_tenant")
-  payroll_runs               payroll_runs?        @relation(fields: [payroll_run_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users                      users?               @relation(fields: [staff_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
   salary_arrears             salary_arrears[]
 
-  @@unique([staff_uid, month, year])
+  @@unique([tenant_id, staff_uid, month, year], map: "ux_payslips_tenant_staff_period")
   @@index([month, year], map: "idx_payslips_month")
   @@index([staff_uid], map: "idx_payslips_staff")
   @@index([manually_edited], map: "idx_payslips_manually_edited", where: raw("(manually_edited = true)"))

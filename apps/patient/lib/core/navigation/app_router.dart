@@ -179,23 +179,8 @@ class AppRouter {
         // Provider may not be available during initial build.
       }
 
-      // The router historically gated on FirebaseAuth.currentUser only,
-      // which conflated Firebase OTP state with backend session state. A
-      // Firebase signOut (token expiry, debug-only dev login that bypasses
-      // Firebase, etc.) would bounce a perfectly authenticated user back
-      // to /login. For route PROTECTION either signal is sufficient:
-      // Firebase user OR a backend session. For the /login auto-redirect
-      // below, only the backend session counts (see that branch).
-      final currentUser = FirebaseAuth.instance.currentUser;
       final providerPhone = userProvider?.phone ?? '';
       final isGuestSession = providerPhone == 'guest';
-      // Backend-session signal. Fast path: UserProvider is hydrated by the
-      // splash screen and the login flows, and cleared by every logout / 401
-      // path, so a non-empty phone is a reliable in-memory "we have a
-      // backend session" signal. It spares the keystore-backed storage read
-      // below on most navigations.
-      bool hasBackendSession = !isGuestSession && providerPhone.isNotEmpty;
-      bool isLoggedIn = currentUser != null || hasBackendSession;
       final location = state.matchedLocation;
 
       // Skip redirect on splash screen to let it handle navigation
@@ -203,29 +188,21 @@ class AppRouter {
         return null;
       }
 
-      // Secure-storage backstop for the backend-session signal. Two cases
-      // need the read:
-      //  * neither in-memory signal said yes (cold start, partial storage,
-      //    Firebase-token-expired or dev-login sessions);
-      //  * we are on /login with ONLY the Firebase signal — the post-OTP
-      //    auto-redirect must gate on backend-login completion, so confirm
-      //    whether the JWT actually exists yet.
-      if (!hasBackendSession && (!isLoggedIn || location == '/login')) {
+      // Route authority comes only from a backend JWT. Firebase identity and
+      // cached profile fields are inputs to login/hydration, never substitutes
+      // for the API session that protects patient data.
+      bool hasBackendSession = false;
+      if (!isGuestSession) {
         try {
           final jwt = await VHSecureStorage.instance.read(key: 'jwt');
-          // Don't treat any non-empty secure-storage value as an
-          // authenticated session — require a JWT-shaped string.
           hasBackendSession = _hasValidJwtShape(jwt);
-          isLoggedIn = isLoggedIn || hasBackendSession;
         } catch (_) {
-          // Storage read failure → fall through to Firebase-only signal.
+          // Storage failure is fail-closed for protected navigation.
         }
       }
+      final isLoggedIn = hasBackendSession;
 
-      final isAuthRoute =
-          location == '/login' ||
-          location == '/terms' ||
-          location == '/profile-setup';
+      final isAuthRoute = location == '/login' || location == '/terms';
 
       final isGuestAllowedRoute =
           location == '/home' ||

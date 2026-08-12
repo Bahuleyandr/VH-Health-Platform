@@ -285,7 +285,7 @@ import { tickAdminKpi } from './kpiAggregator.js';
 import { tickDailyOps } from './dailyOpsBroadcaster.js';
 import { tickTeleconsultOps } from './teleconsultOpsBroadcaster.js';
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
-import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
+import { sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
 import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { executeCleanup } from './r2CleanupJob.js';
@@ -706,9 +706,6 @@ if (process.env.NODE_ENV !== 'test') {
     await cleanupBackups(path.resolve('backups', 'local'));
     await cleanupBackups(path.resolve('backups', 'render'));
   }));
-
-  // 🕗 Daily at 08:00 - Send appointment reminders (existing daily push-only)
-  registerCron('0 8 * * *', withJobLock('send-appointment-reminders', () => runForEachTenant('send-appointment-reminders', () => sendAppointmentReminders())));
 
   // ⏰ Every hour - Send 24h and 1h SMS+push appointment reminders
   registerCron('0 * * * *', withJobLock('timed-reminders', () => runForEachTenant('timed-reminders', () => sendTimedReminders())));
@@ -1247,7 +1244,6 @@ export async function runAllScheduledTasksNow() {
 
     // Heavy MUTATING / fan-out jobs — each fleet-wide single-runner via the
     // advisory lock so a boot stampede can't multiply patient SMS / escalations.
-    await withDbAdvisoryLock('send-appointment-reminders', () => runWithSuperAdmin(sendAppointmentReminders));
     await withDbAdvisoryLock('timed-reminders', () => runWithSuperAdmin(sendTimedReminders));
     await withDbAdvisoryLock('process-scheduled-notifications', () => runWithSuperAdmin(processPendingScheduledNotifications));
     await withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep));
@@ -1275,95 +1271,29 @@ export async function runAllScheduledTasksNow() {
 if (process.env.NODE_ENV !== 'test') {
   // ─── Payroll Crons ───────────────────────────────────────────────────────────
 
-  // 🗓️ Monthly on 1st at 06:00 — Auto-generate payroll for previous month
-  registerCron('0 6 1 * *', withJobLock('monthly-payroll', async () => {
-    logger.info('Scheduled Task: Monthly payroll generation...');
-    const now = new Date();
-    let month = now.getMonth(); // 0-based = last month
-    let year = now.getFullYear();
-    if (month === 0) { month = 12; year--; }
-
-    const {
-      calculatePayslip,
-      savePayslip,
-      recordPayrollFailure,
-      summarizePayrollRunOutcome,
-    } = await import('../services/staff/payrollService.js');
-
-    // Check if already done
-    const existing = await prisma.$queryRawUnsafe(
-      'SELECT id, status FROM payroll_runs WHERE month=$1 AND year=$2',
-      month, year
-    );
-    if (existing.length > 0 && existing[0].status === 'completed') {
-      logger.info(`Payroll for ${month}/${year} already completed`);
-      return;
-    }
-
-    // Get all active staff with salary config
-    const staffList = await prisma.$queryRawUnsafe(`
-      SELECT ss.staff_uid, u.name, u.role,
-             COALESCE(s.department, ss.department) as department
-      FROM staff_salary ss
-      JOIN users u ON ss.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.uid
-      WHERE ss.is_active = true
-    `);
-
-    // Create / reset run
-    const run = await prisma.$queryRawUnsafe(
-      // Clear the previous attempt's failure tally when re-running, so a run
-      // that dies before finalizing cannot leave a stale count on display.
-      `INSERT INTO payroll_runs (month, year, status)
-       VALUES ($1, $2, 'processing')
-       ON CONFLICT (tenant_id, month, year) DO UPDATE
-         SET status='processing', failed_staff_count=0, failed_staff=NULL
-       RETURNING id, month, year, status, total_staff, total_gross, total_net, total_deductions, created_at`,
-      month, year
-    );
-    const runId = run[0].id;
-
-    let processed = 0;
-    const failures = [];
-    let totalGross = 0, totalNet = 0, totalDeductions = 0;
-    for (const staff of staffList) {
-      try {
-        const calc = await calculatePayslip(staff.staff_uid, month, year);
-        await savePayslip(runId, calc);
-        totalGross += parseFloat(calc.gross_salary) || 0;
-        totalNet += parseFloat(calc.net_salary) || 0;
-        totalDeductions += parseFloat(calc.total_deductions) || 0;
-        processed++;
-      } catch (e) {
-        // One staff member's failure must not abort the others, but it must
-        // survive into the run record — an unpaid person is not a zero-paid one.
-        logger.error(`Payroll calc failed for ${staff.staff_uid}: ${e.message}`);
-        recordPayrollFailure(failures, staff.staff_uid, e);
-      }
-    }
-
-    const outcome = summarizePayrollRunOutcome({
-      processed, failures, totalGross, totalNet, totalDeductions,
-    });
-    await prisma.$queryRawUnsafe(
-      `UPDATE payroll_runs
-          SET status=$1, total_staff=$2, total_gross=$3, total_net=$4,
-              total_deductions=$5, failed_staff_count=$6, failed_staff=$7::jsonb
-        WHERE id=$8`,
-      outcome.status, outcome.total_staff, outcome.total_gross, outcome.total_net,
-      outcome.total_deductions, outcome.failed_staff_count,
-      JSON.stringify(outcome.failed_staff),
-      runId
-    );
-    if (outcome.failed_staff_count > 0) {
-      logger.error(
-        `Monthly payroll ${month}/${year} completed WITH ERRORS: ${processed} payslips written, ` +
-        `${outcome.failed_staff_count} staff failed — those staff have no payslip for this period`
+  if (process.env.ENABLE_AUTOMATED_PAYROLL_CRONS === 'true') {
+    // These financially mutating jobs are disabled by default. When explicitly
+    // enabled, every read/write runs once per tenant with an explicit tenant_id.
+    registerCron('0 6 1 * *', withJobLock('monthly-payroll', async () => {
+      const { runMonthlyPayrollForTenant } = await import('./payrollSchedulerJobs.js');
+      await runForEachTenant(
+        'monthly-payroll',
+        tenantId => runMonthlyPayrollForTenant(tenantId),
+        { strict: true },
       );
-    } else {
-      logger.info(`Monthly payroll generated: ${processed} payslips for ${month}/${year}`);
-    }
-  }));
+    }));
+
+    registerCron('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
+      const { runAnnualSalaryReviewForTenant } = await import('./payrollSchedulerJobs.js');
+      await runForEachTenant(
+        'annual-salary-review',
+        tenantId => runAnnualSalaryReviewForTenant(tenantId),
+        { strict: true },
+      );
+    }));
+  } else {
+    logger.info('Automated payroll and salary-review crons are disabled');
+  }
 
   // 🗓️ Weekly Monday 02:30 — ClinicalTrials.gov catalog sync for every active tenant
   registerCron('30 2 * * 1', withJobLock('trial-catalog-sync', async () => {
@@ -1447,19 +1377,4 @@ if (process.env.NODE_ENV !== 'test') {
     }),
   );
 
-  // 🗓️ Annual on Dec 1 at 08:00 — Annual salary review reminder
-  registerCron('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
-    logger.info('Scheduled Task: Annual salary review reminder...');
-    const year = new Date().getFullYear();
-    await prisma.$queryRawUnsafe(`
-      INSERT INTO annual_review_reminders (staff_uid, review_year, reminder_sent_at)
-      SELECT ss.staff_uid, $1, NOW()
-      FROM staff_salary ss
-      WHERE ss.is_active = true
-        AND ss.date_of_joining IS NOT NULL
-        AND ss.date_of_joining::date <= CURRENT_DATE - INTERVAL '11 months'
-      ON CONFLICT (staff_uid, review_year) DO NOTHING
-    `, year);
-    logger.info(`Annual review reminders created for ${year}`);
-  }));
 }

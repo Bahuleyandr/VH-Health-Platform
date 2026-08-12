@@ -156,6 +156,10 @@ Future<void> main() async {
       // runApp — splitting them across zones trips BindingBase.debugCheckZone
       // and surfaced as "Early crashes" in Crashlytics.
       WidgetsFlutterBinding.ensureInitialized();
+      if (kIsWeb) {
+        runApp(const StaffWebActivationHeldApp());
+        return;
+      }
       C0AReconciliationConfig.registerBeforeQueueStartup();
       ApiClient.onSessionExpired = (_) => _handleServerSessionExpired();
       // Fail fast on misconfigured production builds (audit finding H7): throws
@@ -435,6 +439,54 @@ Future<void> main() async {
       }
     },
   );
+}
+
+class StaffWebActivationHeldApp extends StatelessWidget {
+  const StaffWebActivationHeldApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'VH Health Staff Web',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF006C6A)),
+        useMaterial3: true,
+      ),
+      home: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: const Padding(
+                padding: EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_clock_outlined, size: 56),
+                    SizedBox(height: 20),
+                    Text(
+                      'Staff Web is not activated',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'Clinical sign-in and offline storage remain disabled until the browser session and durable-queue security gates are approved.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 void _recordFlutterFatalError(FlutterErrorDetails details) {

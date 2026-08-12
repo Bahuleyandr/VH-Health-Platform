@@ -336,7 +336,7 @@ export const runPayroll = async (req, res) => {
     for (const staff of staffList) {
       try {
         const calc = await calculatePayslip(staff.staff_uid, month, year);
-        const saved = await savePayslip(runId, calc);
+        const saved = await savePayslip(runId, calc, resolveTenantOrThrow(req));
 
         // ─── FEATURE 3: Process advance deductions after saving ──────────
         if (calc._advances_to_process?.length > 0) {

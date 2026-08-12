@@ -1,6 +1,6 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Last reconciled: 2026-08-12.**
+**Single source of truth for pending work. Last reconciled: 2026-08-13.**
 
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
@@ -9,13 +9,15 @@ remediation plans/work-order, the execution log, and the tenant-RLS gap
 analysis). Those source docs are now in [`archive/`](archive/) — see
 [§8](#8-archived-source-docs).
 
-**Code/CI state:** Audit #3 P0–P10 is merged at `main` @ `a4227ed93`.
-The final exact source head passed the protected full backend, Flutter, Admin,
-FHIR, contract, infrastructure, and security matrix. See the
-[`2026-08-11 Audit #3 final reconciliation`](archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md)
-for the closure matrix, updated rating, and evidence limitations. The remaining
-front of queue is the operator/external/procurement sequence in §§1–8; a code
-merge does not authorize any deployment or activation.
+**Code/CI state:** Audit #3 P0-P10 is merged, but the prior "engineering
+complete" conclusion was overstated. A live re-read at `github/main` @
+`831dbc86c` found residual messaging, recovery, scheduler, payroll, patient,
+Admin, Staff Web, and device-gateway gaps. They are consolidated on
+`fix/audit3-residual-remediation`; they are not counted as merged until the
+single protected PR lands. See the
+[`2026-08-11 Audit #3 corrected residual reconciliation`](archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md)
+for the per-finding matrix, evidence, rating, and activation limits. A code
+merge does not authorize deployment or activation.
 
 > **2026-07-05 — next chapter:** §0's engineering backlog (Tier 0/1/2) is complete.
 > The forward **build** program now lives in
@@ -23,10 +25,11 @@ merge does not authorize any deployment or activation.
 > NL-1–NL-12, waves A–D); its §2 absorbs this file's remaining T2/§5/§6 code items.
 > §§1–4 of THIS file remain the authoritative operator/go-live track.
 
-> **2026-08-12 — Audit #3:** the P0–P10 engineering train is complete on
-> `main`. Live identity/session inspection, runtime DB-role proof, migration-660
-> retention disposition, signed release digests, and the existing environment
-> drills remain operator-owned. Held surfaces remain inactive.
+> **2026-08-13 — Audit #3 correction:** P0-P10 closed most findings, not all.
+> The consolidated residual branch closes the remaining code-actionable paths
+> and strengthens fail-closed holds. Live identity/session inspection, runtime
+> DB-role proof, migration-660 retention disposition, signed release digests,
+> Forgejo parity, and environment drills remain operator-owned.
 
 ## Legend
 

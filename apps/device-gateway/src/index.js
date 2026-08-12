@@ -4,6 +4,7 @@ import {
   defaultSpoolDir,
   enrollmentConfigFromEnv,
   GatewayRuntime,
+  legacyIngestEnabledFromEnv,
   listenerConfigFromEnv,
   startGateway,
 } from './gateway.js';
@@ -20,6 +21,7 @@ const runtime = new GatewayRuntime({
   backendClient,
   maxSpoolBytes: Number(process.env.DEVICE_GATEWAY_MAX_SPOOL_BYTES || 50 * 1024 * 1024),
   enrollments: enrollmentConfigFromEnv(),
+  allowLegacy: legacyIngestEnabledFromEnv(),
 });
 
 const started = await startGateway({

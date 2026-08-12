@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { jest } from '@jest/globals';
-import { coldChainPortFromEnv, GatewayRuntime, startGateway } from '../src/gateway.js';
+import { coldChainPortFromEnv, GatewayRuntime, legacyIngestEnabledFromEnv, startGateway } from '../src/gateway.js';
 
 const message = (id = 'CTRL-1') => [
   `MSH|^~\\&|MON-ICU-01|ICU||VHHEALTH|20260707090000||ORU^R01|${id}|P|2.5`,
@@ -14,11 +14,36 @@ const message = (id = 'CTRL-1') => [
 
 async function tempRuntime(backendClient, maxSpoolBytes = 1024 * 1024) {
   const dir = await mkdtemp(join(tmpdir(), 'vh-gw-test-'));
-  const runtime = new GatewayRuntime({ spoolDir: dir, backendClient, maxSpoolBytes });
+  const runtime = new GatewayRuntime({ spoolDir: dir, backendClient, maxSpoolBytes, allowLegacy: true });
   return { dir, runtime };
 }
 
 describe('GatewayRuntime', () => {
+  it('is not ready and refuses legacy frames when no enrollment is configured', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vh-gw-held-test-'));
+    const runtime = new GatewayRuntime({ spoolDir: dir, backendClient: {} });
+    try {
+      await runtime.initialize();
+      expect(runtime.isReady()).toBe(false);
+      const result = await runtime.acceptFrame({
+        listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-HELD'),
+      });
+      expect(result).toMatchObject({ ackCode: 'AE', errorCode: 'LEGACY_INGEST_DISABLED' });
+      expect(runtime.legacySpools.size).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never enables legacy ingest in production', () => {
+    expect(legacyIngestEnabledFromEnv({
+      NODE_ENV: 'production', DEVICE_GATEWAY_ALLOW_LEGACY: 'true',
+    })).toBe(false);
+    expect(legacyIngestEnabledFromEnv({
+      NODE_ENV: 'development', DEVICE_GATEWAY_ALLOW_LEGACY: 'true',
+    })).toBe(true);
+  });
+
   it('ACKs AA only after durable spool append', async () => {
     const backend = {
       resolveDevice: jest.fn(async () => ({ device: { device_code: 'MON-ICU-01' }, patient_uid: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })),
@@ -105,7 +130,7 @@ describe('GatewayRuntime', () => {
     try {
       await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CRASH-1') });
       await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CRASH-2') });
-      const restarted = new GatewayRuntime({ spoolDir: dir, backendClient: backend });
+      const restarted = new GatewayRuntime({ spoolDir: dir, backendClient: backend, allowLegacy: true });
       await restarted.drainSource('MON-ICU-01');
       await restarted.drainSource('MON-ICU-01');
       expect(drained).toEqual(['CRASH-1', 'CRASH-2']);

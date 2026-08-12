@@ -290,7 +290,7 @@ class _SplashScreenState extends State<SplashScreen>
       }
 
       // ── 1. Firebase + JWT available → check profile, then dashboard ──
-      if (firebaseUser != null && jwt != null && mounted) {
+      if (firebaseUser != null && _hasValidJwtShape(jwt) && mounted) {
         final name = await _secureStorage.read(key: 'user_name');
         final isNewUser = await _secureStorage.read(key: 'isNewUser');
 
@@ -313,7 +313,9 @@ class _SplashScreenState extends State<SplashScreen>
       }
 
       // ── 2. Try biometric auth if enabled ──
-      if (biometricEnabled == 'true' && phone != null) {
+      if (biometricEnabled == 'true' &&
+          phone != null &&
+          _hasValidJwtShape(jwt)) {
         if (!mounted) return;
         final l = AppLocalizations.of(context)!;
         try {
@@ -360,6 +362,12 @@ class _SplashScreenState extends State<SplashScreen>
     if (mounted) {
       context.go('/login');
     }
+  }
+
+  bool _hasValidJwtShape(String? jwt) {
+    if (jwt == null || jwt.isEmpty) return false;
+    final parts = jwt.split('.');
+    return parts.length == 3 && parts.every((part) => part.isNotEmpty);
   }
 
   Future<void> _openStoreForUpdate() async {

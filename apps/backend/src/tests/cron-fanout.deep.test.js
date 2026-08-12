@@ -54,4 +54,13 @@ describe('W3 WS7 — cron fan-out', () => {
     expect(ranForB).toBe(true); // B still ran despite A's failure
     expect(res.tenantsRun).toBeGreaterThanOrEqual(2); // default + B
   });
+
+  it('strict mode still visits healthy tenants but rejects the aggregate run', async () => {
+    let ranForB = false;
+    await expect(runForEachTenant('test-strict', (tid) => {
+      if (tid === TENANT_A) throw new Error('boom for A');
+      if (tid === TENANT_B) ranForB = true;
+    }, { strict: true })).rejects.toThrow('tenant run(s) failed');
+    expect(ranForB).toBe(true);
+  });
 });

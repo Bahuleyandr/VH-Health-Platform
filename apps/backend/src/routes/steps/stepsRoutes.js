@@ -142,31 +142,46 @@ async function getTodayActivity(uid) {
 }
 
 // ─── POST /session/start ────────────────────────────────────────────────────
-// Creates a new active walk session; closes any existing active session first.
+// Creates a new active walk session or resumes the caller's existing one.
 router.post('/session/start', async (req, res) => {
   try {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    // Close any open session
-    await prisma.step_sessions.updateMany({
-      where: { user_uid: uid, is_active: true },
-      data: { is_active: false, ended_at: new Date() },
+    const result = await prisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+        `step-session:${uid}`,
+      );
+      const active = await tx.step_sessions.findFirst({
+        where: { user_uid: uid, is_active: true },
+        orderBy: { started_at: 'desc' },
+      });
+      if (active) return { session: active, resumed: true };
+
+      const session = await tx.step_sessions.create({
+        data: {
+          user_uid: uid,
+          started_at: new Date(),
+          is_active: true,
+          // CAN-012: the in-app pedometer walk is device-measured (the phone's
+          // step sensor) → attested reward_eligible=true. A future user-typed
+          // step entry must leave reward_eligible at its fail-safe default (false).
+          reward_eligible: true,
+        },
+      });
+      return { session, resumed: false };
     });
 
-    const session = await prisma.step_sessions.create({
-      data: {
-        user_uid: uid,
-        started_at: new Date(),
-        is_active: true,
-        // CAN-012: the in-app pedometer walk is device-measured (the phone's
-        // step sensor) → attested reward_eligible=true. A future user-typed
-        // step entry must leave reward_eligible at its fail-safe default (false).
-        reward_eligible: true,
+    return success(
+      res,
+      {
+        sessionId: result.session.id,
+        startedAt: result.session.started_at,
+        resumed: result.resumed,
       },
-    });
-
-    return success(res, { sessionId: session.id, startedAt: session.started_at }, 'Walk session started');
+      result.resumed ? 'Walk session resumed' : 'Walk session started',
+    );
   } catch (err) {
     logger.error('steps/session/start error', { error: err.message });
     return error(res, 'Failed to start session', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -181,19 +196,25 @@ router.post('/session/stop', async (req, res) => {
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const { sessionId, steps, distanceMeters, durationSeconds } = req.body;
-    if (!sessionId) return error(res, 'sessionId is required', HTTP_STATUS.BAD_REQUEST);
+    const parsedSessionId = Number(sessionId);
+    if (!Number.isSafeInteger(parsedSessionId) || parsedSessionId <= 0) {
+      return error(res, 'sessionId must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const existing = await prisma.step_sessions.findFirst({
-      where: { id: parseInt(sessionId, 10), user_uid: uid },
+      where: { id: parsedSessionId, user_uid: uid },
     });
     if (!existing) return error(res, 'Session not found', HTTP_STATUS.NOT_FOUND);
+    if (!existing.is_active) {
+      return success(res, { session: existing, duplicate: true }, 'Walk session already stopped');
+    }
 
     const updated = await prisma.step_sessions.update({
       where: { id: existing.id },
       data: {
-        steps: parseInt(steps, 10) || 0,
-        distance_meters: parseFloat(distanceMeters) || 0,
-        duration_seconds: parseInt(durationSeconds, 10) || 0,
+        steps: safeNonNegativeNumber(steps, { integer: true, max: 200000 }),
+        distance_meters: safeNonNegativeNumber(distanceMeters, { max: 500000 }),
+        duration_seconds: safeNonNegativeNumber(durationSeconds, { integer: true, max: 7 * 24 * 60 * 60 }),
         is_active: false,
         ended_at: new Date(),
       },
@@ -205,7 +226,7 @@ router.post('/session/stop', async (req, res) => {
       logger.warn('Gamification: step point award failed', { error: err.message })
     );
 
-    return success(res, { session: updated }, 'Walk session stopped');
+    return success(res, { session: updated, duplicate: false }, 'Walk session stopped');
   } catch (err) {
     logger.error('steps/session/stop error', { error: err.message });
     return error(res, 'Failed to stop session', HTTP_STATUS.INTERNAL_SERVER_ERROR);

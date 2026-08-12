@@ -21,8 +21,7 @@ import {
 import { createTask } from '../workflow/taskService.js';
 import { appendExternalRecoveryCriticalReviewObligationTx } from './externalRecoveryCriticalReviewService.js';
 import {
-  enqueueExternalRecoveryItem,
-  processNextItemTx,
+  enqueueAndProcessExternalRecoveryItem,
 } from './externalInterfaceRecoveryService.js';
 import { requireExternalRecoveryCapability } from './externalRecoveryEffectGate.js';
 import {
@@ -977,14 +976,14 @@ function toOperation(tenantId, prepared) {
 }
 
 async function enqueueAndProcess(operation) {
-  const queued = await enqueueExternalRecoveryItem(operation);
-  if (queued.held) {
+  const result = await enqueueAndProcessExternalRecoveryItem(operation);
+  if (result.held) {
     throw AppError.conflict(
       'Canonical laboratory recovery marker is missing; owner reconciliation is required',
       'EXTERNAL_RECOVERY_MARKER_MISSING',
     );
   }
-  return queued.duplicate ? queued : processNextItemTx(operation);
+  return result;
 }
 
 export async function ingestSequencedOruRecovery(input = {}, context = {}) {

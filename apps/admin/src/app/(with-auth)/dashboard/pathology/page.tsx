@@ -298,6 +298,15 @@ function PathologyDashboard() {
     onSuccess: () => invalidatePathology(),
   });
 
+  const workflowError = grossMutation.error
+    ?? blockMutation.error
+    ?? slideMutation.error
+    ?? reportMutation.error
+    ?? signMutation.error
+    ?? addendumMutation.error
+    ?? releaseHoldMutation.error
+    ?? releaseNowMutation.error;
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -387,7 +396,14 @@ function PathologyDashboard() {
                   {worklist.isLoading && (
                     <tr><td className="px-4 py-6 text-muted-foreground" colSpan={7}>Loading...</td></tr>
                   )}
-                  {!worklist.isLoading && (worklist.data ?? []).length === 0 && (
+                  {worklist.isError && (
+                    <tr><td className="px-4 py-6 text-red-700" colSpan={7}>
+                      <span role="alert">
+                        {worklist.error.message || "Failed to load the pathology worklist."}
+                      </span>
+                    </td></tr>
+                  )}
+                  {!worklist.isLoading && !worklist.isError && (worklist.data ?? []).length === 0 && (
                     <tr><td className="px-4 py-6 text-muted-foreground" colSpan={7}>No AP cases in the current worklist.</td></tr>
                   )}
                 </tbody>
@@ -399,6 +415,7 @@ function PathologyDashboard() {
             selectedCase={selectedCase}
             detail={detail.data}
             detailLoading={detail.isLoading}
+            detailError={detail.error}
             grossText={grossText}
             setGrossText={setGrossText}
             grossBusy={grossMutation.isPending}
@@ -429,7 +446,7 @@ function PathologyDashboard() {
             onReleaseHold={(hold) => releaseHoldMutation.mutate(hold)}
             releaseNowBusy={releaseNowMutation.isPending}
             onReleaseNow={() => releaseNowMutation.mutate()}
-            releaseError={releaseHoldMutation.error ?? releaseNowMutation.error}
+            actionError={workflowError}
           />
         </div>
       )}
@@ -493,6 +510,11 @@ function PathologyDashboard() {
                 <Plus className="h-4 w-4" />
                 Accession
               </button>
+              {accessionMutation.error && (
+                <p role="alert" className="mt-2 text-sm text-red-700">
+                  {accessionMutation.error.message || "Failed to accession the pathology case."}
+                </p>
+              )}
             </div>
           </div>
         </section>
@@ -528,6 +550,19 @@ function PathologyDashboard() {
                     <td className="px-4 py-3">{fmtDate(row.accessioned_at)}</td>
                   </tr>
                 ))}
+                {tatMetrics.isLoading && (
+                  <tr><td className="px-4 py-6 text-muted-foreground" colSpan={7}>Loading...</td></tr>
+                )}
+                {tatMetrics.isError && (
+                  <tr><td className="px-4 py-6 text-red-700" colSpan={7}>
+                    <span role="alert">
+                      {tatMetrics.error.message || "Failed to load turnaround metrics."}
+                    </span>
+                  </td></tr>
+                )}
+                {!tatMetrics.isLoading && !tatMetrics.isError && (tatMetrics.data ?? []).length === 0 && (
+                  <tr><td className="px-4 py-6 text-muted-foreground" colSpan={7}>No turnaround metrics are available.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -541,6 +576,7 @@ function WorkflowPanel(props: {
   selectedCase: ApCaseRow | null;
   detail?: ApCaseDetail;
   detailLoading: boolean;
+  detailError: Error | null;
   grossText: string;
   setGrossText: (value: string) => void;
   grossBusy: boolean;
@@ -571,7 +607,7 @@ function WorkflowPanel(props: {
   onReleaseHold: (hold: boolean) => void;
   releaseNowBusy: boolean;
   onReleaseNow: () => void;
-  releaseError: Error | null;
+  actionError: Error | null;
 }) {
   if (!props.selectedCase) {
     return (
@@ -603,6 +639,16 @@ function WorkflowPanel(props: {
         </div>
       </div>
       <div className="space-y-4 p-4">
+        {props.detailError && (
+          <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {props.detailError.message || "Failed to load pathology case details."}
+          </p>
+        )}
+        {props.actionError && (
+          <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {props.actionError.message || "The pathology workflow action failed."}
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-2 text-xs">
           <MiniStat icon={BookOpen} label="Gross" value={String(props.detail?.gross_records.length ?? (props.detailLoading ? "..." : 0))} />
           <MiniStat icon={Layers} label="Blocks" value={String(props.detail?.blocks.length ?? (props.detailLoading ? "..." : 0))} />
@@ -809,9 +855,6 @@ function WorkflowPanel(props: {
                 Release now
               </button>
             </div>
-            {props.releaseError && (
-              <p className="text-sm text-red-700">{props.releaseError.message}</p>
-            )}
           </ActionBox>
         )}
 

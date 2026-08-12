@@ -30,7 +30,7 @@ afterEach(() => {
 
 async function tempRuntime(backendClient) {
   const dir = await mkdtemp(join(tmpdir(), 'vh-gw-obs-test-'));
-  const runtime = new GatewayRuntime({ spoolDir: dir, backendClient });
+  const runtime = new GatewayRuntime({ spoolDir: dir, backendClient, allowLegacy: true });
   return { dir, runtime };
 }
 

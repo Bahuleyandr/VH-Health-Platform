@@ -7,6 +7,7 @@ import { HOSPITAL_UPLOAD_CONFIG } from '../../config/uploadConfig.js';
 import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import messagingService from '../../services/messaging/messagingService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredString, paramId, messageValidator } from '../../validators/sharedValidators.js';
@@ -82,6 +83,7 @@ router.post(
   validate,
   sanitizeMessageFields,
   guardPatientMessaging,
+  requireIdempotencyKey({ required: true, scope: 'staff_message_send' }),
   async (req, res, next) => {
     try {
       const senderUid = req.user?.uid;
@@ -130,6 +132,7 @@ router.post(
   validate,
   sanitizeMessageFields,
   guardPatientMessaging,
+  requireIdempotencyKey({ required: true, scope: 'staff_message_broadcast' }),
   async (req, res, next) => {
     try {
       const senderUid = req.user?.uid;

@@ -141,6 +141,7 @@ export async function recoveryRuntime({
   enrollments = [enrollment()],
   clockEvidenceProvider = async () => trustedClock(),
   stageHook = null,
+  allowLegacy = false,
 } = {}) {
   const owned = !dir;
   const root = dir || await mkdtemp(join(tmpdir(), 'vh-i09-gateway-test-'));
@@ -150,6 +151,7 @@ export async function recoveryRuntime({
     enrollments,
     clockEvidenceProvider,
     stageHook,
+    allowLegacy,
   });
   await runtime.initialize();
   return {
