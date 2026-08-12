@@ -61,6 +61,7 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   },
 }));
 const isUserTokensRevokedMock = jest.fn().mockResolvedValue(false);
+const isDelegatedTupleRevokedMock = jest.fn().mockResolvedValue(false);
 let transactionCommitHook = null;
 function liveDependent(overrides = {}) {
   return {
@@ -72,12 +73,19 @@ function liveDependent(overrides = {}) {
     is_deleted: false,
     deleted_at: null,
     merged_into_uid: null,
+    guardian_role: 'PATIENT',
+    guardian_is_active: true,
+    guardian_status: 'active',
+    guardian_is_deleted: false,
+    guardian_deleted_at: null,
+    guardian_merged_into_uid: null,
     ...overrides,
   };
 }
 const queryRawUnsafeMock = jest.fn().mockResolvedValue([liveDependent()]);
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
+  isDelegatedTupleRevoked: isDelegatedTupleRevokedMock,
   isUserTokensRevoked: isUserTokensRevokedMock,
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -107,6 +115,7 @@ const {
   initWebSocket,
   initWsFanout,
   pushSessionRevoked,
+  pushDelegatedSessionRevoked,
   sendToUser,
 } = await import('../../utils/websocket/wsServer.js');
 
@@ -129,6 +138,8 @@ describe('session revocation WebSocket closure', () => {
   beforeEach(() => {
     isUserTokensRevokedMock.mockReset();
     isUserTokensRevokedMock.mockResolvedValue(false);
+    isDelegatedTupleRevokedMock.mockReset();
+    isDelegatedTupleRevokedMock.mockResolvedValue(false);
     queryRawUnsafeMock.mockReset();
     queryRawUnsafeMock.mockResolvedValue([liveDependent()]);
     transactionCommitHook = null;
@@ -332,6 +343,34 @@ describe('session revocation WebSocket closure', () => {
     expect(siblingGuardianSocket.close).not.toHaveBeenCalled();
   });
 
+  it('closes only one guardian-dependent tuple while preserving direct and sibling sockets', async () => {
+    initWebSocket({});
+    const delegatedSocket = new FakeSocket();
+    const siblingDependentSocket = new FakeSocket();
+    const directGuardianSocket = new FakeSocket();
+    for (const socket of [delegatedSocket, siblingDependentSocket, directGuardianSocket]) {
+      serverInstance.clients.add(socket);
+    }
+    serverInstance.emit('connection', delegatedSocket, {
+      url: '/ws?token=delegated-ticket', headers: {},
+    });
+    serverInstance.emit('connection', siblingDependentSocket, {
+      url: '/ws?token=delegated-sibling-ticket', headers: {},
+    });
+    serverInstance.emit('connection', directGuardianSocket, {
+      url: '/ws?token=guardian-sibling-ticket', headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    pushDelegatedSessionRevoked('guardian-1', 'dependent-1', {
+      reason: 'dependent_unlinked',
+    });
+
+    expect(delegatedSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(siblingDependentSocket.close).not.toHaveBeenCalled();
+    expect(directGuardianSocket.close).not.toHaveBeenCalled();
+  });
+
   it('rejects a delegated handshake when the authenticated owner was revoked', async () => {
     isUserTokensRevokedMock.mockImplementation(async (uid) => uid === 'guardian-1');
     initWebSocket({});
@@ -384,11 +423,32 @@ describe('session revocation WebSocket closure', () => {
       ['guardian-1', 1000, 3],
       ['dependent-1', 1000, undefined],
     ]);
+    expect(isDelegatedTupleRevokedMock).toHaveBeenCalledWith(
+      'guardian-1',
+      'dependent-1',
+      1000,
+    );
     expect(socket.close).not.toHaveBeenCalled();
     expect(socket.send).toHaveBeenCalledWith(JSON.stringify({
       event: 'connected',
       userId: 'dependent-1',
     }));
+  });
+
+  it('rejects a replayed delegated ticket after that tuple was unlinked', async () => {
+    isDelegatedTupleRevokedMock.mockResolvedValueOnce(true);
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=delegated-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(socket.close).toHaveBeenCalledWith(4001, 'Delegated session revoked');
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 
   it('registers a delegated socket before the lifecycle lock releases', async () => {
@@ -415,6 +475,31 @@ describe('session revocation WebSocket closure', () => {
     ['merged', { merged_into_uid: 'survivor-1' }],
   ])(
     'rejects a delegated handshake when the dependent is %s',
+    async (_label, lifecycle) => {
+      queryRawUnsafeMock.mockResolvedValueOnce([liveDependent(lifecycle)]);
+      initWebSocket({});
+      const socket = new FakeSocket();
+      serverInstance.clients.add(socket);
+
+      serverInstance.emit('connection', socket, {
+        url: '/ws?token=delegated-ticket',
+        headers: {},
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(socket.close).toHaveBeenCalledWith(4001, 'Delegated subject unavailable');
+      expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining('connected'));
+    },
+  );
+
+  it.each([
+    ['inactive', { guardian_is_active: false }],
+    ['non-active status', { guardian_status: 'suspended' }],
+    ['deleted', { guardian_is_deleted: true, guardian_deleted_at: new Date().toISOString(), guardian_status: 'deleted' }],
+    ['merged', { guardian_merged_into_uid: 'survivor-1' }],
+    ['wrong-role', { guardian_role: 'NURSING_STAFF' }],
+  ])(
+    'rejects a delegated handshake when the guardian is %s',
     async (_label, lifecycle) => {
       queryRawUnsafeMock.mockResolvedValueOnce([liveDependent(lifecycle)]);
       initWebSocket({});

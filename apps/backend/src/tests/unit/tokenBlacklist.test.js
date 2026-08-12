@@ -26,14 +26,19 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 const pushSessionRevokedMock = jest.fn();
+const pushDelegatedSessionRevokedMock = jest.fn();
 jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
+  pushDelegatedSessionRevoked: pushDelegatedSessionRevokedMock,
   pushSessionRevoked: pushSessionRevokedMock,
   sendToUser: jest.fn(),
   broadcast: jest.fn(),
 }));
 
 const {
+  isDelegatedTupleRevoked,
   isUserTokensRevoked,
+  persistRevokeDelegatedTuple,
+  publishRevokeDelegatedTuple,
   revokeAllUserTokens,
   blacklistToken,
   getCurrentTokenEpoch,
@@ -46,6 +51,44 @@ beforeEach(() => {
   cacheGetMock.mockReset();
   cacheSetMock.mockReset();
   pushSessionRevokedMock.mockReset();
+  pushDelegatedSessionRevokedMock.mockReset();
+});
+
+describe('delegated tuple revocation', () => {
+  const guardianUid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const dependentUid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  it('checks a guardian-dependent watermark without bumping either identity epoch', async () => {
+    cacheGetMock.mockResolvedValueOnce(null);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(isDelegatedTupleRevoked(guardianUid, dependentUid, 1234)).resolves.toBe(true);
+
+    const [sql, marker, issuedAt] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).not.toMatch(/token_epoch/);
+    expect(marker).toBe(`user:delegated:${guardianUid}:${dependentUid}`);
+    expect(issuedAt).toBe(1234);
+  });
+
+  it('persists before publishing a tuple-scoped socket close', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000 }]);
+    cacheSetMock.mockResolvedValueOnce(true);
+
+    const revokedAt = await persistRevokeDelegatedTuple(guardianUid, dependentUid, {
+      reason: 'dependent_unlinked',
+    });
+    await publishRevokeDelegatedTuple(guardianUid, dependentUid, revokedAt, {
+      reason: 'dependent_unlinked',
+    });
+
+    expect(queryRawUnsafeMock.mock.invocationCallOrder[0])
+      .toBeLessThan(pushDelegatedSessionRevokedMock.mock.invocationCallOrder[0]);
+    expect(pushDelegatedSessionRevokedMock).toHaveBeenCalledWith(
+      guardianUid,
+      dependentUid,
+      expect.objectContaining({ reason: 'dependent_unlinked' }),
+    );
+  });
 });
 
 describe('tokenBlacklist revoke-all fallback', () => {

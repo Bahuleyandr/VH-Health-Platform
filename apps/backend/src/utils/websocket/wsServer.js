@@ -3,7 +3,11 @@
 import { WebSocketServer } from 'ws';
 import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
-import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
+import {
+  isDelegatedTupleRevoked,
+  isTokenBlacklisted,
+  isUserTokensRevoked,
+} from '../tokenBlacklist.js';
 import { authorizeChannel } from './channelAuth.js';
 import { createWsFanout } from './wsRedisAdapter.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
@@ -51,7 +55,13 @@ async function registerDelegatedClientIfLive(
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
-              dep.is_deleted, dep.deleted_at, dep.merged_into_uid
+              dep.is_deleted, dep.deleted_at, dep.merged_into_uid,
+              guardian.role AS guardian_role,
+              guardian.is_active AS guardian_is_active,
+              guardian.status AS guardian_status,
+              guardian.is_deleted AS guardian_is_deleted,
+              guardian.deleted_at AS guardian_deleted_at,
+              guardian.merged_into_uid AS guardian_merged_into_uid
          FROM users dep
          JOIN users guardian ON guardian.id = dep.guardian_user_id
         WHERE dep.uid = $1::uuid
@@ -65,6 +75,12 @@ async function registerDelegatedClientIfLive(
           AND dep.is_deleted = FALSE
           AND dep.deleted_at IS NULL
           AND dep.merged_into_uid IS NULL
+          AND guardian.role = 'PATIENT'
+          AND guardian.is_active = TRUE
+          AND guardian.status = 'active'
+          AND guardian.is_deleted = FALSE
+          AND guardian.deleted_at IS NULL
+          AND guardian.merged_into_uid IS NULL
         LIMIT 1
         FOR SHARE OF dep, guardian`,
       userId,
@@ -81,6 +97,12 @@ async function registerDelegatedClientIfLive(
       && subject.is_deleted === false
       && subject.deleted_at == null
       && subject.merged_into_uid == null
+      && subject.guardian_role === 'PATIENT'
+      && subject.guardian_is_active === true
+      && String(subject.guardian_status || '').trim().toLowerCase() === 'active'
+      && subject.guardian_is_deleted === false
+      && subject.guardian_deleted_at == null
+      && subject.guardian_merged_into_uid == null
     );
     if (live) registerClient();
     return live;
@@ -245,6 +267,15 @@ async function authenticateAndRegister(ws, token) {
         const subjectRevoked = await isUserTokensRevoked(userId, decoded.iat, undefined);
         if (subjectRevoked) {
           ws.close(4001, 'All sessions revoked');
+          return;
+        }
+        const tupleRevoked = await isDelegatedTupleRevoked(
+          revocationOwnerUid,
+          userId,
+          decoded.iat,
+        );
+        if (tupleRevoked) {
+          ws.close(4001, 'Delegated session revoked');
           return;
         }
       }
@@ -482,10 +513,23 @@ function deliverUserLocal(userId, event, data, tenantId) {
   const revokedStableDeviceId = isRevocation && data?.stableDeviceId
     ? String(data.stableDeviceId)
     : null;
+  const revokedDelegatedSubjectUid = isRevocation && data?.delegatedSubjectUid
+    ? String(data.delegatedSubjectUid)
+    : null;
   // Copy: closing a socket mutates `sockets` via the ws 'close' handler.
   for (const ws of [...sockets]) {
     const meta = socketMeta.get(ws);
     if (!tenantMatches(meta?.tenantId, tenantId)) continue;
+    if (
+      revokedDelegatedSubjectUid
+      && (
+        String(meta?.revocationOwnerUid || '') !== uid
+        || String(meta?.userId || '') !== revokedDelegatedSubjectUid
+        || String(meta?.revocationOwnerUid || '') === String(meta?.userId || '')
+      )
+    ) {
+      continue;
+    }
     if (revokedSessionFamilyId || revokedStableDeviceId) {
       const matchesJti = revokedJti && String(meta?.jti || '') === revokedJti;
       const matchesFamily = revokedSessionFamilyId
@@ -614,6 +658,14 @@ export function pushSessionRevoked(userId, data = {}) {
   // safely decide whether local fallback is necessary.
   deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
   fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
+}
+
+/** Close only sockets for one authenticated guardian-dependent delegation. */
+export function pushDelegatedSessionRevoked(guardianUid, dependentUid, data = {}) {
+  pushSessionRevoked(String(guardianUid), {
+    ...data,
+    delegatedSubjectUid: String(dependentUid),
+  });
 }
 
 /**

@@ -8,6 +8,10 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import {
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 
 // Anonymized placeholder for PII fields
 const ANON = '[REDACTED]';
@@ -163,28 +167,46 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
   // Finally, anonymize the user record itself.
   if (uid) {
     try {
-      const userResult = await prisma.users.updateMany({
-        where: {
-          uid,
-          ...(tenantId ? { tenant_id: tenantId } : {}),
-        },
-        data: {
-          name: ANON,
-          email: ANON_EMAIL,
-          address: ANON,
-          gender: null,
-          birthday: null,
-          anniversary: null,
-          profile_picture: null,
-          emergency_contact: null,
-          blood_group: null,
-          allergies: null,
-          medical_history: null,
-          is_active: false,
-          updated_at: new Date(),
-        },
+      const { userResult, revokedAt } = await prisma.$transaction(async (tx) => {
+        const updated = await tx.users.updateMany({
+          where: {
+            uid,
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+          },
+          data: {
+            name: ANON,
+            email: ANON_EMAIL,
+            address: ANON,
+            gender: null,
+            birthday: null,
+            anniversary: null,
+            profile_picture: null,
+            emergency_contact: null,
+            blood_group: null,
+            allergies: null,
+            medical_history: null,
+            is_active: false,
+            updated_at: new Date(),
+          },
+        });
+        if (Number(updated.count) !== 1) {
+          throw new Error('User anonymization did not update the tenant-bound identity');
+        }
+        const durableRevokedAt = await persistRevokeAllUserTokens(uid, {
+          client: tx,
+          requireEvidence: true,
+          reason: 'gdpr_erasure',
+        });
+        return { userResult: updated, revokedAt: durableRevokedAt };
       });
       results.users = { action: 'anonymized', count: userResult.count };
+      try {
+        await publishRevokeAllUserTokens(uid, revokedAt, { reason: 'gdpr_erasure' });
+      } catch (err) {
+        logger.warn('GDPR identity-revocation publication failed', {
+          error: err.message, uid, requestId,
+        });
+      }
     } catch (err) {
       logger.error('GDPR erasure failed for users', {
         error: err.message, uid, requestId,

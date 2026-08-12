@@ -47,8 +47,35 @@ import WebSocket from 'ws';
 // header). Set up before any dynamic import below.
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: async () => false,
+  isDelegatedTupleRevoked: async () => false,
   isUserTokensRevoked: async () => false,
   RevocationCheckUnavailableError: class extends Error {},
+}));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: {
+    $transaction: async (fn) => fn({
+      $queryRawUnsafe: async (_sql, uid) => [{
+        uid,
+        role: 'PATIENT',
+        is_minor: true,
+        is_active: true,
+        status: 'active',
+        is_deleted: false,
+        deleted_at: null,
+        merged_into_uid: null,
+        guardian_role: 'PATIENT',
+        guardian_is_active: true,
+        guardian_status: 'active',
+        guardian_is_deleted: false,
+        guardian_deleted_at: null,
+        guardian_merged_into_uid: null,
+      }],
+    }),
+  },
+}));
+jest.unstable_mockModule('../../observability/reliabilityMetrics.js', () => ({
+  recordWsBroadcastDropped: jest.fn(),
+  recordWsFanoutSubscriberError: jest.fn(),
 }));
 
 const { generateToken } = await import('../../utils/jwtUtils.js');
@@ -58,9 +85,9 @@ const { authorizeChannel } = await import('../../utils/websocket/channelAuth.js'
 const TENANT_1 = 'fa11ed00-0000-4000-8000-0000000000a1';
 const TENANT_2 = 'fa11ed00-0000-4000-8000-0000000000a2';
 
-function ticket({ uid, role = 'NURSING_STAFF', tenantId }) {
+function ticket({ uid, role = 'NURSING_STAFF', tenantId, ...claims }) {
   return generateToken(
-    { uid, role, tenant_id: tenantId, tenantId, scope: 'ws' },
+    { uid, role, tenant_id: tenantId, tenantId, scope: 'ws', ...claims },
     '120s',
   );
 }
@@ -355,5 +382,48 @@ describe('cross-process realtime fan-out (Redis pub/sub)', () => {
     const r = await got;
     expect(r.data.position).toBe(3);
     expect(r.data.etaMinutes).toBe(12);
+  });
+
+  test('tuple revocation crosses processes and preserves guardian and sibling sockets', async () => {
+    const guardianUid = 'fa11ed00-0000-4000-8000-000000000031';
+    const dependentUid = 'fa11ed00-0000-4000-8000-000000000032';
+    const siblingUid = 'fa11ed00-0000-4000-8000-000000000033';
+    const delegated = await openAndConnect(procB.port, ticket({
+      uid: dependentUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+      revocationOwnerUid: guardianUid,
+    }));
+    const sibling = await openAndConnect(procB.port, ticket({
+      uid: siblingUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+      revocationOwnerUid: guardianUid,
+    }));
+    const guardian = await openAndConnect(procB.port, ticket({
+      uid: guardianUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+    }));
+    sockets.push(delegated, sibling, guardian);
+
+    const revoked = awaitEvent(
+      delegated,
+      (m) => m.event === 'session:revoked' && m.data?.delegatedSubjectUid === dependentUid,
+    );
+    const siblingSilent = expectNoEvent(sibling, (m) => m.event === 'session:revoked');
+    const guardianSilent = expectNoEvent(guardian, (m) => m.event === 'session:revoked');
+
+    procA.wsMod.pushDelegatedSessionRevoked(guardianUid, dependentUid, {
+      reason: 'dependent_unlinked',
+    });
+
+    await expect(revoked).resolves.toMatchObject({
+      data: { reason: 'dependent_unlinked', delegatedSubjectUid: dependentUid },
+    });
+    await siblingSilent;
+    await guardianSilent;
+    expect(sibling.readyState).toBe(WebSocket.OPEN);
+    expect(guardian.readyState).toBe(WebSocket.OPEN);
   });
 });

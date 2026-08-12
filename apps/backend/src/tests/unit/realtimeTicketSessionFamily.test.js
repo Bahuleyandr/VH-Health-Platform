@@ -44,7 +44,13 @@ function dependentRow(overrides = {}) {
     dep_merged_into_uid: null,
     g_id: 10,
     g_uid: GUARDIAN_UID,
+    g_role: 'PATIENT',
     g_tenant_id: TENANT_ID,
+    g_is_active: true,
+    g_status: 'active',
+    g_is_deleted: false,
+    g_deleted_at: null,
+    g_merged_into_uid: null,
     ...overrides,
   };
 }
@@ -153,6 +159,20 @@ describe('POST /api/v1/realtime/ticket delegated-subject lifecycle', () => {
     ['deleted', { dep_is_deleted: true, dep_deleted_at: new Date().toISOString(), dep_status: 'deleted' }],
     ['merged', { dep_merged_into_uid: 'e0000000-0000-4000-8000-000000000004' }],
   ])('does not mint a delegated ticket for an %s dependent', async (_label, lifecycle) => {
+    const response = await mintFor(dependentRow(lifecycle));
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('NOT_AUTHORISED_TO_ACT_AS');
+    expect(generateTokenMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['inactive', { g_is_active: false }],
+    ['non-active status', { g_status: 'suspended' }],
+    ['deleted', { g_is_deleted: true, g_deleted_at: new Date().toISOString(), g_status: 'deleted' }],
+    ['merged', { g_merged_into_uid: 'e0000000-0000-4000-8000-000000000004' }],
+    ['wrong-role', { g_role: 'NURSING_STAFF' }],
+  ])('does not mint a delegated ticket for an %s guardian', async (_label, lifecycle) => {
     const response = await mintFor(dependentRow(lifecycle));
 
     expect(response.status).toBe(403);

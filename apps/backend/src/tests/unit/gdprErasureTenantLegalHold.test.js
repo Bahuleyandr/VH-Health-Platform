@@ -20,6 +20,7 @@ const modelMocks = {
 
 const prismaMock = {
   $queryRawUnsafe: jest.fn(),
+  $transaction: jest.fn(async (fn) => fn(prismaMock)),
   legal_holds: { findMany: jest.fn() },
   gdpr_erasure_log: { create: jest.fn() },
   users: { updateMany: jest.fn() },
@@ -27,6 +28,8 @@ const prismaMock = {
 };
 
 const logPhiAccessMock = jest.fn();
+const persistRevokeAllUserTokensMock = jest.fn();
+const publishRevokeAllUserTokensMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
@@ -46,6 +49,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
   logPhiAccess: logPhiAccessMock,
+}));
+jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  persistRevokeAllUserTokens: persistRevokeAllUserTokensMock,
+  publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
 }));
 
 const {
@@ -70,8 +77,11 @@ function resetModelMocks() {
 
 beforeEach(() => {
   prismaMock.$queryRawUnsafe.mockReset();
+  prismaMock.$transaction.mockClear();
   resetModelMocks();
   logPhiAccessMock.mockReset();
+  persistRevokeAllUserTokensMock.mockReset().mockResolvedValue(2000);
+  publishRevokeAllUserTokensMock.mockReset().mockResolvedValue({});
 });
 
 describe('GDPR erasure tenant and legal-hold controls', () => {
@@ -143,6 +153,16 @@ describe('GDPR erasure tenant and legal-hold controls', () => {
       uid: PATIENT_UID,
       tenant_id: TENANT,
     });
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledWith(PATIENT_UID, {
+      client: prismaMock,
+      requireEvidence: true,
+      reason: 'gdpr_erasure',
+    });
+    expect(publishRevokeAllUserTokensMock).toHaveBeenCalledWith(
+      PATIENT_UID,
+      2000,
+      { reason: 'gdpr_erasure' },
+    );
     expect(logPhiAccessMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT,
       patientId: PATIENT_UID,

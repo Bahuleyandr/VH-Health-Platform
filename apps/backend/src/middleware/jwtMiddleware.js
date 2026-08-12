@@ -337,7 +337,7 @@ async function applyActingAsHop(req, dependentUidRaw) {
   //   - dependent.guardian_user_id = guardian.id
   //   - dependent.is_minor = TRUE
   //   - dependent.role = 'PATIENT'
-  //   - dependent account is live (active, not deleted, not merged)
+  //   - both accounts are live PATIENT identities (active, not deleted, not merged)
   //   - tenant parity (fail-closed if guardian.tenant_id != dependent.tenant_id)
   // The query joins guardian by uid (the JWT-supplied actor) so a stolen /
   // mismatched X-Acting-As-Uid can't bypass the guardian check.
@@ -358,7 +358,13 @@ async function applyActingAsHop(req, dependentUidRaw) {
               dep.merged_into_uid AS dep_merged_into_uid,
               g.id            AS g_id,
               g.uid           AS g_uid,
-              g.tenant_id     AS g_tenant_id
+              g.role          AS g_role,
+              g.tenant_id     AS g_tenant_id,
+              g.is_active     AS g_is_active,
+              g.status        AS g_status,
+              g.is_deleted    AS g_is_deleted,
+              g.deleted_at    AS g_deleted_at,
+              g.merged_into_uid AS g_merged_into_uid
          FROM users dep
          JOIN users g ON g.id = dep.guardian_user_id
         WHERE dep.uid = $1::uuid
@@ -371,6 +377,12 @@ async function applyActingAsHop(req, dependentUidRaw) {
           AND dep.is_deleted = FALSE
           AND dep.deleted_at IS NULL
           AND dep.merged_into_uid IS NULL
+          AND g.role = 'PATIENT'
+          AND g.is_active = TRUE
+          AND g.status = 'active'
+          AND g.is_deleted = FALSE
+          AND g.deleted_at IS NULL
+          AND g.merged_into_uid IS NULL
         LIMIT 1`,
       dependentUidRaw,
       req.user.uid,
@@ -405,7 +417,9 @@ async function applyActingAsHop(req, dependentUidRaw) {
 
   const row = rows[0];
 
-  // Hard gates: live lifecycle + minor + PATIENT role + same tenant.
+  // Hard gates: both identities are live PATIENTs; the subject is a minor in
+  // the same tenant. Repeat the SQL predicates in JS so a mock, view, or query
+  // regression cannot turn a partial row into delegated authority.
   if (
     row.dep_is_active !== true
     || String(row.dep_status || '').trim().toLowerCase() !== 'active'
@@ -436,6 +450,24 @@ async function applyActingAsHop(req, dependentUidRaw) {
   }
   if (row.dep_role !== 'PATIENT') {
     logger.warn(`Acting-as denied: dependent ${row.dep_uid} role=${row.dep_role}`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+  if (
+    row.g_role !== 'PATIENT'
+    || row.g_is_active !== true
+    || String(row.g_status || '').trim().toLowerCase() !== 'active'
+    || row.g_is_deleted !== false
+    || row.g_deleted_at != null
+    || row.g_merged_into_uid != null
+  ) {
+    logger.warn(`Acting-as denied: guardian ${row.g_uid} is not an active patient`);
     return {
       status: 403,
       body: {

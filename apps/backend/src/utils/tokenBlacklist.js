@@ -357,6 +357,65 @@ export async function revokeAllUserTokens(userId, { requireEvidence = false, rea
   return publishRevokeAllUserTokens(userId, revokedAt, { reason });
 }
 
+function delegatedTupleIdentity(guardianUid, dependentUid) {
+  if (!guardianUid || !dependentUid) {
+    throw new TypeError('Guardian and dependent identities are required');
+  }
+  return `delegated:${String(guardianUid).toLowerCase()}:${String(dependentUid).toLowerCase()}`;
+}
+
+export function isDelegatedTupleRevoked(guardianUid, dependentUid, issuedAt) {
+  return isUserTokensRevoked(
+    delegatedTupleIdentity(guardianUid, dependentUid),
+    issuedAt,
+    undefined,
+  );
+}
+
+export function persistRevokeDelegatedTuple(
+  guardianUid,
+  dependentUid,
+  { client = prisma, reason = 'dependent_unlinked' } = {},
+) {
+  return persistRevokeAllUserTokens(
+    delegatedTupleIdentity(guardianUid, dependentUid),
+    { client, requireEvidence: true, reason },
+  );
+}
+
+export async function publishRevokeDelegatedTuple(
+  guardianUid,
+  dependentUid,
+  revokedAt,
+  { reason = 'dependent_unlinked' } = {},
+) {
+  if (revokedAt == null || !Number.isFinite(Number(revokedAt))) return null;
+  const tupleIdentity = delegatedTupleIdentity(guardianUid, dependentUid);
+  const durableRevokedAt = Number(revokedAt);
+  try {
+    await cacheSet(
+      `${BLACKLIST_PREFIX}user:${tupleIdentity}`,
+      { revokedAt: durableRevokedAt },
+      30 * 24 * 60 * 60,
+    );
+  } catch (err) {
+    logger.warn('Delegated-tuple Redis revocation write failed:', err.message);
+  }
+  try {
+    const { pushDelegatedSessionRevoked } = await import('./websocket/wsServer.js');
+    pushDelegatedSessionRevoked(String(guardianUid), String(dependentUid), {
+      reason,
+      at: new Date(durableRevokedAt * 1000).toISOString(),
+    });
+  } catch (err) {
+    logger.warn('Delegated-tuple session:revoked push failed:', err.message);
+  }
+  return Object.freeze({
+    revoked_at: new Date(durableRevokedAt * 1000).toISOString(),
+    database: Object.freeze({ persisted: true }),
+  });
+}
+
 /**
  * Current token-generation epoch for an identity (users OR admins realm).
  *
