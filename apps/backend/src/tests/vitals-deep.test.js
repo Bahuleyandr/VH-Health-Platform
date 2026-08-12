@@ -237,10 +237,13 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     });
 
     it('corrects a recent vitals row and records an audit trail', async () => {
-      const res = await doctor.put(`/api/v1/emr/vitals/${normalVitalsId}`).send({
-        temperature: 36.9,
-        notes: 'Corrected within 5 minutes',
-      });
+      const res = await doctor
+        .put(`/api/v1/emr/vitals/${normalVitalsId}`)
+        .set('Idempotency-Key', 'vitals-deep-correct-put')
+        .send({
+          temperature: 36.9,
+          notes: 'Corrected within 5 minutes',
+        });
       expect(res.statusCode).toBe(200);
       expect(parseFloat(res.body.data.temperature)).toBe(36.9);
       expect(res.body.data.notes).toBe('Corrected within 5 minutes');
@@ -251,10 +254,13 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       // one swarm finding (surgical-day-care-nurse-3f022b39) saw nurses
       // get a 404 because only PUT was wired. Both verbs route to the same
       // handler so a PATCH-flavoured client gets identical semantics.
-      const res = await doctor.patch(`/api/v1/emr/vitals/${normalVitalsId}`).send({
-        pain_score: 3,
-        notes: 'PATCH alias works',
-      });
+      const res = await doctor
+        .patch(`/api/v1/emr/vitals/${normalVitalsId}`)
+        .set('Idempotency-Key', 'vitals-deep-correct-patch')
+        .send({
+          pain_score: 3,
+          notes: 'PATCH alias works',
+        });
       expect(res.statusCode).toBe(200);
       // pain_score is a NUMERIC column and Prisma serialises it as a
       // string; match the same pattern other vitals tests use.
