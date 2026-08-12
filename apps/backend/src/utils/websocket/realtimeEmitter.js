@@ -8,6 +8,7 @@ import { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { ALL_STAFF_ROLES, ROLES } from '../roleHelpers.js';
 import { sendPushNotification } from '../notifications/sendPushNotification.js';
+import { createCodeBlueNotificationReference } from '../notifications/codeBlueNotificationReference.js';
 import { broadcast, sendToUser } from './wsServer.js';
 
 /** Vital-sign anomaly detected (WARNING or CRITICAL). */
@@ -158,32 +159,31 @@ async function _fanOutCodeBlueFcm(payload, tenantId) {
       tenantId,
       CODE_BLUE_FCM_ROLES,
     ),
-    { readOnly: true },
   );
   if (rows.length === 0) return;
 
-  const bodyParts = [];
-  if (payload.ward) bodyParts.push(`Ward ${payload.ward}`);
-  if (payload.bedNumber) bodyParts.push(`Bed ${payload.bedNumber}`);
-  const body = bodyParts.length > 0 ? bodyParts.join(' · ') : 'Respond immediately';
-
   for (const registration of rows) {
     if (!registration.token) continue;
+    const codeBlueReference = createCodeBlueNotificationReference({
+      tenantId,
+      userUid: registration.recipient_uid,
+      deviceId: registration.device_id,
+      registrationEpoch: registration.registration_epoch,
+      sessionEpoch: registration.session_epoch,
+      authorizationEpoch: registration.authorization_epoch,
+      eventId: payload.eventId,
+      expiresAtUnix: Number(registration.expires_at),
+    });
     await sendPushNotification({
       tokens: [registration.token],
       title: 'CODE BLUE',
-      body,
+      body: 'Respond immediately',
       priority: 'high',
       channelId: 'code_blue',
       expiresAtUnix: Number(registration.expires_at),
       data: {
         type: 'code_blue',
-        patientId: payload.patientId,
-        bedNumber: payload.bedNumber || '',
-        ward: payload.ward || '',
-        reason: payload.reason || '',
-        eventId: payload.eventId == null ? '' : String(payload.eventId),
-        at: payload.at,
+        code_blue_reference: codeBlueReference,
         notification_authority_version: '1',
         notification_tenant_id: String(tenantId),
         notification_recipient_uid: String(registration.recipient_uid),

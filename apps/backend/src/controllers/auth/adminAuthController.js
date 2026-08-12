@@ -549,8 +549,8 @@ export const mfaSetupConfirm = async (req, res) => {
       backupCodes.map((c) => bcrypt.hash(String(c), BCRYPT_ROUNDS))
     );
 
-    await prisma.admins.update({
-      where: { uid: String(adminId) },
+    const enrollment = await prisma.admins.updateMany({
+      where: { uid: String(adminId), totp_enabled: false },
       data: {
         totp_secret_encrypted: encryptedSecret,
         totp_backup_codes: hashedBackupCodes,
@@ -558,6 +558,9 @@ export const mfaSetupConfirm = async (req, res) => {
         totp_enrolled_at: new Date(),
       },
     });
+    if (enrollment.count !== 1) {
+      return error(res, 'MFA is already enabled on this account.', HTTP_STATUS.CONFLICT);
+    }
 
     const admin = await prisma.admins.findUnique({
       where: { uid: String(adminId) },

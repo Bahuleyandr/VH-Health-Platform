@@ -1,4 +1,15 @@
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
+import { ALL_STAFF_ROLES, ROLES } from '../../utils/roleHelpers.js';
+import {
+  createCodeBlueNotificationReference,
+  readCodeBlueNotificationReference,
+} from '../../utils/notifications/codeBlueNotificationReference.js';
+
+export { createCodeBlueNotificationReference };
+
+export const CODE_BLUE_NOTIFICATION_ROLES = [
+  ...new Set([...ALL_STAFF_ROLES, ROLES.ADMIN, 'SUPER_ADMIN']),
+];
 
 function notificationAudience(row) {
   if (!row) return null;
@@ -92,6 +103,49 @@ export async function rotateNotificationDeviceToken(options) {
   return claimNotificationDevice({ ...options, requireExisting: true });
 }
 
+export async function retireNotificationDevice({ tenantId, userUid, deviceId }) {
+  if (!tenantId || !userUid || !deviceId) return undefined;
+  return setTenantTx(tenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `WITH target AS (
+         SELECT id, fcm_token
+           FROM user_devices
+          WHERE tenant_id = $1::uuid
+            AND user_uid = $2::uuid
+            AND device_id = $3::text
+          FOR UPDATE
+       ), retired AS (
+         UPDATE user_devices AS ud
+            SET fcm_token = NULL,
+                notification_epoch = ud.notification_epoch + 1,
+                updated_at = statement_timestamp()
+           FROM target
+          WHERE ud.id = target.id
+            AND ud.tenant_id = $1::uuid
+            AND ud.user_uid = $2::uuid
+          RETURNING ud.device_name, ud.platform,
+                    target.fcm_token AS retired_fcm_token
+       ), legacy AS (
+         UPDATE users AS u
+            SET device_token = NULL,
+                updated_at = statement_timestamp()
+           FROM retired
+          WHERE u.tenant_id = $1::uuid
+            AND u.uid = $2::uuid
+            AND retired.retired_fcm_token IS NOT NULL
+            AND u.device_token = retired.retired_fcm_token
+          RETURNING u.uid
+       )
+       SELECT device_name, platform
+         FROM retired`,
+      tenantId,
+      userUid,
+      deviceId,
+    );
+    return rows[0];
+  });
+}
+
 export async function validateNotificationAuthority({
   tenantId,
   userUid,
@@ -134,7 +188,89 @@ export async function validateNotificationAuthority({
       authorizationEpoch,
       sessionJti,
     ),
-    { readOnly: true },
   );
   return rows.length > 0;
+}
+
+export async function getCodeBlueNotificationContent({
+  tenantId,
+  userUid,
+  sessionJti,
+  deviceId,
+  registrationEpoch,
+  sessionEpoch,
+  authorizationEpoch,
+  codeBlueReference,
+}) {
+  if (
+    !tenantId
+    || !userUid
+    || !sessionJti
+    || !deviceId
+  ) return null;
+
+  const reference = readCodeBlueNotificationReference(codeBlueReference, {
+    tenantId,
+    userUid,
+    deviceId,
+    registrationEpoch,
+    sessionEpoch,
+    authorizationEpoch,
+  });
+  if (!reference) return null;
+
+  const rows = await setTenant(
+    tenantId,
+    tx => tx.$queryRawUnsafe(
+      `SELECT re.id::text AS event_id,
+              re.patient_uid::text AS patient_id,
+              re.ward_snapshot AS ward,
+              re.bed_snapshot AS bed_number,
+              re.reason,
+              re.started_at
+         FROM user_devices ud
+         JOIN users u
+           ON u.tenant_id = ud.tenant_id
+          AND u.uid = ud.user_uid
+         JOIN user_active_sessions uas
+           ON uas.tenant_id = u.tenant_id
+          AND uas.user_uid = u.uid
+         JOIN resuscitation_events re
+           ON re.tenant_id = ud.tenant_id
+          AND re.id = $8::bigint
+        WHERE ud.tenant_id = $1::uuid
+          AND ud.user_uid = $2::uuid
+          AND ud.device_id = $3::text
+          AND ud.fcm_token IS NOT NULL
+          AND ud.notification_epoch = $4::bigint
+          AND u.is_active = TRUE
+          AND u.role = ANY($9::text[])
+          AND uas.session_family_id = $5::text
+          AND u.token_epoch = $6::int
+          AND uas.jti = $7::text
+          AND uas.expires_at > NOW()
+          AND (u.token_epoch_bumped_at IS NULL OR uas.issued_at >= u.token_epoch_bumped_at)
+          AND (uas.stable_device_id IS NULL OR uas.stable_device_id::text = ud.device_id)
+        LIMIT 1`,
+      tenantId,
+      userUid,
+      deviceId,
+      registrationEpoch,
+      sessionEpoch,
+      authorizationEpoch,
+      sessionJti,
+      reference.eventId,
+      CODE_BLUE_NOTIFICATION_ROLES,
+    ),
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    eventId: String(row.event_id),
+    patientId: String(row.patient_id),
+    ward: row.ward ?? null,
+    bedNumber: row.bed_number ?? null,
+    reason: row.reason ?? null,
+    startedAt: new Date(row.started_at).toISOString(),
+  };
 }

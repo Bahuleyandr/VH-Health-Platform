@@ -143,6 +143,100 @@ describe('Steps / Gamification API', () => {
       );
     });
 
+    it('accepts an exact equal-timestamp retry', async () => {
+      await clearHealthSyncFreshnessFixture();
+      const payload = {
+        source: 'oura',
+        sourceApp: 'Oura',
+        sourceDevice: 'ring-1',
+        days: [{
+          date: HEALTH_SYNC_TEST_DAY,
+          steps: 1200,
+          distanceMeters: 900,
+          sleepMinutes: 480,
+          activeEnergyKcal: 300,
+          lastSampleAt: '2001-03-04T23:00:00.000Z',
+        }],
+      };
+      const client = testClient();
+      const initial = await client
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send(payload);
+      const replay = await client
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send(payload);
+
+      expect(initial.statusCode).toBe(200);
+      expect(replay.statusCode).toBe(200);
+      expect(replay.body.data.syncedDays).toBe(1);
+    });
+
+    it('does not let a conflicting equal-timestamp payload replace the stored summary', async () => {
+      await clearHealthSyncFreshnessFixture();
+      const client = testClient();
+      const initial = await client
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send({
+          source: 'oura',
+          sourceApp: 'Oura',
+          sourceDevice: 'ring-1',
+          days: [{
+            date: HEALTH_SYNC_TEST_DAY,
+            steps: 1200,
+            distanceMeters: 900,
+            sleepMinutes: 480,
+            activeEnergyKcal: 300,
+            lastSampleAt: '2001-03-04T23:00:00.000Z',
+          }],
+        });
+      const conflict = await client
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send({
+          source: 'oura',
+          sourceApp: 'Oura',
+          sourceDevice: 'ring-1',
+          days: [{
+            date: HEALTH_SYNC_TEST_DAY,
+            steps: 100,
+            distanceMeters: 75,
+            sleepMinutes: 60,
+            activeEnergyKcal: 30,
+            lastSampleAt: '2001-03-04T23:00:00.000Z',
+          }],
+        });
+
+      expect(initial.statusCode).toBe(200);
+      expect(conflict.statusCode).toBe(200);
+      expect(conflict.body.data.syncedDays).toBe(0);
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT steps, distance_meters, sleep_minutes,
+                active_energy_kcal::float AS active_energy_kcal,
+                source_device, source_app, recorded_at_source
+           FROM step_sessions
+          WHERE user_uid = $1::uuid
+            AND source = 'oura'
+            AND source_day = $2::date`,
+        HEALTH_SYNC_TEST_UID,
+        HEALTH_SYNC_TEST_DAY,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        steps: 1200,
+        distance_meters: 900,
+        sleep_minutes: 480,
+        active_energy_kcal: 300,
+        source_device: 'ring-1',
+        source_app: 'Oura',
+      });
+      expect(rows[0].recorded_at_source.toISOString()).toBe(
+        '2001-03-04T23:00:00.000Z',
+      );
+    });
+
     it.each([
       ['missing', '2001-03-05', undefined],
       ['invalid', '2001-03-05', 'not-a-timestamp'],

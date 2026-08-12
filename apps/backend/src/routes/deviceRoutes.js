@@ -10,12 +10,15 @@ import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';
 import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import {
+  getCodeBlueNotificationContent,
   registerNotificationDevice,
+  retireNotificationDevice,
   rotateNotificationDeviceToken,
   validateNotificationAuthority,
 } from '../services/notification/deviceRegistrationService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
+import { logPhiAccess } from '../utils/hipaaAudit.js';
 
 const router = express.Router();
 logger.info('✅ deviceRoutes loaded with RBAC protection');
@@ -121,22 +124,15 @@ async function unregisterDeviceHandler(req, res) {
   try {
     const targetUser = await resolveDeviceTargetUser(req, phone);
 
-    const result = await prisma.$queryRawUnsafe(
-      `DELETE FROM user_devices
-       WHERE device_id = $1
-         AND user_uid = $2::uuid
-         AND tenant_id = $3::uuid
-       RETURNING device_name, platform`,
+    const deviceInfo = await retireNotificationDevice({
+      tenantId: targetUser.tenantId,
+      userUid: targetUser.uid,
       deviceId,
-      targetUser.uid,
-      targetUser.tenantId,
-    );
+    });
 
-    if (result.length === 0) {
+    if (!deviceInfo) {
       return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
     }
-
-    const deviceInfo = result[0];
 
     logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${maskPhoneForLog(targetUser.phone)} by ${req.user?.name || 'system'}`);
 
@@ -582,7 +578,8 @@ wrapAutoRBAC(
           const tenantId = tenantOf(req);
           const recipientUid = String(audience.recipientUid || '');
           if (
-            String(audience.tenantId || '') !== tenantId
+            Number(audience.version) !== 1
+            || String(audience.tenantId || '') !== tenantId
             || recipientUid !== String(req.user?.uid || '')
           ) {
             return error(res, 'Notification authority is not valid', HTTP_STATUS.FORBIDDEN);
@@ -601,6 +598,53 @@ wrapAutoRBAC(
           } catch (err) {
             logger.error('Notification Authority Validation Error:', err);
             error(res, 'Notification authority could not be verified', HTTP_STATUS.SERVICE_UNAVAILABLE);
+          }
+        },
+      ],
+
+      [
+        '/notification-authority/code-blue',
+        async (req, res) => {
+          const audience = req.body || {};
+          const tenantId = tenantOf(req);
+          const recipientUid = String(audience.recipientUid || '');
+          if (
+            Number(audience.version) !== 1
+            || String(audience.tenantId || '') !== tenantId
+            || recipientUid !== String(req.user?.uid || '')
+          ) {
+            return error(res, 'Notification authority is not valid', HTTP_STATUS.FORBIDDEN);
+          }
+          try {
+            const content = await getCodeBlueNotificationContent({
+              tenantId,
+              userUid: recipientUid,
+              sessionJti: req.user?.jti,
+              deviceId: audience.deviceId,
+              registrationEpoch: audience.registrationEpoch,
+              sessionEpoch: audience.sessionEpoch,
+              authorizationEpoch: audience.authorizationEpoch,
+              codeBlueReference: audience.codeBlueReference,
+            });
+            if (content) {
+              logPhiAccess({
+                userId: req.user?.uid,
+                userRole: req.user?.role,
+                patientId: content.patientId,
+                recordType: 'CODE_BLUE_NOTIFICATION',
+                action: 'VIEW',
+                ip: req.ip,
+                requestId: req.id,
+                tenantId,
+              });
+            }
+            success(res, {
+              authorized: content != null,
+              content,
+            }, 'Code Blue notification content checked');
+          } catch (err) {
+            logger.error('Code Blue Notification Content Error:', err);
+            error(res, 'Code Blue notification content could not be verified', HTTP_STATUS.SERVICE_UNAVAILABLE);
           }
         },
       ],

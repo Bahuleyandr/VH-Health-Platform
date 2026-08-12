@@ -71,6 +71,14 @@ function installationId(value) {
   return normalized;
 }
 
+function isActiveStaffIdentity(staff) {
+  return staff?.user_is_active === true
+    && String(staff.user_status || '').trim().toLowerCase() === 'active'
+    && staff.is_deleted === false
+    && staff.merged_into_uid == null
+    && staff.staff_is_active === true;
+}
+
 // ✅ FIX: All methods are now correctly inside the class block.
 export class StaffAuthService {
   static async bindStaffInstallation(staff, rawInstallationId, deviceInfo = {}) {
@@ -210,8 +218,10 @@ export class StaffAuthService {
       const result = await query(`
         SELECT
           u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
-          u.encrypted_password,
-          s.employee_id, s.department, s.position, s.is_active, s.shift_type
+          u.encrypted_password, u.is_active AS user_is_active,
+          u.status AS user_status, u.is_deleted, u.merged_into_uid,
+          s.employee_id, s.department, s.position,
+          s.is_active AS staff_is_active, s.shift_type
         FROM staff s
         JOIN users u ON s.user_id = u.uid
         WHERE s.employee_id = $1
@@ -231,7 +241,7 @@ export class StaffAuthService {
 
       const staff = result.rows[0];
 
-      if (!staff.is_active) {
+      if (!isActiveStaffIdentity(staff)) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
         logSecurityEvent('LOGIN_FAILED', {
           userId: String(staff.uid),
@@ -541,7 +551,9 @@ export class StaffAuthService {
         SELECT 
           d.id as internal_device_id, d.staff_id, d.device_id, d.pin_hash, d.biometric_enabled,
           u.uid, u.tenant_id, u.name, u.email, u.phone, u.role, u.encrypted_password,
-          s.employee_id, s.department, s.position, s.is_active
+          u.is_active AS user_is_active, u.status AS user_status,
+          u.is_deleted, u.merged_into_uid,
+          s.employee_id, s.department, s.position, s.is_active AS staff_is_active
         FROM staff_devices d
         JOIN users u ON d.staff_id = u.id
         JOIN staff s ON u.uid = s.user_id
@@ -559,16 +571,15 @@ export class StaffAuthService {
       }
 
       const deviceAndStaff = deviceResult.rows[0];
+      if (!isActiveStaffIdentity(deviceAndStaff)) {
+        throw new Error('Account deactivated');
+      }
       await this.bindStaffInstallation(deviceAndStaff, stableDeviceId, {
         platform: deviceType,
       });
 
       // Check lockout across all auth methods for this employee
       await this._checkStaffLockout(deviceAndStaff.employee_id, req, '/api/v1/auth/staff/quick-login');
-
-      if (!deviceAndStaff.is_active) {
-        throw new Error('Account deactivated');
-      }
 
       let authMethod = '';
       if (pin) {
@@ -833,7 +844,9 @@ export class StaffAuthService {
       const result = await query(`
         SELECT
           u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
-          s.employee_id, s.department, s.position, s.is_active,
+          u.is_active AS user_is_active, u.status AS user_status,
+          u.is_deleted, u.merged_into_uid,
+          s.employee_id, s.department, s.position, s.is_active AS staff_is_active,
           s.pin_hash -- Assumes a PIN hash is stored on the staff table
         FROM staff s
         JOIN users u ON s.user_id = u.uid
@@ -854,7 +867,7 @@ export class StaffAuthService {
 
       const staff = result.rows[0];
 
-      if (!staff.is_active) {
+      if (!isActiveStaffIdentity(staff)) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req, deviceToken);
         logSecurityEvent('LOGIN_FAILED', {
           userId: String(staff.uid),

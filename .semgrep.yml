@@ -70,8 +70,9 @@ rules:
     severity: ERROR
     languages: [javascript, typescript]
     patterns:
-      - pattern: eval($X)
-      - pattern: new Function($X)
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: new Function($X)
     paths:
       include:
         - "**/apps/backend/src/**"
@@ -89,10 +90,11 @@ rules:
     severity: WARNING
     languages: [javascript, typescript]
     patterns:
-      - pattern: crypto.createHash("md5")
-      - pattern: crypto.createHash('md5')
-      - pattern: crypto.createHash("sha1")
-      - pattern: crypto.createHash('sha1')
+      - pattern-either:
+          - pattern: crypto.createHash("md5")
+          - pattern: crypto.createHash('md5')
+          - pattern: crypto.createHash("sha1")
+          - pattern: crypto.createHash('sha1')
     paths:
       include:
         - "**/apps/backend/src/**"
@@ -193,12 +195,13 @@ rules:
     severity: ERROR
     languages: [javascript]
     patterns:
-      - pattern: path.join(..., $REQ.params.$K, ...)
-      - pattern: path.join(..., $REQ.body.$K, ...)
-      - pattern: path.join(..., $REQ.query.$K, ...)
-      - pattern: path.resolve(..., $REQ.params.$K, ...)
-      - pattern: path.resolve(..., $REQ.body.$K, ...)
-      - pattern: path.resolve(..., $REQ.query.$K, ...)
+      - pattern-either:
+          - pattern: path.join(..., $REQ.params.$K, ...)
+          - pattern: path.join(..., $REQ.body.$K, ...)
+          - pattern: path.join(..., $REQ.query.$K, ...)
+          - pattern: path.resolve(..., $REQ.params.$K, ...)
+          - pattern: path.resolve(..., $REQ.body.$K, ...)
+          - pattern: path.resolve(..., $REQ.query.$K, ...)
     paths:
       include:
         - "**/apps/backend/src/**/*.js"
@@ -328,9 +331,10 @@ rules:
     severity: ERROR
     languages: [javascript, typescript]
     patterns:
-      - pattern: res.redirect($REQ.query.$K)
-      - pattern: res.redirect($REQ.body.$K)
-      - pattern: res.redirect($REQ.params.$K)
+      - pattern-either:
+          - pattern: res.redirect($REQ.query.$K)
+          - pattern: res.redirect($REQ.body.$K)
+          - pattern: res.redirect($REQ.params.$K)
     paths:
       include:
         - "**/apps/backend/src/**/*.js"

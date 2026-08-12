@@ -7,7 +7,9 @@ import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'api_client.dart';
@@ -83,22 +85,66 @@ class HealthSyncCheckpointPolicy {
 }
 
 String buildHealthSyncVitalCursorKey({
+  required String ownerScope,
   required String sourceTag,
   required String sampleType,
-}) => 'health_sync_last_vitals_${sourceTag}_$sampleType';
+}) => 'health_sync_${ownerScope}_last_vitals_${sourceTag}_$sampleType';
 
 String buildHealthSyncVitalSafetyKey({
+  required String ownerScope,
   required String sourceTag,
   required String sampleType,
-}) => 'health_sync_last_vitals_safety_${sourceTag}_$sampleType';
+}) => 'health_sync_${ownerScope}_last_vitals_safety_${sourceTag}_$sampleType';
 
-enum HealthSyncPostDisposition { accepted, terminalRejection, retryableFailure }
+Future<String> buildHealthSyncOwnerScope(String ownerId) async {
+  final digest = await Sha256().hash(utf8.encode(ownerId.trim()));
+  return digest.bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
+
+bool isHealthSyncAccountSessionActive({
+  required String? currentOwnerScope,
+  required String? persistedOwnerScope,
+  String? scheduledOwnerScope,
+}) {
+  if (currentOwnerScope == null ||
+      persistedOwnerScope == null ||
+      currentOwnerScope != persistedOwnerScope) {
+    return false;
+  }
+  return scheduledOwnerScope == null ||
+      scheduledOwnerScope == currentOwnerScope;
+}
+
+bool shouldSyncHealthRecordingMethod(RecordingMethod method) =>
+    method != RecordingMethod.manual;
+
+bool shouldSyncHealthDataPoint({
+  required RecordingMethod recordingMethod,
+  required String sourceId,
+}) =>
+    shouldSyncHealthRecordingMethod(recordingMethod) &&
+    sourceId.trim().toLowerCase() != 'com.vh.vhhealth';
+
+String buildHealthSyncCorrectionPath(String sourceRecordId) =>
+    '/health/patient/vitals/wearable/${Uri.encodeComponent(sourceRecordId)}';
+
+enum HealthSyncPostDisposition {
+  accepted,
+  correctionRequired,
+  terminalRejection,
+  retryableFailure,
+}
 
 HealthSyncPostDisposition classifyHealthSyncPostStatus(int statusCode) {
   if (statusCode >= 200 && statusCode < 300) {
     return HealthSyncPostDisposition.accepted;
   }
-  if (statusCode == 400 || statusCode == 409) {
+  if (statusCode == 409) {
+    return HealthSyncPostDisposition.correctionRequired;
+  }
+  if (statusCode == 400) {
     return HealthSyncPostDisposition.terminalRejection;
   }
   return HealthSyncPostDisposition.retryableFailure;
@@ -211,6 +257,12 @@ Future<String> buildHealthSyncRejectionKey({
       .join();
 }
 
+String buildHealthSyncCorrectionAttemptKey({
+  required String sourceTag,
+  required String targetFingerprint,
+}) =>
+    'wearable-vital-correction:$sourceTag:$targetFingerprint:${const Uuid().v4()}';
+
 /// Bridges Apple HealthKit / Google Health Connect (Fit successor) into the
 /// VHHealth backend. Sync runs on three schedules:
 ///   1. User-triggered — the Settings tile calls [requestPermissions] + [syncNow].
@@ -222,10 +274,8 @@ class HealthSyncService {
   HealthSyncService._();
   static final HealthSyncService instance = HealthSyncService._();
 
-  static const String _prefsLastActivitySyncPrefix =
-      'health_sync_last_activity_';
-  static const String _prefsRejectedVitalsPrefix =
-      'health_sync_rejected_vitals_';
+  static const String _prefsActiveOwnerScope = 'health_sync_active_owner_scope';
+  static const String _backgroundOwnerScopeInput = 'ownerScope';
   static const Duration _foregroundInterval = Duration(minutes: 30);
   static const String backgroundTaskName = 'vhhealth.health_sync';
 
@@ -270,6 +320,7 @@ class HealthSyncService {
   ];
 
   final Health _health = Health();
+  static final _storage = VHSecureStorage.instance;
   Timer? _periodicTimer;
   final HealthSyncRunCoordinator _syncCoordinator = HealthSyncRunCoordinator();
   bool _permissionsGranted = false;
@@ -315,11 +366,13 @@ class HealthSyncService {
       permissions: permissions,
     );
     _permissionsGranted = granted && _isFullReadSet(types);
-    return granted;
+    if (!granted) return false;
+    return _bindCurrentAccount();
   }
 
-  /// Check whether HealthKit / Health Connect read permissions are already
-  /// available without opening the OS permission sheet.
+  /// Check whether HealthKit / Health Connect reads are already authorized for
+  /// this app account. An OS grant inherited from a prior account deliberately
+  /// returns false until the current user reconnects from an explicit prompt.
   Future<bool> hasReadPermissions() async {
     return _hasReadPermissions(_readTypes);
   }
@@ -341,7 +394,15 @@ class HealthSyncService {
 
     final has = await _health.hasPermissions(types) ?? false;
     _permissionsGranted = has && _isFullReadSet(types);
-    return has;
+    if (!has) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final ownerScope = await _currentOwnerScope();
+    return isHealthSyncAccountSessionActive(
+      currentOwnerScope: ownerScope,
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+    );
   }
 
   /// Health Connect can sync while the app is backgrounded only when Android
@@ -410,16 +471,31 @@ class HealthSyncService {
   Future<int> syncNow() async =>
       (await _syncCoordinator.run(_performSync)).updatedSurfaces;
 
-  Future<bool> syncForBackground() async =>
-      (await _syncCoordinator.run(_performSync)).succeeded;
+  Future<bool> syncForBackground({String? scheduledOwnerScope}) async =>
+      (await _syncCoordinator.run(
+        () => _performSync(scheduledOwnerScope: scheduledOwnerScope),
+      )).succeeded;
 
-  Future<HealthSyncRunResult> _performSync() async {
+  Future<HealthSyncRunResult> _performSync({
+    String? scheduledOwnerScope,
+  }) async {
     if (PatientOutageController.instance.blocksHospitalMutations) {
       return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: false);
     }
     if (!_isSupportedPlatform) {
       return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
     }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final ownerScope = await _currentOwnerScope();
+    if (!isHealthSyncAccountSessionActive(
+      currentOwnerScope: ownerScope,
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+      scheduledOwnerScope: scheduledOwnerScope,
+    )) {
+      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
+    }
+    final activeOwnerScope = ownerScope!;
     var types = _availableReadTypes();
     if (types.isEmpty) {
       return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
@@ -440,15 +516,15 @@ class HealthSyncService {
       }
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final activityKey = '$_prefsLastActivitySyncPrefix$_sourceTag';
+    final activityKey =
+        'health_sync_${activeOwnerScope}_last_activity_$_sourceTag';
     final end = DateTime.now();
     final vitalTypes = types.where(_isVitalType).toList();
     final hasActivityReadTypes = types.any(_isActivityType);
     final vitalCursorKeys = <HealthDataType, String>{
       for (final type in vitalTypes)
         type: buildHealthSyncVitalCursorKey(
+          ownerScope: activeOwnerScope,
           sourceTag: _sourceTag,
           sampleType: type.name,
         ),
@@ -456,6 +532,7 @@ class HealthSyncService {
     final vitalSafetyKeys = <HealthDataType, String>{
       for (final type in vitalTypes)
         type: buildHealthSyncVitalSafetyKey(
+          ownerScope: activeOwnerScope,
           sourceTag: _sourceTag,
           sampleType: type.name,
         ),
@@ -518,6 +595,12 @@ class HealthSyncService {
     final vitalSamples = <_WearableVitalSample>[];
 
     for (final p in points) {
+      if (!shouldSyncHealthDataPoint(
+        recordingMethod: p.recordingMethod,
+        sourceId: p.sourceId,
+      )) {
+        continue;
+      }
       if (sourceApp == null && p.sourceName.trim().isNotEmpty) {
         sourceApp = p.sourceName.trim();
       }
@@ -647,7 +730,8 @@ class HealthSyncService {
     var updatedSurfaces = 0;
     var succeeded = true;
     var vitalsUpdated = false;
-    final rejectionKey = '$_prefsRejectedVitalsPrefix$_sourceTag';
+    final rejectionKey =
+        'health_sync_${activeOwnerScope}_rejected_vitals_$_sourceTag';
     final rejectedSamples =
         (prefs.getStringList(rejectionKey) ?? const <String>[]).toSet();
     for (final type in vitalTypes) {
@@ -661,15 +745,22 @@ class HealthSyncService {
         var groupSucceeded = true;
         for (final sample in batch.values) {
           if (rejectedSamples.contains(sample.rejectionKey)) continue;
+          if (!await _accountSessionStillActive(prefs, activeOwnerScope)) {
+            return const HealthSyncRunResult(
+              updatedSurfaces: 0,
+              succeeded: true,
+            );
+          }
           try {
+            final body = <String, dynamic>{
+              sample.field: sample.value,
+              'source': _sourceTag,
+              'sourceRecordId': sample.sourceRecordId,
+              'recordedAtSource': formatHealthSyncRfc3339(sample.recordedAt),
+            };
             final resp = await ApiClient.post(
               '/health/patient/vitals',
-              body: {
-                sample.field: sample.value,
-                'source': _sourceTag,
-                'sourceRecordId': sample.sourceRecordId,
-                'recordedAtSource': formatHealthSyncRfc3339(sample.recordedAt),
-              },
+              body: body,
               idempotencyKey:
                   'wearable-vital:$_sourceTag:${sample.sourceRecordId}',
             );
@@ -677,12 +768,38 @@ class HealthSyncService {
               case HealthSyncPostDisposition.accepted:
                 vitalsUpdated = true;
                 break;
+              case HealthSyncPostDisposition.correctionRequired:
+                final correction = await ApiClient.put(
+                  buildHealthSyncCorrectionPath(sample.sourceRecordId),
+                  body: body,
+                  idempotencyKey: buildHealthSyncCorrectionAttemptKey(
+                    sourceTag: _sourceTag,
+                    targetFingerprint: sample.rejectionKey,
+                  ),
+                );
+                if (correction.isSuccess) {
+                  vitalsUpdated = true;
+                } else if (correction.statusCode == 400) {
+                  if (!await _saveRejectedSample(
+                    prefs,
+                    rejectionKey,
+                    rejectedSamples,
+                    sample.rejectionKey,
+                    activeOwnerScope,
+                  )) {
+                    groupSucceeded = false;
+                  }
+                } else {
+                  groupSucceeded = false;
+                }
+                break;
               case HealthSyncPostDisposition.terminalRejection:
                 if (!await _saveRejectedSample(
                   prefs,
                   rejectionKey,
                   rejectedSamples,
                   sample.rejectionKey,
+                  activeOwnerScope,
                 )) {
                   groupSucceeded = false;
                 } else if (kDebugMode) {
@@ -715,6 +832,7 @@ class HealthSyncService {
               prefs,
               vitalCursorKeys[type]!,
               batch.checkpoint,
+              activeOwnerScope,
             )) {
           succeeded = false;
           typeSucceeded = false;
@@ -722,14 +840,24 @@ class HealthSyncService {
         }
       }
       if (typeSucceeded) {
-        if (!await _saveCursor(prefs, vitalCursorKeys[type]!, end)) {
+        if (!await _saveCursor(
+          prefs,
+          vitalCursorKeys[type]!,
+          end,
+          activeOwnerScope,
+        )) {
           succeeded = false;
           typeSucceeded = false;
         }
       }
       if (typeSucceeded &&
           vitalSafetyScanDue[type]! &&
-          !await _saveCursor(prefs, vitalSafetyKeys[type]!, end)) {
+          !await _saveCursor(
+            prefs,
+            vitalSafetyKeys[type]!,
+            end,
+            activeOwnerScope,
+          )) {
         succeeded = false;
       }
     }
@@ -742,6 +870,12 @@ class HealthSyncService {
     var activityUpdated = false;
     var activitySucceeded = hasActivityReadTypes;
     for (final batch in partitionHealthSyncDays(days)) {
+      if (!await _accountSessionStillActive(prefs, activeOwnerScope)) {
+        return HealthSyncRunResult(
+          updatedSurfaces: updatedSurfaces,
+          succeeded: true,
+        );
+      }
       try {
         final resp = await ApiClient.post(
           '/steps/health-sync',
@@ -765,7 +899,12 @@ class HealthSyncService {
         final checkpoint = batch
             .map((day) => day.lastSampleAt!)
             .reduce(_laterOfNonNull);
-        if (!await _saveCursor(prefs, activityKey, checkpoint)) {
+        if (!await _saveCursor(
+          prefs,
+          activityKey,
+          checkpoint,
+          activeOwnerScope,
+        )) {
           succeeded = false;
           activitySucceeded = false;
           break;
@@ -778,7 +917,8 @@ class HealthSyncService {
         break;
       }
     }
-    if (activitySucceeded && !await _saveCursor(prefs, activityKey, end)) {
+    if (activitySucceeded &&
+        !await _saveCursor(prefs, activityKey, end, activeOwnerScope)) {
       succeeded = false;
     }
     if (activityUpdated) updatedSurfaces += 1;
@@ -853,7 +993,9 @@ class HealthSyncService {
     String storageKey,
     Set<String> rejectedSamples,
     String sampleKey,
+    String ownerScope,
   ) async {
+    if (!await _accountSessionStillActive(prefs, ownerScope)) return false;
     await prefs.reload();
     final retained = retainHealthSyncRejectionKeys([
       ...?prefs.getStringList(storageKey),
@@ -871,7 +1013,9 @@ class HealthSyncService {
     SharedPreferences prefs,
     String key,
     DateTime value,
+    String ownerScope,
   ) async {
+    if (!await _accountSessionStillActive(prefs, ownerScope)) return false;
     await prefs.reload();
     final current = _readCursor(prefs.getString(key), DateTime.now());
     final next = current != null && current.isAfter(value) ? current : value;
@@ -882,6 +1026,35 @@ class HealthSyncService {
       return false;
     }
     return true;
+  }
+
+  Future<String?> _currentOwnerScope() async {
+    final ownerId =
+        await _storage.read(key: 'patient_id') ??
+        await _storage.read(key: 'firebase_uid') ??
+        await _storage.read(key: 'user_id');
+    if (ownerId == null || ownerId.trim().isEmpty) return null;
+    return buildHealthSyncOwnerScope(ownerId);
+  }
+
+  Future<bool> _bindCurrentAccount() async {
+    final ownerScope = await _currentOwnerScope();
+    if (ownerScope == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    return prefs.setString(_prefsActiveOwnerScope, ownerScope);
+  }
+
+  Future<bool> _accountSessionStillActive(
+    SharedPreferences prefs,
+    String expectedOwnerScope,
+  ) async {
+    await prefs.reload();
+    return isHealthSyncAccountSessionActive(
+      currentOwnerScope: await _currentOwnerScope(),
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+      scheduledOwnerScope: expectedOwnerScope,
+    );
   }
 
   double? _numeric(HealthValue v) {
@@ -1026,6 +1199,7 @@ class HealthSyncService {
           value: heartRate.toDouble(),
           type: HealthDataType.HEART_RATE,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -1035,6 +1209,7 @@ class HealthSyncService {
           value: spO2 / 100.0,
           type: HealthDataType.BLOOD_OXYGEN,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -1044,6 +1219,7 @@ class HealthSyncService {
           value: weight,
           type: HealthDataType.WEIGHT,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -1053,6 +1229,7 @@ class HealthSyncService {
           value: temperature,
           type: HealthDataType.BODY_TEMPERATURE,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -1062,6 +1239,7 @@ class HealthSyncService {
           value: bloodGlucose.toDouble(),
           type: HealthDataType.BLOOD_GLUCOSE,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -1071,6 +1249,7 @@ class HealthSyncService {
           systolic: systolic,
           diastolic: diastolic,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -1092,19 +1271,29 @@ class HealthSyncService {
 
   // ── Background sync (workmanager) ─────────────────────────────────────────
 
-  /// Register the periodic background task. Safe to call multiple times —
-  /// [ExistingWorkPolicy.keep] means subsequent calls are no-ops.
+  /// Register the periodic background task. Safe to call multiple times; the
+  /// existing work is updated so its account-bound input cannot stay stale.
   ///
   /// Must be called after permissions are granted — scheduling succeeds either
   /// way, but the background isolate will read zero samples without permission.
   static Future<void> enableBackgroundSync() async {
     if (!_isSupportedPlatform) return;
+    final ownerScope = await instance._currentOwnerScope();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (!isHealthSyncAccountSessionActive(
+      currentOwnerScope: ownerScope,
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+    )) {
+      return;
+    }
     await Workmanager().initialize(healthSyncBackgroundDispatcher);
     await Workmanager().registerPeriodicTask(
       backgroundTaskName,
       backgroundTaskName,
       frequency: const Duration(minutes: 15),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      inputData: {_backgroundOwnerScopeInput: ownerScope!},
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
       constraints: Constraints(
         networkType: NetworkType.connected,
         requiresBatteryNotLow: true,
@@ -1115,6 +1304,17 @@ class HealthSyncService {
   static Future<void> disableBackgroundSync() async {
     if (!_isSupportedPlatform) return;
     await Workmanager().cancelByUniqueName(backgroundTaskName);
+  }
+
+  static Future<void> endAccountSession() async {
+    instance.stopForegroundSync();
+    instance._permissionsGranted = false;
+    instance._writePermissionsGranted = false;
+    instance._writePermissionsAsked = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    await prefs.remove(_prefsActiveOwnerScope);
+    await disableBackgroundSync();
   }
 }
 
@@ -1177,7 +1377,10 @@ void healthSyncBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
       final service = HealthSyncService.instance;
-      return service.syncForBackground();
+      return service.syncForBackground(
+        scheduledOwnerScope:
+            inputData?[HealthSyncService._backgroundOwnerScopeInput] as String?,
+      );
     } catch (e) {
       if (kDebugMode) debugPrint('healthSyncBackgroundDispatcher failed: $e');
       return false;

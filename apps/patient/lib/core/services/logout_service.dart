@@ -11,6 +11,7 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
+import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
@@ -88,7 +89,7 @@ class LogoutService {
   static Future<LogoutOutcome> _performLogout() async {
     BiometricGate.clearUnlockState();
 
-    // 0. Revoke both server sessions before step 3 wipes secure storage. The
+    // 0. Revoke both server sessions before step 4 wipes secure storage. The
     //    Firebase revoke must run first because both calls authenticate with
     //    the current VH token and the VH logout invalidates it. Without these
     //    calls logout was local-only: the VH JWT and both independently
@@ -164,21 +165,29 @@ class LogoutService {
       debugPrint('LogoutService: notification cancel failed: $e');
     }
 
-    // 3. Clear all secure storage (JWT, phone, device token, etc.)
+    // 3. Stop account-bound health sync before removing the identity used to
+    //    validate foreground/background work and persisted checkpoints.
+    try {
+      await Future<void>.sync(_dependencies.clearHealthSyncState);
+    } catch (e) {
+      debugPrint('LogoutService: health sync cleanup failed: $e');
+    }
+
+    // 4. Clear all secure storage (JWT, phone, device token, etc.)
     try {
       await Future<void>.sync(_dependencies.clearSecureStorage);
     } catch (e) {
       debugPrint('LogoutService: secure storage clear failed: $e');
     }
 
-    // 4. Clear API cache
+    // 5. Clear API cache
     try {
       await Future<void>.sync(_dependencies.clearApiCache);
     } catch (e) {
       debugPrint('LogoutService: cache clear failed: $e');
     }
 
-    // 5. Clear downloaded-file cache (vhhealth_cache) — this holds
+    // 6. Clear downloaded-file cache (vhhealth_cache) — this holds
     //    PHI bytes (reports, documents) separate from the API cache above.
     //    Encrypted at rest now, but still wiped so the prior user's documents
     //    don't linger on a shared/family device.
@@ -188,7 +197,7 @@ class LogoutService {
       debugPrint('LogoutService: file cache clear failed: $e');
     }
 
-    // 6. Purge plaintext document staging + the OS temp dir. DocumentOpener
+    // 7. Purge plaintext document staging + the OS temp dir. DocumentOpener
     //    and the cached-file viewer decrypt PHI into a temp staging file so the
     //    system viewer can read it; those plaintext copies must not survive
     //    logout on a shared/family device. Audit §3 (patient).
@@ -198,8 +207,8 @@ class LogoutService {
       debugPrint('LogoutService: temp/staging purge failed: $e');
     }
 
-    // 7. Clear cycle/period/fertility data — PHI now stored encrypted-at-rest
-    //    in VHSecureStorage (step 3's deleteAll already wipes it; this is
+    // 8. Clear cycle/period/fertility data — PHI now stored encrypted-at-rest
+    //    in VHSecureStorage (step 4's deleteAll already wipes it; this is
     //    defense-in-depth AND sweeps up any legacy plaintext SharedPreferences
     //    keys from pre-migration installs). Must not survive for the next user
     //    on a shared device.
@@ -209,12 +218,12 @@ class LogoutService {
       debugPrint('LogoutService: cycle data clear failed: $e');
     }
 
-    // 8. Clear in-memory per-account state. The dependents roster is PHI and
+    // 9. Clear in-memory per-account state. The dependents roster is PHI and
     //    its active selection feeds the X-Acting-As-Uid header on every
     //    authenticated request — a survivor here shows the prior guardian's
     //    dependents to the next account and 403s the new session with a stale
     //    acting-as uid. UserProvider is the identity source of truth; its
-    //    backing storage keys were wiped in step 3 above.
+    //    backing storage keys were wiped in step 4 above.
     try {
       await Future<void>.sync(_dependencies.clearDependentsProvider);
     } catch (e) {
@@ -226,7 +235,7 @@ class LogoutService {
       debugPrint('LogoutService: user provider clear failed: $e');
     }
 
-    // 9. Sign out of Firebase — LAST. The router treats a live Firebase user
+    // 10. Sign out of Firebase — LAST. The router treats a live Firebase user
     //    as "logged in" and re-evaluates its redirect on Firebase auth-state
     //    changes (refreshListenable). Signing out after every other session
     //    signal (JWT, UserProvider) is gone means that when the auth-state
@@ -332,6 +341,7 @@ class LogoutServiceDependencies {
     required this.clearPushSignedInUser,
     required this.deleteFcmToken,
     required this.cancelNotifications,
+    required this.clearHealthSyncState,
     required this.clearSecureStorage,
     required this.clearApiCache,
     required this.clearDownloadedFileCache,
@@ -357,6 +367,7 @@ class LogoutServiceDependencies {
       disconnectRealtime: RealtimeClient.instance.disconnect,
       clearPushSignedInUser: PushNotificationService.clearSignedInUser,
       cancelNotifications: NotificationScheduler.cancelAll,
+      clearHealthSyncState: HealthSyncService.endAccountSession,
       clearSecureStorage: LogoutService._storage.deleteAll,
       clearApiCache: ApiCacheManager.clearAll,
       clearDownloadedFileCache: CacheFileUtils.clearCache,
@@ -385,6 +396,7 @@ class LogoutServiceDependencies {
   final LogoutStep clearPushSignedInUser;
   final LogoutStep deleteFcmToken;
   final LogoutStep cancelNotifications;
+  final LogoutStep clearHealthSyncState;
   final LogoutStep clearSecureStorage;
   final LogoutStep clearApiCache;
   final LogoutStep clearDownloadedFileCache;

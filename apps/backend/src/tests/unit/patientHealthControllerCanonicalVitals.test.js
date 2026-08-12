@@ -5,6 +5,7 @@ const recordVitalsMock = jest.fn();
 const correctVitalsMock = jest.fn();
 const logPhiAccessMock = jest.fn();
 const recordPatientWearableVitalMock = jest.fn();
+const correctPatientWearableVitalMock = jest.fn();
 
 const TENANT = '55555555-5555-4555-8555-555555555555';
 const PATIENT_UID = 'a1111111-2222-4333-8444-555555550003';
@@ -25,6 +26,7 @@ jest.unstable_mockModule('../../services/gamification/pointService.js', () => ({
 jest.unstable_mockModule('../../services/health/healthRecordService.js', () => ({}));
 jest.unstable_mockModule('../../services/health/patientHealthService.js', () => ({}));
 jest.unstable_mockModule('../../services/health/patientWearableVitalsService.js', () => ({
+  correctPatientWearableVital: correctPatientWearableVitalMock,
   recordPatientWearableVital: recordPatientWearableVitalMock,
 }));
 jest.unstable_mockModule('../../services/emr/vitalsChartService.js', () => ({
@@ -35,7 +37,12 @@ jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
   logPhiAccess: logPhiAccessMock,
 }));
 
-const { recordPatientVitals, recordStaffVitals, updateStaffVitals } = await import(
+const {
+  correctPatientWearableVitals,
+  recordPatientVitals,
+  recordStaffVitals,
+  updateStaffVitals,
+} = await import(
   '../../controllers/health/patientHealthController.js'
 );
 
@@ -59,6 +66,7 @@ describe('recordPatientVitals wearable sources', () => {
     queryRawMock.mockReset();
     logPhiAccessMock.mockReset();
     recordPatientWearableVitalMock.mockReset();
+    correctPatientWearableVitalMock.mockReset();
     recordPatientWearableVitalMock.mockResolvedValue({
       row: {
         id: 902,
@@ -178,6 +186,52 @@ describe('recordPatientVitals wearable sources', () => {
 
     expect(res.statusCode).toBe(400);
     expect(recordPatientWearableVitalMock).not.toHaveBeenCalled();
+  });
+
+  it('routes a receipt mismatch through the explicit patient correction service', async () => {
+    correctPatientWearableVitalMock.mockResolvedValue({
+      row: {
+        id: 902,
+        recorded_at: new Date('2026-08-11T03:00:00.000Z'),
+        source: 'health_connect',
+        source_record_id: 'HEART_RATE:sample-902',
+        recorded_at_source: new Date('2026-08-11T02:59:00.000Z'),
+      },
+      corrected: true,
+      duplicate: false,
+      receipt: {
+        sourceRecordId: 'HEART_RATE:sample-902',
+        sourceRecordHash: 'a'.repeat(64),
+        corrected: true,
+      },
+    });
+    const req = {
+      params: { sourceRecordId: 'HEART_RATE:sample-902' },
+      body: {
+        heartRate: 72,
+        source: 'health_connect',
+        recordedAtSource: '2026-08-11T02:59:00.000Z',
+      },
+      user: { uid: PATIENT_UID, role: 'PATIENT' },
+      tenantId: TENANT,
+      headers: {},
+      socket: { remoteAddress: '127.0.0.1' },
+      id: 'req-correct-health-connect',
+    };
+    const res = responseDouble();
+
+    await correctPatientWearableVitals(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(correctPatientWearableVitalMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT,
+        patientUid: PATIENT_UID,
+        heartRate: 72,
+        sourceRecordId: 'HEART_RATE:sample-902',
+      }),
+    );
+    expect(res.body.data.syncReceipt).toMatchObject({ corrected: true });
   });
 });
 

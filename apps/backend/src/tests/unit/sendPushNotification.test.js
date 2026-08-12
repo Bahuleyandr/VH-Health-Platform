@@ -185,25 +185,32 @@ describe('sendPushNotification — message shape', () => {
     expectOpaqueNormalEnvelope(sendEachForMulticastMock.mock.calls[0][0]);
   });
 
-  it('high priority is data-only with a 60s TTL and critical APNs headers', async () => {
+  it('Code Blue high priority is an opaque data-only envelope with a 60s TTL', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
     await sendPushNotification({
       tokens: 'tok-1',
-      title: 'Code Blue',
+      title: 'CODE BLUE',
       body: 'Ward 3',
       priority: 'high',
       channelId: 'code_blue',
-      data: { type: 'code_blue', patientId: 'patient-42', ward: '3' },
+      data: {
+        type: 'code_blue',
+        code_blue_reference: 'opaque-reference',
+        patientId: 'patient-42',
+        ward: '3',
+        reason: 'Cardiac arrest',
+        notification_tenant_id: 'tenant-1',
+      },
     });
 
     const message = sendEachForMulticastMock.mock.calls[0][0];
     expect(message.notification).toBeUndefined();
     expect(message.data).toEqual({
-      title: 'Code Blue',
-      body: 'Ward 3',
+      title: 'CODE BLUE',
+      body: 'Respond immediately',
       type: 'code_blue',
-      patientId: 'patient-42',
-      ward: '3',
+      code_blue_reference: 'opaque-reference',
+      notification_tenant_id: 'tenant-1',
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
     });
     expect(message.android).toEqual({
@@ -216,6 +223,25 @@ describe('sendPushNotification — message shape', () => {
       'apns-expiration': '1893456060',
     });
     expect(message.apns.payload.aps['interruption-level']).toBe('critical');
+  });
+
+  it('preserves non-Code-Blue high-priority data envelopes', async () => {
+    await sendPushNotification({
+      tokens: 'tok-1',
+      title: 'Critical monitor alert',
+      body: 'Open the monitor board',
+      priority: 'high',
+      channelId: 'critical_monitor',
+      data: { type: 'critical_monitor', alertId: '77' },
+    });
+
+    expect(sendEachForMulticastMock.mock.calls[0][0].data).toEqual({
+      title: 'Critical monitor alert',
+      body: 'Open the monitor board',
+      type: 'critical_monitor',
+      alertId: '77',
+      click_action: 'FLUTTER_NOTIFICATION_CLICK',
+    });
   });
 });
 

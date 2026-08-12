@@ -169,4 +169,38 @@ describe('GDPR erasure tenant and legal-hold controls', () => {
       recordType: 'GDPR_ERASURE',
     }));
   });
+
+  it('does not report completion when canonical user anonymization fails', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PATIENT_UID, phone: PHONE, tenant_id: TENANT }])
+      .mockResolvedValueOnce([]);
+    prismaMock.users.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(executeErasure({
+      uid: PATIENT_UID,
+      requestedBy: ACTOR_UID,
+      reason: 'patient request',
+      tenantId: TENANT,
+    })).rejects.toThrow('User anonymization did not update the tenant-bound identity');
+
+    expect(prismaMock.gdpr_erasure_log.create).not.toHaveBeenCalled();
+    expect(logPhiAccessMock).not.toHaveBeenCalled();
+  });
+
+  it('does not report completion when durable token revocation fails', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ uid: PATIENT_UID, phone: PHONE, tenant_id: TENANT }])
+      .mockResolvedValueOnce([]);
+    persistRevokeAllUserTokensMock.mockRejectedValueOnce(new Error('durable revocation unavailable'));
+
+    await expect(executeErasure({
+      uid: PATIENT_UID,
+      requestedBy: ACTOR_UID,
+      reason: 'patient request',
+      tenantId: TENANT,
+    })).rejects.toThrow('durable revocation unavailable');
+
+    expect(prismaMock.gdpr_erasure_log.create).not.toHaveBeenCalled();
+    expect(logPhiAccessMock).not.toHaveBeenCalled();
+  });
 });

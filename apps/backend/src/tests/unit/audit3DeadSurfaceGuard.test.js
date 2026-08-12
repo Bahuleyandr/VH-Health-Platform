@@ -34,6 +34,8 @@ describe('Audit 3 dead-surface guard', () => {
       'analytics_exec_digest_deliveries',
       'analytics_benchmark_pack_exports',
     ];
+    const dropTargets = [...migration.matchAll(/^DROP TABLE IF EXISTS ([^;]+);$/gm)]
+      .map((match) => match[1]);
     const firstDrop = migration.indexOf('DROP TABLE');
     const preflightEnd = migration.indexOf('END $$;');
 
@@ -47,10 +49,16 @@ describe('Audit 3 dead-surface guard', () => {
     expect(migration).toContain('AUDIT3_P10_DEAD_SURFACE_DATA_PRESENT');
     expect(preflightEnd).toBeGreaterThan(-1);
     expect(firstDrop).toBeGreaterThan(preflightEnd);
+    expect(dropTargets).toEqual([
+      'public.analytics_exec_digest_deliveries',
+      'public.analytics_exec_digest_subscriptions',
+      'public.analytics_exec_digest_settings',
+      'public.analytics_benchmark_pack_exports',
+    ]);
 
     for (const table of tables) {
       expect(migration).toContain(`'${table}'`);
-      expect(migration).toContain(`DROP TABLE IF EXISTS ${table};`);
+      expect(migration).toContain(`DROP TABLE IF EXISTS public.${table};`);
       expect(schema).not.toContain(`model ${table} {`);
     }
   });

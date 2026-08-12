@@ -5,9 +5,12 @@ import request from 'supertest';
 const TENANT_ID = '00000000-0000-4000-8000-0000000000a1';
 const USER_UID = '00000000-0000-4000-8000-0000000000b2';
 const queryRawUnsafe = jest.fn();
+const getCodeBlueNotificationContent = jest.fn();
 const registerNotificationDevice = jest.fn();
+const retireNotificationDevice = jest.fn();
 const rotateNotificationDeviceToken = jest.fn();
 const validateNotificationAuthority = jest.fn();
+const logPhiAccess = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe },
@@ -16,13 +19,16 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => ({ $queryRawUnsafe: queryRawUnsafe }),
 }));
 jest.unstable_mockModule('../../services/notification/deviceRegistrationService.js', () => ({
+  getCodeBlueNotificationContent,
   registerNotificationDevice,
+  retireNotificationDevice,
   rotateNotificationDeviceToken,
   validateNotificationAuthority,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
+jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({ logPhiAccess }));
 jest.unstable_mockModule('../../middleware/jwtMiddleware.js', () => ({
   default: (_req, _res, next) => next(),
 }));
@@ -183,6 +189,7 @@ describe('notification device routes', () => {
     const response = await request(app)
       .post('/api/v1/devices/notification-authority/validate')
       .send({
+        version: 1,
         tenantId: TENANT_ID,
         recipientUid: USER_UID,
         deviceId: 'installation-1',
@@ -202,6 +209,84 @@ describe('notification device routes', () => {
       sessionEpoch: 'old-session-family',
       authorizationEpoch: '7',
     });
+  });
+
+  it('hydrates Code Blue content only through the current audience service', async () => {
+    getCodeBlueNotificationContent.mockResolvedValue({
+      eventId: '42',
+      patientId: 'patient-42',
+      ward: 'ICU',
+      bedNumber: '4A',
+      reason: 'Cardiac arrest',
+      startedAt: '2030-01-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/devices/notification-authority/code-blue')
+      .send({
+        version: 1,
+        tenantId: TENANT_ID,
+        recipientUid: USER_UID,
+        deviceId: 'installation-1',
+        registrationEpoch: '3',
+        sessionEpoch: 'session-family-1',
+        authorizationEpoch: '8',
+        codeBlueReference: 'v1.iv.cipher.tag',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({
+      authorized: true,
+      content: {
+        eventId: '42',
+        patientId: 'patient-42',
+        ward: 'ICU',
+        bedNumber: '4A',
+        reason: 'Cardiac arrest',
+        startedAt: '2030-01-01T00:00:00.000Z',
+      },
+    });
+    expect(getCodeBlueNotificationContent).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      sessionJti: 'current-jti',
+      deviceId: 'installation-1',
+      registrationEpoch: '3',
+      sessionEpoch: 'session-family-1',
+      authorizationEpoch: '8',
+      codeBlueReference: 'v1.iv.cipher.tag',
+    });
+    expect(logPhiAccess).toHaveBeenCalledWith(expect.objectContaining({
+      userId: USER_UID,
+      patientId: 'patient-42',
+      recordType: 'CODE_BLUE_NOTIFICATION',
+      action: 'VIEW',
+      tenantId: TENANT_ID,
+    }));
+  });
+
+  it('retires an FCM binding without deleting its linked device row', async () => {
+    retireNotificationDevice.mockResolvedValue({
+      device_name: 'Ward handset',
+      platform: 'android',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/devices/unregister')
+      .send({ deviceId: 'installation-1' });
+
+    expect(response.statusCode).toBe(200);
+    expect(retireNotificationDevice).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      deviceId: 'installation-1',
+    });
+    expect(response.body.data).toMatchObject({
+      deviceId: 'installation-1',
+      deviceName: 'Ward handset',
+      platform: 'android',
+    });
+    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 
   it('keeps /update-token absent exact projection as 404', async () => {

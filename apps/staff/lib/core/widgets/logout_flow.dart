@@ -197,24 +197,30 @@ class LogoutFlow {
       return false;
     }
 
-    final messenger =
-        result.serverRevocationFailed || result.notificationTeardownFailed
-        ? ScaffoldMessenger.maybeOf(context)
-        : null;
+    final warning = switch ((
+      result.serverRevocationFailed,
+      result.notificationTeardownFailed,
+    )) {
+      (true, true) => strings.logoutCombinedTeardownFailed,
+      (true, false) => strings.logoutServerRevocationFailed,
+      (false, true) => strings.logoutNotificationTeardownFailed,
+      (false, false) => null,
+    };
+    final messenger = warning == null
+        ? null
+        : ScaffoldMessenger.maybeOf(context);
     context.go('/login');
     // Local sign-out is complete, but the bearer token may still be live —
     // say so rather than letting the staff member assume the session is dead.
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(
-          result.notificationTeardownFailed
-              ? strings.logoutNotificationTeardownFailed
-              : strings.logoutServerRevocationFailed,
+    if (messenger != null && warning != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(warning),
+          backgroundColor: AppTheme.errorRed,
+          duration: const Duration(seconds: 6),
         ),
-        backgroundColor: AppTheme.errorRed,
-        duration: const Duration(seconds: 6),
-      ),
-    );
+      );
+    }
     return true;
   }
 }

@@ -313,6 +313,8 @@ class AppStrings {
   String sessionTimeoutWarning(int seconds) =>
       _t('session_timeout.warning').replaceAll('{seconds}', '$seconds');
   String get sessionTimeoutStillHere => _t('session_timeout.still_here');
+  String get sessionLockTitle => _t('session_lock.title');
+  String get sessionLockBody => _t('session_lock.body');
   String sessionTimeoutPreservedQueue(int count) =>
       _t('session_timeout.preserved_queue').replaceAll('{count}', '$count');
   String get loginEmployeeIdHint => _t('login.employee_id_hint');
@@ -3101,6 +3103,8 @@ class AppStrings {
       _t('logout.server_revocation_failed');
   String get logoutNotificationTeardownFailed =>
       _t('logout.notification_teardown_failed');
+  String get logoutCombinedTeardownFailed =>
+      _t('logout.combined_teardown_failed');
   String sessionRevocationPreservedItems(int count) =>
       format('session_revocation.preserved_items', {'count': count});
 
@@ -3893,8 +3897,13 @@ class AppStrings {
           'Signed out on this device, but the server did not confirm the session was revoked. Sign in and out again on a working connection.',
       'logout.notification_teardown_failed':
           'Signed out, but this device could not confirm its previous notification channel was removed. Reconnect before another staff member signs in.',
+      'logout.combined_teardown_failed':
+          'Signed out on this device, but the server did not confirm the session was revoked and this device could not confirm its previous notification channel was removed. On a working connection, sign in and out again before another staff member uses this device.',
       'session_revocation.preserved_items':
           '{count} unresolved offline clinical item(s) remain encrypted on this device for later reconciliation.',
+      'session_lock.title': 'Session locked',
+      'session_lock.body':
+          'Signing you out securely. Patient information is hidden.',
       // Greetings
       'dashboard.greeting.morning': 'Good morning',
       'dashboard.greeting.afternoon': 'Good afternoon',

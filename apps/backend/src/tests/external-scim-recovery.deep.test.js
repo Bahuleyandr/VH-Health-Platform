@@ -404,6 +404,18 @@ describeIfDb('C6.1-F I13 late SCIM recovery', () => {
 
   test('executes the C-D15 late revocation and retains exact pending evidence', async () => {
     const body = '{"Operations":[{"op":"replace","path":"active","value":false}]}';
+    publishRevokeAllUserTokens.mockClear();
+    publishRevokeAllUserTokens.mockImplementationOnce(async (uid) => {
+      const committed = await prisma.$queryRawUnsafe(
+        `SELECT is_active, status
+           FROM users
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+        TENANT_ID,
+        uid,
+      );
+      expect(committed[0]).toMatchObject({ is_active: false, status: 'inactive' });
+      return { database: { persisted: true } };
+    });
     const recovered = await recover({
       providerId: revokeProviderId,
       providerKey: `revoke-${SUFFIX}`,
@@ -428,6 +440,11 @@ describeIfDb('C6.1-F I13 late SCIM recovery', () => {
       reason: 'scim_deprovision',
       notificationTenantId: TENANT_ID,
     }));
+    expect(publishRevokeAllUserTokens).toHaveBeenCalledWith(
+      REVOKE_UID,
+      1_700_000_000,
+      { reason: 'scim_deprovision' },
+    );
     const state = await prisma.$queryRawUnsafe(
       `SELECT u.is_active, u.status, s.is_active AS staff_is_active, s.archived,
               (SELECT COUNT(*)::integer FROM user_active_sessions WHERE user_uid = u.uid) AS active_sessions,

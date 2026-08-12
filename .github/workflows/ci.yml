@@ -87,6 +87,9 @@ jobs:
       - name: Install Semgrep
         run: python -m pip install --quiet semgrep
 
+      - name: Semgrep rule regression tests
+        run: node --test scripts/ci/semgrep-config.test.mjs
+
       - run: node scripts/ci/run.mjs --only=security
 
   quick_backend:

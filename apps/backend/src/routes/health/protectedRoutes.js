@@ -59,6 +59,12 @@ router.get('/patient/:patient_id/conditions',
 router.post('/patient/vitals',
   patientHealthController.recordPatientVitals
 );
+router.put(
+  '/patient/vitals/wearable/:sourceRecordId',
+  requireRole('PATIENT'),
+  requireIdempotencyKey({ scope: 'patient_wearable_vitals_correction' }),
+  patientHealthController.correctPatientWearableVitals,
+);
 
 // Staff-app compatibility endpoint. The app historically posts its structured
 // body to /health/records; the controller adapts that body to the canonical

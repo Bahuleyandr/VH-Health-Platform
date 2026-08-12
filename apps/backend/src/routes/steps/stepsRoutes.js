@@ -310,10 +310,19 @@ router.post('/health-sync', async (req, res) => {
             duration_seconds = EXCLUDED.duration_seconds,
             is_active = false,
             reward_eligible = true
-          WHERE EXCLUDED.recorded_at_source >= COALESCE(
-            step_sessions.recorded_at_source,
-            '-infinity'::timestamptz
-          )
+          WHERE EXCLUDED.recorded_at_source > COALESCE(
+                  step_sessions.recorded_at_source,
+                  '-infinity'::timestamptz
+                )
+             OR (
+                  EXCLUDED.recorded_at_source = step_sessions.recorded_at_source
+                  AND EXCLUDED.steps IS NOT DISTINCT FROM step_sessions.steps
+                  AND EXCLUDED.distance_meters IS NOT DISTINCT FROM step_sessions.distance_meters
+                  AND EXCLUDED.sleep_minutes IS NOT DISTINCT FROM step_sessions.sleep_minutes
+                  AND EXCLUDED.active_energy_kcal IS NOT DISTINCT FROM step_sessions.active_energy_kcal
+                  AND EXCLUDED.source_device IS NOT DISTINCT FROM step_sessions.source_device
+                  AND EXCLUDED.source_app IS NOT DISTINCT FROM step_sessions.source_app
+                )
           RETURNING id, source_day, steps, distance_meters, sleep_minutes, active_energy_kcal`,
         uid,
         source,

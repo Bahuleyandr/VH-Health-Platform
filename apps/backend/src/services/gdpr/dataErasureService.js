@@ -212,6 +212,7 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
         error: err.message, uid, requestId,
       });
       results.users = { action: 'error', error: 'User anonymization failed' };
+      throw err;
     }
   }
 

@@ -10,6 +10,19 @@ const PRIVATE_LOCK_SCREEN_TITLE = 'VH Health';
 const PRIVATE_LOCK_SCREEN_BODY = 'You have a new update. Open the app to view it.';
 const PRIVATE_NOTIFICATION_ROUTE = '/notifications';
 const PRIVATE_NOTIFICATION_ACTION = 'open_notification_inbox';
+const CODE_BLUE_TITLE = 'CODE BLUE';
+const CODE_BLUE_BODY = 'Respond immediately';
+const CODE_BLUE_DATA_KEYS = Object.freeze([
+  'code_blue_reference',
+  'notification_authority_version',
+  'notification_tenant_id',
+  'notification_recipient_uid',
+  'notification_device_id',
+  'notification_registration_epoch',
+  'notification_session_epoch',
+  'notification_authorization_epoch',
+  'notification_expires_at',
+]);
 
 /**
  * @typedef {Object} PrivatePushEnvelope
@@ -27,6 +40,16 @@ function createPrivatePushEnvelope() {
     action: PRIVATE_NOTIFICATION_ACTION,
     click_action: 'FLUTTER_NOTIFICATION_CLICK',
   };
+}
+
+function createCodeBluePushEnvelope(data) {
+  const envelope = { type: 'code_blue' };
+  for (const key of CODE_BLUE_DATA_KEYS) {
+    if (data[key] !== undefined && data[key] !== null) {
+      envelope[key] = String(data[key]);
+    }
+  }
+  return envelope;
 }
 
 /**
@@ -94,6 +117,7 @@ export async function sendPushNotification({
   // Android's system tray renders them directly. Their display copy is always
   // privacy-minimized; authenticated app surfaces retain the detailed copy.
   const isHigh = priority === 'high';
+  const isCodeBlue = isHigh && channelId === 'code_blue';
   const nowUnix = Math.floor(Date.now() / 1000);
   const requestedExpiry = expiresAtUnix == null ? Number.NaN : Number(expiresAtUnix);
   const transportExpiry = Number.isFinite(requestedExpiry)
@@ -102,9 +126,9 @@ export async function sendPushNotification({
   const androidTtl = Math.max(0, (transportExpiry - nowUnix) * 1000);
   const transportData = isHigh
     ? {
-        ...data,
-        title,
-        body,
+        ...(isCodeBlue ? createCodeBluePushEnvelope(data) : data),
+        title: isCodeBlue ? CODE_BLUE_TITLE : title,
+        body: isCodeBlue ? CODE_BLUE_BODY : body,
         click_action: 'FLUTTER_NOTIFICATION_CLICK',
       }
     : createPrivatePushEnvelope();

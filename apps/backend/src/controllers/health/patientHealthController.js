@@ -7,7 +7,10 @@ import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import * as patientHealthService from '../../services/health/patientHealthService.js';
-import { recordPatientWearableVital } from '../../services/health/patientWearableVitalsService.js';
+import {
+  correctPatientWearableVital,
+  recordPatientWearableVital,
+} from '../../services/health/patientWearableVitalsService.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertVitalPlausibility, RECORDED_AT_MAX_FUTURE_MS } from '../../utils/clinical/vitalPlausibility.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -43,6 +46,83 @@ function strictPositiveInteger(value, field) {
     throw AppError.badRequest(`${field} must be a positive integer`);
   }
   return parsed;
+}
+
+function normalizeWearableVitalPayload(body, {
+  sourceNorm,
+  sourceRecordId = body.sourceRecordId,
+} = {}) {
+  const recordedAtSource = body.recordedAtSource
+    ? new Date(body.recordedAtSource)
+    : null;
+  if (!recordedAtSource || Number.isNaN(recordedAtSource.getTime())) {
+    throw AppError.badRequest(
+      body.recordedAtSource
+        ? 'recordedAtSource must be a valid ISO-8601 timestamp'
+        : 'recordedAtSource is required for wearable vitals',
+    );
+  }
+
+  const heartRate = strictNumberOrUndefined(body.heartRate, 'heartRate', { integer: true });
+  const temperature = strictNumberOrUndefined(body.temperature, 'temperature');
+  const bloodSugar = strictNumberOrUndefined(body.bloodSugar, 'bloodSugar', { integer: true });
+  const weight = strictNumberOrUndefined(body.weight, 'weight');
+  const spO2 = strictNumberOrUndefined(body.spO2, 'spO2', { integer: true });
+  let bloodPressure = null;
+  if (body.bloodPressure != null) {
+    if (typeof body.bloodPressure !== 'object' || Array.isArray(body.bloodPressure)) {
+      throw AppError.badRequest('bloodPressure must be an object');
+    }
+    bloodPressure = {
+      systolic: strictNumberOrUndefined(
+        body.bloodPressure.systolic,
+        'bloodPressure.systolic',
+      ),
+      diastolic: strictNumberOrUndefined(
+        body.bloodPressure.diastolic,
+        'bloodPressure.diastolic',
+      ),
+    };
+  }
+
+  const hasWearableVital = [
+    bloodPressure?.systolic,
+    bloodPressure?.diastolic,
+    heartRate,
+    temperature,
+    bloodSugar,
+    weight,
+    spO2,
+  ].some(value => value !== undefined && value !== null);
+  if (!hasWearableVital) {
+    throw AppError.badRequest('At least one wearable vital sign is required');
+  }
+  if (weight !== undefined && (weight <= 0 || weight > 600)) {
+    throw AppError.badRequest('weight must be between 0 and 600 kg');
+  }
+  assertVitalPlausibility({
+    heart_rate: heartRate,
+    systolic_bp: bloodPressure?.systolic,
+    diastolic_bp: bloodPressure?.diastolic,
+    temperature,
+    blood_glucose: bloodSugar,
+    spo2: spO2,
+  });
+  if (recordedAtSource.getTime() - Date.now() > RECORDED_AT_MAX_FUTURE_MS) {
+    throw AppError.badRequest('recordedAtSource cannot be in the future');
+  }
+
+  return {
+    bloodPressure,
+    heartRate,
+    temperature,
+    bloodSugar,
+    weight,
+    spO2,
+    source: sourceNorm,
+    sourceRecordId,
+    recordedAtSource,
+  };
 }
 
 async function hasVitalsSourceColumns() {
@@ -278,64 +358,17 @@ export async function recordPatientVitals(req, res) {
     }
 
     if (isWearable) {
-      const normalizedHeartRate = strictNumberOrUndefined(heartRate, 'heartRate', { integer: true });
-      const normalizedTemperature = strictNumberOrUndefined(temperature, 'temperature');
-      const normalizedBloodSugar = strictNumberOrUndefined(bloodSugar, 'bloodSugar', { integer: true });
-      const normalizedWeight = strictNumberOrUndefined(weight, 'weight');
-      const normalizedSpO2 = strictNumberOrUndefined(spO2, 'spO2', { integer: true });
-      let normalizedBloodPressure = null;
-      if (bloodPressure != null) {
-        if (typeof bloodPressure !== 'object' || Array.isArray(bloodPressure)) {
-          throw AppError.badRequest('bloodPressure must be an object');
-        }
-        normalizedBloodPressure = {
-          systolic: strictNumberOrUndefined(bloodPressure.systolic, 'bloodPressure.systolic'),
-          diastolic: strictNumberOrUndefined(bloodPressure.diastolic, 'bloodPressure.diastolic'),
-        };
-      }
-
-      const hasWearableVital = [
-        normalizedBloodPressure?.systolic,
-        normalizedBloodPressure?.diastolic,
-        normalizedHeartRate,
-        normalizedTemperature,
-        normalizedBloodSugar,
-        normalizedWeight,
-        normalizedSpO2,
-      ].some(value => value !== undefined && value !== null);
-      if (!hasWearableVital) {
-        throw AppError.badRequest('At least one wearable vital sign is required');
-      }
-      if (normalizedWeight !== undefined && (normalizedWeight <= 0 || normalizedWeight > 600)) {
-        throw AppError.badRequest('weight must be between 0 and 600 kg');
-      }
-
-      assertVitalPlausibility({
-        heart_rate: normalizedHeartRate,
-        systolic_bp: normalizedBloodPressure?.systolic,
-        diastolic_bp: normalizedBloodPressure?.diastolic,
-        temperature: normalizedTemperature,
-        blood_glucose: normalizedBloodSugar,
-        spo2: normalizedSpO2,
+      const wearablePayload = normalizeWearableVitalPayload(req.body, {
+        sourceNorm,
+        sourceRecordId,
       });
-      if (recordedAtSourceTs.getTime() - Date.now() > RECORDED_AT_MAX_FUTURE_MS) {
-        throw AppError.badRequest('recordedAtSource cannot be in the future');
-      }
 
       const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
       const wearable = await recordPatientWearableVital({
         tenantId,
         patientUid: uid,
         actorRole: req.user?.role,
-        bloodPressure: normalizedBloodPressure,
-        heartRate: normalizedHeartRate,
-        temperature: normalizedTemperature,
-        bloodSugar: normalizedBloodSugar,
-        weight: normalizedWeight,
-        spO2: normalizedSpO2,
-        source: sourceNorm,
-        sourceRecordId,
-        recordedAtSource: recordedAtSourceTs,
+        ...wearablePayload,
       });
 
       logPhiAccess({
@@ -419,6 +452,63 @@ export async function recordPatientVitals(req, res) {
   } catch (err) {
     logger.error('Record vitals error:', err);
     relayAppError(res, err, 'Failed to record vitals');
+  }
+}
+
+export async function correctPatientWearableVitals(req, res) {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) {
+      return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+    }
+
+    const sourceNorm = req.body?.source
+      ? String(req.body.source).toLowerCase()
+      : '';
+    if (!['healthkit', 'health_connect', 'google_fit'].includes(sourceNorm)) {
+      throw AppError.badRequest(
+        'source must identify a supported wearable provider',
+      );
+    }
+    const wearablePayload = normalizeWearableVitalPayload(req.body || {}, {
+      sourceNorm,
+      sourceRecordId: req.params?.sourceRecordId,
+    });
+    const tenantId = req.tenantId ||
+      req.user?.tenant_id ||
+      req.user?.tenantId ||
+      null;
+    const wearable = await correctPatientWearableVital({
+      tenantId,
+      patientUid: uid,
+      actorRole: req.user?.role,
+      ...wearablePayload,
+    });
+
+    logPhiAccess({
+      userId: uid,
+      userRole: req.user?.role,
+      patientId: uid,
+      recordType: 'PATIENT_VITALS',
+      action: wearable.corrected ? 'UPDATE' : 'REPLAY',
+      ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+      requestId: req.id,
+      tenantId,
+    });
+
+    return success(res, {
+      id: wearable.row.id,
+      recordedAt: wearable.row.recorded_at,
+      source: wearable.row.source,
+      sourceRecordId: wearable.row.source_record_id,
+      recordedAtSource: wearable.row.recorded_at_source,
+      syncReceipt: wearable.receipt,
+    }, wearable.corrected
+      ? 'Wearable vital corrected successfully'
+      : 'Wearable vital correction already applied');
+  } catch (err) {
+    logger.error('Correct wearable vitals error:', err);
+    return relayAppError(res, err, 'Failed to correct wearable vitals');
   }
 }
 

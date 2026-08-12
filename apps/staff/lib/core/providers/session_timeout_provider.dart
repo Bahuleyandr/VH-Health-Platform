@@ -46,6 +46,8 @@ class SessionTimeoutProvider extends ChangeNotifier {
   bool _expired = false;
   bool _tracking = false;
   bool _warningVisible = false;
+  bool _sessionLocked = false;
+  bool _timeoutCleanupInProgress = false;
   bool _disposed = false;
   Duration _warningRemaining = Duration.zero;
   int _preservedOfflineWriteCount = 0;
@@ -54,6 +56,8 @@ class SessionTimeoutProvider extends ChangeNotifier {
   bool get isSessionExpired => _expired;
 
   bool get isTracking => _tracking;
+  bool get isSessionLocked => _sessionLocked;
+  bool get isTimeoutCleanupInProgress => _timeoutCleanupInProgress;
   bool get isWarningVisible => _warningVisible;
   Duration get warningRemaining => _warningRemaining;
   int get warningSecondsRemaining =>
@@ -86,10 +90,14 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   /// Start tracking. Call once after login succeeds.
   void startTracking() {
+    final shouldNotify = _expired || _sessionLocked;
     _tracking = true;
     _expired = false;
+    _sessionLocked = false;
+    _timeoutCleanupInProgress = false;
     _preservedOfflineWriteCount = 0;
     recordActivity();
+    if (shouldNotify && !_disposed) notifyListeners();
   }
 
   /// Stop tracking. Call on explicit logout to avoid double-clear.
@@ -102,18 +110,39 @@ class SessionTimeoutProvider extends ChangeNotifier {
   /// Reset after re-login.
   void resetSession() {
     _expired = false;
+    _sessionLocked = false;
+    _timeoutCleanupInProgress = false;
     _preservedOfflineWriteCount = 0;
     _clearWarningState();
     notifyListeners();
     startTracking();
   }
 
+  /// Immediately hides the authenticated surface while revocation or timeout
+  /// cleanup is still running. This is intentionally independent of tracking:
+  /// forced revocation stops the timer but must keep the surface locked.
+  void lockSession() {
+    if (_sessionLocked) return;
+    _sessionLocked = true;
+    if (!_disposed) notifyListeners();
+  }
+
+  void unlockSession() {
+    if (!_sessionLocked) return;
+    _sessionLocked = false;
+    if (!_disposed) notifyListeners();
+  }
+
   Future<void> _onTimeout() async {
     _tracking = false;
     _expired = true;
-    _preservedOfflineWriteCount = await _pendingOfflineWriteCount();
+    _timeoutCleanupInProgress = true;
     _cancelTimers();
     _clearWarningState();
+    // Publish the locked state before the first await so the previous
+    // clinician's surface cannot remain visible during asynchronous teardown.
+    lockSession();
+    _preservedOfflineWriteCount = await _pendingOfflineWriteCount();
     try {
       await _beforeTimeoutCleanup?.call();
     } catch (e) {
@@ -124,6 +153,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('SessionTimeout: failed to clear local session state: $e');
     }
+    _timeoutCleanupInProgress = false;
     if (!_disposed) notifyListeners();
   }
 

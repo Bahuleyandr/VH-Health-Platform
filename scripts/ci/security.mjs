@@ -169,6 +169,8 @@ function runSemgrepFocused() {
   const args = [
     'scan',
     '--config', '.semgrep.yml',
+    '--error',
+    '--severity', 'ERROR',
     '--sarif',
     '--output', 'output/security/semgrep-focused.sarif',
     '--timeout', '300',

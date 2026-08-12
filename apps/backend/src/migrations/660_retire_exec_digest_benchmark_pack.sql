@@ -55,7 +55,7 @@ BEGIN
   END LOOP;
 END $$;
 
-DROP TABLE IF EXISTS analytics_exec_digest_deliveries;
-DROP TABLE IF EXISTS analytics_exec_digest_subscriptions;
-DROP TABLE IF EXISTS analytics_exec_digest_settings;
-DROP TABLE IF EXISTS analytics_benchmark_pack_exports;
+DROP TABLE IF EXISTS public.analytics_exec_digest_deliveries;
+DROP TABLE IF EXISTS public.analytics_exec_digest_subscriptions;
+DROP TABLE IF EXISTS public.analytics_exec_digest_settings;
+DROP TABLE IF EXISTS public.analytics_benchmark_pack_exports;

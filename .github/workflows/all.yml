@@ -42,6 +42,8 @@ jobs:
           mkdir -p output/security
           semgrep scan \
             --config .semgrep.yml \
+            --error \
+            --severity ERROR \
             --sarif \
             --output output/security/semgrep-focused.sarif \
             --timeout 300 \

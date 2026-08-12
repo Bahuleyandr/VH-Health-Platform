@@ -66,6 +66,7 @@ const PERMISSION_GATES: PermissionGate[] = [
     prefixes: [
       "api/v1/appointments",
       "api/v1/admin/appointments",
+      "api/v1/patients/search",
       "api/v1/prescriptions/all",
     ],
   },

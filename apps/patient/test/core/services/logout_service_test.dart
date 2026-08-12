@@ -31,6 +31,7 @@ void main() {
         'push-user',
         'fcm-token',
         'notifications',
+        'health-sync',
         'secure-storage',
         'api-cache',
         'file-cache',
@@ -82,6 +83,20 @@ void main() {
       await LogoutService.logout();
 
       expect(calls, contains('firebase-signout'));
+    },
+  );
+
+  test(
+    'health sync cleanup failure cannot prevent the credential wipe',
+    () async {
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, throwOn: 'health-sync'),
+      );
+
+      await expectLater(LogoutService.logout(), completes);
+
+      expect(calls, containsAllInOrder(['health-sync', 'secure-storage']));
     },
   );
 
@@ -255,6 +270,7 @@ void main() {
           clearPushSignedInUser: base.clearPushSignedInUser,
           deleteFcmToken: base.deleteFcmToken,
           cancelNotifications: base.cancelNotifications,
+          clearHealthSyncState: base.clearHealthSyncState,
           clearSecureStorage: base.clearSecureStorage,
           clearApiCache: base.clearApiCache,
           clearDownloadedFileCache: base.clearDownloadedFileCache,
@@ -336,6 +352,7 @@ LogoutServiceDependencies _dependencies(
     clearPushSignedInUser: step('push-user'),
     deleteFcmToken: step('fcm-token'),
     cancelNotifications: step('notifications'),
+    clearHealthSyncState: step('health-sync'),
     clearSecureStorage: step('secure-storage'),
     clearApiCache: step('api-cache'),
     clearDownloadedFileCache: step('file-cache'),

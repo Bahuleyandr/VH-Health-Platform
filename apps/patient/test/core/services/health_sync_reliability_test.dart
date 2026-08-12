@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:health/health.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 
 void main() {
@@ -110,22 +111,99 @@ void main() {
 
   test('vital cursor keys are stable and isolated per sample type', () {
     final heartRate = buildHealthSyncVitalCursorKey(
+      ownerScope: 'owner-a',
       sourceTag: 'health_connect',
       sampleType: 'HEART_RATE',
     );
     final oxygen = buildHealthSyncVitalCursorKey(
+      ownerScope: 'owner-a',
       sourceTag: 'health_connect',
       sampleType: 'BLOOD_OXYGEN',
     );
 
-    expect(heartRate, 'health_sync_last_vitals_health_connect_HEART_RATE');
+    expect(
+      heartRate,
+      'health_sync_owner-a_last_vitals_health_connect_HEART_RATE',
+    );
     expect(oxygen, isNot(heartRate));
     expect(
       buildHealthSyncVitalSafetyKey(
+        ownerScope: 'owner-a',
         sourceTag: 'health_connect',
         sampleType: 'HEART_RATE',
       ),
-      'health_sync_last_vitals_safety_health_connect_HEART_RATE',
+      'health_sync_owner-a_last_vitals_safety_health_connect_HEART_RATE',
+    );
+  });
+
+  test('persisted sync state is isolated by a hashed account scope', () async {
+    final first = await buildHealthSyncOwnerScope('patient-a');
+    final replay = await buildHealthSyncOwnerScope('patient-a');
+    final second = await buildHealthSyncOwnerScope('patient-b');
+
+    expect(first, replay);
+    expect(first, matches(RegExp(r'^[0-9a-f]{64}$')));
+    expect(second, isNot(first));
+    expect(
+      buildHealthSyncVitalCursorKey(
+        ownerScope: second,
+        sourceTag: 'health_connect',
+        sampleType: 'HEART_RATE',
+      ),
+      isNot(
+        buildHealthSyncVitalCursorKey(
+          ownerScope: first,
+          sourceTag: 'health_connect',
+          sampleType: 'HEART_RATE',
+        ),
+      ),
+    );
+  });
+
+  test('sync runs only for the bound account and scheduled owner', () {
+    expect(
+      isHealthSyncAccountSessionActive(
+        currentOwnerScope: 'owner-a',
+        persistedOwnerScope: 'owner-a',
+        scheduledOwnerScope: 'owner-a',
+      ),
+      isTrue,
+    );
+    expect(
+      isHealthSyncAccountSessionActive(
+        currentOwnerScope: 'owner-b',
+        persistedOwnerScope: 'owner-b',
+        scheduledOwnerScope: 'owner-a',
+      ),
+      isFalse,
+    );
+    expect(
+      isHealthSyncAccountSessionActive(
+        currentOwnerScope: 'owner-b',
+        persistedOwnerScope: 'owner-a',
+      ),
+      isFalse,
+    );
+  });
+
+  test('manual health-store records are excluded from wearable ingestion', () {
+    expect(shouldSyncHealthRecordingMethod(RecordingMethod.manual), isFalse);
+    expect(shouldSyncHealthRecordingMethod(RecordingMethod.automatic), isTrue);
+    expect(shouldSyncHealthRecordingMethod(RecordingMethod.active), isTrue);
+    expect(
+      shouldSyncHealthDataPoint(
+        recordingMethod: RecordingMethod.automatic,
+        sourceId: 'com.vh.vhhealth',
+      ),
+      isFalse,
+      reason: 'legacy app writes were incorrectly tagged automatic',
+    );
+    expect(
+      shouldSyncHealthDataPoint(
+        recordingMethod: RecordingMethod.automatic,
+        sourceId: 'com.example.watch',
+      ),
+      isTrue,
     );
   });
 
@@ -206,7 +284,7 @@ void main() {
     },
   );
 
-  test('terminal sample rejections are separated from retryable failures', () {
+  test('receipt conflicts use the explicit correction path', () {
     expect(
       classifyHealthSyncPostStatus(200),
       HealthSyncPostDisposition.accepted,
@@ -217,7 +295,11 @@ void main() {
     );
     expect(
       classifyHealthSyncPostStatus(409),
-      HealthSyncPostDisposition.terminalRejection,
+      HealthSyncPostDisposition.correctionRequired,
+    );
+    expect(
+      buildHealthSyncCorrectionPath('HEART_RATE:sample/902'),
+      '/health/patient/vitals/wearable/HEART_RATE%3Asample%2F902',
     );
     for (final status in [401, 403, 404, 408, 429, 500, 503]) {
       expect(
@@ -226,6 +308,27 @@ void main() {
         reason: 'HTTP $status must retain the sample for replay',
       );
     }
+  });
+
+  test('separate correction attempts never reuse a prior successful key', () {
+    final first = buildHealthSyncCorrectionAttemptKey(
+      sourceTag: 'health_connect',
+      targetFingerprint: 'a' * 64,
+    );
+    final retryOfTheSameTarget = buildHealthSyncCorrectionAttemptKey(
+      sourceTag: 'health_connect',
+      targetFingerprint: 'a' * 64,
+    );
+
+    expect(first, isNot(retryOfTheSameTarget));
+    expect(
+      first,
+      matches(
+        RegExp(
+          r'^wearable-vital-correction:health_connect:a{64}:[0-9a-f-]{36}$',
+        ),
+      ),
+    );
   });
 
   test(

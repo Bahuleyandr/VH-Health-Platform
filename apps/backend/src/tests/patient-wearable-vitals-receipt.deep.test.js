@@ -1,5 +1,8 @@
 import prisma from '../lib/prisma.js';
-import { recordPatientWearableVital } from '../services/health/patientWearableVitalsService.js';
+import {
+  correctPatientWearableVital,
+  recordPatientWearableVital,
+} from '../services/health/patientWearableVitalsService.js';
 import { deleteWithAuditBypass } from './helpers/auditBypass.js';
 
 const DB_CONFIGURED = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
@@ -8,6 +11,7 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '85400000-0000-4000-8000-000000000001';
 const SAMPLE_ID = 'HEART_RATE:pr854-deep-receipt';
+const SOURCE_AT = new Date(Date.now() - (60 * 60 * 1000));
 
 async function cleanup() {
   await deleteWithAuditBypass(
@@ -52,7 +56,7 @@ function write(heartRate = 72) {
     heartRate,
     source: 'health_connect',
     sourceRecordId: SAMPLE_ID,
-    recordedAtSource: new Date('2026-08-11T02:59:00.000Z'),
+    recordedAtSource: SOURCE_AT,
   });
 }
 
@@ -94,8 +98,8 @@ d('patient wearable vital durable receipts', () => {
     );
     expect(detail).toHaveLength(1);
     expect(detail[0].heart_rate).toBe(72);
-    expect(detail[0].recorded_at.toISOString()).toBe('2026-08-11T02:59:00.000Z');
-    expect(detail[0].recorded_at_source.toISOString()).toBe('2026-08-11T02:59:00.000Z');
+    expect(detail[0].recorded_at.getTime()).toBeGreaterThan(SOURCE_AT.getTime());
+    expect(detail[0].recorded_at_source.toISOString()).toBe(SOURCE_AT.toISOString());
     expect(detail[0].source_record_hash).toMatch(/^[0-9a-f]{64}$/);
 
     const timeline = await prisma.$queryRawUnsafe(
@@ -132,12 +136,22 @@ d('patient wearable vital durable receipts', () => {
     expect(audit).toHaveLength(1);
   });
 
-  test('the same sample identifier cannot be reused with changed clinical data', async () => {
+  test('a changed stable receipt requires and accepts an explicit correction', async () => {
     await write();
     await expect(write(73)).rejects.toMatchObject({
       statusCode: 409,
       code: 'WEARABLE_VITAL_RECEIPT_MISMATCH',
     });
+    const correction = await correctPatientWearableVital({
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      actorRole: 'PATIENT',
+      heartRate: 73,
+      source: 'health_connect',
+      sourceRecordId: SAMPLE_ID,
+      recordedAtSource: SOURCE_AT,
+    });
+    expect(correction).toMatchObject({ corrected: true, duplicate: false });
     const rows = await prisma.$queryRawUnsafe(
       `SELECT heart_rate
          FROM patient_vitals
@@ -149,6 +163,21 @@ d('patient wearable vital durable receipts', () => {
       PATIENT_UID,
       SAMPLE_ID,
     );
-    expect(rows).toEqual([{ heart_rate: 72 }]);
+    expect(rows).toEqual([{ heart_rate: 73 }]);
+
+    const timeline = await prisma.$queryRawUnsafe(
+      `SELECT event_type
+         FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid
+          AND source_table = 'patient_vitals'
+          AND source_id = $2::varchar
+        ORDER BY occurred_at`,
+      TENANT,
+      String(correction.row.id),
+    );
+    expect(timeline.map(row => row.event_type)).toEqual([
+      'vitals.recorded',
+      'vitals.corrected',
+    ]);
   });
 });

@@ -62,6 +62,10 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
   Future<void> _onRevoked(dynamic event) async {
     if (!mounted || _handlingRevocation) return;
     _handlingRevocation = true;
+    final timeout = context.read<SessionTimeoutProvider>();
+    // Lock synchronously, before forced logout performs any asynchronous
+    // credential, queue, notification, or realtime teardown.
+    timeout.lockSession();
     final messenger = ScaffoldMessenger.maybeOf(context);
     final strings = AppStrings.of(context);
 
@@ -71,7 +75,7 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
             widget.forcedLogout ?? AuthService.forceLogoutForRevocation,
         stopSessionTracking: () async {
           if (mounted) {
-            context.read<SessionTimeoutProvider>().stopTracking();
+            timeout.stopTracking();
             // Kill the poll-timer providers too — the forced cleanup already
             // tears down the WebSocket, but the pollers would keep firing
             // authenticated-looking requests and holding cached PHI (STF-1).
@@ -81,6 +85,9 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
         navigateToLogin: () {
           if (mounted) {
             (widget.navigateToLogin ?? () => appRouter.go('/login'))();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              timeout.unlockSession();
+            });
           }
         },
         reportPreservedItems: (count) {

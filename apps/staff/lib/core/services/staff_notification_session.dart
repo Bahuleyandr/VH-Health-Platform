@@ -139,6 +139,11 @@ class StaffNotificationEnvelope {
 typedef StaffNotificationClaimsLoader = Future<StaffJwtClaims?> Function();
 typedef StaffNotificationAuthorityValidator =
     Future<bool> Function(StaffNotificationAudience audience);
+typedef StaffCodeBlueContentFetcher =
+    Future<Map<String, dynamic>?> Function(
+      StaffNotificationAudience audience,
+      String reference,
+    );
 
 class StaffNotificationSessionStore {
   StaffNotificationSessionStore({NotificationSessionPersistence? persistence})
@@ -181,6 +186,45 @@ Future<bool> _validateWithServer(StaffNotificationAudience audience) async {
   } catch (_) {
     return false;
   }
+}
+
+Future<Map<String, dynamic>?> _fetchCodeBlueContentFromServer(
+  StaffNotificationAudience audience,
+  String reference,
+) async {
+  try {
+    final response = await ApiClient.post(
+      '/devices/notification-authority/code-blue',
+      body: {...audience.toJson(), 'codeBlueReference': reference},
+    );
+    if (!response.isSuccess) return null;
+    final data = response.dataAsMap();
+    if (data['authorized'] != true || data['content'] is! Map) return null;
+    return Map<String, dynamic>.from(data['content'] as Map);
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<Map<String, dynamic>?> codeBlueContentForMessage({
+  required RemoteMessage message,
+  StaffCodeBlueContentFetcher? contentFetcher,
+}) async {
+  final envelope = StaffNotificationEnvelope.fromMessage(message);
+  final reference =
+      message.data['code_blue_reference']?.toString().trim() ?? '';
+  if (envelope == null ||
+      reference.isEmpty ||
+      reference.length > 2048 ||
+      !RegExp(
+        r'^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$',
+      ).hasMatch(reference)) {
+    return null;
+  }
+  return (contentFetcher ?? _fetchCodeBlueContentFromServer)(
+    envelope.audience,
+    reference,
+  );
 }
 
 Future<bool> mayPresentStaffPush({

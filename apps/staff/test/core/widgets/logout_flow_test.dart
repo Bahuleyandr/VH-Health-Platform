@@ -297,6 +297,57 @@ void main() {
       expect(notifications.lastUnregisterBackend, isTrue);
     },
   );
+
+  testWidgets(
+    'combined logout failure preserves live-bearer recovery guidance',
+    (tester) async {
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () => LogoutFlow.start(
+                  context,
+                  confirmationTitle: 'Confirm',
+                  confirmationBody: 'Confirm body',
+                  logoutOperation: () async =>
+                      const StaffLogoutResult.signedOut(
+                        serverRevocationFailed: true,
+                        notificationTeardownFailed: true,
+                      ),
+                ),
+                child: const Text('Start logout'),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/login',
+            builder: (context, state) =>
+                const Scaffold(body: Text('Login destination')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.tap(find.text('Start logout'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Logout'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Login destination'), findsOneWidget);
+      expect(
+        find.textContaining('server did not confirm the session was revoked'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('previous notification channel was removed'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('sign in and out again'), findsOneWidget);
+    },
+  );
 }
 
 class _TrackingNotificationProvider extends NotificationProvider {

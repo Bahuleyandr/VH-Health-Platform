@@ -9,6 +9,7 @@ const setTenantMock = jest.fn(async (_tenantId, callback) => callback({
 }));
 const sendPushMock = jest.fn();
 const broadcastMock = jest.fn();
+process.env.JWT_SECRET = 'test-code-blue-reference-secret-at-least-32-bytes';
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: directQueryMock },
@@ -53,6 +54,7 @@ test('Code Blue uses tenant-scoped FCM sources and never staff device-trust toke
     ward: 'ICU',
     bedNumber: 'B4',
     reason: 'cardiac arrest',
+    eventId: 42,
   });
   await flushFanout();
 
@@ -64,7 +66,6 @@ test('Code Blue uses tenant-scoped FCM sources and never staff device-trust toke
   expect(setTenantMock).toHaveBeenCalledWith(
     TENANT_ID,
     expect.any(Function),
-    { readOnly: true },
   );
   expect(directQueryMock).not.toHaveBeenCalled();
   const [sql] = tenantQueryMock.mock.calls[0];
@@ -78,9 +79,13 @@ test('Code Blue uses tenant-scoped FCM sources and never staff device-trust toke
   expect(sql).not.toMatch(/staff_devices/i);
   expect(sendPushMock).toHaveBeenCalledWith(expect.objectContaining({
     tokens: ['user-device-fcm-token'],
+    title: 'CODE BLUE',
+    body: 'Respond immediately',
     priority: 'high',
     channelId: 'code_blue',
     data: expect.objectContaining({
+      type: 'code_blue',
+      code_blue_reference: expect.stringMatching(/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/),
       notification_authority_version: '1',
       notification_tenant_id: TENANT_ID,
       notification_recipient_uid: USER_UID,
@@ -91,6 +96,13 @@ test('Code Blue uses tenant-scoped FCM sources and never staff device-trust toke
       notification_expires_at: '1924992000',
     }),
   }));
+  const pushData = sendPushMock.mock.calls[0][0].data;
+  expect(pushData).not.toHaveProperty('eventId');
+  expect(pushData.code_blue_reference).not.toContain('42');
+  expect(pushData).not.toHaveProperty('patientId');
+  expect(pushData).not.toHaveProperty('bedNumber');
+  expect(pushData).not.toHaveProperty('ward');
+  expect(pushData).not.toHaveProperty('reason');
 });
 
 test('Code Blue sends nothing when no live server-owned notification authority exists', async () => {

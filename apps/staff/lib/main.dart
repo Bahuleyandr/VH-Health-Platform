@@ -92,6 +92,9 @@ void _handleServerSessionExpired() {
       timeout = navigatorContext.read<SessionTimeoutProvider>();
     } catch (_) {}
   }
+  // The expiry callback runs while the authenticated route is still mounted.
+  // Cover it before starting any asynchronous cleanup.
+  timeout?.lockSession();
 
   unawaited(
     ForcedLogoutFlow.run(
@@ -105,7 +108,12 @@ void _handleServerSessionExpired() {
           await stopStaffRealtimePollers(ctx);
         }
       },
-      navigateToLogin: () => appRouter.go('/login'),
+      navigateToLogin: () {
+        appRouter.go('/login');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          timeout?.unlockSession();
+        });
+      },
       reportPreservedItems: _reportPreservedOfflineItems,
     ).catchError((Object error, StackTrace stack) {
       if (kDebugMode) {

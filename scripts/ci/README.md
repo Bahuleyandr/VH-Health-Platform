@@ -33,6 +33,22 @@ Stages:
   placeholder; no-op off-main).
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
 
+## GitHub pull-request merge boundary
+
+Ordinary non-main pushes use the affected-stack tier of `.github/workflows/ci.yml`.
+After the source tree is final, create and push one empty marker commit; the
+`[full-ci]` subject selects the exhaustive matrix and attaches both required
+`Merge Gate` and `Full Merge Gate` contexts to that final pull-request head:
+
+```powershell
+git commit --allow-empty -m "ci: run final canonical gate [full-ci]"
+git push
+```
+
+Do not push another commit after the marker unless you intend to invalidate
+both results and create a new marker. `workflow_dispatch` is retained for
+diagnosis, not as the pull-request merge boundary.
+
 ## Client API path contract
 
 `check-client-paths.mjs` closes the direction the OpenAPI pipeline never

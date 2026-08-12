@@ -1,14 +1,14 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'staff_local_notifications.dart';
+import 'staff_notification_session.dart';
 
 /// Full-screen-intent Code Blue notifier for the staff app.
 ///
 /// The in-app dialog in [CodeBlueListener] covers the foreground case. This
-/// class covers **background/terminated** cases via a high-importance FCM data
-/// message (sent by the backend `emitCodeBlue` fan-out) that wakes the device
-/// and displays a full-screen notification which bypasses lockscreen per
-/// Android's `USE_FULL_SCREEN_INTENT` permission.
+/// class covers **background/terminated** cases via a high-importance, opaque
+/// FCM data message. Detailed ward/bed/reason content is fetched only through
+/// the authenticated current-audience endpoint before local presentation.
 ///
 /// **Platform setup required** (not done automatically — verify before build):
 ///   * Android manifest: `<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>`
@@ -38,8 +38,9 @@ class CodeBlueNotifier {
 
   Future<void> showForMessage(RemoteMessage message) async {
     if (!_initialized) await initialize();
+    final content = await codeBlueContentForMessage(message: message);
     await StaffLocalNotifications.instance.showCodeBlueFromData(
-      Map<String, dynamic>.from(message.data),
+      content ?? const <String, dynamic>{},
       force: true,
     );
   }

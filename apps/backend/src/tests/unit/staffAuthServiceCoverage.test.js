@@ -107,6 +107,11 @@ const STAFF_ROW = {
   department: 'Cardiology',
   position: 'Consultant',
   is_active: true,
+  user_is_active: true,
+  user_status: 'active',
+  is_deleted: false,
+  merged_into_uid: null,
+  staff_is_active: true,
   shift_type: 'DAY',
   pin_hash: '$2b$10$hashedpin',
 };
@@ -258,7 +263,7 @@ describe('authenticateStaff', () => {
 
   it('rejects a deactivated account', async () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
-    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, is_active: false }]);
+    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, staff_is_active: false }]);
     await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {
       installationId: INSTALLATION_ID,
     }))
@@ -266,6 +271,21 @@ describe('authenticateStaff', () => {
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Account deactivated',
     }));
+  });
+
+  it('rejects an RBAC-locked canonical user before password token issuance', async () => {
+    read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
+    read(/FROM staff s\s+JOIN users u/, [{
+      ...STAFF_ROW,
+      user_is_active: false,
+      user_status: 'inactive',
+    }]);
+
+    await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {
+      installationId: INSTALLATION_ID,
+    })).rejects.toThrow('Account deactivated');
+
+    expect(mockIssueAccess).not.toHaveBeenCalled();
   });
 
   it('rejects a bad password', async () => {
@@ -486,6 +506,11 @@ describe('quickLogin', () => {
     department: 'Cardiology',
     position: 'Consultant',
     is_active: true,
+    user_is_active: true,
+    user_status: 'active',
+    is_deleted: false,
+    merged_into_uid: null,
+    staff_is_active: true,
   };
 
   function deviceFound(overrides = {}) {
@@ -507,7 +532,7 @@ describe('quickLogin', () => {
   });
 
   it('rejects a deactivated account', async () => {
-    deviceFound({ is_active: false });
+    deviceFound({ staff_is_active: false });
     await expect(StaffAuthService.quickLogin(
       'tok',
       '1234',
@@ -517,6 +542,21 @@ describe('quickLogin', () => {
       { installationId: INSTALLATION_ID },
     ))
       .rejects.toThrow('Account deactivated');
+  });
+
+  it('rejects an RBAC-locked canonical user before quick-login token issuance', async () => {
+    deviceFound({ user_is_active: false, user_status: 'inactive' });
+
+    await expect(StaffAuthService.quickLogin(
+      'tok',
+      '1234',
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    )).rejects.toThrow('Account deactivated');
+
+    expect(mockIssueAccess).not.toHaveBeenCalled();
   });
 
   it('logs in with a valid PIN', async () => {
@@ -636,12 +676,28 @@ describe('authenticateStaffWithPin', () => {
 
   it('rejects a deactivated account', async () => {
     pinLockoutOk();
-    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, is_active: false }]);
+    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, staff_is_active: false }]);
     await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
       deviceToken: 'dt',
       installationId: INSTALLATION_ID,
     }))
       .rejects.toThrow('Account deactivated');
+  });
+
+  it('rejects an RBAC-locked canonical user before PIN token issuance', async () => {
+    pinLockoutOk();
+    read(/FROM staff s\s+JOIN users u/, [{
+      ...STAFF_ROW,
+      user_is_active: false,
+      user_status: 'inactive',
+    }]);
+
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    })).rejects.toThrow('Account deactivated');
+
+    expect(mockIssueAccess).not.toHaveBeenCalled();
   });
 
   it('rejects when the device is not registered to this staff (403)', async () => {

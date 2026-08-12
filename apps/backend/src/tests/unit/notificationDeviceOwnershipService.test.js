@@ -9,7 +9,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 const {
+  createCodeBlueNotificationReference,
+  getCodeBlueNotificationContent,
   registerNotificationDevice,
+  retireNotificationDevice,
   rotateNotificationDeviceToken,
   validateNotificationAuthority,
 } = await import('../../services/notification/deviceRegistrationService.js');
@@ -85,6 +88,150 @@ describe('notification device ownership adapter', () => {
     expect(sql).toMatch(/uas\.session_family_id = \$5::text/);
     expect(sql).toMatch(/u\.token_epoch = \$6::int/);
     expect(sql).toMatch(/uas\.jti = \$7::text/);
+    expect(setTenantMock.mock.calls[0]).toHaveLength(2);
+  });
+
+  it('retires the exact device binding without deleting linked projection rows', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{
+      device_name: 'Ward handset',
+      platform: 'android',
+    }]);
+
+    await expect(retireNotificationDevice({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      deviceId: 'installation-1',
+    })).resolves.toEqual({
+      device_name: 'Ward handset',
+      platform: 'android',
+    });
+
+    const [sql, tenantId, userUid, deviceId] = queryRawUnsafe.mock.calls[0];
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(sql).toMatch(/UPDATE user_devices[\s\S]*fcm_token = NULL/);
+    expect(sql).toMatch(/notification_epoch = ud\.notification_epoch \+ 1/);
+    expect(sql).toMatch(/UPDATE users[\s\S]*device_token = NULL/);
+    expect(sql).toMatch(/u\.device_token = retired\.retired_fcm_token/);
+    expect(sql).not.toMatch(/DELETE\s+FROM\s+user_devices/i);
+    expect([tenantId, userUid, deviceId]).toEqual([
+      TENANT_ID,
+      USER_UID,
+      'installation-1',
+    ]);
+  });
+
+  it('hydrates Code Blue PHI only through one primary authority-bound query', async () => {
+    process.env.JWT_SECRET = 'test-code-blue-reference-secret-at-least-32-bytes';
+    const codeBlueReference = createCodeBlueNotificationReference({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      deviceId: 'installation-1',
+      registrationEpoch: '3',
+      sessionEpoch: 'session-family-1',
+      authorizationEpoch: '8',
+      eventId: '42',
+      expiresAtUnix: Math.floor(Date.now() / 1000) + 60,
+    });
+    queryRawUnsafe.mockResolvedValueOnce([{
+      event_id: '42',
+      patient_id: 'patient-42',
+      ward: 'ICU',
+      bed_number: '4A',
+      reason: 'Cardiac arrest',
+      started_at: new Date('2030-01-01T00:00:00.000Z'),
+    }]);
+
+    await expect(getCodeBlueNotificationContent({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      sessionJti: 'current-jti',
+      deviceId: 'installation-1',
+      registrationEpoch: '3',
+      sessionEpoch: 'session-family-1',
+      authorizationEpoch: '8',
+      codeBlueReference,
+    })).resolves.toEqual({
+      eventId: '42',
+      patientId: 'patient-42',
+      ward: 'ICU',
+      bedNumber: '4A',
+      reason: 'Cardiac arrest',
+      startedAt: '2030-01-01T00:00:00.000Z',
+    });
+
+    const [sql] = queryRawUnsafe.mock.calls[0];
+    expect(sql).toMatch(/JOIN resuscitation_events re/);
+    expect(sql).toMatch(/re\.id = \$8::bigint/);
+    expect(sql).toMatch(/uas\.jti = \$7::text/);
+    expect(setTenantMock.mock.calls[0]).toHaveLength(2);
+  });
+
+  it('rejects tampered or audience-mismatched Code Blue references before querying PHI', async () => {
+    process.env.JWT_SECRET = 'test-code-blue-reference-secret-at-least-32-bytes';
+    const reference = createCodeBlueNotificationReference({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      deviceId: 'installation-1',
+      registrationEpoch: '3',
+      sessionEpoch: 'session-family-1',
+      authorizationEpoch: '8',
+      eventId: '42',
+      expiresAtUnix: Math.floor(Date.now() / 1000) + 60,
+    });
+
+    await expect(getCodeBlueNotificationContent({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      sessionJti: 'current-jti',
+      deviceId: 'installation-1',
+      registrationEpoch: '3',
+      sessionEpoch: 'session-family-1',
+      authorizationEpoch: '8',
+      codeBlueReference: `${reference.slice(0, -1)}x`,
+    })).resolves.toBeNull();
+    await expect(getCodeBlueNotificationContent({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      sessionJti: 'current-jti',
+      deviceId: 'other-installation',
+      registrationEpoch: '3',
+      sessionEpoch: 'session-family-1',
+      authorizationEpoch: '8',
+      codeBlueReference: reference,
+    })).resolves.toBeNull();
+    expect(queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('rejects an expired Code Blue reference before querying PHI', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
+    try {
+      process.env.JWT_SECRET = 'test-code-blue-reference-secret-at-least-32-bytes';
+      const reference = createCodeBlueNotificationReference({
+        tenantId: TENANT_ID,
+        userUid: USER_UID,
+        deviceId: 'installation-1',
+        registrationEpoch: '3',
+        sessionEpoch: 'session-family-1',
+        authorizationEpoch: '8',
+        eventId: '42',
+        expiresAtUnix: Math.floor(Date.now() / 1000) + 60,
+      });
+      jest.setSystemTime(new Date('2030-01-01T00:01:01.000Z'));
+
+      await expect(getCodeBlueNotificationContent({
+        tenantId: TENANT_ID,
+        userUid: USER_UID,
+        sessionJti: 'current-jti',
+        deviceId: 'installation-1',
+        registrationEpoch: '3',
+        sessionEpoch: 'session-family-1',
+        authorizationEpoch: '8',
+        codeBlueReference: reference,
+      })).resolves.toBeNull();
+      expect(queryRawUnsafe).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('registers through the tenant-scoped migration-owned handoff only', async () => {

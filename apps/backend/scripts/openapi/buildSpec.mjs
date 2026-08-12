@@ -166,6 +166,7 @@ function buildOperation(method, openApiPath, opId, ov, tags) {
   };
   if (ov && ov.summary) op.summary = ov.summary;
   if (ov && ov.description) op.description = ov.description;
+  if (ov && Array.isArray(ov.security)) op.security = ov.security;
   if (ov && ov.responseDescription) {
     op.responses[responseStatus].description = ov.responseDescription;
   }

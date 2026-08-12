@@ -257,6 +257,20 @@ describe('buildOpenApiDocument overlay', () => {
     expect(op.responses[200].description).toBe('Safe X rows.');
   });
 
+  it('allows an overlay to require API key and bearer authentication together', () => {
+    const routes = [{ method: 'post', path: '/api/v1/x' }];
+    const overlay = {
+      'POST /api/v1/x': {
+        security: [{ ApiKeyAuth: [], BearerAuth: [] }],
+      },
+    };
+    const doc = buildOpenApiDocument(routes, base, overlay);
+
+    expect(doc.paths['/api/v1/x'].post.security).toEqual([
+      { ApiKeyAuth: [], BearerAuth: [] },
+    ]);
+  });
+
   it('falls back to the generic Success response when no overlay entry exists', () => {
     const routes = [{ method: 'get', path: '/api/v1/y' }];
     const doc = buildOpenApiDocument(routes, base, {});
