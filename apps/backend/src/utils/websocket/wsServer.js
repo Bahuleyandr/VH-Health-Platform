@@ -530,13 +530,15 @@ function deliverUserLocal(userId, event, data, tenantId) {
     ) {
       continue;
     }
-    if (revokedSessionFamilyId || revokedStableDeviceId) {
+    if (revokedSessionFamilyId) {
+      // A family identifies one login across access rotation and WS-ticket
+      // exchange. Prefer it over the broader device selector so revoking one
+      // login does not close a sibling family opened on the same installation.
       const matchesJti = revokedJti && String(meta?.jti || '') === revokedJti;
-      const matchesFamily = revokedSessionFamilyId
-        && String(meta?.sessionFamilyId || '') === revokedSessionFamilyId;
-      const matchesDevice = revokedStableDeviceId
-        && String(meta?.stableDeviceId || '') === revokedStableDeviceId;
-      if (!matchesJti && !matchesFamily && !matchesDevice) continue;
+      const matchesFamily = String(meta?.sessionFamilyId || '') === revokedSessionFamilyId;
+      if (!matchesJti && !matchesFamily) continue;
+    } else if (revokedStableDeviceId) {
+      if (String(meta?.stableDeviceId || '') !== revokedStableDeviceId) continue;
     } else if (revokedJti && String(meta?.jti || '') !== revokedJti) {
       // Legacy tokens and callers have no stable session identity. Retain the
       // exact-jti fallback until those short-lived access tokens expire.

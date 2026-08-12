@@ -209,6 +209,8 @@ export async function issueAccessTokenAndClaimSession({
     expiresAt,
     ipAddress: req?.ip ?? null,
     userAgent: req?.headers?.['user-agent'] ?? null,
+    sessionFamilyId: stableSessionFamilyId,
+    stableDeviceId,
     pushRevoked,
     tenantId, // M8: stamp the bearer's resolved tenant on the session row
   });

@@ -25,7 +25,8 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
       'pre-refresh-access': { sessionFamilyId: 'family-a', stableDeviceId: 'device-a' },
       'browser-ticket': { sessionFamilyId: 'family-a', stableDeviceId: 'device-a', scope: 'ws' },
       'sibling-access': { sessionFamilyId: 'family-b', stableDeviceId: 'device-b' },
-      'sibling-ticket': { sessionFamilyId: 'family-b', stableDeviceId: 'device-b', scope: 'ws' },
+      'sibling-ticket': { sessionFamilyId: 'family-b', stableDeviceId: 'device-a', scope: 'ws' },
+      'caller-ticket': { sessionFamilyId: 'family-c', stableDeviceId: 'device-a', scope: 'ws' },
       'legacy-ticket': { sessionFamilyId: 'legacy-access', scope: 'ws' },
       'delegated-ticket': {
         sub: 'dependent-1',
@@ -230,18 +231,24 @@ describe('session revocation WebSocket closure', () => {
     expect(siblingSocket.close).not.toHaveBeenCalled();
   });
 
-  it('closes a browser-ticket socket by its parent session while a sibling stays open', async () => {
+  it('closes a remote browser-ticket family while the caller and a sibling stay open', async () => {
     initWebSocket({});
     const rotatedSessionTicketSocket = new FakeSocket();
     const siblingTicketSocket = new FakeSocket();
+    const callerTicketSocket = new FakeSocket();
     serverInstance.clients.add(rotatedSessionTicketSocket);
     serverInstance.clients.add(siblingTicketSocket);
+    serverInstance.clients.add(callerTicketSocket);
     serverInstance.emit('connection', rotatedSessionTicketSocket, {
       url: '/ws?token=browser-ticket',
       headers: {},
     });
     serverInstance.emit('connection', siblingTicketSocket, {
       url: '/ws?token=sibling-ticket',
+      headers: {},
+    });
+    serverInstance.emit('connection', callerTicketSocket, {
+      url: '/ws?token=caller-ticket',
       headers: {},
     });
     await new Promise((resolve) => setImmediate(resolve));
@@ -255,6 +262,7 @@ describe('session revocation WebSocket closure', () => {
 
     expect(rotatedSessionTicketSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     expect(siblingTicketSocket.close).not.toHaveBeenCalled();
+    expect(callerTicketSocket.close).not.toHaveBeenCalled();
   });
 
   it('closes ordinary and ticket sockets for a legacy access-token session', async () => {

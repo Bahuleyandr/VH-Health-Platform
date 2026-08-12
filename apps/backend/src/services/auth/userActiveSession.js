@@ -41,6 +41,8 @@ function strictSingleSessionEnabled() {
  * @param {string} [args.deviceLabel] - Optional human label (e.g. "Pixel 8").
  * @param {string} [args.ipAddress] - req.ip of the new login.
  * @param {string} [args.userAgent] - User-Agent of the new login.
+ * @param {string} [args.sessionFamilyId] - Stable selector shared by access, refresh, and WS tokens.
+ * @param {string} [args.stableDeviceId] - Stable UUID for device-bound staff sessions.
  * @param {boolean} [args.pushRevoked=true] - Emit `session:revoked` over WS
  *   for the prior jti. Set false on refresh-token rotation.
  * @param {boolean} [args.enforceSingleSession] - Override the environment
@@ -56,6 +58,8 @@ export async function claimUserSession({
   deviceLabel = null,
   ipAddress = null,
   userAgent = null,
+  sessionFamilyId = null,
+  stableDeviceId = null,
   pushRevoked = true,
   enforceSingleSession,
   tenantId = null,
@@ -127,12 +131,14 @@ export async function claimUserSession({
       // mis-attributes a non-default-tenant user's session. The caller threads the
       // bearer's resolved tenant; if null we keep the GUC→default behaviour so
       // single-tenant deployments are unchanged.
-      `INSERT INTO user_active_sessions
-         (user_uid, jti, device_type, device_label, ip_address, user_agent, expires_at, tenant_id)
+       `INSERT INTO user_active_sessions
+         (user_uid, jti, device_type, device_label, ip_address, user_agent, expires_at,
+          tenant_id, session_family_id, stable_device_id)
        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7,
-               COALESCE($8::uuid,
-                        (NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass'))::uuid,
-                        '00000000-0000-4000-8000-000000000001'::uuid))
+                COALESCE($8::uuid,
+                         (NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass'))::uuid,
+                         '00000000-0000-4000-8000-000000000001'::uuid),
+               $9, $10::uuid)
        ON CONFLICT (user_uid) DO UPDATE SET
          jti          = EXCLUDED.jti,
          device_type  = EXCLUDED.device_type,
@@ -141,7 +147,9 @@ export async function claimUserSession({
          user_agent   = EXCLUDED.user_agent,
          issued_at    = NOW(),
          expires_at   = EXCLUDED.expires_at,
-         tenant_id    = EXCLUDED.tenant_id`,
+         tenant_id    = EXCLUDED.tenant_id,
+         session_family_id = EXCLUDED.session_family_id,
+         stable_device_id  = EXCLUDED.stable_device_id`,
       userUid,
       jti,
       deviceType,
@@ -150,6 +158,8 @@ export async function claimUserSession({
       userAgent,
       expiresAt,
       tenantId,
+      sessionFamilyId,
+      stableDeviceId,
     );
   } catch (err) {
     // If the insert fails, the new token is still valid (we generated it

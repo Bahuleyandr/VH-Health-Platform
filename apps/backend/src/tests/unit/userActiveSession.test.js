@@ -120,7 +120,30 @@ describe('claimUserSession', () => {
       null,
       EXPIRES_AT,
       null, // M8: tenant_id — null here (no tenant passed) → column COALESCE default
+      null,
+      null,
     );
+  });
+
+  it('persists session family and stable device selectors', async () => {
+    const SESSION_FAMILY = '809077a1-d7f9-4e50-af40-0df5f8934fe2';
+    const STABLE_DEVICE = 'f54090bf-ec12-48ea-8c77-c492611c8e4e';
+    await claimUserSession({
+      userUid: USER_UID,
+      jti: 'device-bound-jti',
+      deviceType: 'mobile',
+      expiresAt: EXPIRES_AT,
+      sessionFamilyId: SESSION_FAMILY,
+      stableDeviceId: STABLE_DEVICE,
+    });
+
+    const insertCall = executeRawUnsafeMock.mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO user_active_sessions'),
+    );
+    expect(insertCall[0]).toMatch(/session_family_id/);
+    expect(insertCall[0]).toMatch(/stable_device_id/);
+    expect(insertCall[9]).toBe(SESSION_FAMILY);
+    expect(insertCall[10]).toBe(STABLE_DEVICE);
   });
 
   it('stamps the bearer tenant_id on the session row when provided (M8)', async () => {

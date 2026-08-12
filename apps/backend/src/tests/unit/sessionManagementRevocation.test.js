@@ -11,6 +11,7 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const cacheSetMock = jest.fn();
+const pushSessionRevokedMock = jest.fn();
 
 const prismaMock = { $queryRawUnsafe: queryRawUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -30,6 +31,9 @@ jest.unstable_mockModule('../../lib/redis.js', () => ({
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() },
 }));
+jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
+  pushSessionRevoked: pushSessionRevokedMock,
+}));
 
 const {
   listActiveSessions,
@@ -41,6 +45,8 @@ const {
 
 const UID = '550e8400-e29b-41d4-a716-446655440001';
 const JTI = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const SESSION_FAMILY_ID = '47a2ba35-56f3-4f66-91a2-a351aa25fa84';
+const STABLE_DEVICE_ID = 'be6f7df2-227d-4d16-b90e-96f7c9904712';
 const EXPIRES_AT = new Date(Date.now() + 60 * 60 * 1000); // 1h out, like a real access token
 const ISSUED_AT = new Date(Date.now() - 5 * 60 * 1000);
 
@@ -55,6 +61,8 @@ const registryRow = (overrides = {}) => ({
   user_agent: 'jest',
   issued_at: ISSUED_AT,
   expires_at: EXPIRES_AT,
+  session_family_id: SESSION_FAMILY_ID,
+  stable_device_id: STABLE_DEVICE_ID,
   ...overrides,
 });
 
@@ -67,6 +75,7 @@ const blacklistInserts = () =>
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   cacheSetMock.mockReset();
+  pushSessionRevokedMock.mockReset();
   // No Redis in this harness, so the DB is the only store that can persist.
   cacheSetMock.mockResolvedValue(false);
 });
@@ -117,6 +126,8 @@ describe('listActiveSessions', () => {
       is_current: true,
       source: SESSION_SOURCE.REGISTRY,
       device_label: 'Pixel 8',
+      session_family_id: SESSION_FAMILY_ID,
+      stable_device_id: STABLE_DEVICE_ID,
     });
   });
 
@@ -173,6 +184,27 @@ describe('revokeSession', () => {
     expect(Number.isFinite(expiresAt)).toBe(true);
     expect(expiresAt).toBe(Math.floor(EXPIRES_AT.getTime() / 1000));
     expect(expiresAt * 1000).toBeGreaterThan(Date.now());
+  });
+
+  it('publishes the listed remote session selectors instead of the caller selectors', async () => {
+    queryRawUnsafeMock.mockImplementation(async (sql) => {
+      if (isRegistrySelect(sql)) return [registryRow()];
+      return [];
+    });
+
+    const result = await revokeSession(UID, JTI, {
+      jti: 'caller-jti',
+      expiresAt: EXPIRES_AT,
+      sessionFamilyId: 'caller-family',
+      stableDeviceId: '0ecce6b6-b8b2-4589-91e6-f5d02a35c157',
+    });
+
+    expect(result.success).toBe(true);
+    expect(pushSessionRevokedMock).toHaveBeenCalledWith(UID, expect.objectContaining({
+      jti: JTI,
+      sessionFamilyId: SESSION_FAMILY_ID,
+      stableDeviceId: STABLE_DEVICE_ID,
+    }));
   });
 
   it('scopes the lookup to the caller uid', async () => {

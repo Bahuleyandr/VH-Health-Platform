@@ -69,7 +69,9 @@ async function selectLiveRegistrySessions(userUid) {
        s.ip_address,
        s.user_agent,
        s.issued_at,
-       s.expires_at
+       s.expires_at,
+       s.session_family_id,
+       s.stable_device_id
      FROM user_active_sessions s
      LEFT JOIN invalidated_tokens t
        ON t.jti = s.jti
@@ -110,6 +112,8 @@ export async function listActiveSessions(userUid, currentToken = {}) {
     user_agent: row.user_agent,
     issued_at: row.issued_at,
     expires_at: row.expires_at,
+    session_family_id: row.session_family_id ?? null,
+    stable_device_id: row.stable_device_id ?? null,
     is_current: currentJti != null && row.jti === currentJti,
     source: SESSION_SOURCE.REGISTRY,
   }));
@@ -126,6 +130,8 @@ export async function listActiveSessions(userUid, currentToken = {}) {
       user_agent: null,
       issued_at: null,
       expires_at: currentToken.expiresAt ?? null,
+      session_family_id: currentToken.sessionFamilyId ?? null,
+      stable_device_id: currentToken.stableDeviceId ?? null,
       is_current: true,
       source: SESSION_SOURCE.ACCESS_TOKEN,
     });
@@ -154,19 +160,26 @@ export async function listActiveSessions(userUid, currentToken = {}) {
  */
 export async function revokeSession(userUid, jti, currentToken = {}) {
   let expiresAtSeconds = null;
+  let sessionFamilyId = null;
+  let stableDeviceId = null;
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT jti, expires_at FROM user_active_sessions
+      `SELECT jti, expires_at, session_family_id, stable_device_id
+         FROM user_active_sessions
         WHERE user_uid = $1::uuid AND jti = $2`,
       userUid, jti,
     );
     if (rows.length > 0) {
       expiresAtSeconds = toEpochSeconds(rows[0].expires_at);
+      sessionFamilyId = rows[0].session_family_id ?? null;
+      stableDeviceId = rows[0].stable_device_id ?? null;
     } else if (currentToken.jti && currentToken.jti === jti) {
       // No registry row, but the caller is presenting this exact token — the
       // admin login paths mint tokens without claiming a row, and refusing to
       // revoke a token we just authenticated would be absurd.
       expiresAtSeconds = toEpochSeconds(currentToken.expiresAt);
+      sessionFamilyId = currentToken.sessionFamilyId ?? null;
+      stableDeviceId = currentToken.stableDeviceId ?? null;
     }
   } catch (err) {
     logger.error('Failed to look up session for revocation:', err);
@@ -191,14 +204,8 @@ export async function revokeSession(userUid, jti, currentToken = {}) {
     await blacklistToken(jti, expiresAtSeconds, 'session_revoked', {
       requireEvidence: true,
       userId: String(userUid),
-      // Only the currently presented token proves these stable selectors.
-      // A registry row for another jti does not retain its family/device bind.
-      ...(currentToken.jti === jti && currentToken.sessionFamilyId
-        ? { sessionFamilyId: currentToken.sessionFamilyId }
-        : {}),
-      ...(currentToken.jti === jti && currentToken.stableDeviceId
-        ? { stableDeviceId: currentToken.stableDeviceId }
-        : {}),
+      ...(sessionFamilyId ? { sessionFamilyId: String(sessionFamilyId) } : {}),
+      ...(stableDeviceId ? { stableDeviceId: String(stableDeviceId) } : {}),
     });
   } catch (err) {
     if (err instanceof RevocationWriteUnavailableError) {
