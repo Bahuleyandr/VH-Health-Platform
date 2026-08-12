@@ -23,9 +23,21 @@ test('backend full gate generates Prisma once before parallel consumers', () => 
   const workflow = read('.github/workflows/_reusable-backend-lint-test.yml');
 
   assert.match(workflow, /prepare-prisma:/);
-  assert.match(workflow, /static-checks:\s*\n\s+name: Backend lint \+ static checks\s*\n\s+needs: prepare-prisma/);
-  assert.match(workflow, /test:\s*\n\s+name: Backend tests .*\n\s+needs: prepare-prisma/);
+  assert.match(workflow, /static-checks:\s*\r?\n\s+name: Backend lint \+ static checks\s*\r?\n\s+needs: prepare-prisma/);
+  assert.match(workflow, /test:\s*\r?\n\s+name: Backend tests .*\r?\n\s+needs: prepare-prisma/);
   assert.equal((workflow.match(/name: Restore generated Prisma client/g) || []).length, 3);
+});
+
+test('backend quick gate saves a generated Prisma client before affected tests', () => {
+  const workflow = read('.github/workflows/_reusable-backend-quick.yml');
+  const verifyIndex = workflow.indexOf('name: Verify generated Prisma client');
+  const saveIndex = workflow.indexOf('name: Save generated Prisma client');
+  const testsIndex = workflow.indexOf('name: Run affected backend tests');
+
+  assert.match(workflow, /uses: actions\/cache\/restore@caa296126883cff596d87d8935842f9db880ef25/);
+  assert.match(workflow, /uses: actions\/cache\/save@caa296126883cff596d87d8935842f9db880ef25/);
+  assert.ok(verifyIndex >= 0 && verifyIndex < saveIndex);
+  assert.ok(saveIndex < testsIndex);
 });
 
 test('long standalone stack workflows are manual and smoke is nightly', () => {

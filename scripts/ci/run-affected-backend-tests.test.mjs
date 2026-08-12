@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { selectAffectedBackendInputs } from './run-affected-backend-tests.mjs';
+import {
+  selectAffectedBackendInputs,
+  selectBoundedAffectedTests,
+} from './run-affected-backend-tests.mjs';
 
 test('selects changed tests and runtime sources without duplicating them', () => {
   const result = selectAffectedBackendInputs([
@@ -40,4 +43,38 @@ test('route and OpenAPI changes add contract canaries', () => {
     'src/tests/unit/openapiContracts.test.js',
     'src/tests/unit/openapiTagInvariants.test.js',
   ]);
+});
+
+test('includes the complete related set when dependency fan-out stays bounded', () => {
+  const result = selectBoundedAffectedTests({
+    changedTests: ['changed.test.js'],
+    mandatoryTests: ['canary.test.js'],
+    relatedTests: ['related.test.js', 'changed.test.js'],
+    maxRelatedTests: 2,
+  });
+
+  assert.deepEqual(result.tests, [
+    'canary.test.js',
+    'changed.test.js',
+    'related.test.js',
+  ]);
+  assert.equal(result.relatedCount, 2);
+  assert.equal(result.relatedIncluded, true);
+});
+
+test('keeps all direct tests and canaries when related fan-out exceeds the quick budget', () => {
+  const result = selectBoundedAffectedTests({
+    changedTests: ['changed-b.test.js', 'changed-a.test.js'],
+    mandatoryTests: ['canary.test.js'],
+    relatedTests: ['related-a.test.js', 'related-b.test.js', 'related-c.test.js'],
+    maxRelatedTests: 2,
+  });
+
+  assert.deepEqual(result.tests, [
+    'canary.test.js',
+    'changed-a.test.js',
+    'changed-b.test.js',
+  ]);
+  assert.equal(result.relatedCount, 3);
+  assert.equal(result.relatedIncluded, false);
 });

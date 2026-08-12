@@ -12,6 +12,7 @@ const backendRoot = resolve(repoRoot, 'apps/backend');
 const jestBin = resolve(backendRoot, 'node_modules/jest/bin/jest.js');
 const testPattern = /(^|\/)src\/tests\/.*\.test\.(?:c?js|mjs)$/;
 const relatedPattern = /\.(?:c?js|mjs)$/;
+export const DEFAULT_MAX_RELATED_TESTS = 64;
 
 const migrationCanaries = [
   'src/tests/unit/audit3MigrationSafety.test.js',
@@ -48,6 +49,26 @@ export function selectAffectedBackendInputs(files) {
     changedTests: [...new Set(changedTests)].sort(),
     relatedSources: [...new Set(relatedSources)].sort(),
     mandatoryTests: [...new Set(mandatoryTests)].sort(),
+  };
+}
+
+export function selectBoundedAffectedTests({
+  changedTests = [],
+  mandatoryTests = [],
+  relatedTests = [],
+  maxRelatedTests = DEFAULT_MAX_RELATED_TESTS,
+}) {
+  const directTests = new Set([...changedTests, ...mandatoryTests]);
+  const uniqueRelatedTests = [...new Set(relatedTests)].sort();
+  const relatedIncluded = uniqueRelatedTests.length <= maxRelatedTests;
+  const tests = relatedIncluded
+    ? new Set([...directTests, ...uniqueRelatedTests])
+    : directTests;
+
+  return {
+    tests: [...tests].sort(),
+    relatedCount: uniqueRelatedTests.length,
+    relatedIncluded,
   };
 }
 
@@ -95,13 +116,24 @@ function main() {
 
   const changedFiles = changedFilesForBranchPush();
   const selection = selectAffectedBackendInputs(changedFiles);
-  const tests = new Set(discoverRelatedTests(selection.relatedSources));
+  const directTests = [];
   for (const file of [...selection.changedTests, ...selection.mandatoryTests]) {
     const absolute = resolve(backendRoot, file);
-    if (existsSync(absolute)) tests.add(absolute);
+    if (existsSync(absolute)) directTests.push(absolute);
   }
+  const boundedSelection = selectBoundedAffectedTests({
+    changedTests: directTests,
+    relatedTests: discoverRelatedTests(selection.relatedSources),
+  });
 
-  const ordered = [...tests].sort();
+  const ordered = boundedSelection.tests;
+  console.log(`Related Jest dependency fan-out: ${boundedSelection.relatedCount}`);
+  if (!boundedSelection.relatedIncluded) {
+    console.log(
+      `Dependency fan-out exceeded the quick-gate limit of ${DEFAULT_MAX_RELATED_TESTS}; `
+      + 'running every directly changed test and mandatory canary. Full Merge Gate remains exhaustive for this head.',
+    );
+  }
   console.log(`Affected backend tests: ${ordered.length}`);
   if (ordered.length === 0) {
     console.log('No Jest dependency edge was found; lint, schema, and contract gates remain authoritative for this push.');
