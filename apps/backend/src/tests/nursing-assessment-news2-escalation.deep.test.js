@@ -13,7 +13,11 @@
 // fallback). Self-skips without a DB.
 
 import prisma from '../lib/prisma.js';
-import { recordAssessment } from '../services/clinical/nursingAssessmentService.js';
+import {
+  recordAssessment,
+  scoreNews2,
+} from '../services/clinical/nursingAssessmentService.js';
+import { isNews2EscalationFresh } from '../services/clinical/news2Service.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = hasDb ? describe : describe.skip;
@@ -31,8 +35,14 @@ async function query(sql, ...p) {
 }
 
 async function cleanup() {
-  await exec(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(`DELETE FROM tasks WHERE patient_uid = $1::uuid`, PATIENT);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`,
+      PATIENT,
+    );
+  }).catch(() => {});
   // Append-only guarded tables — test-DB role is a superuser (accepted escape).
   await exec(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
   await exec(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
@@ -60,7 +70,7 @@ d('NEWS2 via nursing assessment escalates like the vitals path (audit 2026-08-10
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60_000);
 
   it('a NEWS2 of 8 produces an assigned, ack-tracked task on the nursing_assessment slot', async () => {
     // RR 26 → 3, SpO2 90 (scale 1) → 3, supp O2 → 2 = 8.
@@ -71,8 +81,22 @@ d('NEWS2 via nursing assessment escalates like the vitals path (audit 2026-08-10
       inputs: { rr: 26, spo2: 90, supplemental_o2: true, spo2_scale: 1 },
       assessed_by: NURSE,
     });
-    expect(saved.band).toBe('high');
+    expect(saved.band).toBeNull();
     expect(Number(saved.total_score)).toBe(8);
+    expect(saved.partial_score).toBe(true);
+    expect(saved.missing_params).toEqual(expect.arrayContaining([
+      'temperature',
+      'systolic_bp',
+      'heart_rate',
+      'consciousness',
+    ]));
+    expect(scoreNews2(saved.inputs)).toMatchObject({
+      band: null,
+      partial: true,
+      risk_band_available: false,
+    });
+    expect(saved.assessed_at).toBeTruthy();
+    expect(isNews2EscalationFresh(saved.assessed_at)).toBe(true);
 
     const tasks = await query(
       `SELECT id, assigned_to_uid, assigned_to_role, workflow_sla_instance_id

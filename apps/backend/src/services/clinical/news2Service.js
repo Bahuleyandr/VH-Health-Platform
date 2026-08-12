@@ -1,4 +1,5 @@
 // src/services/clinical/news2Service.js
+import { createHash } from 'node:crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -33,6 +34,7 @@ function presentNumber(value) {
  * nursing-assessment inputs blob).
  */
 export function normalizeSpo2Scale(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
   const n = presentNumber(value);
   if (n === 1 || n === 2) return n;
   return null;
@@ -223,6 +225,37 @@ export function getClinicalRisk(score, { anyParamThree = false } = {}) {
 
 // NEWS2 aggregate at or above which escalation is mandatory (RCP: medium risk).
 const NEWS2_ESCALATION_THRESHOLD = 5;
+export const NEWS2_ESCALATION_RECENCY_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * NEWS2 may be calculated for recovered observations, but a historical reading
+ * must not page today's duty team. Missing/invalid source time fails closed.
+ */
+export function isNews2EscalationFresh(recordedAt, { now = Date.now() } = {}) {
+  const sourceTime = new Date(recordedAt).getTime();
+  if (!Number.isFinite(sourceTime)) return false;
+  const age = Number(now) - sourceTime;
+  return age >= -5 * 60 * 1000 && age <= NEWS2_ESCALATION_RECENCY_MS;
+}
+
+/**
+ * Read-surface contract: a partial sum is useful, but cannot truthfully carry
+ * the complete-score risk band or its reassuring/escalation action.
+ */
+export function presentNews2Record(row) {
+  if (!row) return row;
+  const partial = row.partial_score === true;
+  const missing = Array.isArray(row.missing_params) ? row.missing_params : [];
+  return {
+    ...row,
+    clinical_risk: partial ? null : row.clinical_risk,
+    escalation_action: partial ? null : row.escalation_action,
+    risk_band_available: !partial,
+    display: partial
+      ? `NEWS2 ${row.total_score} (partial; risk band unavailable${missing.length ? `; missing ${missing.join(', ')}` : ''})`
+      : `NEWS2 ${row.total_score}${row.clinical_risk ? ` (${String(row.clinical_risk).replace(/_/g, ' ')})` : ''}`,
+  };
+}
 
 /**
  * Persist a NEWS2 assessment row. Runs on the supplied db client (the vitals
@@ -234,7 +267,7 @@ const NEWS2_ESCALATION_THRESHOLD = 5;
  * @param {string} patientUid
  * @param {Object} vitals
  * @param {string} recordedBy
- * @param {{ db?: object, spo2Scale?: 1|2, vitalsChartId?: number|null }}
+ * @param {{ db?: object, spo2Scale?: 1|2, vitalsChartId?: number|null, recordedAt?: Date|string|null }}
  *   [options] `spo2Scale` is the resolved patient-level scale
  *   (resolveSpo2ScaleForPatient); it wins over a per-reading
  *   vitals.spo2_scale and is what gets persisted. `vitalsChartId` links the
@@ -253,18 +286,27 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
   const consciousness = vitals.consciousness == null || vitals.consciousness === ''
     ? null
     : String(vitals.consciousness).toUpperCase();
+  const recordedAt = options.recordedAt ?? vitals.recorded_at ?? null;
+  if (recordedAt != null && !Number.isFinite(new Date(recordedAt).getTime())) {
+    throw AppError.badRequest('NEWS2 recorded_at must be a valid timestamp');
+  }
+  // PrismaPg/pg can represent timestamptz through local wall time at the raw
+  // boundary. Carry epoch milliseconds instead so a source Date cannot move by
+  // the server/client timezone offset on write or RETURNING.
+  const recordedAtEpochMs = recordedAt == null ? Date.now() : new Date(recordedAt).getTime();
 
   const rows = await db.$queryRawUnsafe(
     `INSERT INTO news2_scores
        (patient_uid, respiration_rate, spo2, spo2_scale, supplemental_o2,
         temperature, systolic_bp, heart_rate, consciousness,
         total_score, clinical_risk, escalation_action, recorded_by,
-        vitals_chart_id, partial_score, missing_params)
+        vitals_chart_id, partial_score, missing_params, recorded_at)
      VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::uuid,
-             $14::int, $15, $16::text[])
+             $14::int, $15, $16::text[], to_timestamp($17::double precision / 1000.0))
      RETURNING id, patient_uid, total_score, clinical_risk, clinical_risk AS risk_level,
                vitals_chart_id, partial_score, missing_params,
-               recorded_by, recorded_at, created_at`,
+               recorded_by, recorded_at, created_at,
+               (EXTRACT(EPOCH FROM recorded_at) * 1000)::double precision AS recorded_at_epoch_ms`,
     patientUid,
     vitals.respiration_rate ?? null,
     vitals.spo2 ?? null,
@@ -281,9 +323,15 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
     options.vitalsChartId ?? null,
     computed.partial === true,
     computed.partial ? computed.missingParams : null,
+    recordedAtEpochMs,
   );
 
-  return { record: rows[0], computed };
+  const record = rows[0];
+  if (Number.isFinite(Number(record?.recorded_at_epoch_ms))) {
+    record.recorded_at = new Date(Number(record.recorded_at_epoch_ms));
+  }
+  delete record?.recorded_at_epoch_ms;
+  return { record, computed };
 }
 
 /**
@@ -293,10 +341,355 @@ export async function persistNews2(patientUid, vitals, recordedBy, options = {})
  * produced no replacement score. Runs on the caller's tx so retirement is
  * atomic with the correction and optional replacement insert.
  */
-export async function supersedeNews2ForVitalsRow(vitalsChartId, replacementScoreId, { db } = {}) {
-  if (!vitalsChartId) return 0;
+export async function supersedeNews2ForVitalsRow(
+  vitalsChartId,
+  replacementScoreId,
+  {
+    db,
+    tenantId = null,
+    correctedBy = null,
+    currentVitalAnomalies = [],
+    patientId = null,
+    patientUid = null,
+    deferNews2TaskRetirement = false,
+    replacementNews2 = null,
+  } = {},
+) {
+  if (!vitalsChartId) return {
+    scoresSuperseded: 0,
+    alertsResolved: 0,
+    cdsAlertsResolved: 0,
+    tasksSuperseded: 0,
+  };
   const client = db || prisma;
-  return client.$executeRawUnsafe(
+  const oldScores = await client.$queryRawUnsafe(
+    `SELECT id
+       FROM news2_scores
+      WHERE vitals_chart_id = $1::int
+        AND ($2::int IS NULL OR id <> $2::int)
+        AND superseded_at IS NULL
+      FOR UPDATE`,
+    Number(vitalsChartId),
+    replacementScoreId == null ? null : Number(replacementScoreId),
+  );
+  const oldScoreIds = oldScores.map((row) => String(row.id));
+  if (!tenantId || !correctedBy) {
+    throw AppError.internal('NEWS2 correction consequence cleanup requires tenant and correcting actor');
+  }
+
+  const existingAlertRows = await client.$queryRawUnsafe(
+    `SELECT id, vital_name, severity
+       FROM clinical_alerts
+      WHERE tenant_id = $1::uuid
+        AND source_vitals_chart_id = $2::int
+        AND COALESCE(acknowledged, FALSE) = FALSE
+        AND acknowledged_at IS NULL
+      ORDER BY id DESC
+      FOR UPDATE`,
+    tenantId,
+    Number(vitalsChartId),
+  );
+  const currentByVitalName = new Map(
+    currentVitalAnomalies.map((alert) => [String(alert.vital_name), alert]),
+  );
+  const activeAlertIdsByVitalName = {};
+  const demotedCriticalAlertIds = [];
+
+  for (const [vitalName, alert] of currentByVitalName) {
+    const existingForVital = existingAlertRows.filter((row) => row.vital_name === vitalName);
+    if (existingForVital.length > 0) {
+      const ids = existingForVital.map((row) => Number(row.id));
+      if (String(alert.severity).toUpperCase() !== 'CRITICAL') {
+        demotedCriticalAlertIds.push(
+          ...existingForVital
+            .filter((row) => String(row.severity).toUpperCase() === 'CRITICAL')
+            .map((row) => Number(row.id)),
+        );
+      }
+      await client.$executeRawUnsafe(
+        `UPDATE clinical_alerts
+            SET vital_value = $2,
+                severity = $3,
+                message = $4
+          WHERE id = ANY($1::int[])
+            AND tenant_id = $5::uuid`,
+        ids,
+        alert.value,
+        alert.severity,
+        alert.message,
+        tenantId,
+      );
+      activeAlertIdsByVitalName[vitalName] = ids[0];
+      continue;
+    }
+
+    if (!patientId) {
+      throw AppError.internal('NEWS2 correction alert reconciliation requires patient identity');
+    }
+    const inserted = await client.$queryRawUnsafe(
+      `INSERT INTO clinical_alerts
+         (patient_id, alert_type, vital_name, vital_value, severity, message,
+          created_by, source_vitals_chart_id, tenant_id, created_at)
+       VALUES ($1::int, 'VITAL_ANOMALY', $2, $3, $4, $5, $6::int, $7::int, $8::uuid, NOW())
+       RETURNING id`,
+      Number(patientId),
+      vitalName,
+      alert.value,
+      alert.severity,
+      alert.message,
+      alert.recorded_by == null ? null : Number(alert.recorded_by),
+      Number(vitalsChartId),
+      tenantId,
+    );
+    activeAlertIdsByVitalName[vitalName] = Number(inserted[0].id);
+  }
+
+  const resolvedAlertIds = existingAlertRows
+    .filter((row) => !currentByVitalName.has(String(row.vital_name)))
+    .map((row) => Number(row.id));
+  if (resolvedAlertIds.length > 0) {
+    await client.$executeRawUnsafe(
+      `UPDATE clinical_alerts
+          SET acknowledged = TRUE,
+              acknowledged_at = COALESCE(acknowledged_at, NOW())
+        WHERE tenant_id = $1::uuid
+          AND id = ANY($2::int[])`,
+      tenantId,
+      resolvedAlertIds,
+    );
+  }
+  const retiredAlertTaskIdTexts = [...new Set([
+    ...resolvedAlertIds,
+    ...demotedCriticalAlertIds,
+  ])].map(String);
+
+  const existingAlertIdTexts = existingAlertRows.map((row) => String(row.id));
+  const pregnancyCdsRows = await client.$queryRawUnsafe(
+    `SELECT id,
+            alert_type,
+            severity,
+            source_data->>'clinical_alert_id' AS clinical_alert_id,
+            source_data->>'vital_name' AS vital_name
+       FROM cds_alerts
+      WHERE tenant_id = $1::uuid
+        AND COALESCE(acknowledged, FALSE) = FALSE
+        AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+        AND (
+          source_data->>'source_vitals_chart_id' = $2::text
+          OR source_data->>'clinical_alert_id' = ANY($3::text[])
+        )
+      FOR UPDATE`,
+    tenantId,
+    String(vitalsChartId),
+    existingAlertIdTexts,
+  );
+  const currentPregnancyByAlertId = new Map();
+  const currentPregnancyByVitalName = new Map();
+  for (const [vitalName, alert] of currentByVitalName) {
+    if (alert.is_pregnancy_bp_signal !== true) continue;
+    const clinicalAlertId = activeAlertIdsByVitalName[vitalName];
+    if (clinicalAlertId == null) continue;
+    const current = { alert, clinicalAlertId, vitalName };
+    currentPregnancyByAlertId.set(String(clinicalAlertId), current);
+    currentPregnancyByVitalName.set(vitalName, current);
+  }
+
+  let pregnancyCdsResolved = 0;
+  let pregnancyCdsReconciled = 0;
+  const reconciledPregnancyAlertIds = new Set();
+  for (const cdsRow of pregnancyCdsRows) {
+    const current = currentPregnancyByAlertId.get(String(cdsRow.clinical_alert_id))
+      || currentPregnancyByVitalName.get(String(cdsRow.vital_name));
+    if (!current) {
+      const acknowledged = await client.$queryRawUnsafe(
+        `UPDATE cds_alerts
+            SET acknowledged = TRUE,
+                ack_at = COALESCE(ack_at, NOW())
+          WHERE tenant_id = $1::uuid
+            AND id = $2::int
+            AND COALESCE(acknowledged, FALSE) = FALSE
+            AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+          RETURNING id`,
+        tenantId,
+        Number(cdsRow.id),
+      );
+      pregnancyCdsResolved += acknowledged.length;
+      continue;
+    }
+
+    const { alert, clinicalAlertId, vitalName } = current;
+    const alertType = vitalName === 'preeclampsia_screen'
+      ? 'PREECLAMPSIA_SCREEN_POSITIVE'
+      : 'PREGNANCY_HYPERTENSION';
+    const title = vitalName === 'preeclampsia_screen'
+      ? 'Positive pre-eclampsia screen'
+      : `Gestational hypertension (${vitalName.replace(/_/g, ' ')} ${alert.value}${alert.unit})`;
+    const updated = await client.$queryRawUnsafe(
+      `UPDATE cds_alerts
+          SET alert_type = $3,
+              severity = $4,
+              title = $5,
+              description = $6,
+              source_data = COALESCE(source_data, '{}'::jsonb) || $7::jsonb
+        WHERE tenant_id = $1::uuid
+          AND id = $2::int
+          AND COALESCE(acknowledged, FALSE) = FALSE
+          AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+        RETURNING id`,
+      tenantId,
+      Number(cdsRow.id),
+      alertType,
+      alert.severity,
+      title,
+      alert.message,
+      JSON.stringify({
+        vital_name: vitalName,
+        value: alert.value,
+        unit: alert.unit,
+        normal_range: alert.normal_range,
+        cohort: alert.cohort,
+        clinical_alert_id: clinicalAlertId,
+        source_vitals_chart_id: Number(vitalsChartId),
+        source: 'vitals.corrected',
+      }),
+    );
+    pregnancyCdsReconciled += updated.length;
+    reconciledPregnancyAlertIds.add(String(clinicalAlertId));
+  }
+
+  for (const { alert, clinicalAlertId, vitalName } of currentPregnancyByAlertId.values()) {
+    if (reconciledPregnancyAlertIds.has(String(clinicalAlertId))) continue;
+    if (!patientUid) {
+      throw AppError.internal('Pregnancy CDS reconciliation requires patient identity');
+    }
+    const alertType = vitalName === 'preeclampsia_screen'
+      ? 'PREECLAMPSIA_SCREEN_POSITIVE'
+      : 'PREGNANCY_HYPERTENSION';
+    const title = vitalName === 'preeclampsia_screen'
+      ? 'Positive pre-eclampsia screen'
+      : `Gestational hypertension (${vitalName.replace(/_/g, ' ')} ${alert.value}${alert.unit})`;
+    const inserted = await client.$queryRawUnsafe(
+      `INSERT INTO cds_alerts
+         (patient_uid, alert_type, severity, title, description, source_data)
+       SELECT $1::uuid, $2, $3, $4, $5, $6::jsonb
+        WHERE NOT EXISTS (
+          SELECT 1
+            FROM cds_alerts
+           WHERE tenant_id = $7::uuid
+             AND COALESCE(acknowledged, FALSE) = FALSE
+             AND alert_type IN ('PREGNANCY_HYPERTENSION', 'PREECLAMPSIA_SCREEN_POSITIVE')
+             AND source_data->>'clinical_alert_id' = $8::text
+        )
+       RETURNING id`,
+      patientUid,
+      alertType,
+      alert.severity,
+      title,
+      alert.message,
+      JSON.stringify({
+        vital_name: vitalName,
+        value: alert.value,
+        unit: alert.unit,
+        normal_range: alert.normal_range,
+        cohort: alert.cohort,
+        clinical_alert_id: clinicalAlertId,
+        source_vitals_chart_id: Number(vitalsChartId),
+        source: 'vitals.corrected',
+      }),
+      tenantId,
+      String(clinicalAlertId),
+    );
+    pregnancyCdsReconciled += inserted.length;
+  }
+
+  let news2CdsRows;
+  let cdsAlertsResolved = pregnancyCdsResolved;
+  let cdsAlertsReconciled = pregnancyCdsReconciled;
+  if (deferNews2TaskRetirement && replacementNews2) {
+    news2CdsRows = await client.$queryRawUnsafe(
+      `UPDATE cds_alerts
+          SET severity = $4,
+              title = $5,
+              description = $6,
+              source_data = COALESCE(source_data, '{}'::jsonb) || jsonb_build_object(
+                'news2_score_id', $7::text,
+                'vitals_chart_id', $3::int,
+                'total_score', $8::int,
+                'clinical_risk', $9::text
+              )
+        WHERE tenant_id = $1::uuid
+          AND COALESCE(acknowledged, FALSE) = FALSE
+          AND alert_type = 'NEWS2_DETERIORATION'
+          AND (
+            source_data->>'news2_score_id' = ANY($2::text[])
+            OR source_data->>'vitals_chart_id' = $3::text
+          )
+        RETURNING id`,
+      tenantId,
+      oldScoreIds,
+      String(vitalsChartId),
+      replacementNews2.severity,
+      replacementNews2.title,
+      replacementNews2.description,
+      String(replacementScoreId),
+      Number(replacementNews2.totalScore),
+      replacementNews2.clinicalRisk,
+    );
+    cdsAlertsReconciled += news2CdsRows.length;
+  } else {
+    news2CdsRows = await client.$queryRawUnsafe(
+      `UPDATE cds_alerts
+          SET acknowledged = TRUE,
+              ack_at = COALESCE(ack_at, NOW())
+        WHERE tenant_id = $1::uuid
+          AND COALESCE(acknowledged, FALSE) = FALSE
+          AND alert_type = 'NEWS2_DETERIORATION'
+          AND (
+            source_data->>'news2_score_id' = ANY($2::text[])
+            OR source_data->>'vitals_chart_id' = $3::text
+          )
+        RETURNING id`,
+      tenantId,
+      oldScoreIds,
+      String(vitalsChartId),
+    );
+    cdsAlertsResolved += news2CdsRows.length;
+  }
+
+  const tasks = await client.$queryRawUnsafe(
+    `SELECT id, related_resource_type, related_resource_id, workflow_sla_instance_id
+       FROM tasks
+      WHERE tenant_id = $1::uuid
+        AND status IN ('open', 'overdue', 'in_progress', 'blocked')
+        AND (
+           (related_resource_type = 'news2_score' AND related_resource_id = ANY($2::text[])
+            AND $4::boolean = FALSE)
+           OR
+           (related_resource_type = 'clinical_alert' AND related_resource_id = ANY($3::text[]))
+        )
+      FOR UPDATE`,
+    tenantId,
+    oldScoreIds,
+    retiredAlertTaskIdTexts,
+    deferNews2TaskRetirement,
+  );
+  if (tasks.length > 0) {
+    const { supersedeAcknowledgementTaskFromTrustedWorkflow } = await import('../workflow/taskService.js');
+    for (const task of tasks) {
+      await supersedeAcknowledgementTaskFromTrustedWorkflow({
+        tenantId,
+        id: task.id,
+        relatedResourceType: task.related_resource_type,
+        relatedResourceId: task.related_resource_id,
+        workflowSlaInstanceId: task.workflow_sla_instance_id,
+        supersededByActorUid: correctedBy,
+        supersessionReason: 'superseded_by_correction',
+        tx: client,
+      });
+    }
+  }
+
+  const scoresSuperseded = await client.$executeRawUnsafe(
     `UPDATE news2_scores
         SET superseded_by_id = $1::int,
             superseded_at = NOW()
@@ -306,6 +699,70 @@ export async function supersedeNews2ForVitalsRow(vitalsChartId, replacementScore
     replacementScoreId == null ? null : Number(replacementScoreId),
     Number(vitalsChartId),
   );
+  return {
+    scoresSuperseded,
+    alertsResolved: resolvedAlertIds.length,
+    alertsReconciled: Object.keys(activeAlertIdsByVitalName).length,
+    activeAlertIdsByVitalName,
+    cdsAlertsResolved,
+    cdsAlertsReconciled,
+    tasksSuperseded: tasks.length,
+  };
+}
+
+/**
+ * Complete the safe hand-off from an old NEWS2 escalation task only after the
+ * replacement score's task has been durably created. If this cleanup fails,
+ * the old task remains open alongside the replacement; there is never a period
+ * in which a still-deteriorating patient has no acknowledgement owner.
+ */
+export async function retireSupersededNews2TasksAfterReplacement(
+  vitalsChartId,
+  { tenantId = null, correctedBy = null } = {},
+) {
+  if (!vitalsChartId) return { tasksSuperseded: 0 };
+  if (!tenantId || !correctedBy) {
+    throw AppError.internal('NEWS2 replacement task retirement requires tenant and correcting actor');
+  }
+  return setTenantTx(tenantId, async (tx) => {
+    const oldScores = await tx.$queryRawUnsafe(
+      `SELECT id::text AS id
+         FROM news2_scores
+        WHERE vitals_chart_id = $1::int
+          AND superseded_at IS NOT NULL`,
+      Number(vitalsChartId),
+    );
+    const oldScoreIds = oldScores.map((row) => String(row.id));
+    if (oldScoreIds.length === 0) return { tasksSuperseded: 0 };
+
+    const tasks = await tx.$queryRawUnsafe(
+      `SELECT id, related_resource_type, related_resource_id, workflow_sla_instance_id
+         FROM tasks
+        WHERE tenant_id = $1::uuid
+          AND status IN ('open', 'overdue', 'in_progress', 'blocked')
+          AND related_resource_type = 'news2_score'
+          AND related_resource_id = ANY($2::text[])
+        FOR UPDATE`,
+      tenantId,
+      oldScoreIds,
+    );
+    if (tasks.length > 0) {
+      const { supersedeAcknowledgementTaskFromTrustedWorkflow } = await import('../workflow/taskService.js');
+      for (const task of tasks) {
+        await supersedeAcknowledgementTaskFromTrustedWorkflow({
+          tenantId,
+          id: task.id,
+          relatedResourceType: task.related_resource_type,
+          relatedResourceId: task.related_resource_id,
+          workflowSlaInstanceId: task.workflow_sla_instance_id,
+          supersededByActorUid: correctedBy,
+          supersessionReason: 'superseded_by_correction',
+          tx,
+        });
+      }
+    }
+    return { tasksSuperseded: tasks.length };
+  });
 }
 
 // Resolve the patient's tenant for routing and canonical persistence when the
@@ -350,6 +807,11 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
   const aggregateTrigger = totalScore >= NEWS2_ESCALATION_THRESHOLD;
   const redParams = Object.keys(scores).filter((p) => scores[p] === 3);
   const singleRedTrigger = anyParamThree && redParams.length > 0;
+  const sourceRecordedAt = record?.recorded_at ?? record?.assessed_at ?? null;
+  if ((aggregateTrigger || singleRedTrigger) && !isNews2EscalationFresh(sourceRecordedAt)) {
+    logger.info(`NEWS2 escalation suppressed for historical observation patient=${patientUid}, recorded_at=${sourceRecordedAt || 'missing'}`);
+    return { skipped: true, reason: 'stale_observation' };
+  }
 
   if (aggregateTrigger || singleRedTrigger) {
     // Build a trigger label so the clinician sees WHY the task fired: a high
@@ -414,10 +876,22 @@ export async function escalateNews2(patientUid, record, computed, { tenantId = n
   // recorded score or block the caller.
   try {
     const { surfaceNews2Cds } = await import('../cds/deteriorationEarlyWarningService.js');
-    await surfaceNews2Cds({ patientUid, news2: { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } });
+    await surfaceNews2Cds({
+      patientUid,
+      news2: {
+        totalScore,
+        clinicalRisk,
+        escalationAction,
+        scores,
+        anyParamThree,
+        news2ScoreId: resourceType === 'news2_score' ? record?.id ?? null : null,
+        vitalsChartId: record?.vitals_chart_id ?? null,
+      },
+    });
   } catch (err) {
     logger.warn(`NEWS2 CDS surfacing failed for patient ${patientUid}: ${err.message}`);
   }
+  return { skipped: false };
 }
 
 /**
@@ -455,7 +929,11 @@ export async function recordNEWS2(patientUid, vitals, recordedBy, options = {}) 
   const tenantId = requireTenantId(options?.tenantId ?? await resolvePatientTenantId(patientUid));
 
   const persisted = await setTenantTx(tenantId, async (tx) => {
-    const p = await persistNews2(patientUid, vitals, recordedBy, { db: tx, spo2Scale });
+    const p = await persistNews2(patientUid, vitals, recordedBy, {
+      db: tx,
+      spo2Scale,
+      recordedAt: vitals?.recorded_at ?? options?.recordedAt ?? null,
+    });
     if (!p) return null;
     await recordCanonicalClinicalEvent({
       tenantId,
@@ -467,7 +945,9 @@ export async function recordNEWS2(patientUid, vitals, recordedBy, options = {}) 
       resourceType: 'news2_score',
       resourceId: p.record.id,
       actorUid: recordedBy || null,
-      summary: `NEWS2 ${p.computed.totalScore} (${p.computed.clinicalRisk.replace(/_/g, ' ')}) recorded`,
+      summary: p.computed.partial
+        ? `NEWS2 ${p.computed.totalScore} partial score recorded — risk band unavailable`
+        : `NEWS2 ${p.computed.totalScore} (${p.computed.clinicalRisk.replace(/_/g, ' ')}) recorded`,
       payload: {
         total_score: p.computed.totalScore,
         clinical_risk: p.computed.clinicalRisk,
@@ -480,6 +960,7 @@ export async function recordNEWS2(patientUid, vitals, recordedBy, options = {}) 
       },
       afterState: p.record,
       tags: ['news2'],
+      occurredAt: p.record.recorded_at,
     }, { db: tx });
     return p;
   });
@@ -510,17 +991,123 @@ export async function getPatientNEWS2History(patientUid, limit = 50) {
     patientUid, limit
   );
 
-  // Build trend from last 10 scores (oldest to newest)
-  const recentScores = rows.filter((row) => row.superseded_at == null).slice(0, 10).reverse();
+  const recentScores = rows.filter((row) => row.superseded_at == null).slice(0, 10);
+  const latestScore = recentScores[0];
+  if (latestScore?.partial_score === true) {
+    return {
+      scores: rows.map(presentNews2Record),
+      trend: null,
+      trend_available: false,
+      trend_reason: 'latest_score_partial',
+    };
+  }
+  const completeScores = recentScores.filter((row) => row.partial_score !== true);
+  if (completeScores.length < 2) {
+    return {
+      scores: rows.map(presentNews2Record),
+      trend: null,
+      trend_available: false,
+      trend_reason: 'insufficient_complete_scores',
+    };
+  }
   let trend = 'stable';
-  if (recentScores.length >= 2) {
-    const latest = recentScores[recentScores.length - 1].total_score;
-    const previous = recentScores[recentScores.length - 2].total_score;
-    if (latest > previous) trend = 'increasing';
-    else if (latest < previous) trend = 'decreasing';
+  const latest = completeScores[0].total_score;
+  const previous = completeScores[1].total_score;
+  if (latest > previous) trend = 'increasing';
+  else if (latest < previous) trend = 'decreasing';
+
+  return {
+    scores: rows.map(presentNews2Record),
+    trend,
+    trend_available: true,
+    trend_reason: null,
+  };
+}
+
+/**
+ * Patient-level NEWS2 SpO2 scale is clinical state, not profile decoration.
+ * Update and canonical timeline/audit evidence therefore commit together.
+ */
+export async function updatePatientSpo2Scale({
+  tenantId,
+  patientUid,
+  spo2Scale,
+  actorUid,
+  actorRole = null,
+  idempotencyKey,
+  requestId = null,
+  ipAddress = null,
+}) {
+  const normalizedScale = normalizeSpo2Scale(spo2Scale);
+  if (normalizedScale === null || spo2Scale === null || spo2Scale === '') {
+    throw AppError.badRequest('spo2_scale must be 1 or 2');
+  }
+  const resolvedTenantId = requireTenantId(tenantId);
+  if (!patientUid || !actorUid || !idempotencyKey) {
+    throw AppError.badRequest('patient uid, actor, and idempotency key are required');
   }
 
-  return { scores: rows, trend };
+  return setTenantTx(resolvedTenantId, async (tx) => {
+    const currentRows = await tx.$queryRawUnsafe(
+      `SELECT uid, news2_spo2_scale
+         FROM users
+        WHERE uid = $1::uuid
+          AND tenant_id = $2::uuid
+          AND role = 'PATIENT'
+        FOR UPDATE`,
+      patientUid,
+      resolvedTenantId,
+    );
+    const current = currentRows[0];
+    if (!current) throw AppError.notFound('Patient not found');
+    const beforeScale = normalizeSpo2Scale(current.news2_spo2_scale) ?? 1;
+    if (beforeScale === normalizedScale) {
+      return { news2_spo2_scale: normalizedScale, changed: false };
+    }
+
+    const updatedRows = await tx.$queryRawUnsafe(
+      `UPDATE users
+          SET news2_spo2_scale = $3,
+              updated_at = NOW()
+        WHERE uid = $1::uuid
+          AND tenant_id = $2::uuid
+          AND role = 'PATIENT'
+        RETURNING uid, news2_spo2_scale`,
+      patientUid,
+      resolvedTenantId,
+      normalizedScale,
+    );
+    const updated = updatedRows[0];
+    if (!updated) throw AppError.notFound('Patient not found');
+
+    // The public contract accepts 200-character request keys, while the
+    // canonical timeline/audit columns are VARCHAR(220). Prefixing the raw key
+    // can exceed that limit, so use a fixed-width, collision-resistant digest.
+    const stableKey = createHash('sha256')
+      .update(String(idempotencyKey), 'utf8')
+      .digest('hex');
+    await recordCanonicalClinicalEvent({
+      tenantId: resolvedTenantId,
+      patientUid,
+      eventType: 'news2.spo2_scale_updated',
+      eventStatus: 'updated',
+      sourceTable: 'users',
+      sourceId: patientUid,
+      resourceType: 'patient_news2_spo2_scale',
+      resourceId: patientUid,
+      actorUid,
+      actorRole,
+      summary: `NEWS2 SpO2 scale changed from ${beforeScale} to ${normalizedScale}`,
+      beforeState: { news2_spo2_scale: beforeScale },
+      afterState: { news2_spo2_scale: normalizedScale },
+      payload: { request_id: requestId, ip_address: ipAddress },
+      timelineIdempotencyKey: `patient:${patientUid}:news2-spo2-scale:${stableKey}`,
+      auditIdempotencyKey: `patient:${patientUid}:news2-spo2-scale:audit:${stableKey}`,
+      tags: ['news2', 'spo2-scale'],
+    }, { db: tx, strict: true });
+
+    return { ...updated, changed: true };
+  });
 }
 
 export default {
@@ -530,7 +1117,11 @@ export default {
   resolveSpo2ScaleForPatient,
   persistNews2,
   supersedeNews2ForVitalsRow,
+  retireSupersededNews2TasksAfterReplacement,
   escalateNews2,
   recordNEWS2,
   getPatientNEWS2History,
+  isNews2EscalationFresh,
+  presentNews2Record,
+  updatePatientSpo2Scale,
 };

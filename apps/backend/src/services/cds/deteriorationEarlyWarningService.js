@@ -29,7 +29,15 @@ const SEV_RANK = { info: 0, warning: 1, critical: 2 };
  * @returns {Promise<{ raised: boolean, reason?: string, severity?: string }>}
  */
 export async function surfaceNews2Cds({ patientUid, encounterId = null, news2 } = {}) {
-  const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = news2 || {};
+  const {
+    totalScore,
+    clinicalRisk,
+    escalationAction,
+    scores,
+    anyParamThree,
+    news2ScoreId = null,
+    vitalsChartId = null,
+  } = news2 || {};
 
   // Escalating set only: aggregate >= 5 OR any single parameter scored 3.
   if (!(Number(totalScore) >= 5 || anyParamThree)) {
@@ -75,6 +83,8 @@ export async function surfaceNews2Cds({ patientUid, encounterId = null, news2 } 
       clinical_risk: clinicalRisk,
       scores: scores || {},
       any_param_three: !!anyParamThree,
+      news2_score_id: news2ScoreId == null ? null : String(news2ScoreId),
+      vitals_chart_id: vitalsChartId == null ? null : Number(vitalsChartId),
       source: 'news2Service.recordNEWS2',
     },
   });

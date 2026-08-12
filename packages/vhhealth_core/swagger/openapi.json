@@ -20370,6 +20370,13 @@
               }
             ]
           },
+          "spo2_scale": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ]
+          },
           "respiratory_rate": {
             "oneOf": [
               {
@@ -30037,6 +30044,23 @@
           "meta": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "PatientNews2Spo2ScaleUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "spo2_scale"
+        ],
+        "properties": {
+          "spo2_scale": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "description": "Patient-level NEWS2 oxygen-saturation scoring scale selected from documented clinical evidence."
           }
         }
       },
@@ -93994,6 +94018,17 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
           }
         ],
         "requestBody": {
@@ -94031,6 +94066,17 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
             }
           }
         ],
@@ -110032,6 +110078,60 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/patients/{uid}/news2-spo2-scale": {
+      "patch": {
+        "operationId": "patch_api_v1_patients_by_uid_news2_spo2_scale",
+        "tags": [
+          "patient"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Update a patient NEWS2 SpO2 scale",
+        "description": "Updates the patient-level NEWS2 SpO2 scale under clinical-role and patient-access policy checks. The clinical-state update and canonical timeline/audit evidence commit atomically.",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatientNews2Spo2ScaleUpdateRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/patients/{uid}/timeline": {

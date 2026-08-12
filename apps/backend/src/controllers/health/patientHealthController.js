@@ -445,6 +445,7 @@ export async function recordStaffVitals(req, res) {
       temperature_unit: vitalSigns.temperature_unit ?? vitalSigns.temperatureUnit ?? 'F',
       temperature_route: vitalSigns.temperature_route ?? vitalSigns.temperatureRoute,
       spo2: spO2,
+      spo2_scale: vitalSigns.spo2_scale ?? vitalSigns.spo2Scale,
       blood_glucose: bloodSugar,
       weight_kg: weight,
       height_cm: heightCm,

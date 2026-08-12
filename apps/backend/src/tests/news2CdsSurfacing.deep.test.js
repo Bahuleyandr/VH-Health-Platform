@@ -39,7 +39,7 @@
 
 import { randomUUID } from 'crypto';
 import prisma from '../lib/prisma.js';
-import { recordNEWS2 } from '../services/clinical/news2Service.js';
+import { isNews2EscalationFresh, recordNEWS2 } from '../services/clinical/news2Service.js';
 import { getActiveAlerts } from '../services/emr/cdsEngine.js';
 import { listClinicalAiModules } from '../services/ai/clinicalAiModuleService.js';
 
@@ -201,6 +201,17 @@ async function ackAllNews2Alerts() {
  * its pre-test no-row state.
  */
 async function cleanup() {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe(
+      `DELETE FROM tasks WHERE patient_uid = $1::uuid`,
+      PATIENT_UID,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`,
+      PATIENT_UID,
+    );
+  }).catch(() => {});
   await ownerQuery(
     `DELETE FROM cds_alerts WHERE patient_uid = $1::uuid`,
     [PATIENT_UID]
@@ -235,7 +246,7 @@ describeIfDb('NEWS2 → CDS surfacing (deterioration_early_warning, real PG)', (
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60_000);
 
   it('1 – a critical NEWS2 (score >=7) raises a NEWS2_DETERIORATION cds_alert (severity=critical, tenant set) surfaced by getActiveAlerts', async () => {
     const beforeScores = await countNews2Scores();
@@ -243,6 +254,8 @@ describeIfDb('NEWS2 → CDS surfacing (deterioration_early_warning, real PG)', (
     const record = await recordNEWS2(PATIENT_UID, CRITICAL_VITALS, STAFF_UID);
     expect(record).toBeDefined();
     expect(Number(record.total_score)).toBeGreaterThanOrEqual(7);
+    expect(record.recorded_at).toBeTruthy();
+    expect(isNews2EscalationFresh(record.recorded_at)).toBe(true);
 
     // news2_scores row written.
     expect(await countNews2Scores()).toBe(beforeScores + 1);

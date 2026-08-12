@@ -42,7 +42,7 @@ describe('NEWS2', () => {
 
   it('reassessment frequency drops to 15min for high', () => {
     const r = scoreNews2({
-      rr: 26, spo2: 88, temp_c: 39, sbp: 80, hr: 130,
+      rr: 26, spo2: 88, temp_c: 39, sbp: 80, hr: 130, consciousness: 'awake',
     });
     expect(r.band).toBe('high');
     expect(r.reassessmentMins).toBe(15);
@@ -53,6 +53,20 @@ describe('NEWS2', () => {
       rr: 16, spo2: 98, temp_c: 36.8, sbp: 120, hr: 72, consciousness: 'awake',
     });
     expect(r.reassessmentMins).toBe(720);
+  });
+
+  it('partial observations expose incompleteness without a risk band or reassuring action', () => {
+    const r = scoreNews2({ rr: 16 });
+    expect(r).toMatchObject({
+      total_score: 0,
+      band: null,
+      recommended_actions: null,
+      reassessmentMins: null,
+      partial: true,
+      risk_band_available: false,
+    });
+    expect(r.missing).toEqual(expect.arrayContaining(['spo2', 'temperature', 'systolic_bp', 'heart_rate', 'consciousness']));
+    expect(r.display).toMatch(/partial.*risk band unavailable/i);
   });
 
   // Regression: long-form vitals keys (respiratory_rate, temperature,
@@ -167,7 +181,7 @@ describe('Sepsis screen', () => {
 
 describe('score() router', () => {
   it('routes to the right scorer', () => {
-    expect(score('news2', { rr: 16 }).band).toBeDefined();
+    expect(score('news2', { rr: 16 }).band).toBeNull();
     expect(score('braden', { sensory: 4, moisture: 4, activity: 4, mobility: 4, nutrition: 4, friction: 3 }).band).toBe('no_risk');
     expect(score('morse', {}).band).toBe('low_risk');
     expect(score('sepsis_screen', {}).band).toBe('no_concern');

@@ -16,7 +16,11 @@ interface OverdueRow {
   admission_id: number | null;
   assessment_kind: string;
   total_score: number | null;
-  band: string;
+  band: string | null;
+  partial_score?: boolean;
+  missing_params?: string[] | null;
+  risk_band_available?: boolean;
+  display?: string;
   assessed_at: string;
   next_assessment_due_at: string | null;
   minutes_overdue: number;
@@ -24,9 +28,13 @@ interface OverdueRow {
 
 interface ScoreResult {
   total_score: number;
-  band: string;
-  recommended_actions: string[];
-  reassessmentMins?: number;
+  band: string | null;
+  recommended_actions: string[] | null;
+  reassessmentMins?: number | null;
+  partial?: boolean;
+  missing?: string[];
+  risk_band_available?: boolean;
+  display?: string;
 }
 
 const BAND_COLOURS: Record<string, string> = {
@@ -206,13 +214,19 @@ export default function NursingAssessmentsPage() {
                     {r.total_score ?? "—"}
                   </td>
                   <td className="px-3 py-2">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-xs ${
-                        BAND_COLOURS[r.band] ?? ""
-                      }`}
-                    >
-                      {r.band.replace(/_/g, " ")}
-                    </span>
+                    {r.partial_score || r.risk_band_available === false ? (
+                      <span className="inline-block px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-900">
+                        Partial — risk band unavailable
+                      </span>
+                    ) : (
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-xs ${
+                          r.band ? BAND_COLOURS[r.band] ?? "" : ""
+                        }`}
+                      >
+                        {r.band?.replace(/_/g, " ") ?? "Unavailable"}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-xs">{fmtTs(r.assessed_at)}</td>
                   <td className="px-3 py-2 text-xs">
@@ -503,19 +517,37 @@ function ScoreModal({
           {preview && (
             <div
               className={`rounded-lg border p-3 ${
-                BAND_COLOURS[preview.band]?.includes("rose")
+                preview.partial || preview.risk_band_available === false
+                  ? "bg-amber-50 border-amber-300"
+                  : preview.band && BAND_COLOURS[preview.band]?.includes("rose")
                   ? "bg-rose-50 border-rose-300"
-                  : BAND_COLOURS[preview.band]?.includes("amber")
+                  : preview.band && BAND_COLOURS[preview.band]?.includes("amber")
                     ? "bg-amber-50 border-amber-300"
                     : "bg-emerald-50 border-emerald-300"
               }`}
             >
-              <p className="text-sm font-semibold">
-                Score {preview.total_score} —{" "}
-                <span className="uppercase">
-                  {preview.band.replace(/_/g, " ")}
-                </span>
-              </p>
+              {preview.partial || preview.risk_band_available === false ? (
+                <>
+                  <p className="text-sm font-semibold">
+                    Score {preview.total_score} — Partial; risk band unavailable
+                  </p>
+                  <p className="text-xs mt-1">
+                    Complete the missing observations before using this score for reassurance or reassessment timing.
+                  </p>
+                  {!!preview.missing?.length && (
+                    <p className="text-xs mt-1">
+                      Missing: {preview.missing.join(", ").replace(/_/g, " ")}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm font-semibold">
+                  Score {preview.total_score} —{" "}
+                  <span className="uppercase">
+                    {preview.band?.replace(/_/g, " ") ?? "Unavailable"}
+                  </span>
+                </p>
+              )}
               {preview.reassessmentMins != null && (
                 <p className="text-xs mt-1">
                   Reassess in:{" "}
@@ -524,7 +556,7 @@ function ScoreModal({
                     : `${(preview.reassessmentMins / 60).toFixed(0)}h`}
                 </p>
               )}
-              {preview.recommended_actions?.length > 0 && (
+              {preview.recommended_actions && preview.recommended_actions.length > 0 && (
                 <ul className="text-xs mt-2 list-disc list-inside">
                   {preview.recommended_actions.map((a, i) => (
                     <li key={i}>{a}</li>

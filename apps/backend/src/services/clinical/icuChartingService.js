@@ -30,6 +30,17 @@ const SEDATION_MAR_MATCHES = [
   '%dobutamine%'
 ];
 
+function presentIcuNews2(row) {
+  if (row?.partial_score !== true) return { ...row, risk_band_available: true };
+  return {
+    ...row,
+    clinical_risk: null,
+    escalation_action: null,
+    risk_band_available: false,
+    display: `NEWS2 ${row.total_score} (partial; risk band unavailable)`,
+  };
+}
+
 function tenantOr(tenantId) {
   return requireTenantId(tenantId);
 }
@@ -308,7 +319,8 @@ export async function getIcuChartView({ tenantId, icuAdmissionId, hours = 24, at
           end.toISOString()
         ),
         tx.$queryRawUnsafe(
-          `SELECT id, patient_uid, recorded_at, total_score, clinical_risk, escalation_action
+          `SELECT id, patient_uid, recorded_at, total_score, clinical_risk, escalation_action,
+                  partial_score, missing_params
            FROM news2_scores
           WHERE tenant_id = $1::uuid
             AND patient_uid = $2::uuid
@@ -419,7 +431,7 @@ export async function getIcuChartView({ tenantId, icuAdmissionId, hours = 24, at
       },
       manual_flowsheet: manual,
       device_vitals: normalizedDeviceVitals,
-      news2_scores: news2,
+      news2_scores: news2.map(presentIcuNews2),
       mar_sedation_refs: mar,
       ventilation_episodes: ventilation,
       weaning_trials: weaning,

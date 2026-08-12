@@ -2704,6 +2704,7 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   if (![
     'diagnostic_generation_noncritical_correction',
     'diagnostic_generation_superseded',
+    'superseded_by_correction',
   ].includes(cleanSupersessionReason)) {
     throw AppError.badRequest(
       'Acknowledgement supersession reason is invalid',
@@ -2734,16 +2735,17 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
   if (!['open', 'overdue', 'blocked', 'in_progress'].includes(current.status)) {
     throw AppError.invalidTransition(current.status, 'completed', TASK_TRANSITIONS[current.status] || []);
   }
-  const supersededAt = diagnosticGenerationId ? new Date() : null;
-  if (diagnosticGenerationId) {
+  const stampsCorrection = cleanSupersessionReason === 'superseded_by_correction';
+  const supersededAt = diagnosticGenerationId || stampsCorrection ? new Date() : null;
+  if (diagnosticGenerationId || stampsCorrection) {
     const prepared = await tx.$queryRawUnsafe(
       `UPDATE tasks
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
                 'supersession_reason', $6::text,
                 'superseded_at', $3::timestamptz,
                 'superseded_by_actor_uid', $4::uuid,
                 'superseded_by_diagnostic_generation_id', $5::uuid
-              ),
+              )),
               updated_at = $3::timestamptz
         WHERE tenant_id = $1::uuid
           AND id = $2::integer
@@ -2784,15 +2786,15 @@ export async function supersedeAcknowledgementTaskFromTrustedWorkflow({
     slaSourceBindingAuthority: TASK_SLA_SOURCE_BINDING_AUTHORITY,
     tx,
   });
-  if (diagnosticGenerationId) {
+  if (diagnosticGenerationId || stampsCorrection) {
     await tx.$executeRawUnsafe(
       `UPDATE workflow_sla_instances
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
                 'supersession_reason', $6::text,
                 'superseded_at', $3::timestamptz,
                 'superseded_by_actor_uid', $4::uuid,
                 'superseded_by_diagnostic_generation_id', $5::uuid
-              ),
+              )),
               updated_at = $3::timestamptz
         WHERE tenant_id = $1::uuid
           AND id = $2::uuid`,

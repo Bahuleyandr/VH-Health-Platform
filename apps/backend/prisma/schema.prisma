@@ -4130,6 +4130,8 @@ model clinical_alerts {
   created_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
   acknowledged_at            DateTime?                    @db.Timestamptz(6)
   tenant_id                  String                       @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  source_vitals_chart_id     Int?
+  vitals_chart               vitals_chart?                @relation(fields: [source_vitals_chart_id], references: [id], onUpdate: NoAction, map: "fk_clinical_alerts_source_vitals_chart")
   tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_alerts_tenant")
   resuscitation_device_links resuscitation_device_links[]
   resuscitation_events       resuscitation_events[]
@@ -4137,6 +4139,7 @@ model clinical_alerts {
   @@index([tenant_id], map: "idx_clinical_alerts_tenant_id")
   @@index([created_at], map: "idx_clinical_alerts_unack", where: raw("(acknowledged_at IS NULL)"))
   @@index([tenant_id, patient_id, vital_name, severity, created_at(sort: Desc)], map: "idx_clinical_alerts_device_repeat_suppression", where: raw("((COALESCE(acknowledged, false) = false) AND (acknowledged_at IS NULL))"))
+  @@index([tenant_id, source_vitals_chart_id], map: "idx_clinical_alerts_source_vitals_open", where: raw("((source_vitals_chart_id IS NOT NULL) AND (COALESCE(acknowledged, false) = false) AND (acknowledged_at IS NULL))"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12017,6 +12020,7 @@ model vitals_chart {
   verified_at                  DateTime?                      @db.Timestamptz(6)
   recovery_inbox_id            String?                        @db.Uuid
   recovery_interface_family    String?                        @db.VarChar(8)
+  clinical_alerts              clinical_alerts[]
   ed_encounter_evidence        ed_encounter_evidence[]
   fhir_vital_observation_sets  fhir_vital_observation_sets[]
   icu_device_observation_links icu_device_observation_links[]

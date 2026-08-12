@@ -7,7 +7,10 @@ import { assertVitalPlausibility, assertRecordedAtPlausibility } from '../../uti
 import { normaliseTemperatureRoute } from '../../utils/clinical/temperatureRoute.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { computeGrowthSnapshot } from '../clinical/growthPercentileService.js';
-import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  currentCanonicalTransactionRevision,
+  recordCanonicalClinicalEvent,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import * as news2Service from '../clinical/news2Service.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -38,6 +41,30 @@ const VITAL_RESCORE_FIELDS = new Set([
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'consciousness', 'supplemental_o2', 'o2_flow_rate',
 ]);
+
+// SQL casts mirror the persisted vitals_chart column types. The correction
+// no-op guard compares against the value Postgres would actually store (for
+// example, 99°F normalises to a numeric(5,2) Celsius value), rather than a
+// lossy JavaScript equality check against Prisma Decimal objects.
+const VITAL_CORRECTION_SQL_CASTS = Object.freeze({
+  heart_rate: 'numeric(6,2)',
+  systolic_bp: 'numeric(6,2)',
+  diastolic_bp: 'numeric(6,2)',
+  temperature: 'numeric(5,2)',
+  spo2: 'numeric(5,2)',
+  respiratory_rate: 'numeric(5,2)',
+  blood_glucose: 'numeric(8,2)',
+  pain_score: 'numeric(4,1)',
+  weight_kg: 'numeric(6,2)',
+  height_cm: 'numeric(6,2)',
+  gcs_score: 'int',
+  supplemental_o2: 'boolean',
+  o2_flow_rate: 'numeric(6,2)',
+  consciousness: 'varchar(5)',
+  notes: 'text',
+  fhr: 'int',
+  fundal_height_cm: 'numeric(5,2)',
+});
 
 export function assertLateRecoveryVitalsBoundary({
   interfaceFamily,
@@ -511,6 +538,7 @@ export async function recordVitals(data, {
     triage_acuity, acuity, triage_priority,
     temperature_unit, temperature_route, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
     height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
+    spo2_scale, spo2Scale,
     recorded_at, observed_at,
     fhr, fundal_height_cm,
     urine_albumin, urine_sugar, urine_ketones,
@@ -579,6 +607,13 @@ export async function recordVitals(data, {
   const normalizedAcuity = normalizedAcuitySignal?.level ?? null;
   const normalizedTriagePriority = normalizedAcuitySignal?.priority ?? null;
   const normalizedRecordedAt = normalizeRecordedAt(recorded_at ?? observed_at);
+  const explicitSpo2Scale = spo2_scale ?? spo2Scale;
+  const normalizedExplicitSpo2Scale = explicitSpo2Scale === undefined || explicitSpo2Scale === null || explicitSpo2Scale === ''
+    ? null
+    : news2Service.normalizeSpo2Scale(explicitSpo2Scale);
+  if (explicitSpo2Scale !== undefined && explicitSpo2Scale !== null && explicitSpo2Scale !== '' && normalizedExplicitSpo2Scale === null) {
+    throw AppError.badRequest('spo2_scale must be 1 or 2');
+  }
 
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
     respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score,
@@ -717,6 +752,7 @@ export async function recordVitals(data, {
         verification_status: row.source === 'device' ? 'unverified' : 'verified',
       },
       afterState: row,
+      occurredAt: row.recorded_at,
       // Canonical timeline convention (docs/CANONICAL_CLINICAL_TIMELINE.md):
       // device-synced observations are labelled unverified until reviewed.
       tags: row.source === 'device' ? ['vitals', 'device-synced', 'unverified'] : ['vitals'],
@@ -738,7 +774,8 @@ export async function recordVitals(data, {
     // abort the atomic write rather than potentially under-score a Scale-2
     // patient; the resolved scale is passed as options.spo2Scale, the channel
     // that wins over any caller-supplied per-reading value.
-    const spo2Scale = await news2Service.resolveSpo2ScaleForPatient(resolvedPatientUid, { db: tx });
+    const resolvedSpo2Scale = normalizedExplicitSpo2Scale
+      ?? await news2Service.resolveSpo2ScaleForPatient(resolvedPatientUid, { db: tx });
     // vitalsChartId links the score to its source row (migration 652) so a
     // later correction of this row can find and supersede this score.
     news2Persisted = await news2Service.persistNews2(resolvedPatientUid, {
@@ -749,7 +786,12 @@ export async function recordVitals(data, {
       heart_rate,
       consciousness,
       supplemental_o2: supplementalO2Known ? Boolean(derivedSupplementalO2) : null,
-    }, recorded_by, { db: tx, spo2Scale, vitalsChartId: row.id });
+    }, recorded_by, {
+      db: tx,
+      spo2Scale: resolvedSpo2Scale,
+      vitalsChartId: row.id,
+      recordedAt: row.recorded_at,
+    });
 
     if (beforeCommit) {
       await beforeCommit({
@@ -796,7 +838,7 @@ export async function recordVitals(data, {
     // must never reach the Celsius threshold table.
     const vitalsForCheck = anomalyVitalsForCheck(record);
 
-    if (Object.keys(vitalsForCheck).length > 0) {
+    if (Object.keys(vitalsForCheck).length > 0 && news2Service.isNews2EscalationFresh(record.recorded_at)) {
       // clinical_alerts.patient_id is an INT FK to users(id) — resolve uuid→int.
       // recorded_by is uuid; clinical_alerts.created_by is int FK — same resolution.
       const recorderUser = await prisma.users.findUnique({
@@ -817,6 +859,7 @@ export async function recordVitals(data, {
           // default-stamping warning-only batches).
           tenantId: resolvedTenantId,
           onClinicalAlertsPersisted,
+          sourceVitalsChartId: record.id,
         });
       }
     } else if (typeof onClinicalAlertsPersisted === 'function') {
@@ -894,6 +937,7 @@ export async function reconcileRecordedVitalsEffects({
             vitals.supplemental_o2,
             vitals.consciousness,
             vitals.urine_albumin,
+            vitals.recorded_at,
             patient.id AS patient_id,
             recorder.id AS recorded_by_id,
             score.id AS news2_id,
@@ -958,6 +1002,8 @@ export async function reconcileRecordedVitalsEffects({
           id: row.news2_id,
           total_score: Number(row.total_score),
           clinical_risk: row.clinical_risk,
+          recorded_at: row.recorded_at,
+          vitals_chart_id: row.id,
         },
         computed,
         { tenantId: resolvedTenantId },
@@ -965,7 +1011,7 @@ export async function reconcileRecordedVitalsEffects({
     }
     if (typeof onNews2EffectsCompleted === 'function') {
       await onNews2EffectsCompleted({
-        vitals: { id: row.id, patient_uid: row.patient_uid },
+        vitals: { id: row.id, patient_uid: row.patient_uid, recorded_at: row.recorded_at },
         news2: row.news2_id ? { id: row.news2_id } : null,
       });
     }
@@ -975,11 +1021,13 @@ export async function reconcileRecordedVitalsEffects({
   let alerts = [];
   if (anomalyPending) {
     const vitalsForCheck = anomalyVitalsForCheck(row);
-    if (Object.keys(vitalsForCheck).length > 0) {
+    const isFresh = news2Service.isNews2EscalationFresh(row.recorded_at);
+    if (isFresh && Object.keys(vitalsForCheck).length > 0) {
       alerts = await checkVitalAnomalies(row.patient_id, vitalsForCheck, {
         recordedBy: row.recorded_by_id ?? null,
         source: 'fhir',
         tenantId: resolvedTenantId,
+        sourceVitalsChartId: row.id,
         onClinicalAlertsPersisted,
       });
     } else if (typeof onClinicalAlertsPersisted === 'function') {
@@ -1161,14 +1209,59 @@ export async function correctVitals(vitalsId, data) {
   // SpO2 98→88 previously left the stale reassuring score on record).
   const needsRescore = correctedFields.some((field) => VITAL_RESCORE_FIELDS.has(field));
 
-  const { updated, news2Persisted } = await setTenantTx(resolvedTenantId, async (tx) => {
+  const {
+    updated,
+    news2Persisted,
+    anomalyReconciliation,
+    currentVitalAnomalies,
+    patientUserId,
+    correctorUserId,
+    correctedVitalsForCheck,
+    replacementNeedsTask,
+    correctionApplied,
+  } = await setTenantTx(resolvedTenantId, async (tx) => {
+    const stateEntries = Object.entries(updateData);
+    const statePredicates = stateEntries.map(([field], index) => (
+      `${field} IS NOT DISTINCT FROM $${index + 3}::${VITAL_CORRECTION_SQL_CASTS[field]}`
+    ));
+    const guardRows = await tx.$queryRawUnsafe(
+      `SELECT (${statePredicates.join(' AND ')}) AS effective_state_unchanged
+         FROM vitals_chart
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      id,
+      resolvedTenantId,
+      ...stateEntries.map(([, value]) => value),
+    );
+    if (!guardRows.length) {
+      throw AppError.notFound('Vitals record not found');
+    }
+
     const existing = await tx.vitals_chart.findUnique({
       where: { id },
       select: { ...VITAL_SELECT, created_at: true },
     });
+    if (!existing) throw AppError.notFound('Vitals record not found');
 
-    if (!existing) {
-      throw AppError.notFound('Vitals record not found');
+    // Exact retries (including a retry under a fresh receipt key) stop before
+    // expiry enforcement, the detail UPDATE, audit/canonical revision, NEWS2
+    // append, or alert/task reconciliation. The FOR UPDATE lock makes
+    // concurrent identical patches collapse after the winner commits.
+    if (guardRows[0].effective_state_unchanged === true) {
+      const noOpRow = { ...existing };
+      delete noOpRow.created_at;
+      return {
+        updated: noOpRow,
+        news2Persisted: null,
+        anomalyReconciliation: null,
+        currentVitalAnomalies: [],
+        patientUserId: null,
+        correctorUserId: null,
+        correctedVitalsForCheck: {},
+        replacementNeedsTask: false,
+        correctionApplied: false,
+      };
     }
 
     const recordedAt = existing.recorded_at ?? existing.created_at;
@@ -1202,6 +1295,7 @@ export async function correctVitals(vitalsId, data) {
       },
     });
 
+    const txRevision = await currentCanonicalTransactionRevision(tx);
     await recordCanonicalClinicalEvent({
       tenantId: resolvedTenantId,
       patientUid: row.patient_uid,
@@ -1222,8 +1316,8 @@ export async function correctVitals(vitalsId, data) {
       afterState: {
         corrected_fields: Object.fromEntries(correctedFields.map((field) => [field, auditValue(row[field])])),
       },
-      timelineIdempotencyKey: `vitals_chart:${row.id}:corrected:${row.updated_at?.toISOString?.() || Date.now()}`,
-      auditIdempotencyKey: `vitals_chart:${row.id}:audit:corrected:${row.updated_at?.toISOString?.() || Date.now()}`,
+      timelineIdempotencyKey: `vitals_chart:${row.id}:corrected:tx:${txRevision}`,
+      auditIdempotencyKey: `vitals_chart:${row.id}:audit:corrected:tx:${txRevision}`,
     }, { db: tx, strict: true });
 
     // R4 — re-score NEWS2 from the CORRECTED row values, atomically with the
@@ -1232,7 +1326,35 @@ export async function correctVitals(vitalsId, data) {
     // vitals row; every prior live score for the row is stamped
     // superseded_by_id so the stale score stays visible but superseded.
     let persisted = null;
+    let reconciliation = null;
+    let anomalies = [];
+    let patientIntId = null;
+    let correctorIntId = null;
+    let anomalyVitals = {};
+    let replacementEscalates = false;
     if (needsRescore) {
+      const [patientUser, correctorUser] = await Promise.all([
+        tx.users.findUnique({ where: { uid: row.patient_uid }, select: { id: true } }),
+        tx.users.findUnique({ where: { uid: corrected_by }, select: { id: true } }),
+      ]);
+      if (!patientUser?.id) {
+        throw AppError.internal('Corrected vitals patient identity could not be resolved');
+      }
+      patientIntId = patientUser.id;
+      correctorIntId = correctorUser?.id ?? null;
+      anomalyVitals = anomalyVitalsForCheck(row);
+      const escalationFresh = news2Service.isNews2EscalationFresh(row.recorded_at);
+      if (Object.keys(anomalyVitals).length > 0 && escalationFresh) {
+        anomalies = await checkVitalAnomalies(patientIntId, anomalyVitals, {
+          recordedBy: correctorIntId,
+          tenantId: resolvedTenantId,
+          sourceVitalsChartId: row.id,
+          db: tx,
+          strictPatientContext: true,
+          classifyOnly: true,
+        });
+      }
+
       const spo2Scale = await news2Service.resolveSpo2ScaleForPatient(row.patient_uid, { db: tx });
       persisted = await news2Service.persistNews2(row.patient_uid, {
         respiration_rate: row.respiratory_rate,
@@ -1242,63 +1364,99 @@ export async function correctVitals(vitalsId, data) {
         heart_rate: row.heart_rate,
         consciousness: row.consciousness,
         supplemental_o2: row.supplemental_o2,
-      }, corrected_by, { db: tx, spo2Scale, vitalsChartId: row.id });
+      }, corrected_by, {
+        db: tx,
+        spo2Scale,
+        vitalsChartId: row.id,
+        recordedAt: row.recorded_at,
+      });
+      replacementEscalates = Boolean(
+        persisted
+        && escalationFresh
+        && (persisted.computed.totalScore >= 5 || persisted.computed.anyParamThree),
+      );
       // Always retire the score derived from the pre-correction values. If
-      // the correction removed the final scorable parameter, no replacement
-      // is created, but the old score must not remain live.
-      await news2Service.supersedeNews2ForVitalsRow(
+      // the correction removed the final scorable parameter, persistNews2
+      // correctly returns null, but the old score must not remain live.
+      reconciliation = await news2Service.supersedeNews2ForVitalsRow(
         row.id,
         persisted?.record.id ?? null,
-        { db: tx },
+        {
+          db: tx,
+          tenantId: resolvedTenantId,
+          correctedBy: corrected_by,
+          currentVitalAnomalies: anomalies,
+          patientId: patientIntId,
+          patientUid: row.patient_uid,
+          deferNews2TaskRetirement: replacementEscalates,
+          replacementNews2: replacementEscalates
+            ? {
+              totalScore: persisted.computed.totalScore,
+              clinicalRisk: persisted.computed.clinicalRisk,
+              severity: persisted.computed.totalScore >= 7 ? 'critical' : 'warning',
+              title: `NEWS2 ${persisted.computed.totalScore} — ${persisted.computed.clinicalRisk.replace(/_/g, ' ')}`,
+              description: persisted.computed.escalationAction || '',
+            }
+            : null,
+        },
       );
     }
 
-    return { updated: row, news2Persisted: persisted };
+    return {
+      updated: row,
+      news2Persisted: persisted,
+      anomalyReconciliation: reconciliation,
+      currentVitalAnomalies: anomalies,
+      patientUserId: patientIntId,
+      correctorUserId: correctorIntId,
+      correctedVitalsForCheck: anomalyVitals,
+      replacementNeedsTask: replacementEscalates,
+      correctionApplied: true,
+    };
   });
 
-  // POST-COMMIT (same split as recordVitals): escalation + anomaly re-check
-  // touch other tables / the CDS module and must not run inside the clinical
-  // write tx. A high-score escalation failure is LOUD (escalateNews2 throws).
+  if (!correctionApplied) {
+    logger.info(`Vitals correction no-op: id=${updated.id}, patient=${updated.patient_uid}, by=${corrected_by}`);
+    return updated;
+  }
+
+  // POST-COMMIT (same split as recordVitals): NEWS2 task/CDS escalation and
+  // anomaly notification fan-out touch external workflow surfaces. The
+  // load-bearing clinical_alert row reconciliation has already committed in
+  // the correction tx above, so a fan-out failure cannot erase the alert.
   if (news2Persisted) {
     await news2Service.escalateNews2(
       updated.patient_uid, news2Persisted.record, news2Persisted.computed,
       { tenantId: resolvedTenantId },
     );
+    if (replacementNeedsTask) {
+      await news2Service.retireSupersededNews2TasksAfterReplacement(updated.id, {
+        tenantId: resolvedTenantId,
+        correctedBy: corrected_by,
+      });
+    }
   }
 
-  if (needsRescore) {
+  if (needsRescore && currentVitalAnomalies.length > 0) {
     try {
-      const vitalsForCheck = {};
-      if (updated.heart_rate != null) vitalsForCheck.heart_rate = Number(updated.heart_rate);
-      if (updated.systolic_bp != null) vitalsForCheck.systolic_bp = Number(updated.systolic_bp);
-      if (updated.diastolic_bp != null) vitalsForCheck.diastolic_bp = Number(updated.diastolic_bp);
-      if (updated.temperature != null) vitalsForCheck.temperature = Number(updated.temperature);
-      if (updated.spo2 != null) vitalsForCheck.oxygen_saturation = Number(updated.spo2);
-      if (updated.respiratory_rate != null) vitalsForCheck.respiratory_rate = Number(updated.respiratory_rate);
-
-      if (Object.keys(vitalsForCheck).length > 0) {
-        const [patientRow, correctorRow] = await Promise.all([
-          prisma.users.findUnique({ where: { uid: updated.patient_uid }, select: { id: true } }),
-          prisma.users.findUnique({ where: { uid: corrected_by }, select: { id: true } }),
-        ]);
-        if (patientRow?.id) {
-          await checkVitalAnomalies(patientRow.id, vitalsForCheck, {
-            recordedBy: correctorRow?.id ?? null,
-            source: updated.source,
-            tenantId: resolvedTenantId,
-          });
-        }
-      }
+      await checkVitalAnomalies(patientUserId, correctedVitalsForCheck, {
+        recordedBy: correctorUserId,
+        source: 'correction',
+        tenantId: resolvedTenantId,
+        sourceVitalsChartId: updated.id,
+        persistedClinicalAlertIdsByVitalName:
+          anomalyReconciliation?.activeAlertIdsByVitalName || {},
+      });
     } catch (err) {
-      // Same LOUD semantics as recordVitals: a corrected-to-critical value
-      // whose alert cannot persist must not silently 200.
+      // The clinical alert is already durable; keep downstream fan-out failure
+      // loud so notification/ownership degradation is visible to operations.
       if (err instanceof AppError) throw err;
       logger.error(
-        `Vital anomaly alert persistence failed for corrected vitals id=${updated.id}, patient=${updated.patient_uid}: ${err?.message}`,
+        `Vital anomaly alert fan-out failed for corrected vitals id=${updated.id}, patient=${updated.patient_uid}: ${err?.message}`,
       );
       throw AppError.internal(
-        'Vitals were corrected but a clinical alert could not be persisted — escalate to the responsible clinician.',
-        'CLINICAL_ALERT_PERSIST_FAILED',
+        'Vitals were corrected and the clinical alert is active, but downstream alert fan-out failed — escalate to the responsible clinician.',
+        'CLINICAL_ALERT_FANOUT_FAILED',
       );
     }
   }

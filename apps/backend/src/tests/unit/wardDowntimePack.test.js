@@ -107,6 +107,23 @@ describe('buildWardPackHtml', () => {
     expect(sparse).toContain('No doses scheduled in window');
     expect(sparse).toContain('No vitals recorded');
   });
+
+  it('labels a partial NEWS2 as incomplete and suppresses routine reassurance', () => {
+    const partial = structuredClone(basePack);
+    Object.assign(partial.beds[0].latest_vitals, {
+      news2: 0,
+      news2_partial_score: true,
+      news2_missing_params: ['temperature', 'systolic_bp', 'heart_rate', 'consciousness'],
+      news2_clinical_risk: 'low',
+      news2_escalation_action: 'Routine monitoring every 12 hours',
+    });
+
+    const html = buildWardPackHtml(partial);
+
+    expect(html).toMatch(/NEWS2 partial score 0/i);
+    expect(html).toMatch(/risk band unavailable/i);
+    expect(html).not.toMatch(/routine monitoring|12 hours/i);
+  });
 });
 
 /**

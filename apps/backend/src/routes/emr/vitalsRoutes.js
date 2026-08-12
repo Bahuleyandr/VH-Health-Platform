@@ -2,6 +2,7 @@
 import express from 'express';
 import { validationResult } from 'express-validator';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
@@ -34,6 +35,7 @@ router.post('/vitals', rejectMobileClinicalWrite, ...vitalsValidator, validate, 
       temperature, temperature_unit, temperature_route, spo2, respiratory_rate, blood_glucose,
       pain_score, weight_kg, height_cm, gcs_score, supplemental_o2,
       o2_flow_rate, consciousness, notes, recorded_at, observed_at,
+      spo2_scale, spo2Scale,
       fhr, fundal_height_cm,
       urine_albumin, urine_sugar, urine_ketones,
     } = req.body;
@@ -57,6 +59,7 @@ router.post('/vitals', rejectMobileClinicalWrite, ...vitalsValidator, validate, 
       temperature_unit,
       temperature_route,
       spo2,
+      spo2_scale: spo2_scale ?? spo2Scale,
       respiratory_rate,
       blood_glucose,
       pain_score,
@@ -133,8 +136,13 @@ async function handleVitalsCorrection(req, res, next) {
   }
 }
 
-router.put('/vitals/:vitalsId', rejectMobileClinicalWrite, guardVitalsResourceWrite, handleVitalsCorrection);
-router.patch('/vitals/:vitalsId', rejectMobileClinicalWrite, guardVitalsResourceWrite, handleVitalsCorrection);
+const correctionGuards = [
+  rejectMobileClinicalWrite,
+  guardVitalsResourceWrite,
+  requireIdempotencyKey({ scope: 'emr_vitals_correction' }),
+];
+router.put('/vitals/:vitalsId', ...correctionGuards, handleVitalsCorrection);
+router.patch('/vitals/:vitalsId', ...correctionGuards, handleVitalsCorrection);
 
 // ===================================================================
 // GET /emr/vitals/:patientUid/latest — Latest vitals

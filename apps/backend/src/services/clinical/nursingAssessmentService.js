@@ -48,6 +48,20 @@ export function scoreNews2(input, options = {}) {
   }, { spo2Scale: options.spo2Scale ?? raw.spo2_scale });
 
   const total = computed.totalScore;
+  if (computed.partial) {
+    return {
+      total_score: total,
+      band: null,
+      recommended_actions: null,
+      reassessmentMins: null,
+      partial: true,
+      missing: computed.missingParams,
+      risk_band_available: false,
+      display: `NEWS2 ${total} (partial; risk band unavailable; clinical review required)`,
+      computed,
+    };
+  }
+
   // Final band per NEWS2 protocol — a single red (=3) parameter forces high.
   let band;
   if (computed.anyParamThree || total >= 7) band = 'high';
@@ -72,7 +86,16 @@ export function scoreNews2(input, options = {}) {
   // scores/clinicalRisk/escalationAction) — recordAssessment needs it to
   // honor the scorable flag, persist the partial marker, and drive the same
   // escalateNews2 the vitals path uses (audit 2026-08-10 parity fix).
-  return { total_score: total, band, recommended_actions: recommendedActions, reassessmentMins, computed };
+  return {
+    total_score: total,
+    band,
+    recommended_actions: recommendedActions,
+    reassessmentMins,
+    partial: false,
+    missing: [],
+    risk_band_available: true,
+    computed,
+  };
 }
 
 // ── Braden ──────────────────────────────────────────────────────────
@@ -281,7 +304,8 @@ export async function recordAssessment({
        VALUES ($1::uuid, $2::int, $3, $4::jsonb, $5::int, $6, $7,
                $8::text[], $9, $10::uuid, $11, $12::timestamptz, $13::uuid,
                $14, $15::text[])
-       RETURNING *`,
+       RETURNING *,
+                 (EXTRACT(EPOCH FROM assessed_at) * 1000)::double precision AS assessed_at_epoch_ms`,
       String(patient_uid),
       admission_id ? Number(admission_id) : null,
       assessment_kind,
@@ -299,6 +323,10 @@ export async function recordAssessment({
       news2MissingParams,
     );
     const row = rows[0];
+    if (Number.isFinite(Number(row?.assessed_at_epoch_ms))) {
+      row.assessed_at = new Date(Number(row.assessed_at_epoch_ms));
+    }
+    delete row?.assessed_at_epoch_ms;
     await recordCanonicalClinicalEvent({
       tenantId: resolvedTenantId,
       patientUid: String(patient_uid),
@@ -312,6 +340,8 @@ export async function recordAssessment({
       actorUid: assessed_by ? String(assessed_by) : null,
       summary: sepsisPositive
         ? `Sepsis screen POSITIVE (${result.band}, score ${result.total_score})`
+        : news2Partial
+          ? `NEWS2 partial score ${result.total_score} recorded — risk band unavailable`
         : `${assessment_kind} assessment: ${result.band} (score ${result.total_score})`,
       payload: {
         assessment_kind,
@@ -357,7 +387,7 @@ export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }
     where += ` AND assessment_kind = $${params.length}`;
   }
   params.push(boundedInteger(limit, { fallback: 50, min: 1, max: 200 }));
-  return prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, assessment_kind, assessed_at, assessed_by_name,
             total_score, band, scoring_version, recommended_actions,
             inputs, notes, next_assessment_due_at, partial_score, missing_params
@@ -367,10 +397,19 @@ export async function listForPatient({ tenantId, patient_uid, kind, limit = 50 }
       LIMIT $${params.length}::int`,
     ...params,
   );
+  return rows.map((row) => row.assessment_kind === 'news2' && row.partial_score === true
+    ? {
+      ...row,
+      band: null,
+      recommended_actions: null,
+      risk_band_available: false,
+      display: `NEWS2 ${row.total_score} (partial; risk band unavailable)`,
+    }
+    : { ...row, risk_band_available: row.assessment_kind === 'news2' ? true : undefined });
 }
 
 export async function listOverdueOrHighRisk({ tenantId, limit = 100 }) {
-  return prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, admission_id, assessment_kind, total_score,
             band, assessed_at, next_assessment_due_at, partial_score, missing_params,
             CASE
@@ -380,6 +419,8 @@ export async function listOverdueOrHighRisk({ tenantId, limit = 100 }) {
        FROM nursing_assessments na
       WHERE tenant_id = $1::uuid
         AND (
+          partial_score IS TRUE
+          OR
           band IN ('high', 'medium', 'high_risk', 'severe_risk', 'sepsis_likely', 'septic_shock_risk')
           OR (next_assessment_due_at IS NOT NULL AND next_assessment_due_at < NOW())
         )
@@ -405,4 +446,12 @@ export async function listOverdueOrHighRisk({ tenantId, limit = 100 }) {
       LIMIT $2::int`,
     tenantId, boundedInteger(limit, { fallback: 100, min: 1, max: 200 }),
   );
+  return rows.map((row) => row.assessment_kind === 'news2' && row.partial_score === true
+    ? {
+      ...row,
+      band: null,
+      risk_band_available: false,
+      display: `NEWS2 ${row.total_score} (partial; risk band unavailable; clinical review required)`,
+    }
+    : row);
 }

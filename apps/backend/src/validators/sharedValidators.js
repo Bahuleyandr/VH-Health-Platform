@@ -166,6 +166,7 @@ export const vitalsValidator = [
   optionalNumeric('diastolic_bp'),
   optionalNumeric('temperature'),
   optionalNumeric('spo2'),
+  optionalInt('spo2_scale', { min: 1, max: 2 }),
   optionalNumeric('respiratory_rate'),
   optionalNumeric('blood_glucose'),
   optionalNumeric('pain_score'),

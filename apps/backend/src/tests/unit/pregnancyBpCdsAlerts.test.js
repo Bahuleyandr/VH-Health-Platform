@@ -90,7 +90,11 @@ describe('checkVitalAnomalies — pregnancy BP mirror to cds_alerts (H D26)', ()
     const alerts = await checkVitalAnomalies(PATIENT_ID, {
       systolic_bp: 142,
       diastolic_bp: 91,
-    }, { recordedBy: 'nurse-uid', tenantId: PATIENT_TENANT });
+    }, {
+      recordedBy: 'nurse-uid',
+      tenantId: PATIENT_TENANT,
+      sourceVitalsChartId: 42,
+    });
 
     // The systolic+diastolic both trip the >139/89 WARNING (pregnancy
     // override), so two pregnancy-BP alerts fire. Both should mirror.
@@ -101,6 +105,12 @@ describe('checkVitalAnomalies — pregnancy BP mirror to cds_alerts (H D26)', ()
     expect(cdsCalls[0][2]).toBe('PREGNANCY_HYPERTENSION'); // alert_type ($2)
     expect(cdsCalls[0][3]).toBe('WARNING'); // severity ($3)
     expect(cdsCalls[0][1]).toBe(PATIENT_UID); // patient_uid ($1)
+    const sourceData = JSON.parse(cdsCalls[0][6]);
+    expect(sourceData).toMatchObject({
+      clinical_alert_id: 7001,
+      source_vitals_chart_id: 42,
+      vital_name: 'systolic_bp',
+    });
     expect(alerts.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -142,5 +152,24 @@ describe('checkVitalAnomalies — pregnancy BP mirror to cds_alerts (H D26)', ()
     );
     expect(cdsCalls.length).toBe(0);
     expect(alerts.length).toBeGreaterThan(0);
+  });
+
+  it('does not append a duplicate CDS mirror during post-commit correction fanout', async () => {
+    setupPatient({ isPregnant: true });
+
+    await checkVitalAnomalies(PATIENT_ID, {
+      systolic_bp: 142,
+      diastolic_bp: 91,
+    }, {
+      recordedBy: 'nurse-uid',
+      tenantId: PATIENT_TENANT,
+      sourceVitalsChartId: 42,
+      persistedClinicalAlertIdsByVitalName: {
+        systolic_bp: 7001,
+        diastolic_bp: 7002,
+      },
+    });
+
+    expect(executeRawMock.mock.calls.filter(([sql]) => /INSERT INTO cds_alerts/.test(sql))).toHaveLength(0);
   });
 });

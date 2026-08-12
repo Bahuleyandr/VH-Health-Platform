@@ -130,7 +130,7 @@ d('Standalone NEWS2 write — canonical timeline + tenant + patient-level scale 
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60_000);
 
   beforeEach(() => {
     canonicalControl.mode = 'real';

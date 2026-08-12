@@ -35,14 +35,15 @@ jest.unstable_mockModule('../../services/results/resultsInboxService.js', () => 
 }));
 
 // Stub the CDS surfacing dynamic import so it never touches a DB.
+const surfaceNews2CdsSpy = jest.fn(async () => null);
 jest.unstable_mockModule('../../services/cds/deteriorationEarlyWarningService.js', () => ({
-  surfaceNews2Cds: jest.fn(async () => null),
+  surfaceNews2Cds: surfaceNews2CdsSpy,
 }));
 
 // Mock prisma so the news2_scores INSERT is observable without a real DB.
 // setTenantTx runs its callback with a tx client backed by the same spy —
 // recordNEWS2 now wraps the persist + canonical emit in a tenant-scoped tx.
-const dbControl = { tenantLookupError: null };
+const dbControl = { tenantLookupError: null, recordedAt: new Date('2026-08-11T05:00:00.000Z') };
 const insertSpy = jest.fn(async (sql) => {
   if (String(sql).includes('SELECT tenant_id::text AS tenant_id')) {
     if (dbControl.tenantLookupError) throw dbControl.tenantLookupError;
@@ -50,7 +51,7 @@ const insertSpy = jest.fn(async (sql) => {
   }
   return [{
     id: 4242, patient_uid: 'x', total_score: 0, clinical_risk: 'high',
-    recorded_by: 'y', recorded_at: new Date(), created_at: new Date(),
+    recorded_by: 'y', recorded_at: dbControl.recordedAt, created_at: new Date(),
   }];
 });
 const setTenantTxSpy = jest.fn(async (_tenantId, fn) => fn({ $queryRawUnsafe: insertSpy }));
@@ -65,7 +66,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   recordCanonicalClinicalEvent: jest.fn(async () => ({ timeline: { id: 1 }, audit: { id: 1 } })),
 }));
 
-const { recordNEWS2 } = await import('../../services/clinical/news2Service.js');
+const { escalateNews2, persistNews2, recordNEWS2 } = await import('../../services/clinical/news2Service.js');
 
 // Vitals that score >=7 (high): RR26(3)+SpO2 90 scale1(3)+O2(2)+T37(0)+SBP95(2)+HR130(2)+A(0)=12
 const CRITICAL_VITALS = {
@@ -80,12 +81,54 @@ const LOW_VITALS = {
 
 describe('NEWS2 escalation loudness + recipient (MEDIUM §4 / W1-H4)', () => {
   beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-11T05:00:00.000Z'));
     inboxControl.throwError = null;
     inboxControl.result = { created: true, taskId: 99 };
     dbControl.tenantLookupError = null;
+    dbControl.recordedAt = new Date('2026-08-11T05:00:00.000Z');
     enqueueSpy.mockClear();
+    surfaceNews2CdsSpy.mockClear();
     insertSpy.mockClear();
     setTenantTxSpy.mockClear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('persists the source observation timestamp instead of defaulting NEWS2 to now', async () => {
+    const sourceRecordedAt = new Date('2026-08-11T03:45:00.000Z');
+
+    await persistNews2('p-uid', LOW_VITALS, 'r-uid', {
+      recordedAt: sourceRecordedAt,
+    });
+
+    const insert = insertSpy.mock.calls.find(([sql]) => /INSERT INTO news2_scores/.test(sql));
+    expect(insert).toBeDefined();
+    expect(insert[0]).toMatch(/recorded_at/);
+    expect(insert[0]).toMatch(/to_timestamp\(\$17::double precision/);
+    expect(insert).toContain(sourceRecordedAt.getTime());
+  });
+
+  test('a stale historical NEWS2 persists but cannot create tasks or CDS alerts', async () => {
+    const record = {
+      id: 4242,
+      recorded_at: new Date('2023-08-11T05:00:00.000Z'),
+    };
+    const computed = {
+      totalScore: 12,
+      clinicalRisk: 'high',
+      escalationAction: 'Emergency response',
+      scores: { spo2: 3 },
+      anyParamThree: true,
+    };
+
+    await expect(escalateNews2('p-uid', record, computed, {
+      tenantId: '00000000-0000-4000-8000-0000000000a1',
+    })).resolves.toMatchObject({ skipped: true, reason: 'stale_observation' });
+
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(surfaceNews2CdsSpy).not.toHaveBeenCalled();
   });
 
   test('tenant lookup fault rejects before writing under a default tenant', async () => {
