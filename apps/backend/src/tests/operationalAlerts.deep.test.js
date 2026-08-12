@@ -19,17 +19,57 @@ const { runSweep, listOperationalAlerts } = await import('../services/ai/operati
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB ? describe : describe.skip;
 const TENANT = '00000000-0000-4000-8000-000000000001';
+const MATERIALS_MANAGER_UID = 'c6140000-0000-4000-8000-000000000061';
 const C = (over = {}) => ({ module_key: 'pharmacy_stockout_predictor', domain: 'pharmacy',
   owner_role: 'MATERIALS_MANAGER', scope_key: 'SKU-DEEP-1', alert_category: 'stockout_risk',
   severity: 'critical', scope_label: 'Test SKU', ...over });
 
+async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM notification_outbox
+      WHERE tenant_id = $1::uuid
+        AND EXISTS (
+          SELECT 1
+            FROM clinical_ai_operational_alerts alert
+           WHERE alert.tenant_id = $1::uuid
+             AND alert.scope_key LIKE 'SKU-DEEP-%'
+             AND notification_outbox.source_event_key LIKE
+                 'operational-alert:' || alert.id::text || ':%'
+        )`,
+    TENANT,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_ai_operational_alerts WHERE tenant_id = $1::uuid AND scope_key LIKE 'SKU-DEEP-%'`,
+    TENANT,
+  ).catch(() => {});
+}
+
 d('operational alerts sweep (deep)', () => {
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      MATERIALS_MANAGER_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, '+919900000061', 'Operational Alert Materials Manager',
+               'MATERIALS_MANAGER', TRUE, $2::uuid, NOW())`,
+      MATERIALS_MANAGER_UID,
+      TENANT,
+    );
+  });
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_operational_alerts WHERE scope_key LIKE 'SKU-DEEP-%'`);
+    await cleanup();
     FAKE_CANDIDATES = [];
   });
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_operational_alerts WHERE scope_key LIKE 'SKU-DEEP-%'`).catch(() => {});
+    await cleanup();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      MATERIALS_MANAGER_UID,
+    ).catch(() => {});
     await prisma.$disconnect();
   });
 

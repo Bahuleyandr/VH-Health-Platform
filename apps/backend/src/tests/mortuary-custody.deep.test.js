@@ -29,8 +29,10 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 
 const RUN = String(Date.now() % 100000).padStart(5, '0');
 const PATIENT_UID = `c6120000-0000-4000-8000-${RUN.padStart(12, '0')}`;
+const MEDICAL_RECORDS_UID = `c6130000-0000-4000-8000-${RUN.padStart(12, '0')}`;
 const ACTOR_UID = '550e8400-e29b-41d4-a716-446655440000';
 const PHONE = `+9196612${RUN}`;
+const MEDICAL_RECORDS_PHONE = `+9196613${RUN}`;
 const SLOT_CODE = `MORTTEST-${RUN}`;
 const FAIL_TASK_FUNCTION = `vh_test_fail_mortuary_task_${RUN}`;
 const FAIL_TASK_TRIGGER = `vh_test_fail_mortuary_task_trigger_${RUN}`;
@@ -47,6 +49,21 @@ async function cleanup() {
   ).catch(() => []);
   const ids = deathIds.map((row) => Number(row.id)).filter(Boolean);
   for (const id of ids) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM notification_outbox
+        WHERE tenant_id = $1::uuid
+          AND EXISTS (
+            SELECT 1
+              FROM tasks
+             WHERE tasks.tenant_id = $1::uuid
+               AND tasks.related_resource_type = 'death_record'
+               AND tasks.related_resource_id = $2
+               AND notification_outbox.source_event_key LIKE
+                   'workflow-escalation:' || tasks.id::text || ':%'
+          )`,
+      DEFAULT_TENANT_ID,
+      String(id),
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM task_comments WHERE task_id IN (
          SELECT id FROM tasks
@@ -105,9 +122,12 @@ async function cleanup() {
     DEFAULT_TENANT_ID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+    `DELETE FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid IN ($2::uuid, $3::uuid)`,
     DEFAULT_TENANT_ID,
     PATIENT_UID,
+    MEDICAL_RECORDS_UID,
   ).catch(() => {});
 }
 
@@ -182,9 +202,13 @@ d('Mortuary body custody chain (NL-6/N6-12)', () => {
     await cleanup();
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
-       VALUES ($1::uuid, $2, 'MORTTEST Patient', 'PATIENT', true, $3::uuid, NOW())`,
+       VALUES
+         ($1::uuid, $2, 'MORTTEST Patient', 'PATIENT', true, $5::uuid, NOW()),
+         ($3::uuid, $4, 'MORTTEST Medical Records', 'MEDICAL_RECORDS', true, $5::uuid, NOW())`,
       PATIENT_UID,
       PHONE,
+      MEDICAL_RECORDS_UID,
+      MEDICAL_RECORDS_PHONE,
       DEFAULT_TENANT_ID,
     );
   });

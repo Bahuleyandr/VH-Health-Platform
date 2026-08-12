@@ -17,26 +17,59 @@ const d = DB ? describe : describe.skip;
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const TEST_SKU = 'OPS-BRIDGE-SKU-1';
+const MATERIALS_MANAGER_UID = 'c6140000-0000-4000-8000-000000000062';
+
+async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM notification_outbox
+      WHERE tenant_id = $1::uuid
+        AND EXISTS (
+          SELECT 1
+            FROM clinical_ai_operational_alerts alert
+           WHERE alert.tenant_id = $1::uuid
+             AND alert.scope_key = $2
+             AND notification_outbox.source_event_key LIKE
+                 'operational-alert:' || alert.id::text || ':%'
+        )`,
+    TENANT,
+    `inv:${TEST_SKU}`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_ai_inventory_alerts WHERE tenant_id = $1::uuid AND item_sku LIKE 'OPS-BRIDGE-%'`,
+    TENANT,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_ai_operational_alerts WHERE tenant_id = $1::uuid AND scope_key = $2`,
+    TENANT,
+    `inv:${TEST_SKU}`,
+  ).catch(() => {});
+}
 
 d('operational alerts — real inventory bridge evaluator (end-to-end)', () => {
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      MATERIALS_MANAGER_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, '+919900000062', 'Inventory Bridge Materials Manager',
+               'MATERIALS_MANAGER', TRUE, $2::uuid, NOW())`,
+      MATERIALS_MANAGER_UID,
+      TENANT,
+    );
+  });
   beforeEach(async () => {
-    // Clean up any leftover rows from a previous run so the test is idempotent.
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_ai_inventory_alerts WHERE item_sku LIKE 'OPS-BRIDGE-%'`,
-    );
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_ai_operational_alerts WHERE scope_key = $1`,
-      `inv:${TEST_SKU}`,
-    );
+    await cleanup();
   });
 
   afterAll(async () => {
+    await cleanup();
     await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_ai_inventory_alerts WHERE item_sku LIKE 'OPS-BRIDGE-%'`,
-    ).catch(() => {});
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_ai_operational_alerts WHERE scope_key = $1`,
-      `inv:${TEST_SKU}`,
+      `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      TENANT,
+      MATERIALS_MANAGER_UID,
     ).catch(() => {});
     await prisma.$disconnect();
   });

@@ -365,7 +365,7 @@ describeIfDb('escalation sweep advancement fairness (deep, real PostgreSQL)', ()
     expect(firedForRule(await taskState(owner, taskId), ruleId)).toHaveLength(1);
   }, 60000);
 
-  test('stalled post-commit notification work holds no task or FK-key lock', async () => {
+  test('durable notification enqueue and the fired marker commit together', async () => {
     const rule = await owner.query(
       `INSERT INTO escalation_rules
          (tenant_id, display_name, scope, match_filter, trigger_condition,
@@ -388,42 +388,19 @@ describeIfDb('escalation sweep advancement fairness (deep, real PostgreSQL)', ()
       [TENANT_ID],
     );
 
-    let releaseQueue;
-    let signalQueueStarted;
-    const queueStarted = new Promise((resolve) => { signalQueueStarted = resolve; });
-    queueNotificationMock.mockImplementationOnce(() => new Promise((resolve) => {
-      releaseQueue = resolve;
-      signalQueueStarted();
-    }));
-    const sweep = runEscalationSweep({ now: CLOCK, limit: 10 });
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('notification did not start')), 10000);
-      queueStarted.then(() => {
-        clearTimeout(timer);
-        resolve();
-      }, reject);
-    });
-
-    const concurrent = new Client({ connectionString: ownerDatabaseUrl(databaseUrl) });
-    await concurrent.connect();
-    try {
-      await concurrent.query("SET statement_timeout = '5s'");
-      await concurrent.query(
-        'UPDATE tasks SET updated_at = updated_at WHERE tenant_id = $1::uuid AND id = $2::bigint',
-        [TENANT_ID, taskId],
-      );
-      await concurrent.query(
-        `INSERT INTO task_comments (tenant_id, task_id, body, body_kind)
-         VALUES ($1::uuid, $2::bigint, 'Post-commit FK proof', 'comment')`,
-        [TENANT_ID, taskId],
-      );
-    } finally {
-      await concurrent.end();
-      releaseQueue?.();
-    }
-    const result = await sweep;
+    queueNotificationMock.mockResolvedValueOnce({ id: 'durable-notification-1' });
+    const result = await runEscalationSweep({ now: CLOCK, limit: 10 });
     expect(result.escalated).toBe(1);
     expect(firedForRule(await taskState(owner, taskId), ruleId)).toHaveLength(1);
+    expect(queueNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT_ID,
+        sourceEventKey: expect.stringMatching(
+          new RegExp(`^workflow-escalation:${taskId}:${ruleId}:\\d+$`),
+        ),
+      }),
+      expect.objectContaining({ strict: true }),
+    );
   }, 60000);
 
   test('a child-documentation FK FOR KEY SHARE lock is compatible with the task claim', async () => {

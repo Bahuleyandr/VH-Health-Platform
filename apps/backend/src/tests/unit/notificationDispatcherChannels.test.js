@@ -213,4 +213,40 @@ describe('dispatcher provider receipt mode', () => {
       providerCode: 'fcm_all_tokens_invalid',
     });
   });
+
+  it('terminally rejects the normalized sendPushNotification failure envelope', async () => {
+    sendPushMock.mockResolvedValue({
+      successCount: 0,
+      failureCount: 2,
+      responses: [
+        {
+          tokenIndex: 0,
+          success: false,
+          messageId: null,
+          errorCode: 'messaging/registration-token-not-registered',
+          errorMessage: 'gone',
+        },
+        {
+          tokenIndex: 1,
+          success: false,
+          messageId: null,
+          errorCode: 'messaging/invalid-registration-token',
+          errorMessage: 'bad',
+        },
+      ],
+    });
+
+    const result = await dispatch({
+      userId: '41',
+      title: 'Permanent recipient failure',
+      body: 'Normalized provider response',
+      channels: ['push'],
+      providerReceiptMode: true,
+    });
+
+    expect(result.push).toMatchObject({
+      outcome: 'rejected',
+      providerCode: 'fcm_all_tokens_invalid',
+    });
+  });
 });

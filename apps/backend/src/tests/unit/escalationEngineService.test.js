@@ -332,8 +332,9 @@ describe('runEscalationSweep', () => {
     // priority bumped to critical via an UPDATE on the task (the metadata append
     // is the $executeRawUnsafe write). The escalations[] array is a bound
     // ::jsonb param (raw-param rules — not interpolated into SQL text).
-    const appendSql = executeRawMock.mock.calls[0][0];
-    const appendMetaParam = executeRawMock.mock.calls[0][1];
+    const appendCall = executeRawMock.mock.calls.find(([sql]) => /UPDATE\s+tasks/i.test(sql));
+    const appendSql = appendCall?.[0];
+    const appendMetaParam = appendCall?.[1];
     expect(appendSql).toMatch(/UPDATE\s+tasks/i);
     expect(appendSql).toMatch(/metadata\s*=\s*\$1::jsonb/i);
     expect(appendSql).toMatch(/priority\s*=\s*'critical'/i);
@@ -348,6 +349,113 @@ describe('runEscalationSweep', () => {
     const note = queueNotificationMock.mock.calls[0][0];
     expect(note.recipientId).toBe(42);
     expect(String(note.body || note.title || '')).toMatch(/escalat|critical|review/i);
+  });
+
+  it('critical_result_ack tier-1 commits critical priority and pages loudly with no active assignee', async () => {
+    const unassigned = task({ assigned_to_uid: null, assigned_to_role: 'DUTY_DOCTOR' });
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([unassigned])
+      .mockResolvedValueOnce(claimed(unassigned))
+      .mockResolvedValueOnce([]);
+
+    const first = await runEscalationSweep({ now: NOW });
+
+    expect(first.escalated).toBe(1);
+    const update = executeRawMock.mock.calls.find(([sql]) => /UPDATE\s+tasks/i.test(sql));
+    expect(update?.[0]).toMatch(/priority\s*=\s*'critical'/i);
+    expect(JSON.parse(update?.[1])).toMatchObject({
+      escalations: [expect.objectContaining({
+        tier: 1,
+        rule_id: 5,
+        action: 'escalate_priority',
+      })],
+    });
+    expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(executeRawMock.mock.calls.map(([sql]) => sql).join('\n')).not.toMatch(/SAVEPOINT/i);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledWith(
+      expect.stringMatching(/CRITICAL_RESULT_UNACKED|UNACK/i),
+      expect.objectContaining({
+        path: '/api/v1/admin/workflow/tasks/77',
+        reason: expect.stringMatching(/no active assignee|not enqueued/i),
+      }),
+    );
+
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const replay = await runEscalationSweep({ now: NOW });
+
+    expect(replay.escalated).toBe(0);
+    expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('critical_result_ack tier-1 commits critical priority and pages loudly when strict enqueue faults', async () => {
+    queueNotificationMock.mockRejectedValueOnce(new Error('notification outbox unavailable'));
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce([{
+        id: 42,
+        uid: CLINICIAN,
+        phone: '+919800000001',
+        role: 'DOCTOR',
+      }])
+      .mockResolvedValueOnce([]);
+
+    const first = await runEscalationSweep({ now: NOW });
+
+    expect(first.escalated).toBe(1);
+    const update = executeRawMock.mock.calls.find(([sql]) => /UPDATE\s+tasks/i.test(sql));
+    expect(update?.[0]).toMatch(/priority\s*=\s*'critical'/i);
+    expect(JSON.parse(update?.[1])).toMatchObject({
+      escalations: [expect.objectContaining({
+        tier: 1,
+        rule_id: 5,
+        action: 'escalate_priority',
+      })],
+    });
+    expect(queueNotificationMock).toHaveBeenCalledTimes(1);
+    const statements = executeRawMock.mock.calls.map(([sql]) => sql);
+    expect(statements).toEqual(expect.arrayContaining([
+      'SAVEPOINT tier1_assignee_notification',
+      'ROLLBACK TO SAVEPOINT tier1_assignee_notification',
+      'RELEASE SAVEPOINT tier1_assignee_notification',
+    ]));
+    expect(statements.findIndex(sql => /ROLLBACK TO SAVEPOINT/i.test(sql)))
+      .toBeLessThan(statements.findIndex(sql => /UPDATE\s+tasks/i.test(sql)));
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledWith(
+      expect.stringMatching(/CRITICAL_RESULT_UNACKED|UNACK/i),
+      expect.objectContaining({
+        path: '/api/v1/admin/workflow/tasks/77',
+        reason: expect.stringMatching(/enqueue|not enqueued/i),
+      }),
+    );
+
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([rule()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const replay = await runEscalationSweep({ now: NOW });
+
+    expect(replay.escalated).toBe(0);
+    expect(queueNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -520,6 +628,43 @@ describe('runEscalationSweep', () => {
     ]);
   });
 
+  it('does not consume the once-only tier when the durable enqueue is not confirmed', async () => {
+    const t2 = rule({
+      id: 6,
+      trigger_window_minutes: 10,
+      action_kind: 'notify',
+      action_payload: { tier: 2, notify_role: 'DUTY' },
+    });
+    queueNotificationMock.mockResolvedValueOnce(null);
+    queryRawMock
+      .mockResolvedValueOnce([{ tenant_id: TENANT }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([t2])
+      .mockResolvedValueOnce([task()])
+      .mockResolvedValueOnce(claimed(task()))
+      .mockResolvedValueOnce(NO_RANKING)
+      .mockResolvedValueOnce([{
+        id: 51,
+        uid: '33333333-3333-4333-8333-333333333333',
+        phone: '+919800000051',
+        role: 'DUTY_DOCTOR',
+      }])
+      .mockResolvedValueOnce([]);
+
+    const result = await runEscalationSweep({ now: NOW });
+
+    expect(result.escalated).toBe(0);
+    expect(queueNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientId: 51, tenantId: TENANT }),
+      expect.objectContaining({ strict: true }),
+    );
+    expect(executeRawMock).not.toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'escalation sweep: per-task atomic action failed',
+      expect.objectContaining({ tenantId: TENANT, taskId: 77, ruleId: 6 }),
+    );
+  });
+
   it('tier-2 notify with NO resolvable recipient → pages via security webhook (never a silent no-op)', async () => {
     const t2 = rule({
       id: 6,
@@ -542,10 +687,11 @@ describe('runEscalationSweep', () => {
 
     const res = await runEscalationSweep({ now: NOW });
 
-    expect(res.escalated).toBe(1);
+    expect(res.escalated).toBe(0);
     // No outbox row (nobody to deliver to) — but the unstaffed-role escalation is
-    // made LOUD via the security webhook so it is never an unheard no-op (C-3).
+    // made LOUD via the security webhook, and the once-only tier remains live.
     expect(queueNotificationMock).not.toHaveBeenCalled();
+    expect(executeRawMock).not.toHaveBeenCalled();
     expect(sendSecurityWebhookMock).toHaveBeenCalledTimes(1);
     const [eventType] = sendSecurityWebhookMock.mock.calls[0];
     expect(eventType).toMatch(/CRITICAL_RESULT_UNACKED|UNACK/i);
@@ -716,15 +862,18 @@ describe('runEscalationSweep', () => {
     const result = await runEscalationSweep({ now: NOW });
 
     expect(result.escalated).toBe(1);
-    expect(queueNotificationMock).toHaveBeenCalledWith(expect.objectContaining({
-      recipientId: 71,
-      title: 'Critical result escalation',
-      body: expect.stringContaining('unacknowledged'),
-      data: expect.objectContaining({
-        kind: 'results_inbox_escalation',
-        notify_role: 'MEDICAL_RECORDS',
+    expect(queueNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientId: 71,
+        title: 'Critical result escalation',
+        body: expect.stringContaining('unacknowledged'),
+        data: expect.objectContaining({
+          kind: 'results_inbox_escalation',
+          notify_role: 'MEDICAL_RECORDS',
+        }),
       }),
-    }));
+      expect.objectContaining({ strict: true }),
+    );
     expect(JSON.stringify(queueNotificationMock.mock.calls[0][0]))
       .not.toMatch(/clinical_task_escalation|CLINICAL_TASK_UNACTIONED/);
   });
@@ -774,6 +923,7 @@ describe('runEscalationSweep', () => {
       .mockResolvedValueOnce([rule()])
       .mockResolvedValueOnce([t1, t2]) // two candidates
       .mockResolvedValueOnce(claimed(t1))
+      .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
       .mockResolvedValueOnce(claimed(t2))
       .mockResolvedValueOnce([{ id: 42, uid: CLINICIAN, phone: '+919800000001', role: 'DOCTOR' }])
       .mockResolvedValueOnce([]);

@@ -16,6 +16,7 @@ import {
 } from '../../services/notification/notificationDeliveryLedgerService.js';
 import {
   listNotificationOutboxRows,
+  reconcileNotificationOutboxAttempt,
   replayNotificationOutboxRow,
 } from '../../services/notification/notificationOutboxAdminService.js';
 import { success } from '../../utils/responseHelper.js';
@@ -76,6 +77,25 @@ router.post('/:id/replay', async (req, res, next) => {
       requestId: req.id,
     });
     return success(res, result, 'Notification outbox row replayed');
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post('/:id/reconcile', async (req, res, next) => {
+  try {
+    const result = await reconcileNotificationOutboxAttempt({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      attemptId: req.body?.attempt_id,
+      providerReference: req.body?.provider_reference,
+      evidence: req.body?.evidence,
+      reason: req.body?.reason,
+      actorUid: req.user?.uid,
+      actorRole: actorRole(req),
+      requestId: req.id,
+    });
+    return success(res, result, 'Notification provider acceptance recorded');
   } catch (error) {
     return next(error);
   }

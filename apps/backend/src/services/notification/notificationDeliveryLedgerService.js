@@ -14,6 +14,7 @@ const RECEIPT_SOURCES = new Set([
   'transport_failure',
   'lease_expiry',
   'owner_reconciliation',
+  'operator_reconciliation',
 ]);
 
 const PROVIDERS = Object.freeze({
@@ -283,6 +284,10 @@ export async function recordProviderReceiptTx(tx, {
     && (!recoveryInboxId || !ownerActorUid || !String(ownerReason || '').trim())) {
     throw AppError.badRequest('owner reconciliation provenance is incomplete', 'NOTIFICATION_DELIVERY_INPUT_INVALID');
   }
+  if (normalizedSource === 'operator_reconciliation'
+    && (!ownerActorUid || !String(ownerReason || '').trim())) {
+    throw AppError.badRequest('operator reconciliation provenance is incomplete', 'NOTIFICATION_DELIVERY_INPUT_INVALID');
+  }
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO notification_provider_receipts
        (tenant_id, attempt_id, notification_outbox_id, channel, outcome,
@@ -350,7 +355,11 @@ export async function applyProviderReceiptToCursorTx(tx, {
   const ownsInflight = cursor.state === 'delivering'
     && Number(cursor.inflight_outbox_id) === outboxId
     && Number(cursor.blocked_outbox_id) === outboxId;
-  if (!ownsInflight) {
+  const ownsPausedHead = receipt.outcome === 'acknowledged'
+    && ['paused_rejected', 'paused_uncertain'].includes(cursor.state)
+    && cursor.inflight_outbox_id === null
+    && Number(cursor.blocked_outbox_id) === outboxId;
+  if (!ownsInflight && !ownsPausedHead) {
     return Object.freeze({ ...cursor, stale: true });
   }
 
@@ -391,9 +400,15 @@ export async function applyProviderReceiptToCursorTx(tx, {
               blocked_outbox_id = NULL, inflight_outbox_id = NULL, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND channel = $2::text
           AND (last_contiguous_outbox_id IS NULL OR last_contiguous_outbox_id < $3::integer)
-          AND state = 'delivering'
-          AND inflight_outbox_id = $3::integer
-          AND blocked_outbox_id = $3::integer
+          AND (
+            (state = 'delivering'
+              AND inflight_outbox_id = $3::integer
+              AND blocked_outbox_id = $3::integer)
+            OR
+            (state IN ('paused_rejected', 'paused_uncertain')
+              AND inflight_outbox_id IS NULL
+              AND blocked_outbox_id = $3::integer)
+          )
         RETURNING tenant_id::text, channel, last_contiguous_outbox_id,
                   state, blocked_outbox_id, inflight_outbox_id, updated_at`,
       tenantId, receipt.channel, outboxId,
@@ -586,11 +601,10 @@ export async function listChannelCursors({ tenantId } = {}) {
 }
 
 /**
- * Operator reset for a wedged channel cursor (fix R3). paused_rejected or
- * paused_uncertain goes back to 'ready' with the
- * block cleared; last_contiguous_outbox_id is untouched (ack-only by the
- * mig-609 trigger). Requires a named actor and a recorded reason; writes an
- * audit_logs row (pattern: eventOutboxService.redriveFailedEvent).
+ * Operator reset for a stale cursor whose head row is already terminally
+ * resolved. An unresolved head must be replayed/reconciled through the typed
+ * outbox operation first; merely clearing the cursor would report success
+ * while claimPendingBatch continued to block on that row.
  */
 export async function resetChannelCursor({
   tenantId,
@@ -617,6 +631,49 @@ export async function resetChannelCursor({
     }
     if (!['paused_rejected', 'paused_uncertain'].includes(current[0].state)) {
       throw AppError.conflict('Notification delivery cursor is not paused', 'NOTIFICATION_DELIVERY_CURSOR_NOT_PAUSED');
+    }
+    if (!current[0].blocked_outbox_id) {
+      throw AppError.conflict(
+        'Notification delivery cursor has no resolved head to reset',
+        'NOTIFICATION_DELIVERY_HEAD_UNRESOLVED',
+      );
+    }
+    const blocked = await tx.$queryRawUnsafe(
+      `SELECT outbox.id, outbox.status, outbox.failure_reason,
+              (
+                outbox.status IN ('SENT', 'SUPPRESSED')
+                OR (outbox.status = 'RECONCILIATION_REQUIRED'
+                  AND outbox.failure_reason = $4::text)
+                OR EXISTS (
+                  SELECT 1
+                    FROM notification_provider_receipts AS receipt
+                   WHERE receipt.tenant_id = outbox.tenant_id
+                     AND receipt.notification_outbox_id = outbox.id
+                     AND receipt.channel = outbox.channel
+                     AND (receipt.outcome = 'acknowledged'
+                       OR (receipt.outcome = 'rejected'
+                         AND receipt.provider_code = ANY($3::text[])))
+                )
+              ) AS ledger_resolved
+         FROM notification_outbox AS outbox
+        WHERE outbox.tenant_id = $1::uuid AND outbox.id = $2::integer
+          AND outbox.channel = $5::text
+        FOR UPDATE OF outbox`,
+      tid,
+      Number(current[0].blocked_outbox_id),
+      TERMINAL_REJECTION_CODES,
+      OPERATOR_REPLAY_SUPERSEDED_REASON,
+      normalizedChannel,
+    );
+    if (blocked.length !== 1 || blocked[0].ledger_resolved !== true) {
+      throw AppError.conflict(
+        'Resolve or replay the blocked notification before resetting its channel cursor',
+        'NOTIFICATION_DELIVERY_HEAD_UNRESOLVED',
+        {
+          blocked_outbox_id: current[0].blocked_outbox_id,
+          blocked_status: blocked[0]?.status || null,
+        },
+      );
     }
     const rows = await tx.$queryRawUnsafe(
       `UPDATE notification_delivery_cursors

@@ -127,6 +127,50 @@ describe('notification outbox durable provider delivery', () => {
     expect(tokenQueries.join('\n')).not.toMatch(/staff_devices/i);
   });
 
+  test('classifies an FCM registry read fault as uncertain instead of a clean missing-token rejection', async () => {
+    getTenantSettingsMock.mockResolvedValue({});
+    beginProviderAttemptsMock.mockResolvedValue([attempt('push')]);
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('database connection reset'));
+
+    const result = await deliverNotificationOutboxRow(row());
+
+    expect(result).toMatchObject({ outcome: 'uncertain', terminal: false });
+    expect(sendPushMock).not.toHaveBeenCalled();
+    expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'push',
+      outcome: 'uncertain',
+      providerCode: 'recipient_token_lookup_failed',
+      receiptSource: 'transport_failure',
+    }));
+  });
+
+  test('keeps a successful empty FCM registry lookup as a terminal missing-token rejection', async () => {
+    getTenantSettingsMock.mockResolvedValue({});
+    beginProviderAttemptsMock.mockResolvedValue([attempt('push')]);
+    queryRawUnsafeMock.mockResolvedValue([]);
+
+    const result = await deliverNotificationOutboxRow(row());
+
+    expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+    expect(sendPushMock).not.toHaveBeenCalled();
+    expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'push',
+      outcome: 'rejected',
+      providerCode: 'fcm_token_missing',
+      receiptSource: 'provider_response',
+    }));
+  });
+
+  test('does not mark an ambiguous attempt-ledger failure as safe to release', async () => {
+    getTenantSettingsMock.mockResolvedValue({});
+    beginProviderAttemptsMock.mockRejectedValue(new Error('commit response lost'));
+
+    const failure = await deliverNotificationOutboxRow(row()).catch(error => error);
+    expect(failure).toMatchObject({ message: 'commit response lost' });
+    expect(failure).not.toHaveProperty('notificationDeliveryPhase');
+    expect(sendPushMock).not.toHaveBeenCalled();
+  });
+
   test('starts append-only attempts before dispatch and records each physical provider result', async () => {
     getTenantSettingsMock.mockResolvedValue({
       notificationChannels: { results_ready: ['push', 'whatsapp', 'voice'] },

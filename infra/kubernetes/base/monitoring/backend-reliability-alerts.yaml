@@ -109,6 +109,42 @@ spec:
           annotations:
             summary: "notification_outbox PENDING backlog >500 for 15m"
             runbook: "docs/RUNBOOK_ONCALL.md#notificationbacklog"
+        - alert: NotificationOutboxDeadLetters
+          expr: max(notification_outbox_dead_letter_rows) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "notification_outbox contains terminally failed deliveries requiring operator review"
+            runbook: "docs/RUNBOOK_ONCALL.md#notificationoutboxdeadletters"
+        - alert: NotificationOutboxReconciliationRequired
+          expr: max(notification_outbox_reconciliation_required_rows) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "Notification provider outcomes are uncertain and require evidence-led reconciliation"
+            runbook: "docs/RUNBOOK_ONCALL.md#notificationoutboxreconciliationrequired"
+        - alert: NotificationDeliveryCursorPaused
+          expr: max by (state) (notification_delivery_paused_cursors) > 0
+          for: 5m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "A notification delivery channel cursor is paused in {{ $labels.state }}"
+            runbook: "docs/RUNBOOK_ONCALL.md#notificationdeliverycursorpaused"
+        - alert: ReliabilityMetricsStale
+          expr: absent(reliability_metrics_last_success_timestamp_seconds) or (max(time() - reliability_metrics_last_success_timestamp_seconds) > 300)
+          for: 5m
+          labels:
+            severity: critical
+            team: backend
+          annotations:
+            summary: "The backend reliability collector has not completed successfully for five minutes"
+            runbook: "docs/RUNBOOK_ONCALL.md#reliabilitymetricsstale"
         - alert: WsBroadcastDropsDetected
           expr: sum(rate(ws_broadcast_dropped_total[5m])) > 0
           for: 5m

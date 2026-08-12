@@ -10,7 +10,7 @@
 //   notification_outbox.status PENDING|CLAIMED|SENT|FAILED|RECONCILIATION_REQUIRED|SUPPRESSED (UPPERCASE;
 //     FAILED retries until retry_count>=3 then dead-letters; RECONCILIATION_REQUIRED
 //     is never auto-retried — de-facto dead letter, mig-609 contract)
-import prisma, { circuitBreakerStatus } from '../lib/prisma.js';
+import prisma, { circuitBreakerStatus, setTenant } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import {
   PATHWAY_PROJECTOR_CONSUMER_KEY,
@@ -30,6 +30,8 @@ const notificationOutboxPending = new Gauge('notification_outbox_pending_rows', 
 const notificationOutboxFailed = new Gauge('notification_outbox_failed_rows', 'notification_outbox rows in FAILED status (retrying until retry_count >= 3)');
 const notificationOutboxReconciliationRequired = new Gauge('notification_outbox_reconciliation_required_rows', 'notification_outbox rows in RECONCILIATION_REQUIRED status (never auto-retried — de-facto dead letters)');
 const notificationOutboxDeadLetter = new Gauge('notification_outbox_dead_letter_rows', 'notification_outbox rows no auto-path will retry: FAILED with retry_count >= 3 plus all RECONCILIATION_REQUIRED');
+const notificationDeliveryPausedCursors = new Gauge('notification_delivery_paused_cursors', 'Notification delivery cursors paused on an unresolved provider outcome', ['state']);
+const reliabilityMetricsLastSuccess = new Gauge('reliability_metrics_last_success_timestamp_seconds', 'Unix timestamp of the last complete successful configured reliability-metric collection');
 const webhookPending = new Gauge('webhook_deliveries_pending_rows', 'webhook_deliveries rows in pending status');
 const webhookFailed = new Gauge('webhook_deliveries_failed_rows', 'webhook_deliveries rows in failed status (retrying)');
 const webhookDead = new Gauge('webhook_deliveries_dead_rows', 'webhook_deliveries rows in the terminal dead status (undelivered)');
@@ -336,7 +338,7 @@ async function collectExternalRecoveryOutputMetrics() {
 }
 
 async function collectReadReplicaLagMetric() {
-  if (!hasReadReplicaDsn()) return;
+  if (!hasReadReplicaDsn()) return true;
   try {
     // prismaReadOnly is lazy-imported so it is NOT part of this module's eager
     // import graph — this file is reached from eventOutboxService (and thus
@@ -353,8 +355,10 @@ async function collectReadReplicaLagMetric() {
         END AS lag_seconds
     `);
     dbReadReplicaLagSeconds.set({}, Number(row?.lag_seconds ?? 0));
+    return true;
   } catch (err) {
     logger.warn(`collectReliabilityMetrics: read-replica lag skipped — ${err?.message || err}`);
+    return false;
   }
 }
 
@@ -364,7 +368,17 @@ async function collectReadReplicaLagMetric() {
  * process).
  */
 export async function collectReliabilityMetrics() {
-  try {
+  let complete = true;
+  const collectFamily = async (name, operation) => {
+    try {
+      await operation();
+    } catch (err) {
+      complete = false;
+      logger.warn(`collectReliabilityMetrics: ${name} skipped — ${err?.message || err}`);
+    }
+  };
+
+  await collectFamily('event_outbox', async () => {
     const [eo] = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*) FILTER (WHERE status = 'pending')                                   AS pending,
@@ -379,23 +393,57 @@ export async function collectReliabilityMetrics() {
     eventOutboxOldestAge.set({}, Number(eo?.oldest_age ?? 0));
     eventOutboxProcessing.set({}, Number(eo?.processing ?? 0));
     eventOutboxStaleProcessing.set({}, Number(eo?.stale_processing ?? 0));
+  });
 
-    const [no] = await prisma.$queryRawUnsafe(`
-      SELECT
-        COUNT(*) FILTER (WHERE status = 'PENDING') AS pending,
-        COUNT(*) FILTER (WHERE status = 'FAILED')  AS failed,
-        COUNT(*) FILTER (WHERE status = 'RECONCILIATION_REQUIRED') AS reconciliation_required,
-        COUNT(*) FILTER (
-          WHERE (status = 'FAILED' AND retry_count >= 3)
-             OR status = 'RECONCILIATION_REQUIRED'
-        ) AS dead_letter
-      FROM notification_outbox
-    `);
-    notificationOutboxPending.set({}, Number(no?.pending ?? 0));
-    notificationOutboxFailed.set({}, Number(no?.failed ?? 0));
-    notificationOutboxReconciliationRequired.set({}, Number(no?.reconciliation_required ?? 0));
-    notificationOutboxDeadLetter.set({}, Number(no?.dead_letter ?? 0));
+  await collectFamily('notification_outbox', async () => {
+    // Migration 609 applies FORCE RLS plus an explicit-tenant restrictive
+    // policy to both tables. Fleet metrics therefore aggregate one scoped
+    // read per tenant instead of relying on the runtime role to bypass RLS.
+    const tenants = await prisma.$queryRawUnsafe(`SELECT id::text FROM tenants ORDER BY id`);
+    const totals = {
+      pending: 0,
+      failed: 0,
+      reconciliationRequired: 0,
+      deadLetter: 0,
+      pausedRejected: 0,
+      pausedUncertain: 0,
+    };
+    for (const tenant of tenants) {
+      const [row] = await setTenant(
+        tenant.id,
+        tx => tx.$queryRawUnsafe(`
+          SELECT
+            (SELECT COUNT(*) FROM notification_outbox WHERE status = 'PENDING') AS pending,
+            (SELECT COUNT(*) FROM notification_outbox WHERE status = 'FAILED') AS failed,
+            (SELECT COUNT(*) FROM notification_outbox
+              WHERE status = 'RECONCILIATION_REQUIRED') AS reconciliation_required,
+            (SELECT COUNT(*) FROM notification_outbox
+              WHERE (status = 'FAILED' AND retry_count >= 3)
+                 OR status = 'RECONCILIATION_REQUIRED') AS dead_letter,
+            (SELECT COUNT(*) FROM notification_delivery_cursors
+              WHERE state = 'paused_rejected') AS paused_rejected,
+            (SELECT COUNT(*) FROM notification_delivery_cursors
+              WHERE state = 'paused_uncertain') AS paused_uncertain
+        `),
+      );
+      totals.pending += Number(row?.pending ?? 0);
+      totals.failed += Number(row?.failed ?? 0);
+      totals.reconciliationRequired += Number(row?.reconciliation_required ?? 0);
+      totals.deadLetter += Number(row?.dead_letter ?? 0);
+      totals.pausedRejected += Number(row?.paused_rejected ?? 0);
+      totals.pausedUncertain += Number(row?.paused_uncertain ?? 0);
+    }
+    notificationOutboxPending.set({}, totals.pending);
+    notificationOutboxFailed.set({}, totals.failed);
+    notificationOutboxReconciliationRequired.set({}, totals.reconciliationRequired);
+    notificationOutboxDeadLetter.set({}, totals.deadLetter);
+    notificationDeliveryPausedCursors.replace([
+      { labels: { state: 'paused_rejected' }, value: totals.pausedRejected },
+      { labels: { state: 'paused_uncertain' }, value: totals.pausedUncertain },
+    ]);
+  });
 
+  await collectFamily('webhook_deliveries', async () => {
     const [wd] = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*) FILTER (WHERE delivery.status = 'pending') AS pending,
@@ -430,7 +478,9 @@ export async function collectReliabilityMetrics() {
     webhookInFlight.set({}, Number(wd?.in_flight ?? 0));
     webhookStaleInFlight.set({}, Number(wd?.stale_in_flight ?? 0));
     webhookParked.set({}, Number(wd?.parked ?? 0));
+  });
 
+  await collectFamily('pathway_projector', async () => {
     const [pi] = await prisma.$queryRawUnsafe(
       `SELECT
          COUNT(*) FILTER (WHERE status = 'pending') AS pending,
@@ -444,10 +494,6 @@ export async function collectReliabilityMetrics() {
       PATHWAY_PROJECTOR_CONSUMER_KEY,
       PATHWAY_PROJECTOR_GENERATION,
     );
-    pathwayProjectorInboxPending.set({}, Number(pi?.pending ?? 0));
-    pathwayProjectorInboxOldestAge.set({}, Number(pi?.oldest_age ?? 0));
-    pathwayProjectorInboxLeased.set({}, Number(pi?.leased ?? 0));
-    pathwayProjectorInboxDead.set({}, Number(pi?.dead ?? 0));
 
     const [retiredPi] = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS pending
@@ -460,28 +506,16 @@ export async function collectReliabilityMetrics() {
           AND inbox.status = 'pending'`,
       PATHWAY_PROJECTOR_CONSUMER_KEY,
     );
+    pathwayProjectorInboxPending.set({}, Number(pi?.pending ?? 0));
+    pathwayProjectorInboxOldestAge.set({}, Number(pi?.oldest_age ?? 0));
+    pathwayProjectorInboxLeased.set({}, Number(pi?.leased ?? 0));
+    pathwayProjectorInboxDead.set({}, Number(pi?.dead ?? 0));
     pathwayProjectorInboxRetiredPending.set({}, Number(retiredPi?.pending ?? 0));
+  });
 
-    try {
-      await collectExternalRecoveryOutputMetrics();
-    } catch (externalRecoveryError) {
-      // Preserve the prior complete external-recovery snapshot. In particular,
-      // never publish healthy zeros or a fresh observation timestamp after a
-      // missing/malformed/failed database-output read.
-      logger.warn(
-        `collectReliabilityMetrics: external recovery output skipped — ${externalRecoveryError?.message || externalRecoveryError}`,
-      );
-    }
+  await collectFamily('external_recovery', collectExternalRecoveryOutputMetrics);
 
-    for (const pathwayKey of CANONICAL_PATHWAY_KEYS) {
-      const labels = { pathway_key: pathwayKey };
-      pathwayReconciliationFailingShadowTenants.set(labels, 0);
-      pathwayReconciliationTechnicalErrorTenants.set(labels, 0);
-      pathwayReconciliationCurrentFindings.set(labels, 0);
-      pathwayReconciliationCurrentRepairs.set(labels, 0);
-      pathwayReconciliationLatestEvidenceAge.set(labels, 0);
-      pathwayReconciliationActiveWithoutAuthority.set(labels, 0);
-    }
+  await collectFamily('care_pathway_reconciliation', async () => {
     const reconciliationRows = await prisma.$queryRawUnsafe(
       `WITH pathway_keys(pathway_key) AS (
          SELECT UNNEST($1::text[])
@@ -539,8 +573,10 @@ export async function collectReliabilityMetrics() {
       CANONICAL_PATHWAY_KEYS,
       pathwayReconciliationRegistry.checksum,
     );
-    for (const row of reconciliationRows) {
-      const labels = { pathway_key: row.pathway_key };
+    const rowsByPathway = new Map(reconciliationRows.map(row => [row.pathway_key, row]));
+    for (const pathwayKey of CANONICAL_PATHWAY_KEYS) {
+      const labels = { pathway_key: pathwayKey };
+      const row = rowsByPathway.get(pathwayKey) || {};
       pathwayReconciliationFailingShadowTenants.set(
         labels,
         Number(row.failing_shadow_tenants || 0),
@@ -560,7 +596,9 @@ export async function collectReliabilityMetrics() {
         Number(row.active_without_authority_tenants || 0),
       );
     }
+  });
 
+  await collectFamily('device_and_cold_chain', async () => {
     const [dm] = await prisma.$queryRawUnsafe(`
       WITH registry AS (
         SELECT
@@ -617,15 +655,15 @@ export async function collectReliabilityMetrics() {
     deviceUnassociatedMessages.set({}, Number(dm?.unassociated_messages ?? 0));
     coldChainOpenExcursions.set({}, Number(dm?.open_excursions ?? 0));
     const suppressed = dm?.suppressed && typeof dm.suppressed === 'object' ? dm.suppressed : {};
-    for (const [reason, value] of Object.entries(suppressed)) {
-      deviceSamplesSuppressed.set({ reason }, Number(value ?? 0));
-    }
+    deviceSamplesSuppressed.replace(Object.entries(suppressed).map(([reason, value]) => ({
+      labels: { reason },
+      value: Number(value ?? 0),
+    })));
+  });
 
-    dbBreakerOpen.set({}, circuitBreakerStatus().open ? 1 : 0);
-  } catch (err) {
-    logger.warn(`collectReliabilityMetrics: refresh skipped — ${err?.message || err}`);
-  }
-  await collectReadReplicaLagMetric();
+  dbBreakerOpen.set({}, circuitBreakerStatus().open ? 1 : 0);
+  if (!(await collectReadReplicaLagMetric())) complete = false;
+  if (complete) reliabilityMetricsLastSuccess.set({}, Math.floor(Date.now() / 1000));
 }
 
 export function serializeReliabilityMetrics() {
@@ -634,6 +672,7 @@ export function serializeReliabilityMetrics() {
     eventOutboxProcessing, eventOutboxStaleProcessing,
     notificationOutboxPending, notificationOutboxFailed,
     notificationOutboxReconciliationRequired, notificationOutboxDeadLetter,
+    notificationDeliveryPausedCursors, reliabilityMetricsLastSuccess,
     webhookPending, webhookFailed, webhookDead,
     webhookInFlight, webhookStaleInFlight, webhookParked,
     pathwayProjectorInboxPending, pathwayProjectorInboxOldestAge,

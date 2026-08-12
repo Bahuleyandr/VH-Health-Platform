@@ -33,8 +33,10 @@
 //
 // Idempotency (design §7): every fired (task, rule) is recorded in
 // tasks.metadata.escalations[] = {tier, at, action, rule_id}; the engine never
-// re-fires a rule already present there. Per-task errors are caught + logged;
-// they never abort the sweep. All writes are tenant-scoped via setTenantTx.
+// re-fires a successfully recorded rule. Required notification enqueue shares
+// that transaction, so an unconfirmed enqueue rolls the marker back and leaves
+// the tier retryable. Per-task errors are caught + logged; they never abort the
+// sweep. All writes are tenant-scoped via setTenantTx.
 //
 // Bounded work, audibly (2026-08-02): every bound this sweep applies is now
 // either derived from the caller's `limit` or a named constant, and hitting one
@@ -475,28 +477,70 @@ async function resolveRecipientByUid(tx, tenantId, uid) {
 // Enqueue ONE outbox row per resolved recipient with a REAL recipientId +
 // recipientPhone, so the drained outbox (scheduler.js drainNotificationOutbox)
 // actually delivers a push/WS (by userId) and/or SMS (by phone) to a human. A
-// per-recipient failure is swallowed so a single bad row never undoes the
-// already-recorded escalation marker. Returns the count enqueued.
-async function queueRecipientNotifications({ recipients, title, body, data }) {
+// queue is part of the same transaction that records the escalation marker.
+// Notify actions fail closed when enqueue is unconfirmed. Tier-1 priority
+// escalation isolates its optional assignee re-notification behind a savepoint:
+// the clinical priority transition still commits and dispatches a loud fallback.
+async function queueRecipientNotifications({ recipients, title, body, data, tenantId, tx }) {
+  const resolved = Array.isArray(recipients) ? recipients : [];
+  if (resolved.length === 0) {
+    const error = new Error('Escalation notification has no deliverable recipient');
+    error.code = 'ESCALATION_DURABLE_ENQUEUE_UNCONFIRMED';
+    throw error;
+  }
   let queued = 0;
-  for (const r of (Array.isArray(recipients) ? recipients : [])) {
+  for (const r of resolved) {
+    let row;
     try {
-      await notificationOutbox.queue({
+      row = await notificationOutbox.queue({
         type: 'push',
+        tenantId,
         recipientId: r.id,
         recipientPhone: r.phone || null,
+        sourceEventKey: `workflow-escalation:${data.task_id}:${data.rule_id}:${r.id}`,
         title,
         body,
         data: { ...data, recipient_role: r.role || null },
-      });
-      queued += 1;
-    } catch (err) {
-      logger.warn('escalation notify: outbox queue failed for recipient', {
-        recipientId: r.id, err: err?.message,
-      });
+      }, { tx, strict: true });
+    } catch (cause) {
+      const error = new Error(`Escalation notification enqueue failed for recipient ${r.id}`, { cause });
+      error.code = 'ESCALATION_DURABLE_ENQUEUE_UNCONFIRMED';
+      throw error;
     }
+    if (!row?.id) {
+      const error = new Error(`Escalation notification enqueue was not confirmed for recipient ${r.id}`);
+      error.code = 'ESCALATION_DURABLE_ENQUEUE_UNCONFIRMED';
+      throw error;
+    }
+    queued += 1;
   }
   return queued;
+}
+
+async function queuePriorityEscalationNotification({ recipients, notification, tenantId, tx }) {
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    return { queued: 0, fallbackCode: 'no_active_assignee' };
+  }
+
+  await tx.$executeRawUnsafe('SAVEPOINT tier1_assignee_notification');
+  try {
+    const queued = await queueRecipientNotifications({
+      recipients,
+      tenantId,
+      tx,
+      ...notification,
+    });
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT tier1_assignee_notification');
+    return { queued, fallbackCode: null };
+  } catch (cause) {
+    await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tier1_assignee_notification');
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT tier1_assignee_notification');
+    return {
+      queued: 0,
+      fallbackCode: 'durable_enqueue_unconfirmed',
+      fallbackError: cause?.message || 'unknown enqueue failure',
+    };
+  }
 }
 
 function clampLimit(value) {
@@ -644,6 +688,50 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
     });
   }
 
+  let queued = 0;
+  let notifyRole = null;
+  let fallbackCode = null;
+  let fallbackError = null;
+  if (action === 'escalate_priority' && payload.also_notify === 'assignee') {
+    const recipients = await resolveRecipientByUid(tx, tenantId, taskRow.assigned_to_uid);
+    const delivery = await queuePriorityEscalationNotification({
+      recipients,
+      tenantId,
+      tx,
+      notification: {
+        title: 'Critical result still needs review',
+        body: `Escalated (tier ${tier ?? 1}): ${taskRow.title || 'critical result'} — please review now.`,
+        data: {
+          kind: 'results_inbox_escalation',
+          task_id: taskRow.id,
+          rule_id: ruleRow.id,
+          tier,
+          assigned_to_uid: taskRow.assigned_to_uid || null,
+          assigned_to_role: taskRow.assigned_to_role || null,
+        },
+      },
+    });
+    ({ queued, fallbackCode, fallbackError } = delivery);
+  } else if (action === 'notify') {
+    notifyRole = resolveRoleCode(payload.notify_role);
+    const recipients = await resolveRecipientsForRole(tx, tenantId, notifyRole, now);
+    queued = await queueRecipientNotifications({
+      recipients,
+      tenantId,
+      tx,
+      title: 'Critical result escalation',
+      body: `Tier ${tier ?? ''} escalation: ${taskRow.title || 'critical result'} unacknowledged — please action now.`,
+      data: {
+        kind: 'results_inbox_escalation',
+        task_id: taskRow.id,
+        rule_id: ruleRow.id,
+        tier,
+        notify_role: notifyRole,
+        patient_uid: taskRow.patient_uid || null,
+      },
+    });
+  }
+
   // Record the fired tier (and, for escalate_priority, bump priority) in one
   // tenant-scoped UPDATE. metadata carries the new escalations[] array.
   // jsonb param is cast ::jsonb (raw-param rules).
@@ -669,87 +757,37 @@ async function applyActionAndMarker({ tx, tenantId, taskRow, ruleRow, now }) {
       assigned_to_uid: taskRow.assigned_to_uid || null,
       assigned_to_role: taskRow.assigned_to_role || null,
     }),
+    delivery: Object.freeze({ queued, notifyRole, fallbackCode, fallbackError }),
     firedAt: nowIso,
   });
 }
 
-// Phase 1.5/2: this runs only after the task transaction has committed and its
-// FOR NO KEY UPDATE lock has been released. Recipient reads use their own short
-// tenant-pinned transaction; outbox and webhook work never run on the task tx.
-async function dispatchAction({ tenantId, plan, now }) {
+// Provider-independent webhook fallback runs after the task + durable outbox
+// transaction commits. Recipient resolution and enqueue already succeeded (or
+// rolled the tier marker back) in applyActionAndMarker.
+async function dispatchAction({ plan }) {
   const { action, payload, task: taskRow } = plan;
   const tier = payload.tier ?? null;
-  if (action === 'escalate_priority' && payload.also_notify === 'assignee') {
-    try {
-      const recipients = await setTenantTx(
-        tenantId,
-        (tx) => resolveRecipientByUid(tx, tenantId, taskRow.assigned_to_uid),
-        { readOnly: true },
-      );
-      const queued = await queueRecipientNotifications({
-        recipients,
-        title: 'Critical result still needs review',
-        body: `Escalated (tier ${tier ?? 1}): ${taskRow.title || 'critical result'} — please review now.`,
-        data: {
-          kind: 'results_inbox_escalation',
-          task_id: taskRow.id,
-          tier,
-          assigned_to_uid: taskRow.assigned_to_uid || null,
-          assigned_to_role: taskRow.assigned_to_role || null,
-        },
-      });
-      if (queued === 0) {
-        // No deliverable assignee — the priority bump (visible in GET
-        // /tasks/inbox) still escalates, but record that the page didn't land.
-        logger.warn('escalation tier-1: no deliverable assignee for re-notify', {
-          tenantId, taskId: taskRow.id, tier, assignedToUid: taskRow.assigned_to_uid || null,
-        });
-      }
-    } catch (err) {
-      logger.warn('escalation tier-1: assignee re-notify failed', {
-        tenantId, taskId: taskRow.id, err: err?.message,
-      });
-    }
-  } else if (action === 'notify') {
-    const role = resolveRoleCode(payload.notify_role);
-    let queued = 0;
-    try {
-      const recipients = await setTenantTx(
-        tenantId,
-        (tx) => resolveRecipientsForRole(tx, tenantId, role, now),
-        { readOnly: true },
-      );
-      queued = await queueRecipientNotifications({
-        recipients,
-        title: 'Critical result escalation',
-        body: `Tier ${tier ?? ''} escalation: ${taskRow.title || 'critical result'} unacknowledged — please action now.`,
-        data: {
-          kind: 'results_inbox_escalation',
-          task_id: taskRow.id,
-          tier,
-          notify_role: role,
-          patient_uid: taskRow.patient_uid || null,
-        },
-      });
-    } catch (err) {
-      logger.warn('escalation notify: recipient resolution failed', {
-        tenantId, taskId: taskRow.id, role, err: err?.message,
-      });
-    }
-    if (queued === 0) {
-      // A DUTY/LEADERSHIP tier resolved to NO active clinician (and no family
-      // fallback) — this is the one case a notify could still go unheard, so
-      // make it LOUD via the security webhook regardless of the rule flag, so an
-      // unstaffed-role escalation is never a silent no-op.
-      logger.error('escalation notify: tier resolved to NO recipient — paging via security webhook', {
-        tenantId, taskId: taskRow.id, tier, role, patientUid: taskRow.patient_uid || null,
-      });
-      sendSecurityWebhook(UNACKED_EVENT, {
-        userId: taskRow.assigned_to_uid || null,
-        path: `/api/v1/admin/workflow/tasks/${taskRow.id}`,
-        reason: `tier=${tier ?? ''} role=${role} patient=${taskRow.patient_uid || 'unknown'} :: NO recipient resolved for critical-result escalation`,
-      });
-    }
+  if (action === 'escalate_priority'
+    && payload.also_notify === 'assignee'
+    && plan.delivery.fallbackCode) {
+    const fallbackReason = plan.delivery.fallbackCode === 'no_active_assignee'
+      ? 'no active assignee; durable tier-1 notification was not enqueued'
+      : 'durable tier-1 assignee notification was not enqueued';
+    logger.error('escalation sweep: critical priority committed without durable assignee notification', {
+      taskId: taskRow.id,
+      tier,
+      fallbackCode: plan.delivery.fallbackCode,
+      fallbackError: plan.delivery.fallbackError,
+    });
+    sendSecurityWebhook(UNACKED_EVENT, {
+      userId: taskRow.assigned_to_uid || null,
+      path: `/api/v1/admin/workflow/tasks/${taskRow.id}`,
+      reason: `tier=${tier ?? 1} patient=${taskRow.patient_uid || 'unknown'} :: ${fallbackReason}`,
+    });
+  }
+  if (action === 'notify') {
+    const role = plan.delivery.notifyRole;
     if (payload.security_webhook) {
       // Loud final-tier signal: a critical result is STILL unacknowledged.
       sendSecurityWebhook(UNACKED_EVENT, {
@@ -1046,6 +1084,15 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
           logger.error('escalation sweep: per-task atomic action failed', {
             err: err?.message, tenantId, taskId: taskRow.id, ruleId: ruleRow.id,
           });
+          if (err?.code === 'ESCALATION_DURABLE_ENQUEUE_UNCONFIRMED'
+            && ruleRow.action_kind === 'notify') {
+            const payload = ruleRow.action_payload || {};
+            sendSecurityWebhook(UNACKED_EVENT, {
+              userId: taskRow.assigned_to_uid || null,
+              path: `/api/v1/admin/workflow/tasks/${taskRow.id}`,
+              reason: `tier=${payload.tier ?? ''} role=${resolveRoleCode(payload.notify_role)} patient=${taskRow.patient_uid || 'unknown'} :: durable critical-result escalation was not enqueued`,
+            });
+          }
           continue;
         }
 
@@ -1058,7 +1105,7 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
         if (claim.plan.action === 'auto_resolve') counters.autoResolved += 1;
         else counters.escalated += 1;
         try {
-          await dispatchAction({ tenantId, plan: claim.plan, now: clock });
+          await dispatchAction({ plan: claim.plan });
         } catch (err) {
           logger.error('escalation sweep: post-commit dispatch failed', {
             err: err?.message, tenantId, taskId: taskRow.id, ruleId: ruleRow.id,

@@ -367,7 +367,7 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
     );
   }, 60_000);
 
-  test('a non-terminal (ambiguous) rejection still pauses, and the operator reset recovers it', async () => {
+  test('an unresolved rejection pauses, refuses a cursor-only reset, and recovers through typed replay', async () => {
     const row = await notificationOutbox.queue(
       intent(`r3:${SUFFIX}:ambiguous`, REACHABLE_UID, 'sms'),
       { strict: true },
@@ -399,26 +399,36 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
     const cursors = await listChannelCursors({ tenantId: TENANT_ID });
     expect(cursors.find(c => c.channel === 'sms')).toMatchObject({ state: 'paused_rejected' });
 
-    // Operator reset (named actor + reason) un-pauses; audit row persisted.
-    const reset = await resetChannelCursor({
+    // Clearing only the cursor would leave the unresolved head row in front of
+    // every later delivery, so the reset must fail closed.
+    await expect(resetChannelCursor({
       tenantId: TENANT_ID,
       channel: 'sms',
       reason: 'Gateway configured; resuming the channel.',
       actorUid: ACTOR_UID,
       actorRole: 'SUPER_ADMIN',
       requestId: `r3-${SUFFIX}`,
+    })).rejects.toMatchObject({ code: 'NOTIFICATION_DELIVERY_HEAD_UNRESOLVED' });
+
+    const replay = await replayNotificationOutboxRow({
+      tenantId: TENANT_ID,
+      id: row.id,
+      reason: 'Gateway configured; retry the exact blocked notification.',
+      actorUid: ACTOR_UID,
+      actorRole: 'SUPER_ADMIN',
+      requestId: `r3-replay-${SUFFIX}`,
     });
-    expect(reset.state).toBe('ready');
-    expect(reset.blocked_outbox_id).toBeNull();
+    expect(replay.mode).toBe('retry_reset');
+    expect(await readCursor('sms')).toMatchObject({ state: 'ready', blocked_outbox_id: null });
     const audit = await prisma.$queryRawUnsafe(
       `SELECT action FROM audit_logs
-        WHERE tenant_id = $1::uuid AND action = 'NOTIFICATION_CHANNEL_CURSOR_RESET'`,
+        WHERE tenant_id = $1::uuid AND action = 'NOTIFICATION_OUTBOX_REPLAYED'`,
       TENANT_ID,
     );
     expect(audit.length).toBeGreaterThanOrEqual(1);
 
-    // The FAILED row is claimable again after the pause lifts, and we leave it
-    // FAILED for the replay test below.
+    // The same FAILED row becomes claimable after the typed recovery clears
+    // both its retry fence and its exact cursor block.
     const { claim: reclaim } = await claimOne(row.id);
     expect(reclaim).toBeDefined();
     await notificationOutbox.markFailed(row.id, 'provider_rejected_notification', {
@@ -501,8 +511,9 @@ describeIfDb('R3 — terminal per-recipient rejection does not wedge the channel
     const audit = await prisma.$queryRawUnsafe(
       `SELECT action FROM audit_logs
         WHERE tenant_id = $1::uuid AND action = 'NOTIFICATION_OUTBOX_REPLAYED'
-          AND resource_id = $2::text`,
-      TENANT_ID, String(ambiguousRowId),
+          AND resource_id = $2::text
+          AND metadata ->> 'reason' = $3::text`,
+      TENANT_ID, String(ambiguousRowId), 'Operator reviewed the failure; provider is back.',
     );
     expect(audit).toHaveLength(1);
   }, 60_000);

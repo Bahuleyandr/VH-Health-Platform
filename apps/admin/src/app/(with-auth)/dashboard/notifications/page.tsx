@@ -1,19 +1,21 @@
 // src/app/(with-auth)/dashboard/notifications/page.tsx
 "use client";
 
-import { Suspense, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { normalizeList } from "@/lib/normalize-response";
 import type { Notification } from "@/lib/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Suspense, useState } from "react";
+
+import { AnnouncementBannerManager } from "./components/AnnouncementBannerManager";
 import { NotificationComposer } from "./components/NotificationComposer";
+import { NotificationOutboxConsole } from "./components/NotificationOutboxConsole";
 import { NotificationsTable } from "./components/NotificationsTable";
 import { ScheduledNotifications } from "./components/ScheduledNotifications";
-import { AnnouncementBannerManager } from "./components/AnnouncementBannerManager";
 
 const normalizeNotifications = normalizeList<Notification>("notifications");
 
-type Tab = "compose" | "history" | "activity" | "scheduled" | "banner";
+type Tab = "compose" | "history" | "activity" | "scheduled" | "banner" | "delivery";
 
 type NotificationEvent = {
   id: number;
@@ -89,6 +91,7 @@ function NotificationsContent() {
     { key: "activity", label: "Activity", icon: "✓" },
     { key: "scheduled", label: "Scheduled", icon: "⏰" },
     { key: "banner", label: "Banner", icon: "📢" },
+    { key: "delivery", label: "Delivery Health", icon: "⚕" },
   ];
 
   return (
@@ -157,6 +160,7 @@ function NotificationsContent() {
 
       {activeTab === "scheduled" && <ScheduledNotifications />}
       {activeTab === "banner" && <AnnouncementBannerManager />}
+      {activeTab === "delivery" && <NotificationOutboxConsole />}
     </>
   );
 }
