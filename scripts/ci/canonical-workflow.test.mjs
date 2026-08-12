@@ -14,7 +14,10 @@ test('canonical workflow separates quick pushes from the final full dispatch', (
   assert.match(workflow, /quick_backend:/);
   assert.match(workflow, /lint-and-test:/);
   assert.match(workflow, /fhir-conformance:/);
-  assert.match(workflow, /'Full Merge Gate' \|\| 'Merge Gate'/);
+  assert.match(workflow, /contains\(github\.event\.head_commit\.message, '\[full-ci\]'\)/);
+  assert.match(workflow, /needs\.plan\.outputs\.tier == 'full' && 'Full Merge Gate' \|\| 'Merge Gate'/);
+  assert.match(workflow, /needs\.plan\.outputs\.tier == 'full' && 'Merge Gate' \|\| 'Full run Merge Gate not requested'/);
+  assert.match(workflow, /FULL_MERGE_GATE_RESULT: \$\{\{ needs\.merge_gate\.result \}\}/);
   assert.match(workflow, /node scripts\/ci\/assert-canonical-results\.mjs/);
   assert.doesNotMatch(workflow, /run\.mjs --install --changed-on-branch-push/);
 });

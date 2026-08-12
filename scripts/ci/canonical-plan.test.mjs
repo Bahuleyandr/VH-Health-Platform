@@ -58,3 +58,14 @@ test('manual quick dispatch remains available for workflow diagnosis', () => {
   assert.equal(plan.selected.contracts, true);
   assert.equal(plan.selected.backend, true);
 });
+
+test('a PR-attached full request forces the exhaustive matrix', () => {
+  const plan = buildCanonicalPlan({
+    eventName: 'push',
+    requestedTier: 'full',
+    files: ['apps/backend/src/services/example.js'],
+  });
+
+  assert.equal(plan.tier, 'full');
+  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true]);
+});
