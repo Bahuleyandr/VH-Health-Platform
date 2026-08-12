@@ -126,6 +126,7 @@ describe('sendPushNotification — guards', () => {
 });
 
 describe('sendPushNotification — message shape', () => {
+  afterEach(() => jest.useRealTimers());
   const expectOpaqueNormalEnvelope = (message) => {
     expect(message.notification).toEqual({
       title: 'VH Health',
@@ -185,6 +186,7 @@ describe('sendPushNotification — message shape', () => {
   });
 
   it('high priority is data-only with a 60s TTL and critical APNs headers', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
     await sendPushNotification({
       tokens: 'tok-1',
       title: 'Code Blue',
@@ -209,7 +211,10 @@ describe('sendPushNotification — message shape', () => {
       ttl: 60000,
       notification: { channelId: 'code_blue', priority: 'max', visibility: 'public' },
     });
-    expect(message.apns.headers).toEqual({ 'apns-priority': '10' });
+    expect(message.apns.headers).toEqual({
+      'apns-priority': '10',
+      'apns-expiration': '1893456060',
+    });
     expect(message.apns.payload.aps['interruption-level']).toBe('critical');
   });
 });

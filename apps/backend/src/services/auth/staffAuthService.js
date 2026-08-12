@@ -5,7 +5,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { AUTH_CONFIG } from '../../config/authConfig.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
-import prisma, { setTenant } from '../../lib/prisma.js';
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
@@ -17,7 +17,6 @@ import {
   isTokenBlacklisted,
   persistRevokeAllUserTokens,
   publishRevokeAllUserTokens,
-  revokeAllUserTokens,
 } from '../../utils/tokenBlacklist.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 import { getUserSessionDeviceType } from './userActiveSession.js';
@@ -394,7 +393,7 @@ export class StaffAuthService {
     }
 
     const result = await query(`
-      SELECT id, uid, role, encrypted_password
+      SELECT id, uid, role, encrypted_password, tenant_id
       FROM users
       WHERE uid = $1::uuid
       LIMIT 1
@@ -415,7 +414,8 @@ export class StaffAuthService {
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    const revokedAt = await prisma.$transaction(async (tx) => {
+    const tenantId = String(staff.tenant_id);
+    const revokedAt = await setTenantTx(tenantId, async (tx) => {
       await query(`
         UPDATE users
         SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
@@ -425,6 +425,7 @@ export class StaffAuthService {
         client: tx,
         requireEvidence: true,
         reason: 'password_changed',
+        notificationTenantId: tenantId,
       });
     });
     await publishRevokeAllUserTokens(String(staffUid), revokedAt, { reason: 'password_changed' });
@@ -652,8 +653,11 @@ export class StaffAuthService {
     try {
       // ✅ FIX: Uses the new helper method to reduce duplication.
       const internalDeviceId = await this._verifyDeviceOwnership(staffUid, deviceToken);
+      const identity = await query('SELECT tenant_id FROM users WHERE uid = $1::uuid', [staffUid]);
+      if (identity.rows.length === 0) throw new Error('Staff not found');
+      const tenantId = String(identity.rows[0].tenant_id);
       const pinHash = await bcrypt.hash(pin, 10);
-      const revokedAt = await prisma.$transaction(async (tx) => {
+      const revokedAt = await setTenantTx(tenantId, async (tx) => {
         const previous = await query(
           'SELECT pin_hash FROM staff_devices WHERE id = $1 FOR UPDATE',
           [internalDeviceId],
@@ -669,6 +673,7 @@ export class StaffAuthService {
           client: tx,
           requireEvidence: true,
           reason: 'pin_changed',
+          notificationTenantId: tenantId,
         });
       });
       if (revokedAt !== null) {
@@ -992,9 +997,11 @@ export class StaffAuthService {
     let revocationError = null;
     let allDevices = false;
     try {
-      const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
+      const userResult = await query('SELECT id, tenant_id FROM users WHERE uid = $1', [staffUid]);
       if (userResult.rows.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
+      const tenantId = String(userResult.rows[0].tenant_id);
+      let allDevicesRevokedAt = null;
 
       if (deviceToken) {
         const deviceResult = await query('SELECT device_id FROM staff_devices WHERE device_token = $1 AND staff_id = $2', [deviceToken, userId]);
@@ -1003,14 +1010,24 @@ export class StaffAuthService {
         }
       } else {
         allDevices = true;
-        await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [userId]);
       }
 
-      // Deleting the session rows above is unconditionally useful, so it stays
-      // done even if a blacklist write fails — the failure is reported, not
-      // rolled back, leaving the strongest partial result we can achieve.
+      // All-device logout commits session deletion, notification-authority
+      // revocation, and the token-epoch bump as one tenant transaction.
       try {
-        if (accessTokenJti && accessTokenExpiresAt) {
+        if (allDevices) {
+          allDevicesRevokedAt = await setTenantTx(tenantId, async (tx) => {
+            await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [userId], tx);
+            await query('DELETE FROM user_active_sessions WHERE user_uid = $1::uuid', [staffUid], tx);
+            return persistRevokeAllUserTokens(String(staffUid), {
+              client: tx,
+              requireEvidence: true,
+              reason: 'logout',
+              notificationTenantId: tenantId,
+            });
+          });
+        }
+        if (!allDevices && accessTokenJti && accessTokenExpiresAt) {
           await blacklistToken(accessTokenJti, accessTokenExpiresAt, 'logout', {
             requireEvidence: true,
             userId: String(staffUid),
@@ -1019,7 +1036,9 @@ export class StaffAuthService {
           });
         }
         if (allDevices) {
-          await revokeAllUserTokens(String(staffUid), { requireEvidence: true, reason: 'logout' });
+          await publishRevokeAllUserTokens(String(staffUid), allDevicesRevokedAt, {
+            reason: 'logout',
+          });
         }
       } catch (err) {
         revocationError = err;
@@ -1036,7 +1055,9 @@ export class StaffAuthService {
 
     if (revocationError) {
       throw new AppError(
-        'Signed out on this device, but the session token could not be revoked. Please try again.',
+        allDevices
+          ? 'Sign-out authority could not be revoked. Please try again.'
+          : 'Signed out on this device, but the session token could not be revoked. Please try again.',
         503,
         'REVOCATION_STORE_UNAVAILABLE',
       );
@@ -1088,7 +1109,7 @@ export class StaffAuthService {
   static async adminForceLogout(staffId, reason, adminUid, req) {
     try {
       const identity = await query(
-        `SELECT u.id, u.uid
+        `SELECT u.id, u.uid, u.tenant_id
            FROM staff s
            JOIN users u ON u.uid = s.user_id
           WHERE s.id = $1
@@ -1096,11 +1117,19 @@ export class StaffAuthService {
         [staffId]
       );
       if (identity.rows.length === 0) throw new Error('Staff not found');
-      await revokeAllUserTokens(String(identity.rows[0].uid), {
-        requireEvidence: true,
-        reason: 'admin_force_logout',
+      const staffUid = String(identity.rows[0].uid);
+      const tenantId = String(identity.rows[0].tenant_id);
+      const revokedAt = await setTenantTx(tenantId, async (tx) => {
+        await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [identity.rows[0].id], tx);
+        await query('DELETE FROM user_active_sessions WHERE user_uid = $1::uuid', [staffUid], tx);
+        return persistRevokeAllUserTokens(staffUid, {
+          client: tx,
+          requireEvidence: true,
+          reason: 'admin_force_logout',
+          notificationTenantId: tenantId,
+        });
       });
-      await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [identity.rows[0].id]);
+      await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'admin_force_logout' });
       // ✅ FIX: Uses the logActivity helper for consistency.
       await this.logActivity(adminUid, 'ADMIN_FORCE_LOGOUT', `Force logout staff ${staffId}: ${reason}`, req, { affectedStaffId: staffId, reason });
       return { success: true, message: 'Staff member logged out from all devices' };
@@ -1112,7 +1141,13 @@ export class StaffAuthService {
 
   static async adminResetPin(staffId, adminUid, req) {
     try {
-      const { result, staffUid, revokedAt } = await prisma.$transaction(async (tx) => {
+      const identity = await query(
+        'SELECT uid, tenant_id FROM users WHERE id = $1 LIMIT 1',
+        [staffId],
+      );
+      if (identity.rows.length === 0) throw new Error('Staff not found');
+      const tenantId = String(identity.rows[0].tenant_id);
+      const { result, staffUid, revokedAt } = await setTenantTx(tenantId, async (tx) => {
         const identity = await query(
           'SELECT uid FROM users WHERE id = $1 LIMIT 1 FOR UPDATE',
           [staffId],
@@ -1129,6 +1164,7 @@ export class StaffAuthService {
           client: tx,
           requireEvidence: true,
           reason: 'pin_reset',
+          notificationTenantId: tenantId,
         });
         return { result: resetResult, staffUid: uid, revokedAt: durableRevokedAt };
       });
@@ -1239,20 +1275,30 @@ export class StaffAuthService {
    */
   static async revokeAllSessions(staffId) {
     const identity = await query(
-      'SELECT uid FROM users WHERE id = $1 LIMIT 1',
+      'SELECT uid, tenant_id FROM users WHERE id = $1 LIMIT 1',
       [staffId]
     );
     if (identity.rows.length === 0) throw new Error('Staff not found');
-    await revokeAllUserTokens(String(identity.rows[0].uid), {
-      requireEvidence: true,
-      reason: 'admin_force_logout',
+    const staffUid = String(identity.rows[0].uid);
+    const tenantId = String(identity.rows[0].tenant_id);
+    const { revokedAt, revokedCount } = await setTenantTx(tenantId, async (tx) => {
+      const result = await query(
+        'DELETE FROM staff_auth_sessions WHERE staff_id = $1',
+        [staffId],
+        tx,
+      );
+      await query('DELETE FROM user_active_sessions WHERE user_uid = $1::uuid', [staffUid], tx);
+      const durableRevokedAt = await persistRevokeAllUserTokens(staffUid, {
+        client: tx,
+        requireEvidence: true,
+        reason: 'admin_force_logout',
+        notificationTenantId: tenantId,
+      });
+      return { revokedAt: durableRevokedAt, revokedCount: result.rowCount };
     });
-    const result = await query(
-      'DELETE FROM staff_auth_sessions WHERE staff_id = $1',
-      [staffId]
-    );
-    logger.info(`Revoked all sessions for staff ${staffId} (${result.rowCount} sessions deleted)`);
-    return { revokedCount: result.rowCount };
+    await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'admin_force_logout' });
+    logger.info(`Revoked all sessions for staff ${staffId} (${revokedCount} sessions deleted)`);
+    return { revokedCount };
   }
 
   static async logAuthAttempt(phone, action, success, failureReason, authMethod, req, deviceInfo = null) {

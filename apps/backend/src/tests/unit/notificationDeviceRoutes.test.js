@@ -7,6 +7,7 @@ const USER_UID = '00000000-0000-4000-8000-0000000000b2';
 const queryRawUnsafe = jest.fn();
 const registerNotificationDevice = jest.fn();
 const rotateNotificationDeviceToken = jest.fn();
+const validateNotificationAuthority = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe },
@@ -17,6 +18,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../services/notification/deviceRegistrationService.js', () => ({
   registerNotificationDevice,
   rotateNotificationDeviceToken,
+  validateNotificationAuthority,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
@@ -48,7 +50,7 @@ const { default: deviceRoutes } = await import('../../routes/deviceRoutes.js');
 const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
-  req.user = { uid: USER_UID, role: 'NURSING_STAFF', name: 'Nurse One' };
+  req.user = { uid: USER_UID, role: 'NURSING_STAFF', name: 'Nurse One', jti: 'current-jti' };
   next();
 });
 app.use('/api/v1/devices', deviceRoutes);
@@ -72,6 +74,16 @@ describe('notification device routes', () => {
       id: 29,
       device_name: 'Ward handset',
       is_new_registration: isNewRegistration,
+      notification_authority: {
+        version: 1,
+        tenantId: TENANT_ID,
+        recipientUid: USER_UID,
+        deviceId: 'installation-1',
+        registrationEpoch: '3',
+        sessionEpoch: 'session-family-1',
+        authorizationEpoch: '8',
+        sessionExpiresAt: '2030-01-01T00:00:00.000Z',
+      },
     });
 
     const response = await request(app).post('/api/v1/devices/register').send({
@@ -93,6 +105,7 @@ describe('notification device routes', () => {
       deviceName: 'Ward handset',
       isNewRegistration,
       registeredBy: 'Nurse One',
+      notificationAuthority: expect.objectContaining({ registrationEpoch: '3' }),
     });
     expect(response.body.data.registeredAt).toEqual(expect.any(String));
     expect(registerNotificationDevice).toHaveBeenCalledWith({
@@ -104,6 +117,7 @@ describe('notification device routes', () => {
       platform: 'android',
       appVersion: '1.2.3',
       osVersion: '16',
+      sessionJti: 'current-jti',
     });
   });
 
@@ -126,6 +140,16 @@ describe('notification device routes', () => {
       id: 29,
       device_name: 'Ward handset',
       is_new_registration: false,
+      notification_authority: {
+        version: 1,
+        tenantId: TENANT_ID,
+        recipientUid: USER_UID,
+        deviceId: 'installation-1',
+        registrationEpoch: '4',
+        sessionEpoch: 'session-family-1',
+        authorizationEpoch: '8',
+        sessionExpiresAt: '2030-01-01T00:00:00.000Z',
+      },
     });
 
     const response = await request(app).post('/api/v1/devices/update-token').send({
@@ -141,6 +165,7 @@ describe('notification device routes', () => {
       deviceName: 'Ward handset',
       tokenUpdated: true,
       updatedBy: 'Nurse One',
+      notificationAuthority: expect.objectContaining({ registrationEpoch: '4' }),
     });
     expect(response.body.data.updatedAt).toEqual(expect.any(String));
     expect(rotateNotificationDeviceToken).toHaveBeenCalledWith({
@@ -148,6 +173,34 @@ describe('notification device routes', () => {
       userUid: USER_UID,
       deviceId: 'installation-1',
       fcmToken: 'token-2',
+      sessionJti: 'current-jti',
+    });
+  });
+
+  it('fails closed when a delayed notification audience is not current', async () => {
+    validateNotificationAuthority.mockResolvedValue(false);
+
+    const response = await request(app)
+      .post('/api/v1/devices/notification-authority/validate')
+      .send({
+        tenantId: TENANT_ID,
+        recipientUid: USER_UID,
+        deviceId: 'installation-1',
+        registrationEpoch: '2',
+        sessionEpoch: 'old-session-family',
+        authorizationEpoch: '7',
+      });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual({ authorized: false });
+    expect(validateNotificationAuthority).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      userUid: USER_UID,
+      sessionJti: 'current-jti',
+      deviceId: 'installation-1',
+      registrationEpoch: '2',
+      sessionEpoch: 'old-session-family',
+      authorizationEpoch: '7',
     });
   });
 

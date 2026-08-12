@@ -43,7 +43,18 @@ void main() {
         return http.Response(
           jsonEncode({
             'success': true,
-            'data': {'registered': true},
+            'data': {
+              'registered': true,
+              'notificationAuthority': {
+                'version': 1,
+                'tenantId': '22222222-2222-4222-8222-222222222222',
+                'recipientUid': '33333333-3333-4333-8333-333333333333',
+                'deviceId': installationId,
+                'registrationEpoch': '7',
+                'sessionEpoch': 'session-family-1',
+                'authorizationEpoch': '4',
+              },
+            },
           }),
           200,
           headers: {'content-type': 'application/json'},
@@ -51,11 +62,13 @@ void main() {
       }),
     );
 
-    await HrApiService.registerDevice(
+    final audience = await HrApiService.registerDevice(
       phone: '+919876543210',
       fcmToken: 'fcm-token-1',
       platform: 'android',
     );
+    expect(audience.registrationEpoch, '7');
+    expect(audience.deviceId, installationId);
   });
 
   test('propagates backend rejection so registration can be retried', () async {

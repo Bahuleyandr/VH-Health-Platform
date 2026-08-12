@@ -194,21 +194,33 @@ describe('tokenBlacklist revoke-all fallback', () => {
     expect(pushSessionRevokedMock).not.toHaveBeenCalled();
   });
 
-  it('R1: bumps the identity token_epoch atomically with the watermark for uuid identities', async () => {
+  it('R1: atomically bumps the identity epoch and clears both notification-token projections', async () => {
     cacheSetMock.mockResolvedValueOnce(true);
-    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000, epoch_rows: 1 }]);
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ revoke_notification_authority: 2 }])
+      .mockResolvedValueOnce([{ revoked_at: 2000, epoch_rows: 1 }]);
 
-    await revokeAllUserTokens(UUID_USER, { reason: 'logout' });
+    await revokeAllUserTokens(UUID_USER, {
+      reason: 'logout',
+      notificationTenantId: '00000000-0000-4000-8000-000000000001',
+    });
 
-    const [sql, ...params] = queryRawUnsafeMock.mock.calls[0];
+    expect(queryRawUnsafeMock.mock.calls[0]).toEqual([
+      expect.stringContaining('revoke_notification_authority'),
+      '00000000-0000-4000-8000-000000000001',
+      UUID_USER,
+    ]);
+    const [sql, ...params] = queryRawUnsafeMock.mock.calls[1];
     expect(sql).toMatch(/token_epoch = COALESCE\(token_epoch, 0\) \+ 1/);
     expect(sql).toMatch(/token_epoch_bumped_at = NOW\(\)/);
     expect(sql).toMatch(/UPDATE users/);
+    expect(sql).toMatch(/device_token\s*=\s*CASE[\s\S]*ELSE NULL END/);
     expect(sql).toMatch(/UPDATE admins/);
     expect(sql).toMatch(/INSERT INTO invalidated_tokens/);
     expect(params[0]).toBe(`user:${UUID_USER}`);
     expect(params[1]).toBe('logout');
     expect(params[2]).toBe(UUID_USER);
+    expect(params[3]).toBe('00000000-0000-4000-8000-000000000001');
   });
 
   it('rejects a uuid revoke-all when no identity epoch row was bumped', async () => {

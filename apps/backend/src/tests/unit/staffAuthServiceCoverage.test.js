@@ -24,9 +24,10 @@ const mockPrisma = {
   $executeRawUnsafe: jest.fn(),
   $transaction: jest.fn(),
 };
+const mockSetTenantTx = jest.fn(async (_tenantId, fn) => fn(mockPrisma));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
-  setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
+  setTenantTx: mockSetTenantTx,
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
   pickTenantClient: () => mockPrisma,
@@ -90,6 +91,7 @@ const { StaffAuthService } = await import('../../services/auth/staffAuthService.
 
 const REQ = { ip: '10.0.0.9', headers: { 'user-agent': 'jest-agent' } };
 const INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
+const STAFF_TENANT_ID = '22222222-2222-4222-8222-222222222222';
 
 // A fully-populated staff row as returned by the password / PIN login SELECTs.
 const STAFF_ROW = {
@@ -144,6 +146,8 @@ beforeEach(() => {
   mockIssueAccess.mockResolvedValue({ accessToken: 'fresh-access-token' });
   mockGenerateToken.mockReturnValue('mock-refresh-token');
   mockGetDeviceType.mockResolvedValue('mobile');
+  mockSetTenantTx.mockReset();
+  mockSetTenantTx.mockImplementation(async (_tenantId, fn) => fn(mockPrisma));
   configurePrisma();
 });
 
@@ -338,14 +342,18 @@ describe('changeOwnPassword', () => {
   });
 
   it('rejects an incorrect current password (401)', async () => {
-    read(/SELECT id, uid, role, encrypted_password/, [{ id: 42, uid: 'uid', encrypted_password: 'h' }]);
+    read(/SELECT id, uid, role, encrypted_password/, [{
+      id: 42, uid: 'uid', encrypted_password: 'h', tenant_id: STAFF_TENANT_ID,
+    }]);
     mockBcryptCompare.mockResolvedValue(false);
     await expect(StaffAuthService.changeOwnPassword('uid', 'old', 'new', REQ))
       .rejects.toMatchObject({ statusCode: 401 });
   });
 
   it('hashes + persists the new password on success', async () => {
-    read(/SELECT id, uid, role, encrypted_password/, [{ id: 42, uid: 'uid', encrypted_password: 'h' }]);
+    read(/SELECT id, uid, role, encrypted_password/, [{
+      id: 42, uid: 'uid', encrypted_password: 'h', tenant_id: STAFF_TENANT_ID,
+    }]);
     mockBcryptCompare.mockResolvedValue(true);
     const req = { ...REQ, user: { deviceType: 'web' } };
     const out = await StaffAuthService.changeOwnPassword('uid', 'old', 'newpw', req);
@@ -355,6 +363,7 @@ describe('changeOwnPassword', () => {
       client: mockPrisma,
       requireEvidence: true,
       reason: 'password_changed',
+      notificationTenantId: STAFF_TENANT_ID,
     });
     expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
       'uid', 1_700_000_000, { reason: 'password_changed' },
@@ -366,10 +375,11 @@ describe('changeOwnPassword', () => {
       id: 42,
       uid: 'uid',
       encrypted_password: 'h',
+      tenant_id: STAFF_TENANT_ID,
     }]);
     mockBcryptCompare.mockResolvedValue(true);
     let passwordCommitted = false;
-    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+    mockSetTenantTx.mockImplementationOnce(async (_tenantId, callback) => {
       let stagedPassword = false;
       const tx = {
         ...mockPrisma,
@@ -699,6 +709,7 @@ describe('authenticateStaffWithPin', () => {
 describe('setupPin', () => {
   it('hashes the PIN and updates the device', async () => {
     read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT tenant_id FROM users WHERE uid/, [{ tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
     const out = await StaffAuthService.setupPin('uid', 'tok', '1234');
     expect(out).toEqual({ success: true, message: 'PIN setup successfully' });
@@ -707,6 +718,7 @@ describe('setupPin', () => {
 
   it('revokes existing sessions when an enrolled PIN is replaced', async () => {
     read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT tenant_id FROM users WHERE uid/, [{ tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
     read(/SELECT pin_hash FROM staff_devices/, [{ pin_hash: 'old-pin-hash' }]);
 
@@ -716,6 +728,7 @@ describe('setupPin', () => {
       client: mockPrisma,
       requireEvidence: true,
       reason: 'pin_changed',
+      notificationTenantId: STAFF_TENANT_ID,
     });
     expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
       'uid', 1_700_000_000, { reason: 'pin_changed' },
@@ -724,10 +737,11 @@ describe('setupPin', () => {
 
   it('rolls back a PIN replacement when durable revocation fails', async () => {
     read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT tenant_id FROM users WHERE uid/, [{ tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
     read(/SELECT pin_hash FROM staff_devices/, [{ pin_hash: 'old-pin-hash' }]);
     let pinCommitted = false;
-    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+    mockSetTenantTx.mockImplementationOnce(async (_tenantId, callback) => {
       let stagedPin = false;
       const tx = {
         ...mockPrisma,
@@ -899,7 +913,7 @@ describe('logoutStaff', () => {
   });
 
   it('deletes the device-scoped session when a deviceToken resolves a device', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
     const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ);
     expect(out).toEqual({
@@ -915,14 +929,14 @@ describe('logoutStaff', () => {
   });
 
   it('still succeeds when the deviceToken matches no device', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT device_id FROM staff_devices/, []);
     const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ);
     expect(out.success).toBe(true);
   });
 
   it('deletes all sessions when no deviceToken is given', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     const out = await StaffAuthService.logoutStaff('uid', null, REQ);
     expect(out.success).toBe(true);
   });
@@ -932,7 +946,7 @@ describe('logoutStaff', () => {
   // for the rest of its own exp unless its jti is blacklisted — which logout
   // never did, while reporting success.
   it('revokes the presented access token jti with a real expiry', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
 
     const out = await StaffAuthService.logoutStaff('uid', null, REQ, {
@@ -943,36 +957,34 @@ describe('logoutStaff', () => {
     });
 
     expect(out).toMatchObject({ success: true, accessTokenRevoked: true });
-    expect(mockBlacklistToken).toHaveBeenCalledWith(
-      'jti-123',
-      expiresAt,
-      'logout',
-      {
-        requireEvidence: true,
-        userId: 'uid',
-        sessionFamilyId: 'session-family-1',
-        stableDeviceId: INSTALLATION_ID,
-      },
-    );
+    expect(mockBlacklistToken).not.toHaveBeenCalled();
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'logout',
+      notificationTenantId: STAFF_TENANT_ID,
+    });
   });
 
   // No deviceToken means every staff_auth_sessions row is deleted, so the
   // sibling devices' access tokens must die too — otherwise an "all devices"
   // logout leaves them usable until they expire on their own.
   it('revokes every token for the identity on an all-device logout', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
 
     const out = await StaffAuthService.logoutStaff('uid', null, REQ);
 
     expect(out).toMatchObject({ allDevices: true, accessTokenRevoked: true });
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'logout',
+      notificationTenantId: STAFF_TENANT_ID,
     });
   });
 
   it('leaves other devices alone on a device-scoped logout', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
 
     const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ, {
@@ -985,8 +997,8 @@ describe('logoutStaff', () => {
   });
 
   it('fails loudly when the all-device revocation is not persisted', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
-    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('no store accepted it'));
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('no store accepted it'));
 
     await expect(
       StaffAuthService.logoutStaff('uid', null, REQ),
@@ -994,11 +1006,12 @@ describe('logoutStaff', () => {
   });
 
   it('fails loudly with 503 when the revocation store refuses the write', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
+    read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
     mockBlacklistToken.mockRejectedValueOnce(new Error('no store accepted the entry'));
 
     await expect(
-      StaffAuthService.logoutStaff('uid', null, REQ, {
+      StaffAuthService.logoutStaff('uid', 'device-token', REQ, {
         accessTokenJti: 'jti-123',
         accessTokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
       }),
@@ -1029,16 +1042,21 @@ describe('listStaffDevices', () => {
 // =====================================================================
 describe('admin methods', () => {
   it('adminForceLogout deletes sessions and logs activity', async () => {
-    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID }]);
     const out = await StaffAuthService.adminForceLogout(42, 'compromised', 'admin-uid', REQ);
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'admin_force_logout',
+      notificationTenantId: STAFF_TENANT_ID,
     });
     expect(out).toEqual({ success: true, message: 'Staff member logged out from all devices' });
   });
 
   it('adminResetPin nulls device PINs and reports affected count', async () => {
+    read(/SELECT uid, tenant_id FROM users WHERE id/, [{
+      uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID,
+    }]);
     read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
     read(/UPDATE staff_devices SET pin_hash = NULL[\s\S]*RETURNING/, [{ id: 1 }, { id: 2 }]);
     const out = await StaffAuthService.adminResetPin(42, 'admin-uid', REQ);
@@ -1047,6 +1065,7 @@ describe('admin methods', () => {
       client: mockPrisma,
       requireEvidence: true,
       reason: 'pin_reset',
+      notificationTenantId: STAFF_TENANT_ID,
     });
     expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
       'staff-uuid-1', 1_700_000_000, { reason: 'pin_reset' },
@@ -1054,10 +1073,13 @@ describe('admin methods', () => {
   });
 
   it('rolls back an admin PIN reset when durable revocation fails', async () => {
+    read(/SELECT uid, tenant_id FROM users WHERE id/, [{
+      uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID,
+    }]);
     read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
     read(/UPDATE staff_devices SET pin_hash = NULL[\s\S]*RETURNING/, [{ id: 1 }]);
     let pinResetCommitted = false;
-    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+    mockSetTenantTx.mockImplementationOnce(async (_tenantId, callback) => {
       let stagedReset = false;
       const tx = {
         ...mockPrisma,
@@ -1079,7 +1101,7 @@ describe('admin methods', () => {
   });
 
   it('adminForceLogout surfaces DB errors (catch path)', async () => {
-    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID }]);
     mockPrisma.$executeRawUnsafe.mockRejectedValueOnce(new Error('db down'));
     await expect(StaffAuthService.adminForceLogout(42, 'r', 'admin-uid', REQ)).rejects.toThrow('db down');
   });
@@ -1155,12 +1177,14 @@ describe('createSession', () => {
 // =====================================================================
 describe('revokeAllSessions', () => {
   it('durably revokes the identity before deleting all staff sessions', async () => {
-    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
+    read(/SELECT uid, tenant_id FROM users WHERE id/, [{ uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID }]);
     mockPrisma.$executeRawUnsafe.mockResolvedValueOnce(3);
     const out = await StaffAuthService.revokeAllSessions(42);
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'admin_force_logout',
+      notificationTenantId: STAFF_TENANT_ID,
     });
     expect(out).toEqual({ revokedCount: 3 });
   });

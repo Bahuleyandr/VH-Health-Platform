@@ -12,6 +12,7 @@ import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
 import {
   registerNotificationDevice,
   rotateNotificationDeviceToken,
+  validateNotificationAuthority,
 } from '../services/notification/deviceRegistrationService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
@@ -442,6 +443,7 @@ wrapAutoRBAC(
               platform,
               appVersion,
               osVersion,
+              sessionJti: req.user?.jti,
             });
 
             const isNewRegistration = registration.is_new_registration;
@@ -455,7 +457,8 @@ wrapAutoRBAC(
               deviceName,
               isNewRegistration,
               registeredBy: req.user?.name,
-              registeredAt: new Date().toISOString()
+              registeredAt: new Date().toISOString(),
+              notificationAuthority: registration.notification_authority,
             }, `Device ${isNewRegistration ? 'registered' : 'updated'} successfully`);
 
           } catch (err) {
@@ -545,6 +548,7 @@ wrapAutoRBAC(
               userUid: targetUser.uid,
               deviceId,
               fcmToken,
+              sessionJti: req.user?.jti,
             });
 
             if (!registration) {
@@ -559,7 +563,8 @@ wrapAutoRBAC(
               deviceName: registration.device_name,
               tokenUpdated: true,
               updatedBy: req.user?.name,
-              updatedAt: new Date().toISOString()
+              updatedAt: new Date().toISOString(),
+              notificationAuthority: registration.notification_authority,
             }, 'FCM token updated successfully');
 
           } catch (err) {
@@ -568,6 +573,36 @@ wrapAutoRBAC(
             error(res, 'Failed to update FCM token', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
         }
+      ],
+
+      [
+        '/notification-authority/validate',
+        async (req, res) => {
+          const audience = req.body || {};
+          const tenantId = tenantOf(req);
+          const recipientUid = String(audience.recipientUid || '');
+          if (
+            String(audience.tenantId || '') !== tenantId
+            || recipientUid !== String(req.user?.uid || '')
+          ) {
+            return error(res, 'Notification authority is not valid', HTTP_STATUS.FORBIDDEN);
+          }
+          try {
+            const authorized = await validateNotificationAuthority({
+              tenantId,
+              userUid: recipientUid,
+              sessionJti: req.user?.jti,
+              deviceId: audience.deviceId,
+              registrationEpoch: audience.registrationEpoch,
+              sessionEpoch: audience.sessionEpoch,
+              authorizationEpoch: audience.authorizationEpoch,
+            });
+            success(res, { authorized }, 'Notification authority checked');
+          } catch (err) {
+            logger.error('Notification Authority Validation Error:', err);
+            error(res, 'Notification authority could not be verified', HTTP_STATUS.SERVICE_UNAVAILABLE);
+          }
+        },
       ],
 
       // 🗑️ Unregister Device (body-bearing alias used by mobile clients)

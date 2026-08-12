@@ -47,7 +47,7 @@ class _FirebaseNotificationMessaging implements NotificationMessaging {
 }
 
 typedef NotificationDeviceRegistrar =
-    Future<void> Function({
+    Future<StaffNotificationAudience> Function({
       required String? phone,
       required String fcmToken,
       required String platform,
@@ -172,6 +172,8 @@ class NotificationProvider extends ChangeNotifier {
     NotificationPhoneLoader? phoneLoader,
     NotificationStaffUidLoader? staffUidLoader,
     NotificationAuthenticationCheck? isAuthenticated,
+    StaffNotificationClaimsLoader? notificationClaimsLoader,
+    StaffNotificationAuthorityValidator? notificationAuthorityValidator,
     NotificationPlatformLoader? platformLoader,
     NotificationFetcher? fetchNotifications,
     NotificationForegroundMessageHandler? foregroundMessageHandler,
@@ -185,6 +187,9 @@ class NotificationProvider extends ChangeNotifier {
        _phoneLoader = phoneLoader ?? ApiConfig.getPhone,
        _staffUidLoader = staffUidLoader ?? ApiConfig.getStaffUid,
        _isAuthenticated = isAuthenticated ?? ApiConfig.isLoggedIn,
+       _notificationClaimsLoader =
+           notificationClaimsLoader ?? ApiConfig.getStaffJwtClaims,
+       _notificationAuthorityValidator = notificationAuthorityValidator,
        _platformLoader = platformLoader ?? _defaultPlatform,
        _fetchNotifications =
            fetchNotifications ?? HrApiService.getNotifications,
@@ -203,6 +208,8 @@ class NotificationProvider extends ChangeNotifier {
   final NotificationPhoneLoader _phoneLoader;
   final NotificationStaffUidLoader _staffUidLoader;
   final NotificationAuthenticationCheck _isAuthenticated;
+  final StaffNotificationClaimsLoader _notificationClaimsLoader;
+  final StaffNotificationAuthorityValidator? _notificationAuthorityValidator;
   final NotificationPlatformLoader _platformLoader;
   final NotificationFetcher _fetchNotifications;
   final NotificationForegroundMessageHandler _foregroundMessageHandler;
@@ -316,10 +323,10 @@ class NotificationProvider extends ChangeNotifier {
       _,
     ) async {
       if (generation != _sessionGeneration) return;
-      if (!await _mayPresentNotifications()) return;
+      if (!await _mayPresentNotifications(message)) return;
       await _foregroundMessageHandler(message);
       if (generation == _sessionGeneration &&
-          await _mayPresentNotifications()) {
+          await _mayPresentNotifications(message)) {
         _handleForegroundMessage(message);
       }
     });
@@ -355,6 +362,10 @@ class NotificationProvider extends ChangeNotifier {
       await _markPresentationInactive();
       return false;
     }
+    if (!await _isAuthenticated()) {
+      await _markPresentationInactive();
+      return false;
+    }
 
     final phone = await _phoneLoader();
     final staffUid = (await _staffUidLoader())?.trim();
@@ -375,7 +386,7 @@ class NotificationProvider extends ChangeNotifier {
 
     try {
       if (!await _markPresentationInactive()) return false;
-      await _registerDevice(
+      final audience = await _registerDevice(
         phone: phone,
         fcmToken: token,
         platform: _platformLoader(),
@@ -384,7 +395,10 @@ class NotificationProvider extends ChangeNotifier {
           expectedGeneration != _sessionGeneration) {
         return false;
       }
-      await _sessionStore.markActiveFor(staffUid);
+      if (audience.recipientUid != staffUid) {
+        throw StateError('Device registration returned another staff audience');
+      }
+      await _sessionStore.markActive(audience);
       _registeredPhone = phone;
       _registeredToken = token;
       _registeredStaffUid = staffUid;
@@ -409,11 +423,13 @@ class NotificationProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> _mayPresentNotifications() => mayPresentStaffPush(
-    sessionStore: _sessionStore,
-    isAuthenticated: _isAuthenticated,
-    staffUidLoader: _staffUidLoader,
-  );
+  Future<bool> _mayPresentNotifications(RemoteMessage message) =>
+      mayPresentStaffPush(
+        message: message,
+        sessionStore: _sessionStore,
+        claimsLoader: _notificationClaimsLoader,
+        authorityValidator: _notificationAuthorityValidator,
+      );
 
   /// Ends the current authenticated notification session before account
   /// navigation. It drains an in-flight registration, cancels both Firebase

@@ -158,6 +158,7 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
       client: tx,
       requireEvidence: true,
       reason: 'user_deactivated',
+      notificationTenantId: TENANT_ID,
     });
     expect(persistRevokeAllUserTokensMock.mock.invocationCallOrder[0])
       .toBeLessThan(publishRevokeAllUserTokensMock.mock.invocationCallOrder[0]);
@@ -184,6 +185,7 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
       client: tx,
       requireEvidence: true,
       reason: 'role_changed',
+      notificationTenantId: TENANT_ID,
     });
     expect(publishRevokeAllUserTokensMock).toHaveBeenCalledWith(
       GUARDIAN_UID,
@@ -216,6 +218,7 @@ describe('delegated authority writers revoke at the mutation boundary', () => {
       client: tx,
       requireEvidence: true,
       reason: 'user_locked',
+      notificationTenantId: TENANT_ID,
     });
     expect(publishRevokeAllUserTokensMock).toHaveBeenCalledTimes(1);
   });

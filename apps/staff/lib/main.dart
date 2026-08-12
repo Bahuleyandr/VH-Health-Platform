@@ -15,6 +15,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'firebase_options.dart';
 import 'core/config/c0a_reconciliation_config.dart';
+import 'core/config/api_config.dart';
 import 'core/platform_info.dart';
 import 'core/config/observability_config.dart';
 import 'core/navigation/app_router.dart';
@@ -76,7 +77,7 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
   if (message.data['type'] != 'code_blue') return;
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await CodeBlueNotifier.instance.initialize();
-  if (!await mayPresentStaffPush()) {
+  if (!await mayPresentStaffPush(message: message)) {
     await StaffLocalNotifications.instance.cancelSessionNotifications();
     return;
   }
@@ -319,7 +320,8 @@ Future<void> main() async {
         FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
       }
       await CodeBlueNotifier.instance.initialize();
-      if (!await mayPresentStaffPush()) {
+      if (await ApiConfig.getStaffJwtClaims() == null ||
+          await StaffNotificationSessionStore.instance.readActive() == null) {
         await StaffLocalNotifications.instance.cancelSessionNotifications();
       }
 

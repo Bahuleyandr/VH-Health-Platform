@@ -1,12 +1,15 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 
-import { setTenant } from '../../lib/prisma.js';
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField } from '../../utils/fieldEncryption.js';
 import { ALL_STAFF_ROLES } from '../../utils/roleHelpers.js';
-import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { getTenantBySlug } from '../tenant/tenantService.js';
 
 export const SCIM_USER_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:User';
@@ -691,9 +694,17 @@ export async function deactivateScimIdentityTx(tx, {
   // and retained Firebase sessions from before the deprovision are refused at
   // issuance) and pushes `session:revoked` to the identity's live WebSockets
   // (R14) — deliberately unscoped by tenant, matching the kill queries above.
-  const tokens = revokeTokens
-    ? await revokeAllUserTokens(uid, { reason: 'scim_deprovision' })
-    : null;
+  let tokens = null;
+  if (revokeTokens) {
+    const revokedAt = await persistRevokeAllUserTokens(uid, {
+      client: tx,
+      reason: 'scim_deprovision',
+      notificationTenantId: realm === 'staff' ? tenantId : null,
+    });
+    tokens = await publishRevokeAllUserTokens(uid, revokedAt, {
+      reason: 'scim_deprovision',
+    });
+  }
   if (realm === 'staff') {
     await tx.$executeRawUnsafe(
       `UPDATE users
@@ -746,8 +757,14 @@ export async function deactivateScimIdentityTx(tx, {
   };
 }
 
-export async function revokeScimIdentityTokens({ uid }) {
-  return revokeAllUserTokens(uid, { requireEvidence: true, reason: 'scim_deprovision' });
+export async function revokeScimIdentityTokens({ tenantId, uid }) {
+  const revokedAt = await setTenantTx(tenantId, tx => persistRevokeAllUserTokens(uid, {
+    client: tx,
+    requireEvidence: true,
+    reason: 'scim_deprovision',
+    notificationTenantId: tenantId,
+  }));
+  return publishRevokeAllUserTokens(uid, revokedAt, { reason: 'scim_deprovision' });
 }
 
 async function upsertStaff(context, payload, { id = null, method = 'post', req = null } = {}) {

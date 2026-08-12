@@ -12,6 +12,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const migrationPath = join(__dirname, '..', 'migrations', '661_notification_device_global_handoff.sql');
 const migrationSql = readFileSync(migrationPath, 'utf8');
 const statements = splitStatements(migrationSql);
+const authorityMigrationPath = join(__dirname, '..', 'migrations', '663_notification_authority_epoch.sql');
+const authorityStatements = splitStatements(readFileSync(authorityMigrationPath, 'utf8'));
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const d = databaseUrl ? describe : describe.skip;
 
@@ -93,6 +95,30 @@ d('migration 661 notification ownership runtime contract (isolated scratch datab
       ]);
       await client.query('COMMIT');
       return result.rows;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      await client.end();
+    }
+  }
+
+  async function withRuntimeRevoke({ tenantId, userUid, context = tenantId }) {
+    const client = new Client({ connectionString: scratchUrl.toString() });
+    await client.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL ROLE ${RUNTIME_ROLE}`);
+      await client.query(
+        `SELECT pg_catalog.set_config('app.current_tenant_id', $1, true)`,
+        [context],
+      );
+      const result = await client.query(
+        'SELECT public.revoke_notification_authority($1::uuid, $2::uuid) AS cleared',
+        [tenantId, userUid],
+      );
+      await client.query('COMMIT');
+      return result.rows[0];
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
@@ -204,6 +230,7 @@ d('migration 661 notification ownership runtime contract (isolated scratch datab
         WITH CHECK (tenant_id = public.app_current_tenant_id_uuid());
     `);
     for (const statement of statements) await owner.query(statement);
+    for (const statement of authorityStatements) await owner.query(statement);
   });
 
   afterAll(async () => {
@@ -457,5 +484,58 @@ d('migration 661 notification ownership runtime contract (isolated scratch datab
     });
     expect(absent).toEqual([]);
     expect(await codeBlueTokens(TENANT_A)).toEqual(['stable-token']);
+  });
+
+  test('revokes canonical and legacy notification authority without deleting linked rows', async () => {
+    await owner.query(
+      `UPDATE public.users SET device_token = 'authority-token'
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+      [TENANT_A, USER_A],
+    );
+    await withRuntimeCall({
+      tenantId: TENANT_A,
+      userUid: USER_A,
+      deviceId: 'authority-device',
+      token: 'authority-token',
+    });
+    await owner.query(
+      `INSERT INTO public.staff_devices (tenant_id, user_uid, device_id)
+       VALUES ($1::uuid, $2::uuid, 'authority-device')`,
+      [TENANT_A, USER_A],
+    );
+
+    await expect(withRuntimeRevoke({
+      tenantId: TENANT_A,
+      userUid: USER_A,
+      context: TENANT_B,
+    })).rejects.toMatchObject({ code: '42501' });
+    expect(await codeBlueTokens(TENANT_A)).toEqual(['authority-token']);
+
+    expect(await withRuntimeRevoke({ tenantId: TENANT_A, userUid: USER_A }))
+      .toEqual({ cleared: 2 });
+    const state = await owner.query(
+      `SELECT app_user.device_token,
+              device.fcm_token,
+              device.notification_epoch::text,
+              EXISTS (
+                SELECT 1 FROM public.staff_devices AS linked
+                 WHERE linked.tenant_id = device.tenant_id
+                   AND linked.user_uid = device.user_uid
+                   AND linked.device_id = device.device_id
+              ) AS staff_link_remains
+         FROM public.users AS app_user
+         JOIN public.user_devices AS device
+           ON device.tenant_id = app_user.tenant_id
+          AND device.user_uid = app_user.uid
+        WHERE app_user.tenant_id = $1::uuid AND app_user.uid = $2::uuid`,
+      [TENANT_A, USER_A],
+    );
+    expect(state.rows[0]).toEqual({
+      device_token: null,
+      fcm_token: null,
+      notification_epoch: '2',
+      staff_link_remains: true,
+    });
+    expect(await codeBlueTokens(TENANT_A)).toEqual([]);
   });
 });

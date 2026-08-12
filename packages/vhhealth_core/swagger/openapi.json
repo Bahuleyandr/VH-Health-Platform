@@ -87627,6 +87627,26 @@
         }
       }
     },
+    "/api/v1/devices/notification-authority/validate": {
+      "post": {
+        "operationId": "post_api_v1_devices_notification_authority_validate",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/devices/register": {
       "post": {
         "operationId": "post_api_v1_devices_register",

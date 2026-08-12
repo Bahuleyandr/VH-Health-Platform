@@ -57,7 +57,16 @@ async function sendWithRetry(message, maxRetries = 2) {
  * @param {string} options.body - Detailed authenticated-app body; normal FCM display copy is private
  * @param {Object} [options.data] - Optional custom key-value data
  */
-export async function sendPushNotification({ tokens, title, body, data = {}, userId = null, priority = 'normal', channelId = null }) {
+export async function sendPushNotification({
+  tokens,
+  title,
+  body,
+  data = {},
+  userId = null,
+  priority = 'normal',
+  channelId = null,
+  expiresAtUnix = null,
+}) {
   // Also push via WebSocket if userId is provided
   if (userId) {
     try {
@@ -85,6 +94,12 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
   // Android's system tray renders them directly. Their display copy is always
   // privacy-minimized; authenticated app surfaces retain the detailed copy.
   const isHigh = priority === 'high';
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const requestedExpiry = expiresAtUnix == null ? Number.NaN : Number(expiresAtUnix);
+  const transportExpiry = Number.isFinite(requestedExpiry)
+    ? Math.max(nowUnix, Math.min(requestedExpiry, nowUnix + 60))
+    : nowUnix + 60;
+  const androidTtl = Math.max(0, (transportExpiry - nowUnix) * 1000);
   const transportData = isHigh
     ? {
         ...data,
@@ -108,11 +123,14 @@ export async function sendPushNotification({ tokens, title, body, data = {}, use
       ? {
           android: {
             priority: 'high',
-            ttl: 60 * 1000, // 60s — Code Blue is irrelevant after the event window
+            ttl: androidTtl,
             ...(channelId ? { notification: { channelId, priority: 'max', visibility: 'public' } } : {}),
           },
           apns: {
-            headers: { 'apns-priority': '10' },
+            headers: {
+              'apns-priority': '10',
+              'apns-expiration': String(transportExpiry),
+            },
             payload: { aps: { 'interruption-level': 'critical', sound: 'default' } },
           },
         }

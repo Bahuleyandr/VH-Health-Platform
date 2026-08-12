@@ -11346,6 +11346,7 @@ model user_devices {
   app_version                            String?                                 @db.VarChar(50)
   os_version                             String?                                 @db.VarChar(50)
   fcm_token                              String?
+  notification_epoch                     BigInt                                  @default(0)
   last_active                            DateTime?                               @db.Timestamp(6)
   created_at                             DateTime                                @default(now()) @db.Timestamp(6)
   device_type                            String?                                 @db.VarChar(50)

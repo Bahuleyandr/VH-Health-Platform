@@ -201,7 +201,7 @@ export async function isTokenBlacklisted(jti) {
  * Blacklist ALL tokens for a user by storing a "revoke-all" timestamp, and bump
  * the identity's token-generation epoch (R1 issuance-time gate).
  *
- * The single DB statement atomically:
+ * The token-generation DB statement atomically:
  *   1. upserts the durable `user:<uid>` revoke-all watermark row (consulted by
  *      isUserTokensRevoked at verify time), and
  *   2. increments users/admins.token_epoch + stamps token_epoch_bumped_at, so
@@ -214,16 +214,24 @@ export async function isTokenBlacklisted(jti) {
  * option is retained for signature compatibility but is now always effectively
  * true for the durable side.
  *
- * This helper performs only the durable write. Callers that include it in a
- * larger credential transaction must invoke publishRevokeAllUserTokens after
- * commit; revokeAllUserTokens does that automatically for standalone use.
+ * When notificationTenantId is supplied, the same caller-owned transaction
+ * first invokes revoke_notification_authority to clear canonical and legacy
+ * push bindings. Callers that include this helper in a larger credential
+ * transaction must invoke publishRevokeAllUserTokens after commit;
+ * revokeAllUserTokens does that automatically for standalone use.
  *
  * @param {string} userId - User ID whose tokens to revoke
- * @param {{requireEvidence?: boolean, reason?: string}} [opts]
+ * @param {{client?: object, requireEvidence?: boolean, reason?: string,
+ *   notificationTenantId?: string|null}} [opts]
  */
 export async function persistRevokeAllUserTokens(
   userId,
-  { client = prisma, requireEvidence = false, reason = 'revoke_all' } = {},
+  {
+    client = prisma,
+    requireEvidence = false,
+    reason = 'revoke_all',
+    notificationTenantId = null,
+  } = {},
 ) {
   if (!userId) return null;
   let databaseError = null;
@@ -231,6 +239,13 @@ export async function persistRevokeAllUserTokens(
   const isUuidIdentity = UUID_RE.test(String(userId));
   try {
     if (isUuidIdentity) {
+      if (notificationTenantId) {
+        await client.$queryRawUnsafe(
+          'SELECT public.revoke_notification_authority($1::uuid, $2::uuid)',
+          notificationTenantId,
+          String(userId),
+        );
+      }
       // Watermark + epoch bump in ONE statement (data-modifying CTEs are
       // atomic): the durable revocation evidence and the issuance-time gate
       // can never diverge. The uid lives in exactly one of users/admins, so
@@ -239,7 +254,8 @@ export async function persistRevokeAllUserTokens(
         WITH bump_users AS (
           UPDATE users
              SET token_epoch = COALESCE(token_epoch, 0) + 1,
-                 token_epoch_bumped_at = NOW()
+                 token_epoch_bumped_at = NOW(),
+                 device_token = CASE WHEN $4::uuid IS NULL THEN device_token ELSE NULL END
            WHERE uid = $3::uuid
           RETURNING uid
         ), bump_admins AS (
@@ -268,7 +284,7 @@ export async function persistRevokeAllUserTokens(
                epoch_rows
           FROM epoch_count
          WHERE epoch_rows >= 1
-      `, `user:${userId}`, reason, String(userId));
+      `, `user:${userId}`, reason, String(userId), notificationTenantId);
       const epochRows = Number(rows[0]?.epoch_rows);
       if (!Number.isFinite(epochRows) || epochRows < 1) {
         throw new Error('Durable revoke-all did not bump an identity token epoch');
@@ -351,9 +367,20 @@ export async function publishRevokeAllUserTokens(userId, revokedAt, { reason = '
   });
 }
 
-export async function revokeAllUserTokens(userId, { requireEvidence = false, reason = 'revoke_all' } = {}) {
+export async function revokeAllUserTokens(
+  userId,
+  {
+    requireEvidence = false,
+    reason = 'revoke_all',
+    notificationTenantId = null,
+  } = {},
+) {
   if (!userId) return null;
-  const revokedAt = await persistRevokeAllUserTokens(userId, { requireEvidence, reason });
+  const revokedAt = await persistRevokeAllUserTokens(userId, {
+    requireEvidence,
+    reason,
+    notificationTenantId,
+  });
   return publishRevokeAllUserTokens(userId, revokedAt, { reason });
 }
 

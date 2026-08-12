@@ -2,13 +2,59 @@ import 'dart:async';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/config/api_config.dart';
 import 'package:vhhealth_staff/core/providers/notification_provider.dart';
 import 'package:vhhealth_staff/core/services/staff_notification_session.dart';
 
+const staffUidA = '00000000-0000-4000-8000-0000000000a1';
+const staffUidB = '00000000-0000-4000-8000-0000000000b2';
+const tenantA = '00000000-0000-4000-8000-000000000011';
+const tenantB = '00000000-0000-4000-8000-000000000022';
+
+StaffNotificationAudience _audience(
+  String uid, {
+  int registrationEpoch = 1,
+  String sessionEpoch = 'session-family-1',
+}) => StaffNotificationAudience(
+  version: 1,
+  tenantId: uid == staffUidA ? tenantA : tenantB,
+  recipientUid: uid,
+  deviceId: 'installation-1',
+  registrationEpoch: '$registrationEpoch',
+  sessionEpoch: sessionEpoch,
+  authorizationEpoch: '4',
+);
+
+StaffJwtClaims _claims(String uid) => StaffJwtClaims(
+  staffUid: uid,
+  tenantId: uid == staffUidA ? tenantA : tenantB,
+  tokenEpoch: '4',
+  sessionEpoch: 'session-family-1',
+  expiresAt: DateTime.utc(2035),
+);
+
+RemoteMessage _message(
+  StaffNotificationAudience audience, {
+  String type = 'code_blue',
+  String? title,
+}) => RemoteMessage(
+  data: {
+    'type': type,
+    'title': ?title,
+    'notification_authority_version': '${audience.version}',
+    'notification_tenant_id': audience.tenantId,
+    'notification_recipient_uid': audience.recipientUid,
+    'notification_device_id': audience.deviceId,
+    'notification_registration_epoch': audience.registrationEpoch,
+    'notification_session_epoch': audience.sessionEpoch,
+    'notification_authorization_epoch': audience.authorizationEpoch,
+    'notification_expires_at':
+        '${DateTime.utc(2035).millisecondsSinceEpoch ~/ 1000}',
+  },
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const staffUidA = '00000000-0000-4000-8000-0000000000a1';
-  const staffUidB = '00000000-0000-4000-8000-0000000000b2';
 
   test(
     'account handoff unregisters, rotates, clears, and resubscribes',
@@ -24,6 +70,7 @@ void main() {
             ({required fcmToken, required platform, required phone}) async {
               registerCalls += 1;
               registeredTokens.add(fcmToken);
+              return _audience(activeStaffUid);
             },
         unregisterDevice: () async {
           unregisterCalls += 1;
@@ -32,6 +79,8 @@ void main() {
             registerCalls == 0 ? '+919111111111' : '+919222222222',
         staffUidLoader: () async => activeStaffUid,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(activeStaffUid),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: _testSessionStore(),
         clearDeliveredNotifications: () async {},
@@ -42,9 +91,10 @@ void main() {
 
       await provider.beginAuthenticatedSession();
       messaging.foregroundMessages.add(
-        const RemoteMessage(
-          messageId: 'a-alert',
-          data: {'title': 'Account A alert'},
+        _message(
+          _audience(staffUidA),
+          type: 'normal',
+          title: 'Account A alert',
         ),
       );
       await Future<void>.delayed(Duration.zero);
@@ -86,11 +136,14 @@ void main() {
     final provider = NotificationProvider(
       messaging: messaging,
       registerDevice:
-          ({required fcmToken, required platform, required phone}) async {},
+          ({required fcmToken, required platform, required phone}) async =>
+              _audience(staffUidA),
       unregisterDevice: () async {},
       phoneLoader: () async => null,
       staffUidLoader: () async => staffUidA,
       isAuthenticated: () async => true,
+      notificationClaimsLoader: () async => _claims(staffUidA),
+      notificationAuthorityValidator: (_) async => true,
       platformLoader: () => 'android',
       fetchNotifications: () => fetched.future,
       sessionStore: _testSessionStore(),
@@ -124,11 +177,14 @@ void main() {
       registerDevice:
           ({required fcmToken, required platform, required phone}) async {
             registeredPhone = phone;
+            return _audience(staffUidA);
           },
       unregisterDevice: () async {},
       phoneLoader: () async => null,
       staffUidLoader: () async => staffUidA,
       isAuthenticated: () async => true,
+      notificationClaimsLoader: () async => _claims(staffUidA),
+      notificationAuthorityValidator: (_) async => true,
       platformLoader: () => 'android',
       sessionStore: _testSessionStore(),
       clearDeliveredNotifications: () async {},
@@ -157,6 +213,8 @@ void main() {
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidA),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: sessionStore,
         clearDeliveredNotifications: () async {},
@@ -172,9 +230,10 @@ void main() {
       expect(messaging.activeRefreshListeners, 0);
       expect(
         await mayPresentStaffPush(
+          message: _message(_audience(staffUidA)),
           sessionStore: sessionStore,
-          isAuthenticated: () async => true,
-          staffUidLoader: () async => staffUidA,
+          claimsLoader: () async => _claims(staffUidA),
+          authorityValidator: (_) async => true,
         ),
         isFalse,
       );
@@ -185,21 +244,77 @@ void main() {
     'durable marker authorizes only the staff UID that claimed it',
     () async {
       final sessionStore = _testSessionStore();
-      await sessionStore.markActiveFor(staffUidA);
+      await sessionStore.markActive(_audience(staffUidA));
 
       expect(
         await mayPresentStaffPush(
+          message: _message(_audience(staffUidA)),
           sessionStore: sessionStore,
-          isAuthenticated: () async => true,
-          staffUidLoader: () async => staffUidA,
+          claimsLoader: () async => _claims(staffUidA),
+          authorityValidator: (_) async => true,
         ),
         isTrue,
       );
       expect(
         await mayPresentStaffPush(
+          message: _message(_audience(staffUidB)),
           sessionStore: sessionStore,
-          isAuthenticated: () async => true,
-          staffUidLoader: () async => staffUidB,
+          claimsLoader: () async => _claims(staffUidB),
+          authorityValidator: (_) async => true,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'message gate fails closed for missing, expired, or server-revoked authority',
+    () async {
+      final sessionStore = _testSessionStore();
+      final audience = _audience(staffUidA);
+      await sessionStore.markActive(audience);
+
+      expect(
+        await mayPresentStaffPush(
+          message: const RemoteMessage(data: {'type': 'code_blue'}),
+          sessionStore: sessionStore,
+          claimsLoader: () async => _claims(staffUidA),
+          authorityValidator: (_) async => true,
+        ),
+        isFalse,
+      );
+      expect(
+        await mayPresentStaffPush(
+          message: _message(audience),
+          sessionStore: sessionStore,
+          claimsLoader: () async => StaffJwtClaims(
+            staffUid: staffUidA,
+            tenantId: tenantA,
+            tokenEpoch: '4',
+            sessionEpoch: 'session-family-1',
+            expiresAt: DateTime.utc(2020),
+          ),
+          authorityValidator: (_) async => true,
+        ),
+        isFalse,
+      );
+      expect(
+        await mayPresentStaffPush(
+          message: _message(
+            _audience(staffUidA, sessionEpoch: 'old-session-family'),
+          ),
+          sessionStore: sessionStore,
+          claimsLoader: () async => _claims(staffUidA),
+          authorityValidator: (_) async => true,
+        ),
+        isFalse,
+      );
+      expect(
+        await mayPresentStaffPush(
+          message: _message(audience),
+          sessionStore: sessionStore,
+          claimsLoader: () async => _claims(staffUidA),
+          authorityValidator: (_) async => false,
         ),
         isFalse,
       );
@@ -217,11 +332,14 @@ void main() {
           ({required fcmToken, required platform, required phone}) async {
             registrationStarted.complete();
             await releaseRegistration.future;
+            return _audience(staffUidA);
           },
       unregisterDevice: () async {},
       phoneLoader: () async => null,
       staffUidLoader: () async => staffUidA,
       isAuthenticated: () async => true,
+      notificationClaimsLoader: () async => _claims(staffUidA),
+      notificationAuthorityValidator: (_) async => true,
       platformLoader: () => 'android',
       sessionStore: sessionStore,
       clearDeliveredNotifications: () async {},
@@ -261,11 +379,17 @@ void main() {
                 refreshStarted.complete();
                 await releaseRefresh.future;
               }
+              return _audience(
+                staffUidA,
+                registrationEpoch: fcmToken == 'fcm-token-b' ? 2 : 1,
+              );
             },
         unregisterDevice: () async {},
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidA),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: sessionStore,
         foregroundMessageHandler: (_) async {
@@ -284,9 +408,7 @@ void main() {
       await refreshStarted.future;
       expect(await sessionStore.isActiveFor(staffUidA), isFalse);
 
-      messaging.foregroundMessages.add(
-        const RemoteMessage(data: {'type': 'code_blue'}),
-      );
+      messaging.foregroundMessages.add(_message(_audience(staffUidA)));
       await Future<void>.delayed(Duration.zero);
       expect(codeBlueDeliveries, 0);
 
@@ -294,7 +416,7 @@ void main() {
       await _waitUntil(() => sessionStore.isActiveFor(staffUidA));
 
       messaging.foregroundMessages.add(
-        const RemoteMessage(data: {'type': 'code_blue'}),
+        _message(_audience(staffUidA, registrationEpoch: 2)),
       );
       await Future<void>.delayed(Duration.zero);
       expect(codeBlueDeliveries, 1);
@@ -316,11 +438,14 @@ void main() {
               registrationStarted.complete();
               await releaseRegistration.future;
               events.add('register-end');
+              return _audience(staffUidA);
             },
         unregisterDevice: () async => events.add('unregister'),
         phoneLoader: () async => '+919111111111',
         staffUidLoader: () async => staffUidA,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidA),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: _testSessionStore(),
         clearDeliveredNotifications: () async {},
@@ -359,11 +484,14 @@ void main() {
       final provider = NotificationProvider(
         messaging: messaging,
         registerDevice:
-            ({required fcmToken, required platform, required phone}) async {},
+            ({required fcmToken, required platform, required phone}) async =>
+                _audience(staffUidA),
         unregisterDevice: () async {},
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidA),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: sessionStore,
         clearDeliveredNotifications: () async {
@@ -404,11 +532,14 @@ void main() {
       final accountA = NotificationProvider(
         messaging: accountAMessaging,
         registerDevice:
-            ({required fcmToken, required platform, required phone}) async {},
+            ({required fcmToken, required platform, required phone}) async =>
+                _audience(staffUidA),
         unregisterDevice: () async {},
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidA),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: sessionStore,
         clearDeliveredNotifications: () async {},
@@ -429,14 +560,16 @@ void main() {
       expect(await restartedStore.isActiveFor(staffUidA), isFalse);
       expect(
         await mayPresentStaffPush(
+          message: _message(_audience(staffUidA)),
           sessionStore: restartedStore,
-          isAuthenticated: () async => true,
-          staffUidLoader: () async => staffUidA,
+          claimsLoader: () async => _claims(staffUidA),
+          authorityValidator: (_) async => true,
         ),
         isFalse,
       );
 
       var accountBRegistrations = 0;
+      var accountBDeliveries = 0;
       final accountBMessaging = _FakeNotificationMessaging(
         token: 'fcm-token-b',
       );
@@ -445,13 +578,19 @@ void main() {
         registerDevice:
             ({required fcmToken, required platform, required phone}) async {
               accountBRegistrations += 1;
+              return _audience(staffUidB);
             },
         unregisterDevice: () async {},
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidB,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidB),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: restartedStore,
+        foregroundMessageHandler: (_) async {
+          accountBDeliveries += 1;
+        },
         clearDeliveredNotifications: () async {},
         supportsPush: true,
       );
@@ -462,11 +601,18 @@ void main() {
 
       expect(accountBRegistrations, 1);
       expect(await restartedStore.isActiveFor(staffUidB), isTrue);
+      accountBMessaging.foregroundMessages.add(_message(_audience(staffUidA)));
+      await Future<void>.delayed(Duration.zero);
+      expect(accountBDeliveries, 0);
+      accountBMessaging.foregroundMessages.add(_message(_audience(staffUidB)));
+      await Future<void>.delayed(Duration.zero);
+      expect(accountBDeliveries, 1);
       expect(
         await mayPresentStaffPush(
+          message: _message(_audience(staffUidB)),
           sessionStore: restartedStore,
-          isAuthenticated: () async => true,
-          staffUidLoader: () async => staffUidB,
+          claimsLoader: () async => _claims(staffUidB),
+          authorityValidator: (_) async => true,
         ),
         isTrue,
       );
@@ -483,11 +629,14 @@ void main() {
       final provider = NotificationProvider(
         messaging: messaging,
         registerDevice:
-            ({required fcmToken, required platform, required phone}) async {},
+            ({required fcmToken, required platform, required phone}) async =>
+                _audience(staffUidA),
         unregisterDevice: () async {},
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidA),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: _testSessionStore(),
         foregroundMessageHandler: (message) async {
@@ -507,9 +656,7 @@ void main() {
 
       await provider.beginAuthenticatedSession();
       expect(messaging.activeForegroundListeners, 1);
-      messaging.foregroundMessages.add(
-        const RemoteMessage(data: {'type': 'code_blue'}),
-      );
+      messaging.foregroundMessages.add(_message(_audience(staffUidA)));
       await Future<void>.delayed(Duration.zero);
       expect(codeBlueDeliveries, 1);
       expect(postedCodeBlue, isTrue);
@@ -519,9 +666,7 @@ void main() {
       expect(surfaceCleanupCalls, 1);
       expect(postedCodeBlue, isFalse);
       expect(messaging.activeForegroundListeners, 0);
-      messaging.foregroundMessages.add(
-        const RemoteMessage(data: {'type': 'code_blue'}),
-      );
+      messaging.foregroundMessages.add(_message(_audience(staffUidA)));
       await Future<void>.delayed(Duration.zero);
       expect(codeBlueDeliveries, 1);
     },
@@ -543,11 +688,14 @@ void main() {
         registerDevice:
             ({required fcmToken, required platform, required phone}) async {
               registrations += 1;
+              return _audience(staffUidA);
             },
         unregisterDevice: () async => unregistrations += 1,
         phoneLoader: () async => null,
         staffUidLoader: () async => staffUidA,
         isAuthenticated: () async => true,
+        notificationClaimsLoader: () async => _claims(staffUidA),
+        notificationAuthorityValidator: (_) async => true,
         platformLoader: () => 'android',
         sessionStore: sessionStore,
         clearDeliveredNotifications: () async {

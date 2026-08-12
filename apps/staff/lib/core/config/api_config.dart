@@ -10,6 +10,22 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 
 export 'package:vhhealth_core/config/api_config.dart' hide ApiConfig;
 
+class StaffJwtClaims {
+  const StaffJwtClaims({
+    required this.staffUid,
+    required this.tenantId,
+    required this.tokenEpoch,
+    required this.sessionEpoch,
+    required this.expiresAt,
+  });
+
+  final String staffUid;
+  final String tenantId;
+  final String tokenEpoch;
+  final String sessionEpoch;
+  final DateTime expiresAt;
+}
+
 class ApiConfig {
   ApiConfig._();
 
@@ -116,17 +132,7 @@ class ApiConfig {
 
   static Future<bool> isLoggedIn() async {
     try {
-      final jwt =
-          await _storage.read(key: _staffJwtKey) ??
-          await _storage.read(key: _coreJwtKey);
-      if (jwt == null || jwt.isEmpty) return false;
-      // Basic JWT shape: header.payload.signature with non-empty parts.
-      // Without this, any non-empty garbage in storage (e.g. after a
-      // FlutterSecureStorage bad-base64 / decrypt-failed event) was being
-      // treated as a valid login → splash routed to /dashboard before the
-      // user ever signed in.
-      final parts = jwt.split('.');
-      if (parts.length != 3 || parts.any((p) => p.isEmpty)) {
+      if (await getStaffJwtClaims() == null) {
         await _storage.delete(key: _staffJwtKey);
         await _storage.delete(key: _coreJwtKey);
         return false;
@@ -142,6 +148,52 @@ class ApiConfig {
     }
   }
 
+  static Future<StaffJwtClaims?> getStaffJwtClaims({DateTime? now}) async {
+    try {
+      final jwt =
+          await _storage.read(key: _staffJwtKey) ??
+          await _storage.read(key: _coreJwtKey);
+      if (jwt == null || jwt.isEmpty) return null;
+      final parts = jwt.split('.');
+      if (parts.length != 3 || parts.any((part) => part.isEmpty)) return null;
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
+      if (payload is! Map<String, dynamic>) return null;
+      final staffUid = _staffUidFromPayload(payload);
+      final tenantId = (payload['tenant_id'] ?? payload['tenantId'])
+          ?.toString()
+          .trim();
+      final tokenEpoch = payload['token_epoch']?.toString().trim();
+      final sessionEpoch = payload['sessionFamilyId']?.toString().trim();
+      final exp = num.tryParse(payload['exp']?.toString() ?? '');
+      if (staffUid == null ||
+          tenantId == null ||
+          tenantId.isEmpty ||
+          tokenEpoch == null ||
+          tokenEpoch.isEmpty ||
+          sessionEpoch == null ||
+          sessionEpoch.isEmpty ||
+          exp == null) {
+        return null;
+      }
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+        exp.toInt() * 1000,
+        isUtc: true,
+      );
+      if (!expiresAt.isAfter((now ?? DateTime.now()).toUtc())) return null;
+      return StaffJwtClaims(
+        staffUid: staffUid,
+        tenantId: tenantId,
+        tokenEpoch: tokenEpoch,
+        sessionEpoch: sessionEpoch,
+        expiresAt: expiresAt,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   static String? _staffUidFromJwt(String? jwt) {
     try {
       if (jwt == null || jwt.isEmpty) return null;
@@ -151,15 +203,19 @@ class ApiConfig {
         utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
       );
       if (payload is! Map<String, dynamic>) return null;
-      final staff = payload['staff'];
-      for (final key in ['uid', 'user_uid', 'staff_uid', 'sub']) {
-        final value = payload[key] ?? (staff is Map ? staff[key] : null);
-        if (value != null && value.toString().trim().isNotEmpty) {
-          return value.toString().trim();
-        }
-      }
+      return _staffUidFromPayload(payload);
     } catch (_) {
       return null;
+    }
+  }
+
+  static String? _staffUidFromPayload(Map<String, dynamic> payload) {
+    final staff = payload['staff'];
+    for (final key in ['uid', 'user_uid', 'staff_uid', 'sub']) {
+      final value = payload[key] ?? (staff is Map ? staff[key] : null);
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
     }
     return null;
   }

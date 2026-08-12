@@ -676,6 +676,7 @@ export class UserService {
         client: tx,
         requireEvidence: true,
         reason: 'user_deactivated',
+        notificationTenantId: String(user.tenant_id),
       });
     });
 

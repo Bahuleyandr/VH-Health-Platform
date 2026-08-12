@@ -377,6 +377,7 @@ export class RBACService {
           client: tx,
           requireEvidence: true,
           reason: 'role_changed',
+          notificationTenantId: actorTenantId,
         });
 
         return {
@@ -652,6 +653,7 @@ export class RBACService {
               client: tx,
               requireEvidence: true,
               reason: 'user_locked',
+              notificationTenantId: actorTenantId,
             });
 
         return { ...row, revokedAt };

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 
 import 'api_client.dart';
+import 'staff_notification_session.dart';
 
 /// HR-related API calls: dashboard, staff management, performance,
 /// incidents, grievances, housekeeping, payroll.
@@ -812,7 +813,7 @@ class HrApiService {
   // ─── Device Registration ──────────────────────────────────────────────────
 
   /// POST /devices/register — register FCM token
-  static Future<void> registerDevice({
+  static Future<StaffNotificationAudience> registerDevice({
     required String? phone,
     required String fcmToken,
     required String platform,
@@ -832,6 +833,15 @@ class HrApiService {
     if (!response.isSuccess) {
       throw Exception(response.failureMessage('Device registration failed'));
     }
+    final audience = StaffNotificationAudience.fromJson(
+      response.dataAsMap()['notificationAuthority'],
+    );
+    if (audience == null) {
+      throw StateError(
+        'Device registration did not return notification authority',
+      );
+    }
+    return audience;
   }
 
   /// Removes this app installation's FCM binding for the authenticated staff

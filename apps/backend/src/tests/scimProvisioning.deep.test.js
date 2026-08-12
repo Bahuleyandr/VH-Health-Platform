@@ -17,11 +17,13 @@ const setTenantMock = jest.fn();
 const queryRawUnsafe = jest.fn();
 const executeRawUnsafe = jest.fn();
 const getTenantBySlug = jest.fn();
-const revokeAllUserTokens = jest.fn();
+const persistRevokeAllUserTokens = jest.fn();
+const publishRevokeAllUserTokens = jest.fn();
 
 jest.unstable_mockModule('../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe, $executeRawUnsafe: executeRawUnsafe },
   setTenant: setTenantMock,
+  setTenantTx: setTenantMock,
 }));
 
 jest.unstable_mockModule('../services/tenant/tenantService.js', () => ({
@@ -29,7 +31,8 @@ jest.unstable_mockModule('../services/tenant/tenantService.js', () => ({
 }));
 
 jest.unstable_mockModule('../utils/tokenBlacklist.js', () => ({
-  revokeAllUserTokens,
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
 }));
 
 jest.unstable_mockModule('../logging/logger.js', () => ({
@@ -537,7 +540,8 @@ describe('SCIM 2.0 provisioning service', () => {
     }));
     queryRawUnsafe.mockImplementation(routeQuery);
     executeRawUnsafe.mockImplementation(routeExecute);
-    revokeAllUserTokens.mockResolvedValue(undefined);
+    persistRevokeAllUserTokens.mockResolvedValue(1_700_000_000);
+    publishRevokeAllUserTokens.mockResolvedValue({ database: { persisted: true } });
   });
 
   afterEach(() => {
@@ -645,7 +649,10 @@ describe('SCIM 2.0 provisioning service', () => {
     expect(result.resource.active).toBe(false);
     expect(findStaffByUid(STAFF_UID).user).toMatchObject({ is_active: false, status: 'inactive' });
     expect(findStaffByUid(STAFF_UID).staff).toMatchObject({ is_active: false, archived: true });
-    expect(revokeAllUserTokens).toHaveBeenCalledWith(STAFF_UID, { reason: 'scim_deprovision' });
+    expect(persistRevokeAllUserTokens).toHaveBeenCalledWith(STAFF_UID, expect.objectContaining({
+      reason: 'scim_deprovision',
+      notificationTenantId: TENANT_A,
+    }));
     expect(scenario.activeSessions).toBe(0);
     expect(scenario.staffAuthSessions).toBe(0);
     expect(scenario.staffDevices).toBe(0);
@@ -688,7 +695,7 @@ describe('SCIM 2.0 provisioning service', () => {
 
     expect(result.resource.active).toBe(true);
     expect(findStaffByUid(STAFF_UID).user.is_active).toBe(true);
-    expect(revokeAllUserTokens).not.toHaveBeenCalled();
+    expect(persistRevokeAllUserTokens).not.toHaveBeenCalled();
     expect(scenario.commandReceipts.at(-1)).toMatchObject({
       commandKind: 'deactivate',
       effectDisposition: 'live_excluded',
