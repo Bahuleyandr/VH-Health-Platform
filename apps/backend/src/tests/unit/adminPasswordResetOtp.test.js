@@ -45,6 +45,17 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({
   getHealthStatus: jest.fn(),
 }));
 
+const persistRevokeAllUserTokensMock = jest.fn().mockResolvedValue(1_700_000_000);
+const publishRevokeAllUserTokensMock = jest.fn().mockResolvedValue({ database: { persisted: true } });
+jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
+  blacklistToken: jest.fn(),
+  getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
+  isTokenBlacklisted: jest.fn().mockResolvedValue(false),
+  persistRevokeAllUserTokens: persistRevokeAllUserTokensMock,
+  publishRevokeAllUserTokens: publishRevokeAllUserTokensMock,
+  revokeAllUserTokens: jest.fn(),
+}));
+
 // ── Import the service under test (after mocks) ─────────────────────
 // NOTE: securityConfig is intentionally NOT mocked here so we exercise the real
 // SECURITY_CONFIG.otp.maxAttemptsPerPhone that the password-reset lock now
@@ -123,6 +134,16 @@ describe('AuthService.adminResetPassword', () => {
     expect(whereArg).toHaveProperty('user_id', ADMIN_UID);
     expect(whereArg).not.toHaveProperty('otp');
     expect(whereArg.used).toBe(false);
+    expect(persistRevokeAllUserTokensMock).toHaveBeenCalledWith(ADMIN_UID, {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'password_reset',
+    });
+    expect(publishRevokeAllUserTokensMock).toHaveBeenCalledWith(
+      ADMIN_UID,
+      1_700_000_000,
+      { reason: 'password_reset' },
+    );
   });
 
   it('succeeds with the correct OTP within the window and marks it used', async () => {

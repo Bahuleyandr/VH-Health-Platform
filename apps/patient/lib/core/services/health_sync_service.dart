@@ -1,14 +1,267 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'api_client.dart';
+
+class HealthSyncRunResult {
+  final int updatedSurfaces;
+  final bool succeeded;
+
+  const HealthSyncRunResult({
+    required this.updatedSurfaces,
+    required this.succeeded,
+  });
+}
+
+class HealthSyncRunCoordinator {
+  Future<HealthSyncRunResult>? _inFlight;
+
+  Future<HealthSyncRunResult> run(
+    Future<HealthSyncRunResult> Function() operation,
+  ) {
+    final pending = _inFlight;
+    if (pending != null) return pending;
+
+    late final Future<HealthSyncRunResult> tracked;
+    tracked = operation().whenComplete(() {
+      if (identical(_inFlight, tracked)) _inFlight = null;
+    });
+    _inFlight = tracked;
+    return tracked;
+  }
+}
+
+class HealthSyncCheckpointPolicy {
+  static const Duration bootstrapWindow = Duration(days: 7);
+  static const Duration vitalsReplayWindow = Duration(hours: 1);
+  static const Duration vitalsSafetyWindow = Duration(days: 7);
+  static const Duration vitalsSafetyInterval = Duration(days: 1);
+
+  static DateTime _dayStart(DateTime value) {
+    final local = value.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  static bool vitalsSafetyScanDue(DateTime? lastSafetyScan, DateTime now) =>
+      lastSafetyScan == null ||
+      lastSafetyScan.isAfter(now) ||
+      !lastSafetyScan.add(vitalsSafetyInterval).isAfter(now);
+
+  static DateTime vitalsStart(
+    DateTime? cursor,
+    DateTime now, {
+    DateTime? lastSafetyScan,
+  }) {
+    if (cursor == null) return _dayStart(now).subtract(bootstrapWindow);
+
+    final replayStart = cursor.subtract(vitalsReplayWindow);
+    if (!vitalsSafetyScanDue(lastSafetyScan, now)) return replayStart;
+    final safetyStart = now.subtract(vitalsSafetyWindow);
+    return replayStart.isBefore(safetyStart) ? replayStart : safetyStart;
+  }
+
+  static bool includesVitalSample(DateTime sampleAt, DateTime replayStart) =>
+      !sampleAt.isBefore(replayStart);
+
+  static DateTime activityStart(DateTime? cursor, DateTime now) {
+    final bootstrap = _dayStart(now).subtract(bootstrapWindow);
+    if (cursor == null) return bootstrap;
+
+    final cursorDay = _dayStart(cursor);
+    final yesterday = _dayStart(now).subtract(const Duration(days: 1));
+    return cursorDay.isBefore(yesterday) ? cursorDay : yesterday;
+  }
+}
+
+String buildHealthSyncVitalCursorKey({
+  required String ownerScope,
+  required String sourceTag,
+  required String sampleType,
+}) => 'health_sync_${ownerScope}_last_vitals_${sourceTag}_$sampleType';
+
+String buildHealthSyncVitalSafetyKey({
+  required String ownerScope,
+  required String sourceTag,
+  required String sampleType,
+}) => 'health_sync_${ownerScope}_last_vitals_safety_${sourceTag}_$sampleType';
+
+Future<String> buildHealthSyncOwnerScope(String ownerId) async {
+  final digest = await Sha256().hash(utf8.encode(ownerId.trim()));
+  return digest.bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
+
+bool isHealthSyncAccountSessionActive({
+  required String? currentOwnerScope,
+  required String? persistedOwnerScope,
+  String? scheduledOwnerScope,
+}) {
+  if (currentOwnerScope == null ||
+      persistedOwnerScope == null ||
+      currentOwnerScope != persistedOwnerScope) {
+    return false;
+  }
+  return scheduledOwnerScope == null ||
+      scheduledOwnerScope == currentOwnerScope;
+}
+
+bool shouldSyncHealthRecordingMethod(RecordingMethod method) =>
+    method != RecordingMethod.manual;
+
+bool shouldSyncHealthDataPoint({
+  required RecordingMethod recordingMethod,
+  required String sourceId,
+}) =>
+    shouldSyncHealthRecordingMethod(recordingMethod) &&
+    sourceId.trim().toLowerCase() != 'com.vh.vhhealth';
+
+String buildHealthSyncCorrectionPath(String sourceRecordId) =>
+    '/health/patient/vitals/wearable/${Uri.encodeComponent(sourceRecordId)}';
+
+enum HealthSyncPostDisposition {
+  accepted,
+  correctionRequired,
+  terminalRejection,
+  retryableFailure,
+}
+
+HealthSyncPostDisposition classifyHealthSyncPostStatus(int statusCode) {
+  if (statusCode >= 200 && statusCode < 300) {
+    return HealthSyncPostDisposition.accepted;
+  }
+  if (statusCode == 409) {
+    return HealthSyncPostDisposition.correctionRequired;
+  }
+  if (statusCode == 400) {
+    return HealthSyncPostDisposition.terminalRejection;
+  }
+  return HealthSyncPostDisposition.retryableFailure;
+}
+
+class HealthSyncRejectionPolicy {
+  static const int maxEntries = 512;
+}
+
+List<String> retainHealthSyncRejectionKeys(Iterable<String> values) {
+  final ordered = <String>[];
+  final seen = <String>{};
+  for (final value in values) {
+    if (seen.add(value)) ordered.add(value);
+  }
+  if (ordered.length <= HealthSyncRejectionPolicy.maxEntries) return ordered;
+  return ordered.sublist(ordered.length - HealthSyncRejectionPolicy.maxEntries);
+}
+
+String formatHealthSyncRfc3339(DateTime value) {
+  final local = value.toLocal();
+  final offset = local.timeZoneOffset;
+  final sign = offset.isNegative ? '-' : '+';
+  final absoluteMinutes = offset.inMinutes.abs();
+  final hours = (absoluteMinutes ~/ 60).toString().padLeft(2, '0');
+  final minutes = (absoluteMinutes % 60).toString().padLeft(2, '0');
+  return '${local.toIso8601String()}$sign$hours:$minutes';
+}
+
+List<List<T>> partitionHealthSyncDays<T>(List<T> values) {
+  const batchSize = 31;
+  return [
+    for (var start = 0; start < values.length; start += batchSize)
+      values.sublist(
+        start,
+        start + batchSize > values.length ? values.length : start + batchSize,
+      ),
+  ];
+}
+
+class HealthSyncCheckpointBatch<T> {
+  final DateTime checkpoint;
+  final List<T> values;
+
+  const HealthSyncCheckpointBatch({
+    required this.checkpoint,
+    required this.values,
+  });
+}
+
+List<HealthSyncCheckpointBatch<T>> groupHealthSyncSamples<T>(
+  List<T> values, {
+  required DateTime Function(T value) recordedAt,
+  required String Function(T value) stableId,
+}) {
+  final ordered = List<T>.of(values)
+    ..sort((a, b) {
+      final byTime = recordedAt(a).compareTo(recordedAt(b));
+      return byTime != 0 ? byTime : stableId(a).compareTo(stableId(b));
+    });
+  final batches = <HealthSyncCheckpointBatch<T>>[];
+  for (var index = 0; index < ordered.length;) {
+    final checkpoint = recordedAt(ordered[index]);
+    final batch = <T>[];
+    while (index < ordered.length && recordedAt(ordered[index]) == checkpoint) {
+      batch.add(ordered[index]);
+      index += 1;
+    }
+    batches.add(
+      HealthSyncCheckpointBatch(checkpoint: checkpoint, values: batch),
+    );
+  }
+  return batches;
+}
+
+Future<String> buildHealthSyncSourceRecordId({
+  required String sampleType,
+  required String nativeId,
+  required String sourceId,
+  required DateTime dateFrom,
+  required DateTime dateTo,
+}) async {
+  final identity = nativeId.trim().isNotEmpty
+      ? 'native\u0000${nativeId.trim()}'
+      : 'fallback\u0000$sourceId\u0000${dateFrom.toUtc().toIso8601String()}\u0000${dateTo.toUtc().toIso8601String()}';
+  final digest = await Sha256().hash(utf8.encode(identity));
+  final hex = digest.bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return '$sampleType:$hex';
+}
+
+Future<String> buildHealthSyncRejectionKey({
+  required String sourceTag,
+  required String field,
+  required num value,
+  required String sourceRecordId,
+  required DateTime recordedAt,
+}) async {
+  final payload = jsonEncode([
+    sourceTag,
+    field,
+    value,
+    sourceRecordId,
+    recordedAt.toUtc().toIso8601String(),
+  ]);
+  final digest = await Sha256().hash(utf8.encode(payload));
+  return digest.bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
+
+String buildHealthSyncCorrectionAttemptKey({
+  required String sourceTag,
+  required String targetFingerprint,
+}) =>
+    'wearable-vital-correction:$sourceTag:$targetFingerprint:${const Uuid().v4()}';
 
 /// Bridges Apple HealthKit / Google Health Connect (Fit successor) into the
 /// VHHealth backend. Sync runs on three schedules:
@@ -21,7 +274,8 @@ class HealthSyncService {
   HealthSyncService._();
   static final HealthSyncService instance = HealthSyncService._();
 
-  static const String _prefsLastSyncPrefix = 'health_sync_last_';
+  static const String _prefsActiveOwnerScope = 'health_sync_active_owner_scope';
+  static const String _backgroundOwnerScopeInput = 'ownerScope';
   static const Duration _foregroundInterval = Duration(minutes: 30);
   static const String backgroundTaskName = 'vhhealth.health_sync';
 
@@ -66,7 +320,9 @@ class HealthSyncService {
   ];
 
   final Health _health = Health();
+  static final _storage = VHSecureStorage.instance;
   Timer? _periodicTimer;
+  final HealthSyncRunCoordinator _syncCoordinator = HealthSyncRunCoordinator();
   bool _permissionsGranted = false;
   bool _writePermissionsGranted = false;
   // True once we've surfaced the write-permission sheet to the user this
@@ -110,11 +366,13 @@ class HealthSyncService {
       permissions: permissions,
     );
     _permissionsGranted = granted && _isFullReadSet(types);
-    return granted;
+    if (!granted) return false;
+    return _bindCurrentAccount();
   }
 
-  /// Check whether HealthKit / Health Connect read permissions are already
-  /// available without opening the OS permission sheet.
+  /// Check whether HealthKit / Health Connect reads are already authorized for
+  /// this app account. An OS grant inherited from a prior account deliberately
+  /// returns false until the current user reconnects from an explicit prompt.
   Future<bool> hasReadPermissions() async {
     return _hasReadPermissions(_readTypes);
   }
@@ -136,7 +394,15 @@ class HealthSyncService {
 
     final has = await _health.hasPermissions(types) ?? false;
     _permissionsGranted = has && _isFullReadSet(types);
-    return has;
+    if (!has) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final ownerScope = await _currentOwnerScope();
+    return isHealthSyncAccountSessionActive(
+      currentOwnerScope: ownerScope,
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+    );
   }
 
   /// Health Connect can sync while the app is backgrounded only when Android
@@ -202,32 +468,114 @@ class HealthSyncService {
   ///
   /// Silent path — does **not** prompt for permissions. Background/resume
   /// callers rely on this behaviour to avoid spurious prompts.
-  Future<int> syncNow() async {
-    if (PatientOutageController.instance.blocksHospitalMutations) return 0;
-    if (!_isSupportedPlatform) return 0;
+  Future<int> syncNow() async =>
+      (await _syncCoordinator.run(_performSync)).updatedSurfaces;
+
+  Future<bool> syncForBackground({String? scheduledOwnerScope}) async =>
+      (await _syncCoordinator.run(
+        () => _performSync(scheduledOwnerScope: scheduledOwnerScope),
+      )).succeeded;
+
+  Future<HealthSyncRunResult> _performSync({
+    String? scheduledOwnerScope,
+  }) async {
+    if (PatientOutageController.instance.blocksHospitalMutations) {
+      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: false);
+    }
+    if (!_isSupportedPlatform) {
+      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final ownerScope = await _currentOwnerScope();
+    if (!isHealthSyncAccountSessionActive(
+      currentOwnerScope: ownerScope,
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+      scheduledOwnerScope: scheduledOwnerScope,
+    )) {
+      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
+    }
+    final activeOwnerScope = ownerScope!;
     var types = _availableReadTypes();
-    if (types.isEmpty) return 0;
+    if (types.isEmpty) {
+      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
+    }
     if (!_permissionsGranted) {
       await _health.configure();
       if (Platform.isAndroid) {
         types = await _grantedReadTypes(types);
-        if (types.isEmpty) return 0;
+        if (types.isEmpty) {
+          return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
+        }
       } else {
         final has = await _health.hasPermissions(types) ?? false;
-        if (!has) return 0;
+        if (!has) {
+          return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
+        }
         _permissionsGranted = true;
       }
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final sourceKey = '$_prefsLastSyncPrefix$_sourceTag';
-    final lastIso = prefs.getString(sourceKey);
+    final activityKey =
+        'health_sync_${activeOwnerScope}_last_activity_$_sourceTag';
     final end = DateTime.now();
-    final todayStart = DateTime(end.year, end.month, end.day);
-    final start = lastIso == null
-        ? todayStart.subtract(const Duration(days: 7))
-        : todayStart.subtract(const Duration(days: 1));
-    if (!end.isAfter(start)) return 0;
+    final vitalTypes = types.where(_isVitalType).toList();
+    final hasActivityReadTypes = types.any(_isActivityType);
+    final vitalCursorKeys = <HealthDataType, String>{
+      for (final type in vitalTypes)
+        type: buildHealthSyncVitalCursorKey(
+          ownerScope: activeOwnerScope,
+          sourceTag: _sourceTag,
+          sampleType: type.name,
+        ),
+    };
+    final vitalSafetyKeys = <HealthDataType, String>{
+      for (final type in vitalTypes)
+        type: buildHealthSyncVitalSafetyKey(
+          ownerScope: activeOwnerScope,
+          sourceTag: _sourceTag,
+          sampleType: type.name,
+        ),
+    };
+    final vitalCursors = <HealthDataType, DateTime?>{
+      for (final type in vitalTypes)
+        type: _readCursor(prefs.getString(vitalCursorKeys[type]!), end),
+    };
+    final vitalSafetyScans = <HealthDataType, DateTime?>{
+      for (final type in vitalTypes)
+        type: _readCursor(prefs.getString(vitalSafetyKeys[type]!), end),
+    };
+    final vitalSafetyScanDue = <HealthDataType, bool>{
+      for (final type in vitalTypes)
+        type: HealthSyncCheckpointPolicy.vitalsSafetyScanDue(
+          vitalSafetyScans[type],
+          end,
+        ),
+    };
+    final vitalStarts = <HealthDataType, DateTime>{
+      for (final type in vitalTypes)
+        type: HealthSyncCheckpointPolicy.vitalsStart(
+          vitalCursors[type],
+          end,
+          lastSafetyScan: vitalSafetyScans[type],
+        ),
+    };
+    final activityCursor = _readCursor(prefs.getString(activityKey), end);
+    final activityStart = HealthSyncCheckpointPolicy.activityStart(
+      activityCursor,
+      end,
+    );
+    final starts = [
+      if (hasActivityReadTypes) activityStart,
+      ...vitalStarts.values,
+    ];
+    final start = starts.reduce(
+      (earliest, candidate) =>
+          candidate.isBefore(earliest) ? candidate : earliest,
+    );
+    if (!end.isAfter(start)) {
+      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: true);
+    }
 
     final List<HealthDataPoint> points;
     try {
@@ -238,47 +586,38 @@ class HealthSyncService {
       );
     } catch (e) {
       if (kDebugMode) debugPrint('HealthSyncService: read failed: $e');
-      return 0;
+      return const HealthSyncRunResult(updatedSurfaces: 0, succeeded: false);
     }
-    if (points.isEmpty) {
-      await prefs.setString(sourceKey, end.toIso8601String());
-      return 0;
-    }
-
-    double? heartRate;
-    double? spo2;
-    double? weight;
-    double? temperature;
     double steps = 0;
-    DateTime? latestSampleAt;
-    DateTime? latestHeartRateAt;
-    DateTime? latestSpo2At;
-    DateTime? latestWeightAt;
-    DateTime? latestTemperatureAt;
     String? sourceApp;
     String? sourceDevice;
     final daily = <String, _DailyActivitySummary>{};
+    final vitalSamples = <_WearableVitalSample>[];
 
     for (final p in points) {
+      if (!shouldSyncHealthDataPoint(
+        recordingMethod: p.recordingMethod,
+        sourceId: p.sourceId,
+      )) {
+        continue;
+      }
       if (sourceApp == null && p.sourceName.trim().isNotEmpty) {
         sourceApp = p.sourceName.trim();
       }
       if (sourceDevice == null && p.sourceDeviceId.trim().isNotEmpty) {
         sourceDevice = p.sourceDeviceId.trim();
       }
-      final day = _dayKey(_isSleepType(p.type) ? p.dateTo : p.dateFrom);
-      final summary = daily.putIfAbsent(
-        day,
-        () => _DailyActivitySummary(date: day),
-      );
       if (_isSleepType(p.type)) {
+        if (p.dateTo.isBefore(activityStart)) continue;
+        final day = _dayKey(p.dateTo);
+        final summary = daily.putIfAbsent(
+          day,
+          () => _DailyActivitySummary(date: day),
+        );
         final minutes = p.dateTo.difference(p.dateFrom).inMinutes;
         if (minutes > 0) {
           summary.sleepMinutes += minutes;
           summary.trackLatest(p.dateTo);
-        }
-        if (latestSampleAt == null || p.dateTo.isAfter(latestSampleAt)) {
-          latestSampleAt = p.dateTo;
         }
         continue;
       }
@@ -287,86 +626,256 @@ class HealthSyncService {
       if (v == null) continue;
       switch (p.type) {
         case HealthDataType.HEART_RATE:
-          if (latestHeartRateAt == null ||
-              p.dateFrom.isAfter(latestHeartRateAt)) {
-            heartRate = v;
-            latestHeartRateAt = p.dateFrom;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
           }
+          vitalSamples.add(
+            await _buildVitalSample(
+              healthType: p.type,
+              field: 'heartRate',
+              value: v.round(),
+              point: p,
+            ),
+          );
           break;
         case HealthDataType.BLOOD_OXYGEN:
-          final pct = v <= 1.0 ? v * 100 : v;
-          if (latestSpo2At == null || p.dateFrom.isAfter(latestSpo2At)) {
-            spo2 = pct;
-            latestSpo2At = p.dateFrom;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
           }
+          final pct = v <= 1.0 ? v * 100 : v;
+          vitalSamples.add(
+            await _buildVitalSample(
+              healthType: p.type,
+              field: 'spO2',
+              value: pct.round(),
+              point: p,
+            ),
+          );
           break;
         case HealthDataType.STEPS:
+          if (p.dateTo.isBefore(activityStart)) break;
+          final day = _dayKey(p.dateFrom);
+          final summary = daily.putIfAbsent(
+            day,
+            () => _DailyActivitySummary(date: day),
+          );
           steps += v;
           summary.steps += v.round();
           summary.trackLatest(p.dateTo);
           break;
         case HealthDataType.DISTANCE_DELTA:
         case HealthDataType.DISTANCE_WALKING_RUNNING:
+          if (p.dateTo.isBefore(activityStart)) break;
+          final day = _dayKey(p.dateFrom);
+          final summary = daily.putIfAbsent(
+            day,
+            () => _DailyActivitySummary(date: day),
+          );
           summary.distanceMeters += v;
           summary.trackLatest(p.dateTo);
           break;
         case HealthDataType.ACTIVE_ENERGY_BURNED:
+          if (p.dateTo.isBefore(activityStart)) break;
+          final day = _dayKey(p.dateFrom);
+          final summary = daily.putIfAbsent(
+            day,
+            () => _DailyActivitySummary(date: day),
+          );
           summary.activeEnergyKcal += v;
           summary.trackLatest(p.dateTo);
           break;
         case HealthDataType.WEIGHT:
-          if (latestWeightAt == null || p.dateFrom.isAfter(latestWeightAt)) {
-            weight = v;
-            latestWeightAt = p.dateFrom;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
           }
+          vitalSamples.add(
+            await _buildVitalSample(
+              healthType: p.type,
+              field: 'weight',
+              value: v,
+              point: p,
+            ),
+          );
           break;
         case HealthDataType.BODY_TEMPERATURE:
-          if (latestTemperatureAt == null ||
-              p.dateFrom.isAfter(latestTemperatureAt)) {
-            temperature = v;
-            latestTemperatureAt = p.dateFrom;
+          if (!HealthSyncCheckpointPolicy.includesVitalSample(
+            p.dateTo,
+            vitalStarts[p.type]!,
+          )) {
+            break;
           }
+          vitalSamples.add(
+            await _buildVitalSample(
+              healthType: p.type,
+              field: 'temperature',
+              value: v,
+              point: p,
+            ),
+          );
           break;
         default:
           break;
       }
-      if (latestSampleAt == null || p.dateTo.isAfter(latestSampleAt)) {
-        latestSampleAt = p.dateTo;
-      }
     }
 
     var updatedSurfaces = 0;
-
-    final body = <String, dynamic>{
-      if (heartRate != null) 'heartRate': heartRate.round(),
-      if (spo2 != null) 'spO2': spo2.round(),
-      'weight': ?weight,
-      'temperature': ?temperature,
-      'source': _sourceTag,
-      'recordedAtSource': (latestSampleAt ?? end).toIso8601String(),
-    };
-
-    if (heartRate != null ||
-        spo2 != null ||
-        weight != null ||
-        temperature != null) {
-      try {
-        final resp = await ApiClient.post('/health/patient/vitals', body: body);
-        if (resp.isSuccess) {
-          updatedSurfaces += 1;
-        } else if (kDebugMode) {
-          debugPrint(
-            'HealthSyncService: vitals POST failed ${resp.statusCode}',
-          );
+    var succeeded = true;
+    var vitalsUpdated = false;
+    final rejectionKey =
+        'health_sync_${activeOwnerScope}_rejected_vitals_$_sourceTag';
+    final rejectedSamples =
+        (prefs.getStringList(rejectionKey) ?? const <String>[]).toSet();
+    for (final type in vitalTypes) {
+      var typeSucceeded = true;
+      final vitalBatches = groupHealthSyncSamples(
+        vitalSamples.where((sample) => sample.healthType == type).toList(),
+        recordedAt: (sample) => sample.recordedAt,
+        stableId: (sample) => sample.sourceRecordId,
+      );
+      for (final batch in vitalBatches) {
+        var groupSucceeded = true;
+        for (final sample in batch.values) {
+          if (rejectedSamples.contains(sample.rejectionKey)) continue;
+          if (!await _accountSessionStillActive(prefs, activeOwnerScope)) {
+            return const HealthSyncRunResult(
+              updatedSurfaces: 0,
+              succeeded: true,
+            );
+          }
+          try {
+            final body = <String, dynamic>{
+              sample.field: sample.value,
+              'source': _sourceTag,
+              'sourceRecordId': sample.sourceRecordId,
+              'recordedAtSource': formatHealthSyncRfc3339(sample.recordedAt),
+            };
+            final resp = await ApiClient.post(
+              '/health/patient/vitals',
+              body: body,
+              idempotencyKey:
+                  'wearable-vital:$_sourceTag:${sample.sourceRecordId}',
+            );
+            switch (classifyHealthSyncPostStatus(resp.statusCode)) {
+              case HealthSyncPostDisposition.accepted:
+                vitalsUpdated = true;
+                break;
+              case HealthSyncPostDisposition.correctionRequired:
+                final correction = await ApiClient.put(
+                  buildHealthSyncCorrectionPath(sample.sourceRecordId),
+                  body: body,
+                  idempotencyKey: buildHealthSyncCorrectionAttemptKey(
+                    sourceTag: _sourceTag,
+                    targetFingerprint: sample.rejectionKey,
+                  ),
+                );
+                if (correction.isSuccess) {
+                  vitalsUpdated = true;
+                } else if (correction.statusCode == 400) {
+                  if (!await _saveRejectedSample(
+                    prefs,
+                    rejectionKey,
+                    rejectedSamples,
+                    sample.rejectionKey,
+                    activeOwnerScope,
+                  )) {
+                    groupSucceeded = false;
+                  }
+                } else {
+                  groupSucceeded = false;
+                }
+                break;
+              case HealthSyncPostDisposition.terminalRejection:
+                if (!await _saveRejectedSample(
+                  prefs,
+                  rejectionKey,
+                  rejectedSamples,
+                  sample.rejectionKey,
+                  activeOwnerScope,
+                )) {
+                  groupSucceeded = false;
+                } else if (kDebugMode) {
+                  debugPrint(
+                    'HealthSyncService: quarantined rejected vital '
+                    '(${resp.statusCode})',
+                  );
+                }
+                break;
+              case HealthSyncPostDisposition.retryableFailure:
+                groupSucceeded = false;
+                if (kDebugMode) {
+                  debugPrint(
+                    'HealthSyncService: vitals POST failed ${resp.statusCode}',
+                  );
+                }
+                break;
+            }
+          } catch (e) {
+            groupSucceeded = false;
+            if (kDebugMode) {
+              debugPrint('HealthSyncService: vitals POST error $e');
+            }
+          }
+          if (!groupSucceeded) break;
         }
-      } catch (e) {
-        if (kDebugMode) debugPrint('HealthSyncService: vitals POST error $e');
+
+        if (!groupSucceeded ||
+            !await _saveCursor(
+              prefs,
+              vitalCursorKeys[type]!,
+              batch.checkpoint,
+              activeOwnerScope,
+            )) {
+          succeeded = false;
+          typeSucceeded = false;
+          break;
+        }
+      }
+      if (typeSucceeded) {
+        if (!await _saveCursor(
+          prefs,
+          vitalCursorKeys[type]!,
+          end,
+          activeOwnerScope,
+        )) {
+          succeeded = false;
+          typeSucceeded = false;
+        }
+      }
+      if (typeSucceeded &&
+          vitalSafetyScanDue[type]! &&
+          !await _saveCursor(
+            prefs,
+            vitalSafetyKeys[type]!,
+            end,
+            activeOwnerScope,
+          )) {
+        succeeded = false;
       }
     }
+    if (vitalsUpdated) updatedSurfaces += 1;
 
-    final days = daily.values.where((d) => d.hasActivity).toList()
-      ..sort((a, b) => a.date.compareTo(b.date));
-    if (days.isNotEmpty) {
+    final days = hasActivityReadTypes
+        ? (daily.values.where((d) => d.hasActivity).toList()
+            ..sort((a, b) => a.date.compareTo(b.date)))
+        : <_DailyActivitySummary>[];
+    var activityUpdated = false;
+    var activitySucceeded = hasActivityReadTypes;
+    for (final batch in partitionHealthSyncDays(days)) {
+      if (!await _accountSessionStillActive(prefs, activeOwnerScope)) {
+        return HealthSyncRunResult(
+          updatedSurfaces: updatedSurfaces,
+          succeeded: true,
+        );
+      }
       try {
         final resp = await ApiClient.post(
           '/steps/health-sync',
@@ -374,28 +883,178 @@ class HealthSyncService {
             'source': _sourceTag,
             'sourceApp': sourceApp,
             'sourceDevice': sourceDevice,
-            'days': days.map((d) => d.toJson()).toList(),
+            'days': batch.map((d) => d.toJson()).toList(),
           },
         );
-        if (resp.isSuccess) {
-          updatedSurfaces += 1;
-        } else if (kDebugMode) {
-          debugPrint(
-            'HealthSyncService: activity POST failed ${resp.statusCode}',
-          );
+        if (!resp.isSuccess) {
+          succeeded = false;
+          activitySucceeded = false;
+          if (kDebugMode) {
+            debugPrint(
+              'HealthSyncService: activity POST failed ${resp.statusCode}',
+            );
+          }
+          break;
         }
+        final checkpoint = batch
+            .map((day) => day.lastSampleAt!)
+            .reduce(_laterOfNonNull);
+        if (!await _saveCursor(
+          prefs,
+          activityKey,
+          checkpoint,
+          activeOwnerScope,
+        )) {
+          succeeded = false;
+          activitySucceeded = false;
+          break;
+        }
+        activityUpdated = true;
       } catch (e) {
+        succeeded = false;
+        activitySucceeded = false;
         if (kDebugMode) debugPrint('HealthSyncService: activity POST error $e');
+        break;
       }
     }
+    if (activitySucceeded &&
+        !await _saveCursor(prefs, activityKey, end, activeOwnerScope)) {
+      succeeded = false;
+    }
+    if (activityUpdated) updatedSurfaces += 1;
 
-    await prefs.setString(sourceKey, (latestSampleAt ?? end).toIso8601String());
     if (kDebugMode) {
       debugPrint(
         'HealthSyncService: synced ${points.length} points, steps=$steps, days=${days.length}, surfaces=$updatedSurfaces',
       );
     }
-    return updatedSurfaces;
+    return HealthSyncRunResult(
+      updatedSurfaces: updatedSurfaces,
+      succeeded: succeeded,
+    );
+  }
+
+  DateTime? _readCursor(String? value, DateTime end) {
+    final parsed = value == null ? null : DateTime.tryParse(value);
+    if (parsed == null || parsed.isAfter(end)) return null;
+    return parsed;
+  }
+
+  DateTime _laterOfNonNull(DateTime current, DateTime candidate) =>
+      candidate.isAfter(current) ? candidate : current;
+
+  bool _isVitalType(HealthDataType type) =>
+      type == HealthDataType.HEART_RATE ||
+      type == HealthDataType.BLOOD_OXYGEN ||
+      type == HealthDataType.WEIGHT ||
+      type == HealthDataType.BODY_TEMPERATURE;
+
+  bool _isActivityType(HealthDataType type) =>
+      type == HealthDataType.STEPS ||
+      type == HealthDataType.DISTANCE_DELTA ||
+      type == HealthDataType.DISTANCE_WALKING_RUNNING ||
+      type == HealthDataType.ACTIVE_ENERGY_BURNED ||
+      _isSleepType(type);
+
+  Future<String> _sourceRecordId(HealthDataPoint point) =>
+      buildHealthSyncSourceRecordId(
+        sampleType: point.type.name,
+        nativeId: point.uuid,
+        sourceId: point.sourceId,
+        dateFrom: point.dateFrom,
+        dateTo: point.dateTo,
+      );
+
+  Future<_WearableVitalSample> _buildVitalSample({
+    required HealthDataType healthType,
+    required String field,
+    required num value,
+    required HealthDataPoint point,
+  }) async {
+    final sourceRecordId = await _sourceRecordId(point);
+    return _WearableVitalSample(
+      healthType: healthType,
+      field: field,
+      value: value,
+      recordedAt: point.dateTo,
+      sourceRecordId: sourceRecordId,
+      rejectionKey: await buildHealthSyncRejectionKey(
+        sourceTag: _sourceTag,
+        field: field,
+        value: value,
+        sourceRecordId: sourceRecordId,
+        recordedAt: point.dateTo,
+      ),
+    );
+  }
+
+  Future<bool> _saveRejectedSample(
+    SharedPreferences prefs,
+    String storageKey,
+    Set<String> rejectedSamples,
+    String sampleKey,
+    String ownerScope,
+  ) async {
+    if (!await _accountSessionStillActive(prefs, ownerScope)) return false;
+    await prefs.reload();
+    final retained = retainHealthSyncRejectionKeys([
+      ...?prefs.getStringList(storageKey),
+      ...rejectedSamples,
+      sampleKey,
+    ]);
+    if (!await prefs.setStringList(storageKey, retained)) return false;
+    rejectedSamples
+      ..clear()
+      ..addAll(retained);
+    return true;
+  }
+
+  Future<bool> _saveCursor(
+    SharedPreferences prefs,
+    String key,
+    DateTime value,
+    String ownerScope,
+  ) async {
+    if (!await _accountSessionStillActive(prefs, ownerScope)) return false;
+    await prefs.reload();
+    final current = _readCursor(prefs.getString(key), DateTime.now());
+    final next = current != null && current.isAfter(value) ? current : value;
+    if (!await prefs.setString(key, next.toUtc().toIso8601String())) {
+      if (kDebugMode) {
+        debugPrint('HealthSyncService: failed to persist $key checkpoint');
+      }
+      return false;
+    }
+    return true;
+  }
+
+  Future<String?> _currentOwnerScope() async {
+    final ownerId =
+        await _storage.read(key: 'patient_id') ??
+        await _storage.read(key: 'firebase_uid') ??
+        await _storage.read(key: 'user_id');
+    if (ownerId == null || ownerId.trim().isEmpty) return null;
+    return buildHealthSyncOwnerScope(ownerId);
+  }
+
+  Future<bool> _bindCurrentAccount() async {
+    final ownerScope = await _currentOwnerScope();
+    if (ownerScope == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    return prefs.setString(_prefsActiveOwnerScope, ownerScope);
+  }
+
+  Future<bool> _accountSessionStillActive(
+    SharedPreferences prefs,
+    String expectedOwnerScope,
+  ) async {
+    await prefs.reload();
+    return isHealthSyncAccountSessionActive(
+      currentOwnerScope: await _currentOwnerScope(),
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+      scheduledOwnerScope: expectedOwnerScope,
+    );
   }
 
   double? _numeric(HealthValue v) {
@@ -540,6 +1199,7 @@ class HealthSyncService {
           value: heartRate.toDouble(),
           type: HealthDataType.HEART_RATE,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -549,6 +1209,7 @@ class HealthSyncService {
           value: spO2 / 100.0,
           type: HealthDataType.BLOOD_OXYGEN,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -558,6 +1219,7 @@ class HealthSyncService {
           value: weight,
           type: HealthDataType.WEIGHT,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -567,6 +1229,7 @@ class HealthSyncService {
           value: temperature,
           type: HealthDataType.BODY_TEMPERATURE,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -576,6 +1239,7 @@ class HealthSyncService {
           value: bloodGlucose.toDouble(),
           type: HealthDataType.BLOOD_GLUCOSE,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -585,6 +1249,7 @@ class HealthSyncService {
           systolic: systolic,
           diastolic: diastolic,
           startTime: at,
+          recordingMethod: RecordingMethod.manual,
         ),
       );
     }
@@ -606,19 +1271,29 @@ class HealthSyncService {
 
   // ── Background sync (workmanager) ─────────────────────────────────────────
 
-  /// Register the periodic background task. Safe to call multiple times —
-  /// [ExistingWorkPolicy.keep] means subsequent calls are no-ops.
+  /// Register the periodic background task. Safe to call multiple times; the
+  /// existing work is updated so its account-bound input cannot stay stale.
   ///
   /// Must be called after permissions are granted — scheduling succeeds either
   /// way, but the background isolate will read zero samples without permission.
   static Future<void> enableBackgroundSync() async {
     if (!_isSupportedPlatform) return;
+    final ownerScope = await instance._currentOwnerScope();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (!isHealthSyncAccountSessionActive(
+      currentOwnerScope: ownerScope,
+      persistedOwnerScope: prefs.getString(_prefsActiveOwnerScope),
+    )) {
+      return;
+    }
     await Workmanager().initialize(healthSyncBackgroundDispatcher);
     await Workmanager().registerPeriodicTask(
       backgroundTaskName,
       backgroundTaskName,
       frequency: const Duration(minutes: 15),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      inputData: {_backgroundOwnerScopeInput: ownerScope!},
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
       constraints: Constraints(
         networkType: NetworkType.connected,
         requiresBatteryNotLow: true,
@@ -629,6 +1304,17 @@ class HealthSyncService {
   static Future<void> disableBackgroundSync() async {
     if (!_isSupportedPlatform) return;
     await Workmanager().cancelByUniqueName(backgroundTaskName);
+  }
+
+  static Future<void> endAccountSession() async {
+    instance.stopForegroundSync();
+    instance._permissionsGranted = false;
+    instance._writePermissionsGranted = false;
+    instance._writePermissionsAsked = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    await prefs.remove(_prefsActiveOwnerScope);
+    await disableBackgroundSync();
   }
 }
 
@@ -660,8 +1346,27 @@ class _DailyActivitySummary {
     'distanceMeters': distanceMeters,
     'sleepMinutes': sleepMinutes,
     'activeEnergyKcal': activeEnergyKcal,
-    if (lastSampleAt != null) 'lastSampleAt': lastSampleAt!.toIso8601String(),
+    if (lastSampleAt != null)
+      'lastSampleAt': formatHealthSyncRfc3339(lastSampleAt!),
   };
+}
+
+class _WearableVitalSample {
+  final HealthDataType healthType;
+  final String field;
+  final num value;
+  final DateTime recordedAt;
+  final String sourceRecordId;
+  final String rejectionKey;
+
+  const _WearableVitalSample({
+    required this.healthType,
+    required this.field,
+    required this.value,
+    required this.recordedAt,
+    required this.sourceRecordId,
+    required this.rejectionKey,
+  });
 }
 
 /// Top-level entry point invoked by workmanager in a background isolate. Must
@@ -671,10 +1376,14 @@ class _DailyActivitySummary {
 void healthSyncBackgroundDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
-      await HealthSyncService.instance.syncNow();
+      final service = HealthSyncService.instance;
+      return service.syncForBackground(
+        scheduledOwnerScope:
+            inputData?[HealthSyncService._backgroundOwnerScopeInput] as String?,
+      );
     } catch (e) {
       if (kDebugMode) debugPrint('healthSyncBackgroundDispatcher failed: $e');
+      return false;
     }
-    return true; // never error — retry is implicit via the next scheduled tick
   });
 }

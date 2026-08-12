@@ -9,8 +9,16 @@ import { maskPhoneForLog } from '../utils/logMasking.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';
 import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
+import {
+  getCodeBlueNotificationContent,
+  registerNotificationDevice,
+  retireNotificationDevice,
+  rotateNotificationDeviceToken,
+  validateNotificationAuthority,
+} from '../services/notification/deviceRegistrationService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
+import { logPhiAccess } from '../utils/hipaaAudit.js';
 
 const router = express.Router();
 logger.info('✅ deviceRoutes loaded with RBAC protection');
@@ -116,22 +124,15 @@ async function unregisterDeviceHandler(req, res) {
   try {
     const targetUser = await resolveDeviceTargetUser(req, phone);
 
-    const result = await prisma.$queryRawUnsafe(
-      `DELETE FROM user_devices
-       WHERE device_id = $1
-         AND user_uid = $2::uuid
-         AND tenant_id = $3::uuid
-       RETURNING device_name, platform`,
+    const deviceInfo = await retireNotificationDevice({
+      tenantId: targetUser.tenantId,
+      userUid: targetUser.uid,
       deviceId,
-      targetUser.uid,
-      targetUser.tenantId,
-    );
+    });
 
-    if (result.length === 0) {
+    if (!deviceInfo) {
       return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
     }
-
-    const deviceInfo = result[0];
 
     logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${maskPhoneForLog(targetUser.phone)} by ${req.user?.name || 'system'}`);
 
@@ -429,37 +430,31 @@ wrapAutoRBAC(
           try {
             const user = await resolveDeviceTargetUser(req, phone);
 
-            // Register/update device with enhanced conflict resolution
-            const result = await prisma.$queryRawUnsafe(
-              `INSERT INTO user_devices (
-                tenant_id, user_uid, device_id, device_name, platform, app_version,
-                os_version, fcm_token, last_active, created_at
-              ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-              ON CONFLICT (tenant_id, user_uid, device_id)
-              DO UPDATE SET 
-                device_name = EXCLUDED.device_name,
-                platform = EXCLUDED.platform,
-                app_version = EXCLUDED.app_version,
-                os_version = EXCLUDED.os_version,
-                fcm_token = EXCLUDED.fcm_token,
-                last_active = NOW()
-              RETURNING id, (xmax = 0) as is_new_registration`,
-              user.tenantId, user.uid, deviceId, deviceName, platform,
-              appVersion, osVersion, fcmToken
-            );
+            const registration = await registerNotificationDevice({
+              tenantId: user.tenantId,
+              userUid: user.uid,
+              deviceId,
+              fcmToken,
+              deviceName,
+              platform,
+              appVersion,
+              osVersion,
+              sessionJti: req.user?.jti,
+            });
 
-            const isNewRegistration = result[0].is_new_registration;
+            const isNewRegistration = registration.is_new_registration;
             
             logger.info(`📱 Device ${isNewRegistration ? 'registered' : 'updated'}: ${deviceName} for ${maskPhoneForLog(user.phone)} by ${req.user?.name || 'system'}`);
 
             success(res, {
-              deviceRegistrationId: result[0].id,
+              deviceRegistrationId: registration.id,
               phone: user.phone,
               deviceId,
               deviceName,
               isNewRegistration,
               registeredBy: req.user?.name,
-              registeredAt: new Date().toISOString()
+              registeredAt: new Date().toISOString(),
+              notificationAuthority: registration.notification_authority,
             }, `Device ${isNewRegistration ? 'registered' : 'updated'} successfully`);
 
           } catch (err) {
@@ -544,29 +539,28 @@ wrapAutoRBAC(
           try {
             const targetUser = await resolveDeviceTargetUser(req, phone);
 
-            const result = await prisma.$queryRawUnsafe(
-              `UPDATE user_devices 
-               SET fcm_token = $1, last_active = NOW()
-               WHERE device_id = $2 
-                 AND user_uid = $3::uuid
-                 AND tenant_id = $4::uuid
-               RETURNING device_name`,
-              fcmToken, deviceId, targetUser.uid, targetUser.tenantId
-            );
+            const registration = await rotateNotificationDeviceToken({
+              tenantId: targetUser.tenantId,
+              userUid: targetUser.uid,
+              deviceId,
+              fcmToken,
+              sessionJti: req.user?.jti,
+            });
 
-            if (result.length === 0) {
+            if (!registration) {
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
             }
 
-            logger.info(`🔄 FCM token updated for device: ${result[0].device_name} (${deviceId}) by ${req.user?.name || 'system'}`);
+            logger.info(`🔄 FCM token updated for device: ${registration.device_name} (${deviceId}) by ${req.user?.name || 'system'}`);
 
             success(res, {
               phone: targetUser.phone,
               deviceId,
-              deviceName: result[0].device_name,
+              deviceName: registration.device_name,
               tokenUpdated: true,
               updatedBy: req.user?.name,
-              updatedAt: new Date().toISOString()
+              updatedAt: new Date().toISOString(),
+              notificationAuthority: registration.notification_authority,
             }, 'FCM token updated successfully');
 
           } catch (err) {
@@ -575,6 +569,84 @@ wrapAutoRBAC(
             error(res, 'Failed to update FCM token', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
         }
+      ],
+
+      [
+        '/notification-authority/validate',
+        async (req, res) => {
+          const audience = req.body || {};
+          const tenantId = tenantOf(req);
+          const recipientUid = String(audience.recipientUid || '');
+          if (
+            Number(audience.version) !== 1
+            || String(audience.tenantId || '') !== tenantId
+            || recipientUid !== String(req.user?.uid || '')
+          ) {
+            return error(res, 'Notification authority is not valid', HTTP_STATUS.FORBIDDEN);
+          }
+          try {
+            const authorized = await validateNotificationAuthority({
+              tenantId,
+              userUid: recipientUid,
+              sessionJti: req.user?.jti,
+              deviceId: audience.deviceId,
+              registrationEpoch: audience.registrationEpoch,
+              sessionEpoch: audience.sessionEpoch,
+              authorizationEpoch: audience.authorizationEpoch,
+            });
+            success(res, { authorized }, 'Notification authority checked');
+          } catch (err) {
+            logger.error('Notification Authority Validation Error:', err);
+            error(res, 'Notification authority could not be verified', HTTP_STATUS.SERVICE_UNAVAILABLE);
+          }
+        },
+      ],
+
+      [
+        '/notification-authority/code-blue',
+        async (req, res) => {
+          const audience = req.body || {};
+          const tenantId = tenantOf(req);
+          const recipientUid = String(audience.recipientUid || '');
+          if (
+            Number(audience.version) !== 1
+            || String(audience.tenantId || '') !== tenantId
+            || recipientUid !== String(req.user?.uid || '')
+          ) {
+            return error(res, 'Notification authority is not valid', HTTP_STATUS.FORBIDDEN);
+          }
+          try {
+            const content = await getCodeBlueNotificationContent({
+              tenantId,
+              userUid: recipientUid,
+              sessionJti: req.user?.jti,
+              deviceId: audience.deviceId,
+              registrationEpoch: audience.registrationEpoch,
+              sessionEpoch: audience.sessionEpoch,
+              authorizationEpoch: audience.authorizationEpoch,
+              codeBlueReference: audience.codeBlueReference,
+            });
+            if (content) {
+              logPhiAccess({
+                userId: req.user?.uid,
+                userRole: req.user?.role,
+                patientId: content.patientId,
+                recordType: 'CODE_BLUE_NOTIFICATION',
+                action: 'VIEW',
+                ip: req.ip,
+                requestId: req.id,
+                tenantId,
+              });
+            }
+            success(res, {
+              authorized: content != null,
+              content,
+            }, 'Code Blue notification content checked');
+          } catch (err) {
+            logger.error('Code Blue Notification Content Error:', err);
+            error(res, 'Code Blue notification content could not be verified', HTTP_STATUS.SERVICE_UNAVAILABLE);
+          }
+        },
       ],
 
       // 🗑️ Unregister Device (body-bearing alias used by mobile clients)

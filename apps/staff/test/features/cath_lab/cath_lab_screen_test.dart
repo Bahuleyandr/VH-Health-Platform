@@ -319,7 +319,12 @@ void main() {
       await tester.pump();
 
       final acknowledge = find.byKey(const ValueKey('stemi-ack-77'));
-      await tester.ensureVisible(acknowledge);
+      final scheduleList = find.ancestor(
+        of: acknowledge,
+        matching: find.byType(ListView),
+      );
+      await tester.drag(scheduleList.first, const Offset(0, -80));
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(acknowledge);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

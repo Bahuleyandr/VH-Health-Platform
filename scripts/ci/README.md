@@ -33,6 +33,22 @@ Stages:
   placeholder; no-op off-main).
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
 
+## GitHub pull-request merge boundary
+
+Ordinary non-main pushes use the affected-stack tier of `.github/workflows/ci.yml`.
+After the source tree is final, create and push one empty marker commit; the
+`[full-ci]` subject selects the exhaustive matrix and attaches both required
+`Merge Gate` and `Full Merge Gate` contexts to that final pull-request head:
+
+```powershell
+git commit --allow-empty -m "ci: run final canonical gate [full-ci]"
+git push
+```
+
+Do not push another commit after the marker unless you intend to invalidate
+both results and create a new marker. `workflow_dispatch` is retained for
+diagnosis, not as the pull-request merge boundary.
+
 ## Client API path contract
 
 `check-client-paths.mjs` closes the direction the OpenAPI pipeline never
@@ -64,6 +80,9 @@ Three things about it are load-bearing:
   `toApiV1Endpoint` rewrites and then prefixes (`/admin/users` is served as
   `/api/v1/users`); the mirror of that rewrite table is pinned against
   `apps/admin/src/lib/api/core.ts` by a test, so the two cannot drift silently.
+  Admin browser calls are also checked against the literal prefix table in
+  `apps/admin/src/app/api/proxy/[...path]/route.ts`; a backend operation is not
+  considered reachable when the runtime proxy would reject it first.
   Dart sends a bare suffix, because `ApiConfig.baseUrl` already ends in
   `/api/v1`.
 - **Dart extraction is anchored on the call site, never on literal shape.**

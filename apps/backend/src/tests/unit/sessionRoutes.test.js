@@ -83,6 +83,7 @@ describe('GET /api/v1/sessions', () => {
     expect(listActiveSessionsMock).toHaveBeenCalledWith(UID, {
       jti: JTI,
       expiresAt: TOKEN_EXPIRES_AT,
+      sessionFamilyId: JTI,
     });
   });
 
@@ -110,6 +111,7 @@ describe('GET /api/v1/sessions', () => {
     expect(listActiveSessionsMock).toHaveBeenCalledWith(UID, {
       jti: JTI,
       expiresAt: TOKEN_EXPIRES_AT,
+      sessionFamilyId: JTI,
     });
   });
 
@@ -127,6 +129,11 @@ describe('GET /api/v1/sessions', () => {
 
 describe('DELETE /api/v1/sessions/:jti', () => {
   it('revokes the caller\'s own session', async () => {
+    currentUser = {
+      ...currentUser,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
+    };
     revokeSessionMock.mockResolvedValue({ success: true, message: 'Session revoked successfully' });
 
     const response = await request(app).delete(`/api/v1/sessions/${JTI}`);
@@ -136,6 +143,8 @@ describe('DELETE /api/v1/sessions/:jti', () => {
     expect(revokeSessionMock).toHaveBeenCalledWith(UID, JTI, {
       jti: JTI,
       expiresAt: TOKEN_EXPIRES_AT,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
     });
   });
 

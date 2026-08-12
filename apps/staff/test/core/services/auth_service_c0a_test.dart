@@ -285,6 +285,71 @@ void main() {
   });
 
   test(
+    'logout runs notification cleanup after the blocker gate and before revocation',
+    () async {
+      await _seedIdentity('staff-current');
+      final events = <String>[];
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          events.add('server-revocation');
+          expect(await ApiConfig.getStaffId(), 'staff-current');
+          return http.Response(jsonEncode({'success': true}), 200);
+        }),
+      );
+
+      final result = await AuthService.logout(
+        beforeSessionRevocation: () async {
+          events.add('notification-cleanup');
+          expect(await ApiConfig.getStaffId(), 'staff-current');
+        },
+      );
+
+      expect(result.isSignedOut, isTrue);
+      expect(result.notificationTeardownFailed, isFalse);
+      expect(events, ['notification-cleanup', 'server-revocation']);
+      expect(await ApiConfig.getStaffId(), isNull);
+    },
+  );
+
+  test('blocked logout does not tear down the notification session', () async {
+    await _seedIdentity('staff-current');
+    await _enqueueVitals();
+    var cleanupCalls = 0;
+
+    final result = await AuthService.logout(
+      beforeSessionRevocation: () async {
+        cleanupCalls += 1;
+      },
+    );
+
+    expect(result.isBlocked, isTrue);
+    expect(cleanupCalls, 0);
+    expect(await ApiConfig.getStaffId(), 'staff-current');
+  });
+
+  test(
+    'logout reports notification teardown uncertainty without trapping user',
+    () async {
+      await _seedIdentity('staff-current');
+      VHHttpClient.setClientForTesting(
+        MockClient(
+          (request) async => http.Response(jsonEncode({'success': true}), 200),
+        ),
+      );
+
+      final result = await AuthService.logout(
+        beforeSessionRevocation: () async =>
+            throw StateError('FCM unavailable'),
+      );
+
+      expect(result.isSignedOut, isTrue);
+      expect(result.notificationTeardownFailed, isTrue);
+      expect(result.serverRevocationFailed, isFalse);
+      expect(await ApiConfig.getStaffId(), isNull);
+    },
+  );
+
+  test(
     'logout still clears local state when the backend refuses, and says so',
     () async {
       // The explicit trade: never trap a staff member in a session because the

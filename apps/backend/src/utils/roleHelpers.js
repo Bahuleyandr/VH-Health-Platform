@@ -159,6 +159,17 @@ export const FINANCE_REVIEW_ROLES = [
 ];
 // Machine-account roles for non-human integrations; never assigned to a human.
 export const MACHINE_ROLES = [ROLES.WEBHOOK_CLIENT, ROLES.DEVICE_GATEWAY];
+export const DEVICE_ASSOCIATION_OPERATOR_ROLES = [
+  ROLES.NURSING_STAFF,
+  ROLES.NURSING_INCHARGE,
+  ROLES.OP_STAFF_NURSE,
+  ROLES.OP_INCHARGE,
+  ROLES.IP_STAFF_NURSE,
+  ROLES.IP_INCHARGE,
+  ROLES.CNO,
+  ROLES.ADMIN,
+  'SUPER_ADMIN',
+];
 export const LAB_INTERFACE_INGEST_ROLES = [
   ROLES.LAB_STAFF,
   ROLES.LAB_INCHARGE,
@@ -236,6 +247,9 @@ export const isLeadership = role => LEADERSHIP_ROLES.includes(role) || role === 
 export const isSupportStaff = role => SUPPORT_ROLES.includes(role);
 export const isPlatformRole = role => PLATFORM_ROLES.includes(role);
 export const isMachineRole = role => MACHINE_ROLES.includes(role);
+export const canManageDeviceAssociation = role => (
+  DEVICE_ASSOCIATION_OPERATOR_ROLES.includes(normalizeCanonicalRole(role))
+);
 export const canIngestLabInterface = role => LAB_INTERFACE_INGEST_ROLES.includes(role);
 
 export function getAuthenticatedActorRoles(user) {

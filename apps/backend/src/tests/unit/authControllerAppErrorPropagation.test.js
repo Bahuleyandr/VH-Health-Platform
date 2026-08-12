@@ -34,6 +34,16 @@ jest.unstable_mockModule('../../middleware/rateLimitMiddleware.js', () => ({
   otpRateLimiter: passThrough,
   authRateLimiter: passThrough,
 }));
+jest.unstable_mockModule('../../middleware/jwtMiddleware.js', () => ({
+  default: (req, res, next) => {
+    if (req.headers.authorization === 'Bearer sometoken') {
+      req.user = { uid: 'user-1', role: 'PATIENT' };
+      next();
+      return;
+    }
+    res.status(401).json({ success: false, message: 'Authentication required' });
+  },
+}));
 
 // Route-wrapper shim: register the route map verbatim without RBAC-config,
 // rate-limit, or audit plumbing (mirrors the staffAuthController template).
@@ -104,11 +114,11 @@ describe('authController.logout is honest about revocation failures (audit F10)'
     expect(response.body.success).toBe(false);
   });
 
-  test('no Authorization header ⇒ still 200 success (nothing to revoke, matches happy path)', async () => {
+  test('no Authorization header is rejected before the controller', async () => {
     const response = await request(app).post('/api/v1/auth/logout');
 
-    expect(response.statusCode).toBe(200);
-    expect(response.body.success).toBe(true);
+    expect(response.statusCode).toBe(401);
+    expect(response.body.success).toBe(false);
     expect(logoutMock).not.toHaveBeenCalled();
   });
 });

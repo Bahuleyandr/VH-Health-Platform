@@ -50,14 +50,24 @@ export class RevocationWriteUnavailableError extends Error {
  * @param {string} jti - JWT ID to blacklist
  * @param {number} expiresAt - Token expiry as Unix timestamp (seconds)
  * @param {string} [reason] - Why the token was blacklisted (e.g. 'logout', 'refresh_rotation')
- * @param {{requireEvidence?: boolean}} [opts] - When `requireEvidence` is true
+ * @param {{requireEvidence?: boolean, userId?: string, sessionFamilyId?: string, stableDeviceId?: string}} [opts] - When `requireEvidence` is true
  *   (audit F10), the DB write is awaited inline instead of fired-and-forgotten,
- *   and a `RevocationWriteUnavailableError` is thrown if NEITHER store
+ *   and a `RevocationWriteUnavailableError` is thrown unless the durable DB
  *   persisted the entry — callers that must not claim success on a silent
  *   revocation failure (e.g. logout) opt into this. Default false preserves
  *   the original best-effort behaviour for every other existing caller.
  */
-export async function blacklistToken(jti, expiresAt, reason = 'logout', { requireEvidence = false } = {}) {
+export async function blacklistToken(
+  jti,
+  expiresAt,
+  reason = 'logout',
+  {
+    requireEvidence = false,
+    userId = null,
+    sessionFamilyId = null,
+    stableDeviceId = null,
+  } = {},
+) {
   if (!jti) return requireEvidence ? null : undefined;
 
   const now = Math.floor(Date.now() / 1000);
@@ -117,6 +127,24 @@ export async function blacklistToken(jti, expiresAt, reason = 'logout', { requir
     );
   }
 
+  // A durable single-token revocation must also tear down the live socket for
+  // that login session. The family/device selectors survive access rotation
+  // and WS-ticket exchange; jti remains the fallback for legacy callers.
+  if (userId) {
+    try {
+      const { pushSessionRevoked } = await import('./websocket/wsServer.js');
+      pushSessionRevoked(String(userId), {
+        reason,
+        jti: String(jti),
+        ...(sessionFamilyId ? { sessionFamilyId: String(sessionFamilyId) } : {}),
+        ...(stableDeviceId ? { stableDeviceId: String(stableDeviceId) } : {}),
+        at: new Date(now * 1000).toISOString(),
+      });
+    } catch (err) {
+      logger.warn('Single-token session:revoked push failed:', err.message);
+    }
+  }
+
   return Object.freeze({
     redis: Object.freeze({ persisted: redisPersisted }),
     database: Object.freeze({ persisted: databasePersisted }),
@@ -173,7 +201,7 @@ export async function isTokenBlacklisted(jti) {
  * Blacklist ALL tokens for a user by storing a "revoke-all" timestamp, and bump
  * the identity's token-generation epoch (R1 issuance-time gate).
  *
- * The single DB statement atomically:
+ * The token-generation DB statement atomically:
  *   1. upserts the durable `user:<uid>` revoke-all watermark row (consulted by
  *      isUserTokensRevoked at verify time), and
  *   2. increments users/admins.token_epoch + stamps token_epoch_bumped_at, so
@@ -186,54 +214,84 @@ export async function isTokenBlacklisted(jti) {
  * option is retained for signature compatibility but is now always effectively
  * true for the durable side.
  *
- * R14: on success, a `session:revoked` event is pushed (best-effort) to every
- * open WebSocket of the user across all processes; wsServer closes those
- * sockets server-side after delivery.
+ * When notificationTenantId is supplied, the same caller-owned transaction
+ * first invokes revoke_notification_authority to clear canonical and legacy
+ * push bindings. Callers that include this helper in a larger credential
+ * transaction must invoke publishRevokeAllUserTokens after commit;
+ * revokeAllUserTokens does that automatically for standalone use.
  *
  * @param {string} userId - User ID whose tokens to revoke
- * @param {{requireEvidence?: boolean, reason?: string}} [opts]
+ * @param {{client?: object, requireEvidence?: boolean, reason?: string,
+ *   notificationTenantId?: string|null}} [opts]
  */
-export async function revokeAllUserTokens(userId, { requireEvidence = false, reason = 'revoke_all' } = {}) {
+export async function persistRevokeAllUserTokens(
+  userId,
+  {
+    client = prisma,
+    requireEvidence = false,
+    reason = 'revoke_all',
+    notificationTenantId = null,
+  } = {},
+) {
   if (!userId) return null;
-  const ttl = 30 * 24 * 60 * 60; // 30 days (max token lifetime)
   let databaseError = null;
-  let databasePersisted = false;
   let revokedAt = null;
   const isUuidIdentity = UUID_RE.test(String(userId));
   try {
     if (isUuidIdentity) {
+      if (notificationTenantId) {
+        await client.$queryRawUnsafe(
+          'SELECT public.revoke_notification_authority($1::uuid, $2::uuid)',
+          notificationTenantId,
+          String(userId),
+        );
+      }
       // Watermark + epoch bump in ONE statement (data-modifying CTEs are
       // atomic): the durable revocation evidence and the issuance-time gate
       // can never diverge. The uid lives in exactly one of users/admins, so
       // the two bump CTEs together touch at most one row.
-      const rows = await prisma.$queryRawUnsafe(`
-        WITH marker AS (
+      const rows = await client.$queryRawUnsafe(`
+        WITH bump_users AS (
+          UPDATE users
+             SET token_epoch = COALESCE(token_epoch, 0) + 1,
+                 token_epoch_bumped_at = NOW(),
+                 device_token = CASE WHEN $4::uuid IS NULL THEN device_token ELSE NULL END
+           WHERE uid = $3::uuid
+          RETURNING uid
+        ), bump_admins AS (
+          UPDATE admins
+             SET token_epoch = COALESCE(token_epoch, 0) + 1,
+                 token_epoch_bumped_at = NOW()
+           WHERE uid = $3::uuid
+          RETURNING uid
+        ), epoch_count AS (
+          SELECT (
+            (SELECT COUNT(*) FROM bump_users)::int
+            + (SELECT COUNT(*) FROM bump_admins)::int
+          ) AS epoch_rows
+        ), marker AS (
           INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
-          VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
+          SELECT $1, NOW() + INTERVAL '30 days', $2, NOW()
+            FROM epoch_count
+           WHERE epoch_rows >= 1
           ON CONFLICT (jti) DO UPDATE SET
             expires_at = EXCLUDED.expires_at,
             reason = EXCLUDED.reason,
             created_at = EXCLUDED.created_at
           RETURNING created_at
-        ), bump_users AS (
-          UPDATE users
-             SET token_epoch = token_epoch + 1,
-                 token_epoch_bumped_at = NOW()
-           WHERE uid = $3::uuid
-          RETURNING uid
-        ), bump_admins AS (
-          UPDATE admins
-             SET token_epoch = token_epoch + 1,
-                 token_epoch_bumped_at = NOW()
-           WHERE uid = $3::uuid
-          RETURNING uid
         )
         SELECT (SELECT EXTRACT(EPOCH FROM created_at)::double precision FROM marker) AS revoked_at,
-               (SELECT COUNT(*) FROM bump_users)::int + (SELECT COUNT(*) FROM bump_admins)::int AS epoch_rows
-      `, `user:${userId}`, reason, String(userId));
+               epoch_rows
+          FROM epoch_count
+         WHERE epoch_rows >= 1
+      `, `user:${userId}`, reason, String(userId), notificationTenantId);
+      const epochRows = Number(rows[0]?.epoch_rows);
+      if (!Number.isFinite(epochRows) || epochRows < 1) {
+        throw new Error('Durable revoke-all did not bump an identity token epoch');
+      }
       revokedAt = Number(rows[0]?.revoked_at);
     } else {
-      const rows = await prisma.$queryRawUnsafe(`
+      const rows = await client.$queryRawUnsafe(`
         INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
         VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
         ON CONFLICT (jti) DO UPDATE SET
@@ -247,7 +305,6 @@ export async function revokeAllUserTokens(userId, { requireEvidence = false, rea
     if (!Number.isFinite(revokedAt)) {
       throw new Error('Durable revoke-all marker did not return a timestamp');
     }
-    databasePersisted = true;
   } catch (err) {
     databaseError = err;
     logger.warn('Revoke-all DB write failed:', err.message);
@@ -255,12 +312,26 @@ export async function revokeAllUserTokens(userId, { requireEvidence = false, rea
   // R12: the durable (DB) write is authoritative and REQUIRED. A Redis-only
   // marker is not acceptable evidence — allkeys-lru can evict it, silently
   // resurrecting every "revoked" token.
-  if (!databasePersisted) {
+  if (!Number.isFinite(revokedAt)) {
     throw new RevocationWriteUnavailableError(
       'Durable revocation store (database) did not accept the revoke-all marker',
       { database: databaseError, requireEvidence },
     );
   }
+
+  return revokedAt;
+}
+
+/**
+ * Publish best-effort cache and live-session side effects for a revocation that
+ * has already committed durably. Credential changes call this only after their
+ * surrounding transaction commits, so a rollback can never emit a false
+ * session-revoked event.
+ */
+export async function publishRevokeAllUserTokens(userId, revokedAt, { reason = 'revoke_all' } = {}) {
+  if (!userId || !Number.isFinite(Number(revokedAt))) return null;
+  const durableRevokedAt = Number(revokedAt);
+  const ttl = 30 * 24 * 60 * 60; // 30 days (max token lifetime)
 
   // Cache only the timestamp committed by Postgres. Writing Redis first with a
   // process-clock timestamp can temporarily accept a concurrently minted token
@@ -269,7 +340,7 @@ export async function revokeAllUserTokens(userId, { requireEvidence = false, rea
   try {
     redisPersisted = await cacheSet(
       `${BLACKLIST_PREFIX}user:${userId}`,
-      { revokedAt },
+      { revokedAt: durableRevokedAt },
       ttl,
     ) === true;
   } catch (err) {
@@ -283,16 +354,92 @@ export async function revokeAllUserTokens(userId, { requireEvidence = false, rea
     const { pushSessionRevoked } = await import('./websocket/wsServer.js');
     pushSessionRevoked(String(userId), {
       reason,
-      at: new Date(revokedAt * 1000).toISOString(),
+      at: new Date(durableRevokedAt * 1000).toISOString(),
     });
   } catch (err) {
     logger.warn('Revoke-all session:revoked push failed:', err.message);
   }
 
   return Object.freeze({
-    revoked_at: new Date(revokedAt * 1000).toISOString(),
+    revoked_at: new Date(durableRevokedAt * 1000).toISOString(),
     redis: Object.freeze({ persisted: redisPersisted }),
-    database: Object.freeze({ persisted: databasePersisted }),
+    database: Object.freeze({ persisted: true }),
+  });
+}
+
+export async function revokeAllUserTokens(
+  userId,
+  {
+    requireEvidence = false,
+    reason = 'revoke_all',
+    notificationTenantId = null,
+  } = {},
+) {
+  if (!userId) return null;
+  const revokedAt = await persistRevokeAllUserTokens(userId, {
+    requireEvidence,
+    reason,
+    notificationTenantId,
+  });
+  return publishRevokeAllUserTokens(userId, revokedAt, { reason });
+}
+
+function delegatedTupleIdentity(guardianUid, dependentUid) {
+  if (!guardianUid || !dependentUid) {
+    throw new TypeError('Guardian and dependent identities are required');
+  }
+  return `delegated:${String(guardianUid).toLowerCase()}:${String(dependentUid).toLowerCase()}`;
+}
+
+export function isDelegatedTupleRevoked(guardianUid, dependentUid, issuedAt) {
+  return isUserTokensRevoked(
+    delegatedTupleIdentity(guardianUid, dependentUid),
+    issuedAt,
+    undefined,
+  );
+}
+
+export function persistRevokeDelegatedTuple(
+  guardianUid,
+  dependentUid,
+  { client = prisma, reason = 'dependent_unlinked' } = {},
+) {
+  return persistRevokeAllUserTokens(
+    delegatedTupleIdentity(guardianUid, dependentUid),
+    { client, requireEvidence: true, reason },
+  );
+}
+
+export async function publishRevokeDelegatedTuple(
+  guardianUid,
+  dependentUid,
+  revokedAt,
+  { reason = 'dependent_unlinked' } = {},
+) {
+  if (revokedAt == null || !Number.isFinite(Number(revokedAt))) return null;
+  const tupleIdentity = delegatedTupleIdentity(guardianUid, dependentUid);
+  const durableRevokedAt = Number(revokedAt);
+  try {
+    await cacheSet(
+      `${BLACKLIST_PREFIX}user:${tupleIdentity}`,
+      { revokedAt: durableRevokedAt },
+      30 * 24 * 60 * 60,
+    );
+  } catch (err) {
+    logger.warn('Delegated-tuple Redis revocation write failed:', err.message);
+  }
+  try {
+    const { pushDelegatedSessionRevoked } = await import('./websocket/wsServer.js');
+    pushDelegatedSessionRevoked(String(guardianUid), String(dependentUid), {
+      reason,
+      at: new Date(durableRevokedAt * 1000).toISOString(),
+    });
+  } catch (err) {
+    logger.warn('Delegated-tuple session:revoked push failed:', err.message);
+  }
+  return Object.freeze({
+    revoked_at: new Date(durableRevokedAt * 1000).toISOString(),
+    database: Object.freeze({ persisted: true }),
   });
 }
 
@@ -353,16 +500,16 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
   // Redis is a POSITIVE cache only (same contract as isTokenBlacklisted): a
   // hit proves revocation, but a clean miss is NOT proof of absence — the
   // committed Redis manifest runs allkeys-lru, so the marker can be evicted
-  // while the durable invalidated_tokens row still stands (R12). Epoch-stamped
-  // UUID tokens deliberately skip this timestamp shortcut: a fresh token can
-  // share its integer-second iat with the revoke marker, while its matching
-  // durable epoch proves it was minted after that revocation.
+  // while the durable invalidated_tokens row still stands (R12). Redis does
+  // not carry the identity epoch-bump timestamp needed to disambiguate a
+  // freshly minted epoch-stamped token from a same-second revocation marker,
+  // so those tokens always use the durable predicate below.
   try {
     const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
-    if ((!isUuidIdentity || !hasTokenEpoch)
-      && result
+    if (result
       && result.revokedAt
-      && result.revokedAt >= tokenIssuedAt) {
+      && !hasTokenEpoch
+      && result.revokedAt >= Number(tokenIssuedAt)) {
       return true;
     }
   } catch {
@@ -374,25 +521,29 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt, tokenEpoch) {
     const mintedEpoch = hasTokenEpoch ? Number(tokenEpoch) : 0;
     const result = isUuidIdentity
       ? await prisma.$queryRawUnsafe(
-          `SELECT 1
-             WHERE (
-               $4::boolean = FALSE
-               AND EXISTS (
+          `WITH identity AS (
+             SELECT COALESCE(MAX(state.token_epoch), 0)::int AS token_epoch,
+                    MAX(state.token_epoch_bumped_at) AS token_epoch_bumped_at
+               FROM (
+                 SELECT token_epoch, token_epoch_bumped_at FROM users WHERE uid = $3::uuid
+                 UNION ALL
+                 SELECT token_epoch, token_epoch_bumped_at FROM admins WHERE uid = $3::uuid
+               ) AS state
+           )
+           SELECT 1
+             FROM identity
+            WHERE EXISTS (
                SELECT 1
                  FROM invalidated_tokens
                 WHERE jti = $1
                   AND expires_at > NOW()
                   AND created_at >= to_timestamp($2)
+                  AND (
+                    NOT $4::boolean
+                    OR created_at > COALESCE(identity.token_epoch_bumped_at, '-infinity'::timestamptz)
+                  )
                )
-             )
-                OR COALESCE((
-                  SELECT MAX(identity.token_epoch)
-                    FROM (
-                      SELECT token_epoch FROM users WHERE uid = $3::uuid
-                      UNION ALL
-                      SELECT token_epoch FROM admins WHERE uid = $3::uuid
-                    ) AS identity
-                ), 0) > $5
+               OR identity.token_epoch > $5
              LIMIT 1`,
           `user:${userId}`,
           issuedAt,

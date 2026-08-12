@@ -51,6 +51,8 @@ void main() {
     WidgetTester tester, {
     Set<String> watchChannels = const {},
     String? deniedMessageKey,
+    Future<void> Function()? fallbackPoll,
+    Duration fallbackInterval = const Duration(seconds: 30),
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -59,6 +61,8 @@ void main() {
             watchChannels: watchChannels,
             deniedMessageKey: deniedMessageKey,
             source: source(),
+            fallbackPoll: fallbackPoll,
+            fallbackInterval: fallbackInterval,
           ),
         ),
       ),
@@ -177,5 +181,78 @@ void main() {
       deniedMessageKey: 's4.lib.realtime_status.code_blue_denied',
     );
     expect(find.text(codeBlueDeniedCopy), findsOneWidget);
+  });
+
+  testWidgets('polls only while the realtime transport is degraded', (
+    tester,
+  ) async {
+    var polls = 0;
+    await pumpBanner(
+      tester,
+      fallbackInterval: const Duration(seconds: 5),
+      fallbackPoll: () async => polls += 1,
+    );
+
+    await tester.pump(const Duration(seconds: 10));
+    expect(polls, 0);
+
+    stateChanges.add(RealtimeConnectionState.disconnected);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(polls, 1);
+
+    stateChanges.add(RealtimeConnectionState.connected);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 10));
+    expect(polls, 1);
+  });
+
+  testWidgets('polls only while a watched realtime channel is denied', (
+    tester,
+  ) async {
+    var polls = 0;
+    await pumpBanner(
+      tester,
+      watchChannels: {'staff:appointments'},
+      deniedMessageKey: 's4.lib.realtime_status.stale',
+      fallbackInterval: const Duration(seconds: 5),
+      fallbackPoll: () async => polls += 1,
+    );
+
+    deniedChanges.add({'staff:beds'});
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(polls, 0);
+
+    deniedChanges.add({'staff:appointments'});
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(polls, 1);
+
+    deniedChanges.add(const <String>{});
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 10));
+    expect(polls, 1);
+  });
+
+  testWidgets('a failed fallback poll does not stop later retries', (
+    tester,
+  ) async {
+    var polls = 0;
+    await pumpBanner(
+      tester,
+      fallbackInterval: const Duration(seconds: 5),
+      fallbackPoll: () async {
+        polls += 1;
+        if (polls == 1) throw Exception('synthetic poll failure');
+      },
+    );
+
+    stateChanges.add(RealtimeConnectionState.disconnected);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 5));
+    expect(polls, 1);
+    await tester.pump(const Duration(seconds: 5));
+    expect(polls, 2);
   });
 }

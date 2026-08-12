@@ -88,10 +88,6 @@ jest.unstable_mockModule('../../services/staff/staffService.js', () => ({
   getStaffProfile: jest.fn(),
 }));
 
-jest.unstable_mockModule('../../utils/auth/tokenHelpers.js', () => ({
-  generateToken: jest.fn(),
-}));
-
 jest.unstable_mockModule('../../utils/dateUtils.js', () => ({
   formatDateDDMMYYYY: jest.fn((value) => value),
 }));

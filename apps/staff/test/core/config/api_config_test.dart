@@ -41,6 +41,21 @@ void main() {
       expect(await storage.read(key: 'staff_id'), '97');
     });
 
+    test('expired JWT shape is not an authenticated staff session', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'staff_jwt': _jwtWithPayload({
+          'uid': '11111111-1111-4111-8111-111111111111',
+          'tenant_id': '22222222-2222-4222-8222-222222222222',
+          'token_epoch': 4,
+          'sessionFamilyId': 'session-family-1',
+          'exp': 1,
+        }),
+      });
+
+      expect(await ApiConfig.isLoggedIn(), isFalse);
+      expect(await ApiConfig.getStaffJwtClaims(), isNull);
+    });
+
     test(
       'clearSessionIdentity preserves queue encryption and device keys',
       () async {

@@ -13,22 +13,20 @@
 //   2. Every nav href points at an existing page (no dead links) and is unique.
 //   3. The exclusion list cannot go stale: an entry whose page no longer
 //      exists, that is also in the nav, or that lacks a reason, fails.
-//   4. Nav gating is never LOOSER than the middleware ROUTE_POLICY for the
-//      same path, so the sidebar never advertises a page the default-deny
-//      middleware will bounce.
+//   4. Nav gating exactly mirrors the middleware ROUTE_POLICY for the same
+//      path. The sidebar neither advertises a page the middleware will bounce
+//      nor hides a page from a role the middleware admits.
 
-import fs from "fs";
-import path from "path";
 import {
   isNavItemVisible,
   NAV_ITEMS,
   NAV_EXCLUDED_PAGES,
+  visibleNavSections,
   type NavItem,
 } from "@/lib/navConfig";
-import {
-  policyForPath,
-  roleSatisfiesPolicy,
-} from "@/lib/routePolicy";
+import { policyForPath, roleSatisfiesPolicy } from "@/lib/routePolicy";
+import fs from "fs";
+import path from "path";
 
 const APP_DIR = path.join(__dirname, "..", "..", "app");
 
@@ -82,7 +80,9 @@ describe("R10 — every dashboard page is reachable from the nav", () => {
 
   test("nav hrefs are unique", () => {
     const seen = new Set<string>();
-    const dupes = navHrefs.filter((h) => (seen.has(h) ? true : (seen.add(h), false)));
+    const dupes = navHrefs.filter((h) =>
+      seen.has(h) ? true : (seen.add(h), false),
+    );
     expect(dupes).toEqual([]);
   });
 
@@ -111,7 +111,7 @@ describe("R10 — every dashboard page is reachable from the nav", () => {
   });
 });
 
-describe("R10 — nav gating is at least as strict as ROUTE_POLICY", () => {
+describe("R10 — nav gating exactly mirrors ROUTE_POLICY", () => {
   // Portal-tier probes exercise rank-based visibility. Explicit allowlists
   // are checked separately with the canonical raw role identity.
   const PROBE_ROLES = ["STAFF", "DOCTOR", "HR", "ADMIN", "IT_ADMIN"] as const;
@@ -128,7 +128,9 @@ describe("R10 — nav gating is at least as strict as ROUTE_POLICY", () => {
   }
 
   test("explicit allowlists use the canonical role, not the normalized tier", () => {
-    const item = NAV_ITEMS.find((candidate) => candidate.href === "/dashboard/order-set-studio");
+    const item = NAV_ITEMS.find(
+      (candidate) => candidate.href === "/dashboard/order-set-studio",
+    );
     expect(item).toBeDefined();
 
     for (const rawRole of ["QUALITY_OFFICER", "PHARMACY_INCHARGE"]) {
@@ -151,6 +153,59 @@ describe("R10 — nav gating is at least as strict as ROUTE_POLICY", () => {
     ).toBe(false);
   });
 
+  test("the shared section filter returns the same visible item set", () => {
+    for (const role of PROBE_ROLES) {
+      const context = {
+        rawRole: role,
+        role,
+        isSuperAdmin: false,
+        hasAllPermissions: () => role === "ADMIN",
+      };
+      const helperHrefs = visibleNavSections(context)
+        .flatMap((section) => section.items)
+        .map((item) => item.href);
+      const directlyFilteredHrefs = NAV_ITEMS.filter((item) =>
+        isNavItemVisible(item, context),
+      ).map((item) => item.href);
+      expect(helperHrefs).toEqual(directlyFilteredHrefs);
+    }
+  });
+
+  test.each([
+    ["/dashboard/appointments", "appointmentManagement"],
+    ["/dashboard/beds", "departmentManagement"],
+    ["/dashboard/consent", "userManagement"],
+    ["/dashboard/notifications", "notificationManagement"],
+  ])("%s remains hidden from a scoped ADMIN missing %s", (href, permission) => {
+    const item = NAV_ITEMS.find((candidate) => candidate.href === href);
+    expect(item).toBeDefined();
+    expect(
+      isNavItemVisible(item!, {
+        rawRole: "ADMIN",
+        role: "ADMIN",
+        isSuperAdmin: false,
+        hasAllPermissions: () => false,
+      }),
+    ).toBe(false);
+    expect(
+      isNavItemVisible(item!, {
+        rawRole: "ADMIN",
+        role: "ADMIN",
+        isSuperAdmin: false,
+        hasAllPermissions: (permissions) => permissions.includes(permission),
+      }),
+    ).toBe(true);
+  });
+
+  test("the command palette consumes the shared role-filtered nav", () => {
+    const paletteSource = fs.readFileSync(
+      path.join(APP_DIR, "..", "components", "CommandPalette.tsx"),
+      "utf8",
+    );
+    expect(paletteSource).toContain("visibleNavSections({");
+    expect(paletteSource).not.toMatch(/router\.push\(["']\/dashboard/);
+  });
+
   test.each(NAV_ITEMS.map((i) => [i.href, i] as const))(
     "%s never shows to a role the middleware would bounce",
     (_href, item) => {
@@ -161,6 +216,19 @@ describe("R10 — nav gating is at least as strict as ROUTE_POLICY", () => {
       for (const role of PROBE_ROLES) {
         if (navShows(item, role)) {
           expect(roleSatisfiesPolicy(role, policy!)).toBe(true);
+        }
+      }
+    },
+  );
+
+  test.each(NAV_ITEMS.map((i) => [i.href, i] as const))(
+    "%s shows to every role the middleware admits",
+    (_href, item) => {
+      const policy = policyForPath(item.href);
+      expect(policy).not.toBeNull();
+      for (const role of PROBE_ROLES) {
+        if (roleSatisfiesPolicy(role, policy!)) {
+          expect(navShows(item, role)).toBe(true);
         }
       }
     },

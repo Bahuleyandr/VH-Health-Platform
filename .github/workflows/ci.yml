@@ -3,8 +3,8 @@ name: Canonical CI
 # Tiered canonical gate:
 # - feature-branch pushes run security plus affected-stack checks;
 # - CI-plumbing changes exercise the full matrix before this workflow lands;
-# - a manual full dispatch on the final branch commit runs every stack once,
-#   in parallel, and reports the separately required Full Merge Gate;
+# - a final no-source-change commit carrying `[full-ci]` runs every stack once,
+#   in parallel, and attaches both required contexts to the pull request;
 # - each lightweight aggregate keeps a stable branch-protection context.
 #
 # GitHub merge queues are unavailable for this user-owned repository. Requiring
@@ -63,7 +63,7 @@ jobs:
       - name: Select tier and affected stacks
         id: plan
         env:
-          CANONICAL_TIER: ${{ inputs.tier || 'full' }}
+          CANONICAL_TIER: ${{ github.event_name == 'workflow_dispatch' && inputs.tier || contains(github.event.head_commit.message, '[full-ci]') && 'full' || 'auto' }}
         run: node scripts/ci/canonical-plan.mjs
 
       - name: Planner regression tests
@@ -86,6 +86,9 @@ jobs:
 
       - name: Install Semgrep
         run: python -m pip install --quiet semgrep
+
+      - name: Semgrep rule regression tests
+        run: node --test scripts/ci/semgrep-config.test.mjs
 
       - run: node scripts/ci/run.mjs --only=security
 
@@ -198,7 +201,7 @@ jobs:
     secrets: inherit
 
   merge_gate:
-    name: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'full' && 'Full Merge Gate' || 'Merge Gate' }}
+    name: ${{ needs.plan.outputs.tier == 'full' && 'Full Merge Gate' || 'Merge Gate' }}
     if: ${{ always() }}
     needs:
       - plan
@@ -235,3 +238,17 @@ jobs:
           SELECT_CONTRACTS: ${{ needs.plan.outputs.contracts }}
           SELECT_INFRA: ${{ needs.plan.outputs.infra }}
         run: node scripts/ci/assert-canonical-results.mjs
+
+  full_merge_gate_compat:
+    name: ${{ needs.plan.outputs.tier == 'full' && 'Merge Gate' || 'Full run Merge Gate not requested' }}
+    if: ${{ always() && needs.plan.outputs.tier == 'full' }}
+    needs:
+      - plan
+      - merge_gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm exhaustive aggregate passed
+        env:
+          FULL_MERGE_GATE_RESULT: ${{ needs.merge_gate.result }}
+        run: test "$FULL_MERGE_GATE_RESULT" = 'success'

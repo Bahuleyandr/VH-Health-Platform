@@ -2292,6 +2292,7 @@
   "dashboardHealthConnectNoSamples": "ஒத்திசைக்க புதிய மாதிரிகள் இல்லை",
   "dashboardHealthConnectOpenFailed": "Health Connect திறக்க முடியவில்லை",
   "dashboardExploreSection": "ஆராய்",
+  "dashboardCareToolsSection": "பராமரிப்புக் கருவிகள்",
   "dashboardTodaySection": "இன்று",
   "profileSwitcherSelfName": "நீங்கள்",
   "profileSwitcherTitle": "சுயவிவரங்கள்",

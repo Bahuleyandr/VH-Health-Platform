@@ -56,6 +56,7 @@ jest.unstable_mockModule('../../controllers/deviceController.js', () => ({
   registerDevice: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
+  requireTenantId: (tenantId) => tenantId,
   resolveTenantOrThrow: () => TENANT,
 }));
 // Register routes directly — RBAC wiring is not under test here, the

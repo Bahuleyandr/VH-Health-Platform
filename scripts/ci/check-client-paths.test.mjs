@@ -21,6 +21,7 @@ import {
   isRuleExcluded,
   loadAllowlist,
   loadEndpointMap,
+  loadProxyAllowedPrefixes,
   loadSpecIndex,
   matchesAllowlist,
   matchesLeniently,
@@ -28,7 +29,9 @@ import {
   normalizeClientPath,
   normalizeSpecPath,
   parseEndpointMap,
+  parseProxyAllowedPrefixes,
   policyTableRanges,
+  proxyAllowsRuntimePath,
   repoRoot,
   resolveRuntimePath,
   scanStringLiterals,
@@ -455,6 +458,37 @@ describe('rule-based exclusions', () => {
   });
 });
 
+describe('admin proxy allowlist contract', () => {
+  test('parses the runtime prefix table and preserves segment boundaries', () => {
+    const source = [
+      'const ALLOWED_PATH_PREFIXES = [',
+      '  "api/v1/patients",',
+      '  "api/v1/diagnostic-results/",',
+      '];',
+    ].join('\n');
+    const prefixes = parseProxyAllowedPrefixes(source);
+    assert.deepEqual(prefixes, [
+      'api/v1/patients',
+      'api/v1/diagnostic-results/',
+    ]);
+    assert.equal(proxyAllowsRuntimePath('/api/v1/patients/search', prefixes), true);
+    assert.equal(proxyAllowsRuntimePath('/api/v1/patients-internal/search', prefixes), false);
+  });
+
+  test('the shipped proxy admits every currently extracted admin path', () => {
+    const prefixes = loadProxyAllowedPrefixes();
+    assert.ok(prefixes.includes('api/v1/patients/search'));
+    assert.ok(prefixes.includes('api/v1/diagnostic-results'));
+    assert.equal(proxyAllowsRuntimePath('/api/v1/patients/abc/timeline', prefixes), false);
+    const result = analyze({
+      index: loadSpecIndex(),
+      allowlist: loadAllowlist(),
+      proxyPrefixes: prefixes,
+    });
+    assert.equal(result.findings.filter((finding) => finding.reason === 'proxy').length, 0);
+  });
+});
+
 describe('spec matching', () => {
   const index = buildSpecIndex({
     '/api/v1/users': { get: {}, post: {} },
@@ -549,7 +583,7 @@ describe('end-to-end classification', () => {
     assert.ok(result.stats.checked > 500);
     for (const f of result.findings) {
       assert.ok(f.file && f.line > 0, 'every finding needs a file:line');
-      assert.ok(['path', 'method'].includes(f.reason));
+      assert.ok(['path', 'method', 'proxy'].includes(f.reason));
       assert.ok(f.resolved.startsWith('/api/v1'));
     }
   });
@@ -568,6 +602,7 @@ describe('end-to-end classification', () => {
       sources: [{ id: 'fixture', kind: 'admin', root: 'client', extensions: ['.ts'] }],
       index: buildSpecIndex({ '/api/v1/admin/analytics/revenue': { get: {} } }),
       allowlist: [],
+      proxyPrefixes: ['api/v1/admin/'],
     });
     assert.equal(result.findings.length, 1);
     assert.equal(result.findings[0].method, 'GET');
@@ -578,5 +613,42 @@ describe('end-to-end classification', () => {
   test('an empty source set yields no findings', () => {
     const result = analyze({ sources, index, allowlist: [] });
     assert.deepEqual(result.findings, []);
+  });
+
+  test('a served admin path still fails when the runtime proxy blocks it', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'client-proxy-contract-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const client = join(root, 'client');
+    mkdirSync(client);
+    writeFileSync(join(client, 'calls.ts'), "getJSON('/patients/search');\n");
+    const result = analyze({
+      root,
+      sources: [{ id: 'fixture', kind: 'admin', root: 'client', extensions: ['.ts'] }],
+      index: buildSpecIndex({ '/api/v1/patients/search': { get: {} } }),
+      allowlist: [],
+      proxyPrefixes: ['api/v1/users'],
+    });
+    assert.equal(result.findings.length, 1);
+    assert.equal(result.findings[0].reason, 'proxy');
+  });
+
+  test('a direct browser fetch is still governed by the runtime proxy', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'client-proxy-fetch-contract-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const client = join(root, 'client');
+    mkdirSync(client);
+    writeFileSync(
+      join(client, 'page.ts'),
+      "fetch(`${API_BASE_URL}/patients/search`);\n",
+    );
+    const result = analyze({
+      root,
+      sources: [{ id: 'fixture', kind: 'admin', root: 'client', extensions: ['.ts'] }],
+      index: buildSpecIndex({ '/api/v1/patients/search': { get: {} } }),
+      allowlist: [],
+      proxyPrefixes: ['api/v1/users'],
+    });
+    assert.equal(result.findings.length, 1);
+    assert.equal(result.findings[0].reason, 'proxy');
   });
 });

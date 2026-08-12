@@ -159,6 +159,25 @@ describe('jwtMiddleware — revocation control flow', () => {
 // Claim derivation: Hasura claims, mfa_setup scope, optional fields
 // =====================================================================
 describe('jwtMiddleware — claim derivation', () => {
+  it('surfaces the stable session and device selectors for logout and WS tickets', async () => {
+    verifyTokenMock.mockReturnValue({
+      uid: UID,
+      role: 'PATIENT',
+      id: 42,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
+    });
+    const req = makeReq();
+    const res = makeRes();
+
+    await jwtMiddleware(req, res, () => {});
+
+    expect(req.user).toMatchObject({
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
+    });
+  });
+
   it('does not authenticate a uid-only token when the users.id lookup fails', async () => {
     const uncachedUid = 'a0000000-0000-4000-8000-00000000f001';
     verifyTokenMock.mockReturnValue({ uid: uncachedUid, role: 'DOCTOR' });
@@ -275,6 +294,19 @@ describe('jwtMiddleware — acting-as delegation', () => {
     return { uid: GUARDIAN_UID, id: 10, role: 'PATIENT', scope: 'full', ...extra };
   }
 
+  function liveDelegationRow(overrides = {}) {
+    return {
+      dep_id: 20, dep_uid: DEP_UID, dep_phone: '+919111111111', dep_email: 'kid@test.local',
+      dep_role: 'PATIENT', dep_is_minor: true, dep_tenant_id: 'tenant-A',
+      dep_is_active: true, dep_status: 'active', dep_is_deleted: false,
+      dep_deleted_at: null, dep_merged_into_uid: null,
+      g_id: 10, g_uid: GUARDIAN_UID, g_role: 'PATIENT', g_tenant_id: 'tenant-A',
+      g_is_active: true, g_status: 'active', g_is_deleted: false,
+      g_deleted_at: null, g_merged_into_uid: null,
+      ...overrides,
+    };
+  }
+
   it('blocks acting-as for a narrow-scope token with 403', async () => {
     verifyTokenMock.mockReturnValue(guardianToken({ scope: 'mfa_setup' }));
     const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
@@ -351,13 +383,25 @@ describe('jwtMiddleware — acting-as delegation', () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it('rewrites req.user to the dependent and records req.acting on success', async () => {
+  it.each([
+    ['inactive', { g_is_active: false }],
+    ['deleted', { g_is_deleted: true, g_deleted_at: new Date().toISOString() }],
+    ['merged', { g_merged_into_uid: 'd0000000-0000-4000-8000-000000000003' }],
+    ['wrong-role', { g_role: 'NURSING_STAFF' }],
+  ])('denies when the guardian is %s', async (_label, lifecycle) => {
     verifyTokenMock.mockReturnValue(guardianToken());
-    queryRawUnsafeMock.mockResolvedValueOnce([{
-      dep_id: 20, dep_uid: DEP_UID, dep_phone: '+919111111111', dep_email: 'kid@test.local',
-      dep_role: 'PATIENT', dep_is_minor: true, dep_tenant_id: 'tenant-A',
-      g_id: 10, g_uid: GUARDIAN_UID, g_tenant_id: 'tenant-A',
-    }]);
+    queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow(lifecycle)]);
+    const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
+    await jwtMiddleware(req, res, () => {});
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('rewrites req.user to the dependent and records req.acting on success', async () => {
+    verifyTokenMock.mockReturnValue(guardianToken({
+      sessionFamilyId: 'guardian-session-family',
+      stableDeviceId: 'guardian-device',
+    }));
+    queryRawUnsafeMock.mockResolvedValueOnce([liveDelegationRow()]);
     let nextCalled = false;
     const req = makeReq({ 'x-acting-as-uid': DEP_UID }); const res = makeRes();
     await jwtMiddleware(req, res, () => { nextCalled = true; });
@@ -366,6 +410,8 @@ describe('jwtMiddleware — acting-as delegation', () => {
     expect(req.user.id).toBe(20);
     expect(req.user.role).toBe('PATIENT');
     expect(req.user.tenant_id).toBe('tenant-A');
+    expect(req.user.sessionFamilyId).toBe('guardian-session-family');
+    expect(req.user.stableDeviceId).toBe('guardian-device');
     expect(req.acting).toMatchObject({ actorUid: GUARDIAN_UID, actorId: 10 });
   });
 });

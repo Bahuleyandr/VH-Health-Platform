@@ -6,7 +6,18 @@ function read(path) {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 }
 
-test('canonical workflow separates quick pushes from the final full dispatch', () => {
+function jobBlock(workflow, jobId) {
+  const header = `  ${jobId}:`;
+  const start = workflow.indexOf(header);
+  assert.notEqual(start, -1, `job ${jobId} not found`);
+
+  const nextJob = /^  [A-Za-z0-9_-]+:\r?$/gm;
+  nextJob.lastIndex = start + header.length;
+  const next = nextJob.exec(workflow);
+  return workflow.slice(start, next?.index ?? workflow.length);
+}
+
+test('canonical workflow separates quick pushes from the final full marker', () => {
   const workflow = read('.github/workflows/ci.yml');
 
   assert.match(workflow, /merge_group:\s*\n\s+types: \[checks_requested\]/);
@@ -14,18 +25,81 @@ test('canonical workflow separates quick pushes from the final full dispatch', (
   assert.match(workflow, /quick_backend:/);
   assert.match(workflow, /lint-and-test:/);
   assert.match(workflow, /fhir-conformance:/);
-  assert.match(workflow, /'Full Merge Gate' \|\| 'Merge Gate'/);
+  assert.match(workflow, /contains\(github\.event\.head_commit\.message, '\[full-ci\]'\)/);
+  assert.match(workflow, /needs\.plan\.outputs\.tier == 'full' && 'Full Merge Gate' \|\| 'Merge Gate'/);
+  assert.match(workflow, /needs\.plan\.outputs\.tier == 'full' && 'Merge Gate' \|\| 'Full run Merge Gate not requested'/);
+  assert.match(workflow, /FULL_MERGE_GATE_RESULT: \$\{\{ needs\.merge_gate\.result \}\}/);
   assert.match(workflow, /node scripts\/ci\/assert-canonical-results\.mjs/);
   assert.doesNotMatch(workflow, /run\.mjs --install --changed-on-branch-push/);
+});
+
+test('[full-ci] runs one exhaustive matrix and publishes both required contexts', () => {
+  const workflow = read('.github/workflows/ci.yml');
+  const quickJobs = [
+    'quick_backend',
+    'quick_fhir',
+    'quick_admin',
+    'quick_flutter',
+    'quick_contracts',
+    'quick_infra',
+  ];
+  const fullJobs = [
+    'lint-and-test',
+    'fhir-conformance',
+    'full_admin',
+    'full_flutter',
+    'full_contracts',
+    'full_infra',
+  ];
+
+  assert.equal(
+    (workflow.match(/contains\(github\.event\.head_commit\.message, '\[full-ci\]'\)/g) || []).length,
+    1,
+  );
+  for (const jobId of quickJobs) {
+    assert.match(jobBlock(workflow, jobId), /needs\.plan\.outputs\.tier == 'quick'/);
+  }
+  for (const jobId of fullJobs) {
+    assert.match(jobBlock(workflow, jobId), /needs\.plan\.outputs\.tier == 'full'/);
+  }
+
+  assert.match(
+    jobBlock(workflow, 'merge_gate'),
+    /name: \$\{\{ needs\.plan\.outputs\.tier == 'full' && 'Full Merge Gate' \|\| 'Merge Gate' \}\}/,
+  );
+  assert.match(
+    jobBlock(workflow, 'full_merge_gate_compat'),
+    /name: \$\{\{ needs\.plan\.outputs\.tier == 'full' && 'Merge Gate' \|\| 'Full run Merge Gate not requested' \}\}/,
+  );
+});
+
+test('operator docs require a no-source-change [full-ci] marker instead of a final dispatch', () => {
+  const instructions = read('CLAUDE.md');
+
+  assert.match(instructions, /git commit --allow-empty -m "ci: run final canonical gate \[full-ci\]"/);
+  assert.match(instructions, /manual dispatch is\s+not the pull-request merge boundary/);
+  assert.doesNotMatch(instructions, /gh workflow run ci\.yml --ref <branch> -f tier=full/);
 });
 
 test('backend full gate generates Prisma once before parallel consumers', () => {
   const workflow = read('.github/workflows/_reusable-backend-lint-test.yml');
 
   assert.match(workflow, /prepare-prisma:/);
-  assert.match(workflow, /static-checks:\s*\n\s+name: Backend lint \+ static checks\s*\n\s+needs: prepare-prisma/);
-  assert.match(workflow, /test:\s*\n\s+name: Backend tests .*\n\s+needs: prepare-prisma/);
+  assert.match(workflow, /static-checks:\s*\r?\n\s+name: Backend lint \+ static checks\s*\r?\n\s+needs: prepare-prisma/);
+  assert.match(workflow, /test:\s*\r?\n\s+name: Backend tests .*\r?\n\s+needs: prepare-prisma/);
   assert.equal((workflow.match(/name: Restore generated Prisma client/g) || []).length, 3);
+});
+
+test('backend quick gate saves a generated Prisma client before affected tests', () => {
+  const workflow = read('.github/workflows/_reusable-backend-quick.yml');
+  const verifyIndex = workflow.indexOf('name: Verify generated Prisma client');
+  const saveIndex = workflow.indexOf('name: Save generated Prisma client');
+  const testsIndex = workflow.indexOf('name: Run affected backend tests');
+
+  assert.match(workflow, /uses: actions\/cache\/restore@caa296126883cff596d87d8935842f9db880ef25/);
+  assert.match(workflow, /uses: actions\/cache\/save@caa296126883cff596d87d8935842f9db880ef25/);
+  assert.ok(verifyIndex >= 0 && verifyIndex < saveIndex);
+  assert.ok(saveIndex < testsIndex);
 });
 
 test('long standalone stack workflows are manual and smoke is nightly', () => {

@@ -5642,6 +5642,12 @@ abstract class AppLocalizations {
   /// **'Explore'**
   String get dashboardExploreSection;
 
+  /// Dashboard section for standalone authenticated patient tools
+  ///
+  /// In en, this message translates to:
+  /// **'Care tools'**
+  String get dashboardCareToolsSection;
+
   /// Patient app UI string. hi/ta/te/ml values are machine-translated and marked for review.
   ///
   /// In en, this message translates to:

@@ -91,6 +91,11 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   revokeAllUserTokens: revokeAllUserTokensMock,
 }));
 
+const registerNotificationDeviceMock = jest.fn();
+jest.unstable_mockModule('../../services/notification/deviceRegistrationService.js', () => ({
+  registerNotificationDevice: registerNotificationDeviceMock,
+}));
+
 const verifyOTPMock = jest.fn();
 jest.unstable_mockModule('../../services/otpService.js', () => ({
   OTPService: {
@@ -134,6 +139,11 @@ beforeEach(() => {
   generateRefreshTokenMock.mockReturnValue('vh-refresh');
   ensureHospitalNumberMock.mockResolvedValue('VH-000777');
   revokeAllUserTokensMock.mockResolvedValue({ database: { persisted: true } });
+  registerNotificationDeviceMock.mockResolvedValue({
+    id: 1,
+    device_name: null,
+    is_new_registration: true,
+  });
   prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
 });
 
@@ -284,13 +294,16 @@ describe('authenticateWithFirebase', () => {
     expect(updateCall).toBeTruthy();
     expect(updateCall[1]).toBe('fb-uid-1');
 
-    // device info persisted (storeDeviceInfo INSERT ... user_devices)
-    const deviceInsert = prismaMock.$executeRawUnsafe.mock.calls.find((c) =>
-      /INSERT INTO user_devices/i.test(c[0]) && /device_name/i.test(c[0]),
-    );
-    expect(deviceInsert).toBeTruthy();
-    expect(deviceInsert[1]).toBe(DEFAULT_TENANT_ID);
-    expect(deviceInsert[2]).toBe('user-uuid-5');
+    expect(registerNotificationDeviceMock).toHaveBeenCalledWith({
+      tenantId: DEFAULT_TENANT_ID,
+      userUid: 'user-uuid-5',
+      deviceId: 'dev-1',
+      fcmToken: 'fcm-xyz',
+      deviceName: 'Pixel',
+      platform: 'android',
+      appVersion: '1.0.0',
+      osVersion: undefined,
+    });
 
     // auth_logs row written (logFirebaseAuth)
     const authLog = prismaMock.$executeRawUnsafe.mock.calls.find((c) =>
@@ -342,11 +355,7 @@ describe('authenticateWithFirebase', () => {
 
     // non-PATIENT → ensureHospitalNumber not called, hospital_number null
     expect(ensureHospitalNumberMock).not.toHaveBeenCalled();
-    // deviceInfo was null → no user_devices insert
-    const deviceInsert = prismaMock.$executeRawUnsafe.mock.calls.find((c) =>
-      /INSERT INTO user_devices/i.test(c[0]) && /device_name/i.test(c[0]),
-    );
-    expect(deviceInsert).toBeFalsy();
+    expect(registerNotificationDeviceMock).not.toHaveBeenCalled();
 
     expect(result.user.hospital_number).toBeNull();
     expect(result.user.role).toBe('DOCTOR');
@@ -377,11 +386,12 @@ describe('authenticateWithFirebase', () => {
     // unwrapped UPDATE bubbling, resolve the UPDATE but reject the device +
     // auth_logs inserts specifically.
     prismaMock.$executeRawUnsafe.mockImplementation(async (sql) => {
-      if (/INSERT INTO user_devices/i.test(sql) || /INSERT INTO auth_logs/i.test(sql)) {
+      if (/INSERT INTO auth_logs/i.test(sql)) {
         throw new Error('boom');
       }
       return undefined;
     });
+    registerNotificationDeviceMock.mockRejectedValueOnce(new Error('boom'));
 
     const deviceInfo = { deviceId: 'd', deviceName: 'n', platform: 'ios', appVersion: '2', fcmToken: 'f' };
 
@@ -599,15 +609,15 @@ describe('updateFcmToken', () => {
   });
 
   it('upserts the FCM token and returns a redacted token (default deviceId branch)', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ uid: 'user-fcm-1' }]);
     const result = await updateFcmToken('9000000008', 'abcdefghijKLMNOP');
 
-    const upsert = prismaMock.$executeRawUnsafe.mock.calls.find((c) =>
-      /INSERT INTO user_devices/i.test(c[0]) && /ON CONFLICT/i.test(c[0]),
-    );
-    expect(upsert).toBeTruthy();
-    expect(upsert[1]).toBe(DEFAULT_TENANT_ID);
-    expect(upsert[2]).toBe('+919000000008');
-    expect(upsert[3]).toBe('default');
+    expect(registerNotificationDeviceMock).toHaveBeenCalledWith({
+      tenantId: DEFAULT_TENANT_ID,
+      userUid: 'user-fcm-1',
+      deviceId: 'default',
+      fcmToken: 'abcdefghijKLMNOP',
+    });
     expect(result).toMatchObject({
       phone: '+919000000008',
       fcmToken: 'abcdefghij...[REDACTED]',
@@ -616,9 +626,12 @@ describe('updateFcmToken', () => {
   });
 
   it('passes an explicit deviceId through when supplied', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ uid: 'user-fcm-2' }]);
     const result = await updateFcmToken('9000000008', 'tok1234567890', 'device-42');
-    const upsert = prismaMock.$executeRawUnsafe.mock.calls[0];
-    expect(upsert[3]).toBe('device-42');
+    expect(registerNotificationDeviceMock).toHaveBeenCalledWith(expect.objectContaining({
+      userUid: 'user-fcm-2',
+      deviceId: 'device-42',
+    }));
     expect(result.deviceId).toBe('device-42');
   });
 });

@@ -250,6 +250,7 @@ export default async function jwtMiddleware(req, res, next) {
   // null; the gate middleware then rejects with a clear "please re-login" 403.
   const deviceType = decoded.deviceType ?? null;
   const stableDeviceId = decoded.stableDeviceId ?? null;
+  const sessionFamilyId = decoded.sessionFamilyId ?? null;
 
   // 2FA step-up claim — stamped only by the admin MFA challenge-verify path
   // (mfaVerifyChallenge). Carried through so `requireSuperAdminStepUp` can scope
@@ -270,6 +271,7 @@ export default async function jwtMiddleware(req, res, next) {
     scope,
     deviceType,
     stableDeviceId,
+    sessionFamilyId,
     tokenExpiresAt: decoded.exp
       ? new Date(decoded.exp * 1000).toISOString()
       : null,
@@ -335,6 +337,7 @@ async function applyActingAsHop(req, dependentUidRaw) {
   //   - dependent.guardian_user_id = guardian.id
   //   - dependent.is_minor = TRUE
   //   - dependent.role = 'PATIENT'
+  //   - both accounts are live PATIENT identities (active, not deleted, not merged)
   //   - tenant parity (fail-closed if guardian.tenant_id != dependent.tenant_id)
   // The query joins guardian by uid (the JWT-supplied actor) so a stolen /
   // mismatched X-Acting-As-Uid can't bypass the guardian check.
@@ -348,13 +351,38 @@ async function applyActingAsHop(req, dependentUidRaw) {
               dep.role        AS dep_role,
               dep.is_minor    AS dep_is_minor,
               dep.tenant_id   AS dep_tenant_id,
+              dep.is_active   AS dep_is_active,
+              dep.status      AS dep_status,
+              dep.is_deleted  AS dep_is_deleted,
+              dep.deleted_at  AS dep_deleted_at,
+              dep.merged_into_uid AS dep_merged_into_uid,
               g.id            AS g_id,
               g.uid           AS g_uid,
-              g.tenant_id     AS g_tenant_id
+              g.role          AS g_role,
+              g.tenant_id     AS g_tenant_id,
+              g.is_active     AS g_is_active,
+              g.status        AS g_status,
+              g.is_deleted    AS g_is_deleted,
+              g.deleted_at    AS g_deleted_at,
+              g.merged_into_uid AS g_merged_into_uid
          FROM users dep
          JOIN users g ON g.id = dep.guardian_user_id
         WHERE dep.uid = $1::uuid
           AND g.uid = $2::uuid
+          AND dep.role = 'PATIENT'
+          AND dep.is_minor = TRUE
+          AND g.tenant_id = dep.tenant_id
+          AND dep.is_active = TRUE
+          AND dep.status = 'active'
+          AND dep.is_deleted = FALSE
+          AND dep.deleted_at IS NULL
+          AND dep.merged_into_uid IS NULL
+          AND g.role = 'PATIENT'
+          AND g.is_active = TRUE
+          AND g.status = 'active'
+          AND g.is_deleted = FALSE
+          AND g.deleted_at IS NULL
+          AND g.merged_into_uid IS NULL
         LIMIT 1`,
       dependentUidRaw,
       req.user.uid,
@@ -389,7 +417,26 @@ async function applyActingAsHop(req, dependentUidRaw) {
 
   const row = rows[0];
 
-  // Hard gates: minor + PATIENT role + same tenant. Each fails closed.
+  // Hard gates: both identities are live PATIENTs; the subject is a minor in
+  // the same tenant. Repeat the SQL predicates in JS so a mock, view, or query
+  // regression cannot turn a partial row into delegated authority.
+  if (
+    row.dep_is_active !== true
+    || String(row.dep_status || '').trim().toLowerCase() !== 'active'
+    || row.dep_is_deleted !== false
+    || row.dep_deleted_at != null
+    || row.dep_merged_into_uid != null
+  ) {
+    logger.warn(`Acting-as denied: dependent ${row.dep_uid} is not active`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
   if (!row.dep_is_minor) {
     logger.warn(`Acting-as denied: dependent ${row.dep_uid} not a minor`);
     return {
@@ -401,8 +448,26 @@ async function applyActingAsHop(req, dependentUidRaw) {
       },
     };
   }
-  if (row.dep_role && row.dep_role !== 'PATIENT') {
+  if (row.dep_role !== 'PATIENT') {
     logger.warn(`Acting-as denied: dependent ${row.dep_uid} role=${row.dep_role}`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+  if (
+    row.g_role !== 'PATIENT'
+    || row.g_is_active !== true
+    || String(row.g_status || '').trim().toLowerCase() !== 'active'
+    || row.g_is_deleted !== false
+    || row.g_deleted_at != null
+    || row.g_merged_into_uid != null
+  ) {
+    logger.warn(`Acting-as denied: guardian ${row.g_uid} is not an active patient`);
     return {
       status: 403,
       body: {

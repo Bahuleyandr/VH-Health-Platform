@@ -26,14 +26,19 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 const pushSessionRevokedMock = jest.fn();
+const pushDelegatedSessionRevokedMock = jest.fn();
 jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
+  pushDelegatedSessionRevoked: pushDelegatedSessionRevokedMock,
   pushSessionRevoked: pushSessionRevokedMock,
   sendToUser: jest.fn(),
   broadcast: jest.fn(),
 }));
 
 const {
+  isDelegatedTupleRevoked,
   isUserTokensRevoked,
+  persistRevokeDelegatedTuple,
+  publishRevokeDelegatedTuple,
   revokeAllUserTokens,
   blacklistToken,
   getCurrentTokenEpoch,
@@ -46,6 +51,44 @@ beforeEach(() => {
   cacheGetMock.mockReset();
   cacheSetMock.mockReset();
   pushSessionRevokedMock.mockReset();
+  pushDelegatedSessionRevokedMock.mockReset();
+});
+
+describe('delegated tuple revocation', () => {
+  const guardianUid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const dependentUid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  it('checks a guardian-dependent watermark without bumping either identity epoch', async () => {
+    cacheGetMock.mockResolvedValueOnce(null);
+    queryRawUnsafeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+
+    await expect(isDelegatedTupleRevoked(guardianUid, dependentUid, 1234)).resolves.toBe(true);
+
+    const [sql, marker, issuedAt] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).not.toMatch(/token_epoch/);
+    expect(marker).toBe(`user:delegated:${guardianUid}:${dependentUid}`);
+    expect(issuedAt).toBe(1234);
+  });
+
+  it('persists before publishing a tuple-scoped socket close', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000 }]);
+    cacheSetMock.mockResolvedValueOnce(true);
+
+    const revokedAt = await persistRevokeDelegatedTuple(guardianUid, dependentUid, {
+      reason: 'dependent_unlinked',
+    });
+    await publishRevokeDelegatedTuple(guardianUid, dependentUid, revokedAt, {
+      reason: 'dependent_unlinked',
+    });
+
+    expect(queryRawUnsafeMock.mock.invocationCallOrder[0])
+      .toBeLessThan(pushDelegatedSessionRevokedMock.mock.invocationCallOrder[0]);
+    expect(pushDelegatedSessionRevokedMock).toHaveBeenCalledWith(
+      guardianUid,
+      dependentUid,
+      expect.objectContaining({ reason: 'dependent_unlinked' }),
+    );
+  });
 });
 
 describe('tokenBlacklist revoke-all fallback', () => {
@@ -83,8 +126,8 @@ describe('tokenBlacklist revoke-all fallback', () => {
     await expect(isUserTokensRevoked(UUID_USER, 2000, 4)).resolves.toBe(true);
 
     const [sql, marker, issuedAt, uid, hasTokenEpoch, tokenEpoch] = queryRawUnsafeMock.mock.calls[0];
-    expect(sql).toMatch(/SELECT token_epoch FROM users/);
-    expect(sql).toMatch(/SELECT token_epoch FROM admins/);
+    expect(sql).toMatch(/SELECT token_epoch, token_epoch_bumped_at FROM users/);
+    expect(sql).toMatch(/SELECT token_epoch, token_epoch_bumped_at FROM admins/);
     expect(marker).toBe(`user:${UUID_USER}`);
     expect(issuedAt).toBe(2000);
     expect(uid).toBe(UUID_USER);
@@ -92,14 +135,16 @@ describe('tokenBlacklist revoke-all fallback', () => {
     expect(tokenEpoch).toBe(4);
   });
 
-  it('does not let a same-second watermark revoke a token stamped with the current epoch', async () => {
+  it('keeps the durable watermark predicate for epoch-stamped tokens', async () => {
     cacheGetMock.mockResolvedValueOnce({ revokedAt: 2000.75 });
     queryRawUnsafeMock.mockResolvedValueOnce([]);
 
     await expect(isUserTokensRevoked(UUID_USER, 2000, 5)).resolves.toBe(false);
 
     const [sql, marker, issuedAt, uid, hasTokenEpoch, tokenEpoch] = queryRawUnsafeMock.mock.calls[0];
-    expect(sql).toMatch(/\$4::boolean = FALSE/);
+    expect(sql).not.toMatch(/\$4::boolean = FALSE/);
+    expect(sql).toMatch(/created_at\s*>=/);
+    expect(sql).toMatch(/created_at\s*>\s*COALESCE\(identity\.token_epoch_bumped_at/);
     expect(marker).toBe(`user:${UUID_USER}`);
     expect(issuedAt).toBe(2000);
     expect(uid).toBe(UUID_USER);
@@ -149,21 +194,45 @@ describe('tokenBlacklist revoke-all fallback', () => {
     expect(pushSessionRevokedMock).not.toHaveBeenCalled();
   });
 
-  it('R1: bumps the identity token_epoch atomically with the watermark for uuid identities', async () => {
+  it('R1: atomically bumps the identity epoch and clears both notification-token projections', async () => {
     cacheSetMock.mockResolvedValueOnce(true);
-    queryRawUnsafeMock.mockResolvedValueOnce([{ revoked_at: 2000, epoch_rows: 1 }]);
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{ revoke_notification_authority: 2 }])
+      .mockResolvedValueOnce([{ revoked_at: 2000, epoch_rows: 1 }]);
 
-    await revokeAllUserTokens(UUID_USER, { reason: 'logout' });
+    await revokeAllUserTokens(UUID_USER, {
+      reason: 'logout',
+      notificationTenantId: '00000000-0000-4000-8000-000000000001',
+    });
 
-    const [sql, ...params] = queryRawUnsafeMock.mock.calls[0];
-    expect(sql).toMatch(/token_epoch = token_epoch \+ 1/);
+    expect(queryRawUnsafeMock.mock.calls[0]).toEqual([
+      expect.stringContaining('revoke_notification_authority'),
+      '00000000-0000-4000-8000-000000000001',
+      UUID_USER,
+    ]);
+    const [sql, ...params] = queryRawUnsafeMock.mock.calls[1];
+    expect(sql).toMatch(/token_epoch = COALESCE\(token_epoch, 0\) \+ 1/);
     expect(sql).toMatch(/token_epoch_bumped_at = NOW\(\)/);
     expect(sql).toMatch(/UPDATE users/);
+    expect(sql).toMatch(/device_token\s*=\s*CASE[\s\S]*ELSE NULL END/);
     expect(sql).toMatch(/UPDATE admins/);
     expect(sql).toMatch(/INSERT INTO invalidated_tokens/);
     expect(params[0]).toBe(`user:${UUID_USER}`);
     expect(params[1]).toBe('logout');
     expect(params[2]).toBe(UUID_USER);
+    expect(params[3]).toBe('00000000-0000-4000-8000-000000000001');
+  });
+
+  it('rejects a uuid revoke-all when no identity epoch row was bumped', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(
+      revokeAllUserTokens(UUID_USER, { reason: 'logout' }),
+    ).rejects.toMatchObject({ code: 'REVOCATION_WRITE_UNAVAILABLE' });
+    expect(cacheSetMock).not.toHaveBeenCalled();
+    expect(pushSessionRevokedMock).not.toHaveBeenCalled();
+    const [sql] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/INSERT INTO invalidated_tokens[\s\S]*FROM epoch_count[\s\S]*WHERE epoch_rows >= 1/);
   });
 
   it('R14: pushes session:revoked to the identity WebSockets after a durable revoke-all', async () => {
@@ -254,5 +323,27 @@ describe('tokenBlacklist blacklistToken (single-token revoke, audit F10)', () =>
     await expect(
       blacklistToken('jti-1', future, 'logout', { requireEvidence: true }),
     ).resolves.toMatchObject({ database: { persisted: true } });
+  });
+
+  it('pushes a jti-scoped session revocation after a durable single-token blacklist', async () => {
+    cacheSetMock.mockResolvedValueOnce(true);
+    queryRawUnsafeMock.mockResolvedValueOnce([]);
+
+    await blacklistToken('jti-1', future, 'logout', {
+      requireEvidence: true,
+      userId: UUID_USER,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
+    });
+
+    expect(pushSessionRevokedMock).toHaveBeenCalledWith(
+      UUID_USER,
+      expect.objectContaining({
+        reason: 'logout',
+        jti: 'jti-1',
+        sessionFamilyId: 'session-family-1',
+        stableDeviceId: 'device-1',
+      }),
+    );
   });
 });

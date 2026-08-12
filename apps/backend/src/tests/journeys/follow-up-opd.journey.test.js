@@ -109,6 +109,7 @@ describeJourney('Journey: follow-up-opd', () => {
     it('books a FOLLOW_UP appointment for today with the assigned doctor', async () => {
       const res = await receptionist.post('/api/v1/appointments').send({
         patient_id: patientId,
+        patient_phone: `+91${PATIENT_PHONE}`,
         doctor_id: doctorUserId,
         date: today,
         time: '15:30',

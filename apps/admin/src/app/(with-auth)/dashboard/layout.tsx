@@ -16,8 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTenant } from '@/contexts/TenantContext';
 import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
 import {
-  isNavItemVisible,
-  NAV_SECTIONS,
+  visibleNavSections,
   type NavSection,
 } from '@/lib/navConfig';
 import styles from './Dashboard.module.css';
@@ -47,17 +46,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useIdleTimeout(30 * 60 * 1000);
 
   const visibleSections = useMemo<NavSection[]>(() => {
-    return NAV_SECTIONS.map((section) => ({
-      ...section,
-      items: section.items.filter((item) =>
-        isNavItemVisible(item, {
-          rawRole,
-          role,
-          isSuperAdmin,
-          hasAllPermissions,
-        }),
-      ),
-    })).filter((section) => section.items.length > 0);
+    return visibleNavSections({
+      rawRole,
+      role,
+      isSuperAdmin,
+      hasAllPermissions,
+    });
   }, [rawRole, role, isSuperAdmin, hasAllPermissions]);
 
   useEffect(() => {

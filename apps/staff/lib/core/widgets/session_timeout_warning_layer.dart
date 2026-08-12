@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../l10n/app_strings.dart';
+import '../navigation/app_router.dart' show appRouter;
 import '../providers/session_timeout_provider.dart';
 import '../theme/app_theme.dart';
 import 'logout_flow.dart';
 
+const staffSessionLockSurfaceKey = ValueKey<String>(
+  'staff-session-lock-surface',
+);
+
 class SessionTimeoutWarningLayer extends StatefulWidget {
-  const SessionTimeoutWarningLayer({super.key, required this.child});
+  const SessionTimeoutWarningLayer({
+    super.key,
+    required this.child,
+    @visibleForTesting this.navigateToLogin,
+  });
 
   final Widget child;
+  final VoidCallback? navigateToLogin;
 
   @override
   State<SessionTimeoutWarningLayer> createState() =>
@@ -25,16 +34,20 @@ class _SessionTimeoutWarningLayerState
   Widget build(BuildContext context) {
     return Consumer<SessionTimeoutProvider>(
       builder: (context, timeout, _) {
-        if (timeout.isSessionExpired) {
+        if (timeout.isSessionExpired && !timeout.isTimeoutCleanupInProgress) {
           if (!_navigatedForExpiry) {
             _navigatedForExpiry = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!context.mounted) return;
               // Idle timeout is a logout path: stop the realtime poll
               // providers (the timeout cleanup itself already revoked the
               // session and closed the WebSocket) before landing on /login.
-              stopStaffRealtimePollers(context);
-              context.go('/login');
+              await stopStaffRealtimePollers(context);
+              if (!context.mounted) return;
+              (widget.navigateToLogin ?? () => appRouter.go('/login'))();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                timeout.unlockSession();
+              });
             });
           }
         } else {
@@ -43,12 +56,72 @@ class _SessionTimeoutWarningLayerState
 
         return Stack(
           children: [
-            widget.child,
+            ExcludeSemantics(
+              excluding: timeout.isSessionLocked,
+              child: IgnorePointer(
+                ignoring: timeout.isSessionLocked,
+                child: widget.child,
+              ),
+            ),
             if (timeout.isWarningVisible && !timeout.isSessionExpired)
               _SessionTimeoutBanner(timeout: timeout),
+            if (timeout.isSessionLocked) const StaffSessionLockSurface(),
           ],
         );
       },
+    );
+  }
+}
+
+class StaffSessionLockSurface extends StatelessWidget {
+  const StaffSessionLockSurface({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+    return Positioned.fill(
+      key: staffSessionLockSurfaceKey,
+      child: AbsorbPointer(
+        child: Material(
+          color: Theme.of(context).colorScheme.surface,
+          child: SafeArea(
+            child: Center(
+              child: Semantics(
+                liveRegion: true,
+                namesRoute: true,
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.lock_outline,
+                        size: 48,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        strings.sessionLockTitle,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        strings.sessionLockBody,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: 24),
+                      const CircularProgressIndicator(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

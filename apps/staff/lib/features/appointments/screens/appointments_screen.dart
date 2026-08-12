@@ -9,6 +9,7 @@ import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/constrained_content.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -22,7 +23,55 @@ import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 export '../appointment_calendar_helpers.dart';
 
+typedef AppointmentsLoader =
+    Future<Map<String, dynamic>> Function({
+      String? doctorId,
+      required String date,
+      String? status,
+      required int page,
+      required int limit,
+    });
+
+typedef AppointmentsRoleLoader = Future<String> Function();
+typedef AppointmentsStaffIdLoader = Future<String?> Function();
+
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
+
+@visibleForTesting
+bool appointmentPatientLookupResultIsCurrent({
+  required int capturedGeneration,
+  required int currentGeneration,
+  required String capturedPhone,
+  required String currentPhone,
+}) {
+  final capturedDigits = _digitsOnly(capturedPhone);
+  final currentDigits = _digitsOnly(currentPhone);
+  final capturedLast10 = capturedDigits.length >= 10
+      ? capturedDigits.substring(capturedDigits.length - 10)
+      : capturedDigits;
+  final currentLast10 = currentDigits.length >= 10
+      ? currentDigits.substring(currentDigits.length - 10)
+      : currentDigits;
+  return capturedGeneration == currentGeneration &&
+      capturedLast10.length == 10 &&
+      capturedLast10 == currentLast10;
+}
+
+@visibleForTesting
+bool appointmentPatientLookupCanSubmit({
+  required String currentPhone,
+  required String? verifiedPhone,
+  required bool lookupBusy,
+  required bool lookupFailed,
+}) {
+  if (lookupBusy || lookupFailed || verifiedPhone == null) return false;
+  return appointmentPatientLookupResultIsCurrent(
+    capturedGeneration: 0,
+    currentGeneration: 0,
+    capturedPhone: verifiedPhone,
+    currentPhone: currentPhone,
+  );
+}
 
 int? _doctorId(Map<String, dynamic> doctor) => int.tryParse(
   (doctor['user_id'] ?? doctor['userId'] ?? doctor['id'])?.toString() ?? '',
@@ -184,11 +233,19 @@ String _doctorLabelWithStrings(Map<String, dynamic> doctor, {AppStrings? s}) {
 class AppointmentsScreen extends StatefulWidget {
   final DateTime? initialDate;
   final bool workspaceMode;
+  final AppointmentsLoader? loadAppointments;
+  final AppointmentsRoleLoader? loadRole;
+  final AppointmentsStaffIdLoader? loadStaffId;
+  final bool autoRefresh;
 
   const AppointmentsScreen({
     super.key,
     this.initialDate,
     this.workspaceMode = false,
+    this.loadAppointments,
+    this.loadRole,
+    this.loadStaffId,
+    this.autoRefresh = true,
   });
 
   @override
@@ -209,6 +266,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   bool _queuePanelCollapsed = false;
   bool _queuePanelManuallyToggled = false;
   late final ScrollController _queuePanelScrollController;
+  int _loadGeneration = 0;
+  bool _hasLoadedAppointments = false;
+  bool _isStale = false;
 
   bool get _canBookAppointments => !_doctorScoped;
   bool get _doctorWorkspaceMode => widget.workspaceMode && _doctorScoped;
@@ -251,7 +311,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     _queuePanelScrollController = ScrollController();
     _selectedDate = _dateOnly(widget.initialDate ?? DateTime.now());
     _load();
-    _attachRealtime();
+    if (widget.autoRefresh) {
+      _attachRealtime();
+    }
   }
 
   Future<void> _attachRealtime() async {
@@ -263,7 +325,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     _appointmentsSub = rt.events('staff:appointments').listen((_) {
       _refreshDebounce?.cancel();
       _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
-        if (mounted) _load();
+        if (mounted) {
+          _load(showLoading: false, preserveLastKnownData: true);
+        }
       });
     });
   }
@@ -276,29 +340,51 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _load({
+    bool showLoading = true,
+    bool preserveLastKnownData = false,
+  }) async {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
+    final selectedDate = _selectedDate;
+    final selectedStatus = _selectedStatus;
+    if (showLoading && !_hasLoadedAppointments) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      final role = (await ApiConfig.getRole()).toUpperCase();
+      final role = (await (widget.loadRole?.call() ?? ApiConfig.getRole()))
+          .toUpperCase();
       final doctorScoped = _isDoctorQueueRole(role);
-      final doctorId = doctorScoped ? await ApiConfig.getStaffId() : null;
-      final days = _appointmentWeekDays(_selectedDate);
+      final doctorId = doctorScoped
+          ? await (widget.loadStaffId?.call() ?? ApiConfig.getStaffId())
+          : null;
+      final days = _appointmentWeekDays(selectedDate);
       final results = await Future.wait(
-        days.map(
-          (day) => ScheduleApiService.getAppointments(
+        days.map((day) {
+          final loader = widget.loadAppointments;
+          if (loader != null) {
+            return loader(
+              doctorId: doctorId,
+              date: _dateParam(day),
+              status: selectedStatus == 'all' ? null : selectedStatus,
+              page: 1,
+              limit: 100,
+            );
+          }
+          return ScheduleApiService.getAppointments(
             doctorId: doctorId,
             date: _dateParam(day),
-            status: _selectedStatus == 'all' ? null : _selectedStatus,
+            status: selectedStatus == 'all' ? null : selectedStatus,
             page: 1,
             limit: 100,
-          ),
-        ),
+          );
+        }),
       );
+      if (!mounted || generation != _loadGeneration) return;
       final byDate = <String, List<StaffAppointment>>{};
-      if (!mounted) return;
       final s = AppStrings.of(context);
       for (var index = 0; index < days.length; index += 1) {
         byDate[_dateParam(days[index])] = StaffAppointment.listFrom(
@@ -309,6 +395,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       if (mounted) {
         setState(() {
           _appointmentsByDate = byDate;
+          _hasLoadedAppointments = true;
+          _isStale = false;
+          _error = null;
           _doctorScoped = doctorScoped;
           _currentStaffId = int.tryParse(doctorId ?? '');
           _scopeLabel = doctorScoped
@@ -322,11 +411,20 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted && generation == _loadGeneration) {
+        setState(() {
+          if (!_hasLoadedAppointments &&
+              (!preserveLastKnownData || _appointmentsByDate.isEmpty)) {
+            _error = e.toString().replaceFirst('Exception: ', '');
+          } else if (_hasLoadedAppointments) {
+            _isStale = true;
+          }
+        });
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -356,6 +454,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _updateStatus(String id, String status) async {
+    if (_isStale) return;
     try {
       await ScheduleApiService.updateAppointmentStatus(id, status);
       if (!mounted) return;
@@ -374,6 +473,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _rescheduleAppointment(StaffAppointment appointment) async {
+    if (_isStale) return;
     final id = appointment.id;
     final s = AppStrings.of(context);
     if (id == null) {
@@ -395,6 +495,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       ),
     );
     if (request == null) return;
+    if (_isStale) return;
 
     try {
       await ScheduleApiService.rescheduleAppointmentInPlace(
@@ -434,6 +535,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   Future<void> _createAppointment() async {
+    if (_isStale) return;
     final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final patientPhoneCtrl = TextEditingController();
@@ -456,22 +558,39 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       's4.lib.appointments.enter_phone_to_check_registered_patient',
     );
     var patientLookupBusy = false;
+    var patientLookupFailed = false;
     var patientNameReadOnly = false;
     int? resolvedPatientId;
+    String? verifiedPatientPhone;
+    var lookupGeneration = 0;
     int? selectedDoctorId;
     String? selectedDoctorUid;
     Map<String, dynamic>? selectedDoctor;
     Timer? lookupDebounce;
+    var sheetActive = true;
 
-    Future<void> lookupPatient(StateSetter setSheetState) async {
-      final phone = patientPhoneCtrl.text.trim();
+    Future<void> lookupPatient(
+      StateSetter setSheetState, {
+      required int generation,
+      required String phone,
+    }) async {
       final last10 = _digitsOnly(phone).length >= 10
           ? _digitsOnly(phone).substring(_digitsOnly(phone).length - 10)
           : _digitsOnly(phone);
+      if (!appointmentPatientLookupResultIsCurrent(
+        capturedGeneration: generation,
+        currentGeneration: lookupGeneration,
+        capturedPhone: phone,
+        currentPhone: patientPhoneCtrl.text,
+      )) {
+        return;
+      }
       if (last10.length < 10) {
         setSheetState(() {
           resolvedPatientId = null;
+          verifiedPatientPhone = null;
           patientLookupBusy = false;
+          patientLookupFailed = false;
           patientNameReadOnly = false;
           lookupMessage = s.lookup(
             's4.lib.appointments.enter_phone_to_check_registered_patient',
@@ -482,7 +601,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
       setSheetState(() {
         patientLookupBusy = true;
+        patientLookupFailed = false;
         resolvedPatientId = null;
+        verifiedPatientPhone = null;
         patientNameReadOnly = false;
         lookupMessage = s.lookup(
           's4.lib.appointments.checking_patient_registry',
@@ -491,6 +612,16 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
       try {
         final matches = await PatientApiService.search(phone, limit: 10);
+        if (!mounted ||
+            !sheetActive ||
+            !appointmentPatientLookupResultIsCurrent(
+              capturedGeneration: generation,
+              currentGeneration: lookupGeneration,
+              capturedPhone: phone,
+              currentPhone: patientPhoneCtrl.text,
+            )) {
+          return;
+        }
         final exact = matches.cast<Map<String, dynamic>?>().firstWhere(
           (patient) =>
               patient != null &&
@@ -500,6 +631,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         if (exact == null) {
           setSheetState(() {
             patientLookupBusy = false;
+            patientLookupFailed = false;
+            verifiedPatientPhone = last10;
             patientNameReadOnly = false;
             lookupMessage = s.lookup(
               's4.lib.appointments.new_patient_enter_name_to_register',
@@ -512,6 +645,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         setSheetState(() {
           resolvedPatientId = id;
           patientLookupBusy = false;
+          patientLookupFailed = false;
+          verifiedPatientPhone = last10;
           patientNameReadOnly = true;
           patientNameCtrl.text = exact['name']?.toString() ?? '';
           lookupMessage = id == null
@@ -521,8 +656,20 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 });
         });
       } catch (_) {
+        if (!mounted ||
+            !sheetActive ||
+            !appointmentPatientLookupResultIsCurrent(
+              capturedGeneration: generation,
+              currentGeneration: lookupGeneration,
+              capturedPhone: phone,
+              currentPhone: patientPhoneCtrl.text,
+            )) {
+          return;
+        }
         setSheetState(() {
           patientLookupBusy = false;
+          patientLookupFailed = true;
+          verifiedPatientPhone = null;
           patientNameReadOnly = false;
           lookupMessage = s.lookup(
             's4.lib.appointments.could_not_check_registry_new_patient_available',
@@ -545,7 +692,34 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 '${appointmentTime.hour.toString().padLeft(2, '0')}:${appointmentTime.minute.toString().padLeft(2, '0')}';
 
             Future<void> submit() async {
+              if (_isStale) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(s.lookup('s4.lib.realtime_status.stale')),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+                return;
+              }
               if (!formKey.currentState!.validate()) return;
+              if (!appointmentPatientLookupCanSubmit(
+                currentPhone: patientPhoneCtrl.text,
+                verifiedPhone: verifiedPatientPhone,
+                lookupBusy: patientLookupBusy,
+                lookupFailed: patientLookupFailed,
+              )) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      s.lookup(
+                        's4.lib.appointments.could_not_check_registry_new_patient_available',
+                      ),
+                    ),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+                return;
+              }
               final selectedDepartment = departmentCtrl.text.trim();
               if (selectedDoctorId == null && selectedDepartment.isEmpty) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
@@ -654,12 +828,33 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                             child: Icon(Icons.phone_outlined),
                           ),
                         ),
-                        onChanged: (_) {
+                        onChanged: (value) {
                           lookupDebounce?.cancel();
+                          final generation = ++lookupGeneration;
+                          final hadResolvedIdentity =
+                              resolvedPatientId != null || patientNameReadOnly;
+                          setSheetState(() {
+                            resolvedPatientId = null;
+                            verifiedPatientPhone = null;
+                            patientLookupBusy = false;
+                            patientLookupFailed = false;
+                            patientNameReadOnly = false;
+                            if (hadResolvedIdentity) patientNameCtrl.clear();
+                            lookupMessage = s.lookup(
+                              's4.lib.appointments.enter_phone_to_check_registered_patient',
+                            );
+                          });
+                          final capturedPhone = value.trim();
                           lookupDebounce = Timer(
                             const Duration(milliseconds: 450),
                             () {
-                              if (ctx.mounted) lookupPatient(setSheetState);
+                              if (ctx.mounted) {
+                                lookupPatient(
+                                  setSheetState,
+                                  generation: generation,
+                                  phone: capturedPhone,
+                                );
+                              }
                             },
                           );
                         },
@@ -1150,6 +1345,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           },
         ),
       );
+      sheetActive = false;
 
       if (created == true && mounted) {
         SuccessToast.show(
@@ -1159,6 +1355,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         unawaited(_load());
       }
     } finally {
+      sheetActive = false;
       lookupDebounce?.cancel();
       patientPhoneCtrl.dispose();
       patientNameCtrl.dispose();
@@ -1289,7 +1486,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               _CalendarModePill(scopeLabel: _scopeLabel),
               if (_canBookAppointments)
                 FilledButton.icon(
-                  onPressed: _createAppointment,
+                  onPressed: _isStale ? null : _createAppointment,
                   icon: const Icon(Icons.add, size: 18),
                   label: const AppText('s4.lib.appointments.book_op'),
                   style: FilledButton.styleFrom(
@@ -1305,6 +1502,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   void _openAppointmentActions(StaffAppointment appointment) {
+    if (_isStale) return;
     if (_doctorScoped) {
       _openAppointmentPatient(appointment);
       return;
@@ -1512,7 +1710,35 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       body: ConstrainedContent(
         child: Column(
           children: [
+            RealtimeStatusBanner(
+              watchChannels: const {'staff:appointments'},
+              deniedMessageKey: 's4.lib.realtime_status.stale',
+              fallbackPoll: () =>
+                  _load(showLoading: false, preserveLastKnownData: true),
+              margin: const EdgeInsets.only(bottom: 12),
+            ),
             _buildToolbar(),
+            if (_isStale)
+              Card(
+                key: const Key('appointments-stale-data-banner'),
+                color: AppTheme.warningAmber.withValues(alpha: 0.12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cloud_off),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          AppStrings.of(
+                            context,
+                          ).lookup('s4.lib.realtime_status.stale'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _load,

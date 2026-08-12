@@ -24,6 +24,7 @@ import {
   recordAppointmentMutationEvidenceTx,
   transitionAppointment,
 } from '../../services/appointment/appointmentLifecycleService.js';
+import { lockAppointmentPatientIdentity } from '../../services/appointment/appointmentPatientIdentityService.js';
 // Aliased: this file has its own request-level requireTenantId(req); this is the
 // value-level fail-closed guard for the anti-spoof claim source below.
 import { requireTenantId as requireTenantValue } from '../../services/tenant/tenantService.js';
@@ -1680,17 +1681,32 @@ export const registerWalkIn = async (req, res) => {
       // the admin UI can banner "Returning patient — last visit on …" and the
       // receptionist doesn't accidentally create a duplicate. See finding
       // 2026-05-08-follow-up-opd-receptionist-walkin-no-returning-patient-banner.
-      let patientId = patient_id ? parseInt(patient_id) : null;
+      let patientId = patient_id ? parsePositiveInt(patient_id) : null;
+      if (patient_id && !patientId) {
+        throw AppError.badRequest('patient_id must be a positive integer');
+      }
+      let patientIdentity = null;
       let returningPatient = false;
       let priorVisitCount = 0;
       let lastVisitAt = null;
       if (patient_id && patientId) {
+        patientIdentity = await lockAppointmentPatientIdentity(tx, {
+          tenantId: actingTenantId,
+          patientId,
+          expectedPhone: resolvedPhone,
+          requirePhoneMatch: true,
+        });
+        patientId = Number(patientIdentity.id);
+        resolvedPhone = patientIdentity.phone;
         // Caller already had a patient_id — count their prior visits so the UI
         // can still show context.
         const priors = await tx.$queryRawUnsafe(
           `SELECT COUNT(*)::int AS count, MAX(created_at) AS last
-             FROM appointments WHERE patient_id = $1`,
+             FROM appointments
+            WHERE patient_id = $1
+              AND tenant_id = $2::uuid`,
           patientId,
+          actingTenantId,
         );
         priorVisitCount = priors[0]?.count ?? 0;
         lastVisitAt = priors[0]?.last ?? null;
@@ -1700,20 +1716,25 @@ export const registerWalkIn = async (req, res) => {
         // UNIDENT-EMER-* placeholder — every unidentified ER walk-in
         // is by definition a new row (a future identity-merge flow
         // collapses them once family arrives with ID).
-        const existing = isUnidentifiedFlag || minorUsesGuardianPhone
-          ? []
-          : await tx.$queryRawUnsafe(
-              `SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1`,
-              resolvedPhone,
-              resolvedPhone.replace(/\D/g, '').slice(-10),
-            );
-        if (existing.length > 0) {
-          patientId = existing[0].id;
+        patientIdentity = isUnidentifiedFlag || minorUsesGuardianPhone
+          ? null
+          : await lockAppointmentPatientIdentity(tx, {
+              tenantId: actingTenantId,
+              expectedPhone: resolvedPhone,
+              requirePhoneMatch: true,
+              allowMissing: true,
+            });
+        if (patientIdentity) {
+          patientId = Number(patientIdentity.id);
+          resolvedPhone = patientIdentity.phone;
           returningPatient = true;
           const priors = await tx.$queryRawUnsafe(
             `SELECT COUNT(*)::int AS count, MAX(created_at) AS last
-               FROM appointments WHERE patient_id = $1`,
+               FROM appointments
+              WHERE patient_id = $1
+                AND tenant_id = $2::uuid`,
             patientId,
+            actingTenantId,
           );
           priorVisitCount = priors[0]?.count ?? 0;
           lastVisitAt = priors[0]?.last ?? null;
@@ -1895,9 +1916,21 @@ export const registerWalkIn = async (req, res) => {
             actingTenantId,
           );
           patientId = newUser[0].id;
-          resolvedPhone = patientPhoneForInsert;
+          patientIdentity = await lockAppointmentPatientIdentity(tx, {
+            tenantId: actingTenantId,
+            patientId,
+          });
+          patientId = Number(patientIdentity.id);
+          resolvedPhone = patientIdentity.phone;
           returningPatient = false;
         }
+      }
+
+      if (!patientIdentity) {
+        throw AppError.conflict(
+          'Walk-in appointment is not linked to a patient identity',
+          'APPOINTMENT_PATIENT_REQUIRED',
+        );
       }
 
       // Atomic token number — scoped by (date, deptPrefix). A global-per-day
@@ -2060,16 +2093,7 @@ export const registerWalkIn = async (req, res) => {
         actingTenantId,
       );
       const appt = apptRows[0];
-      const patientIdentityRows = await tx.$queryRawUnsafe(
-        `SELECT uid
-           FROM users
-          WHERE tenant_id = $1::uuid
-            AND id = $2::integer
-          LIMIT 1`,
-        actingTenantId,
-        patientId,
-      );
-      appt.patient_uid = patientIdentityRows[0]?.uid || null;
+      appt.patient_uid = patientIdentity.uid || null;
       if (!appt.patient_uid) {
         throw AppError.conflict(
           'Walk-in appointment is not linked to a patient identity',
@@ -2117,15 +2141,11 @@ export const registerWalkIn = async (req, res) => {
       // 2026-05-10-lab-walk-in-receptionist-no-panel-order-on-register.
       const labOrders = [];
       if (Array.isArray(lab_tests) && lab_tests.length > 0) {
-        const patientRow = await tx.$queryRawUnsafe(
-          'SELECT uid, phone FROM users WHERE id = $1::int LIMIT 1',
-          patientId,
-        );
-        const patientUid = patientRow[0]?.uid ?? null;
+        const patientUid = patientIdentity.uid ?? null;
         // investigations.phone is VARCHAR(15) NOT NULL — fall back to the
         // resolved walk-in phone, then a placeholder, and always clamp.
         const investigationPhone = String(
-          patientRow[0]?.phone || resolvedPhone || 'unknown',
+          patientIdentity.phone || resolvedPhone || 'unknown',
         ).slice(0, 15);
         for (const entry of lab_tests) {
           const testName = (typeof entry === 'string'
@@ -2170,10 +2190,7 @@ export const registerWalkIn = async (req, res) => {
         // ever lands as text doesn't trigger `operator does not exist:
         // integer = text` against `users.id`. See finding
         // 2026-05-09-obstetric-anc-receptionist-walkin-anc-500-prisma-integer-bug.
-        const patientRow = await tx.$queryRawUnsafe(
-          'SELECT uid FROM users WHERE id = $1::int LIMIT 1', patientId,
-        );
-        const patientUid = patientRow[0]?.uid;
+        const patientUid = patientIdentity.uid;
         if (patientUid) {
           // Idempotent: don't double-insert if an ongoing pregnancy
           // already exists for this patient.
@@ -2268,11 +2285,7 @@ export const registerWalkIn = async (req, res) => {
         // Pull the patient_uid for the FK. Walk-ins create users by
         // phone earlier in this txn, so the lookup is reliable. Explicit
         // `$1::int` cast mirrors the ANC branch defense-in-depth.
-        const patientRow = await tx.$queryRawUnsafe(
-          'SELECT uid FROM users WHERE id = $1::int LIMIT 1',
-          patientId,
-        );
-        const patientUid = patientRow[0]?.uid ?? null;
+        const patientUid = patientIdentity.uid ?? null;
         // C4 — was `req.user?.tenantId` (camelCase) which jwtMiddleware never
         // sets, so this always fell to the default tenant. Bind the
         // authenticated tenant instead.

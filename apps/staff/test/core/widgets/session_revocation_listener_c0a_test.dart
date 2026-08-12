@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth_staff/core/widgets/session_revocation_listener.dart';
+import 'package:vhhealth_staff/core/widgets/session_timeout_warning_layer.dart';
 
 void main() {
   testWidgets('forced revocation reports preserved count and routes to login', (
@@ -123,4 +124,76 @@ void main() {
     await tester.pumpAndSettle();
     expect(forcedLogoutCalls, 1);
   });
+
+  testWidgets(
+    'revocation blocks the patient surface while forced cleanup is pending',
+    (tester) async {
+      final events = StreamController<dynamic>.broadcast();
+      addTearDown(events.close);
+      final timeout = SessionTimeoutProvider(
+        timeoutDuration: const Duration(hours: 1),
+      )..startTracking();
+      addTearDown(timeout.dispose);
+      final cleanupStarted = Completer<void>();
+      final releaseCleanup = Completer<void>();
+      var patientSurfaceTaps = 0;
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => Scaffold(
+              body: TextButton(
+                onPressed: () => patientSurfaceTaps += 1,
+                child: const Text('Patient chart'),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/login',
+            builder: (context, state) =>
+                const Scaffold(body: Text('Login destination')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SessionTimeoutProvider>.value(
+          value: timeout,
+          child: MaterialApp.router(
+            routerConfig: router,
+            builder: (context, child) => SessionRevocationListener(
+              revocationEvents: events.stream,
+              forcedLogout: () async {
+                cleanupStarted.complete();
+                await releaseCleanup.future;
+                return 0;
+              },
+              navigateToLogin: () => router.go('/login'),
+              child: SessionTimeoutWarningLayer(
+                child: child ?? const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      events.add(const {'reason': 'new_login_elsewhere'});
+      await tester.pump();
+      await cleanupStarted.future;
+      await tester.pump();
+
+      expect(find.byKey(staffSessionLockSurfaceKey), findsOneWidget);
+      await tester.tap(find.text('Patient chart'), warnIfMissed: false);
+      expect(patientSurfaceTaps, 0);
+      expect(find.text('Login destination'), findsNothing);
+
+      releaseCleanup.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Login destination'), findsOneWidget);
+      expect(find.byKey(staffSessionLockSurfaceKey), findsNothing);
+    },
+  );
 }

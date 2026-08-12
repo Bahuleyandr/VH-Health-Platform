@@ -16,11 +16,13 @@ import { AppError } from '../../utils/AppError.js';
 
 const updateOwnProfileMock = jest.fn();
 const changeOwnPasswordMock = jest.fn();
+const logoutStaffMock = jest.fn();
 
 jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
   StaffAuthService: {
     updateOwnProfile: updateOwnProfileMock,
     changeOwnPassword: changeOwnPasswordMock,
+    logoutStaff: logoutStaffMock,
   },
 }));
 jest.unstable_mockModule('../../services/staff/staffService.js', () => ({
@@ -43,7 +45,14 @@ jest.unstable_mockModule('../../config/routeWrapper.js', () => ({
 }));
 jest.unstable_mockModule('../../middleware/jwtMiddleware.js', () => ({
   default: (req, _res, next) => {
-    req.user = { uid: '11111111-1111-4111-8111-111111111111', role: 'DOCTOR' };
+    req.user = {
+      uid: '11111111-1111-4111-8111-111111111111',
+      role: 'DOCTOR',
+      jti: 'access-jti-after-refresh',
+      tokenExpiresAt: '2030-01-01T00:00:00.000Z',
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: 'device-1',
+    };
     next();
   },
   enforceFullScope: (_req, _res, next) => next(),
@@ -82,9 +91,31 @@ app.use('/api/v1/auth/staff', staffAuthRoutes);
 beforeEach(() => {
   updateOwnProfileMock.mockReset();
   changeOwnPasswordMock.mockReset();
+  logoutStaffMock.mockReset();
 });
 
 describe('staffAuthController relays AppError code + details over HTTP', () => {
+  test('threads the stable session selectors into a device-scoped logout', async () => {
+    logoutStaffMock.mockResolvedValueOnce({ success: true, allDevices: false });
+
+    const response = await request(app)
+      .post('/api/v1/auth/staff/logout')
+      .send({ deviceToken: 'registered-device-token' });
+
+    expect(response.statusCode).toBe(200);
+    expect(logoutStaffMock).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      'registered-device-token',
+      expect.any(Object),
+      {
+        accessTokenJti: 'access-jti-after-refresh',
+        accessTokenExpiresAt: 1893456000,
+        sessionFamilyId: 'session-family-1',
+        stableDeviceId: 'device-1',
+      },
+    );
+  });
+
   test('updateProfile relays an AppError with code and details (409)', async () => {
     updateOwnProfileMock.mockRejectedValueOnce(AppError.conflict(
       'Display name is already in use',

@@ -1,10 +1,66 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+
 import '../config/api_config.dart';
 import '../platform_info.dart';
+import '../services/code_blue_notifier.dart';
 import '../services/hr_api_service.dart';
+import '../services/staff_local_notifications.dart';
+import '../services/staff_notification_session.dart';
+
+abstract interface class NotificationMessaging {
+  Future<AuthorizationStatus> requestPermission();
+  Future<String?> getToken();
+  Future<void> deleteToken();
+  Stream<String> get onTokenRefresh;
+  Stream<RemoteMessage> get onMessage;
+}
+
+class _FirebaseNotificationMessaging implements NotificationMessaging {
+  FirebaseMessaging get _messaging => FirebaseMessaging.instance;
+
+  @override
+  Future<AuthorizationStatus> requestPermission() async {
+    final settings = await _messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    return settings.authorizationStatus;
+  }
+
+  @override
+  Future<String?> getToken() => _messaging.getToken();
+
+  @override
+  Future<void> deleteToken() => _messaging.deleteToken();
+
+  @override
+  Stream<String> get onTokenRefresh => _messaging.onTokenRefresh;
+
+  @override
+  Stream<RemoteMessage> get onMessage => FirebaseMessaging.onMessage;
+}
+
+typedef NotificationDeviceRegistrar =
+    Future<StaffNotificationAudience> Function({
+      required String? phone,
+      required String fcmToken,
+      required String platform,
+    });
+typedef NotificationDeviceUnregister = Future<void> Function();
+typedef NotificationPhoneLoader = Future<String?> Function();
+typedef NotificationStaffUidLoader = Future<String?> Function();
+typedef NotificationAuthenticationCheck = Future<bool> Function();
+typedef NotificationPlatformLoader = String Function();
+typedef NotificationFetcher = Future<List<dynamic>> Function();
+typedef NotificationForegroundMessageHandler =
+    Future<void> Function(RemoteMessage message);
+typedef NotificationSurfaceCleaner = Future<void> Function();
 
 class NotificationItem {
   final String? id;
@@ -109,9 +165,71 @@ class NotificationItem {
 }
 
 class NotificationProvider extends ChangeNotifier {
+  NotificationProvider({
+    NotificationMessaging? messaging,
+    NotificationDeviceRegistrar? registerDevice,
+    NotificationDeviceUnregister? unregisterDevice,
+    NotificationPhoneLoader? phoneLoader,
+    NotificationStaffUidLoader? staffUidLoader,
+    NotificationAuthenticationCheck? isAuthenticated,
+    StaffNotificationClaimsLoader? notificationClaimsLoader,
+    StaffNotificationAuthorityValidator? notificationAuthorityValidator,
+    NotificationPlatformLoader? platformLoader,
+    NotificationFetcher? fetchNotifications,
+    NotificationForegroundMessageHandler? foregroundMessageHandler,
+    NotificationSurfaceCleaner? clearDeliveredNotifications,
+    StaffNotificationSessionStore? sessionStore,
+    bool? supportsPush,
+  }) : _messaging = messaging ?? _FirebaseNotificationMessaging(),
+       _registerDevice = registerDevice ?? HrApiService.registerDevice,
+       _unregisterDevice =
+           unregisterDevice ?? HrApiService.unregisterNotificationDevice,
+       _phoneLoader = phoneLoader ?? ApiConfig.getPhone,
+       _staffUidLoader = staffUidLoader ?? ApiConfig.getStaffUid,
+       _isAuthenticated = isAuthenticated ?? ApiConfig.isLoggedIn,
+       _notificationClaimsLoader =
+           notificationClaimsLoader ?? ApiConfig.getStaffJwtClaims,
+       _notificationAuthorityValidator = notificationAuthorityValidator,
+       _platformLoader = platformLoader ?? _defaultPlatform,
+       _fetchNotifications =
+           fetchNotifications ?? HrApiService.getNotifications,
+       _foregroundMessageHandler =
+           foregroundMessageHandler ??
+           CodeBlueNotifier.instance.handleForegroundMessage,
+       _clearDeliveredNotifications =
+           clearDeliveredNotifications ??
+           StaffLocalNotifications.instance.cancelSessionNotifications,
+       _sessionStore = sessionStore ?? StaffNotificationSessionStore.instance,
+       _supportsPush = supportsPush ?? !isDesktopPlatform;
+
+  final NotificationMessaging _messaging;
+  final NotificationDeviceRegistrar _registerDevice;
+  final NotificationDeviceUnregister _unregisterDevice;
+  final NotificationPhoneLoader _phoneLoader;
+  final NotificationStaffUidLoader _staffUidLoader;
+  final NotificationAuthenticationCheck _isAuthenticated;
+  final StaffNotificationClaimsLoader _notificationClaimsLoader;
+  final StaffNotificationAuthorityValidator? _notificationAuthorityValidator;
+  final NotificationPlatformLoader _platformLoader;
+  final NotificationFetcher _fetchNotifications;
+  final NotificationForegroundMessageHandler _foregroundMessageHandler;
+  final NotificationSurfaceCleaner _clearDeliveredNotifications;
+  final StaffNotificationSessionStore _sessionStore;
+  final bool _supportsPush;
   final List<NotificationItem> _notifications = [];
   bool _initialized = false;
+  bool _acceptsInitialization = true;
+  bool _disposed = false;
+  Future<void>? _initializationFuture;
+  Future<bool>? _registrationFuture;
+  Future<void>? _foregroundDeliveryFuture;
+  StreamSubscription<String>? _tokenRefreshSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
+  int _sessionGeneration = 0;
   String? _fcmToken;
+  String? _registeredPhone;
+  String? _registeredToken;
+  String? _registeredStaffUid;
 
   List<NotificationItem> get notifications => List.unmodifiable(_notifications);
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
@@ -119,70 +237,311 @@ class NotificationProvider extends ChangeNotifier {
 
   /// Initialize FCM: request permission, get token, register device, listen
   Future<void> initialize() async {
-    if (_initialized) return;
-    _initialized = true;
+    if (!_acceptsInitialization) return;
+    if (_initialized) {
+      await _registerCurrentDevice(_sessionGeneration);
+      return;
+    }
 
-    // FCM has no desktop implementation. On Windows/Linux/macOS the panel
-    // is populated solely via the API-backed fetchNotifications() path —
-    // skip the FCM setup entirely rather than relying on the catch below.
-    if (isDesktopPlatform) return;
+    final pendingInitialization = _initializationFuture;
+    if (pendingInitialization != null) {
+      await pendingInitialization;
+      return;
+    }
+
+    final initialization = _initializeNotificationSession(_sessionGeneration);
+    _initializationFuture = initialization;
 
     try {
-      final messaging = FirebaseMessaging.instance;
-
-      // Request permission
-      final settings = await messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        debugPrint('🔕 Notification permission denied');
-        return;
-      }
-
-      // Get FCM token
-      _fcmToken = await messaging.getToken();
-      debugPrint('🔔 FCM token: ${_fcmToken?.substring(0, 20)}...');
-
-      // Register device with backend
-      if (_fcmToken != null) {
-        await _registerDevice(_fcmToken!);
-      }
-
-      // Listen for token refresh
-      messaging.onTokenRefresh.listen((newToken) async {
-        _fcmToken = newToken;
-        await _registerDevice(newToken);
-      });
-
-      // Listen for foreground messages
-      FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+      await initialization;
     } catch (e) {
       debugPrint('❌ FCM init error: $e');
+    } finally {
+      if (identical(_initializationFuture, initialization)) {
+        _initializationFuture = null;
+      }
     }
   }
 
-  Future<void> _registerDevice(String token) async {
-    try {
-      final phone = await ApiConfig.getPhone();
-      if (phone == null || phone.isEmpty) {
-        debugPrint('⚠️ No phone saved — skipping device registration');
-        return;
-      }
+  Future<void> beginAuthenticatedSession() {
+    _acceptsInitialization = true;
+    return initialize();
+  }
 
-      final platform = Platform.isIOS ? 'ios' : 'android';
-      await HrApiService.registerDevice(
+  Future<void> _initializeNotificationSession(int generation) async {
+    if (!await _markPresentationInactive()) return;
+    if (generation != _sessionGeneration || !_acceptsInitialization) {
+      return;
+    }
+
+    // FCM has no desktop implementation. On Windows/Linux/macOS the panel
+    // is populated solely via the API-backed fetchNotifications() path.
+    if (!_supportsPush) {
+      _initialized = true;
+      return;
+    }
+
+    await _initializeMessaging(generation);
+  }
+
+  Future<void> _initializeMessaging(int generation) async {
+    final authorizationStatus = await _messaging.requestPermission();
+    if (generation != _sessionGeneration) return;
+
+    if (authorizationStatus == AuthorizationStatus.denied) {
+      debugPrint('🔕 Notification permission denied');
+      _initialized = true;
+      return;
+    }
+
+    _fcmToken = await _messaging.getToken();
+    if (generation != _sessionGeneration) return;
+    final registered = await _registerCurrentDevice(generation);
+    if (!registered || generation != _sessionGeneration) return;
+
+    _tokenRefreshSubscription = _messaging.onTokenRefresh.listen((newToken) {
+      unawaited(_handleTokenRefresh(newToken, generation));
+    });
+
+    _foregroundMessageSubscription = _messaging.onMessage.listen(
+      (message) => _queueForegroundMessage(message, generation),
+    );
+    _initialized = true;
+  }
+
+  Future<void> _handleTokenRefresh(String newToken, int generation) async {
+    if (generation != _sessionGeneration) return;
+    if (!await _markPresentationInactive()) return;
+    if (generation != _sessionGeneration) return;
+    _fcmToken = newToken;
+    await _registerCurrentDevice(generation);
+  }
+
+  void _queueForegroundMessage(RemoteMessage message, int generation) {
+    final precedingDelivery = _foregroundDeliveryFuture;
+    final delivery = (precedingDelivery ?? Future<void>.value()).then((
+      _,
+    ) async {
+      if (generation != _sessionGeneration) return;
+      if (!await _mayPresentNotifications(message)) return;
+      await _foregroundMessageHandler(message);
+      if (generation == _sessionGeneration &&
+          await _mayPresentNotifications(message)) {
+        _handleForegroundMessage(message);
+      }
+    });
+    _foregroundDeliveryFuture = delivery;
+    unawaited(
+      delivery
+          .catchError((Object error) {
+            debugPrint('❌ Foreground notification delivery error: $error');
+          })
+          .whenComplete(() {
+            if (identical(_foregroundDeliveryFuture, delivery)) {
+              _foregroundDeliveryFuture = null;
+            }
+          }),
+    );
+  }
+
+  Future<bool> _registerCurrentDevice([int? expectedGeneration]) {
+    final precedingRegistration = _registrationFuture;
+    final registration = (precedingRegistration ?? Future<bool>.value(true))
+        .then((_) => _performDeviceRegistration(expectedGeneration));
+    _registrationFuture = registration;
+    return registration.whenComplete(() {
+      if (identical(_registrationFuture, registration)) {
+        _registrationFuture = null;
+      }
+    });
+  }
+
+  Future<bool> _performDeviceRegistration(int? expectedGeneration) async {
+    final token = _fcmToken;
+    if (token == null || token.isEmpty) {
+      await _markPresentationInactive();
+      return false;
+    }
+    if (!await _isAuthenticated()) {
+      await _markPresentationInactive();
+      return false;
+    }
+
+    final phone = await _phoneLoader();
+    final staffUid = (await _staffUidLoader())?.trim();
+    if (expectedGeneration != null &&
+        expectedGeneration != _sessionGeneration) {
+      return false;
+    }
+    if (staffUid == null || staffUid.isEmpty) {
+      await _markPresentationInactive();
+      return false;
+    }
+    if (_registeredPhone == phone &&
+        _registeredToken == token &&
+        _registeredStaffUid == staffUid &&
+        await _sessionStore.isActiveFor(staffUid)) {
+      return true;
+    }
+
+    try {
+      if (!await _markPresentationInactive()) return false;
+      final audience = await _registerDevice(
         phone: phone,
         fcmToken: token,
-        platform: platform,
+        platform: _platformLoader(),
       );
+      if (expectedGeneration != null &&
+          expectedGeneration != _sessionGeneration) {
+        return false;
+      }
+      if (audience.recipientUid != staffUid) {
+        throw StateError('Device registration returned another staff audience');
+      }
+      await _sessionStore.markActive(audience);
+      _registeredPhone = phone;
+      _registeredToken = token;
+      _registeredStaffUid = staffUid;
       debugPrint('✅ Device registered for notifications');
+      return true;
     } catch (e) {
       debugPrint('❌ Device registration error: $e');
+      try {
+        await _sessionStore.markInactive();
+      } catch (_) {}
+      return false;
     }
   }
+
+  Future<bool> _markPresentationInactive() async {
+    try {
+      await _sessionStore.markInactive();
+      return true;
+    } catch (e) {
+      debugPrint('❌ Notification session marker cleanup error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _mayPresentNotifications(RemoteMessage message) =>
+      mayPresentStaffPush(
+        message: message,
+        sessionStore: _sessionStore,
+        claimsLoader: _notificationClaimsLoader,
+        authorityValidator: _notificationAuthorityValidator,
+      );
+
+  /// Ends the current authenticated notification session before account
+  /// navigation. It drains an in-flight registration, cancels both Firebase
+  /// listeners, removes the backend binding while the JWT is still present,
+  /// rotates the FCM token, and clears cached notification PHI.
+  Future<void> endAuthenticatedSession({bool unregisterBackend = true}) async {
+    _acceptsInitialization = false;
+    _sessionGeneration += 1;
+    var sessionMarkedInactive = false;
+    try {
+      await _sessionStore.markInactive();
+      sessionMarkedInactive = true;
+    } catch (e) {
+      debugPrint('❌ Notification session marker cleanup error: $e');
+    }
+    final pendingInitialization = _initializationFuture;
+    if (pendingInitialization != null) {
+      try {
+        await pendingInitialization;
+      } catch (_) {}
+    }
+
+    final tokenRefreshSubscription = _tokenRefreshSubscription;
+    final foregroundMessageSubscription = _foregroundMessageSubscription;
+    _tokenRefreshSubscription = null;
+    _foregroundMessageSubscription = null;
+    var listenersCancelled = true;
+    try {
+      await tokenRefreshSubscription?.cancel();
+    } catch (e) {
+      listenersCancelled = false;
+      debugPrint('❌ Token refresh listener cleanup error: $e');
+    }
+    try {
+      await foregroundMessageSubscription?.cancel();
+    } catch (e) {
+      listenersCancelled = false;
+      debugPrint('❌ Foreground notification listener cleanup error: $e');
+    }
+    final pendingRegistration = _registrationFuture;
+    if (pendingRegistration != null) {
+      try {
+        await pendingRegistration;
+      } catch (_) {}
+    }
+
+    final pendingForegroundDelivery = _foregroundDeliveryFuture;
+    if (pendingForegroundDelivery != null) {
+      try {
+        await pendingForegroundDelivery;
+      } catch (_) {}
+    }
+
+    // Cover an initialization that raced the first inactive write.
+    try {
+      await _sessionStore.markInactive();
+      sessionMarkedInactive = true;
+    } catch (e) {
+      debugPrint('❌ Notification session marker cleanup error: $e');
+    }
+
+    var deliveredNotificationsCleared = false;
+    try {
+      await _clearDeliveredNotifications();
+      deliveredNotificationsCleared = true;
+    } catch (e) {
+      debugPrint('❌ Delivered notification cleanup error: $e');
+    }
+
+    var backendUnregistered = false;
+    var tokenDeleted = !_supportsPush;
+    if (unregisterBackend) {
+      try {
+        await _unregisterDevice();
+        backendUnregistered = true;
+      } catch (e) {
+        debugPrint('❌ Device unregistration error: $e');
+      }
+    }
+    if (_supportsPush) {
+      try {
+        await _messaging.deleteToken();
+        tokenDeleted = true;
+      } catch (e) {
+        debugPrint('❌ FCM token rotation error: $e');
+      }
+    }
+
+    _notifications.clear();
+    _fcmToken = null;
+    _registeredPhone = null;
+    _registeredToken = null;
+    _registeredStaffUid = null;
+    _initialized = false;
+    if (!_disposed) notifyListeners();
+
+    final teardownVerified =
+        sessionMarkedInactive &&
+        listenersCancelled &&
+        deliveredNotificationsCleared &&
+        (!unregisterBackend || backendUnregistered) &&
+        tokenDeleted;
+    if (!teardownVerified) {
+      throw StateError('Notification session teardown could not be verified.');
+    }
+  }
+
+  static String _defaultPlatform() => currentAppDeviceMode == AppDeviceMode.web
+      ? 'web'
+      : Platform.isIOS
+      ? 'ios'
+      : 'android';
 
   void _handleForegroundMessage(RemoteMessage message) {
     final notification = message.notification;
@@ -204,8 +563,10 @@ class NotificationProvider extends ChangeNotifier {
 
   /// Fetch notifications from backend
   Future<void> fetchNotifications() async {
+    final generation = _sessionGeneration;
     try {
-      final data = await HrApiService.getNotifications();
+      final data = await _fetchNotifications();
+      if (generation != _sessionGeneration || !_acceptsInitialization) return;
 
       _notifications.clear();
       for (final item in data) {
@@ -259,6 +620,16 @@ class NotificationProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('❌ Error marking notifications as read: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _acceptsInitialization = false;
+    _sessionGeneration += 1;
+    unawaited(_tokenRefreshSubscription?.cancel());
+    unawaited(_foregroundMessageSubscription?.cancel());
+    super.dispose();
   }
 }
 

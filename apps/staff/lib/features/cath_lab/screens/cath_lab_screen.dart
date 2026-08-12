@@ -10,6 +10,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/realtime_status_banner.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -227,7 +228,10 @@ class _CathLabScreenState extends State<CathLabScreen>
     }
   }
 
-  Future<void> _loadCases({bool showLoading = true}) async {
+  Future<void> _loadCases({
+    bool showLoading = true,
+    bool preserveLastKnownData = false,
+  }) async {
     if (mounted && showLoading) {
       setState(() {
         _loading = true;
@@ -246,7 +250,9 @@ class _CathLabScreenState extends State<CathLabScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        if (!preserveLastKnownData || _cases.isEmpty) {
+          _error = e.toString();
+        }
         _loading = false;
       });
     }
@@ -264,11 +270,12 @@ class _CathLabScreenState extends State<CathLabScreen>
     await _loadCases();
   }
 
-  Future<void> _refreshCases() => _loadCases(showLoading: false);
+  Future<void> _refreshCases() =>
+      _loadCases(showLoading: false, preserveLastKnownData: true);
 
   Future<void> _refreshWorkbench() async {
     await Future.wait([
-      _loadCases(showLoading: false),
+      _loadCases(showLoading: false, preserveLastKnownData: true),
       _loadStemiActivations(showLoading: false),
     ]);
   }
@@ -321,15 +328,27 @@ class _CathLabScreenState extends State<CathLabScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildScheduleTab(),
-          _buildBody(_buildReadinessTab),
-          _buildBody(_buildProcedureTab),
-          _buildBody(_buildDoseTab),
-          _buildBody(_buildPostOrdersTab),
-          _buildBody(_buildReportsTab),
+          RealtimeStatusBanner(
+            watchChannels: const {'staff:code-stemi'},
+            deniedMessageKey: 's4.lib.realtime_status.stale',
+            fallbackPoll: _refreshWorkbench,
+            margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildScheduleTab(),
+                _buildBody(_buildReadinessTab),
+                _buildBody(_buildProcedureTab),
+                _buildBody(_buildDoseTab),
+                _buildBody(_buildPostOrdersTab),
+                _buildBody(_buildReportsTab),
+              ],
+            ),
+          ),
         ],
       ),
     );

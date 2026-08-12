@@ -138,6 +138,8 @@ export const logout = async (req, res) => {
     const result = await StaffAuthService.logoutStaff(staffId, deviceToken, req, {
       accessTokenJti: req.user.jti ?? null,
       accessTokenExpiresAt: Number.isFinite(expiresAtMs) ? Math.floor(expiresAtMs / 1000) : null,
+      sessionFamilyId: req.user.sessionFamilyId ?? req.user.jti ?? null,
+      stableDeviceId: req.user.stableDeviceId ?? null,
     });
     success(res, result, 'Logged out successfully');
   } catch (err) {

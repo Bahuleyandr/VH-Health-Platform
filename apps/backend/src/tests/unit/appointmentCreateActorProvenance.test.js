@@ -157,6 +157,7 @@ test.each([
       user,
       body: {
         patient_id: patientId,
+        ...(user.role === 'PATIENT' ? {} : { patient_phone: '+919876543210' }),
         doctor_id: 12,
         appointment_date: '2026-08-01',
         appointment_time: '10:00',
@@ -177,6 +178,7 @@ test.each([
     const [appointmentData, actor] = createAppointmentMock.mock.calls[0];
     expect(appointmentData).toEqual(expect.objectContaining({
       patient_id: patientId,
+      patient_phone: user.role === 'PATIENT' ? undefined : '+919876543210',
       doctor_id: 12,
       tenant_id: TENANT_ID,
     }));
@@ -188,6 +190,7 @@ test.each([
       actorUid: user.uid,
       actorId: user.id,
       actorRole: user.role,
+      requirePatientPhoneMatch: user.role !== 'PATIENT',
     });
   },
 );
@@ -203,13 +206,19 @@ test('service passes the trusted actor identity into appointment creation eviden
     created_at: new Date('2026-08-01T04:30:00.000Z'),
   };
   const tx = {
-    $queryRaw: jest.fn()
-      .mockResolvedValueOnce([{
+    $queryRawUnsafe: jest.fn().mockResolvedValueOnce([{
         id: 41,
         uid: PATIENT_UID,
         phone: '+919876543210',
         name: 'Booked Patient',
-      }])
+        role: 'PATIENT',
+        is_active: true,
+        status: 'active',
+        is_deleted: false,
+        deleted_at: null,
+        merged_into_uid: null,
+      }]),
+    $queryRaw: jest.fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([appointment]),
   };
@@ -253,10 +262,116 @@ test('service passes the trusted actor identity into appointment creation eviden
     expect.any(Object),
     { actorUid: STAFF_UID, source: 'book' },
   );
-  const insertValues = tx.$queryRaw.mock.calls[2].slice(1);
+  const insertValues = tx.$queryRaw.mock.calls[1].slice(1);
   expect(insertValues).toContain(STAFF_UID);
   expect(insertValues).not.toContain('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   expect(populateAppointmentCareTeamMock).toHaveBeenCalledWith(
     expect.objectContaining({ createdBy: STAFF_UID }),
   );
+});
+
+test.each([
+  {
+    label: 'phone changed after preflight',
+    patient: {
+      id: 41,
+      uid: PATIENT_UID,
+      phone: '+919111111111',
+      name: 'Booked Patient',
+      role: 'PATIENT',
+      is_active: true,
+      status: 'active',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: null,
+    },
+    code: 'APPOINTMENT_PATIENT_ID_PHONE_MISMATCH',
+  },
+  {
+    label: 'patient was deactivated after preflight',
+    patient: {
+      id: 41,
+      uid: PATIENT_UID,
+      phone: '+919876543210',
+      name: 'Booked Patient',
+      role: 'PATIENT',
+      is_active: false,
+      status: 'deactivated',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: null,
+    },
+    code: 'APPOINTMENT_PATIENT_UNAVAILABLE',
+  },
+  {
+    label: 'patient was merged after preflight',
+    patient: {
+      id: 41,
+      uid: PATIENT_UID,
+      phone: '+919876543210',
+      name: 'Merged Patient',
+      role: 'PATIENT',
+      is_active: true,
+      status: 'active',
+      is_deleted: false,
+      deleted_at: null,
+      merged_into_uid: '55555555-5555-4555-8555-555555555555',
+    },
+    code: 'APPOINTMENT_PATIENT_UNAVAILABLE',
+  },
+])('service revalidates and locks patient identity in the booking transaction: $label', async ({ patient, code }) => {
+  const tx = {
+    $queryRawUnsafe: jest.fn().mockResolvedValueOnce([patient]),
+    $queryRaw: jest.fn(),
+  };
+  setTenantTxMock.mockImplementation(async (_tenantId, callback) => callback(tx));
+  resolveDoctorRefMock.mockResolvedValue({
+    id: 12,
+    uid: '44444444-4444-4444-8444-444444444444',
+    name: 'Dr Example',
+    department: 'General Medicine',
+  });
+
+  await expect(appointmentService.createAppointment({
+    patient_id: 41,
+    patient_phone: '+919876543210',
+    doctor_id: 12,
+    appointment_date: '2026-08-01',
+    appointment_time: '10:00',
+    reason: 'Consultation',
+    tenant_id: TENANT_ID,
+  }, {
+    actorUid: STAFF_UID,
+    actorId: 9,
+    actorRole: 'RECEPTIONIST',
+    requirePatientPhoneMatch: true,
+  })).rejects.toMatchObject({ code });
+
+  expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+  expect(tx.$queryRawUnsafe.mock.calls[0][0]).toContain('FOR UPDATE');
+  expect(ensureAppointmentQueueMock).not.toHaveBeenCalled();
+  expect(recordAppointmentCreatedEvidenceMock).not.toHaveBeenCalled();
+});
+
+test('staff direct booking fails closed when the caller phone is absent', async () => {
+  const tx = { $queryRawUnsafe: jest.fn(), $queryRaw: jest.fn() };
+  setTenantTxMock.mockImplementation(async (_tenantId, callback) => callback(tx));
+
+  await expect(appointmentService.createAppointment({
+    patient_id: 41,
+    doctor_id: 12,
+    appointment_date: '2026-08-01',
+    appointment_time: '10:00',
+    reason: 'Consultation',
+    tenant_id: TENANT_ID,
+  }, {
+    actorUid: STAFF_UID,
+    actorId: 9,
+    actorRole: 'RECEPTIONIST',
+    requirePatientPhoneMatch: true,
+  })).rejects.toMatchObject({ code: 'APPOINTMENT_PATIENT_PHONE_REQUIRED' });
+
+  expect(tx.$queryRaw).not.toHaveBeenCalled();
+  expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
+  expect(ensureAppointmentQueueMock).not.toHaveBeenCalled();
 });

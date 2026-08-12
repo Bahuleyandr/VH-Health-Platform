@@ -12,6 +12,7 @@ const SEEDED_TENANT = '11111111-1111-4111-8111-111111111111';
 // Hoisted prisma mock so the import-cache returns it to loginSessionHelper.
 const mockExecuteRaw = jest.fn();
 const mockQueryRaw = jest.fn();
+const claimUserSessionMock = jest.fn(async () => ({ revokedPrior: false, priorDeviceType: null }));
 
 const __prismaDefaultMock = {
   $executeRawUnsafe: mockExecuteRaw,
@@ -30,7 +31,7 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/auth/userActiveSession.js', () => ({
-  claimUserSession: jest.fn(async () => ({ revokedPrior: false, priorDeviceType: null })),
+  claimUserSession: claimUserSessionMock,
 }));
 
 // Lazy-load helper after mocks are wired.
@@ -44,6 +45,7 @@ function decodePayload(token) {
 beforeEach(() => {
   mockQueryRaw.mockReset();
   mockExecuteRaw.mockReset();
+  claimUserSessionMock.mockClear();
 });
 
 describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => {
@@ -125,5 +127,48 @@ describe('issueAccessTokenAndClaimSession — tenant_id claim (Phase 1)', () => 
 
     expect(decodePayload(result.accessToken).token_epoch).toBe(7);
     expect(result.tokenEpoch).toBe(7);
+  });
+
+  it('generates one stable session family and preserves an explicitly supplied family on refresh', async () => {
+    const uid = 'a7777777-7777-4777-8777-777777777777';
+    const first = await issueAccessTokenAndClaimSession({
+      userUid: uid,
+      tokenPayload: { uid, role: 'PATIENT', tenant_id: SEEDED_TENANT },
+      tokenEpoch: 0,
+    });
+
+    expect(first.sessionFamilyId).toEqual(expect.any(String));
+    expect(decodePayload(first.accessToken).sessionFamilyId).toBe(first.sessionFamilyId);
+
+    const rotated = await issueAccessTokenAndClaimSession({
+      userUid: uid,
+      tokenPayload: { uid, role: 'PATIENT', tenant_id: SEEDED_TENANT },
+      tokenEpoch: 0,
+      sessionFamilyId: first.sessionFamilyId,
+      pushRevoked: false,
+    });
+
+    expect(rotated.sessionFamilyId).toBe(first.sessionFamilyId);
+    expect(decodePayload(rotated.accessToken).sessionFamilyId).toBe(first.sessionFamilyId);
+  });
+
+  it('persists the access token session family and stable device selectors', async () => {
+    const uid = 'a8888888-8888-4888-8888-888888888888';
+    const stableDeviceId = 'e69ab614-d313-4f14-904f-fbd966abb546';
+    const sessionFamilyId = '3f814b18-cb21-44ea-b915-e91ea96f2b58';
+
+    await issueAccessTokenAndClaimSession({
+      userUid: uid,
+      tokenPayload: { uid, role: 'NURSING_STAFF', tenant_id: SEEDED_TENANT },
+      tokenEpoch: 0,
+      stableDeviceId,
+      sessionFamilyId,
+    });
+
+    expect(claimUserSessionMock).toHaveBeenCalledWith(expect.objectContaining({
+      userUid: uid,
+      stableDeviceId,
+      sessionFamilyId,
+    }));
   });
 });

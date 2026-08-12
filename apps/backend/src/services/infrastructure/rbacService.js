@@ -25,6 +25,10 @@ import {
   HR_STAFF
 } from '../../utils/roles.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import {
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 
 export class RBACService {
   static getPolicy() {
@@ -369,7 +373,15 @@ export class RBACService {
           normalizedPhone, oldRole, targetRole, adminInfo.uid, reason
         );
 
+        const revokedAt = await persistRevokeAllUserTokens(user.uid, {
+          client: tx,
+          requireEvidence: true,
+          reason: 'role_changed',
+          notificationTenantId: actorTenantId,
+        });
+
         return {
+          uid: user.uid,
           phone: normalizedPhone,
           userName: user.name,
           oldRole,
@@ -378,11 +390,15 @@ export class RBACService {
           changedByRole: adminInfo.role,
           reason,
           timestamp: formatDateDDMMYYYY(new Date()),
+          revokedAt,
         };
       });
 
       if (!result.unchanged) {
-        logger.info(`🔄 Role changed: ${maskPhoneForLog(normalizedPhone)} from ${result.oldRole} to ${result.newRole} by ${adminInfo.uid}`);
+        const { uid, revokedAt, ...publicResult } = result;
+        await publishRevokeAllUserTokens(uid, revokedAt, { reason: 'role_changed' });
+        logger.info(`🔄 Role changed: ${maskPhoneForLog(normalizedPhone)} from ${publicResult.oldRole} to ${publicResult.newRole} by ${adminInfo.uid}`);
+        return publicResult;
       }
       return result;
     } catch (error) {
@@ -611,12 +627,14 @@ export class RBACService {
         const result = await tx.$queryRawUnsafe(
           `UPDATE users SET
             is_active = $1,
+            status = $2,
             status_updated_at = NOW(),
-            status_updated_by = $2::uuid,
-            status_reason = $3
-           WHERE phone = $4 AND tenant_id = $5::uuid
+            status_updated_by = $3::uuid,
+            status_reason = $4
+           WHERE phone = $5 AND tenant_id = $6::uuid
            RETURNING uid, name, role, is_active`,
-          isActive, adminInfo.uid, reason, normalizedPhone, actorTenantId
+          isActive, isActive ? 'active' : 'inactive', adminInfo.uid, reason,
+          normalizedPhone, actorTenantId
         );
 
         if (result.length === 0) throw AppError.notFound('User not found');
@@ -629,8 +647,21 @@ export class RBACService {
           normalizedPhone, row.role, row.role, adminInfo.uid, reason, `user_${action}`
         );
 
-        return row;
+        const revokedAt = isActive
+          ? null
+          : await persistRevokeAllUserTokens(row.uid, {
+              client: tx,
+              requireEvidence: true,
+              reason: 'user_locked',
+              notificationTenantId: actorTenantId,
+            });
+
+        return { ...row, revokedAt };
       });
+
+      if (user.revokedAt != null && Number.isFinite(Number(user.revokedAt))) {
+        await publishRevokeAllUserTokens(user.uid, user.revokedAt, { reason: 'user_locked' });
+      }
 
       logger.info(`🔒 User account ${action}ed: ${maskPhoneForLog(normalizedPhone)} by admin ${adminInfo.uid}`);
 

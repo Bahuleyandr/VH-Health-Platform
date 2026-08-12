@@ -2995,6 +2995,9 @@ class AppLocalizationsTe extends AppLocalizations {
   String get dashboardExploreSection => 'అన్వేషించండి';
 
   @override
+  String get dashboardCareToolsSection => 'సంరక్షణ సాధనాలు';
+
+  @override
   String get dashboardTodaySection => 'ఈరోజు';
 
   @override

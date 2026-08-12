@@ -67,6 +67,7 @@ import {
 } from '../services/portal/patientPortalService.js';
 import { listTasks } from '../services/workflow/taskService.js';
 import { listPatientAccessAudit } from '../services/governance/clinicalGovernanceService.js';
+import { isUserTokensRevoked } from '../utils/tokenBlacklist.js';
 
 const DB = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB ? describe : describe.skip;
@@ -1033,6 +1034,15 @@ d('patient merge execution (deep)', () => {
   test('executed merge moves the whole chart, deactivates the secondary, keeps identifiers resolvable, and emits the canonical pair', async () => {
     const primary = await seedPatient('primary');
     const secondary = await seedPatient('secondary');
+    const tokenIssuedAt = Math.floor(Date.now() / 1000) - 1;
+    const mergeUids = [primary.uid, secondary.uid];
+    const epochsBefore = await prisma.$queryRawUnsafe(
+      `SELECT uid::text, token_epoch
+         FROM users
+        WHERE uid = ANY($1::uuid[])`,
+      mergeUids,
+    );
+    const epochBefore = new Map(epochsBefore.map((row) => [row.uid, Number(row.token_epoch)]));
     const chart = await seedChart(secondary);
     const icuAdmissionId = await seedIcuAdmission(secondary);
     await seedIdentifier(primary.uid, `${MARK}-P-MRN`);
@@ -1086,6 +1096,37 @@ d('patient merge execution (deep)', () => {
     expect(merged[0].merged_into_uid).toBe(primary.uid);
     expect(merged[0].merged_at).not.toBeNull();
 
+    // The secondary's durable epoch + watermark committed with the merge.
+    // Redis/WebSocket publication is only an acceleration/notification layer:
+    // reconnect authorization still rejects the old bearer from Postgres.
+    const epochsAfter = await prisma.$queryRawUnsafe(
+      `SELECT uid::text, token_epoch
+         FROM users
+        WHERE uid = ANY($1::uuid[])`,
+      mergeUids,
+    );
+    const epochAfter = new Map(epochsAfter.map((row) => [row.uid, Number(row.token_epoch)]));
+    expect(epochAfter.get(secondary.uid)).toBe(epochBefore.get(secondary.uid) + 1);
+    expect(epochAfter.get(primary.uid)).toBe(epochBefore.get(primary.uid));
+    const revocationMarker = await prisma.$queryRawUnsafe(
+      `SELECT reason
+         FROM invalidated_tokens
+        WHERE jti = $1
+          AND expires_at > NOW()`,
+      `user:${secondary.uid}`,
+    );
+    expect(revocationMarker).toEqual([{ reason: 'patient_merged' }]);
+    await expect(isUserTokensRevoked(
+      secondary.uid,
+      tokenIssuedAt,
+      epochBefore.get(secondary.uid),
+    )).resolves.toBe(true);
+    await expect(isUserTokensRevoked(
+      primary.uid,
+      tokenIssuedAt,
+      epochBefore.get(primary.uid),
+    )).resolves.toBe(false);
+
     // 3. Old MRN resolves to the survivor; provenance intact on the row.
     const lookup = await lookupByIdentifier({
       tenantId: TENANT, identifierType: 'mrn', identifierValue: `${MARK}-S-MRN`,
@@ -1128,6 +1169,7 @@ d('patient merge execution (deep)', () => {
     const summary = executed.execution_summary;
     expect(summary.identifiers_retargeted).toBe(1);
     expect(summary.secondary_deactivated).toBe(true);
+    expect(summary.secondary_tokens_revoked).toBe(true);
     expect(summary.table_summary.admissions.rows_moved).toBe(1);
     expect(summary.table_summary.investigations.rows_moved).toBe(2);
     expect(summary.table_summary.appointments.rows_moved).toBe(1);

@@ -2292,6 +2292,7 @@
   "dashboardHealthConnectNoSamples": "സിങ്ക് ചെയ്യാൻ പുതിയ സാമ്പിളുകൾ ഇല്ല",
   "dashboardHealthConnectOpenFailed": "Health Connect തുറക്കാനായില്ല",
   "dashboardExploreSection": "അന്വേഷിക്കുക",
+  "dashboardCareToolsSection": "പരിചരണ ഉപകരണങ്ങൾ",
   "dashboardTodaySection": "ഇന്ന്",
   "profileSwitcherSelfName": "നിങ്ങൾ",
   "profileSwitcherTitle": "പ്രൊഫൈലുകൾ",

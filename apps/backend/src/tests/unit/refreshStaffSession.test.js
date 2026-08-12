@@ -44,6 +44,8 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   // staffAuthService.logoutStaff revokes the presented access token's jti, and
   // the all-device branch additionally revokes every token for the identity.
   blacklistToken: mockBlacklistToken,
+  persistRevokeAllUserTokens: jest.fn(),
+  publishRevokeAllUserTokens: jest.fn(),
   revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 
@@ -157,6 +159,7 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
       type: 'refresh',
       jti: 'good-jti',
       stableDeviceId: INSTALLATION_ID,
+      sessionFamilyId: 'session-family-1',
     });
     mockIsTokenBlacklisted.mockResolvedValue(false);
 
@@ -171,7 +174,11 @@ describe('StaffAuthService.refreshStaffSession — B0.4 token-type + blacklist',
     expect(mockIssueAccess).toHaveBeenCalledTimes(1);
     // refresh rotation must not push a self-revoke event
     expect(mockIssueAccess.mock.calls[0][0]).toEqual(
-      expect.objectContaining({ pushRevoked: false, userUid: 'staff-uuid-1' })
+      expect.objectContaining({
+        pushRevoked: false,
+        userUid: 'staff-uuid-1',
+        sessionFamilyId: 'session-family-1',
+      })
     );
     expect(result.accessToken).toBe('fresh-access-token');
   });

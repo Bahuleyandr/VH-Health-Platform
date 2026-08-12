@@ -206,6 +206,11 @@ class StaffLocalNotifications {
     );
   }
 
+  Future<void> cancelSessionNotifications() async {
+    if (!_initialized) await initialize();
+    await _plugin.cancelAll();
+  }
+
   Future<void> _handleNotificationActivation(String? payload) async {
     await WindowsWindowControl.focus();
     final route = routeForNotificationPayload(payload);

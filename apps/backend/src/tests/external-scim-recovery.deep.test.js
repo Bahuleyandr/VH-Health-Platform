@@ -4,13 +4,20 @@ import { jest } from '@jest/globals';
 
 process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'i13-scim-test-field-key-32-characters';
 
-const revokeAllUserTokens = jest.fn().mockResolvedValue(undefined);
+const persistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
+const publishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../utils/tokenBlacklist.js', () => ({
   blacklistToken: jest.fn(),
   cleanupExpiredTokens: jest.fn(),
   isTokenBlacklisted: jest.fn(),
   isUserTokensRevoked: jest.fn(),
-  revokeAllUserTokens,
+  isDelegatedTupleRevoked: jest.fn().mockResolvedValue(false),
+  getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
+  persistRevokeDelegatedTuple: jest.fn(),
+  publishRevokeDelegatedTuple: jest.fn(),
+  RevocationCheckUnavailableError: class RevocationCheckUnavailableError extends Error {},
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
 }));
 
 const { default: prisma, setTenantTx } = await import('../lib/prisma.js');
@@ -397,6 +404,18 @@ describeIfDb('C6.1-F I13 late SCIM recovery', () => {
 
   test('executes the C-D15 late revocation and retains exact pending evidence', async () => {
     const body = '{"Operations":[{"op":"replace","path":"active","value":false}]}';
+    publishRevokeAllUserTokens.mockClear();
+    publishRevokeAllUserTokens.mockImplementationOnce(async (uid) => {
+      const committed = await prisma.$queryRawUnsafe(
+        `SELECT is_active, status
+           FROM users
+          WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+        TENANT_ID,
+        uid,
+      );
+      expect(committed[0]).toMatchObject({ is_active: false, status: 'inactive' });
+      return { database: { persisted: true } };
+    });
     const recovered = await recover({
       providerId: revokeProviderId,
       providerKey: `revoke-${SUFFIX}`,
@@ -416,8 +435,16 @@ describeIfDb('C6.1-F I13 late SCIM recovery', () => {
         recovery_state: 'reconciliation_required_provider_state',
       },
     });
-    expect(revokeAllUserTokens).toHaveBeenCalledTimes(1);
-    expect(revokeAllUserTokens).toHaveBeenCalledWith(REVOKE_UID, { reason: 'scim_deprovision' });
+    expect(persistRevokeAllUserTokens).toHaveBeenCalledTimes(1);
+    expect(persistRevokeAllUserTokens).toHaveBeenCalledWith(REVOKE_UID, expect.objectContaining({
+      reason: 'scim_deprovision',
+      notificationTenantId: TENANT_ID,
+    }));
+    expect(publishRevokeAllUserTokens).toHaveBeenCalledWith(
+      REVOKE_UID,
+      1_700_000_000,
+      { reason: 'scim_deprovision' },
+    );
     const state = await prisma.$queryRawUnsafe(
       `SELECT u.is_active, u.status, s.is_active AS staff_is_active, s.archived,
               (SELECT COUNT(*)::integer FROM user_active_sessions WHERE user_uid = u.uid) AS active_sessions,
@@ -493,7 +520,7 @@ describeIfDb('C6.1-F I13 late SCIM recovery', () => {
         recovery_state: 'reconciliation_required_provider_state',
       },
     });
-    expect(revokeAllUserTokens).not.toHaveBeenCalledWith(BREAK_GLASS_UID);
+    expect(persistRevokeAllUserTokens).not.toHaveBeenCalledWith(BREAK_GLASS_UID, expect.anything());
     const state = await prisma.$queryRawUnsafe(
       `SELECT u.is_active, u.status, s.id AS staff_id,
               s.is_active AS staff_is_active, s.archived
@@ -553,7 +580,7 @@ describeIfDb('C6.1-F I13 late SCIM recovery', () => {
         recovery_state: 'reconciliation_required_provider_state',
       },
     });
-    expect(revokeAllUserTokens).not.toHaveBeenCalledWith(ENABLE_UID);
+    expect(persistRevokeAllUserTokens).not.toHaveBeenCalledWith(ENABLE_UID, expect.anything());
     const state = await prisma.$queryRawUnsafe(
       `SELECT u.is_active, u.status, s.is_active AS staff_is_active, s.archived
          FROM users u JOIN staff s ON s.tenant_id = u.tenant_id AND s.user_id = u.uid

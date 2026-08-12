@@ -47,6 +47,7 @@ typedef StaffSsoBrowser =
       required String url,
       required String callbackUrlScheme,
     });
+typedef StaffPreLogoutCleanup = Future<void> Function();
 
 enum StaffLogoutStatus { blocked, signedOut }
 
@@ -56,17 +57,21 @@ class StaffLogoutResult {
     required this.status,
     required this.blockingWriteCount,
     this.serverRevocationFailed = false,
+    this.notificationTeardownFailed = false,
   });
 
   const StaffLogoutResult.blocked(int count)
     : this._(status: StaffLogoutStatus.blocked, blockingWriteCount: count);
 
-  const StaffLogoutResult.signedOut({bool serverRevocationFailed = false})
-    : this._(
-        status: StaffLogoutStatus.signedOut,
-        blockingWriteCount: 0,
-        serverRevocationFailed: serverRevocationFailed,
-      );
+  const StaffLogoutResult.signedOut({
+    bool serverRevocationFailed = false,
+    bool notificationTeardownFailed = false,
+  }) : this._(
+         status: StaffLogoutStatus.signedOut,
+         blockingWriteCount: 0,
+         serverRevocationFailed: serverRevocationFailed,
+         notificationTeardownFailed: notificationTeardownFailed,
+       );
 
   final StaffLogoutStatus status;
   final int blockingWriteCount;
@@ -75,6 +80,7 @@ class StaffLogoutResult {
   /// revoked this device's session token, so the bearer token may still be
   /// usable until it expires.
   final bool serverRevocationFailed;
+  final bool notificationTeardownFailed;
 
   bool get isBlocked => status == StaffLogoutStatus.blocked;
   bool get isSignedOut => status == StaffLogoutStatus.signedOut;
@@ -384,7 +390,9 @@ class AuthService {
 
   /// Attempts an ordinary logout after closing the offline-write session
   /// barrier and authoritatively rechecking the current owner's queue.
-  static Future<StaffLogoutResult> logout() async {
+  static Future<StaffLogoutResult> logout({
+    StaffPreLogoutCleanup? beforeSessionRevocation,
+  }) async {
     final syncService = ConnectivitySyncService.instance;
     await syncService.beginSessionBarrier();
     try {
@@ -392,6 +400,16 @@ class AuthService {
           .blockingWriteCountForCurrentOwner();
       if (blockingCount > 0) {
         return StaffLogoutResult.blocked(blockingCount);
+      }
+
+      var notificationTeardownFailed = false;
+      if (beforeSessionRevocation != null) {
+        try {
+          await beforeSessionRevocation();
+        } catch (e) {
+          notificationTeardownFailed = true;
+          debugPrint('AuthService: notification teardown failed: $e');
+        }
       }
 
       // The server call is what actually revokes the session: it deletes the
@@ -412,6 +430,7 @@ class AuthService {
       await _clearLocalSession(telemetryEvent: 'auth.logout');
       return StaffLogoutResult.signedOut(
         serverRevocationFailed: serverRevocationFailed,
+        notificationTeardownFailed: notificationTeardownFailed,
       );
     } finally {
       syncService.endSessionBarrier();

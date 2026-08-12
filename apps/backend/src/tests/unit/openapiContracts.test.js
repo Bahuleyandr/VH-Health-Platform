@@ -34,6 +34,8 @@ import * as continuityFacilityContextGrants from '../../../scripts/openapi/schem
 import * as publicPaymentPage from '../../../scripts/openapi/schemas/publicPaymentPage.mjs';
 import * as firebaseAuth from '../../../scripts/openapi/schemas/firebaseAuth.mjs';
 import * as abdmAbhaRegistration from '../../../scripts/openapi/schemas/abdmAbhaRegistration.mjs';
+import * as devices from '../../../scripts/openapi/schemas/devices.mjs';
+import * as health from '../../../scripts/openapi/schemas/health.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -68,7 +70,9 @@ const MODULES = [
   continuityFacilityContextGrants,
   publicPaymentPage,
   firebaseAuth,
-  abdmAbhaRegistration
+  abdmAbhaRegistration,
+  devices,
+  health
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +108,67 @@ describe('OpenAPI contract overlays (static gate)', () => {
     for (const name of Object.keys(spec.components.schemas)) {
       expect(ajv.getSchema(`openapi.json#/components/schemas/${name}`)).toBeTruthy();
     }
+  });
+
+  it('documents notification-authority validation as a bearer-authenticated fail-closed request', () => {
+    const operation = spec.paths['/api/v1/devices/notification-authority/validate'].post;
+
+    expect(operation.security).toEqual([{ ApiKeyAuth: [], BearerAuth: [] }]);
+    expect(operation.requestBody).toEqual({
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            $ref: '#/components/schemas/NotificationAuthorityValidationRequest',
+          },
+        },
+      },
+    });
+    expect(operation.responses['200'].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/NotificationAuthorityValidationResponse',
+    });
+    expect(Object.keys(operation.responses)).toEqual([
+      '200', '400', '401', '403', '429', '503',
+    ]);
+    for (const status of ['400', '401', '403', '429', '503']) {
+      expect(operation.responses[status].content['application/json'].schema).toEqual({
+        $ref: '#/components/schemas/NotificationAuthorityErrorResponse',
+      });
+    }
+  });
+
+  it('keeps Code Blue hydration opaque until bearer-bound authority is revalidated', () => {
+    const operation = spec.paths['/api/v1/devices/notification-authority/code-blue'].post;
+
+    expect(operation.security).toEqual([{ ApiKeyAuth: [], BearerAuth: [] }]);
+    expect(operation.requestBody.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/CodeBlueNotificationContentRequest',
+    });
+    expect(operation.responses['200'].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/CodeBlueNotificationContentResponse',
+    });
+    expect(Object.keys(operation.responses)).toEqual(['200', '401', '403', '429', '503']);
+  });
+
+  it('documents the patient wearable correction boundary and idempotency failures', () => {
+    const operation = spec.paths[
+      '/api/v1/health/patient/vitals/wearable/{sourceRecordId}'
+    ].put;
+
+    expect(operation.security).toEqual([{ ApiKeyAuth: [], BearerAuth: [] }]);
+    expect(operation.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'sourceRecordId', in: 'path', required: true }),
+      expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+    ]));
+    expect(operation.requestBody.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/WearableVitalCorrectionRequest',
+    });
+    expect(operation.responses['200'].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/WearableVitalCorrectionResponse',
+    });
+    expect(Object.keys(operation.responses)).toEqual([
+      '200', '400', '401', '403', '404', '409', '422', '429', '500', '503',
+    ]);
   });
 
   it('publishes the existing HL7 receive path as a typed JSON request with raw ACK responses', () => {

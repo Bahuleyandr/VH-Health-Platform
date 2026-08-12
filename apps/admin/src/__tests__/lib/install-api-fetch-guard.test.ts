@@ -5,7 +5,7 @@ describe("installApiFetchGuard", () => {
     (window as Window & { __fetchGuardApiBase?: string }).__fetchGuardApiBase = undefined;
   });
 
-  it("rewrites top-level API paths to /api/proxy/api/v1/* and adds default query params", async () => {
+  it("prefixes top-level API paths without changing their query", async () => {
     const originalFetch = jest.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
@@ -17,7 +17,7 @@ describe("installApiFetchGuard", () => {
     await window.fetch("/users");
 
     expect(originalFetch).toHaveBeenCalledTimes(1);
-    expect(originalFetch.mock.calls[0][0]).toBe("/api/proxy/api/v1/users?page=1&limit=20");
+    expect(originalFetch.mock.calls[0][0]).toBe("/api/proxy/api/v1/users");
   });
 
   it("preserves static/internal paths as passthrough requests", async () => {
@@ -35,7 +35,7 @@ describe("installApiFetchGuard", () => {
     expect(originalFetch.mock.calls[0][0]).toBe("/_next/static/chunk.js");
   });
 
-  it("adds API defaults while removing manual Origin header", async () => {
+  it("adds default API headers while removing manual Origin header", async () => {
     const originalFetch = jest.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
@@ -96,7 +96,7 @@ describe("installApiFetchGuard", () => {
     expect(originalFetch.mock.calls[0][0]).toBe("https://example.com/status");
   });
 
-  it("applies legacy logs/system alias to admin activity endpoint", async () => {
+  it("preserves logs/system paths and their query parameters", async () => {
     const originalFetch = jest.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
@@ -107,13 +107,12 @@ describe("installApiFetchGuard", () => {
 
     await window.fetch("/logs/system?page=2&limit=20");
 
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/admin/activity/recent");
-    expect(calledUrl).toContain("limit=20");
-    expect(calledUrl).toContain("offset=20");
+    expect(originalFetch.mock.calls[0][0]).toBe(
+      "/api/proxy/api/v1/logs/system?page=2&limit=20",
+    );
   });
 
-  it("normalizes legacy admin upload route to admin/uploads", async () => {
+  it("preserves singular admin upload paths", async () => {
     const originalFetch = jest.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
@@ -124,8 +123,9 @@ describe("installApiFetchGuard", () => {
 
     await window.fetch("/admin/upload/quarantine");
 
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/admin/uploads/quarantine");
+    expect(originalFetch.mock.calls[0][0]).toBe(
+      "/api/proxy/api/v1/admin/upload/quarantine",
+    );
   });
 
   it("rewrites absolute same-host api URLs by stripping base and applying rules", async () => {
@@ -142,7 +142,7 @@ describe("installApiFetchGuard", () => {
 
     expect(originalFetch).toHaveBeenCalledTimes(1);
     const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/users?page=1&limit=20");
+    expect(calledUrl).toBe("/api/proxy/api/v1/users");
   });
 
   it("passes through static asset paths matched by extension", async () => {
@@ -160,7 +160,7 @@ describe("installApiFetchGuard", () => {
     expect(originalFetch.mock.calls[0][0]).toBe("/assets/logo.png");
   });
 
-  it("maps legacy /admin/statistics to /admin/stats/quick", async () => {
+  it("preserves pharmacy order subpaths, method, and body", async () => {
     const originalFetch = jest.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
@@ -169,71 +169,36 @@ describe("installApiFetchGuard", () => {
     const { installApiFetchGuard } = await import("@/lib/install-api-fetch-guard");
     installApiFetchGuard();
 
-    await window.fetch("/admin/statistics");
+    const body = JSON.stringify({ dispensedQuantity: 1 });
+    await window.fetch("/pharmacy-orders/orders/123/dispense", {
+      method: "POST",
+      body,
+    });
 
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/admin/stats/quick");
-  });
-
-  it("maps /system/status to /health/system", async () => {
-    const originalFetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+    expect(originalFetch.mock.calls[0][0]).toBe(
+      "/api/proxy/api/v1/pharmacy-orders/orders/123/dispense",
     );
-    window.fetch = originalFetch as unknown as typeof window.fetch;
-
-    const { installApiFetchGuard } = await import("@/lib/install-api-fetch-guard");
-    installApiFetchGuard();
-
-    await window.fetch("/system/status");
-
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/health/system");
+    expect(originalFetch.mock.calls[0][1]).toMatchObject({ method: "POST", body });
   });
 
-  it("maps /appointments to /appointments/list with paging defaults", async () => {
-    const originalFetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
-    window.fetch = originalFetch as unknown as typeof window.fetch;
+  it.each(["/system/settings", "/logs/audit/export"])(
+    "preserves the complete backend subpath for %s",
+    async (path) => {
+      const originalFetch = jest.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+      window.fetch = originalFetch as unknown as typeof window.fetch;
 
-    const { installApiFetchGuard } = await import("@/lib/install-api-fetch-guard");
-    installApiFetchGuard();
+      const { installApiFetchGuard } = await import("@/lib/install-api-fetch-guard");
+      installApiFetchGuard();
 
-    await window.fetch("/appointments");
+      await window.fetch(path);
 
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/appointments/list?page=1&limit=20");
-  });
-
-  it("maps /pharmacy-orders to /pharmacy/orders with defaults", async () => {
-    const originalFetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
-    window.fetch = originalFetch as unknown as typeof window.fetch;
-
-    const { installApiFetchGuard } = await import("@/lib/install-api-fetch-guard");
-    installApiFetchGuard();
-
-    await window.fetch("/pharmacy-orders");
-
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/pharmacy/orders?page=1&limit=10");
-  });
-
-  it("maps /analytics to /analytics/dashboard", async () => {
-    const originalFetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
-    window.fetch = originalFetch as unknown as typeof window.fetch;
-
-    const { installApiFetchGuard } = await import("@/lib/install-api-fetch-guard");
-    installApiFetchGuard();
-
-    await window.fetch("/analytics");
-
-    const calledUrl = originalFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("/api/proxy/api/v1/analytics/dashboard");
-  });
+      expect(originalFetch).toHaveBeenCalledTimes(1);
+      expect(originalFetch.mock.calls[0][0]).toBe(`/api/proxy/api/v1${path}`);
+    },
+  );
 
   it("keeps /notifications/stats and applies /api/v1 prefix", async () => {
     const originalFetch = jest.fn().mockResolvedValue(

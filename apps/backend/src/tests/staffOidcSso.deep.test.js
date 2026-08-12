@@ -379,7 +379,11 @@ describe('staff OIDC SSO broker', () => {
     }));
     issueAccessTokenAndClaimSession.mockImplementation(async (args) => {
       issuedArgs = args;
-      return { accessToken: 'vh-staff-access-token' };
+      return {
+        accessToken: 'vh-staff-access-token',
+        tokenEpoch: 0,
+        sessionFamilyId: 'sso-session-family',
+      };
     });
     generateRefreshToken.mockReturnValue('vh-staff-refresh-token');
     bindStaffInstallation.mockResolvedValue(STAFF_INSTALLATION_ID);
@@ -502,6 +506,12 @@ describe('staff OIDC SSO broker', () => {
         tenant_id: TENANT_A,
       }),
     }));
+    expect(generateRefreshToken).toHaveBeenCalledWith(
+      expect.any(Object),
+      STAFF_INSTALLATION_ID,
+      0,
+      'sso-session-family',
+    );
     expect(executeRawUnsafe.mock.calls.some((call) => String(call[0]).includes('INSERT INTO staff_auth_sessions'))).toBe(true);
     expect(auditEvents.map((event) => event.eventType)).toEqual([
       'SSO_START',

@@ -262,6 +262,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     it('accepts doctor_uid from the staff picker to avoid numeric id collisions', async () => {
       const res = await receptionist.post('/api/v1/appointments/book').send({
         patient_id: patientIntId,
+        patient_phone: PATIENT_PHONE,
         doctor_id: 999999,
         doctor_uid: DOCTOR_UID,
         appointment_date: apptDate,
@@ -519,6 +520,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     it('keeps the original date row as RESCHEDULED and creates a linked future appointment', async () => {
       const book = await receptionist.post('/api/v1/appointments/book').send({
         patient_id: patientIntId,
+        patient_phone: PATIENT_PHONE,
         doctor_id: doctorIntId,
         appointment_date: apptDate,
         appointment_time: '16:30',
@@ -567,6 +569,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     it('reschedules the same appointment row, returns it to SCHEDULED, emits audit history', async () => {
       const book = await receptionist.post('/api/v1/appointments/book').send({
         patient_id: patientIntId,
+        patient_phone: PATIENT_PHONE,
         doctor_id: doctorIntId,
         appointment_date: futureDateISO(92),
         appointment_time: '09:00',
@@ -650,6 +653,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       const conflictDate = futureDateISO(94);
       const occupying = await receptionist.post('/api/v1/appointments/book').send({
         patient_id: patientIntId,
+        patient_phone: PATIENT_PHONE,
         doctor_id: doctorIntId,
         appointment_date: conflictDate,
         appointment_time: '13:00',

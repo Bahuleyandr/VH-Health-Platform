@@ -377,6 +377,13 @@ class RoleFeatures {
     route: '/appointments',
     color: Color(0xFF6A1B9A),
   );
+  static const DashboardFeature _patientQueue = DashboardFeature(
+    id: 'queue',
+    titleKey: 'queue.title',
+    icon: Icons.people_alt_outlined,
+    route: '/queue',
+    color: Color(0xFF1565C0),
+  );
   static const DashboardFeature _admissions = DashboardFeature(
     id: 'admissions',
     titleKey: 'role.feature.admissions',
@@ -535,8 +542,15 @@ class RoleFeatures {
     id: 'housekeeping_roster',
     titleKey: 'role.feature.housekeeping_roster',
     icon: Icons.calendar_month,
-    route: '/staff-roster/housekeeping',
+    route: '/housekeeping-roster',
     color: Color(0xFF1565C0),
+  );
+  static const DashboardFeature _deviceAssociation = DashboardFeature(
+    id: 'device_association',
+    titleKey: 'device_assoc.title',
+    icon: Icons.sensors,
+    route: '/devices/associate',
+    color: Color(0xFF00695C),
   );
   static const DashboardFeature _dutyPreference = DashboardFeature(
     id: 'duty_preference',
@@ -836,6 +850,7 @@ class RoleFeatures {
         if (role == StaffRole.dutyDoctor) _nursingRoster,
         _edTraumaWorkbench,
         _opDoctorWorkspace,
+        _patientQueue,
         _dentalCharting,
         _clinicalInbox,
         _clinicalAiReviewQueue,
@@ -890,6 +905,7 @@ class RoleFeatures {
         _calculators,
         _edTraumaWorkbench,
         _patientRecords,
+        _deviceAssociation,
         _pharmacyOrders,
         _nursingNotes,
         _handover,
@@ -927,6 +943,7 @@ class RoleFeatures {
         _calculators,
         _edTraumaWorkbench,
         _patientRecords,
+        _deviceAssociation,
         _nursingNotes,
         _handover,
         _oncology,
@@ -954,6 +971,7 @@ class RoleFeatures {
         _clinicalAiReviewQueue,
         _edTraumaWorkbench,
         _patientRecords,
+        _deviceAssociation,
         _nursingNotes,
         _handover,
         _oncology,
@@ -981,6 +999,7 @@ class RoleFeatures {
         _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
+        _deviceAssociation,
         _ophthalmology,
         _oncology,
         _radiationOncology,
@@ -1007,6 +1026,7 @@ class RoleFeatures {
         _edTraumaWorkbench,
         _frontOfficeWorkbench,
         _appointments,
+        _deviceAssociation,
         _ophthalmology,
         _oncology,
         _radiationOncology,
@@ -1117,6 +1137,7 @@ class RoleFeatures {
         _edTraumaWorkbench,
         _billingDesk,
         _appointments,
+        _deviceAssociation,
         _admissions,
         _opDoctorWorkspace,
         _dentalCharting,

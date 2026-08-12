@@ -25,6 +25,9 @@ router.post('/ticket', (req, res) => {
     if (user.scope && user.scope !== 'full') {
       return error(res, 'Full-scope token required', HTTP_STATUS.FORBIDDEN);
     }
+    if (!user.jti) {
+      return error(res, 'Access session identity required', HTTP_STATUS.FORBIDDEN);
+    }
     const tenantId = req.tenantId || user.tenant_id || user.tenantId;
     if (!tenantId) {
       return error(res, 'Tenant context required', HTTP_STATUS.FORBIDDEN);
@@ -37,6 +40,18 @@ router.post('/ticket', (req, res) => {
         tenant_id: tenantId,
         tenantId,
         scope: 'ws',
+        // This value comes from the already-authenticated access JWT, never
+        // request input. It lets a selectorless legacy registry row correlate
+        // its access jti with this ticket's intentionally distinct jti.
+        accessSessionJti: String(user.jti),
+        // Bind this one-minute credential to the parent login session. Its own
+        // jti is intentionally unique, so jti-only logout targeting cannot
+        // identify the access-token session that minted it.
+        sessionFamilyId: user.sessionFamilyId || user.jti,
+        ...(user.stableDeviceId ? { stableDeviceId: user.stableDeviceId } : {}),
+        ...(req.acting?.actorUid
+          ? { revocationOwnerUid: String(req.acting.actorUid) }
+          : {}),
       },
       TICKET_TTL,
     );

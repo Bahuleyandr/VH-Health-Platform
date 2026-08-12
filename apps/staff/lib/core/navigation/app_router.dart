@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +8,7 @@ import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
 import '../../l10n/app_strings.dart';
 import '../platform_info.dart';
+import '../providers/notification_provider.dart';
 // Splash & Auth
 import '../../features/splash/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -33,6 +36,7 @@ import '../../features/clinical_continuity/screens/paper_reconciliation_workbenc
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
 import '../../features/doctor/screens/prescriptions_screen.dart';
+import '../../features/doctor/screens/queue_screen.dart';
 import '../../features/opd/screens/op_doctor_workspace_screen.dart';
 import '../../features/opd/screens/op_nursing_dashboard_screen.dart';
 import '../../features/teleconsult/models/staff_teleconsult_route_args.dart';
@@ -191,6 +195,14 @@ final GoRouter appRouter = GoRouter(
 
     // Not logged in and not on login page -> redirect to login
     if (!isLoggedIn && !isOnLogin) return '/login';
+
+    if (isLoggedIn) {
+      try {
+        unawaited(context.read<NotificationProvider>().initialize());
+      } catch (_) {
+        // Provider may not be available during initial build.
+      }
+    }
 
     // Logged in and on login page -> redirect to dashboard
     if (isLoggedIn && isOnLogin) {
@@ -527,9 +539,8 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/queue',
           name: 'queue',
-          redirect: (context, state) => '/appointments',
           pageBuilder: (context, state) =>
-              const NoTransitionPage(child: AppointmentsScreen()),
+              const NoTransitionPage(child: QueueScreen()),
         ),
         GoRoute(
           path: '/appointment-queue',

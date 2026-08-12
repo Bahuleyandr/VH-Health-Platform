@@ -14,6 +14,7 @@ import {
   recordAppointmentCreatedEvidenceTx,
   transitionAppointment,
 } from './appointmentLifecycleService.js';
+import { lockAppointmentPatientIdentity } from './appointmentPatientIdentityService.js';
 
 export class AppointmentService {
   async validateUser(userId, requiredRole = null, tenantId = null) {
@@ -106,6 +107,7 @@ export class AppointmentService {
   async createAppointment(appointmentData, options = {}) {
     const {
       patient_id,
+      patient_phone = null,
       doctor_id,
       appointment_date,
       appointment_time,
@@ -123,6 +125,7 @@ export class AppointmentService {
       actorRole = null,
       ignoreConflicts = false,
       source = 'book',
+      requirePatientPhoneMatch = false,
     } = options;
     const visitType = visit_type
       ? String(visit_type).trim().toUpperCase()
@@ -138,26 +141,20 @@ export class AppointmentService {
     try {
       const bookingResult = await setTenantTx(requireTenantId(tenant_id), async (tx) => {
         // Resolve patient phone and, when specified, doctor routing metadata.
-        const [pRows, resolvedDoctor] = await Promise.all([
-          tx.$queryRaw`
-            SELECT id, uid, phone, name
-              FROM users
-             WHERE id = ${parseInt(patient_id)}
-               AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
-             LIMIT 1
-          `,
+        const [patient, resolvedDoctor] = await Promise.all([
+          lockAppointmentPatientIdentity(tx, {
+            tenantId: tenant_id,
+            patientId: patient_id,
+            expectedPhone: patient_phone,
+            requirePhoneMatch: requirePatientPhoneMatch,
+          }),
           hasDoctorId
             ? resolveDoctorRef(tx, doctor_id, { tenantId: tenant_id })
             : Promise.resolve(null),
         ]);
-        if (!pRows[0]) {
-          const err = new Error('Patient not found');
-          err.statusCode = 400;
-          throw err;
-        }
-        const patientPhone = pRows[0]?.phone ?? '';
-        const patientName = pRows[0]?.name ?? null;
-        bookedPatientUid = pRows[0]?.uid ?? null;
+        const patientPhone = patient.phone ?? '';
+        const patientName = patient.name ?? null;
+        bookedPatientUid = patient.uid ?? null;
         bookedDoctorUid = resolvedDoctor?.uid ?? null;
         bookedDoctorId = resolvedDoctor?.id ?? null;
         if (hasDoctorId && !resolvedDoctor?.id) {
@@ -203,7 +200,7 @@ export class AppointmentService {
             reason, notes, status, department, visit_type, created_by,
             admin_override, override_reason, tenant_id, created_at, updated_at
           ) VALUES (
-            ${patientPhone}, ${parseInt(patient_id)}, ${patientName},
+            ${patientPhone}, ${Number(patient.id)}, ${patientName},
             ${resolvedDoctorId ? parseInt(resolvedDoctorId, 10) : null}, ${doctorName},
             ${appointment_date}::date, ${appointment_time},
             ${reason ?? null}, ${notes ?? null},

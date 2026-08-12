@@ -17,11 +17,13 @@ const setTenantMock = jest.fn();
 const queryRawUnsafe = jest.fn();
 const executeRawUnsafe = jest.fn();
 const getTenantBySlug = jest.fn();
-const revokeAllUserTokens = jest.fn();
+const persistRevokeAllUserTokens = jest.fn();
+const publishRevokeAllUserTokens = jest.fn();
 
 jest.unstable_mockModule('../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe, $executeRawUnsafe: executeRawUnsafe },
   setTenant: setTenantMock,
+  setTenantTx: setTenantMock,
 }));
 
 jest.unstable_mockModule('../services/tenant/tenantService.js', () => ({
@@ -29,7 +31,8 @@ jest.unstable_mockModule('../services/tenant/tenantService.js', () => ({
 }));
 
 jest.unstable_mockModule('../utils/tokenBlacklist.js', () => ({
-  revokeAllUserTokens,
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
 }));
 
 jest.unstable_mockModule('../logging/logger.js', () => ({
@@ -382,6 +385,10 @@ async function routeQuery(sql, ...params) {
         .filter((row) => row.tenant_id === params[0] && row.scim_provider_id === params[1])
         .map(adminProjection);
     }
+    if (compact.includes('SELECT * FROM admins WHERE uid = $1::uuid')) {
+      const found = scenario.adminRows.find((row) => row.uid === params[0] && row.tenant_id === params[1]);
+      return found ? [adminProjection(found)] : [];
+    }
     if (compact.includes('uid = $2::uuid')) {
       const found = scenario.adminRows.find((row) => row.uid === params[1] && row.tenant_id === params[0]);
       return found ? [adminProjection(found)] : [];
@@ -537,7 +544,8 @@ describe('SCIM 2.0 provisioning service', () => {
     }));
     queryRawUnsafe.mockImplementation(routeQuery);
     executeRawUnsafe.mockImplementation(routeExecute);
-    revokeAllUserTokens.mockResolvedValue(undefined);
+    persistRevokeAllUserTokens.mockResolvedValue(1_700_000_000);
+    publishRevokeAllUserTokens.mockResolvedValue({ database: { persisted: true } });
   });
 
   afterEach(() => {
@@ -645,7 +653,10 @@ describe('SCIM 2.0 provisioning service', () => {
     expect(result.resource.active).toBe(false);
     expect(findStaffByUid(STAFF_UID).user).toMatchObject({ is_active: false, status: 'inactive' });
     expect(findStaffByUid(STAFF_UID).staff).toMatchObject({ is_active: false, archived: true });
-    expect(revokeAllUserTokens).toHaveBeenCalledWith(STAFF_UID, { reason: 'scim_deprovision' });
+    expect(persistRevokeAllUserTokens).toHaveBeenCalledWith(STAFF_UID, expect.objectContaining({
+      reason: 'scim_deprovision',
+      notificationTenantId: TENANT_A,
+    }));
     expect(scenario.activeSessions).toBe(0);
     expect(scenario.staffAuthSessions).toBe(0);
     expect(scenario.staffDevices).toBe(0);
@@ -678,6 +689,62 @@ describe('SCIM 2.0 provisioning service', () => {
     });
   });
 
+  it('publishes staff deprovision revocation only after the tenant transaction commits', async () => {
+    scenario.staffRows = [staffRow()];
+    const context = await staffContext();
+    let activeTransactions = 0;
+    const timeline = [];
+    setTenantMock.mockImplementation(async (_tenantId, fn) => {
+      activeTransactions += 1;
+      timeline.push('transaction:start');
+      try {
+        const result = await fn({
+          $queryRawUnsafe: routeQuery,
+          $executeRawUnsafe: routeExecute,
+        });
+        timeline.push('transaction:commit');
+        return result;
+      } finally {
+        activeTransactions -= 1;
+      }
+    });
+    publishRevokeAllUserTokens.mockImplementationOnce(async () => {
+      expect(activeTransactions).toBe(0);
+      timeline.push('revocation:publish');
+      return { database: { persisted: true } };
+    });
+
+    await patchScimUser(context, STAFF_UID, {
+      Operations: [{ op: 'replace', path: 'active', value: false }],
+    }, { req: req() });
+
+    expect(timeline).toContain('revocation:publish');
+    expect(timeline.indexOf('transaction:commit'))
+      .toBeLessThan(timeline.indexOf('revocation:publish'));
+  });
+
+  it('does not publish staff deprovision revocation when the outer transaction rolls back', async () => {
+    scenario.staffRows = [staffRow()];
+    const context = await staffContext();
+    setTenantMock.mockImplementation(async (_tenantId, fn) => {
+      const result = await fn({
+        $queryRawUnsafe: routeQuery,
+        $executeRawUnsafe: routeExecute,
+      });
+      if (persistRevokeAllUserTokens.mock.calls.length > 0) {
+        throw new Error('simulated commit failure');
+      }
+      return result;
+    });
+
+    await expect(patchScimUser(context, STAFF_UID, {
+      Operations: [{ op: 'replace', path: 'active', value: false }],
+    }, { req: req() })).rejects.toThrow('simulated commit failure');
+
+    expect(persistRevokeAllUserTokens).toHaveBeenCalledTimes(1);
+    expect(publishRevokeAllUserTokens).not.toHaveBeenCalled();
+  });
+
   it('excludes break-glass accounts from SCIM deactivation', async () => {
     scenario.staffRows = [staffRow({ breakGlass: true })];
     const context = await staffContext();
@@ -688,7 +755,7 @@ describe('SCIM 2.0 provisioning service', () => {
 
     expect(result.resource.active).toBe(true);
     expect(findStaffByUid(STAFF_UID).user.is_active).toBe(true);
-    expect(revokeAllUserTokens).not.toHaveBeenCalled();
+    expect(persistRevokeAllUserTokens).not.toHaveBeenCalled();
     expect(scenario.commandReceipts.at(-1)).toMatchObject({
       commandKind: 'deactivate',
       effectDisposition: 'live_excluded',
@@ -768,5 +835,45 @@ describe('SCIM 2.0 provisioning service', () => {
       filter: { supported: true, maxResults: 2 },
       changePassword: { supported: false },
     });
+  });
+
+  it('publishes admin deprovision revocation only after the tenant transaction commits', async () => {
+    const context = await adminContext();
+    await upsertScimUser(context, {
+      userName: 'admin@example.test',
+      externalId: 'admin-ext',
+      displayName: 'Tenant Admin',
+      active: true,
+      groups: [{ value: 'admin' }],
+    }, { method: 'post', req: req() });
+    publishRevokeAllUserTokens.mockClear();
+
+    let activeTransactions = 0;
+    setTenantMock.mockImplementation(async (_tenantId, fn) => {
+      activeTransactions += 1;
+      try {
+        return await fn({
+          $queryRawUnsafe: routeQuery,
+          $executeRawUnsafe: routeExecute,
+        });
+      } finally {
+        activeTransactions -= 1;
+      }
+    });
+    publishRevokeAllUserTokens.mockImplementationOnce(async () => {
+      expect(activeTransactions).toBe(0);
+      return { database: { persisted: true } };
+    });
+
+    const result = await patchScimUser(context, ADMIN_UID, {
+      Operations: [{ op: 'replace', path: 'active', value: false }],
+    }, { req: req() });
+
+    expect(result.resource.active).toBe(false);
+    expect(publishRevokeAllUserTokens).toHaveBeenCalledWith(
+      ADMIN_UID,
+      1_700_000_000,
+      { reason: 'scim_deprovision' },
+    );
   });
 });

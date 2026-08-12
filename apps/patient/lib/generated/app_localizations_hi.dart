@@ -2966,6 +2966,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get dashboardExploreSection => 'एक्सप्लोर';
 
   @override
+  String get dashboardCareToolsSection => 'देखभाल उपकरण';
+
+  @override
   String get dashboardTodaySection => 'आज';
 
   @override

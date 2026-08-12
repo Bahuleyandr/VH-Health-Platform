@@ -24,14 +24,17 @@ function normalizeFiles(files) {
 export function buildCanonicalPlan({
   eventName,
   files = [],
-  requestedTier = 'full',
+  requestedTier = 'auto',
 } = {}) {
   const normalizedFiles = normalizeFiles(files);
+  const explicitQuick = eventName === 'workflow_dispatch' && requestedTier === 'quick';
+  const explicitFull = requestedTier === 'full';
   const forceFull =
     eventName === 'merge_group' ||
-    (eventName === 'workflow_dispatch' && requestedTier !== 'quick') ||
+    explicitFull ||
     normalizedFiles.length === 0 ||
-    normalizedFiles.some((file) => fullSweepPatterns.some((pattern) => pattern.test(file)));
+    (!explicitQuick && normalizedFiles.some((file) =>
+      fullSweepPatterns.some((pattern) => pattern.test(file))));
 
   const tier = forceFull ? 'full' : 'quick';
   const stages = forceFull
@@ -60,7 +63,7 @@ function writeGitHubOutputs(plan) {
 
 function main() {
   const eventName = process.env.GITHUB_EVENT_NAME || 'workflow_dispatch';
-  const requestedTier = process.env.CANONICAL_TIER || 'full';
+  const requestedTier = process.env.CANONICAL_TIER || 'auto';
   const files = eventName === 'merge_group' ? [] : changedFilesForBranchPush();
   const plan = buildCanonicalPlan({ eventName, files, requestedTier });
 

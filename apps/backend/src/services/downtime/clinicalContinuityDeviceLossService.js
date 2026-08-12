@@ -650,7 +650,7 @@ async function revokeTokens({ tenantId, operationId, actorUid, requestId }) {
   for (const subject of subjects) {
     let evidence;
     try {
-      evidence = await revokeScimIdentityTokens({ uid: subject.staff_uid });
+      evidence = await revokeScimIdentityTokens({ tenantId, uid: subject.staff_uid });
     } catch (error) {
       const code = error?.code || 'CONTINUITY_DEVICE_LOSS_TOKEN_REVOCATION_UNAVAILABLE';
       await recordStepFailure({

@@ -14476,6 +14476,136 @@
           }
         }
       },
+      "CodeBlueNotificationContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "eventId",
+          "patientId",
+          "ward",
+          "bedNumber",
+          "reason",
+          "startedAt"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "patientId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ward": {
+            "type": "string",
+            "nullable": true
+          },
+          "bedNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CodeBlueNotificationContentRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "tenantId",
+          "recipientUid",
+          "deviceId",
+          "registrationEpoch",
+          "sessionEpoch",
+          "authorizationEpoch",
+          "codeBlueReference"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipientUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "registrationEpoch": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "sessionEpoch": {
+            "type": "string",
+            "minLength": 1
+          },
+          "authorizationEpoch": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "codeBlueReference": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 2048,
+            "pattern": "^v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+          }
+        }
+      },
+      "CodeBlueNotificationContentResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CodeBlueNotificationContentResult"
+          }
+        }
+      },
+      "CodeBlueNotificationContentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "authorized",
+          "content"
+        ],
+        "properties": {
+          "authorized": {
+            "type": "boolean"
+          },
+          "content": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CodeBlueNotificationContent"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
       "CollectAdvanceRequest": {
         "type": "object",
         "additionalProperties": true,
@@ -27796,6 +27926,129 @@
           }
         }
       },
+      "NotificationAuthorityErrorResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "success",
+              "message"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "requestId": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "error"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "error": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "NotificationAuthorityValidationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "tenantId",
+          "recipientUid",
+          "deviceId",
+          "registrationEpoch",
+          "sessionEpoch",
+          "authorizationEpoch"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recipientUid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "registrationEpoch": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "sessionEpoch": {
+            "type": "string",
+            "minLength": 1
+          },
+          "authorizationEpoch": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        }
+      },
+      "NotificationAuthorityValidationResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/NotificationAuthorityValidationResult"
+          }
+        }
+      },
+      "NotificationAuthorityValidationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "authorized"
+        ],
+        "properties": {
+          "authorized": {
+            "type": "boolean"
+          }
+        }
+      },
       "NotificationDeliveryAttemptEvidence": {
         "type": "object",
         "additionalProperties": false,
@@ -38855,6 +39108,252 @@
           },
           "count": {
             "type": "integer"
+          }
+        }
+      },
+      "WearableBloodPressure": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "systolic": {
+            "type": "number"
+          },
+          "diastolic": {
+            "type": "number"
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "systolic"
+            ]
+          },
+          {
+            "required": [
+              "diastolic"
+            ]
+          }
+        ]
+      },
+      "WearableVitalCorrectionErrorResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "requestId": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "error"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "error": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "WearableVitalCorrectionReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceRecordId",
+          "sourceRecordHash",
+          "corrected",
+          "duplicate"
+        ],
+        "properties": {
+          "sourceRecordId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,180}$"
+          },
+          "sourceRecordHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "corrected": {
+            "type": "boolean"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WearableVitalCorrectionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "recordedAtSource"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "healthkit",
+              "health_connect",
+              "google_fit"
+            ]
+          },
+          "sourceRecordId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,180}$",
+            "description": "Compatibility copy sent by the current client; the path parameter remains authoritative."
+          },
+          "recordedAtSource": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bloodPressure": {
+            "$ref": "#/components/schemas/WearableBloodPressure"
+          },
+          "heartRate": {
+            "type": "integer"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "bloodSugar": {
+            "type": "integer"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 600,
+            "not": {
+              "enum": [
+                0
+              ]
+            }
+          },
+          "spO2": {
+            "type": "integer"
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "bloodPressure"
+            ]
+          },
+          {
+            "required": [
+              "heartRate"
+            ]
+          },
+          {
+            "required": [
+              "temperature"
+            ]
+          },
+          {
+            "required": [
+              "bloodSugar"
+            ]
+          },
+          {
+            "required": [
+              "weight"
+            ]
+          },
+          {
+            "required": [
+              "spO2"
+            ]
+          }
+        ]
+      },
+      "WearableVitalCorrectionResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WearableVitalCorrectionResult"
+          }
+        }
+      },
+      "WearableVitalCorrectionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "recordedAt",
+          "source",
+          "sourceRecordId",
+          "recordedAtSource",
+          "syncReceipt"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "healthkit",
+              "health_connect",
+              "google_fit"
+            ]
+          },
+          "sourceRecordId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,180}$"
+          },
+          "recordedAtSource": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "syncReceipt": {
+            "$ref": "#/components/schemas/WearableVitalCorrectionReceipt"
           }
         }
       },
@@ -87627,6 +88126,172 @@
         }
       }
     },
+    "/api/v1/devices/notification-authority/code-blue": {
+      "post": {
+        "operationId": "post_api_v1_devices_notification_authority_code_blue",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "Detailed Code Blue content or a fail-closed authority denial.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeBlueNotificationContentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The requested tenant or recipient did not match the authenticated caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the device-route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Notification authority or Code Blue content could not be verified.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Hydrate an authorized Code Blue notification",
+        "description": "Decrypts the short-lived, audience-bound Code Blue reference only when the authenticated tenant, recipient, access session, device registration epoch, session family, and authorization epoch still match on the primary database. Detailed patient, ward, bed, and reason data is never carried in the FCM envelope.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeBlueNotificationContentRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/devices/notification-authority/validate": {
+      "post": {
+        "operationId": "post_api_v1_devices_notification_authority_validate",
+        "tags": [
+          "device"
+        ],
+        "responses": {
+          "200": {
+            "description": "The current server-owned authority decision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityValidationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The authenticated identity or request was malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The requested tenant or recipient did not match the authenticated caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the device-route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authentication revocation state or notification authority could not be verified.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationAuthorityErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Validate the current notification delivery authority",
+        "description": "Fail-closed authorization check used before a Staff client presents a Code Blue push. The authenticated tenant, recipient, access session, device registration epoch, session family, and authorization epoch must still match the server-owned notification binding.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationAuthorityValidationRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/devices/register": {
       "post": {
         "operationId": "post_api_v1_devices_register",
@@ -87724,7 +88389,9 @@
               }
             }
           }
-        }
+        },
+        "summary": "Retire the caller notification-device binding",
+        "description": "Clears the exact FCM token, increments its notification authority epoch, and clears a matching legacy users.device_token without deleting the user_devices row required by linked projections."
       },
       "post": {
         "operationId": "post_api_v1_devices_unregister",
@@ -87742,7 +88409,9 @@
               }
             }
           }
-        }
+        },
+        "summary": "Retire the caller notification-device binding",
+        "description": "Clears the exact FCM token, increments its notification authority epoch, and clears a matching legacy users.device_token without deleting the user_devices row required by linked projections."
       }
     },
     "/api/v1/devices/update-token": {
@@ -97590,6 +98259,156 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/patient/vitals/wearable/{sourceRecordId}": {
+      "put": {
+        "operationId": "put_api_v1_health_patient_vitals_wearable_by_sourceRecordId",
+        "tags": [
+          "health"
+        ],
+        "responses": {
+          "200": {
+            "description": "The corrected or already-applied wearable receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The path, wearable payload, source timestamp, or Idempotency-Key was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key or bearer access token was missing, invalid, expired, or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated caller was not a patient authorized for this operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No matching wearable receipt exists for the authenticated patient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The correction or its Idempotency-Key is already in flight or conflicted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The Idempotency-Key was reused with a different request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The authenticated caller exceeded the health-route rate limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The correction failed without exposing internal details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authentication revocation state or the idempotency store could not be verified.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WearableVitalCorrectionErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Correct one patient-owned wearable vital receipt",
+        "description": "Patient-only correction of the exact tenant-, patient-, provider-, and source-record-bound wearable receipt. The original server receipt time remains immutable; a changed payload atomically updates the source observation and appends canonical clinical timeline and audit evidence. An identical replay returns the prior receipt without another correction event.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sourceRecordId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{1,180}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_:.-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WearableVitalCorrectionRequest"
               }
             }
           }

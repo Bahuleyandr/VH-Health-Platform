@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -5,8 +7,11 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_strings.dart';
 import '../providers/clinical_inbox_provider.dart';
 import '../providers/message_unread_provider.dart';
+import '../providers/notification_provider.dart';
 import '../providers/session_timeout_provider.dart';
 import '../services/auth_service.dart';
+import '../services/staff_local_notifications.dart';
+import '../services/staff_notification_session.dart';
 import '../theme/app_theme.dart';
 import 'offline_sync_badge.dart';
 
@@ -16,13 +21,44 @@ import 'offline_sync_badge.dart';
 /// timeout — so nothing keeps polling or popping snackbars on the login
 /// screen of a shared ward device (STF-1). Provider lookups are best-effort:
 /// hosts that don't mount these providers (tests) are a no-op.
-void stopStaffRealtimePollers(BuildContext context) {
+Future<void> stopStaffRealtimePollers(
+  BuildContext context, {
+  bool unregisterNotificationBackend = false,
+}) async {
   try {
     context.read<MessageUnreadProvider>().stop();
   } catch (_) {}
   try {
     context.read<ClinicalInboxProvider>().stop();
   } catch (_) {}
+  late final NotificationProvider notificationProvider;
+  try {
+    notificationProvider = context.read<NotificationProvider>();
+  } catch (_) {
+    return;
+  }
+
+  var notificationTeardownVerified = false;
+  try {
+    await notificationProvider.endAuthenticatedSession(
+      unregisterBackend: unregisterNotificationBackend,
+    );
+    notificationTeardownVerified = true;
+  } catch (e) {
+    debugPrint('Notification teardown remains unverified: $e');
+  }
+  if (!notificationTeardownVerified) {
+    try {
+      await StaffNotificationSessionStore.instance.markInactive();
+    } catch (e) {
+      debugPrint('Notification session marker cleanup failed: $e');
+    }
+    try {
+      await StaffLocalNotifications.instance.cancelSessionNotifications();
+    } catch (e) {
+      debugPrint('Delivered notification cleanup failed: $e');
+    }
+  }
 }
 
 T? _readProvider<T>(BuildContext context) {
@@ -37,6 +73,7 @@ typedef StaffLogoutOperation = Future<StaffLogoutResult> Function();
 typedef StaffSyncStatusOpener = Future<void> Function(BuildContext context);
 typedef ForcedSessionCleanup = Future<int> Function();
 typedef PreservedItemReporter = void Function(int count);
+typedef StaffSessionStopper = FutureOr<void> Function();
 
 class ForcedLogoutFlow {
   ForcedLogoutFlow._();
@@ -45,7 +82,7 @@ class ForcedLogoutFlow {
 
   static Future<void> run({
     ForcedSessionCleanup? forcedLogout,
-    VoidCallback? stopSessionTracking,
+    StaffSessionStopper? stopSessionTracking,
     required VoidCallback navigateToLogin,
     required PreservedItemReporter reportPreservedItems,
   }) {
@@ -66,12 +103,12 @@ class ForcedLogoutFlow {
 
   static Future<void> _run({
     required ForcedSessionCleanup forcedLogout,
-    required VoidCallback? stopSessionTracking,
+    required StaffSessionStopper? stopSessionTracking,
     required VoidCallback navigateToLogin,
     required PreservedItemReporter reportPreservedItems,
   }) async {
     final preservedCount = await forcedLogout();
-    stopSessionTracking?.call();
+    await stopSessionTracking?.call();
     navigateToLogin();
     reportPreservedItems(preservedCount);
   }
@@ -111,11 +148,27 @@ class LogoutFlow {
     final timeoutProvider = _readProvider<SessionTimeoutProvider>(context);
     final messageProvider = _readProvider<MessageUnreadProvider>(context);
     final clinicalProvider = _readProvider<ClinicalInboxProvider>(context);
-    final result = await (logoutOperation ?? AuthService.logout)();
+    final notificationProvider = _readProvider<NotificationProvider>(context);
+    final result =
+        await (logoutOperation ??
+            () => AuthService.logout(
+              beforeSessionRevocation:
+                  notificationProvider?.endAuthenticatedSession,
+            ))();
     if (result.isSignedOut) {
       timeoutProvider?.stopTracking();
       messageProvider?.stop();
       clinicalProvider?.stop();
+      if (logoutOperation != null) {
+        // Test-injected/custom logout operations do not receive the production
+        // pre-revocation hook. Complete local teardown without making an
+        // authenticated API call after that operation may have cleared auth.
+        try {
+          await notificationProvider?.endAuthenticatedSession(
+            unregisterBackend: false,
+          );
+        } catch (_) {}
+      }
     }
     if (!context.mounted) return result.isSignedOut;
 
@@ -144,19 +197,30 @@ class LogoutFlow {
       return false;
     }
 
-    final messenger = result.serverRevocationFailed
-        ? ScaffoldMessenger.maybeOf(context)
-        : null;
+    final warning = switch ((
+      result.serverRevocationFailed,
+      result.notificationTeardownFailed,
+    )) {
+      (true, true) => strings.logoutCombinedTeardownFailed,
+      (true, false) => strings.logoutServerRevocationFailed,
+      (false, true) => strings.logoutNotificationTeardownFailed,
+      (false, false) => null,
+    };
+    final messenger = warning == null
+        ? null
+        : ScaffoldMessenger.maybeOf(context);
     context.go('/login');
     // Local sign-out is complete, but the bearer token may still be live —
     // say so rather than letting the staff member assume the session is dead.
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(strings.logoutServerRevocationFailed),
-        backgroundColor: AppTheme.errorRed,
-        duration: const Duration(seconds: 6),
-      ),
-    );
+    if (messenger != null && warning != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(warning),
+          backgroundColor: AppTheme.errorRed,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
     return true;
   }
 }

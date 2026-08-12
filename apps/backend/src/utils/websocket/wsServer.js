@@ -3,7 +3,11 @@
 import { WebSocketServer } from 'ws';
 import logger from '../../logging/logger.js';
 import { verifyToken } from '../jwtUtils.js';
-import { isTokenBlacklisted, isUserTokensRevoked } from '../tokenBlacklist.js';
+import {
+  isDelegatedTupleRevoked,
+  isTokenBlacklisted,
+  isUserTokensRevoked,
+} from '../tokenBlacklist.js';
 import { authorizeChannel } from './channelAuth.js';
 import { createWsFanout } from './wsRedisAdapter.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
@@ -28,7 +32,10 @@ export function closeWsFanout() {
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
 const clients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, role: string, tenantId?: string, channels: Set<string> }>} */
+/** @type {Map<string, Set<import('ws').WebSocket>>} authenticated owner uid → Set of sockets */
+const revocationClients = new Map();
+
+/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -37,6 +44,70 @@ let heartbeatInterval = null;
 const HEARTBEAT_INTERVAL = 30_000; // 30s
 const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1MB buffer limit per client
 const MAX_CONNECTIONS_PER_USER = 5;
+
+async function registerDelegatedClientIfLive(
+  userId,
+  revocationOwnerUid,
+  tenantId,
+  registerClient,
+) {
+  const { default: prisma } = await import('../../lib/prisma.js');
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
+              dep.is_deleted, dep.deleted_at, dep.merged_into_uid,
+              guardian.role AS guardian_role,
+              guardian.is_active AS guardian_is_active,
+              guardian.status AS guardian_status,
+              guardian.is_deleted AS guardian_is_deleted,
+              guardian.deleted_at AS guardian_deleted_at,
+              guardian.merged_into_uid AS guardian_merged_into_uid
+         FROM users dep
+         JOIN users guardian ON guardian.id = dep.guardian_user_id
+        WHERE dep.uid = $1::uuid
+          AND dep.tenant_id = $2::uuid
+          AND guardian.uid = $3::uuid
+          AND guardian.tenant_id = dep.tenant_id
+          AND dep.role = 'PATIENT'
+          AND dep.is_minor = TRUE
+          AND dep.is_active = TRUE
+          AND dep.status = 'active'
+          AND dep.is_deleted = FALSE
+          AND dep.deleted_at IS NULL
+          AND dep.merged_into_uid IS NULL
+          AND guardian.role = 'PATIENT'
+          AND guardian.is_active = TRUE
+          AND guardian.status = 'active'
+          AND guardian.is_deleted = FALSE
+          AND guardian.deleted_at IS NULL
+          AND guardian.merged_into_uid IS NULL
+        LIMIT 1
+        FOR SHARE OF dep, guardian`,
+      userId,
+      tenantId,
+      revocationOwnerUid,
+    );
+    const subject = rows[0];
+    const live = Boolean(
+      subject
+      && subject.role === 'PATIENT'
+      && subject.is_minor === true
+      && subject.is_active === true
+      && String(subject.status || '').trim().toLowerCase() === 'active'
+      && subject.is_deleted === false
+      && subject.deleted_at == null
+      && subject.merged_into_uid == null
+      && subject.guardian_role === 'PATIENT'
+      && subject.guardian_is_active === true
+      && String(subject.guardian_status || '').trim().toLowerCase() === 'active'
+      && subject.guardian_is_deleted === false
+      && subject.guardian_deleted_at == null
+      && subject.guardian_merged_into_uid == null
+    );
+    if (live) registerClient();
+    return live;
+  });
+}
 
 export function initWebSocket(server) {
   if (wss) {
@@ -97,6 +168,7 @@ export function initWebSocket(server) {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = null;
     clients.clear();
+    revocationClients.clear();
     socketMeta.clear();
   });
 }
@@ -116,6 +188,7 @@ export function closeWebSocket() {
     activeServer.close(() => {
       if (wss === activeServer) wss = null;
       clients.clear();
+      revocationClients.clear();
       socketMeta.clear();
       resolve();
     });
@@ -149,9 +222,16 @@ async function authenticateAndRegister(ws, token) {
     }
   }
 
-  const userId = decoded.uid || decoded.id || decoded.sub;
+  const identityClaim = decoded.uid || decoded.sub || decoded.id;
+  const userId = identityClaim === undefined || identityClaim === null
+    ? null
+    : String(identityClaim);
   const role = decoded.role;
   const tenantId = decoded.tenant_id || decoded.tenantId || null;
+  const revocationOwnerUid = decoded.revocationOwnerUid === undefined
+    || decoded.revocationOwnerUid === null
+    ? userId
+    : String(decoded.revocationOwnerUid);
   if (!userId) {
     ws.close(4001, 'Invalid token payload');
     return;
@@ -160,27 +240,125 @@ async function authenticateAndRegister(ws, token) {
     ws.close(4001, 'Invalid token tenant');
     return;
   }
+  if (!revocationOwnerUid) {
+    ws.close(4001, 'Invalid token payload');
+    return;
+  }
+  const ownerIsSubject = revocationOwnerUid.toLowerCase() === userId.toLowerCase();
 
   // Check if all user tokens were revoked (force-logout)
   if (decoded.iat) {
-    const revoked = await isUserTokensRevoked(String(userId), decoded.iat, decoded.token_epoch);
-    if (revoked) {
-      ws.close(4001, 'All sessions revoked');
+    try {
+      const ownerRevoked = await isUserTokensRevoked(
+        revocationOwnerUid,
+        decoded.iat,
+        decoded.token_epoch,
+      );
+      if (ownerRevoked) {
+        ws.close(4001, 'All sessions revoked');
+        return;
+      }
+
+      // A delegated ticket is authorized as the dependent but owned by the
+      // guardian session. Either identity's later revoke-all must stop the
+      // handshake. The guardian's token_epoch is not meaningful for the
+      // dependent, so that second check uses the durable timestamp predicate.
+      if (!ownerIsSubject) {
+        const subjectRevoked = await isUserTokensRevoked(userId, decoded.iat, undefined);
+        if (subjectRevoked) {
+          ws.close(4001, 'All sessions revoked');
+          return;
+        }
+        const tupleRevoked = await isDelegatedTupleRevoked(
+          revocationOwnerUid,
+          userId,
+          decoded.iat,
+        );
+        if (tupleRevoked) {
+          ws.close(4001, 'Delegated session revoked');
+          return;
+        }
+      }
+    } catch (err) {
+      logger.error('WS denied (fail closed): revocation store unreachable', {
+        error: err?.message,
+        userId,
+        revocationOwnerUid,
+      });
+      ws.close(1013, 'Authentication unavailable');
       return;
     }
   }
 
-  // Enforce per-user connection limit
+  // Enforce per-user connection limit before either direct or delegated
+  // registration. Delegated registration then happens under the subject lock.
   const existingConnections = clients.get(userId);
   if (existingConnections && existingConnections.size >= MAX_CONNECTIONS_PER_USER) {
     ws.close(4029, 'Too many concurrent connections');
     return;
   }
 
-  // Register client
-  if (!clients.has(userId)) clients.set(userId, new Set());
-  clients.get(userId).add(ws);
-  socketMeta.set(ws, { userId, role, tenantId, channels: new Set() });
+  const registerClient = () => {
+    ws.on('close', () => {
+      const meta = socketMeta.get(ws);
+      if (meta) {
+        clients.get(meta.userId)?.delete(ws);
+        if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
+        revocationClients.get(meta.revocationOwnerUid)?.delete(ws);
+        if (revocationClients.get(meta.revocationOwnerUid)?.size === 0) {
+          revocationClients.delete(meta.revocationOwnerUid);
+        }
+        socketMeta.delete(ws);
+      }
+    });
+    if (!clients.has(userId)) clients.set(userId, new Set());
+    clients.get(userId).add(ws);
+    if (!revocationClients.has(revocationOwnerUid)) {
+      revocationClients.set(revocationOwnerUid, new Set());
+    }
+    revocationClients.get(revocationOwnerUid).add(ws);
+    socketMeta.set(ws, {
+      userId,
+      revocationOwnerUid,
+      role,
+      tenantId,
+      jti: decoded.jti ?? null,
+      accessSessionJti: decoded.accessSessionJti ?? null,
+      sessionFamilyId: decoded.sessionFamilyId ?? null,
+      stableDeviceId: decoded.stableDeviceId ?? null,
+      channels: new Set(),
+    });
+  };
+
+  // The revocation watermark only rejects tickets issued before retirement.
+  // Hold share locks on both delegated identities through socket registration,
+  // so a concurrent merge/deletion/link change either wins before validation
+  // or waits until the socket is visible to its post-commit revocation push.
+  if (!ownerIsSubject) {
+    try {
+      const subjectLive = await registerDelegatedClientIfLive(
+        userId,
+        revocationOwnerUid,
+        tenantId,
+        registerClient,
+      );
+      if (!subjectLive) {
+        ws.close(4001, 'Delegated subject unavailable');
+        return;
+      }
+    } catch (err) {
+      logger.error('WS denied (fail closed): delegated subject lookup unavailable', {
+        error: err?.message,
+        userId,
+        revocationOwnerUid,
+      });
+      ws.close(1013, 'Authentication unavailable');
+      return;
+    }
+  } else {
+    registerClient();
+  }
+  if (ws.readyState !== 1) return;
 
   logger.info(`🔌 WS connected: user=${userId} role=${role || 'unknown'}`);
 
@@ -258,15 +436,6 @@ async function authenticateAndRegister(ws, token) {
     }
   });
 
-  ws.on('close', () => {
-    const meta = socketMeta.get(ws);
-    if (meta) {
-      clients.get(meta.userId)?.delete(ws);
-      if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
-      socketMeta.delete(ws);
-    }
-  });
-
   ws.on('error', (err) => {
     logger.error(`WS error for user=${userId}:`, err.message);
   });
@@ -327,14 +496,58 @@ const SESSION_REVOKED_CLOSE_CODE = 4001;
 
 /** Deliver a user-targeted message to this process's sockets for that user. */
 function deliverUserLocal(userId, event, data, tenantId) {
-  const sockets = clients.get(String(userId));
-  if (!sockets) return;
-  const payload = JSON.stringify({ event, data });
   const isRevocation = event === SESSION_REVOKED_EVENT;
+  const uid = String(userId);
+  const deliverySockets = clients.get(uid);
+  const ownerSockets = isRevocation ? revocationClients.get(uid) : null;
+  if (!deliverySockets && !ownerSockets) return;
+  // Normal user delivery remains effective-subject scoped. Only revocation
+  // adds sockets authenticated by that owner (for guardian acting-as tickets).
+  const sockets = isRevocation
+    ? new Set([...(deliverySockets || []), ...(ownerSockets || [])])
+    : deliverySockets;
+  const payload = JSON.stringify({ event, data });
+  const revokedJti = isRevocation && data?.jti ? String(data.jti) : null;
+  const revokedSessionFamilyId = isRevocation && data?.sessionFamilyId
+    ? String(data.sessionFamilyId)
+    : null;
+  const revokedStableDeviceId = isRevocation && data?.stableDeviceId
+    ? String(data.stableDeviceId)
+    : null;
+  const revokedDelegatedSubjectUid = isRevocation && data?.delegatedSubjectUid
+    ? String(data.delegatedSubjectUid)
+    : null;
   // Copy: closing a socket mutates `sockets` via the ws 'close' handler.
   for (const ws of [...sockets]) {
     const meta = socketMeta.get(ws);
     if (!tenantMatches(meta?.tenantId, tenantId)) continue;
+    if (
+      revokedDelegatedSubjectUid
+      && (
+        String(meta?.revocationOwnerUid || '') !== uid
+        || String(meta?.userId || '') !== revokedDelegatedSubjectUid
+        || String(meta?.revocationOwnerUid || '') === String(meta?.userId || '')
+      )
+    ) {
+      continue;
+    }
+    if (revokedSessionFamilyId) {
+      // A family identifies one login across access rotation and WS-ticket
+      // exchange. Prefer it over the broader device selector so revoking one
+      // login does not close a sibling family opened on the same installation.
+      const matchesJti = revokedJti && String(meta?.jti || '') === revokedJti;
+      const matchesFamily = String(meta?.sessionFamilyId || '') === revokedSessionFamilyId;
+      if (!matchesJti && !matchesFamily) continue;
+    } else if (revokedStableDeviceId) {
+      if (String(meta?.stableDeviceId || '') !== revokedStableDeviceId) continue;
+    } else if (revokedJti) {
+      // A legacy registry row has no family/device selectors. Realtime tickets
+      // carry their authenticated access token's jti so its revocation still
+      // reaches the ticket even though the ticket has a distinct jti.
+      const matchesJti = String(meta?.jti || '') === revokedJti;
+      const matchesAccessSession = String(meta?.accessSessionJti || '') === revokedJti;
+      if (!matchesJti && !matchesAccessSession) continue;
+    }
     const open = ws.readyState === 1;
     if (open) {
       if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
@@ -451,6 +664,14 @@ export function pushSessionRevoked(userId, data = {}) {
   // safely decide whether local fallback is necessary.
   deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
   fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
+}
+
+/** Close only sockets for one authenticated guardian-dependent delegation. */
+export function pushDelegatedSessionRevoked(guardianUid, dependentUid, data = {}) {
+  pushSessionRevoked(String(guardianUid), {
+    ...data,
+    delegatedSubjectUid: String(dependentUid),
+  });
 }
 
 /**

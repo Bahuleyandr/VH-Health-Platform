@@ -29,6 +29,10 @@ const bearerUid = (req) => req.acting?.actorUid ?? req.user?.uid;
 const callerToken = (req) => ({
   jti: req.user?.jti ?? null,
   expiresAt: req.user?.tokenExpiresAt ?? null,
+  ...(req.user?.sessionFamilyId || req.user?.jti
+    ? { sessionFamilyId: req.user.sessionFamilyId || req.user.jti }
+    : {}),
+  ...(req.user?.stableDeviceId ? { stableDeviceId: req.user.stableDeviceId } : {}),
 });
 
 /**

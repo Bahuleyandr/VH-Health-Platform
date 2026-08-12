@@ -17,6 +17,7 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { publishOpChildResourceLinkedTx } from '../appointment/opChildResourceEventService.js';
 import { recordAppointmentCreatedEvidenceTx } from '../appointment/appointmentLifecycleService.js';
+import { lockAppointmentPatientIdentity } from '../appointment/appointmentPatientIdentityService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -178,16 +179,10 @@ async function reserveFollowUpAppointment({
   reason = null,
   createdBy = null,
 }) {
-  const patientRows = await db.$queryRawUnsafe(
-      `SELECT id, phone, name
-         FROM users
-        WHERE tenant_id = $1::uuid
-          AND uid = $2::uuid
-          AND role = 'PATIENT'
-        LIMIT 1`,
-      tenantId,
-      patientUid,
-    );
+  const patient = await lockAppointmentPatientIdentity(db, {
+    tenantId,
+    patientUid,
+  });
   const doctorRows = await db.$queryRawUnsafe(
       `SELECT u.id, u.name, COALESCE(dept.name, d.department) AS department
          FROM users u
@@ -207,8 +202,6 @@ async function reserveFollowUpAppointment({
       doctorUid,
     );
 
-  const patient = patientRows[0];
-  if (!patient) throw AppError.badRequest('Cannot book follow-up appointment: patient_uid is not a PATIENT user');
   const doctor = doctorRows[0];
   if (!doctor) throw AppError.badRequest('Cannot book follow-up appointment: doctor_uid is not an active DOCTOR');
 

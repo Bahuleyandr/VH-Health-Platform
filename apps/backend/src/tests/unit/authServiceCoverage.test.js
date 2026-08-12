@@ -109,7 +109,10 @@ jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({ 
 // delegates to (dedup of the old inline _generateRefreshToken). Mirror the real
 // helper here — stamp type:'refresh' and forward to generateToken — so the C-9
 // assertions below (refresh token minted with type:'refresh') still hold.
-const mockIssueSession = jest.fn().mockResolvedValue({ accessToken: 'session-access-token' });
+const mockIssueSession = jest.fn().mockResolvedValue({
+  accessToken: 'session-access-token',
+  sessionFamilyId: 'session-family-1',
+});
 const mockGenerateRefreshToken = jest.fn((payload) => mockGenerateToken({ ...payload, type: 'refresh' }, '30d'));
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: mockIssueSession,
@@ -122,10 +125,14 @@ jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
 const mockBlacklistToken = jest.fn().mockResolvedValue(undefined);
 const mockIsTokenBlacklisted = jest.fn().mockResolvedValue(false);
 const mockRevokeAllUserTokens = jest.fn().mockResolvedValue(undefined);
+const mockPersistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
+const mockPublishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   blacklistToken: mockBlacklistToken,
   isTokenBlacklisted: mockIsTokenBlacklisted,
+  persistRevokeAllUserTokens: mockPersistRevokeAllUserTokens,
+  publishRevokeAllUserTokens: mockPublishRevokeAllUserTokens,
   revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 
@@ -195,7 +202,10 @@ beforeEach(() => {
   // Re-establish stable default behaviours cleared by clearAllMocks.
   mockGenerateToken.mockReturnValue('mock-jwt-token');
   mockIssueSetupToken.mockReturnValue('mock-setup-token');
-  mockIssueSession.mockResolvedValue({ accessToken: 'session-access-token' });
+  mockIssueSession.mockResolvedValue({
+    accessToken: 'session-access-token',
+    sessionFamilyId: 'session-family-1',
+  });
   mockBcryptHash.mockResolvedValue('hashed-value');
   mockIsTokenBlacklisted.mockResolvedValue(false);
   mockIsLegacyPhoneAuthAllowed.mockReturnValue(false);
@@ -554,6 +564,52 @@ describe('AuthService.adminResetPassword', () => {
     expect(mockPrisma.password_reset_otps.updateMany).toHaveBeenCalledWith({
       where: { id: 77, used: false }, data: { used: true },
     });
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('a1', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'password_reset',
+    });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'a1', 1_700_000_000, { reason: 'password_reset' },
+    );
+  });
+
+  it('does not report reset success when durable session revocation fails', async () => {
+    mockPrisma.admins.findFirst.mockResolvedValue({ uid: 'a1' });
+    mockPrisma.password_reset_otps.findFirst.mockResolvedValue({
+      id: 77,
+      otp: '$2b$10$storedhash',
+      attempts: 0,
+    });
+    mockBcryptCompare.mockResolvedValue(true);
+    let otpBurnCommitted = false;
+    let passwordCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      let stagedOtpBurn = false;
+      let stagedPassword = false;
+      const tx = {
+        ...mockPrisma,
+        password_reset_otps: {
+          ...mockPrisma.password_reset_otps,
+          updateMany: jest.fn(async () => { stagedOtpBurn = true; return { count: 1 }; }),
+        },
+        admins: {
+          ...mockPrisma.admins,
+          update: jest.fn(async () => { stagedPassword = true; return {}; }),
+        },
+      };
+      const result = await callback(tx);
+      otpBurnCommitted = stagedOtpBurn;
+      passwordCommitted = stagedPassword;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(AuthService.adminResetPassword('root', '246813', 'NewPass1!'))
+      .rejects.toThrow('durable store unavailable');
+    expect(otpBurnCommitted).toBe(false);
+    expect(passwordCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('accepts a legacy plaintext OTP row (=== fallback)', async () => {
@@ -616,6 +672,16 @@ describe('AuthService.changeAdminPassword', () => {
     mockPrisma.admins.findUnique.mockResolvedValue({ password_hash: '$2b$10$old' });
     mockBcryptCompare.mockResolvedValue(true);
     mockPrisma.admins.update.mockResolvedValue({});
+    let transactionCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      const result = await callback(mockPrisma);
+      transactionCommitted = true;
+      return result;
+    });
+    mockPublishRevokeAllUserTokens.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(true);
+      return { database: { persisted: true } };
+    });
 
     const res = await AuthService.changeAdminPassword('admin-1', 'old', 'new');
 
@@ -624,6 +690,39 @@ describe('AuthService.changeAdminPassword', () => {
     expect(mockPrisma.admins.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ password_hash: 'hashed-value' }) }),
     );
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('admin-1', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'password_changed',
+    });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'admin-1', 1_700_000_000, { reason: 'password_changed' },
+    );
+  });
+
+  it('does not report password-change success when durable revocation fails', async () => {
+    mockPrisma.admins.findUnique.mockResolvedValue({ password_hash: '$2b$10$old' });
+    mockBcryptCompare.mockResolvedValue(true);
+    let passwordCommitted = false;
+    mockPrisma.$transaction.mockImplementationOnce(async (callback) => {
+      let stagedPassword = false;
+      const tx = {
+        ...mockPrisma,
+        admins: {
+          ...mockPrisma.admins,
+          update: jest.fn(async () => { stagedPassword = true; return {}; }),
+        },
+      };
+      const result = await callback(tx);
+      passwordCommitted = stagedPassword;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(AuthService.changeAdminPassword('admin-1', 'old', 'new'))
+      .rejects.toThrow('durable store unavailable');
+    expect(passwordCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('throws when the admin is not found', async () => {
@@ -926,24 +1025,66 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
   });
 
   it('accepts a type:refresh token: blacklists its jti, mints new access + refresh tokens', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, deviceType: 'ios', type: 'refresh' });
+    mockVerifyToken.mockReturnValue({
+      uid: 'u1',
+      jti: 'jti-1',
+      exp: 9999999999,
+      deviceType: 'ios',
+      type: 'refresh',
+      sessionFamilyId: 'session-family-1',
+    });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 7, phone: '+91', name: 'A', role: 'PATIENT' });
 
     const res = await AuthService.refreshToken('tok', { ip: '1.1.1.1' });
 
-    expect(mockBlacklistToken).toHaveBeenCalledWith('jti-1', 9999999999, 'refresh_rotation');
+    expect(mockBlacklistToken).toHaveBeenCalledWith('jti-1', 9999999999, 'refresh_rotation', {
+      requireEvidence: true,
+    });
     expect(mockIssueSession).toHaveBeenCalledWith(
-      expect.objectContaining({ userUid: 'u1', deviceType: 'ios', pushRevoked: false }),
+      expect.objectContaining({
+        userUid: 'u1',
+        deviceType: 'ios',
+        pushRevoked: false,
+        sessionFamilyId: 'session-family-1',
+      }),
     );
     expect(res.token).toBe('session-access-token');
     // A rotated refresh token (type:'refresh', 30d) is returned to the client.
     expect(res.refreshToken).toBe('mock-jwt-token');
     expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ uid: 'u1', role: 'PATIENT', type: 'refresh' }),
+      expect.objectContaining({
+        uid: 'u1',
+        role: 'PATIENT',
+        type: 'refresh',
+        sessionFamilyId: 'session-family-1',
+      }),
       '30d',
     );
     expect(res.user).toMatchObject({ uid: 'u1', id: 7, role: 'PATIENT' });
+  });
+
+  it('does not mint rotated credentials when durable refresh revocation fails', async () => {
+    mockVerifyToken.mockReturnValue({
+      uid: 'u1',
+      jti: 'jti-1',
+      exp: 9999999999,
+      type: 'refresh',
+    });
+    mockIsTokenBlacklisted.mockResolvedValue(false);
+    mockPrisma.users.findUnique.mockResolvedValue({
+      uid: 'u1',
+      id: 7,
+      phone: '+91',
+      name: 'A',
+      role: 'PATIENT',
+    });
+    mockBlacklistToken.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(AuthService.refreshToken('tok', { body: {} }))
+      .rejects.toThrow('durable store unavailable');
+    expect(mockIssueSession).not.toHaveBeenCalled();
+    expect(mockGenerateRefreshToken).not.toHaveBeenCalled();
   });
 
   it('rotates an admin-realm refresh token against admins and preserves admin claims', async () => {
@@ -955,6 +1096,8 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
       type: 'refresh',
       realm: 'admin',
       role: 'ADMIN',
+      // Legacy refresh tokens minted before P9 carried this indefinitely.
+      mfa: true,
       token_epoch: 0,
       deviceType: 'web',
     });
@@ -982,11 +1125,13 @@ describe('AuthService.refreshToken — rotation + blacklist + type guard', () =>
         role: 'ADMIN',
       }),
     }));
+    expect(mockIssueSession.mock.calls.at(-1)[0].tokenPayload.mfa).toBeUndefined();
     expect(mockGenerateRefreshToken).toHaveBeenCalledWith(expect.objectContaining({
       uid: adminUid,
       realm: 'admin',
       tokenEpoch: 0,
     }));
+    expect(mockGenerateRefreshToken.mock.calls.at(-1)[0].mfa).toBeUndefined();
     expect(res.admin).toMatchObject({ uid: adminUid, username: 'root', role: 'ADMIN' });
     expect(res.user).toBeUndefined();
   });

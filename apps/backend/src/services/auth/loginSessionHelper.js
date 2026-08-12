@@ -104,12 +104,21 @@ export async function resolveTenantIdForUid(uid) {
  * @param {number|string} [identity.id] - DB integer id, when known.
  * @param {string} [identity.phone] - E.164 phone, when known.
  * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
+ * @param {string} [identity.sessionFamilyId] - stable login-session selector shared with the access token.
  * @param {number} [identity.tokenEpoch] - pre-resolved current epoch (skips the DB read).
  * @param {string} [identity.realm] - identity store owning the subject (`user` or `admin`).
- * @param {boolean} [identity.mfa] - whether the admin session completed MFA step-up.
  * @returns {Promise<string>} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
  */
-export async function generateRefreshToken({ uid, id, phone, role, stableDeviceId, tokenEpoch, realm, mfa }) {
+export async function generateRefreshToken({
+  uid,
+  id,
+  phone,
+  role,
+  stableDeviceId,
+  sessionFamilyId,
+  tokenEpoch,
+  realm,
+}) {
   const epoch = tokenEpoch ?? await getCurrentTokenEpoch(uid);
   return generateToken(
     {
@@ -120,8 +129,8 @@ export async function generateRefreshToken({ uid, id, phone, role, stableDeviceI
       type: 'refresh',
       token_epoch: epoch,
       ...(realm ? { realm } : {}),
-      ...(mfa === true ? { mfa: true } : {}),
       ...(stableDeviceId ? { stableDeviceId } : {}),
+      ...(sessionFamilyId ? { sessionFamilyId } : {}),
     },
     SECURITY_CONFIG.jwt.refreshExpiry,
   );
@@ -140,11 +149,12 @@ export async function generateRefreshToken({ uid, id, phone, role, stableDeviceI
  * @param {Object} [args.req] - Express request, used for ip + user-agent.
  * @param {number} [args.tokenEpoch] - Pre-resolved current identity epoch. When omitted it is read
  *   from the durable store immediately before signing.
+ * @param {string} [args.sessionFamilyId] - Existing selector to retain during refresh rotation.
  * @param {boolean} [args.pushRevoked=true] - Forward to {@link claimUserSession}. Pass `false` when
  *   minting a refreshed access token: the prior jti must still be blacklisted, but no
  *   `session:revoked` event should fire (the device is itself, just rotated).
- * @returns {Promise<{ accessToken: string, jti: string, tokenEpoch: number }>} The signed token,
- *   its jti, and the epoch snapshot used for signing.
+ * @returns {Promise<{ accessToken: string, jti: string, tokenEpoch: number, sessionFamilyId: string }>} The signed token,
+ *   its jti, epoch snapshot, and stable login-session selector.
  */
 export async function issueAccessTokenAndClaimSession({
   userUid,
@@ -152,6 +162,7 @@ export async function issueAccessTokenAndClaimSession({
   expiresIn,
   deviceType,
   stableDeviceId,
+  sessionFamilyId,
   req,
   pushRevoked = true,
   tokenEpoch,
@@ -169,6 +180,7 @@ export async function issueAccessTokenAndClaimSession({
     ?? tokenPayload.tenantId
     ?? await resolveTenantIdForUid(userUid);
   const epoch = tokenEpoch ?? await getCurrentTokenEpoch(userUid);
+  const stableSessionFamilyId = sessionFamilyId || crypto.randomUUID();
 
   const jti = crypto.randomUUID();
   const accessToken = generateToken(
@@ -179,6 +191,7 @@ export async function issueAccessTokenAndClaimSession({
       jti,
       ...(deviceType ? { deviceType } : {}),
       ...(stableDeviceId ? { stableDeviceId } : {}),
+      sessionFamilyId: stableSessionFamilyId,
     },
     expiresIn,
   );
@@ -196,9 +209,16 @@ export async function issueAccessTokenAndClaimSession({
     expiresAt,
     ipAddress: req?.ip ?? null,
     userAgent: req?.headers?.['user-agent'] ?? null,
+    sessionFamilyId: stableSessionFamilyId,
+    stableDeviceId,
     pushRevoked,
     tenantId, // M8: stamp the bearer's resolved tenant on the session row
   });
 
-  return { accessToken, jti, tokenEpoch: epoch };
+  return {
+    accessToken,
+    jti,
+    tokenEpoch: epoch,
+    sessionFamilyId: stableSessionFamilyId,
+  };
 }

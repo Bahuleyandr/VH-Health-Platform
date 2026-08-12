@@ -7,7 +7,10 @@ import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { AppError } from '../../utils/AppError.js';
-import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  persistRevokeAllUserTokens as persistIdentityRevocation,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { encryptColumn, searchableHash } from '../../services/security/phiColumnEncryption.js';
 
 const USER_SELECT = {
@@ -159,16 +162,32 @@ async function verifyFreshFirebaseReauthToken(firebaseIdToken, user, { now = new
 
 async function persistRevokeAllUserTokens(userUid, tx = prisma) {
   if (!userUid) return;
-  await tx.$executeRawUnsafe(
+  const epochRows = await tx.$executeRawUnsafe(
+    `UPDATE users
+        SET token_epoch = COALESCE(token_epoch, 0) + 1,
+            token_epoch_bumped_at = NOW()
+      WHERE uid = $1::uuid`,
+    String(userUid)
+  );
+  if (Number(epochRows) < 1) {
+    throw new Error('Account deletion could not persist the token epoch bump');
+  }
+  const markerRows = await tx.$queryRawUnsafe(
     `INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
      VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
      ON CONFLICT (jti) DO UPDATE SET
        expires_at = EXCLUDED.expires_at,
        reason = EXCLUDED.reason,
-       created_at = EXCLUDED.created_at`,
+       created_at = EXCLUDED.created_at
+     RETURNING EXTRACT(EPOCH FROM created_at)::double precision AS revoked_at`,
     `user:${userUid}`,
     'account_deleted'
   );
+  const revokedAt = Number(markerRows[0]?.revoked_at);
+  if (!Number.isFinite(revokedAt)) {
+    throw new Error('Account deletion could not persist the revocation marker');
+  }
+  return revokedAt;
 }
 
 async function revokeFirebaseRefreshTokens(firebaseUid) {
@@ -610,41 +629,60 @@ export class UserService {
     }
 
     const isActive = status === USER_CONFIG.USER_STATUS.ACTIVE;
-    await prisma.$executeRaw`
-      UPDATE users
-      SET is_active = ${isActive},
-          status = ${status},
-          updated_at = NOW()
-      WHERE uid = ${user.uid}::uuid
-    `;
-
-    if (['NURSE', 'PHARMACY_STAFF', 'LAB_STAFF', 'RECEPTIONIST'].includes(user.role)) {
-      await prisma.staff.updateMany({
-        where: { user_id: user.uid },
-        data: {
-          is_active: isActive,
-          ...(reason !== undefined ? { notes: reason } : {})
-        }
-      });
-    } else if (user.role === USER_CONFIG.ROLES.DOCTOR) {
-      await prisma.doctors.updateMany({
-        where: { user_id: user.id },
-        data: {
-          is_available: isActive
-        }
-      });
+    if (!user.tenant_id) {
+      throw new Error('User status change requires a tenant-bound identity');
     }
+    const revokedAt = await setTenantTx(String(user.tenant_id), async (tx) => {
+      const updated = await tx.$executeRaw`
+        UPDATE users
+        SET is_active = ${isActive},
+            status = ${status},
+            updated_at = NOW()
+        WHERE uid = ${user.uid}::uuid
+          AND tenant_id = ${user.tenant_id}::uuid
+      `;
+      if (Number(updated) !== 1) throw new Error('User status change did not update the identity');
 
-    await prisma.audit_logs.create({
-      data: {
-        uid: user.uid,
-        role: user.role,
-        action: 'USER_STATUS_CHANGE',
-        resource: 'users',
-        resource_id: user.uid,
-        metadata: { status, reason, changedBy }
+      if (['NURSE', 'PHARMACY_STAFF', 'LAB_STAFF', 'RECEPTIONIST'].includes(user.role)) {
+        await tx.staff.updateMany({
+          where: { user_id: user.uid },
+          data: {
+            is_active: isActive,
+            ...(reason !== undefined ? { notes: reason } : {})
+          }
+        });
+      } else if (user.role === USER_CONFIG.ROLES.DOCTOR) {
+        await tx.doctors.updateMany({
+          where: { user_id: user.id },
+          data: {
+            is_available: isActive
+          }
+        });
       }
+
+      await tx.audit_logs.create({
+        data: {
+          uid: user.uid,
+          role: user.role,
+          action: 'USER_STATUS_CHANGE',
+          resource: 'users',
+          resource_id: user.uid,
+          metadata: { status, reason, changedBy }
+        }
+      });
+
+      if (isActive) return null;
+      return persistIdentityRevocation(user.uid, {
+        client: tx,
+        requireEvidence: true,
+        reason: 'user_deactivated',
+        notificationTenantId: String(user.tenant_id),
+      });
     });
+
+    if (revokedAt != null && Number.isFinite(Number(revokedAt))) {
+      await publishRevokeAllUserTokens(user.uid, revokedAt, { reason: 'user_deactivated' });
+    }
 
     logger.info(`User status changed: ${user.uid} to ${status} by ${changedBy}`);
 
@@ -768,7 +806,7 @@ export class UserService {
     const sanitizedIp = normalizeClientIp(ipAddress);
     const idempotencyKey = `patient-account-deletion:${user.uid}`;
 
-    await setTenantTx(user.tenant_id, async tx => {
+    const revokedAt = await setTenantTx(user.tenant_id, async tx => {
       await tx.$executeRawUnsafe(
         `UPDATE user_devices
             SET fcm_token = NULL,
@@ -844,10 +882,21 @@ export class UserService {
         idempotencyKey
       );
 
-      await persistRevokeAllUserTokens(user.uid, tx);
+      return persistRevokeAllUserTokens(user.uid, tx);
     });
 
-    await revokeAllUserTokens(user.uid);
+    try {
+      const { pushSessionRevoked } = await import('../../utils/websocket/wsServer.js');
+      pushSessionRevoked(String(user.uid), {
+        reason: 'account_deleted',
+        at: new Date(revokedAt * 1000).toISOString()
+      });
+    } catch (err) {
+      logger.warn('Account-deletion session:revoked push failed', {
+        uid: user.uid,
+        error: err?.message
+      });
+    }
     await revokeFirebaseRefreshTokens(tombstoneFirebaseUid);
 
     logger.info('Patient account deleted via self-service', {

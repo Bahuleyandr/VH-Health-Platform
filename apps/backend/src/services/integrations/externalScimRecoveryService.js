@@ -256,9 +256,10 @@ export async function persistLateScimRecovery({
   }
 
   let accessShutdown = null;
+  let revocationPublication = null;
   let executionDisposition = 'pending_review_no_mutation';
   if (REVOCATION_KINDS.has(payload.commandKind)) {
-    accessShutdown = await deactivateScimIdentityTx(tx, {
+    const deactivation = await deactivateScimIdentityTx(tx, {
       tenantId: tid,
       uid: payload.resourceUid,
       staffId: identity.staff_id,
@@ -266,6 +267,7 @@ export async function persistLateScimRecovery({
       breakGlass: identity.is_break_glass_account === true,
       reason: 'Late SCIM revocation under countersigned C-D15',
     });
+    ({ revocationPublication, ...accessShutdown } = deactivation);
     executionDisposition = accessShutdown.excluded_break_glass
       ? 'break_glass_excluded_pending_review'
       : 'revocation_executed_pending_review';
@@ -373,6 +375,7 @@ export async function persistLateScimRecovery({
         ? 'i13_break_glass_pending_identity_review'
         : 'i13_command_pending_identity_review',
     recoveryCursorAction: 'pause',
+    revocationPublication,
   });
 }
 

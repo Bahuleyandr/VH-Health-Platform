@@ -8,6 +8,7 @@ import { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { ALL_STAFF_ROLES, ROLES } from '../roleHelpers.js';
 import { sendPushNotification } from '../notifications/sendPushNotification.js';
+import { createCodeBlueNotificationReference } from '../notifications/codeBlueNotificationReference.js';
 import { broadcast, sendToUser } from './wsServer.js';
 
 /** Vital-sign anomaly detected (WARNING or CRITICAL). */
@@ -98,58 +99,99 @@ async function _fanOutCodeBlueFcm(payload, tenantId) {
   const rows = await setTenant(
     tenantId,
     tx => tx.$queryRawUnsafe(
-      `SELECT DISTINCT token
+      `SELECT DISTINCT ON (token)
+              token,
+              recipient_uid,
+              device_id,
+              registration_epoch,
+              session_epoch,
+              authorization_epoch,
+              expires_at
          FROM (
-           SELECT u.device_token AS token
-             FROM users u
-            WHERE u.tenant_id = $1::uuid
-              AND u.is_active = TRUE
-              AND u.role = ANY($2::text[])
-              AND u.device_token IS NOT NULL
-           UNION
-           SELECT ud.fcm_token AS token
+           SELECT ud.fcm_token AS token,
+                  u.uid::text AS recipient_uid,
+                  ud.device_id,
+                  ud.notification_epoch::text AS registration_epoch,
+                  uas.session_family_id AS session_epoch,
+                  u.token_epoch::text AS authorization_epoch,
+                  EXTRACT(EPOCH FROM LEAST(uas.expires_at, NOW() + INTERVAL '60 seconds'))::bigint::text AS expires_at,
+                  uas.issued_at,
+                  0 AS source_priority
              FROM user_devices ud
              JOIN users u
                ON u.tenant_id = ud.tenant_id
               AND u.uid = ud.user_uid
+             JOIN user_active_sessions uas
+               ON uas.tenant_id = u.tenant_id
+              AND uas.user_uid = u.uid
             WHERE ud.tenant_id = $1::uuid
               AND u.is_active = TRUE
               AND u.role = ANY($2::text[])
               AND ud.fcm_token IS NOT NULL
+              AND uas.expires_at > NOW()
+              AND uas.session_family_id IS NOT NULL
+              AND (u.token_epoch_bumped_at IS NULL OR uas.issued_at >= u.token_epoch_bumped_at)
+              AND (uas.stable_device_id IS NULL OR uas.stable_device_id::text = ud.device_id)
+           UNION ALL
+           SELECT u.device_token AS token,
+                  u.uid::text AS recipient_uid,
+                  'legacy'::text AS device_id,
+                  '0'::text AS registration_epoch,
+                  uas.session_family_id AS session_epoch,
+                  u.token_epoch::text AS authorization_epoch,
+                  EXTRACT(EPOCH FROM LEAST(uas.expires_at, NOW() + INTERVAL '60 seconds'))::bigint::text AS expires_at,
+                  uas.issued_at,
+                  1 AS source_priority
+             FROM users u
+             JOIN user_active_sessions uas
+               ON uas.tenant_id = u.tenant_id
+              AND uas.user_uid = u.uid
+            WHERE u.tenant_id = $1::uuid
+              AND u.is_active = TRUE
+              AND u.role = ANY($2::text[])
+              AND u.device_token IS NOT NULL
+              AND uas.expires_at > NOW()
+              AND uas.session_family_id IS NOT NULL
+              AND (u.token_epoch_bumped_at IS NULL OR uas.issued_at >= u.token_epoch_bumped_at)
          ) AS eligible_tokens
         WHERE BTRIM(token) <> ''
-        ORDER BY token`,
+        ORDER BY token, source_priority, issued_at DESC`,
       tenantId,
       CODE_BLUE_FCM_ROLES,
     ),
-    { readOnly: true },
   );
-  const tokens = rows.map((r) => r.token).filter(Boolean);
-  if (tokens.length === 0) return;
+  if (rows.length === 0) return;
 
-  const bodyParts = [];
-  if (payload.ward) bodyParts.push(`Ward ${payload.ward}`);
-  if (payload.bedNumber) bodyParts.push(`Bed ${payload.bedNumber}`);
-  const body = bodyParts.length > 0 ? bodyParts.join(' · ') : 'Respond immediately';
-
-  // Firebase caps multicast at 500 tokens per call — chunk if needed.
-  const CHUNK = 500;
-  for (let i = 0; i < tokens.length; i += CHUNK) {
-    const slice = tokens.slice(i, i + CHUNK);
+  for (const registration of rows) {
+    if (!registration.token) continue;
+    const codeBlueReference = createCodeBlueNotificationReference({
+      tenantId,
+      userUid: registration.recipient_uid,
+      deviceId: registration.device_id,
+      registrationEpoch: registration.registration_epoch,
+      sessionEpoch: registration.session_epoch,
+      authorizationEpoch: registration.authorization_epoch,
+      eventId: payload.eventId,
+      expiresAtUnix: Number(registration.expires_at),
+    });
     await sendPushNotification({
-      tokens: slice,
+      tokens: [registration.token],
       title: 'CODE BLUE',
-      body,
+      body: 'Respond immediately',
       priority: 'high',
       channelId: 'code_blue',
+      expiresAtUnix: Number(registration.expires_at),
       data: {
         type: 'code_blue',
-        patientId: payload.patientId,
-        bedNumber: payload.bedNumber || '',
-        ward: payload.ward || '',
-        reason: payload.reason || '',
-        eventId: payload.eventId == null ? '' : String(payload.eventId),
-        at: payload.at,
+        code_blue_reference: codeBlueReference,
+        notification_authority_version: '1',
+        notification_tenant_id: String(tenantId),
+        notification_recipient_uid: String(registration.recipient_uid),
+        notification_device_id: String(registration.device_id),
+        notification_registration_epoch: String(registration.registration_epoch),
+        notification_session_epoch: String(registration.session_epoch),
+        notification_authorization_epoch: String(registration.authorization_epoch),
+        notification_expires_at: String(registration.expires_at),
       },
     });
   }

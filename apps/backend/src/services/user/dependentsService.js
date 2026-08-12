@@ -17,6 +17,10 @@ import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import {
+  persistRevokeDelegatedTuple,
+  publishRevokeDelegatedTuple,
+} from '../../utils/tokenBlacklist.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const VALID_LINK_RELATIONSHIPS = new Set([
@@ -93,7 +97,7 @@ export class DependentsService {
    * Phase 1 (transaction):
    *   * UPDATE users SET guardian_user_id ... WHERE id ... AND (...)
    *   * audit_logs.create — must succeed
-   * No Phase 1.5 / Phase 2 — link is a single-row write with no downstream.
+   * Link is a single-row write with no downstream session invalidation.
    *
    * Idempotent: re-linking the same (dependent, guardian) pair returns the
    * existing link.
@@ -268,14 +272,16 @@ export class DependentsService {
     }
 
     // Phase 1 — atomic unlink + audit.
-    await setTenantTx(requireTenantId(tenantId), async (tx) => {
+    const tupleRevocation = await setTenantTx(requireTenantId(tenantId), async (tx) => {
       const result = await tx.$queryRawUnsafe(
-        `UPDATE users
+        `UPDATE users AS dependent
             SET guardian_user_id = NULL,
                 updated_at = NOW()
-          WHERE id = $1
-            AND guardian_user_id = $2
-          RETURNING id, uid`,
+           FROM users AS guardian
+          WHERE dependent.id = $1
+            AND dependent.guardian_user_id = $2
+            AND guardian.id = $2
+          RETURNING dependent.id, dependent.uid, guardian.uid AS guardian_uid`,
         depIdInt, guardianUserId,
       );
 
@@ -297,7 +303,33 @@ export class DependentsService {
           },
         },
       });
+
+      const revokedAt = await persistRevokeDelegatedTuple(
+        result[0].guardian_uid,
+        result[0].uid,
+        { client: tx, reason: 'dependent_unlinked' },
+      );
+      return {
+        guardianUid: result[0].guardian_uid,
+        dependentUid: result[0].uid,
+        revokedAt,
+      };
     });
+
+    try {
+      await publishRevokeDelegatedTuple(
+        tupleRevocation.guardianUid,
+        tupleRevocation.dependentUid,
+        tupleRevocation.revokedAt,
+        { reason: 'dependent_unlinked' },
+      );
+    } catch (err) {
+      logger.warn('Dependent unlink revocation publication failed', {
+        guardianUid: tupleRevocation.guardianUid,
+        dependentUid: tupleRevocation.dependentUid,
+        error: err.message,
+      });
+    }
 
     logger.info('Dependent unlinked', {
       guardianUserId, dependentId: depIdInt,

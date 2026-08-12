@@ -5,13 +5,19 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { AUTH_CONFIG } from '../../config/authConfig.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
-import prisma, { setTenant } from '../../lib/prisma.js';
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
-import { blacklistToken, getCurrentTokenEpoch, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  blacklistToken,
+  getCurrentTokenEpoch,
+  isTokenBlacklisted,
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 import { getUserSessionDeviceType } from './userActiveSession.js';
 
@@ -63,6 +69,14 @@ function installationId(value) {
     throw error;
   }
   return normalized;
+}
+
+function isActiveStaffIdentity(staff) {
+  return staff?.user_is_active === true
+    && String(staff.user_status || '').trim().toLowerCase() === 'active'
+    && staff.is_deleted === false
+    && staff.merged_into_uid == null
+    && staff.staff_is_active === true;
 }
 
 // ✅ FIX: All methods are now correctly inside the class block.
@@ -204,8 +218,10 @@ export class StaffAuthService {
       const result = await query(`
         SELECT
           u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
-          u.encrypted_password,
-          s.employee_id, s.department, s.position, s.is_active, s.shift_type
+          u.encrypted_password, u.is_active AS user_is_active,
+          u.status AS user_status, u.is_deleted, u.merged_into_uid,
+          s.employee_id, s.department, s.position,
+          s.is_active AS staff_is_active, s.shift_type
         FROM staff s
         JOIN users u ON s.user_id = u.uid
         WHERE s.employee_id = $1
@@ -225,7 +241,7 @@ export class StaffAuthService {
 
       const staff = result.rows[0];
 
-      if (!staff.is_active) {
+      if (!isActiveStaffIdentity(staff)) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
         logSecurityEvent('LOGIN_FAILED', {
           userId: String(staff.uid),
@@ -261,7 +277,11 @@ export class StaffAuthService {
         { platform: deviceType },
       );
 
-      const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: staff.uid,
         tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
@@ -269,7 +289,12 @@ export class StaffAuthService {
         stableDeviceId,
         req,
       });
-      const refreshToken = await this.generateRefreshToken(staff, stableDeviceId, tokenEpoch);
+      const refreshToken = await this.generateRefreshToken(
+        staff,
+        stableDeviceId,
+        tokenEpoch,
+        sessionFamilyId,
+      );
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_LOGIN', 'Staff login successful', req);
@@ -378,7 +403,7 @@ export class StaffAuthService {
     }
 
     const result = await query(`
-      SELECT id, uid, role, encrypted_password
+      SELECT id, uid, role, encrypted_password, tenant_id
       FROM users
       WHERE uid = $1::uuid
       LIMIT 1
@@ -399,11 +424,21 @@ export class StaffAuthService {
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    await query(`
-      UPDATE users
-      SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
-      WHERE uid = $1::uuid
-    `, [staffUid, newHash]);
+    const tenantId = String(staff.tenant_id);
+    const revokedAt = await setTenantTx(tenantId, async (tx) => {
+      await query(`
+        UPDATE users
+        SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
+        WHERE uid = $1::uuid
+      `, [staffUid, newHash], tx);
+      return persistRevokeAllUserTokens(String(staffUid), {
+        client: tx,
+        requireEvidence: true,
+        reason: 'password_changed',
+        notificationTenantId: tenantId,
+      });
+    });
+    await publishRevokeAllUserTokens(String(staffUid), revokedAt, { reason: 'password_changed' });
 
     await this.logActivity(staffUid, 'STAFF_PASSWORD_CHANGED', 'Staff changed own password', req, {
       deviceType: req?.user?.deviceType || null,
@@ -478,7 +513,13 @@ export class StaffAuthService {
         }),
       ]);
 
-      const sessionToken = await this.generateRefreshToken(staff, stableDeviceId);
+      const accessClaims = verifyToken(authResult.accessToken);
+      const sessionToken = await this.generateRefreshToken(
+        staff,
+        stableDeviceId,
+        accessClaims?.token_epoch,
+        accessClaims?.sessionFamilyId,
+      );
       await this.createSession(userId, deviceId, sessionToken, req);
 
       await this.logActivity(staff.uid, 'DEVICE_REGISTERED',
@@ -510,7 +551,9 @@ export class StaffAuthService {
         SELECT 
           d.id as internal_device_id, d.staff_id, d.device_id, d.pin_hash, d.biometric_enabled,
           u.uid, u.tenant_id, u.name, u.email, u.phone, u.role, u.encrypted_password,
-          s.employee_id, s.department, s.position, s.is_active
+          u.is_active AS user_is_active, u.status AS user_status,
+          u.is_deleted, u.merged_into_uid,
+          s.employee_id, s.department, s.position, s.is_active AS staff_is_active
         FROM staff_devices d
         JOIN users u ON d.staff_id = u.id
         JOIN staff s ON u.uid = s.user_id
@@ -528,16 +571,15 @@ export class StaffAuthService {
       }
 
       const deviceAndStaff = deviceResult.rows[0];
+      if (!isActiveStaffIdentity(deviceAndStaff)) {
+        throw new Error('Account deactivated');
+      }
       await this.bindStaffInstallation(deviceAndStaff, stableDeviceId, {
         platform: deviceType,
       });
 
       // Check lockout across all auth methods for this employee
       await this._checkStaffLockout(deviceAndStaff.employee_id, req, '/api/v1/auth/staff/quick-login');
-
-      if (!deviceAndStaff.is_active) {
-        throw new Error('Account deactivated');
-      }
 
       let authMethod = '';
       if (pin) {
@@ -566,7 +608,11 @@ export class StaffAuthService {
 
       await this.logAuthAttempt(deviceAndStaff.employee_id, 'QUICK_LOGIN', true, null, authMethod, req);
 
-      const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: deviceAndStaff.uid,
         tokenPayload: {
           id: deviceAndStaff.staff_id,
@@ -578,7 +624,12 @@ export class StaffAuthService {
         stableDeviceId,
         req,
       });
-      const refreshToken = await this.generateRefreshToken(deviceAndStaff, stableDeviceId, tokenEpoch);
+      const refreshToken = await this.generateRefreshToken(
+        deviceAndStaff,
+        stableDeviceId,
+        tokenEpoch,
+        sessionFamilyId,
+      );
 
       await this.createSession(deviceAndStaff.staff_id, deviceAndStaff.device_id, refreshToken, req);
       await query('UPDATE staff_devices SET last_used = NOW() WHERE id = $1', [deviceAndStaff.internal_device_id]);
@@ -613,8 +664,32 @@ export class StaffAuthService {
     try {
       // ✅ FIX: Uses the new helper method to reduce duplication.
       const internalDeviceId = await this._verifyDeviceOwnership(staffUid, deviceToken);
+      const identity = await query('SELECT tenant_id FROM users WHERE uid = $1::uuid', [staffUid]);
+      if (identity.rows.length === 0) throw new Error('Staff not found');
+      const tenantId = String(identity.rows[0].tenant_id);
       const pinHash = await bcrypt.hash(pin, 10);
-      await query('UPDATE staff_devices SET pin_hash = $1 WHERE id = $2', [pinHash, internalDeviceId]);
+      const revokedAt = await setTenantTx(tenantId, async (tx) => {
+        const previous = await query(
+          'SELECT pin_hash FROM staff_devices WHERE id = $1 FOR UPDATE',
+          [internalDeviceId],
+          tx,
+        );
+        await query(
+          'UPDATE staff_devices SET pin_hash = $1 WHERE id = $2',
+          [pinHash, internalDeviceId],
+          tx,
+        );
+        if (!previous.rows[0]?.pin_hash) return null;
+        return persistRevokeAllUserTokens(staffUid, {
+          client: tx,
+          requireEvidence: true,
+          reason: 'pin_changed',
+          notificationTenantId: tenantId,
+        });
+      });
+      if (revokedAt !== null) {
+        await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'pin_changed' });
+      }
       return { success: true, message: 'PIN setup successfully' };
     } catch (error) {
       logger.error('PIN setup error:', error);
@@ -713,6 +788,7 @@ export class StaffAuthService {
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
         deviceType,
         stableDeviceId,
+        sessionFamilyId: decoded.sessionFamilyId || decoded.jti,
         req,
         pushRevoked: false,
         tokenEpoch: currentEpoch,
@@ -768,7 +844,9 @@ export class StaffAuthService {
       const result = await query(`
         SELECT
           u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
-          s.employee_id, s.department, s.position, s.is_active,
+          u.is_active AS user_is_active, u.status AS user_status,
+          u.is_deleted, u.merged_into_uid,
+          s.employee_id, s.department, s.position, s.is_active AS staff_is_active,
           s.pin_hash -- Assumes a PIN hash is stored on the staff table
         FROM staff s
         JOIN users u ON s.user_id = u.uid
@@ -789,7 +867,7 @@ export class StaffAuthService {
 
       const staff = result.rows[0];
 
-      if (!staff.is_active) {
+      if (!isActiveStaffIdentity(staff)) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req, deviceToken);
         logSecurityEvent('LOGIN_FAILED', {
           userId: String(staff.uid),
@@ -858,7 +936,11 @@ export class StaffAuthService {
         platform: deviceType,
       });
 
-      const { accessToken, tokenEpoch } = await issueAccessTokenAndClaimSession({
+      const {
+        accessToken,
+        tokenEpoch,
+        sessionFamilyId,
+      } = await issueAccessTokenAndClaimSession({
         userUid: staff.uid,
         tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
         expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
@@ -866,7 +948,12 @@ export class StaffAuthService {
         stableDeviceId,
         req,
       });
-      const refreshToken = await this.generateRefreshToken(staff, stableDeviceId, tokenEpoch);
+      const refreshToken = await this.generateRefreshToken(
+        staff,
+        stableDeviceId,
+        tokenEpoch,
+        sessionFamilyId,
+      );
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
       await this.logActivity(staff.uid, 'STAFF_PIN_LOGIN', 'Staff login with PIN successful', req);
@@ -913,14 +1000,21 @@ export class StaffAuthService {
     staffUid,
     deviceToken,
     req,
-    { accessTokenJti = null, accessTokenExpiresAt = null } = {},
+    {
+      accessTokenJti = null,
+      accessTokenExpiresAt = null,
+      sessionFamilyId = null,
+      stableDeviceId = null,
+    } = {},
   ) {
     let revocationError = null;
     let allDevices = false;
     try {
-      const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
+      const userResult = await query('SELECT id, tenant_id FROM users WHERE uid = $1', [staffUid]);
       if (userResult.rows.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
+      const tenantId = String(userResult.rows[0].tenant_id);
+      let allDevicesRevokedAt = null;
 
       if (deviceToken) {
         const deviceResult = await query('SELECT device_id FROM staff_devices WHERE device_token = $1 AND staff_id = $2', [deviceToken, userId]);
@@ -929,18 +1023,35 @@ export class StaffAuthService {
         }
       } else {
         allDevices = true;
-        await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [userId]);
       }
 
-      // Deleting the session rows above is unconditionally useful, so it stays
-      // done even if a blacklist write fails — the failure is reported, not
-      // rolled back, leaving the strongest partial result we can achieve.
+      // All-device logout commits session deletion, notification-authority
+      // revocation, and the token-epoch bump as one tenant transaction.
       try {
-        if (accessTokenJti && accessTokenExpiresAt) {
-          await blacklistToken(accessTokenJti, accessTokenExpiresAt, 'logout', { requireEvidence: true });
+        if (allDevices) {
+          allDevicesRevokedAt = await setTenantTx(tenantId, async (tx) => {
+            await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [userId], tx);
+            await query('DELETE FROM user_active_sessions WHERE user_uid = $1::uuid', [staffUid], tx);
+            return persistRevokeAllUserTokens(String(staffUid), {
+              client: tx,
+              requireEvidence: true,
+              reason: 'logout',
+              notificationTenantId: tenantId,
+            });
+          });
+        }
+        if (!allDevices && accessTokenJti && accessTokenExpiresAt) {
+          await blacklistToken(accessTokenJti, accessTokenExpiresAt, 'logout', {
+            requireEvidence: true,
+            userId: String(staffUid),
+            ...(sessionFamilyId ? { sessionFamilyId } : {}),
+            ...(stableDeviceId ? { stableDeviceId } : {}),
+          });
         }
         if (allDevices) {
-          await revokeAllUserTokens(String(staffUid), { requireEvidence: true, reason: 'logout' });
+          await publishRevokeAllUserTokens(String(staffUid), allDevicesRevokedAt, {
+            reason: 'logout',
+          });
         }
       } catch (err) {
         revocationError = err;
@@ -957,7 +1068,9 @@ export class StaffAuthService {
 
     if (revocationError) {
       throw new AppError(
-        'Signed out on this device, but the session token could not be revoked. Please try again.',
+        allDevices
+          ? 'Sign-out authority could not be revoked. Please try again.'
+          : 'Signed out on this device, but the session token could not be revoked. Please try again.',
         503,
         'REVOCATION_STORE_UNAVAILABLE',
       );
@@ -1009,7 +1122,7 @@ export class StaffAuthService {
   static async adminForceLogout(staffId, reason, adminUid, req) {
     try {
       const identity = await query(
-        `SELECT u.id, u.uid
+        `SELECT u.id, u.uid, u.tenant_id
            FROM staff s
            JOIN users u ON u.uid = s.user_id
           WHERE s.id = $1
@@ -1017,11 +1130,19 @@ export class StaffAuthService {
         [staffId]
       );
       if (identity.rows.length === 0) throw new Error('Staff not found');
-      await revokeAllUserTokens(String(identity.rows[0].uid), {
-        requireEvidence: true,
-        reason: 'admin_force_logout',
+      const staffUid = String(identity.rows[0].uid);
+      const tenantId = String(identity.rows[0].tenant_id);
+      const revokedAt = await setTenantTx(tenantId, async (tx) => {
+        await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [identity.rows[0].id], tx);
+        await query('DELETE FROM user_active_sessions WHERE user_uid = $1::uuid', [staffUid], tx);
+        return persistRevokeAllUserTokens(staffUid, {
+          client: tx,
+          requireEvidence: true,
+          reason: 'admin_force_logout',
+          notificationTenantId: tenantId,
+        });
       });
-      await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1', [identity.rows[0].id]);
+      await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'admin_force_logout' });
       // ✅ FIX: Uses the logActivity helper for consistency.
       await this.logActivity(adminUid, 'ADMIN_FORCE_LOGOUT', `Force logout staff ${staffId}: ${reason}`, req, { affectedStaffId: staffId, reason });
       return { success: true, message: 'Staff member logged out from all devices' };
@@ -1033,10 +1154,34 @@ export class StaffAuthService {
 
   static async adminResetPin(staffId, adminUid, req) {
     try {
-      const result = await query(
-        'UPDATE staff_devices SET pin_hash = NULL WHERE staff_id = $1 AND is_active = true RETURNING id',
-        [staffId]
+      const identity = await query(
+        'SELECT uid, tenant_id FROM users WHERE id = $1 LIMIT 1',
+        [staffId],
       );
+      if (identity.rows.length === 0) throw new Error('Staff not found');
+      const tenantId = String(identity.rows[0].tenant_id);
+      const { result, staffUid, revokedAt } = await setTenantTx(tenantId, async (tx) => {
+        const identity = await query(
+          'SELECT uid FROM users WHERE id = $1 LIMIT 1 FOR UPDATE',
+          [staffId],
+          tx,
+        );
+        if (identity.rows.length === 0) throw new Error('Staff not found');
+        const resetResult = await query(
+          'UPDATE staff_devices SET pin_hash = NULL WHERE staff_id = $1 AND is_active = true RETURNING id',
+          [staffId],
+          tx,
+        );
+        const uid = String(identity.rows[0].uid);
+        const durableRevokedAt = await persistRevokeAllUserTokens(uid, {
+          client: tx,
+          requireEvidence: true,
+          reason: 'pin_reset',
+          notificationTenantId: tenantId,
+        });
+        return { result: resetResult, staffUid: uid, revokedAt: durableRevokedAt };
+      });
+      await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'pin_reset' });
       // ✅ FIX: Uses the logActivity helper for consistency.
       await this.logActivity(adminUid, 'ADMIN_RESET_PIN', `Reset PIN for staff ${staffId}`, req, { affectedStaffId: staffId, devicesAffected: result.rowCount });
       return { success: true, message: 'PIN reset successfully', devicesAffected: result.rowCount };
@@ -1080,7 +1225,7 @@ export class StaffAuthService {
     return generateToken({ id: staff.id, uid: staff.uid, role: staff.role }, SECURITY_CONFIG.jwt.staffAccessExpiry);
   }
 
-  static async generateRefreshToken(staff, stableDeviceId, tokenEpoch) {
+  static async generateRefreshToken(staff, stableDeviceId, tokenEpoch, sessionFamilyId) {
     // Refresh tokens get a longer expiry (30 days).
     // R1: stamped with the identity's current token_epoch at mint time —
     // refreshStaffSession refuses refresh tokens from an older epoch, so a
@@ -1094,6 +1239,7 @@ export class StaffAuthService {
       type: 'refresh',
       token_epoch: epoch,
       ...(stableDeviceId ? { stableDeviceId } : {}),
+      ...(sessionFamilyId ? { sessionFamilyId } : {}),
     }, '30d');
   }
 
@@ -1142,20 +1288,30 @@ export class StaffAuthService {
    */
   static async revokeAllSessions(staffId) {
     const identity = await query(
-      'SELECT uid FROM users WHERE id = $1 LIMIT 1',
+      'SELECT uid, tenant_id FROM users WHERE id = $1 LIMIT 1',
       [staffId]
     );
     if (identity.rows.length === 0) throw new Error('Staff not found');
-    await revokeAllUserTokens(String(identity.rows[0].uid), {
-      requireEvidence: true,
-      reason: 'admin_force_logout',
+    const staffUid = String(identity.rows[0].uid);
+    const tenantId = String(identity.rows[0].tenant_id);
+    const { revokedAt, revokedCount } = await setTenantTx(tenantId, async (tx) => {
+      const result = await query(
+        'DELETE FROM staff_auth_sessions WHERE staff_id = $1',
+        [staffId],
+        tx,
+      );
+      await query('DELETE FROM user_active_sessions WHERE user_uid = $1::uuid', [staffUid], tx);
+      const durableRevokedAt = await persistRevokeAllUserTokens(staffUid, {
+        client: tx,
+        requireEvidence: true,
+        reason: 'admin_force_logout',
+        notificationTenantId: tenantId,
+      });
+      return { revokedAt: durableRevokedAt, revokedCount: result.rowCount };
     });
-    const result = await query(
-      'DELETE FROM staff_auth_sessions WHERE staff_id = $1',
-      [staffId]
-    );
-    logger.info(`Revoked all sessions for staff ${staffId} (${result.rowCount} sessions deleted)`);
-    return { revokedCount: result.rowCount };
+    await publishRevokeAllUserTokens(staffUid, revokedAt, { reason: 'admin_force_logout' });
+    logger.info(`Revoked all sessions for staff ${staffId} (${revokedCount} sessions deleted)`);
+    return { revokedCount };
   }
 
   static async logAuthAttempt(phone, action, success, failureReason, authMethod, req, deviceInfo = null) {

@@ -1922,8 +1922,6 @@ warning	operation-description	["paths","/api/v1/devices/register","post"]	Operat
 warning	operation-description	["paths","/api/v1/devices/registry","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/devices/stats","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/devices/test","get"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/devices/unregister","delete"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/devices/unregister","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/devices/update-token","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/devices/vitals/ingest","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/devices/vitals/recovery/resume-state","get"]	Operation "description" must be present and non-empty string.

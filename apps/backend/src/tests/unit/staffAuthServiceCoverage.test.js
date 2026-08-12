@@ -24,9 +24,10 @@ const mockPrisma = {
   $executeRawUnsafe: jest.fn(),
   $transaction: jest.fn(),
 };
+const mockSetTenantTx = jest.fn(async (_tenantId, fn) => fn(mockPrisma));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
-  setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
+  setTenantTx: mockSetTenantTx,
   setTenant: async (_tenantId, fn) => fn(mockPrisma),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
   pickTenantClient: () => mockPrisma,
@@ -52,12 +53,16 @@ jest.unstable_mockModule('bcrypt', () => ({
 const mockIsTokenBlacklisted = jest.fn();
 const mockBlacklistToken = jest.fn();
 const mockRevokeAllUserTokens = jest.fn();
+const mockPersistRevokeAllUserTokens = jest.fn().mockResolvedValue(1_700_000_000);
+const mockPublishRevokeAllUserTokens = jest.fn().mockResolvedValue({ database: { persisted: true } });
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   isTokenBlacklisted: mockIsTokenBlacklisted,
   // staffAuthService.logoutStaff revokes the presented access token's jti, and
   // the all-device branch additionally revokes every token for the identity.
   blacklistToken: mockBlacklistToken,
+  persistRevokeAllUserTokens: mockPersistRevokeAllUserTokens,
+  publishRevokeAllUserTokens: mockPublishRevokeAllUserTokens,
   revokeAllUserTokens: mockRevokeAllUserTokens,
 }));
 
@@ -86,6 +91,7 @@ const { StaffAuthService } = await import('../../services/auth/staffAuthService.
 
 const REQ = { ip: '10.0.0.9', headers: { 'user-agent': 'jest-agent' } };
 const INSTALLATION_ID = '33333333-3333-4333-8333-333333333333';
+const STAFF_TENANT_ID = '22222222-2222-4222-8222-222222222222';
 
 // A fully-populated staff row as returned by the password / PIN login SELECTs.
 const STAFF_ROW = {
@@ -101,6 +107,11 @@ const STAFF_ROW = {
   department: 'Cardiology',
   position: 'Consultant',
   is_active: true,
+  user_is_active: true,
+  user_status: 'active',
+  is_deleted: false,
+  merged_into_uid: null,
+  staff_is_active: true,
   shift_type: 'DAY',
   pin_hash: '$2b$10$hashedpin',
 };
@@ -140,6 +151,8 @@ beforeEach(() => {
   mockIssueAccess.mockResolvedValue({ accessToken: 'fresh-access-token' });
   mockGenerateToken.mockReturnValue('mock-refresh-token');
   mockGetDeviceType.mockResolvedValue('mobile');
+  mockSetTenantTx.mockReset();
+  mockSetTenantTx.mockImplementation(async (_tenantId, fn) => fn(mockPrisma));
   configurePrisma();
 });
 
@@ -250,7 +263,7 @@ describe('authenticateStaff', () => {
 
   it('rejects a deactivated account', async () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
-    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, is_active: false }]);
+    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, staff_is_active: false }]);
     await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {
       installationId: INSTALLATION_ID,
     }))
@@ -258,6 +271,21 @@ describe('authenticateStaff', () => {
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Account deactivated',
     }));
+  });
+
+  it('rejects an RBAC-locked canonical user before password token issuance', async () => {
+    read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '0' }]);
+    read(/FROM staff s\s+JOIN users u/, [{
+      ...STAFF_ROW,
+      user_is_active: false,
+      user_status: 'inactive',
+    }]);
+
+    await expect(StaffAuthService.authenticateStaff('EMP1', 'pw', REQ, {
+      installationId: INSTALLATION_ID,
+    })).rejects.toThrow('Account deactivated');
+
+    expect(mockIssueAccess).not.toHaveBeenCalled();
   });
 
   it('rejects a bad password', async () => {
@@ -334,19 +362,59 @@ describe('changeOwnPassword', () => {
   });
 
   it('rejects an incorrect current password (401)', async () => {
-    read(/SELECT id, uid, role, encrypted_password/, [{ id: 42, uid: 'uid', encrypted_password: 'h' }]);
+    read(/SELECT id, uid, role, encrypted_password/, [{
+      id: 42, uid: 'uid', encrypted_password: 'h', tenant_id: STAFF_TENANT_ID,
+    }]);
     mockBcryptCompare.mockResolvedValue(false);
     await expect(StaffAuthService.changeOwnPassword('uid', 'old', 'new', REQ))
       .rejects.toMatchObject({ statusCode: 401 });
   });
 
   it('hashes + persists the new password on success', async () => {
-    read(/SELECT id, uid, role, encrypted_password/, [{ id: 42, uid: 'uid', encrypted_password: 'h' }]);
+    read(/SELECT id, uid, role, encrypted_password/, [{
+      id: 42, uid: 'uid', encrypted_password: 'h', tenant_id: STAFF_TENANT_ID,
+    }]);
     mockBcryptCompare.mockResolvedValue(true);
     const req = { ...REQ, user: { deviceType: 'web' } };
     const out = await StaffAuthService.changeOwnPassword('uid', 'old', 'newpw', req);
     expect(out).toEqual({ success: true });
     expect(mockBcryptHash).toHaveBeenCalledWith('newpw', 10);
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'password_changed',
+      notificationTenantId: STAFF_TENANT_ID,
+    });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'uid', 1_700_000_000, { reason: 'password_changed' },
+    );
+  });
+
+  it('does not report password-change success when durable revocation fails', async () => {
+    read(/SELECT id, uid, role, encrypted_password/, [{
+      id: 42,
+      uid: 'uid',
+      encrypted_password: 'h',
+      tenant_id: STAFF_TENANT_ID,
+    }]);
+    mockBcryptCompare.mockResolvedValue(true);
+    let passwordCommitted = false;
+    mockSetTenantTx.mockImplementationOnce(async (_tenantId, callback) => {
+      let stagedPassword = false;
+      const tx = {
+        ...mockPrisma,
+        $executeRawUnsafe: jest.fn(async () => { stagedPassword = true; return 1; }),
+      };
+      const result = await callback(tx);
+      passwordCommitted = stagedPassword;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(StaffAuthService.changeOwnPassword('uid', 'old', 'newpw', REQ))
+      .rejects.toThrow('durable store unavailable');
+    expect(passwordCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 });
 
@@ -438,6 +506,11 @@ describe('quickLogin', () => {
     department: 'Cardiology',
     position: 'Consultant',
     is_active: true,
+    user_is_active: true,
+    user_status: 'active',
+    is_deleted: false,
+    merged_into_uid: null,
+    staff_is_active: true,
   };
 
   function deviceFound(overrides = {}) {
@@ -459,7 +532,7 @@ describe('quickLogin', () => {
   });
 
   it('rejects a deactivated account', async () => {
-    deviceFound({ is_active: false });
+    deviceFound({ staff_is_active: false });
     await expect(StaffAuthService.quickLogin(
       'tok',
       '1234',
@@ -469,6 +542,21 @@ describe('quickLogin', () => {
       { installationId: INSTALLATION_ID },
     ))
       .rejects.toThrow('Account deactivated');
+  });
+
+  it('rejects an RBAC-locked canonical user before quick-login token issuance', async () => {
+    deviceFound({ user_is_active: false, user_status: 'inactive' });
+
+    await expect(StaffAuthService.quickLogin(
+      'tok',
+      '1234',
+      false,
+      null,
+      REQ,
+      { installationId: INSTALLATION_ID },
+    )).rejects.toThrow('Account deactivated');
+
+    expect(mockIssueAccess).not.toHaveBeenCalled();
   });
 
   it('logs in with a valid PIN', async () => {
@@ -588,12 +676,28 @@ describe('authenticateStaffWithPin', () => {
 
   it('rejects a deactivated account', async () => {
     pinLockoutOk();
-    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, is_active: false }]);
+    read(/FROM staff s\s+JOIN users u/, [{ ...STAFF_ROW, staff_is_active: false }]);
     await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
       deviceToken: 'dt',
       installationId: INSTALLATION_ID,
     }))
       .rejects.toThrow('Account deactivated');
+  });
+
+  it('rejects an RBAC-locked canonical user before PIN token issuance', async () => {
+    pinLockoutOk();
+    read(/FROM staff s\s+JOIN users u/, [{
+      ...STAFF_ROW,
+      user_is_active: false,
+      user_status: 'inactive',
+    }]);
+
+    await expect(StaffAuthService.authenticateStaffWithPin('EMP1', '1234', REQ, {
+      deviceToken: 'dt',
+      installationId: INSTALLATION_ID,
+    })).rejects.toThrow('Account deactivated');
+
+    expect(mockIssueAccess).not.toHaveBeenCalled();
   });
 
   it('rejects when the device is not registered to this staff (403)', async () => {
@@ -661,10 +765,54 @@ describe('authenticateStaffWithPin', () => {
 describe('setupPin', () => {
   it('hashes the PIN and updates the device', async () => {
     read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT tenant_id FROM users WHERE uid/, [{ tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
     const out = await StaffAuthService.setupPin('uid', 'tok', '1234');
     expect(out).toEqual({ success: true, message: 'PIN setup successfully' });
     expect(mockBcryptHash).toHaveBeenCalledWith('1234', 10);
+  });
+
+  it('revokes existing sessions when an enrolled PIN is replaced', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT tenant_id FROM users WHERE uid/, [{ tenant_id: STAFF_TENANT_ID }]);
+    read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
+    read(/SELECT pin_hash FROM staff_devices/, [{ pin_hash: 'old-pin-hash' }]);
+
+    await StaffAuthService.setupPin('uid', 'tok', '5678');
+
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'pin_changed',
+      notificationTenantId: STAFF_TENANT_ID,
+    });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'uid', 1_700_000_000, { reason: 'pin_changed' },
+    );
+  });
+
+  it('rolls back a PIN replacement when durable revocation fails', async () => {
+    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT tenant_id FROM users WHERE uid/, [{ tenant_id: STAFF_TENANT_ID }]);
+    read(/SELECT id FROM staff_devices WHERE device_token/, [{ id: 7 }]);
+    read(/SELECT pin_hash FROM staff_devices/, [{ pin_hash: 'old-pin-hash' }]);
+    let pinCommitted = false;
+    mockSetTenantTx.mockImplementationOnce(async (_tenantId, callback) => {
+      let stagedPin = false;
+      const tx = {
+        ...mockPrisma,
+        $executeRawUnsafe: jest.fn(async () => { stagedPin = true; return 1; }),
+      };
+      const result = await callback(tx);
+      pinCommitted = stagedPin;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(StaffAuthService.setupPin('uid', 'tok', '5678'))
+      .rejects.toThrow('durable store unavailable');
+    expect(pinCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('throws (catch path) when the user is not found', async () => {
@@ -821,7 +969,7 @@ describe('logoutStaff', () => {
   });
 
   it('deletes the device-scoped session when a deviceToken resolves a device', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
     const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ);
     expect(out).toEqual({
@@ -837,14 +985,14 @@ describe('logoutStaff', () => {
   });
 
   it('still succeeds when the deviceToken matches no device', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT device_id FROM staff_devices/, []);
     const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ);
     expect(out.success).toBe(true);
   });
 
   it('deletes all sessions when no deviceToken is given', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     const out = await StaffAuthService.logoutStaff('uid', null, REQ);
     expect(out.success).toBe(true);
   });
@@ -854,40 +1002,45 @@ describe('logoutStaff', () => {
   // for the rest of its own exp unless its jti is blacklisted — which logout
   // never did, while reporting success.
   it('revokes the presented access token jti with a real expiry', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
 
     const out = await StaffAuthService.logoutStaff('uid', null, REQ, {
       accessTokenJti: 'jti-123',
       accessTokenExpiresAt: expiresAt,
+      sessionFamilyId: 'session-family-1',
+      stableDeviceId: INSTALLATION_ID,
     });
 
     expect(out).toMatchObject({ success: true, accessTokenRevoked: true });
-    expect(mockBlacklistToken).toHaveBeenCalledWith(
-      'jti-123',
-      expiresAt,
-      'logout',
-      { requireEvidence: true },
-    );
+    expect(mockBlacklistToken).not.toHaveBeenCalled();
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'logout',
+      notificationTenantId: STAFF_TENANT_ID,
+    });
   });
 
   // No deviceToken means every staff_auth_sessions row is deleted, so the
   // sibling devices' access tokens must die too — otherwise an "all devices"
   // logout leaves them usable until they expire on their own.
   it('revokes every token for the identity on an all-device logout', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
 
     const out = await StaffAuthService.logoutStaff('uid', null, REQ);
 
     expect(out).toMatchObject({ allDevices: true, accessTokenRevoked: true });
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('uid', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'logout',
+      notificationTenantId: STAFF_TENANT_ID,
     });
   });
 
   it('leaves other devices alone on a device-scoped logout', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
 
     const out = await StaffAuthService.logoutStaff('uid', 'tok', REQ, {
@@ -900,8 +1053,8 @@ describe('logoutStaff', () => {
   });
 
   it('fails loudly when the all-device revocation is not persisted', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
-    mockRevokeAllUserTokens.mockRejectedValueOnce(new Error('no store accepted it'));
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('no store accepted it'));
 
     await expect(
       StaffAuthService.logoutStaff('uid', null, REQ),
@@ -909,11 +1062,12 @@ describe('logoutStaff', () => {
   });
 
   it('fails loudly with 503 when the revocation store refuses the write', async () => {
-    read(/SELECT id FROM users WHERE uid/, [{ id: 42 }]);
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
+    read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
     mockBlacklistToken.mockRejectedValueOnce(new Error('no store accepted the entry'));
 
     await expect(
-      StaffAuthService.logoutStaff('uid', null, REQ, {
+      StaffAuthService.logoutStaff('uid', 'device-token', REQ, {
         accessTokenJti: 'jti-123',
         accessTokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
       }),
@@ -944,23 +1098,66 @@ describe('listStaffDevices', () => {
 // =====================================================================
 describe('admin methods', () => {
   it('adminForceLogout deletes sessions and logs activity', async () => {
-    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID }]);
     const out = await StaffAuthService.adminForceLogout(42, 'compromised', 'admin-uid', REQ);
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'admin_force_logout',
+      notificationTenantId: STAFF_TENANT_ID,
     });
     expect(out).toEqual({ success: true, message: 'Staff member logged out from all devices' });
   });
 
   it('adminResetPin nulls device PINs and reports affected count', async () => {
+    read(/SELECT uid, tenant_id FROM users WHERE id/, [{
+      uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID,
+    }]);
+    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
     read(/UPDATE staff_devices SET pin_hash = NULL[\s\S]*RETURNING/, [{ id: 1 }, { id: 2 }]);
     const out = await StaffAuthService.adminResetPin(42, 'admin-uid', REQ);
     expect(out).toMatchObject({ success: true, devicesAffected: 2 });
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      client: mockPrisma,
+      requireEvidence: true,
+      reason: 'pin_reset',
+      notificationTenantId: STAFF_TENANT_ID,
+    });
+    expect(mockPublishRevokeAllUserTokens).toHaveBeenCalledWith(
+      'staff-uuid-1', 1_700_000_000, { reason: 'pin_reset' },
+    );
+  });
+
+  it('rolls back an admin PIN reset when durable revocation fails', async () => {
+    read(/SELECT uid, tenant_id FROM users WHERE id/, [{
+      uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID,
+    }]);
+    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
+    read(/UPDATE staff_devices SET pin_hash = NULL[\s\S]*RETURNING/, [{ id: 1 }]);
+    let pinResetCommitted = false;
+    mockSetTenantTx.mockImplementationOnce(async (_tenantId, callback) => {
+      let stagedReset = false;
+      const tx = {
+        ...mockPrisma,
+        $queryRawUnsafe: jest.fn(async (sql, ...params) => {
+          if (/UPDATE staff_devices SET pin_hash = NULL/.test(sql)) stagedReset = true;
+          return mockPrisma.$queryRawUnsafe(sql, ...params);
+        }),
+      };
+      const result = await callback(tx);
+      pinResetCommitted = stagedReset;
+      return result;
+    });
+    mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('durable store unavailable'));
+
+    await expect(StaffAuthService.adminResetPin(42, 'admin-uid', REQ))
+      .rejects.toThrow('durable store unavailable');
+    expect(pinResetCommitted).toBe(false);
+    expect(mockPublishRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
   it('adminForceLogout surfaces DB errors (catch path)', async () => {
-    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1' }]);
+    read(/WHERE s\.id = \$1/, [{ id: 42, uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID }]);
     mockPrisma.$executeRawUnsafe.mockRejectedValueOnce(new Error('db down'));
     await expect(StaffAuthService.adminForceLogout(42, 'r', 'admin-uid', REQ)).rejects.toThrow('db down');
   });
@@ -985,9 +1182,20 @@ describe('token generators', () => {
   });
 
   it('generateRefreshToken stamps type:refresh + 30d + the mint-time token_epoch (R1)', async () => {
-    await StaffAuthService.generateRefreshToken({ id: 42, uid: 'u', role: 'DOCTOR' });
+    await StaffAuthService.generateRefreshToken(
+      { id: 42, uid: 'u', role: 'DOCTOR' },
+      INSTALLATION_ID,
+      0,
+      'staff-session-family',
+    );
     expect(mockGenerateToken).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'refresh', token_epoch: 0 }), '30d'
+      expect.objectContaining({
+        type: 'refresh',
+        token_epoch: 0,
+        stableDeviceId: INSTALLATION_ID,
+        sessionFamilyId: 'staff-session-family',
+      }),
+      '30d'
     );
   });
 
@@ -1025,12 +1233,14 @@ describe('createSession', () => {
 // =====================================================================
 describe('revokeAllSessions', () => {
   it('durably revokes the identity before deleting all staff sessions', async () => {
-    read(/SELECT uid FROM users WHERE id/, [{ uid: 'staff-uuid-1' }]);
+    read(/SELECT uid, tenant_id FROM users WHERE id/, [{ uid: 'staff-uuid-1', tenant_id: STAFF_TENANT_ID }]);
     mockPrisma.$executeRawUnsafe.mockResolvedValueOnce(3);
     const out = await StaffAuthService.revokeAllSessions(42);
-    expect(mockRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+    expect(mockPersistRevokeAllUserTokens).toHaveBeenCalledWith('staff-uuid-1', {
+      client: mockPrisma,
       requireEvidence: true,
       reason: 'admin_force_logout',
+      notificationTenantId: STAFF_TENANT_ID,
     });
     expect(out).toEqual({ revokedCount: 3 });
   });

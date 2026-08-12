@@ -2292,6 +2292,7 @@
   "dashboardHealthConnectNoSamples": "సింక్ చేయడానికి కొత్త నమూనాలు లేవు",
   "dashboardHealthConnectOpenFailed": "Health Connect తెరవలేకపోయాం",
   "dashboardExploreSection": "అన్వేషించండి",
+  "dashboardCareToolsSection": "సంరక్షణ సాధనాలు",
   "dashboardTodaySection": "ఈరోజు",
   "profileSwitcherSelfName": "మీరు",
   "profileSwitcherTitle": "ప్రొఫైళ్లు",

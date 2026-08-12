@@ -1,10 +1,236 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:vhhealth_staff/core/providers/theme_provider.dart';
 import 'package:vhhealth_staff/features/appointments/models/staff_appointment.dart';
 import 'package:vhhealth_staff/features/appointments/screens/appointments_screen.dart';
 
 void main() {
+  Future<void> pumpAppointments(
+    WidgetTester tester, {
+    required AppointmentsLoader loadAppointments,
+  }) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1200, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => AppointmentsScreen(
+            initialDate: DateTime(2026, 8, 11),
+            loadAppointments: loadAppointments,
+            loadRole: () async => 'RECEPTIONIST',
+            autoRefresh: false,
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => ThemeProvider(),
+        child: MaterialApp.router(
+          routerConfig: router,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(0.9)),
+            child: child!,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets(
+    'a stale appointment refresh cannot overwrite a newer calendar result',
+    (tester) async {
+      final firstSelectedDay = Completer<Map<String, dynamic>>();
+      var calls = 0;
+      Future<Map<String, dynamic>> loader({
+        String? doctorId,
+        required String date,
+        String? status,
+        required int page,
+        required int limit,
+      }) async {
+        calls += 1;
+        if (calls <= 7) {
+          return date == '2026-08-11'
+              ? firstSelectedDay.future
+              : {'appointments': <dynamic>[]};
+        }
+        return {
+          'appointments': date == '2026-08-11'
+              ? [
+                  {
+                    'id': 2,
+                    'patient_name': 'New Calendar Patient',
+                    'appointment_date': date,
+                    'appointment_time': '09:30',
+                  },
+                ]
+              : <dynamic>[],
+        };
+      }
+
+      await pumpAppointments(tester, loadAppointments: loader);
+      final refresh = tester.widget<RefreshIndicator>(
+        find.byType(RefreshIndicator),
+      );
+      await refresh.onRefresh();
+      await tester.pump();
+      expect(find.text('New Calendar Patient'), findsWidgets);
+
+      firstSelectedDay.complete({
+        'appointments': [
+          {
+            'id': 1,
+            'patient_name': 'Old Calendar Patient',
+            'appointment_date': '2026-08-11',
+            'appointment_time': '08:00',
+          },
+        ],
+      });
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('New Calendar Patient'), findsWidgets);
+      expect(find.text('Old Calendar Patient'), findsNothing);
+    },
+  );
+
+  testWidgets('a transient refresh failure retains last-known appointments', (
+    tester,
+  ) async {
+    var generation = 0;
+    Future<Map<String, dynamic>> loader({
+      String? doctorId,
+      required String date,
+      String? status,
+      required int page,
+      required int limit,
+    }) async {
+      final callGeneration = generation;
+      if (callGeneration > 0) throw Exception('temporary outage');
+      return {
+        'appointments': date == '2026-08-11'
+            ? [
+                {
+                  'id': 3,
+                  'patient_name': 'Last Known Calendar Patient',
+                  'appointment_date': date,
+                  'appointment_time': '10:00',
+                },
+              ]
+            : <dynamic>[],
+      };
+    }
+
+    await pumpAppointments(tester, loadAppointments: loader);
+    await tester.pump();
+    expect(find.text('Last Known Calendar Patient'), findsWidgets);
+
+    generation += 1;
+    final refresh = tester.widget<RefreshIndicator>(
+      find.byType(RefreshIndicator),
+    );
+    await refresh.onRefresh();
+    await tester.pump();
+
+    expect(find.text('Last Known Calendar Patient'), findsWidgets);
+    expect(
+      find.byKey(const Key('appointments-stale-data-banner')),
+      findsOneWidget,
+    );
+    final book = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Book OP'),
+    );
+    expect(book.onPressed, isNull);
+
+    generation = 0;
+    await refresh.onRefresh();
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('appointments-stale-data-banner')),
+      findsNothing,
+    );
+    final refreshedBook = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Book OP'),
+    );
+    expect(refreshedBook.onPressed, isNotNull);
+  });
+
   group('appointment calendar helpers', () {
+    test('patient lookup results are bound to the edited phone generation', () {
+      expect(
+        appointmentPatientLookupResultIsCurrent(
+          capturedGeneration: 4,
+          currentGeneration: 4,
+          capturedPhone: '+91 98765 43210',
+          currentPhone: '9876543210',
+        ),
+        isTrue,
+      );
+      expect(
+        appointmentPatientLookupResultIsCurrent(
+          capturedGeneration: 4,
+          currentGeneration: 5,
+          capturedPhone: '9876543210',
+          currentPhone: '9123456780',
+        ),
+        isFalse,
+      );
+    });
+
+    test('booking fails closed until the current phone lookup completes', () {
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '9876543210',
+          verifiedPhone: null,
+          lookupBusy: true,
+          lookupFailed: false,
+        ),
+        isFalse,
+      );
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '9876543210',
+          verifiedPhone: null,
+          lookupBusy: false,
+          lookupFailed: true,
+        ),
+        isFalse,
+      );
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '9123456780',
+          verifiedPhone: '9876543210',
+          lookupBusy: false,
+          lookupFailed: false,
+        ),
+        isFalse,
+      );
+      expect(
+        appointmentPatientLookupCanSubmit(
+          currentPhone: '+91 98765 43210',
+          verifiedPhone: '9876543210',
+          lookupBusy: false,
+          lookupFailed: false,
+        ),
+        isTrue,
+      );
+    });
+
     test(
       'status filters include rescheduled visits for same-day traceability',
       () {

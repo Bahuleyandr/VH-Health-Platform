@@ -1,12 +1,15 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 
-import { setTenant } from '../../lib/prisma.js';
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { encryptField } from '../../utils/fieldEncryption.js';
 import { ALL_STAFF_ROLES } from '../../utils/roleHelpers.js';
-import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
+import {
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { getTenantBySlug } from '../tenant/tenantService.js';
 
 export const SCIM_USER_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:User';
@@ -687,13 +690,28 @@ export async function deactivateScimIdentityTx(tx, {
       staffId,
     );
   }
-  // revokeAllUserTokens bumps the identity's token_epoch (R1: refresh tokens
-  // and retained Firebase sessions from before the deprovision are refused at
-  // issuance) and pushes `session:revoked` to the identity's live WebSockets
-  // (R14) — deliberately unscoped by tenant, matching the kill queries above.
-  const tokens = revokeTokens
-    ? await revokeAllUserTokens(uid, { reason: 'scim_deprovision' })
-    : null;
+  // Persist token revocation on the caller-owned transaction. Publication to
+  // Redis and live WebSockets must wait until that outer transaction commits;
+  // otherwise a later receipt/identity write failure can roll back the durable
+  // revocation after sockets have already been closed.
+  let tokens = null;
+  let revocationPublication = null;
+  if (revokeTokens) {
+    const revokedAt = await persistRevokeAllUserTokens(uid, {
+      client: tx,
+      reason: 'scim_deprovision',
+      notificationTenantId: realm === 'staff' ? tenantId : null,
+    });
+    tokens = Object.freeze({
+      revoked_at: new Date(Number(revokedAt) * 1000).toISOString(),
+      database: Object.freeze({ persisted: true }),
+    });
+    revocationPublication = Object.freeze({
+      uid: String(uid),
+      revokedAt: Number(revokedAt),
+      reason: 'scim_deprovision',
+    });
+  }
   if (realm === 'staff') {
     await tx.$executeRawUnsafe(
       `UPDATE users
@@ -743,11 +761,35 @@ export async function deactivateScimIdentityTx(tx, {
     cleared_pins: pinCount,
     disabled_biometrics: biometricCount,
     tokens,
+    ...(revocationPublication ? { revocationPublication } : {}),
   };
 }
 
-export async function revokeScimIdentityTokens({ uid }) {
-  return revokeAllUserTokens(uid, { requireEvidence: true, reason: 'scim_deprovision' });
+export function publishScimRevocationAfterCommit(publication) {
+  if (!publication) return null;
+  return publishRevokeAllUserTokens(
+    publication.uid,
+    publication.revokedAt,
+    { reason: publication.reason },
+  );
+}
+
+function separateScimRevocationPublication(result) {
+  const {
+    revocationPublication = null,
+    ...deprovision
+  } = result || {};
+  return { deprovision, revocationPublication };
+}
+
+export async function revokeScimIdentityTokens({ tenantId, uid }) {
+  const revokedAt = await setTenantTx(tenantId, tx => persistRevokeAllUserTokens(uid, {
+    client: tx,
+    requireEvidence: true,
+    reason: 'scim_deprovision',
+    notificationTenantId: tenantId,
+  }));
+  return publishRevokeAllUserTokens(uid, revokedAt, { reason: 'scim_deprovision' });
 }
 
 async function upsertStaff(context, payload, { id = null, method = 'post', req = null } = {}) {
@@ -755,6 +797,7 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
   const roleMapping = await mappedRoleForGroups(context, fields.groups);
   let mutation = null;
   let deprovision = null;
+  let revocationPublication = null;
   let commandReceipt = null;
   const row = await setTenant(context.tenant.id, async (tx) => {
     const existing = await findExistingStaff(tx, context, fields, id);
@@ -829,13 +872,14 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
     const staffSource = sourceAfterScim(existing.staff_identity_source);
     const nextRole = role || undefined;
     if (!fields.active) {
-      deprovision = await deactivateScimIdentityTx(tx, {
+      const deactivation = await deactivateScimIdentityTx(tx, {
         tenantId: context.tenant.id,
         uid: existing.uid,
         staffId: existing.staff_id,
         realm: 'staff',
         breakGlass: existing.is_break_glass_account === true,
       });
+      ({ deprovision, revocationPublication } = separateScimRevocationPublication(deactivation));
     }
     await tx.$executeRawUnsafe(
       `UPDATE users
@@ -900,6 +944,10 @@ async function upsertStaff(context, payload, { id = null, method = 'post', req =
     });
     return updatedRow;
   });
+  const publishedTokens = await publishScimRevocationAfterCommit(revocationPublication);
+  if (publishedTokens && deprovision) {
+    deprovision = { ...deprovision, tokens: publishedTokens };
+  }
   await recordScimAuditEvent({
     context,
     eventType: mutation === 'created' ? 'SCIM_USER_CREATED' : (mutation === 'deactivated' ? 'SCIM_USER_DEACTIVATED' : 'SCIM_USER_UPDATED'),
@@ -927,6 +975,7 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
   const role = roleMapping.role || (fields.groups.length ? null : 'ADMIN');
   let mutation = null;
   let deprovision = null;
+  let revocationPublication = null;
   let commandReceipt = null;
   const row = await setTenant(context.tenant.id, async (tx) => {
     const existing = await findExistingAdmin(tx, context, fields, id);
@@ -971,12 +1020,13 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
     }
     const source = sourceAfterScim(existing.identity_source);
     if (!fields.active) {
-      deprovision = await deactivateScimIdentityTx(tx, {
+      const deactivation = await deactivateScimIdentityTx(tx, {
         tenantId: context.tenant.id,
         uid: existing.uid,
         realm: 'admin',
         breakGlass: existing.is_break_glass_account === true,
       });
+      ({ deprovision, revocationPublication } = separateScimRevocationPublication(deactivation));
     }
     await tx.$executeRawUnsafe(
       `UPDATE admins
@@ -1019,6 +1069,10 @@ async function upsertAdmin(context, payload, { id = null, method = 'post', req =
     });
     return rows[0];
   });
+  const publishedTokens = await publishScimRevocationAfterCommit(revocationPublication);
+  if (publishedTokens && deprovision) {
+    deprovision = { ...deprovision, tokens: publishedTokens };
+  }
   await recordScimAuditEvent({
     context,
     eventType: mutation === 'created' ? 'SCIM_USER_CREATED' : (mutation === 'deactivated' ? 'SCIM_USER_DEACTIVATED' : 'SCIM_USER_UPDATED'),

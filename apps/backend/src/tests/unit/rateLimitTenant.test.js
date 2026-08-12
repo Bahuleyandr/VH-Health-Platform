@@ -10,7 +10,11 @@ class FakeRedisStore {
 }
 jest.unstable_mockModule('rate-limit-redis', () => ({ RedisStore: FakeRedisStore }));
 
-const { tenantKeyGenerator, selectStore } = await import('../../middleware/rateLimitMiddleware.js');
+const {
+  __testing__,
+  tenantKeyGenerator,
+  selectStore,
+} = await import('../../middleware/rateLimitMiddleware.js');
 
 // Minimal express-req shape: a real req always carries `headers`.
 const mkReq = (over) => ({ headers: {}, ...over });
@@ -34,6 +38,14 @@ describe('rate limit tenant keying', () => {
     expect(tenantKeyGenerator(mkReq({ tenantId: 'tA', user: { uid: 'u1' } }))).not.toBe(
       tenantKeyGenerator(mkReq({ tenantId: 'tB', user: { uid: 'u1' } })),
     );
+  });
+
+  it('keys post-auth logout throttling by identity rather than a shared IP', () => {
+    const sharedIp = '198.51.100.176';
+    expect(__testing__.authKeyGenerator(mkReq({ ip: sharedIp, user: { uid: 'u1' } })))
+      .toBe('auth:u:u1');
+    expect(__testing__.authKeyGenerator(mkReq({ ip: sharedIp, user: { uid: 'u2' } })))
+      .toBe('auth:u:u2');
   });
 
   it('selectStore returns undefined (MemoryStore) when REDIS_URL is unset', () => {

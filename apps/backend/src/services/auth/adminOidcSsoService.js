@@ -1043,7 +1043,11 @@ export async function completeAdminOidcCallback({ req, providerKey, code, state 
   });
 
   const tenantIdForToken = statePayload.platform ? undefined : statePayload.tenantId;
-  const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+  const {
+    accessToken: token,
+    tokenEpoch,
+    sessionFamilyId,
+  } = await issueAccessTokenAndClaimSession({
     userUid: admin.uid,
     tokenPayload: {
       uid: admin.uid,
@@ -1062,6 +1066,7 @@ export async function completeAdminOidcCallback({ req, providerKey, code, state 
   const refreshToken = await generateRefreshToken({
     uid: admin.uid,
     role: mappedRole,
+    sessionFamilyId,
     tokenEpoch,
     realm: 'admin',
   });

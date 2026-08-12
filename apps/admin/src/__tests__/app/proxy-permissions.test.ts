@@ -142,6 +142,32 @@ describe("proxy per-admin permission enforcement", () => {
     expect(proxiedCalls()[0]).toContain("/api/v1/users?limit=10");
   });
 
+  it("blocks patient search when an ADMIN lacks appointment management", async () => {
+    mockBackend(["userManagement"]);
+    const res = await GET(
+      request("patients/search?q=919999999999", tokenWithRole("ADMIN")),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      message: "Forbidden: missing appointmentManagement permission",
+    });
+    expect(proxiedCalls()).toHaveLength(0);
+  });
+
+  it("forwards patient search for the appointment-management caller", async () => {
+    mockBackend(["appointmentManagement"]);
+    const res = await GET(
+      request("patients/search?q=919999999999", tokenWithRole("ADMIN")),
+    );
+
+    expect(res.status).toBe(200);
+    expect(proxiedCalls()).toHaveLength(1);
+    expect(proxiedCalls()[0]).toContain(
+      "/api/v1/patients/search?q=919999999999",
+    );
+  });
+
   it("lets a wildcard permission through", async () => {
     mockBackend(["*"]);
     const res = await GET(request("doctors", tokenWithRole("ADMIN")));

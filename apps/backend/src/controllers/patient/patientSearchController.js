@@ -206,6 +206,10 @@ export const searchPatients = async (req, res) => {
            ) hn ON TRUE
           WHERE u.role = 'PATIENT'
             AND u.is_active = true
+            AND LOWER(BTRIM(COALESCE(u.status, ''))) = 'active'
+            AND u.is_deleted IS FALSE
+            AND u.deleted_at IS NULL
+            AND u.merged_into_uid IS NULL
             AND u.uid = $1::uuid
             AND u.tenant_id = $2::uuid
           LIMIT 1`,

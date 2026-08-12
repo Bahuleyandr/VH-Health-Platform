@@ -13,6 +13,10 @@ import {
   issueAccessTokenAndClaimSession,
   resolveTenantIdForUid,
 } from '../../services/auth/loginSessionHelper.js';
+import {
+  persistRevokeAllUserTokens,
+  publishRevokeAllUserTokens,
+} from '../../utils/tokenBlacklist.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   generateTotpSetup,
@@ -443,15 +447,23 @@ export const mfaDisable = async (req, res) => {
     const totpOk = await verifyTotp(String(code), admin.totp_secret_encrypted);
     if (!totpOk) return error(res, 'Invalid authenticator code', HTTP_STATUS.UNAUTHORIZED);
 
-    await prisma.admins.update({
-      where: { uid: String(adminId) },
-      data: {
-        totp_enabled: false,
-        totp_secret_encrypted: null,
-        totp_backup_codes: null,
-        totp_enrolled_at: null,
-      },
+    const revokedAt = await prisma.$transaction(async (tx) => {
+      await tx.admins.update({
+        where: { uid: String(adminId) },
+        data: {
+          totp_enabled: false,
+          totp_secret_encrypted: null,
+          totp_backup_codes: null,
+          totp_enrolled_at: null,
+        },
+      });
+      return persistRevokeAllUserTokens(String(adminId), {
+        client: tx,
+        requireEvidence: true,
+        reason: 'mfa_disabled',
+      });
     });
+    await publishRevokeAllUserTokens(String(adminId), revokedAt, { reason: 'mfa_disabled' });
 
     logger.info('Admin MFA disabled', { adminId });
     return success(res, { enabled: false }, 'MFA disabled');
@@ -537,8 +549,8 @@ export const mfaSetupConfirm = async (req, res) => {
       backupCodes.map((c) => bcrypt.hash(String(c), BCRYPT_ROUNDS))
     );
 
-    await prisma.admins.update({
-      where: { uid: String(adminId) },
+    const enrollment = await prisma.admins.updateMany({
+      where: { uid: String(adminId), totp_enabled: false },
       data: {
         totp_secret_encrypted: encryptedSecret,
         totp_backup_codes: hashedBackupCodes,
@@ -546,6 +558,9 @@ export const mfaSetupConfirm = async (req, res) => {
         totp_enrolled_at: new Date(),
       },
     });
+    if (enrollment.count !== 1) {
+      return error(res, 'MFA is already enabled on this account.', HTTP_STATUS.CONFLICT);
+    }
 
     const admin = await prisma.admins.findUnique({
       where: { uid: String(adminId) },
@@ -553,7 +568,11 @@ export const mfaSetupConfirm = async (req, res) => {
     });
     if (!admin) return error(res, 'Admin not found after enrollment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
 
-    const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+    const {
+      accessToken: token,
+      tokenEpoch,
+      sessionFamilyId,
+    } = await issueAccessTokenAndClaimSession({
       userUid: admin.uid,
       tokenPayload: {
         uid: admin.uid,
@@ -573,9 +592,9 @@ export const mfaSetupConfirm = async (req, res) => {
     const refreshToken = await generateRefreshToken({
       uid: admin.uid,
       role: String(admin.role).toUpperCase(),
+      sessionFamilyId,
       tokenEpoch,
       realm: 'admin',
-      mfa: true,
     });
 
     logger.info('Admin MFA enrolled via first-time setup', { adminId });
@@ -687,7 +706,11 @@ export const mfaVerifyChallenge = async (req, res) => {
       challengeToken
     );
 
-    const { accessToken: token, tokenEpoch } = await issueAccessTokenAndClaimSession({
+    const {
+      accessToken: token,
+      tokenEpoch,
+      sessionFamilyId,
+    } = await issueAccessTokenAndClaimSession({
       userUid: admin.uid,
       tokenPayload: {
         uid: admin.uid,
@@ -706,9 +729,9 @@ export const mfaVerifyChallenge = async (req, res) => {
     const refreshToken = await generateRefreshToken({
       uid: admin.uid,
       role: String(admin.role).toUpperCase(),
+      sessionFamilyId,
       tokenEpoch,
       realm: 'admin',
-      mfa: true,
     });
 
     logger.info('Admin MFA challenge verified', { adminId, viaBackup: !!useBackupCode });

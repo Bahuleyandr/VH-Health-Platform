@@ -988,8 +988,9 @@ export async function processNextItemTx({
   const duplicate = requireText(duplicateKey, 'duplicate_key', 255);
   const owner = requireUuid(leaseOwner, 'lease_owner');
   const fingerprint = normalizeFingerprint(command, commandFingerprint);
+  let revocationPublication = null;
 
-  return setTenantTx(tid, async (tx) => {
+  const result = await setTenantTx(tid, async (tx) => {
     const offset = await loadOffsetTx(tx, tid, oid, config.id, { lock: true });
     if (!offset) throw AppError.notFound(`${config.id} recovery offset not found`, 'EXTERNAL_RECOVERY_OFFSET_NOT_FOUND');
     if (
@@ -1104,6 +1105,7 @@ export async function processNextItemTx({
       tenantId: tid,
       command,
     });
+    revocationPublication = domain?.revocationPublication || null;
     const evidence = config.id === 'I17' || config.id === 'I18' || config.id === 'I23'
       || config.id === 'I25' || config.id === 'I13'
       || config.id === 'I16' || config.id === 'I19' || config.id === 'I03'
@@ -1181,6 +1183,11 @@ export async function processNextItemTx({
           : { observation_id: String(evidence.id) }),
     });
   }, { isolationLevel: 'Serializable' });
+  if (revocationPublication) {
+    const { publishScimRevocationAfterCommit } = await import('../auth/scimProvisioningService.js');
+    await publishScimRevocationAfterCommit(revocationPublication);
+  }
+  return result;
 }
 
 export const registerColdChainRecoveryOffset = (input) => registerExternalRecoveryOffset({ ...input, interfaceFamily: 'I10' });

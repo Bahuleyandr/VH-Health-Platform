@@ -313,6 +313,8 @@ class AppStrings {
   String sessionTimeoutWarning(int seconds) =>
       _t('session_timeout.warning').replaceAll('{seconds}', '$seconds');
   String get sessionTimeoutStillHere => _t('session_timeout.still_here');
+  String get sessionLockTitle => _t('session_lock.title');
+  String get sessionLockBody => _t('session_lock.body');
   String sessionTimeoutPreservedQueue(int count) =>
       _t('session_timeout.preserved_queue').replaceAll('{count}', '$count');
   String get loginEmployeeIdHint => _t('login.employee_id_hint');
@@ -3099,6 +3101,10 @@ class AppStrings {
   String get logoutReviewOfflineWork => _t('logout.review_offline_work');
   String get logoutServerRevocationFailed =>
       _t('logout.server_revocation_failed');
+  String get logoutNotificationTeardownFailed =>
+      _t('logout.notification_teardown_failed');
+  String get logoutCombinedTeardownFailed =>
+      _t('logout.combined_teardown_failed');
   String sessionRevocationPreservedItems(int count) =>
       format('session_revocation.preserved_items', {'count': count});
 
@@ -3889,8 +3895,15 @@ class AppStrings {
       // readable English one. Tracked for the translation reviewers.
       'logout.server_revocation_failed':
           'Signed out on this device, but the server did not confirm the session was revoked. Sign in and out again on a working connection.',
+      'logout.notification_teardown_failed':
+          'Signed out, but this device could not confirm its previous notification channel was removed. Reconnect before another staff member signs in.',
+      'logout.combined_teardown_failed':
+          'Signed out on this device, but the server did not confirm the session was revoked and this device could not confirm its previous notification channel was removed. On a working connection, sign in and out again before another staff member uses this device.',
       'session_revocation.preserved_items':
           '{count} unresolved offline clinical item(s) remain encrypted on this device for later reconciliation.',
+      'session_lock.title': 'Session locked',
+      'session_lock.body':
+          'Signing you out securely. Patient information is hidden.',
       // Greetings
       'dashboard.greeting.morning': 'Good morning',
       'dashboard.greeting.afternoon': 'Good afternoon',
@@ -6766,7 +6779,7 @@ class AppStrings {
           "Clear doctor or department filter",
       's4.lib.appointments.collapse_queue_panel': "Collapse queue panel",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "Could not check registry now; new-patient booking is available",
+          "Could not check registry; retry before booking",
       's4.lib.appointments.could_not_load_doctors': "Could not load doctors",
       's4.lib.appointments.create_appointment': "Create Appointment",
       's4.lib.appointments.creating': "Creating...",
@@ -13172,7 +13185,7 @@ class AppStrings {
           "डॉक्टर या विभाग फ़िल्टर साफ़ करें",
       's4.lib.appointments.collapse_queue_panel': "कतार पैनल को संक्षिप्त करें",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "अभी रजिस्ट्री जांच नहीं हो सकी; नए मरीज की बुकिंग उपलब्ध है",
+          "रजिस्ट्री जांच नहीं हो सकी; बुकिंग से पहले फिर कोशिश करें",
       's4.lib.appointments.could_not_load_doctors': "डॉक्टर लोड नहीं हो सके",
       's4.lib.appointments.create_appointment': "अपॉइंटमेंट बनाएं",
       's4.lib.appointments.creating': "बनाया जा रहा है...",
@@ -20089,7 +20102,7 @@ class AppStrings {
           "மருத்துவர் அல்லது துறை வடிகட்டியை அழிக்கவும்",
       's4.lib.appointments.collapse_queue_panel': "வரிசை பேனலைச் சுருக்கு",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "இப்போது பதிவேட்டைச் சரிபார்க்க முடியவில்லை; புதிய நோயாளி முன்பதிவு கிடைக்கிறது",
+          "பதிவேட்டைச் சரிபார்க்க முடியவில்லை; முன்பதிவு செய்வதற்கு முன் மீண்டும் முயற்சிக்கவும்",
       's4.lib.appointments.could_not_load_doctors':
           "மருத்துவர்களை ஏற்ற முடியவில்லை",
       's4.lib.appointments.create_appointment': "நியமனத்தை உருவாக்கவும்",
@@ -27088,7 +27101,7 @@ class AppStrings {
           "డాక్టర్ లేదా డిపార్ట్‌మెంట్ ఫిల్టర్‌ను క్లియర్ చేయండి",
       's4.lib.appointments.collapse_queue_panel': "క్యూ ప్యానెల్‌ను కుదించు",
       's4.lib.appointments.could_not_check_registry_new_patient_available':
-          "ఇప్పుడు రిజిస్ట్రీని తనిఖీ చేయలేకపోయాం; కొత్త రోగి బుకింగ్ అందుబాటులో ఉంది",
+          "రిజిస్ట్రీని తనిఖీ చేయలేకపోయాం; బుకింగ్‌కు ముందు మళ్లీ ప్రయత్నించండి",
       's4.lib.appointments.could_not_load_doctors':
           "వైద్యులను లోడ్ చేయలేకపోయాం",
       's4.lib.appointments.create_appointment': "అపాయింట్‌మెంట్ సృష్టించండి",
