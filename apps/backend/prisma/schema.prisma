@@ -11346,7 +11346,6 @@ model user_devices {
   app_version                            String?                                 @db.VarChar(50)
   os_version                             String?                                 @db.VarChar(50)
   fcm_token                              String?
-  notification_epoch                     BigInt                                  @default(0)
   last_active                            DateTime?                               @db.Timestamp(6)
   created_at                             DateTime                                @default(now()) @db.Timestamp(6)
   device_type                            String?                                 @db.VarChar(50)
@@ -11364,6 +11363,7 @@ model user_devices {
   continuity_expires_at                  DateTime?                               @db.Timestamptz(6)
   continuity_validated_at                DateTime?                               @db.Timestamptz(6)
   continuity_validation_state            String?                                 @db.VarChar(32)
+  notification_epoch                     BigInt                                  @default(0)
   staff_devices                          staff_devices?                          @relation("cc_staff_device_projection")
   facilities                             facilities?                             @relation(fields: [tenant_id, facility_id], references: [tenant_id, id], onUpdate: NoAction, map: "cc_user_devices_facility_tenant_fk")
   clinical_continuity_edge_access_grants clinical_continuity_edge_access_grants? @relation(fields: [tenant_id, facility_id, continuity_grant_id, continuity_grant_purpose], references: [tenant_id, facility_id, id, grant_purpose], onUpdate: NoAction, map: "cc_user_devices_grant_tenant_fk")
