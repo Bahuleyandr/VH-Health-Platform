@@ -17,6 +17,7 @@
 
 import { jest } from '@jest/globals';
 
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_A = '11111111-1111-4111-8111-111111111111';
 const STAFF_B = '22222222-2222-4222-8222-222222222222';
 const HR_UID = '33333333-3333-4333-8333-333333333333';
@@ -43,10 +44,6 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-}));
-
-jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
-  resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
 }));
 
 jest.unstable_mockModule('../../utils/notifications/notificationDispatcher.js', () => ({
@@ -123,7 +120,13 @@ function makeRes() {
 }
 
 function makeReq(body = {}, uid = HR_UID) {
-  return { user: { uid, role: 'ADMIN' }, params: { runId: '42' }, body, headers: {} };
+  return {
+    tenantId: TENANT_ID,
+    user: { uid, role: 'ADMIN' },
+    params: { runId: '42' },
+    body,
+    headers: {},
+  };
 }
 
 beforeEach(() => {
@@ -267,6 +270,7 @@ describe('issuePayslips failed-payslip acknowledgement', () => {
   });
 
   const issueReq = (body = {}) => ({
+    tenantId: TENANT_ID,
     user: { uid: ADMIN_UID, role: 'ADMIN' },
     params: {},
     body: { month: 3, year: 2026, ...body },
