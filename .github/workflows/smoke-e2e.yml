@@ -2,15 +2,8 @@ name: Smoke E2E
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/admin/**'
-      - 'apps/backend/**'
-      - 'apps/backend/scripts/smoke-*.mjs'
-      - 'scripts/smoke-*.ps1'
-      - 'scripts/check-clinical-ai-tenant-preflight.ps1'
-      - '.github/workflows/smoke-e2e.yml'
+  schedule:
+    - cron: '15 2 * * *'
 
 permissions:
   contents: read

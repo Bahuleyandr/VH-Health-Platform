@@ -14,18 +14,19 @@ test('the canonical security stage installs Semgrep before the merge gate', () =
   assert.match(canonical, /python -m pip install --quiet semgrep/);
 });
 
-test('required backend and FHIR contexts are emitted for every pull request', () => {
-  const pullRequestBlock = backend.slice(
-    backend.indexOf('  pull_request:'),
-    backend.indexOf('\nconcurrency:'),
+test('full backend and FHIR contexts are reserved for the final dispatch', () => {
+  const backendJob = backend.slice(
+    backend.indexOf('  lint-and-test:'),
+    backend.indexOf('\n  fhir-conformance:'),
   );
-  assert.doesNotMatch(pullRequestBlock, /\n\s+paths:/);
-
   const fhirJob = backend.slice(
     backend.indexOf('  fhir-conformance:'),
     backend.indexOf('\n  semgrep:'),
   );
-  assert.doesNotMatch(fhirJob, /needs:\s*lint-and-test/);
+  assert.match(backendJob, /if: .*workflow_dispatch/);
+  assert.match(fhirJob, /if: .*workflow_dispatch/);
+  assert.match(canonical, /'Full Merge Gate' \|\| 'Merge Gate'/);
+  assert.match(canonical, /CANONICAL_TIER: \$\{\{ inputs\.tier \|\| 'full' \}\}/);
 });
 
 test('Forgejo canonical CI includes the client-to-spec contracts stage', () => {

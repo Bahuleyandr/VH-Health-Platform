@@ -130,8 +130,22 @@ becomes useful, revisit.
 
 ## CI (root `.github/workflows/`)
 
-Mostly path-filtered so unrelated changes don't fan out; `all.yml` is the
-scheduled/manual sweep that runs the whole stack together:
+`ci.yml` is the single protected, tiered gate. Feature-branch pushes run
+security plus affected-stack checks and report `Merge Gate`. Before merge,
+dispatch `Canonical CI` with `tier=full` on the final branch commit; it runs the
+full reusable matrix in parallel and reports the separately required
+`Full Merge Gate`. Both contexts are branch-protection requirements, so any
+later push invalidates the prior full result. CI-plumbing changes also run the
+full matrix on push. `all.yml` remains the scheduled/manual full sweep, and
+Smoke E2E runs nightly rather than on every PR update.
+
+GitHub merge queues are unavailable because this public repository is owned by
+a personal account rather than an organization. The explicit final dispatch is
+the fail-closed merge-boundary equivalent:
+
+```bash
+gh workflow run ci.yml --ref <branch> -f tier=full
+```
 
 Shared job definitions live under `.github/workflows/_reusable-*.yml` so
 the path-filtered CI and the scheduled sweep stay in sync.
@@ -139,9 +153,10 @@ the path-filtered CI and the scheduled sweep stay in sync.
 | Workflow | Fires when | What it runs |
 |---|---|---|
 | `all.yml` | `workflow_dispatch` + weekdays at 01:30 UTC | Flutter workspace + backend lint/swagger/prisma/tests + backend FHIR conformance + admin lint/type-check/jest/build |
-| `ci-flutter.yml` | `apps/{patient,staff}/**`, `packages/vhhealth_core/**`, `pubspec.*` | `melos bootstrap → format → codegen → analyze → test`, plus a parallel `flutter build web` (dart2js) of staff — the web lane catches JS-number/web-import breakage the VM-based analyze and test cannot. Staff only: `apps/patient/web/` is stock scaffolding with no deploy path |
-| `ci-backend.yml` | `apps/backend/**` | lint → swagger → prisma → tests (with Postgres 16 service) + CodeQL + FHIR conformance |
-| `ci-admin.yml` | `apps/admin/**` | lint → type-check → jest → next build |
+| `ci.yml` | feature pushes + final manual dispatch | affected checks on pushes; full backend shards, Flutter, Admin, FHIR, contracts, and infra in parallel once on the final commit; required aggregates `Merge Gate` + `Full Merge Gate` |
+| `ci-flutter.yml` | manual diagnostic | `melos bootstrap → format → codegen → analyze → test`, plus a parallel `flutter build web` (dart2js) of staff |
+| `ci-backend.yml` | backend CodeQL on PR/main; manual full diagnostic | CodeQL automatically; manual Semgrep, lint, Prisma/OpenAPI, DB, shards, and FHIR |
+| `ci-admin.yml` | manual diagnostic | lint → type-check → jest → next build |
 | `deploy-patient-staging.yml` | push to main touching patient | Firebase App Distribution |
 | `deploy-staff-staging.yml` | push to main touching staff | Firebase App Distribution |
 | `release-patient.yml` | tag `patient-v*` | signed APK + AAB → GitHub Release |
