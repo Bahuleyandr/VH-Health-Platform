@@ -147,7 +147,7 @@ When adding new shared code, prefer adding here + exporting via the
 
 ## Future Directions
 
-Use the root [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md)
+Use the root [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md)
 and focused branch plans for current work. Durable package debt that is still
 worth tracking here: `RealtimeClient` coverage, dependency split/conditional
 exports, and keeping shared APIs small enough that patient and staff do not
