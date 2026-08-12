@@ -813,23 +813,39 @@ class HrApiService {
 
   /// POST /devices/register — register FCM token
   static Future<void> registerDevice({
-    required String phone,
+    required String? phone,
     required String fcmToken,
     required String platform,
   }) async {
-    try {
-      await ApiClient.post(
-        '/devices/register',
-        body: {
-          'phone': phone,
-          'fcmToken': fcmToken,
-          'deviceId': '${platform}_staff_${phone.hashCode}',
-          'deviceName': 'VHHealth Staff App',
-          'platform': platform,
-        },
-      );
-    } catch (e) {
-      debugPrint('HrApiService.registerDevice error: $e');
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
+    final response = await ApiClient.post(
+      '/devices/register',
+      body: {
+        if (phone != null && phone.trim().isNotEmpty) 'phone': phone,
+        'fcmToken': fcmToken,
+        'deviceId': installationId,
+        'deviceName': 'VHHealth Staff App',
+        'platform': platform,
+      },
+    );
+    if (!response.isSuccess) {
+      throw Exception(response.failureMessage('Device registration failed'));
+    }
+  }
+
+  /// Removes this app installation's FCM binding for the authenticated staff
+  /// account. A missing row is already in the desired state, so logout remains
+  /// idempotent after a partial or repeated teardown.
+  static Future<void> unregisterNotificationDevice() async {
+    final installationId =
+        await core_auth.AuthService.getOrCreateInstallationId();
+    final response = await ApiClient.post(
+      '/devices/unregister',
+      body: {'deviceId': installationId},
+    );
+    if (!response.isSuccess && response.statusCode != 404) {
+      throw Exception(response.failureMessage('Device unregistration failed'));
     }
   }
 

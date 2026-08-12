@@ -28,12 +28,13 @@ class _SessionTimeoutWarningLayerState
         if (timeout.isSessionExpired) {
           if (!_navigatedForExpiry) {
             _navigatedForExpiry = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!context.mounted) return;
               // Idle timeout is a logout path: stop the realtime poll
               // providers (the timeout cleanup itself already revoked the
               // session and closed the WebSocket) before landing on /login.
-              stopStaffRealtimePollers(context);
+              await stopStaffRealtimePollers(context);
+              if (!context.mounted) return;
               context.go('/login');
             });
           }

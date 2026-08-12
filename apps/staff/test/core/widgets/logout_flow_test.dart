@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_staff/core/providers/message_unread_provider.dart';
+import 'package:vhhealth_staff/core/providers/notification_provider.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth_staff/core/services/auth_service.dart';
 import 'package:vhhealth_staff/core/widgets/logout_flow.dart';
@@ -154,7 +155,9 @@ void main() {
     final timeout = SessionTimeoutProvider(
       timeoutDuration: const Duration(hours: 1),
     )..startTracking();
+    final notifications = _TrackingNotificationProvider();
     addTearDown(timeout.dispose);
+    addTearDown(notifications.dispose);
     final router = GoRouter(
       routes: [
         GoRoute(
@@ -182,8 +185,13 @@ void main() {
     addTearDown(router.dispose);
 
     await tester.pumpWidget(
-      ChangeNotifierProvider<SessionTimeoutProvider>.value(
-        value: timeout,
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SessionTimeoutProvider>.value(value: timeout),
+          ChangeNotifierProvider<NotificationProvider>.value(
+            value: notifications,
+          ),
+        ],
         child: MaterialApp.router(routerConfig: router),
       ),
     );
@@ -193,6 +201,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(timeout.isTracking, isFalse);
+    expect(notifications.endCalls, 1);
+    expect(notifications.lastUnregisterBackend, isFalse);
     expect(find.text('Login destination'), findsOneWidget);
   });
 
@@ -252,6 +262,52 @@ void main() {
       expect(messages.unreadCount, 0);
     },
   );
+
+  testWidgets(
+    'idle teardown unregisters notifications while auth is available',
+    (tester) async {
+      final notifications = _TrackingNotificationProvider();
+      late BuildContext hostContext;
+      addTearDown(notifications.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<NotificationProvider>.value(
+              value: notifications,
+            ),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                hostContext = context;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+
+      await stopStaffRealtimePollers(
+        hostContext,
+        unregisterNotificationBackend: true,
+      );
+
+      expect(notifications.endCalls, 1);
+      expect(notifications.lastUnregisterBackend, isTrue);
+    },
+  );
+}
+
+class _TrackingNotificationProvider extends NotificationProvider {
+  int endCalls = 0;
+  bool? lastUnregisterBackend;
+
+  @override
+  Future<void> endAuthenticatedSession({bool unregisterBackend = true}) async {
+    endCalls += 1;
+    lastUnregisterBackend = unregisterBackend;
+  }
 }
 
 Widget _logoutHost({

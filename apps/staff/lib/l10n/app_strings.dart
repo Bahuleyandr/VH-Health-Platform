@@ -3099,6 +3099,8 @@ class AppStrings {
   String get logoutReviewOfflineWork => _t('logout.review_offline_work');
   String get logoutServerRevocationFailed =>
       _t('logout.server_revocation_failed');
+  String get logoutNotificationTeardownFailed =>
+      _t('logout.notification_teardown_failed');
   String sessionRevocationPreservedItems(int count) =>
       format('session_revocation.preserved_items', {'count': count});
 
@@ -3889,6 +3891,8 @@ class AppStrings {
       // readable English one. Tracked for the translation reviewers.
       'logout.server_revocation_failed':
           'Signed out on this device, but the server did not confirm the session was revoked. Sign in and out again on a working connection.',
+      'logout.notification_teardown_failed':
+          'Signed out, but this device could not confirm its previous notification channel was removed. Reconnect before another staff member signs in.',
       'session_revocation.preserved_items':
           '{count} unresolved offline clinical item(s) remain encrypted on this device for later reconciliation.',
       // Greetings

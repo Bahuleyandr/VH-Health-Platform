@@ -22,10 +22,12 @@ class SessionTimeoutProvider extends ChangeNotifier {
     Duration timeoutDuration = const Duration(minutes: 15),
     Duration warningDuration = const Duration(seconds: 60),
     Duration countdownTickDuration = const Duration(seconds: 1),
+    SessionTimeoutCleanup? beforeTimeoutCleanup,
     SessionTimeoutCleanup? onTimeoutCleanup,
   }) : _timeoutDuration = timeoutDuration,
        _warningDuration = warningDuration,
        _countdownTickDuration = countdownTickDuration,
+       _beforeTimeoutCleanup = beforeTimeoutCleanup,
        _onTimeoutCleanup = onTimeoutCleanup ?? _defaultTimeoutCleanup;
 
   /// How long the user can be idle before automatic logout.
@@ -35,6 +37,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
   Duration _timeoutDuration;
   final Duration _warningDuration;
   final Duration _countdownTickDuration;
+  final SessionTimeoutCleanup? _beforeTimeoutCleanup;
   final SessionTimeoutCleanup _onTimeoutCleanup;
 
   Timer? _timer;
@@ -111,6 +114,11 @@ class SessionTimeoutProvider extends ChangeNotifier {
     _preservedOfflineWriteCount = await _pendingOfflineWriteCount();
     _cancelTimers();
     _clearWarningState();
+    try {
+      await _beforeTimeoutCleanup?.call();
+    } catch (e) {
+      debugPrint('SessionTimeout: failed to stop authenticated providers: $e');
+    }
     try {
       await _onTimeoutCleanup();
     } catch (e) {

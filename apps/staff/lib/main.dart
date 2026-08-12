@@ -33,6 +33,7 @@ import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/phi_scrubber.dart';
 import 'core/services/staff_local_notifications.dart';
+import 'core/services/staff_notification_session.dart';
 import 'core/services/staff_clinical_action_gateway.dart';
 import 'core/services/staff_action_policy_repository.dart';
 import 'core/services/staff_action_policy_source.dart';
@@ -75,6 +76,10 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
   if (message.data['type'] != 'code_blue') return;
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await CodeBlueNotifier.instance.initialize();
+  if (!await mayPresentStaffPush()) {
+    await StaffLocalNotifications.instance.cancelSessionNotifications();
+    return;
+  }
   await CodeBlueNotifier.instance.showForMessage(message);
 }
 
@@ -89,13 +94,15 @@ void _handleServerSessionExpired() {
 
   unawaited(
     ForcedLogoutFlow.run(
-      stopSessionTracking: () {
+      stopSessionTracking: () async {
         timeout?.stopTracking();
         // Stop the realtime poll providers so nothing keeps polling or
         // surfacing the previous clinician's data on the login screen
         // (STF-1); the forced cleanup itself closes the WebSocket.
         final ctx = rootNavigatorKey.currentContext;
-        if (ctx != null && ctx.mounted) stopStaffRealtimePollers(ctx);
+        if (ctx != null && ctx.mounted) {
+          await stopStaffRealtimePollers(ctx);
+        }
       },
       navigateToLogin: () => appRouter.go('/login'),
       reportPreservedItems: _reportPreservedOfflineItems,
@@ -312,6 +319,9 @@ Future<void> main() async {
         FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
       }
       await CodeBlueNotifier.instance.initialize();
+      if (!await mayPresentStaffPush()) {
+        await StaffLocalNotifications.instance.cancelSessionNotifications();
+      }
 
       // Strip potential PHI from error messages before sending to crash reporting.
       if (crashReportingEnabled) {
@@ -653,8 +663,12 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         ChangeNotifierProvider(create: (_) => MessageUnreadProvider()..start()),
         ChangeNotifierProvider(create: (_) => ClinicalInboxProvider()..start()),
         ChangeNotifierProvider(
-          create: (_) => SessionTimeoutProvider(
+          create: (context) => SessionTimeoutProvider(
             timeoutDuration: sessionTimeoutForDeviceMode(currentAppDeviceMode),
+            beforeTimeoutCleanup: () => stopStaffRealtimePollers(
+              context,
+              unregisterNotificationBackend: true,
+            ),
           ),
           // Don't call startTracking() here — timer should only start
           // after successful login, not on the login screen.

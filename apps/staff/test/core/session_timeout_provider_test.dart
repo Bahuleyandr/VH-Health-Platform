@@ -116,6 +116,55 @@ void main() {
     );
 
     test(
+      'stops authenticated providers before clearing credentials on timeout',
+      () async {
+        final events = <String>[];
+        final cleanupCompleted = Completer<void>();
+        final provider = SessionTimeoutProvider(
+          timeoutDuration: const Duration(milliseconds: 10),
+          beforeTimeoutCleanup: () async => events.add('providers'),
+          onTimeoutCleanup: () async {
+            events.add('credentials');
+            cleanupCompleted.complete();
+          },
+        );
+        addTearDown(provider.dispose);
+
+        provider.startTracking();
+        await cleanupCompleted.future.timeout(const Duration(seconds: 2));
+
+        expect(events, ['providers', 'credentials']);
+        expect(provider.isSessionExpired, isTrue);
+      },
+    );
+
+    test(
+      'clears credentials when authenticated provider cleanup throws',
+      () async {
+        final events = <String>[];
+        final cleanupCompleted = Completer<void>();
+        final provider = SessionTimeoutProvider(
+          timeoutDuration: const Duration(milliseconds: 10),
+          beforeTimeoutCleanup: () async {
+            events.add('providers');
+            throw StateError('provider cleanup failed');
+          },
+          onTimeoutCleanup: () async {
+            events.add('credentials');
+            cleanupCompleted.complete();
+          },
+        );
+        addTearDown(provider.dispose);
+
+        provider.startTracking();
+        await cleanupCompleted.future.timeout(const Duration(seconds: 2));
+
+        expect(events, ['providers', 'credentials']);
+        expect(provider.isSessionExpired, isTrue);
+      },
+    );
+
+    test(
       'default idle cleanup clears recents and credentials but preserves owner-scoped queue',
       () async {
         FlutterSecureStorage.setMockInitialValues({

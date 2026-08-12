@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import '../../../core/providers/clinical_inbox_provider.dart';
 import '../../../core/providers/message_unread_provider.dart';
+import '../../../core/providers/notification_provider.dart';
 import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -188,6 +189,11 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (_) {}
     try {
       unawaited(context.read<ClinicalInboxProvider>().start());
+    } catch (_) {}
+    try {
+      unawaited(
+        context.read<NotificationProvider>().beginAuthenticatedSession(),
+      );
     } catch (_) {}
     context.go('/dashboard');
   }

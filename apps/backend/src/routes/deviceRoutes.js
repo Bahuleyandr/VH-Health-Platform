@@ -9,6 +9,10 @@ import { maskPhoneForLog } from '../utils/logMasking.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';
 import { resolveTenantOrThrow } from '../services/tenant/tenantService.js';
+import {
+  registerNotificationDevice,
+  rotateNotificationDeviceToken,
+} from '../services/notification/deviceRegistrationService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
 
@@ -429,31 +433,23 @@ wrapAutoRBAC(
           try {
             const user = await resolveDeviceTargetUser(req, phone);
 
-            // Register/update device with enhanced conflict resolution
-            const result = await prisma.$queryRawUnsafe(
-              `INSERT INTO user_devices (
-                tenant_id, user_uid, device_id, device_name, platform, app_version,
-                os_version, fcm_token, last_active, created_at
-              ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-              ON CONFLICT (tenant_id, user_uid, device_id)
-              DO UPDATE SET 
-                device_name = EXCLUDED.device_name,
-                platform = EXCLUDED.platform,
-                app_version = EXCLUDED.app_version,
-                os_version = EXCLUDED.os_version,
-                fcm_token = EXCLUDED.fcm_token,
-                last_active = NOW()
-              RETURNING id, (xmax = 0) as is_new_registration`,
-              user.tenantId, user.uid, deviceId, deviceName, platform,
-              appVersion, osVersion, fcmToken
-            );
+            const registration = await registerNotificationDevice({
+              tenantId: user.tenantId,
+              userUid: user.uid,
+              deviceId,
+              fcmToken,
+              deviceName,
+              platform,
+              appVersion,
+              osVersion,
+            });
 
-            const isNewRegistration = result[0].is_new_registration;
+            const isNewRegistration = registration.is_new_registration;
             
             logger.info(`📱 Device ${isNewRegistration ? 'registered' : 'updated'}: ${deviceName} for ${maskPhoneForLog(user.phone)} by ${req.user?.name || 'system'}`);
 
             success(res, {
-              deviceRegistrationId: result[0].id,
+              deviceRegistrationId: registration.id,
               phone: user.phone,
               deviceId,
               deviceName,
@@ -544,26 +540,23 @@ wrapAutoRBAC(
           try {
             const targetUser = await resolveDeviceTargetUser(req, phone);
 
-            const result = await prisma.$queryRawUnsafe(
-              `UPDATE user_devices 
-               SET fcm_token = $1, last_active = NOW()
-               WHERE device_id = $2 
-                 AND user_uid = $3::uuid
-                 AND tenant_id = $4::uuid
-               RETURNING device_name`,
-              fcmToken, deviceId, targetUser.uid, targetUser.tenantId
-            );
+            const registration = await rotateNotificationDeviceToken({
+              tenantId: targetUser.tenantId,
+              userUid: targetUser.uid,
+              deviceId,
+              fcmToken,
+            });
 
-            if (result.length === 0) {
+            if (!registration) {
               return error(res, 'Device not found or access denied', HTTP_STATUS.NOT_FOUND);
             }
 
-            logger.info(`🔄 FCM token updated for device: ${result[0].device_name} (${deviceId}) by ${req.user?.name || 'system'}`);
+            logger.info(`🔄 FCM token updated for device: ${registration.device_name} (${deviceId}) by ${req.user?.name || 'system'}`);
 
             success(res, {
               phone: targetUser.phone,
               deviceId,
-              deviceName: result[0].device_name,
+              deviceName: registration.device_name,
               tokenUpdated: true,
               updatedBy: req.user?.name,
               updatedAt: new Date().toISOString()

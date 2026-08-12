@@ -69,13 +69,13 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
       await ForcedLogoutFlow.run(
         forcedLogout:
             widget.forcedLogout ?? AuthService.forceLogoutForRevocation,
-        stopSessionTracking: () {
+        stopSessionTracking: () async {
           if (mounted) {
             context.read<SessionTimeoutProvider>().stopTracking();
             // Kill the poll-timer providers too — the forced cleanup already
             // tears down the WebSocket, but the pollers would keep firing
             // authenticated-looking requests and holding cached PHI (STF-1).
-            stopStaffRealtimePollers(context);
+            await stopStaffRealtimePollers(context);
           }
         },
         navigateToLogin: () {

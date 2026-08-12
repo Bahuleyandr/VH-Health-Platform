@@ -9,6 +9,7 @@ import admin from '../../utils/firebaseAdmin.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { OTPService } from '../otpService.js';
 import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
+import { registerNotificationDevice } from '../notification/deviceRegistrationService.js';
 import { DEFAULT_TENANT_ID, resolveTenantForRequest } from '../tenant/tenantService.js';
 import { issueAccessTokenAndClaimSession, generateRefreshToken } from './loginSessionHelper.js';
 import { revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
@@ -414,20 +415,31 @@ export const updateFcmToken = async (phone, fcmToken, deviceId, req = null) => {
     ? await resolveTenantForRequest(req)
     : DEFAULT_TENANT_ID;
 
-  // Update or insert FCM token
-  await setTenant(tenantId, tx => query(
-    `INSERT INTO user_devices (
-       tenant_id, user_uid, device_id, fcm_token, last_active, created_at
-     )
-     SELECT tenant_id, uid, $3, $4, NOW(), NOW()
-       FROM users
-      WHERE tenant_id = $1::uuid
-        AND phone = $2
-     ON CONFLICT (tenant_id, user_uid, device_id)
-     DO UPDATE SET fcm_token = EXCLUDED.fcm_token, last_active = NOW()`,
-    [tenantId, normalizedPhone, deviceId || 'default', fcmToken],
-    tx
-  ));
+  let userUid = req?.user?.uid || null;
+  if (!userUid) {
+    const users = await setTenant(tenantId, tx => query(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND phone = $2
+        LIMIT 1`,
+      [tenantId, normalizedPhone],
+      tx
+    ), { readOnly: true });
+    userUid = users[0]?.uid || null;
+  }
+  if (!userUid) {
+    const error = new Error('User not found');
+    error.statusCode = HTTP_STATUS.NOT_FOUND;
+    throw error;
+  }
+
+  await registerNotificationDevice({
+    tenantId,
+    userUid,
+    deviceId: deviceId || 'default',
+    fcmToken,
+  });
 
   logger.info(`📱 FCM token updated for user: ${maskPhoneForLog(normalizedPhone)}`);
 
@@ -600,29 +612,16 @@ export const getHealthStatus = async () => {
 // Store device information
 const storeDeviceInfo = async (userUid, deviceInfo, tenantId) => {
   try {
-    await setTenant(tenantId, tx => query(
-      `INSERT INTO user_devices (
-        tenant_id, user_uid, device_id, device_name, platform, app_version,
-        fcm_token, last_active, created_at
-      ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, NOW(), NOW())
-      ON CONFLICT (tenant_id, user_uid, device_id)
-      DO UPDATE SET 
-        device_name = EXCLUDED.device_name,
-        platform = EXCLUDED.platform,
-        app_version = EXCLUDED.app_version,
-        fcm_token = EXCLUDED.fcm_token,
-        last_active = NOW()`,
-      [
-        tenantId,
-        userUid,
-        deviceInfo.deviceId,
-        deviceInfo.deviceName,
-        deviceInfo.platform,
-        deviceInfo.appVersion,
-        deviceInfo.fcmToken
-      ],
-      tx
-    ));
+    await registerNotificationDevice({
+      tenantId,
+      userUid,
+      deviceId: deviceInfo.deviceId,
+      fcmToken: deviceInfo.fcmToken,
+      deviceName: deviceInfo.deviceName,
+      platform: deviceInfo.platform,
+      appVersion: deviceInfo.appVersion,
+      osVersion: deviceInfo.osVersion,
+    });
   } catch (deviceErr) {
     logger.warn('Failed to store device info:', deviceErr.message);
   }
