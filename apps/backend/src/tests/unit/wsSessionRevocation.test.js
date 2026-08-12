@@ -61,6 +61,7 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   },
 }));
 const isUserTokensRevokedMock = jest.fn().mockResolvedValue(false);
+let transactionCommitHook = null;
 function liveDependent(overrides = {}) {
   return {
     uid: 'dependent-1',
@@ -80,7 +81,14 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isUserTokensRevoked: isUserTokensRevokedMock,
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: queryRawUnsafeMock },
+  default: {
+    $queryRawUnsafe: queryRawUnsafeMock,
+    $transaction: async (fn) => {
+      const result = await fn({ $queryRawUnsafe: queryRawUnsafeMock });
+      transactionCommitHook?.();
+      return result;
+    },
+  },
 }));
 jest.unstable_mockModule('../../utils/websocket/channelAuth.js', () => ({
   authorizeChannel: () => ({ allowed: true, reason: 'ok' }),
@@ -123,6 +131,7 @@ describe('session revocation WebSocket closure', () => {
     isUserTokensRevokedMock.mockResolvedValue(false);
     queryRawUnsafeMock.mockReset();
     queryRawUnsafeMock.mockResolvedValue([liveDependent()]);
+    transactionCommitHook = null;
   });
 
   afterEach(async () => {
@@ -380,6 +389,24 @@ describe('session revocation WebSocket closure', () => {
       event: 'connected',
       userId: 'dependent-1',
     }));
+  });
+
+  it('registers a delegated socket before the lifecycle lock releases', async () => {
+    transactionCommitHook = () => {
+      pushSessionRevoked('dependent-1', { reason: 'patient_merge' });
+    };
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=delegated-ticket',
+      headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(socket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining('connected'));
   });
 
   it.each([

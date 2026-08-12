@@ -41,40 +41,50 @@ const HEARTBEAT_INTERVAL = 30_000; // 30s
 const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1MB buffer limit per client
 const MAX_CONNECTIONS_PER_USER = 5;
 
-async function isDelegatedSubjectLive(userId, revocationOwnerUid, tenantId) {
+async function registerDelegatedClientIfLive(
+  userId,
+  revocationOwnerUid,
+  tenantId,
+  registerClient,
+) {
   const { default: prisma } = await import('../../lib/prisma.js');
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
-            dep.is_deleted, dep.deleted_at, dep.merged_into_uid
-       FROM users dep
-       JOIN users guardian ON guardian.id = dep.guardian_user_id
-      WHERE dep.uid = $1::uuid
-        AND dep.tenant_id = $2::uuid
-        AND guardian.uid = $3::uuid
-        AND guardian.tenant_id = dep.tenant_id
-        AND dep.role = 'PATIENT'
-        AND dep.is_minor = TRUE
-        AND dep.is_active = TRUE
-        AND dep.status = 'active'
-        AND dep.is_deleted = FALSE
-        AND dep.deleted_at IS NULL
-        AND dep.merged_into_uid IS NULL
-      LIMIT 1`,
-    userId,
-    tenantId,
-    revocationOwnerUid,
-  );
-  const subject = rows[0];
-  return Boolean(
-    subject
-    && subject.role === 'PATIENT'
-    && subject.is_minor === true
-    && subject.is_active === true
-    && String(subject.status || '').trim().toLowerCase() === 'active'
-    && subject.is_deleted === false
-    && subject.deleted_at == null
-    && subject.merged_into_uid == null
-  );
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
+              dep.is_deleted, dep.deleted_at, dep.merged_into_uid
+         FROM users dep
+         JOIN users guardian ON guardian.id = dep.guardian_user_id
+        WHERE dep.uid = $1::uuid
+          AND dep.tenant_id = $2::uuid
+          AND guardian.uid = $3::uuid
+          AND guardian.tenant_id = dep.tenant_id
+          AND dep.role = 'PATIENT'
+          AND dep.is_minor = TRUE
+          AND dep.is_active = TRUE
+          AND dep.status = 'active'
+          AND dep.is_deleted = FALSE
+          AND dep.deleted_at IS NULL
+          AND dep.merged_into_uid IS NULL
+        LIMIT 1
+        FOR SHARE OF dep, guardian`,
+      userId,
+      tenantId,
+      revocationOwnerUid,
+    );
+    const subject = rows[0];
+    const live = Boolean(
+      subject
+      && subject.role === 'PATIENT'
+      && subject.is_minor === true
+      && subject.is_active === true
+      && String(subject.status || '').trim().toLowerCase() === 'active'
+      && subject.is_deleted === false
+      && subject.deleted_at == null
+      && subject.merged_into_uid == null
+    );
+    if (live) registerClient();
+    return live;
+  });
 }
 
 export function initWebSocket(server) {
@@ -249,16 +259,56 @@ async function authenticateAndRegister(ws, token) {
     }
   }
 
+  // Enforce per-user connection limit before either direct or delegated
+  // registration. Delegated registration then happens under the subject lock.
+  const existingConnections = clients.get(userId);
+  if (existingConnections && existingConnections.size >= MAX_CONNECTIONS_PER_USER) {
+    ws.close(4029, 'Too many concurrent connections');
+    return;
+  }
+
+  const registerClient = () => {
+    ws.on('close', () => {
+      const meta = socketMeta.get(ws);
+      if (meta) {
+        clients.get(meta.userId)?.delete(ws);
+        if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
+        revocationClients.get(meta.revocationOwnerUid)?.delete(ws);
+        if (revocationClients.get(meta.revocationOwnerUid)?.size === 0) {
+          revocationClients.delete(meta.revocationOwnerUid);
+        }
+        socketMeta.delete(ws);
+      }
+    });
+    if (!clients.has(userId)) clients.set(userId, new Set());
+    clients.get(userId).add(ws);
+    if (!revocationClients.has(revocationOwnerUid)) {
+      revocationClients.set(revocationOwnerUid, new Set());
+    }
+    revocationClients.get(revocationOwnerUid).add(ws);
+    socketMeta.set(ws, {
+      userId,
+      revocationOwnerUid,
+      role,
+      tenantId,
+      jti: decoded.jti ?? null,
+      sessionFamilyId: decoded.sessionFamilyId ?? null,
+      stableDeviceId: decoded.stableDeviceId ?? null,
+      channels: new Set(),
+    });
+  };
+
   // The revocation watermark only rejects tickets issued before retirement.
-  // Re-resolve delegated authority and subject lifecycle at handshake so a
-  // ticket minted after a merge watermark, or before a concurrent lifecycle
-  // transition, cannot reconnect as an inactive/deleted/merged dependent.
+  // Hold share locks on both delegated identities through socket registration,
+  // so a concurrent merge/deletion/link change either wins before validation
+  // or waits until the socket is visible to its post-commit revocation push.
   if (!ownerIsSubject) {
     try {
-      const subjectLive = await isDelegatedSubjectLive(
+      const subjectLive = await registerDelegatedClientIfLive(
         userId,
         revocationOwnerUid,
         tenantId,
+        registerClient,
       );
       if (!subjectLive) {
         ws.close(4001, 'Delegated subject unavailable');
@@ -273,32 +323,10 @@ async function authenticateAndRegister(ws, token) {
       ws.close(1013, 'Authentication unavailable');
       return;
     }
+  } else {
+    registerClient();
   }
-
-  // Enforce per-user connection limit
-  const existingConnections = clients.get(userId);
-  if (existingConnections && existingConnections.size >= MAX_CONNECTIONS_PER_USER) {
-    ws.close(4029, 'Too many concurrent connections');
-    return;
-  }
-
-  // Register client
-  if (!clients.has(userId)) clients.set(userId, new Set());
-  clients.get(userId).add(ws);
-  if (!revocationClients.has(revocationOwnerUid)) {
-    revocationClients.set(revocationOwnerUid, new Set());
-  }
-  revocationClients.get(revocationOwnerUid).add(ws);
-  socketMeta.set(ws, {
-    userId,
-    revocationOwnerUid,
-    role,
-    tenantId,
-    jti: decoded.jti ?? null,
-    sessionFamilyId: decoded.sessionFamilyId ?? null,
-    stableDeviceId: decoded.stableDeviceId ?? null,
-    channels: new Set(),
-  });
+  if (ws.readyState !== 1) return;
 
   logger.info(`🔌 WS connected: user=${userId} role=${role || 'unknown'}`);
 
@@ -373,19 +401,6 @@ async function authenticateAndRegister(ws, token) {
       }
     } catch {
       // ignore malformed messages
-    }
-  });
-
-  ws.on('close', () => {
-    const meta = socketMeta.get(ws);
-    if (meta) {
-      clients.get(meta.userId)?.delete(ws);
-      if (clients.get(meta.userId)?.size === 0) clients.delete(meta.userId);
-      revocationClients.get(meta.revocationOwnerUid)?.delete(ws);
-      if (revocationClients.get(meta.revocationOwnerUid)?.size === 0) {
-        revocationClients.delete(meta.revocationOwnerUid);
-      }
-      socketMeta.delete(ws);
     }
   });
 
