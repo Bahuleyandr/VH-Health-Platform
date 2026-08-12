@@ -186,15 +186,16 @@ test('load-bearing C1.1 docs trigger the manifest workflow and infra stage', () 
     'docs/DEPLOYMENT_GUIDE.md',
   ];
   const workflow = readFileSync(
-    new URL('../.github/workflows/ci-kubernetes.yml', import.meta.url),
+    new URL('../.github/workflows/ci.yml', import.meta.url),
     'utf8',
   );
   const stageOrder = ['security', 'backend', 'fhir', 'admin', 'flutter', 'infra'];
 
   for (const path of docs) {
     assert.deepEqual(stagesForChangedFiles([path], stageOrder), ['security', 'infra']);
-    assert.match(workflow, new RegExp(`- '${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
   }
+  assert.match(workflow, /quick_infra:[\s\S]*uses: \.\/\.github\/workflows\/_reusable-kubernetes-manifests\.yml/);
+  assert.match(workflow, /full_infra:[\s\S]*uses: \.\/\.github\/workflows\/_reusable-kubernetes-manifests\.yml/);
 });
 
 test('accepts only digest-pinned images and the three documented zero-digest repositories', () => {

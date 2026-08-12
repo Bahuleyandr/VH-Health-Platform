@@ -1,0 +1,113 @@
+name: Reusable Backend Quick Gate
+
+on:
+  workflow_call:
+    inputs:
+      notify_on_failure:
+        required: false
+        type: boolean
+        default: false
+      notification_label:
+        required: false
+        type: string
+        default: Backend quick gate
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  affected:
+    name: Backend affected checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: vhhealth
+          POSTGRES_PASSWORD: ${{ github.run_id }}
+          POSTGRES_DB: vhhealth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vhhealth"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      TEST_DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
+      API_KEY: test-api-key
+      JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
+      NODE_ENV: test
+      VH_ALLOW_NON_TEST_DATA_SEED: 'true'
+      FIELD_ENCRYPTION_KEY: ci-field-encryption-key-32-chars-minimum
+      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
+      BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Restore generated Prisma client
+        id: prisma-client
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/node_modules/.prisma
+          key: prisma-client-${{ runner.os }}-node-26-${{ hashFiles('apps/backend/package-lock.json', 'apps/backend/prisma/schema.prisma') }}
+
+      - name: Generate Prisma client on cache miss
+        if: steps.prisma-client.outputs.cache-hit != 'true'
+        run: npx prisma generate
+
+      - name: Verify generated Prisma client
+        run: node --input-type=module -e "const client = await import('@prisma/client'); if (typeof client.PrismaClient !== 'function') throw new Error('PrismaClient export missing');"
+
+      - name: Backend lint and static policy checks
+        run: npm run lint
+
+      - name: OpenAPI route and mirror checks
+        run: |
+          npm run openapi:check
+          npm run openapi:check-core
+
+      - name: Prepare migrated test database
+        run: |
+          npm run db:ensure-pgvector
+          node scripts/ci-setup-db.mjs
+          node scripts/check-schema-drift.mjs
+          npm run seed:test-data
+
+      - name: Run affected backend tests
+        working-directory: .
+        run: node scripts/ci/run-affected-backend-tests.mjs
+
+      - name: Notify Discord on failure
+        if: failure() && inputs.notify_on_failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **${{ inputs.notification_label }} failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true

@@ -1,74 +1,237 @@
 name: Canonical CI
 
-# WS3 B3.5 CI consolidation (2026-06-13):
-# This workflow runs the repo-owned local CI script (scripts/ci/run.mjs) on
-# feature-branch pushes and merge-queue test commits. Its single stable job
-# name is the required main-branch protection check. Feature branches remain
-# changed-file-aware; merge-queue commits deliberately run the full gate.
+# Tiered canonical gate:
+# - feature-branch pushes run security plus affected-stack checks;
+# - CI-plumbing changes exercise the full matrix before this workflow lands;
+# - a manual full dispatch on the final branch commit runs every stack once,
+#   in parallel, and reports the separately required Full Merge Gate;
+# - each lightweight aggregate keeps a stable branch-protection context.
 #
-# The backend shard and FHIR jobs also run for every PR so their stable contexts
-# can be required independently. This aggregate gate remains branch-diff-aware
-# and covers every stack selected by the complete branch delta.
-#
-# A failure in either this gate or a relevant per-stack workflow remains a
-# human-review stop until the disagreement is understood and fixed.
+# GitHub merge queues are unavailable for this user-owned repository. Requiring
+# both Merge Gate and Full Merge Gate provides the same fail-closed property:
+# a later push has a new SHA and therefore invalidates the prior full result.
+# The broad scheduled sweep remains in all.yml. Smoke E2E runs nightly rather
+# than on every PR update.
 
 on:
   push:
     branches:
       - '**'
-      - '!main'   # main is covered by ci-backend/ci-flutter/ci-admin path filters
+      - '!main'
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
+    inputs:
+      tier:
+        description: Gate tier to exercise manually.
+        required: true
+        type: choice
+        default: full
+        options:
+          - full
+          - quick
 
 permissions:
   contents: read
 
+concurrency:
+  group: canonical-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  ci:
-    name: Merge Gate
+  plan:
+    name: Plan canonical tier
     runs-on: ubuntu-latest
-    # Raised 90 -> 150 (2026-08-02): on branches touching every stack the full
-    # sweep (Flutter workspace + backend canonical) legitimately runs 75-90+
-    # min, with the hosted canonical leg alone at 1h08-1h17. At 90 the ceiling
-    # cancelled healthy, still-progressing runs (PR #697, job 91494465220, was
-    # killed at 90m15s). GitHub-hosted jobs cap at 6h, so 150 stays well inside
-    # the platform limit.
-    timeout-minutes: 150
-    # NOTE: backend CI secrets (DATABASE_URL/JWT_SECRET/encryption keys) are NOT
-    # set job-wide on purpose — they must not leak into the admin stage, whose
-    # middleware.test.ts asserts the no-JWT_SECRET code path. They're scoped to
-    # the backend stage in scripts/ci/backend.mjs instead.
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.plan.outputs.tier }}
+      backend: ${{ steps.plan.outputs.backend }}
+      fhir: ${{ steps.plan.outputs.fhir }}
+      admin: ${{ steps.plan.outputs.admin }}
+      flutter: ${{ steps.plan.outputs.flutter }}
+      contracts: ${{ steps.plan.outputs.contracts }}
+      infra: ${{ steps.plan.outputs.infra }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '26.5.0'
-          cache: npm
-          cache-dependency-path: |
-            apps/backend/package-lock.json
-            apps/admin/package-lock.json
 
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        with:
-          # Pinned to match _reusable-flutter-workspace.yml — unpinned stable
-          # drifted to 3.44.6 (2026-07-12) and its new ListTile framework
-          # assertion broke this runner on every feature branch while the
-          # hosted per-stack jobs stayed green. Bump BOTH files together.
-          flutter-version: 3.44.0
-          cache: true
+      - name: Select tier and affected stacks
+        id: plan
+        env:
+          CANONICAL_TIER: ${{ inputs.tier || 'full' }}
+        run: node scripts/ci/canonical-plan.mjs
 
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+      - name: Planner regression tests
+        run: node --test scripts/ci/canonical-plan.test.mjs scripts/ci/assert-canonical-results.test.mjs scripts/ci/run-affected-backend-tests.test.mjs
+
+  security:
+    name: Security and diff checks
+    needs: plan
+    if: ${{ always() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          distribution: temurin
-          java-version: 17
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
 
       - name: Install Semgrep
         run: python -m pip install --quiet semgrep
 
-      - name: Run merge gate
-        run: node scripts/ci/run.mjs --install --changed-on-branch-push
+      - run: node scripts/ci/run.mjs --only=security
+
+  quick_backend:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.backend == 'true' }}
+    uses: ./.github/workflows/_reusable-backend-quick.yml
+    with:
+      notify_on_failure: true
+      notification_label: Backend affected gate
+    secrets: inherit
+
+  quick_fhir:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.fhir == 'true' }}
+    uses: ./.github/workflows/_reusable-backend-fhir.yml
+    with:
+      notify_on_failure: true
+      notification_label: FHIR affected gate
+    secrets: inherit
+
+  quick_admin:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.admin == 'true' }}
+    uses: ./.github/workflows/_reusable-admin-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Admin affected gate
+    secrets: inherit
+
+  quick_flutter:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.flutter == 'true' }}
+    uses: ./.github/workflows/_reusable-flutter-workspace.yml
+    with:
+      notify_on_failure: true
+      notification_label: Flutter affected gate
+    secrets: inherit
+
+  quick_contracts:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.contracts == 'true' }}
+    uses: ./.github/workflows/_reusable-client-contract.yml
+    with:
+      notify_on_failure: true
+      notification_label: Client contract affected gate
+    secrets: inherit
+
+  quick_infra:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.infra == 'true' }}
+    uses: ./.github/workflows/_reusable-kubernetes-manifests.yml
+    with:
+      notify_on_failure: true
+      notification_label: Kubernetes affected gate
+    secrets: inherit
+
+  lint-and-test:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' }}
+    uses: ./.github/workflows/_reusable-backend-lint-test.yml
+    with:
+      notify_on_failure: true
+      notification_label: Canonical backend
+    secrets: inherit
+
+  fhir-conformance:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' }}
+    uses: ./.github/workflows/_reusable-backend-fhir.yml
+    with:
+      notify_on_failure: true
+      notification_label: Canonical FHIR
+    secrets: inherit
+
+  full_admin:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' }}
+    uses: ./.github/workflows/_reusable-admin-ci.yml
+    with:
+      notify_on_failure: true
+      notification_label: Canonical Admin
+    secrets: inherit
+
+  full_flutter:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' }}
+    uses: ./.github/workflows/_reusable-flutter-workspace.yml
+    with:
+      notify_on_failure: true
+      notification_label: Canonical Flutter
+    secrets: inherit
+
+  full_contracts:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' }}
+    uses: ./.github/workflows/_reusable-client-contract.yml
+    with:
+      notify_on_failure: true
+      notification_label: Canonical client contract
+    secrets: inherit
+
+  full_infra:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' }}
+    uses: ./.github/workflows/_reusable-kubernetes-manifests.yml
+    with:
+      notify_on_failure: true
+      notification_label: Canonical Kubernetes
+    secrets: inherit
+
+  merge_gate:
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.tier == 'full' && 'Full Merge Gate' || 'Merge Gate' }}
+    if: ${{ always() }}
+    needs:
+      - plan
+      - security
+      - quick_backend
+      - quick_fhir
+      - quick_admin
+      - quick_flutter
+      - quick_contracts
+      - quick_infra
+      - lint-and-test
+      - fhir-conformance
+      - full_admin
+      - full_flutter
+      - full_contracts
+      - full_infra
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+
+      - name: Aggregate selected results
+        env:
+          CANONICAL_TIER: ${{ needs.plan.outputs.tier }}
+          CANONICAL_RESULTS: ${{ toJSON(needs) }}
+          SELECT_BACKEND: ${{ needs.plan.outputs.backend }}
+          SELECT_FHIR: ${{ needs.plan.outputs.fhir }}
+          SELECT_ADMIN: ${{ needs.plan.outputs.admin }}
+          SELECT_FLUTTER: ${{ needs.plan.outputs.flutter }}
+          SELECT_CONTRACTS: ${{ needs.plan.outputs.contracts }}
+          SELECT_INFRA: ${{ needs.plan.outputs.infra }}
+        run: node scripts/ci/assert-canonical-results.mjs

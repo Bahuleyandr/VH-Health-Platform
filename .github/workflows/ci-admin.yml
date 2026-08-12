@@ -1,18 +1,7 @@
 name: Admin Portal CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/admin/**'
-      - '.github/workflows/ci-admin.yml'
-      - '.github/workflows/_reusable-admin-ci.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/admin/**'
-      - '.github/workflows/ci-admin.yml'
-      - '.github/workflows/_reusable-admin-ci.yml'
+  workflow_dispatch:
 
 concurrency:
   group: ci-admin-${{ github.ref }}

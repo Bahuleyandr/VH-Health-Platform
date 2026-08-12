@@ -1,46 +1,11 @@
 name: Client API Contract
 
-# Fires when EITHER side of the client/server path contract moves: any client
-# tree that calls the API, or the generated spec that defines what the API is.
-# Both directions must be able to trigger it, or the gate has a hole — a client
-# could add a bad path, or a route rename could orphan a good one.
-#
-# The two path lists are duplicated on purpose: GitHub Actions does not support
-# YAML anchors, and every other workflow here repeats them the same way. Keep
-# them in sync.
+# Manual diagnostic wrapper. Canonical CI automatically calls this reusable
+# workflow whenever either side of the client/server contract changes and on
+# the final full-gate dispatch.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/admin/src/**'
-      - 'apps/patient/lib/**'
-      - 'apps/staff/lib/**'
-      - 'packages/vhhealth_core/lib/**'
-      - 'apps/device-gateway/src/**'
-      - 'apps/backend/src/docs/openapi.json'
-      - 'apps/backend/src/app.js'
-      - 'scripts/ci/check-client-paths.mjs'
-      - 'scripts/ci/check-client-paths.test.mjs'
-      - 'scripts/ci/client-path-allowlist.json'
-      - '.github/workflows/ci-client-contract.yml'
-      - '.github/workflows/_reusable-client-contract.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/admin/src/**'
-      - 'apps/patient/lib/**'
-      - 'apps/staff/lib/**'
-      - 'packages/vhhealth_core/lib/**'
-      - 'apps/device-gateway/src/**'
-      - 'apps/backend/src/docs/openapi.json'
-      - 'apps/backend/src/app.js'
-      - 'scripts/ci/check-client-paths.mjs'
-      - 'scripts/ci/check-client-paths.test.mjs'
-      - 'scripts/ci/client-path-allowlist.json'
-      - '.github/workflows/ci-client-contract.yml'
-      - '.github/workflows/_reusable-client-contract.yml'
 
 concurrency:
   group: ci-client-contract-${{ github.ref }}

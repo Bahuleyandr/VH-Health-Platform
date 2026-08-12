@@ -48,8 +48,44 @@ env:
   BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
 
 jobs:
+  prepare-prisma:
+    name: Prepare generated Prisma client
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: apps/backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:1/prisma_generate_only
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Restore generated Prisma client
+        id: prisma-client
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/node_modules/.prisma
+          key: prisma-client-${{ runner.os }}-node-26-${{ hashFiles('apps/backend/package-lock.json', 'apps/backend/prisma/schema.prisma') }}
+
+      - name: Generate Prisma client on cache miss
+        if: steps.prisma-client.outputs.cache-hit != 'true'
+        run: npx prisma generate
+
+      - name: Verify generated Prisma client
+        run: node --input-type=module -e "const client = await import('@prisma/client'); if (typeof client.PrismaClient !== 'function') throw new Error('PrismaClient export missing');"
+
   static-checks:
     name: Backend lint + static checks
+    needs: prepare-prisma
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -85,6 +121,13 @@ jobs:
 
       - run: npm ci
 
+      - name: Restore generated Prisma client
+        id: prisma-client
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/node_modules/.prisma
+          key: prisma-client-${{ runner.os }}-node-26-${{ hashFiles('apps/backend/package-lock.json', 'apps/backend/prisma/schema.prisma') }}
+
       - name: Security audit
         run: |
           npm audit --audit-level=high
@@ -112,6 +155,7 @@ jobs:
         run: npm run openapi:lint-budget
 
       - name: Generate Prisma client
+        if: steps.prisma-client.outputs.cache-hit != 'true'
         run: npx prisma generate
 
       - name: OpenAPI drift check (regenerate live-router spec + diff)
@@ -180,6 +224,7 @@ jobs:
 
   test:
     name: Backend tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: prepare-prisma
     runs-on: ubuntu-latest
     # Prisma generation can consume more than 20 minutes on hosted runners
     # before the approximately 15-minute test shard starts.
@@ -223,7 +268,15 @@ jobs:
 
       - run: npm ci
 
+      - name: Restore generated Prisma client
+        id: prisma-client
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: apps/backend/node_modules/.prisma
+          key: prisma-client-${{ runner.os }}-node-26-${{ hashFiles('apps/backend/package-lock.json', 'apps/backend/prisma/schema.prisma') }}
+
       - name: Generate Prisma client
+        if: steps.prisma-client.outputs.cache-hit != 'true'
         run: npx prisma generate
 
       - name: Enable pgvector extension

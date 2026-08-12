@@ -1,47 +1,14 @@
 name: Flutter CI
 
-# Runs only when the Flutter side of the repo (apps/patient, apps/staff,
-# packages/vhhealth_core) or workspace-wide plumbing changes. Admin + backend
-# edits skip this workflow via path filters.
+# Manual full-stack diagnostic wrapper. Automatic feature-branch selection now
+# lives in Canonical CI: quick pushes call the same reusable workflow only for
+# Flutter changes, while the final dispatch calls it once in the full matrix.
 #
-# The two docs in the path list are here on purpose: they are the guarded
-# inputs to scripts/check-docs-plugin-versions.mjs, so a docs-only edit that
-# states a wrong plugin constraint still has to clear the drift gate. Both
-# sides of that check (pubspec and doc) must be able to trigger it, or the
-# gate has a hole.
+# The reusable workflow still owns the docs-vs-pubspec drift assertion; the
+# canonical planner owns its trigger paths.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/patient/**'
-      - 'apps/staff/**'
-      - 'packages/vhhealth_core/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'scripts/codegen.mjs'
-      - 'scripts/check-docs-plugin-versions.mjs'
-      - 'scripts/check-docs-plugin-versions.test.mjs'
-      - 'docs/FLUTTER_PLUGIN_MAJOR_MIGRATIONS.md'
-      - 'docs/SMOKE_E2E_JOURNEYS.md'
-      - '.github/workflows/ci-flutter.yml'
-      - '.github/workflows/_reusable-flutter-workspace.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'apps/patient/**'
-      - 'apps/staff/**'
-      - 'packages/vhhealth_core/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'scripts/codegen.mjs'
-      - 'scripts/check-docs-plugin-versions.mjs'
-      - 'scripts/check-docs-plugin-versions.test.mjs'
-      - 'docs/FLUTTER_PLUGIN_MAJOR_MIGRATIONS.md'
-      - 'docs/SMOKE_E2E_JOURNEYS.md'
-      - '.github/workflows/ci-flutter.yml'
-      - '.github/workflows/_reusable-flutter-workspace.yml'
 
 concurrency:
   group: ci-flutter-${{ github.ref }}
