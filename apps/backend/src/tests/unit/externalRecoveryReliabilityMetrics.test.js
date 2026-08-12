@@ -7,6 +7,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafeMock },
   circuitBreakerStatus: () => ({ open: false }),
   isTenantTransactionClient: () => true,
+  setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
   setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock })
 }));
 
