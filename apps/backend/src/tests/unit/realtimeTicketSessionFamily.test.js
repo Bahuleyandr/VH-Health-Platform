@@ -56,6 +56,7 @@ function dependentRow(overrides = {}) {
 }
 
 let currentActing = null;
+let currentAccessJti = 'access-jti-after-refresh';
 const app = express();
 app.use(express.json());
 app.use((req, _res, next) => {
@@ -63,7 +64,7 @@ app.use((req, _res, next) => {
   req.user = {
     uid: 'user-1',
     role: 'PATIENT',
-    jti: 'access-jti-after-refresh',
+    jti: currentAccessJti,
     sessionFamilyId: 'session-family-1',
     stableDeviceId: 'device-1',
   };
@@ -94,6 +95,7 @@ describe('POST /api/v1/realtime/ticket session binding', () => {
     queryRawUnsafeMock.mockReset();
     queryRawUnsafeMock.mockResolvedValue([dependentRow()]);
     currentActing = null;
+    currentAccessJti = 'access-jti-after-refresh';
   });
 
   it('binds the short-lived ticket to the parent access-token session', async () => {
@@ -103,6 +105,7 @@ describe('POST /api/v1/realtime/ticket session binding', () => {
     expect(generateTokenMock).toHaveBeenCalledWith(
       expect.objectContaining({
         scope: 'ws',
+        accessSessionJti: 'access-jti-after-refresh',
         sessionFamilyId: 'session-family-1',
         stableDeviceId: 'device-1',
       }),
@@ -121,11 +124,21 @@ describe('POST /api/v1/realtime/ticket session binding', () => {
       expect.objectContaining({
         uid: 'user-1',
         revocationOwnerUid: 'guardian-1',
+        accessSessionJti: 'access-jti-after-refresh',
         sessionFamilyId: 'session-family-1',
         stableDeviceId: 'device-1',
       }),
       '60s',
     );
+  });
+
+  it('refuses to mint a ticket without an authenticated access-session jti', async () => {
+    currentAccessJti = null;
+
+    const response = await request(app).post('/api/v1/realtime/ticket');
+
+    expect(response.status).toBe(403);
+    expect(generateTokenMock).not.toHaveBeenCalled();
   });
 });
 
@@ -188,6 +201,7 @@ describe('POST /api/v1/realtime/ticket delegated-subject lifecycle', () => {
       expect.objectContaining({
         uid: DEPENDENT_UID,
         revocationOwnerUid: GUARDIAN_UID,
+        accessSessionJti: 'guardian-access-jti',
         sessionFamilyId: 'guardian-session-family',
         stableDeviceId: 'guardian-device',
       }),

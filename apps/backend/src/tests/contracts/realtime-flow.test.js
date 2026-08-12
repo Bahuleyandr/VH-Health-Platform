@@ -214,6 +214,20 @@ function expectNoEvent(ws, predicate, { windowMs = 400 } = {}) {
   });
 }
 
+function awaitClose(ws, { timeoutMs = 1500 } = {}) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off('close', onClose);
+      reject(new Error('timeout waiting for socket close'));
+    }, timeoutMs);
+    function onClose(code, reason) {
+      clearTimeout(timer);
+      resolve({ code, reason: reason.toString() });
+    }
+    ws.once('close', onClose);
+  });
+}
+
 async function openAndConnect(port, token) {
   const ws = connect(port, token);
   // Attach the 'connected'-waiter BEFORE awaiting open so we never miss the
@@ -425,5 +439,55 @@ describe('cross-process realtime fan-out (Redis pub/sub)', () => {
     await guardianSilent;
     expect(sibling.readyState).toBe(WebSocket.OPEN);
     expect(guardian.readyState).toBe(WebSocket.OPEN);
+  });
+
+  test('selectorless legacy revocation crosses processes and closes correlated direct and delegated tickets only', async () => {
+    const guardianUid = 'fa11ed00-0000-4000-8000-000000000041';
+    const dependentUid = 'fa11ed00-0000-4000-8000-000000000042';
+    const siblingUid = 'fa11ed00-0000-4000-8000-000000000043';
+    const accessSessionJti = 'legacy-access-session-jti';
+    const direct = await openAndConnect(procB.port, ticket({
+      uid: guardianUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+      accessSessionJti,
+    }));
+    const delegated = await openAndConnect(procB.port, ticket({
+      uid: dependentUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+      revocationOwnerUid: guardianUid,
+      accessSessionJti,
+    }));
+    const sibling = await openAndConnect(procB.port, ticket({
+      uid: siblingUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+      revocationOwnerUid: guardianUid,
+      accessSessionJti: 'sibling-access-session-jti',
+    }));
+    sockets.push(direct, delegated, sibling);
+
+    const directRevoked = awaitEvent(direct, (m) => m.event === 'session:revoked');
+    const delegatedRevoked = awaitEvent(delegated, (m) => m.event === 'session:revoked');
+    const directClosed = awaitClose(direct);
+    const delegatedClosed = awaitClose(delegated);
+    const siblingSilent = expectNoEvent(sibling, (m) => m.event === 'session:revoked');
+
+    procA.wsMod.pushSessionRevoked(guardianUid, {
+      reason: 'session_revoked',
+      jti: accessSessionJti,
+    });
+
+    await expect(directRevoked).resolves.toMatchObject({
+      data: { reason: 'session_revoked', jti: accessSessionJti },
+    });
+    await expect(delegatedRevoked).resolves.toMatchObject({
+      data: { reason: 'session_revoked', jti: accessSessionJti },
+    });
+    await expect(directClosed).resolves.toEqual({ code: 4001, reason: 'Session revoked' });
+    await expect(delegatedClosed).resolves.toEqual({ code: 4001, reason: 'Session revoked' });
+    await siblingSilent;
+    expect(sibling.readyState).toBe(WebSocket.OPEN);
   });
 });

@@ -207,6 +207,29 @@ describe('revokeSession', () => {
     }));
   });
 
+  it('publishes the access jti for a remote legacy row whose selectors are null', async () => {
+    queryRawUnsafeMock.mockImplementation(async (sql) => {
+      if (isRegistrySelect(sql)) {
+        return [registryRow({ session_family_id: null, stable_device_id: null })];
+      }
+      return [];
+    });
+
+    const result = await revokeSession(UID, JTI, {
+      jti: 'caller-jti',
+      expiresAt: EXPIRES_AT,
+      sessionFamilyId: 'caller-family',
+      stableDeviceId: '0ecce6b6-b8b2-4589-91e6-f5d02a35c157',
+    });
+
+    expect(result.success).toBe(true);
+    expect(pushSessionRevokedMock).toHaveBeenCalledWith(UID, {
+      reason: 'session_revoked',
+      jti: JTI,
+      at: expect.any(String),
+    });
+  });
+
   it('scopes the lookup to the caller uid', async () => {
     queryRawUnsafeMock.mockResolvedValue([]);
 

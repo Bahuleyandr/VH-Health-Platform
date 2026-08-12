@@ -35,7 +35,7 @@ const clients = new Map();
 /** @type {Map<string, Set<import('ws').WebSocket>>} authenticated owner uid → Set of sockets */
 const revocationClients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string> }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -323,6 +323,7 @@ async function authenticateAndRegister(ws, token) {
       role,
       tenantId,
       jti: decoded.jti ?? null,
+      accessSessionJti: decoded.accessSessionJti ?? null,
       sessionFamilyId: decoded.sessionFamilyId ?? null,
       stableDeviceId: decoded.stableDeviceId ?? null,
       channels: new Set(),
@@ -539,10 +540,13 @@ function deliverUserLocal(userId, event, data, tenantId) {
       if (!matchesJti && !matchesFamily) continue;
     } else if (revokedStableDeviceId) {
       if (String(meta?.stableDeviceId || '') !== revokedStableDeviceId) continue;
-    } else if (revokedJti && String(meta?.jti || '') !== revokedJti) {
-      // Legacy tokens and callers have no stable session identity. Retain the
-      // exact-jti fallback until those short-lived access tokens expire.
-      continue;
+    } else if (revokedJti) {
+      // A legacy registry row has no family/device selectors. Realtime tickets
+      // carry their authenticated access token's jti so its revocation still
+      // reaches the ticket even though the ticket has a distinct jti.
+      const matchesJti = String(meta?.jti || '') === revokedJti;
+      const matchesAccessSession = String(meta?.accessSessionJti || '') === revokedJti;
+      if (!matchesJti && !matchesAccessSession) continue;
     }
     const open = ws.readyState === 1;
     if (open) {

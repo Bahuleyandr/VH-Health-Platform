@@ -28,6 +28,26 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
       'sibling-ticket': { sessionFamilyId: 'family-b', stableDeviceId: 'device-a', scope: 'ws' },
       'caller-ticket': { sessionFamilyId: 'family-c', stableDeviceId: 'device-a', scope: 'ws' },
       'legacy-ticket': { sessionFamilyId: 'legacy-access', scope: 'ws' },
+      'legacy-correlated-ticket': { accessSessionJti: 'legacy-access', scope: 'ws' },
+      'legacy-correlated-sibling': { accessSessionJti: 'legacy-sibling', scope: 'ws' },
+      'family-precedence-ticket': {
+        accessSessionJti: 'legacy-access',
+        sessionFamilyId: 'family-b',
+        stableDeviceId: 'device-a',
+        scope: 'ws',
+      },
+      'legacy-correlated-delegated': {
+        sub: 'dependent-1',
+        accessSessionJti: 'legacy-access',
+        revocationOwnerUid: 'guardian-1',
+        scope: 'ws',
+      },
+      'legacy-correlated-delegated-sibling': {
+        sub: 'dependent-2',
+        accessSessionJti: 'legacy-sibling',
+        revocationOwnerUid: 'guardian-1',
+        scope: 'ws',
+      },
       'delegated-ticket': {
         sub: 'dependent-1',
         sessionFamilyId: 'family-a',
@@ -296,6 +316,62 @@ describe('session revocation WebSocket closure', () => {
     expect(ordinarySocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     expect(ticketSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
     expect(siblingSocket.close).not.toHaveBeenCalled();
+  });
+
+  it('closes direct and delegated tickets correlated to a selectorless legacy access jti', async () => {
+    initWebSocket({});
+    const directSocket = new FakeSocket();
+    const delegatedSocket = new FakeSocket();
+    const directSiblingSocket = new FakeSocket();
+    const delegatedSiblingSocket = new FakeSocket();
+    for (const socket of [
+      directSocket,
+      delegatedSocket,
+      directSiblingSocket,
+      delegatedSiblingSocket,
+    ]) {
+      serverInstance.clients.add(socket);
+    }
+    serverInstance.emit('connection', directSocket, {
+      url: '/ws?token=legacy-correlated-ticket', headers: {},
+    });
+    serverInstance.emit('connection', delegatedSocket, {
+      url: '/ws?token=legacy-correlated-delegated', headers: {},
+    });
+    serverInstance.emit('connection', directSiblingSocket, {
+      url: '/ws?token=legacy-correlated-sibling', headers: {},
+    });
+    serverInstance.emit('connection', delegatedSiblingSocket, {
+      url: '/ws?token=legacy-correlated-delegated-sibling', headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    pushSessionRevoked('user-1', { reason: 'session_revoked', jti: 'legacy-access' });
+    pushSessionRevoked('guardian-1', { reason: 'session_revoked', jti: 'legacy-access' });
+
+    expect(directSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(delegatedSocket.close).toHaveBeenCalledWith(4001, 'Session revoked');
+    expect(directSiblingSocket.close).not.toHaveBeenCalled();
+    expect(delegatedSiblingSocket.close).not.toHaveBeenCalled();
+  });
+
+  it('does not use access-jti correlation when a stable session family selector is present', async () => {
+    initWebSocket({});
+    const socket = new FakeSocket();
+    serverInstance.clients.add(socket);
+    serverInstance.emit('connection', socket, {
+      url: '/ws?token=family-precedence-ticket', headers: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    pushSessionRevoked('user-1', {
+      reason: 'session_revoked',
+      jti: 'legacy-access',
+      sessionFamilyId: 'family-a',
+      stableDeviceId: 'device-a',
+    });
+
+    expect(socket.close).not.toHaveBeenCalled();
   });
 
   it('keeps delegated delivery scoped to the dependent but revokes by guardian session', async () => {
