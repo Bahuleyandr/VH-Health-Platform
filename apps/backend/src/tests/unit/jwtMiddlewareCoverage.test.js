@@ -378,6 +378,8 @@ describe('jwtMiddleware — acting-as delegation', () => {
     queryRawUnsafeMock.mockResolvedValueOnce([{
       dep_id: 20, dep_uid: DEP_UID, dep_phone: '+919111111111', dep_email: 'kid@test.local',
       dep_role: 'PATIENT', dep_is_minor: true, dep_tenant_id: 'tenant-A',
+      dep_is_active: true, dep_status: 'active', dep_is_deleted: false,
+      dep_deleted_at: null, dep_merged_into_uid: null,
       g_id: 10, g_uid: GUARDIAN_UID, g_tenant_id: 'tenant-A',
     }]);
     let nextCalled = false;

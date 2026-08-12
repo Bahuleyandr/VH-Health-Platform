@@ -337,6 +337,7 @@ async function applyActingAsHop(req, dependentUidRaw) {
   //   - dependent.guardian_user_id = guardian.id
   //   - dependent.is_minor = TRUE
   //   - dependent.role = 'PATIENT'
+  //   - dependent account is live (active, not deleted, not merged)
   //   - tenant parity (fail-closed if guardian.tenant_id != dependent.tenant_id)
   // The query joins guardian by uid (the JWT-supplied actor) so a stolen /
   // mismatched X-Acting-As-Uid can't bypass the guardian check.
@@ -350,6 +351,11 @@ async function applyActingAsHop(req, dependentUidRaw) {
               dep.role        AS dep_role,
               dep.is_minor    AS dep_is_minor,
               dep.tenant_id   AS dep_tenant_id,
+              dep.is_active   AS dep_is_active,
+              dep.status      AS dep_status,
+              dep.is_deleted  AS dep_is_deleted,
+              dep.deleted_at  AS dep_deleted_at,
+              dep.merged_into_uid AS dep_merged_into_uid,
               g.id            AS g_id,
               g.uid           AS g_uid,
               g.tenant_id     AS g_tenant_id
@@ -357,6 +363,14 @@ async function applyActingAsHop(req, dependentUidRaw) {
          JOIN users g ON g.id = dep.guardian_user_id
         WHERE dep.uid = $1::uuid
           AND g.uid = $2::uuid
+          AND dep.role = 'PATIENT'
+          AND dep.is_minor = TRUE
+          AND g.tenant_id = dep.tenant_id
+          AND dep.is_active = TRUE
+          AND dep.status = 'active'
+          AND dep.is_deleted = FALSE
+          AND dep.deleted_at IS NULL
+          AND dep.merged_into_uid IS NULL
         LIMIT 1`,
       dependentUidRaw,
       req.user.uid,
@@ -391,7 +405,24 @@ async function applyActingAsHop(req, dependentUidRaw) {
 
   const row = rows[0];
 
-  // Hard gates: minor + PATIENT role + same tenant. Each fails closed.
+  // Hard gates: live lifecycle + minor + PATIENT role + same tenant.
+  if (
+    row.dep_is_active !== true
+    || String(row.dep_status || '').trim().toLowerCase() !== 'active'
+    || row.dep_is_deleted !== false
+    || row.dep_deleted_at != null
+    || row.dep_merged_into_uid != null
+  ) {
+    logger.warn(`Acting-as denied: dependent ${row.dep_uid} is not active`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
   if (!row.dep_is_minor) {
     logger.warn(`Acting-as denied: dependent ${row.dep_uid} not a minor`);
     return {
@@ -403,7 +434,7 @@ async function applyActingAsHop(req, dependentUidRaw) {
       },
     };
   }
-  if (row.dep_role && row.dep_role !== 'PATIENT') {
+  if (row.dep_role !== 'PATIENT') {
     logger.warn(`Acting-as denied: dependent ${row.dep_uid} role=${row.dep_role}`);
     return {
       status: 403,

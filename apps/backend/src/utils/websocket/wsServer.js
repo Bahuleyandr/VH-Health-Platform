@@ -41,6 +41,42 @@ const HEARTBEAT_INTERVAL = 30_000; // 30s
 const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1MB buffer limit per client
 const MAX_CONNECTIONS_PER_USER = 5;
 
+async function isDelegatedSubjectLive(userId, revocationOwnerUid, tenantId) {
+  const { default: prisma } = await import('../../lib/prisma.js');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT dep.uid, dep.role, dep.is_minor, dep.is_active, dep.status,
+            dep.is_deleted, dep.deleted_at, dep.merged_into_uid
+       FROM users dep
+       JOIN users guardian ON guardian.id = dep.guardian_user_id
+      WHERE dep.uid = $1::uuid
+        AND dep.tenant_id = $2::uuid
+        AND guardian.uid = $3::uuid
+        AND guardian.tenant_id = dep.tenant_id
+        AND dep.role = 'PATIENT'
+        AND dep.is_minor = TRUE
+        AND dep.is_active = TRUE
+        AND dep.status = 'active'
+        AND dep.is_deleted = FALSE
+        AND dep.deleted_at IS NULL
+        AND dep.merged_into_uid IS NULL
+      LIMIT 1`,
+    userId,
+    tenantId,
+    revocationOwnerUid,
+  );
+  const subject = rows[0];
+  return Boolean(
+    subject
+    && subject.role === 'PATIENT'
+    && subject.is_minor === true
+    && subject.is_active === true
+    && String(subject.status || '').trim().toLowerCase() === 'active'
+    && subject.is_deleted === false
+    && subject.deleted_at == null
+    && subject.merged_into_uid == null
+  );
+}
+
 export function initWebSocket(server) {
   if (wss) {
     closeWebSocket();
@@ -176,6 +212,7 @@ async function authenticateAndRegister(ws, token) {
     ws.close(4001, 'Invalid token payload');
     return;
   }
+  const ownerIsSubject = revocationOwnerUid.toLowerCase() === userId.toLowerCase();
 
   // Check if all user tokens were revoked (force-logout)
   if (decoded.iat) {
@@ -194,7 +231,6 @@ async function authenticateAndRegister(ws, token) {
       // guardian session. Either identity's later revoke-all must stop the
       // handshake. The guardian's token_epoch is not meaningful for the
       // dependent, so that second check uses the durable timestamp predicate.
-      const ownerIsSubject = revocationOwnerUid.toLowerCase() === userId.toLowerCase();
       if (!ownerIsSubject) {
         const subjectRevoked = await isUserTokensRevoked(userId, decoded.iat, undefined);
         if (subjectRevoked) {
@@ -204,6 +240,32 @@ async function authenticateAndRegister(ws, token) {
       }
     } catch (err) {
       logger.error('WS denied (fail closed): revocation store unreachable', {
+        error: err?.message,
+        userId,
+        revocationOwnerUid,
+      });
+      ws.close(1013, 'Authentication unavailable');
+      return;
+    }
+  }
+
+  // The revocation watermark only rejects tickets issued before retirement.
+  // Re-resolve delegated authority and subject lifecycle at handshake so a
+  // ticket minted after a merge watermark, or before a concurrent lifecycle
+  // transition, cannot reconnect as an inactive/deleted/merged dependent.
+  if (!ownerIsSubject) {
+    try {
+      const subjectLive = await isDelegatedSubjectLive(
+        userId,
+        revocationOwnerUid,
+        tenantId,
+      );
+      if (!subjectLive) {
+        ws.close(4001, 'Delegated subject unavailable');
+        return;
+      }
+    } catch (err) {
+      logger.error('WS denied (fail closed): delegated subject lookup unavailable', {
         error: err?.message,
         userId,
         revocationOwnerUid,

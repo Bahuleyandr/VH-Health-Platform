@@ -61,9 +61,26 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
   },
 }));
 const isUserTokensRevokedMock = jest.fn().mockResolvedValue(false);
+function liveDependent(overrides = {}) {
+  return {
+    uid: 'dependent-1',
+    role: 'PATIENT',
+    is_minor: true,
+    is_active: true,
+    status: 'active',
+    is_deleted: false,
+    deleted_at: null,
+    merged_into_uid: null,
+    ...overrides,
+  };
+}
+const queryRawUnsafeMock = jest.fn().mockResolvedValue([liveDependent()]);
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
   isUserTokensRevoked: isUserTokensRevokedMock,
+}));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: { $queryRawUnsafe: queryRawUnsafeMock },
 }));
 jest.unstable_mockModule('../../utils/websocket/channelAuth.js', () => ({
   authorizeChannel: () => ({ allowed: true, reason: 'ok' }),
@@ -104,6 +121,8 @@ describe('session revocation WebSocket closure', () => {
   beforeEach(() => {
     isUserTokensRevokedMock.mockReset();
     isUserTokensRevokedMock.mockResolvedValue(false);
+    queryRawUnsafeMock.mockReset();
+    queryRawUnsafeMock.mockResolvedValue([liveDependent()]);
   });
 
   afterEach(async () => {
@@ -363,6 +382,29 @@ describe('session revocation WebSocket closure', () => {
     }));
   });
 
+  it.each([
+    ['inactive', { is_active: false }],
+    ['deleted', { is_deleted: true, deleted_at: new Date().toISOString(), status: 'deleted' }],
+    ['merged', { merged_into_uid: 'survivor-1' }],
+  ])(
+    'rejects a delegated handshake when the dependent is %s',
+    async (_label, lifecycle) => {
+      queryRawUnsafeMock.mockResolvedValueOnce([liveDependent(lifecycle)]);
+      initWebSocket({});
+      const socket = new FakeSocket();
+      serverInstance.clients.add(socket);
+
+      serverInstance.emit('connection', socket, {
+        url: '/ws?token=delegated-ticket',
+        headers: {},
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(socket.close).toHaveBeenCalledWith(4001, 'Delegated subject unavailable');
+      expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining('connected'));
+    },
+  );
+
   it('checks a direct socket identity once when owner and subject are equal', async () => {
     initWebSocket({});
     const socket = new FakeSocket();
@@ -377,6 +419,7 @@ describe('session revocation WebSocket closure', () => {
     expect(isUserTokensRevokedMock.mock.calls).toEqual([
       ['user-1', 1000, 3],
     ]);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
     expect(socket.close).not.toHaveBeenCalled();
   });
 
