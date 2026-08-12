@@ -47,6 +47,7 @@ import * as abdmAbhaRegistration from './openapi/schemas/abdmAbhaRegistration.mj
 import * as announcementBanner from './openapi/schemas/announcementBanner.mjs';
 import * as bloodBank from './openapi/schemas/bloodBank.mjs';
 import * as news2 from './openapi/schemas/news2.mjs';
+import * as devices from './openapi/schemas/devices.mjs';
 
 const SCHEMA_MODULES = [
   abdm,
@@ -82,7 +83,8 @@ const SCHEMA_MODULES = [
   abdmAbhaRegistration,
   announcementBanner,
   bloodBank,
-  news2
+  news2,
+  devices
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

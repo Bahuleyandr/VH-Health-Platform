@@ -82,7 +82,8 @@ void main() {
         mainSource,
         matches(
           RegExp(
-            r'_fcmBackgroundHandler[\s\S]*?mayPresentStaffPush\(\)'
+            r'_fcmBackgroundHandler[\s\S]*?mayPresentStaffPush\('
+            r'[\s\S]*?message:\s*message[\s\S]*?\)'
             r'[\s\S]*?cancelSessionNotifications\(\)',
           ),
         ),
