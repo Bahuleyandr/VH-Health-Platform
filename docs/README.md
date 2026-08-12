@@ -10,6 +10,7 @@ operations.
 | Topic | Document |
 | --- | --- |
 | **Go-live critical path (operator sequence)** | [`GO_LIVE_CRITICAL_PATH.md`](GO_LIVE_CRITICAL_PATH.md) |
+| **2026-08-11 Audit #3 final reconciliation** | [`archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md`](archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md) |
 | Release gate | [`RELEASE_READINESS.md`](RELEASE_READINESS.md) |
 | Deployment runbook | [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) |
 | India go-live readiness | [`india-deployment-readiness.md`](india-deployment-readiness.md) |
@@ -27,6 +28,7 @@ were consolidated into it on 2026-06-22 and moved to [`archive/`](archive/).
 | Topic | Document | Notes |
 | --- | --- | --- |
 | Pending work (consolidated) | [`ROADMAP.md`](ROADMAP.md) | What's left + links to the live runbooks; **start here** |
+| Audit #3 final reconciliation | [`archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md`](archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md) | P0–P10 merged evidence, updated rating, and operator-only residuals |
 | Pilot staff workflow scenarios | [`PILOT_STAFF_WORKFLOW_SCENARIOS.md`](PILOT_STAFF_WORKFLOW_SCENARIOS.md) | Real-world workflow coverage for pilot |
 | Archived planning docs | [`archive/`](archive/) | Point-in-time roadmaps / logs (provenance only) |
 

@@ -2,7 +2,9 @@
 
 > **One-page operator sequence.** Everything substantial is **code-complete and merged to `main`** — go-live is now **operator execution**, not engineering. This doc orders the existing runbooks with their dependencies so an operator runs them in the right sequence. Each step links the authoritative runbook; this page is the index, not the detail.
 >
-> _Last reconciled: 2026-06-29 (`main` @ `bf9d225a`). Live work tracker: [`ROADMAP.md`](ROADMAP.md) §0._
+> _Last reconciled: 2026-08-12 (`main` @ `a4227ed93`). Audit #3 P0–P10 is
+> code-complete; the operator sequence below remains unchanged. Evidence:
+> [`PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md`](archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md)._
 
 ## Current posture (start here)
 

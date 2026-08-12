@@ -1,6 +1,6 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Last reconciled: 2026-06-29.**
+**Single source of truth for pending work. Last reconciled: 2026-08-12.**
 
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
@@ -9,15 +9,24 @@ remediation plans/work-order, the execution log, and the tenant-RLS gap
 analysis). Those source docs are now in [`archive/`](archive/) — see
 [§8](#8-archived-source-docs).
 
-**Code/CI state:** `main` @ `bf9d225a`; GitHub CI (Backend + Smoke E2E +
-Canonical) green; the S-tier program (WS0–WS8) and the full multi-tenancy
-program are **code-complete**. **[§0](#0--engineering-remediation-backlog-2026-06-22-codebase-audit) is the front of queue** — the 2026-06-22 full-codebase audit found real engineering work (13 adversarially-confirmed High findings) that ranks **ahead** of the operator/external gates in §1–§8 (which remain the go-live-execution + external/procurement tail). Step-by-step execution runbooks remain **live at `docs/`** (linked inline).
+**Code/CI state:** Audit #3 P0–P10 is merged at `main` @ `a4227ed93`.
+The final exact source head passed the protected full backend, Flutter, Admin,
+FHIR, contract, infrastructure, and security matrix. See the
+[`2026-08-11 Audit #3 final reconciliation`](archive/audits/PLATFORM_AUDIT_2026-08-11_RECONCILIATION.md)
+for the closure matrix, updated rating, and evidence limitations. The remaining
+front of queue is the operator/external/procurement sequence in §§1–8; a code
+merge does not authorize any deployment or activation.
 
 > **2026-07-05 — next chapter:** §0's engineering backlog (Tier 0/1/2) is complete.
 > The forward **build** program now lives in
 > [`NEXT_LEVEL_ROADMAP.md`](NEXT_LEVEL_ROADMAP.md) (enterprise-grade programs
 > NL-1–NL-12, waves A–D); its §2 absorbs this file's remaining T2/§5/§6 code items.
 > §§1–4 of THIS file remain the authoritative operator/go-live track.
+
+> **2026-08-12 — Audit #3:** the P0–P10 engineering train is complete on
+> `main`. Live identity/session inspection, runtime DB-role proof, migration-660
+> retention disposition, signed release digests, and the existing environment
+> drills remain operator-owned. Held surfaces remain inactive.
 
 ## Legend
 
