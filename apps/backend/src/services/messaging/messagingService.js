@@ -347,6 +347,21 @@ async function notifyMessageRecipient(message, senderUid, priority, subject, bod
   });
 }
 
+async function notifyMessageRecipientAfterCommit(message, senderUid, priority, subject, body) {
+  try {
+    await notifyMessageRecipient(message, senderUid, priority, subject, body);
+    return true;
+  } catch (err) {
+    logger.error('Staff message notification failed after commit', {
+      error: err?.message || String(err),
+      messageId: message.id,
+      recipientUid: message.recipient_uid,
+      tenantId: message.tenant_id
+    });
+    return false;
+  }
+}
+
 async function resolveThreadRecipient(db, { threadId, senderUid, recipientUid = null, tenantId }) {
   const normalizedTenant = normalizeTenant(tenantId);
   await assertThreadAccess(db, {
@@ -614,7 +629,13 @@ const messagingService = {
         return saved;
       });
 
-      await notifyMessageRecipient(message, senderUid, normalizedPriority, subject, body);
+      await notifyMessageRecipientAfterCommit(
+        message,
+        senderUid,
+        normalizedPriority,
+        subject,
+        body
+      );
 
       logger.info(
         `Staff message sent: ${message.id} from ${senderUid} to ${recipientUid} [${normalizedPriority}]`
@@ -732,7 +753,7 @@ const messagingService = {
         };
       });
 
-      await notifyMessageRecipient(
+      await notifyMessageRecipientAfterCommit(
         result.message,
         senderUid,
         normalizedPriority,
@@ -820,7 +841,13 @@ const messagingService = {
 
       await Promise.all(
         created.map(message =>
-          notifyMessageRecipient(message, senderUid, normalizedPriority, subject, body)
+          notifyMessageRecipientAfterCommit(
+            message,
+            senderUid,
+            normalizedPriority,
+            subject,
+            body
+          )
         )
       );
 

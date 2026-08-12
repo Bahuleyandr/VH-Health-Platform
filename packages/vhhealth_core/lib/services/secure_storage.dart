@@ -24,9 +24,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 ///    device Keychain; inaccessible before first unlock after reboot so PHI
 ///    cannot be dumped from a powered-off device.
 ///
-/// Web is intentionally excluded from both overrides because it has no
-/// Keychain / Keystore; values are stored in memory only (no persistent
-/// PHI is written on web builds).
+/// Web is intentionally excluded from both overrides because browsers have no
+/// Keychain / Keystore. The plugin's web backend may persist values in browser
+/// storage, so PHI-capable web apps must enforce their own activation gate.
 class VHSecureStorage {
   VHSecureStorage._();
 
@@ -53,7 +53,8 @@ class VHSecureStorage {
     );
 
     if (kIsWeb) {
-      // Web: no persistent keychain — use defaults; no PHI should be stored.
+      // Web has no hardware-backed keychain. Callers must not treat this as a
+      // secure durable credential store.
       return const FlutterSecureStorage();
     }
 

@@ -27,7 +27,7 @@ const queryRawUnsafe = jest.fn();
 const payrollRunsFindFirst = jest.fn();
 const payrollRunsUpdate = jest.fn();
 const payrollRunsCreate = jest.fn();
-const payslipsUpsert = jest.fn();
+const payslipInsert = jest.fn();
 const payslipsUpdate = jest.fn();
 const salaryAdvancesUpdate = jest.fn();
 const salaryAdvancesUpdateMany = jest.fn();
@@ -41,7 +41,7 @@ const __prismaDefaultMock = {
     update: payrollRunsUpdate,
     create: payrollRunsCreate,
   },
-  payslips: { upsert: payslipsUpsert, update: payslipsUpdate },
+  payslips: { update: payslipsUpdate },
   salary_advances: { update: salaryAdvancesUpdate, updateMany: salaryAdvancesUpdateMany },
   advance_deductions: { create: advanceDeductionsCreate },
   salary_arrears: { updateMany: salaryArrearsUpdateMany },
@@ -61,6 +61,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => TENANT,
+  requireTenantId: (tenantId) => tenantId || TENANT,
 }));
 
 jest.unstable_mockModule('../../utils/notifications/notificationDispatcher.js', () => ({
@@ -109,6 +110,10 @@ function installQueryRouter(overrides = {}) {
 
     // Controller's staff enumeration (aliased `ss`) — matched before the
     // single-staff salary lookup, which selects FROM staff_salary unaliased.
+    if (sql.includes('INSERT INTO payslips')) {
+      payslipInsert(sql, ...params);
+      return [{ id: 99, tenant_id: params[0], payroll_run_id: params[1], staff_uid: params[2] }];
+    }
     if (sql.includes('FROM staff_salary ss')) return run('staffList', []);
     if (sql.includes('FROM staff_salary WHERE staff_uid')) {
       return run('salaryConfig', [{ ...SALARY_ROW, staff_uid: uid }]);
@@ -129,7 +134,6 @@ function installQueryRouter(overrides = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   installQueryRouter();
-  payslipsUpsert.mockImplementation(async ({ create }) => ({ id: 99, ...create }));
   payrollRunsUpdate.mockResolvedValue({ id: 42 });
   payrollRunsCreate.mockResolvedValue({ id: 42 });
   payrollRunsFindFirst.mockResolvedValue(null);
@@ -175,7 +179,7 @@ describe('calculatePayslip fails loudly instead of fabricating zeros', () => {
     installQueryRouter({ attendance: DB_DOWN });
 
     await expect(calculatePayslip(STAFF_OK, 3, 2026)).rejects.toThrow();
-    expect(payslipsUpsert).not.toHaveBeenCalled();
+    expect(payslipInsert).not.toHaveBeenCalled();
   });
 });
 
@@ -244,8 +248,8 @@ describe('runPayroll persists per-run failures', () => {
     await runPayroll(req(), res);
 
     // The healthy staffer was still paid.
-    expect(payslipsUpsert).toHaveBeenCalledTimes(1);
-    expect(payslipsUpsert.mock.calls[0][0].create.staff_uid).toBe(STAFF_OK);
+    expect(payslipInsert).toHaveBeenCalledTimes(1);
+    expect(payslipInsert.mock.calls[0].slice(1, 4)).toEqual([TENANT, 42, STAFF_OK]);
 
     // The persisted run tells the truth about the one that was not.
     expect(payrollRunsUpdate).toHaveBeenCalledTimes(1);

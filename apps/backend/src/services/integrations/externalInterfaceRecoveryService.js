@@ -476,7 +476,7 @@ export async function enqueueExternalRecoveryItem({
   const token = requireText(sourceToken, 'source_token', 255);
   const predecessor = requireText(predecessorToken, 'predecessor_token', 255);
   const duplicate = requireText(duplicateKey, 'duplicate_key', 255);
-  const initialLeaseOwner = config.id === 'I03' && leaseOwner !== null
+  const initialLeaseOwner = leaseOwner !== null
     ? requireUuid(leaseOwner, 'lease_owner')
     : null;
   const occurred = config.id === 'I03'
@@ -642,7 +642,7 @@ export async function enqueueExternalRecoveryItem({
           ? row.occurred_matches === true
           : new Date(row.occurred_at).toISOString() === occurred));
       if (exact && collisions.length === 1) {
-        if (config.id === 'I03' && exact.status === 'pending' && initialLeaseOwner) {
+        if (exact.status === 'pending' && initialLeaseOwner) {
           const takeover = await tx.$queryRawUnsafe(
             `UPDATE pathway_projector_inbox
                 SET lease_owner = $3::uuid,
@@ -1082,9 +1082,10 @@ export async function processNextItemTx({
          WHERE tenant_id = $1::uuid AND inbox_id = $2::uuid AND status = 'pending'
            AND (
              lease_owner IS NULL
-             OR ($4::boolean AND (lease_owner = $3::uuid OR lease_expires_at <= NOW()))
-           )
-         RETURNING attempts`, tid, inbox.inbox_id, owner, config.id === 'I03',
+             OR lease_owner = $3::uuid
+             OR lease_expires_at <= NOW()
+            )
+          RETURNING attempts`, tid, inbox.inbox_id, owner,
     );
     if (claimed.length !== 1) throw AppError.conflict('Recovery claim fence was lost', 'EXTERNAL_RECOVERY_CLAIM_FENCE_LOST');
 
@@ -1194,6 +1195,27 @@ export const registerColdChainRecoveryOffset = (input) => registerExternalRecove
 export const authorizeColdChainRecoveryResume = (input) => authorizeExternalRecoveryResume({ ...input, interfaceFamily: 'I10' });
 export const enqueueColdChainRecoveryItem = (input) => enqueueExternalRecoveryItem({ ...input, interfaceFamily: 'I10' });
 
+/**
+ * Persist one recovery command and process it under a single fenced lease.
+ *
+ * Enqueue and domain application intentionally remain separate transactions so
+ * the durable inbox survives a process crash. Exact source retries use this
+ * helper to reclaim an unowned/stale lease and finish the head item instead of
+ * returning an authoritative 2xx "pending" forever.
+ */
+export async function enqueueAndProcessExternalRecoveryItem(operation = {}) {
+  const leaseOwner = randomUUID();
+  const queued = await enqueueExternalRecoveryItem({ ...operation, leaseOwner });
+  if (queued.held || queued.status === 'handled') return queued;
+  if (queued.duplicate === true && queued.status === 'pending' && queued.lease_acquired !== true) {
+    throw AppError.conflict(
+      'The exact external recovery item is still leased for processing',
+      'EXTERNAL_RECOVERY_PENDING'
+    );
+  }
+  return processNextItemTx({ ...operation, leaseOwner });
+}
+
 export function isCanonicalRecoveryFingerprint(value) {
   return SHA256_PATTERN.test(String(value || ''));
 }
@@ -1203,6 +1225,7 @@ export const externalInterfaceRecoveryService = Object.freeze({
   readExternalRecoveryResumeState,
   authorizeExternalRecoveryResume,
   enqueueExternalRecoveryItem,
+  enqueueAndProcessExternalRecoveryItem,
   processNextItemTx,
   registerColdChainRecoveryOffset,
   authorizeColdChainRecoveryResume,

@@ -11,6 +11,7 @@ import 'package:pedometer/pedometer.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/steps/models/step_models.dart';
+import 'package:vhhealth/features/steps/services/walk_session_checkpoint_store.dart';
 import 'package:vhhealth/features/steps/widgets/step_history_section.dart';
 import 'package:vhhealth/features/steps/widgets/step_leaderboard_section.dart';
 import 'package:vhhealth/features/steps/widgets/step_profile_section.dart';
@@ -26,7 +27,8 @@ class StepChallengeScreen extends StatefulWidget {
   State<StepChallengeScreen> createState() => _StepChallengeScreenState();
 }
 
-class _StepChallengeScreenState extends State<StepChallengeScreen> {
+class _StepChallengeScreenState extends State<StepChallengeScreen>
+    with WidgetsBindingObserver {
   // ── Profile ──
   StepProfile? _profile;
   bool _loadingProfile = true;
@@ -70,6 +72,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   Position? _lastPosition;
   StreamSubscription<Position>? _positionStream;
   Timer? _elapsedTimer;
+  final _walkCheckpointStore = WalkSessionCheckpointStore();
 
   // ── Pedometer (hardware step counter) ──
   StreamSubscription<StepCount>? _pedometerSubscription;
@@ -78,8 +81,19 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initPedometer();
+    unawaited(_reconcilePendingWalk(showFeedback: false));
     _fetchAll();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_checkpointWalk());
+    }
   }
 
   void _initPedometer() {
@@ -110,6 +124,8 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_checkpointWalk());
     _nameController.dispose();
     _goalController.dispose();
     _positionStream?.cancel();
@@ -266,6 +282,8 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   // ─── GPS walk ────────────────────────────────────────────────────────────
 
   Future<void> _startWalk() async {
+    if (!await _reconcilePendingWalk(showFeedback: true)) return;
+
     // Request location permission
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -300,6 +318,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
         _pedometerBaseline =
             null; // Reset so next pedometer event sets baseline
       });
+      await _checkpointWalk();
 
       // Start GPS stream
       _positionStream =
@@ -332,7 +351,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
 
       // Elapsed timer
       _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() => _elapsedSeconds++);
+        if (!mounted) return;
+        setState(() => _elapsedSeconds++);
+        if (_elapsedSeconds % 5 == 0) unawaited(_checkpointWalk());
       });
     } catch (e) {
       _showError('Failed to start walk');
@@ -340,6 +361,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   }
 
   Future<void> _stopWalk() async {
+    await _checkpointWalk();
     unawaited(_positionStream?.cancel());
     _positionStream = null;
     _elapsedTimer?.cancel();
@@ -349,16 +371,6 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
     final steps = _estimatedSteps;
     final distance = _totalDistanceMeters;
     final duration = _elapsedSeconds;
-
-    setState(() {
-      _isWalking = false;
-      _activeSessionId = null;
-      _totalDistanceMeters = 0;
-      _estimatedSteps = 0;
-      _elapsedSeconds = 0;
-      _lastPosition = null;
-      _pedometerBaseline = null;
-    });
 
     if (sessionId == null) return;
 
@@ -374,14 +386,93 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
       );
 
       if (resp.isSuccess) {
+        await _walkCheckpointStore.clear();
+        if (mounted) {
+          setState(() {
+            _isWalking = false;
+            _activeSessionId = null;
+            _totalDistanceMeters = 0;
+            _estimatedSteps = 0;
+            _elapsedSeconds = 0;
+            _lastPosition = null;
+            _pedometerBaseline = null;
+          });
+        }
         final distKm = (distance / 1000).toStringAsFixed(2);
         _showSuccess('Walk done! $steps steps • ${distKm}km');
         await Future.wait([_fetchHistory(), _fetchLeaderboard()]);
       } else {
-        _showError(resp.failureMessage('Failed to save walk data'));
+        if (mounted) setState(() => _isWalking = false);
+        _showError(
+          '${resp.failureMessage('Failed to save walk data')}. Your walk is saved locally and will retry before the next walk.',
+        );
       }
     } catch (e) {
-      _showError('Failed to save walk data');
+      if (mounted) setState(() => _isWalking = false);
+      _showError(
+        'Failed to save walk data. Your walk is saved locally and will retry before the next walk.',
+      );
+    }
+  }
+
+  Future<void> _checkpointWalk() async {
+    final sessionId = _activeSessionId;
+    if (sessionId == null) return;
+    try {
+      await _walkCheckpointStore.save(
+        WalkSessionCheckpoint(
+          sessionId: sessionId,
+          steps: _estimatedSteps,
+          distanceMeters: _totalDistanceMeters,
+          durationSeconds: _elapsedSeconds,
+          savedAt: DateTime.now(),
+        ),
+      );
+    } catch (_) {
+      debugPrint('Unable to checkpoint the active walk');
+    }
+  }
+
+  Future<bool> _reconcilePendingWalk({required bool showFeedback}) async {
+    try {
+      final checkpoint = await _walkCheckpointStore.read();
+      if (checkpoint == null) return true;
+      final resp = await ApiClient.post(
+        '/steps/session/stop',
+        body: {
+          'sessionId': checkpoint.sessionId,
+          'steps': checkpoint.steps,
+          'distanceMeters': checkpoint.distanceMeters,
+          'durationSeconds': checkpoint.durationSeconds,
+        },
+      );
+      if (!resp.isSuccess) {
+        if (showFeedback) {
+          _showError(
+            'Your previous walk is still saved locally. Connect to the server before starting another walk.',
+          );
+        }
+        return false;
+      }
+      await _walkCheckpointStore.clear();
+      if (_activeSessionId == checkpoint.sessionId && mounted) {
+        setState(() {
+          _activeSessionId = null;
+          _totalDistanceMeters = 0;
+          _estimatedSteps = 0;
+          _elapsedSeconds = 0;
+        });
+      }
+      if (showFeedback) _showSuccess('Your previous walk was recovered');
+      unawaited(_fetchHistory());
+      return true;
+    } catch (_) {
+      if (showFeedback) {
+        _showError(
+          'Your previous walk is still saved locally. Connect to the server before starting another walk.',
+        );
+      }
+      return false;
     }
   }
 

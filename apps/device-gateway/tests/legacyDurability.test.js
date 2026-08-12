@@ -18,7 +18,7 @@ const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 async function tempRuntime(backendClient, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'vh-gw-durability-test-'));
-  const runtime = new GatewayRuntime({ spoolDir: dir, backendClient, ...options });
+  const runtime = new GatewayRuntime({ spoolDir: dir, backendClient, allowLegacy: true, ...options });
   return { dir, runtime };
 }
 
@@ -211,7 +211,7 @@ describe('legacy backend-outage buffering (GW-2)', () => {
           return { ok: true };
         }),
       });
-      const restarted = new GatewayRuntime({ spoolDir: dir, backendClient: restartedBackend });
+      const restarted = new GatewayRuntime({ spoolDir: dir, backendClient: restartedBackend, allowLegacy: true });
       await restarted.drainAllLegacy();
       expect(ingested).toEqual(['CTRL-R1', 'CTRL-R2']);
       // Idempotent: a second pass has nothing left to deliver.
@@ -228,7 +228,7 @@ describe('legacy backend-outage buffering (GW-2)', () => {
     try {
       await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-S1') });
 
-      const restarted = new GatewayRuntime({ spoolDir: dir, backendClient: backend });
+      const restarted = new GatewayRuntime({ spoolDir: dir, backendClient: backend, allowLegacy: true });
       await restarted.discoverLegacySpools();
       const discovered = [...restarted.legacySpools.values()];
       expect(discovered).toHaveLength(1);

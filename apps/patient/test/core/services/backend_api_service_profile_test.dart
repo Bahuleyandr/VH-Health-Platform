@@ -18,6 +18,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({'jwt': 'patient-access-token'});
     VHHttpClient.resetClientForTesting();
     VHHttpClient.onSessionExpired = null;
+    VHHttpClient.appCheckTokenProvider = null;
 
     outageController = PatientOutageController.forTesting(
       request: () => throw StateError('readiness must not be called'),
@@ -31,6 +32,7 @@ void main() {
   tearDown(() {
     VHHttpClient.resetClientForTesting();
     VHHttpClient.onSessionExpired = null;
+    VHHttpClient.appCheckTokenProvider = null;
     PatientOutageController.resetAfterTesting();
     outageController.dispose();
   });
@@ -113,4 +115,41 @@ void main() {
 
     expect(saved, isFalse);
   });
+
+  test(
+    'Firebase login uses shared unauthenticated transport with App Check',
+    () async {
+      VHHttpClient.appCheckTokenProvider = () async => 'app-check-token';
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          expect(request.method, 'POST');
+          expect(request.url.path, endsWith('/auth/firebase/firebase-login'));
+          expect(request.headers['authorization'], isNull);
+          expect(request.headers['x-firebase-appcheck'], 'app-check-token');
+          expect(jsonDecode(request.body), {
+            'idToken': 'firebase-id-token',
+            'deviceType': 'mobile',
+          });
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'accessToken': 'header.payload.signature',
+                'user': {'phone': '+919876543210'},
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final response = await BackendApiService.firebaseLogin(
+        'firebase-id-token',
+      );
+
+      expect(response.isSuccess, isTrue);
+      expect(response.dataAsMap()['accessToken'], 'header.payload.signature');
+    },
+  );
 }

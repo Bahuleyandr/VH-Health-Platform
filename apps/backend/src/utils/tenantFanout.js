@@ -24,15 +24,18 @@ import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
  *
  * @param {string} label  Job label for logs.
  * @param {(tenantId: string) => Promise<unknown>} perTenantFn
+ * @param {Object} [options]
+ * @param {boolean} [options.strict=false] fail when discovery or any tenant run fails
  * @returns {Promise<{ tenantsRun: number, errors: number }>}
  */
-export async function runForEachTenant(label, perTenantFn) {
+export async function runForEachTenant(label, perTenantFn, { strict = false } = {}) {
   let tenantIds = [DEFAULT_TENANT_ID];
   try {
     const rows = await prisma.$queryRawUnsafe(`SELECT id FROM tenants WHERE status = 'active'`);
     const ids = (Array.isArray(rows) ? rows : []).map((r) => r.id).filter(Boolean);
     tenantIds = [...new Set([DEFAULT_TENANT_ID, ...ids])];
   } catch (err) {
+    if (strict) throw err;
     logger.warn(`${label}: tenant discovery failed, defaulting to platform tenant: ${err.message}`);
   }
 
@@ -46,6 +49,9 @@ export async function runForEachTenant(label, perTenantFn) {
       errors += 1;
       logger.error(`${label}: failed for tenant ${tenantId}: ${err.message}`, err);
     }
+  }
+  if (strict && errors > 0) {
+    throw new Error(`${label}: ${errors} tenant run(s) failed`);
   }
   return { tenantsRun, errors };
 }

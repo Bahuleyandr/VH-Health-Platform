@@ -92,6 +92,7 @@ data:
   # is unchanged; flip to "false" at the multi-tenant cutover (W7) so a request
   # that resolves no tenant 403s instead of silently acting as the default tenant.
   ALLOW_DEFAULT_TENANT: "true"
+  ENABLE_AUTOMATED_PAYROLL_CRONS: "false"
   # W3-H2 (audit 2026-06-22): the base host for per-tenant subdomain resolution.
   # tenantFromHost() parses "<slug>-api.<TENANT_BASE_HOST>" → tenant slug. If this
   # is unset it falls back to "localhost", so once W7 wildcard DNS is live every

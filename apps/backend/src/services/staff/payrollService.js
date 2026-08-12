@@ -1,5 +1,6 @@
 // src/services/staff/payrollService.js
 import prisma from '../../lib/prisma.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
 // Overtime rate: (basic / 26 working days / 8 hours) * 2 (double rate)
 function calcOvertimeRate(basicMonthly) {
@@ -271,46 +272,11 @@ export function summarizePayrollRunOutcome({
 
 // Columns returned by savePayslip — kept separate so the upsert create/update
 // branches (and downstream callers like runPayroll) stay consistent.
-const PAYSLIP_SAVE_SELECT = {
-  id: true,
-  payroll_run_id: true,
-  staff_uid: true,
-  month: true,
-  year: true,
-  total_working_days: true,
-  days_present: true,
-  days_absent: true,
-  days_leave: true,
-  overtime_hours: true,
-  overtime_rate: true,
-  basic_earned: true,
-  hra_earned: true,
-  da_earned: true,
-  special_allowance_earned: true,
-  transport_allowance_earned: true,
-  medical_allowance_earned: true,
-  overtime_pay: true,
-  arrears_amount: true,
-  gross_salary: true,
-  pf_employee: true,
-  esi_employee: true,
-  professional_tax: true,
-  tds: true,
-  total_deductions: true,
-  advance_deduction: true,
-  lop_days: true,
-  lop_deduction: true,
-  net_salary: true,
-  revision_note: true,
-  status: true,
-  created_at: true,
-  updated_at: true,
-};
-
 /**
  * Save payslip to DB (upsert).
  */
-export async function savePayslip(payrollRunId, data) {
+export async function savePayslip(payrollRunId, data, tenantId) {
+  const tid = requireTenantId(tenantId);
   const payload = {
     total_working_days: data.total_working_days,
     days_present: data.days_present,
@@ -339,28 +305,71 @@ export async function savePayslip(payrollRunId, data) {
     revision_note: data.revision_note || null,
   };
 
-  return prisma.payslips.upsert({
-    where: {
-      staff_uid_month_year: {
-        staff_uid: data.staff_uid,
-        month: data.month,
-        year: data.year,
-      },
-    },
-    create: {
-      ...payload,
-      payroll_run_id: payrollRunId,
-      staff_uid: data.staff_uid,
-      month: data.month,
-      year: data.year,
-      status: 'draft',
-    },
-    update: {
-      ...payload,
-      updated_at: new Date(),
-    },
-    select: PAYSLIP_SAVE_SELECT,
-  });
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH input AS (
+       SELECT (jsonb_populate_record(NULL::payslips, $6::jsonb)).*
+     )
+     INSERT INTO payslips (
+       tenant_id, payroll_run_id, staff_uid, month, year, status,
+       total_working_days, days_present, days_absent, days_leave,
+       overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned,
+       special_allowance_earned, transport_allowance_earned,
+       medical_allowance_earned, overtime_pay, arrears_amount, gross_salary,
+       pf_employee, esi_employee, professional_tax, tds, total_deductions,
+       advance_deduction, lop_days, lop_deduction, net_salary, revision_note
+     )
+     SELECT $1::uuid, $2::integer, $3::uuid, $4::integer, $5::integer, 'draft',
+       total_working_days, days_present, days_absent, days_leave,
+       overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned,
+       special_allowance_earned, transport_allowance_earned,
+       medical_allowance_earned, overtime_pay, arrears_amount, gross_salary,
+       pf_employee, esi_employee, professional_tax, tds, total_deductions,
+       advance_deduction, lop_days, lop_deduction, net_salary, revision_note
+       FROM input
+     ON CONFLICT (tenant_id, staff_uid, month, year) DO UPDATE SET
+       payroll_run_id = EXCLUDED.payroll_run_id,
+       total_working_days = EXCLUDED.total_working_days,
+       days_present = EXCLUDED.days_present,
+       days_absent = EXCLUDED.days_absent,
+       days_leave = EXCLUDED.days_leave,
+       overtime_hours = EXCLUDED.overtime_hours,
+       overtime_rate = EXCLUDED.overtime_rate,
+       basic_earned = EXCLUDED.basic_earned,
+       hra_earned = EXCLUDED.hra_earned,
+       da_earned = EXCLUDED.da_earned,
+       special_allowance_earned = EXCLUDED.special_allowance_earned,
+       transport_allowance_earned = EXCLUDED.transport_allowance_earned,
+       medical_allowance_earned = EXCLUDED.medical_allowance_earned,
+       overtime_pay = EXCLUDED.overtime_pay,
+       arrears_amount = EXCLUDED.arrears_amount,
+       gross_salary = EXCLUDED.gross_salary,
+       pf_employee = EXCLUDED.pf_employee,
+       esi_employee = EXCLUDED.esi_employee,
+       professional_tax = EXCLUDED.professional_tax,
+       tds = EXCLUDED.tds,
+       total_deductions = EXCLUDED.total_deductions,
+       advance_deduction = EXCLUDED.advance_deduction,
+       lop_days = EXCLUDED.lop_days,
+       lop_deduction = EXCLUDED.lop_deduction,
+       net_salary = EXCLUDED.net_salary,
+       revision_note = EXCLUDED.revision_note,
+       updated_at = NOW()
+     RETURNING id, payroll_run_id, staff_uid, month, year,
+       total_working_days, days_present, days_absent, days_leave,
+       overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned,
+       special_allowance_earned, transport_allowance_earned,
+       medical_allowance_earned, overtime_pay, arrears_amount, gross_salary,
+       pf_employee, esi_employee, professional_tax, tds, total_deductions,
+       advance_deduction, lop_days, lop_deduction, net_salary, revision_note,
+       status, created_at, updated_at, tenant_id`,
+    tid,
+    payrollRunId,
+    data.staff_uid,
+    data.month,
+    data.year,
+    JSON.stringify(payload),
+  );
+  return rows[0];
 }
 
 /**

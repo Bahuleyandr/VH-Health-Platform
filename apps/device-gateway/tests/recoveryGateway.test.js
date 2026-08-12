@@ -170,7 +170,7 @@ describe('I09 sequenced gateway crash and recovery behavior', () => {
 
   it('keeps an enrolled source from widening a legacy source during mixed rollout', async () => {
     const backend = statefulBackend();
-    const fixture = await recoveryRuntime({ backend });
+    const fixture = await recoveryRuntime({ backend, allowLegacy: true });
     try {
       const enrolled = await accept(fixture.runtime, message('MIXED-ENROLLED'));
       const wrongSource = await accept(

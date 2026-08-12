@@ -98,7 +98,7 @@ describe('drainLegacySource failure labeling (GW-L1)', () => {
 
   async function seededRuntime(backend, ids = ['CTRL-1']) {
     const dir = await mkdtemp(join(tmpdir(), 'vh-gw-drain-test-'));
-    const runtime = new GatewayRuntime({ spoolDir: dir, backendClient: backend });
+    const runtime = new GatewayRuntime({ spoolDir: dir, backendClient: backend, allowLegacy: true });
     for (const id of ids) {
       await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message(id) });
     }

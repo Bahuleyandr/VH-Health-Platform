@@ -22,8 +22,7 @@ import {
 import { resolveActiveAssociation } from '../devices/deviceAssociationService.js';
 import { classifyVitalAnomalyCandidates } from '../../utils/clinical/vitalSignMonitor.js';
 import {
-  enqueueExternalRecoveryItem,
-  processNextItemTx,
+  enqueueAndProcessExternalRecoveryItem,
   readExternalRecoveryResumeState,
 } from '../integrations/externalInterfaceRecoveryService.js';
 import { validateI09GatewayRecovery } from '../integrations/externalVitalsRecoveryService.js';
@@ -955,15 +954,14 @@ export async function ingestSequencedDeviceVitalsRecovery(input = {}, context = 
     },
     commandFingerprint: prepared.commandFingerprint,
   };
-  const queued = await enqueueExternalRecoveryItem(operation);
-  if (queued.held) {
+  const result = await enqueueAndProcessExternalRecoveryItem(operation);
+  if (result.held) {
     throw AppError.conflict(
       'Canonical I09 recovery marker is missing; owner reconciliation is required',
       'EXTERNAL_RECOVERY_MARKER_MISSING',
     );
   }
-  if (queued.duplicate) return queued;
-  return processNextItemTx(operation);
+  return result;
 }
 
 export async function readI09GatewayRecoveryResumeState({

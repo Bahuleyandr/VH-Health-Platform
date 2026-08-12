@@ -1,11 +1,9 @@
 import prisma from '../../lib/prisma.js';
 import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
-import { maskPhoneForLog } from '../logMasking.js';
 import { queueAppointmentReminderSms } from './smsOutbox.js';
 import { sendStaffNotifications } from '../../services/notification/staffNotificationService.js';
 import { sendPushNotification } from './sendPushNotification.js';
-import { NotificationTemplates } from './templates.js';
 
 /**
  * Hourly 24h/1h SMS+push reminders for upcoming appointments
@@ -234,81 +232,5 @@ async function processPendingScheduledNotificationsInner() {
     // its multi-arg meta-object handling (the second-arg form was
     // logging just the prefix with an empty body before this fix).
     logger.error(`[ScheduledNotif] processPendingScheduledNotifications error: ${err?.message || err}`);
-  }
-}
-
-export async function sendAppointmentReminders() {
-  return runWithSuperAdmin(async () => sendAppointmentRemindersInner());
-}
-
-async function sendAppointmentRemindersInner() {
-  logger.info('📅 Sending appointment reminders for today...');
-
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT a.id, a.uid, a.phone, a.appointment_date, a.doctor_id, u.device_token, u.name AS user_name,
-              du.name AS doctor_name, dept.name AS department_name
-       FROM appointments a
-       JOIN users u ON a.uid = u.uid
-       JOIN users du ON a.doctor_id = du.id
-       LEFT JOIN doctors doc ON doc.user_id = du.id
-       LEFT JOIN departments dept ON doc.department_id = dept.id
-       WHERE a.appointment_date >= $1::date AND a.appointment_date < $2::date
-         AND a.status != 'cancelled' AND u.device_token IS NOT NULL`,
-      today.toISOString(), tomorrow.toISOString()
-    );
-
-    for (const appt of result) {
-      const appointmentDate = new Date(appt.appointment_date);
-      const formattedDate = appointmentDate.toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
-      const formattedTime = appointmentDate.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-
-      const body = NotificationTemplates.appointmentReminder({
-        name: appt.user_name?.split(' ')[0] || 'Patient',
-        date: formattedDate,
-        time: formattedTime,
-        department: appt.department_name,
-        doctor: appt.doctor_name
-      });
-
-      const notification = {
-        token: appt.device_token,
-        title: 'Appointment Reminder',
-        body,
-        data: {
-          type: 'appointment_reminder',
-          appointmentId: appt.id.toString(),
-          phone: appt.phone
-        }
-      };
-
-      try {
-        await sendPushNotification(notification.token, notification.title, notification.body, notification.data);
-        logger.info(`✅ Reminder sent to ${maskPhoneForLog(appt.phone)}`);
-
-        // Store as in-app notification
-        await prisma.$queryRawUnsafe(
-          `INSERT INTO notifications (phone, title, body, type, created_at, is_read)
-           VALUES ($1, $2, $3, $4, NOW(), false)`,
-          appt.phone, notification.title, notification.body, 'reminder'
-        );
-      } catch (err) {
-        logger.error(`❌ Failed to send reminder to ${maskPhoneForLog(appt.phone)}: ${err.message}`);
-      }
-    }
-  } catch (err) {
-    logger.error('Error sending appointment reminders:', err);
   }
 }

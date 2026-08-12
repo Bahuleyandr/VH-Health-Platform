@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import prisma, { setTenantTx } from '../lib/prisma.js';
 import {
   canonicalCommandFingerprint,
+  enqueueAndProcessExternalRecoveryItem,
   enqueueColdChainRecoveryItem,
   processNextItemTx,
 } from '../services/integrations/externalInterfaceRecoveryService.js';
@@ -285,7 +286,7 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
     expect(await counts()).toEqual(after);
   }, 60_000);
 
-  it('keeps I10 null-only claims and position-only ready semantics', async () => {
+  it('fences I10 enqueue and lets an exact retry reclaim an expired lease', async () => {
     const offset = await registerOffset({
       partition: `facility:${facilityId}:unit:${unitId}:sensor:${deviceId}:legacy-claim`,
     });
@@ -320,32 +321,24 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
       TENANT_ID,
       offset.offset_id,
     ));
-    expect(initialLease).toEqual([{ lease_owner: null, lease_expires_at: null }]);
+    expect(initialLease).toHaveLength(1);
+    expect(initialLease[0]).toMatchObject({ lease_owner: suppliedLeaseOwner });
+    expect(initialLease[0].lease_expires_at).toBeInstanceOf(Date);
 
-    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
-      `UPDATE pathway_projector_inbox
-          SET lease_owner = $3::uuid,
-              lease_expires_at = NOW() + INTERVAL '5 minutes'
-        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
-      TENANT_ID,
-      offset.offset_id,
-      suppliedLeaseOwner,
-    ));
     const operation = {
       tenantId: TENANT_ID,
       offsetId: offset.offset_id,
+      interfaceFamily: 'I10',
       sourcePosition: 101,
       sourceToken: 'legacy-token-101',
       predecessorToken: 'token-100',
       duplicateKey: item.source_reading_id,
+      occurredAt: item.recorded_at,
       command: item,
     };
-    await expect(processNextItemTx({
-      ...operation,
-      leaseOwner: suppliedLeaseOwner,
-    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_CLAIM_FENCE_LOST' });
+    await expect(enqueueAndProcessExternalRecoveryItem(operation))
+      .rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_PENDING' });
 
-    const nextOwner = randomUUID();
     await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
       `UPDATE pathway_projector_inbox
           SET lease_expires_at = NOW() - INTERVAL '1 second'
@@ -353,19 +346,7 @@ describeIfDb('external-interface recovery substrate and I10 adapter', () => {
       TENANT_ID,
       offset.offset_id,
     ));
-    await expect(processNextItemTx({
-      ...operation,
-      leaseOwner: nextOwner,
-    })).rejects.toMatchObject({ code: 'EXTERNAL_RECOVERY_CLAIM_FENCE_LOST' });
-
-    await setTenantTx(TENANT_ID, tx => tx.$executeRawUnsafe(
-      `UPDATE pathway_projector_inbox
-          SET lease_owner = NULL, lease_expires_at = NULL
-        WHERE tenant_id = $1::uuid AND offset_id = $2::uuid`,
-      TENANT_ID,
-      offset.offset_id,
-    ));
-    const outcome = await processNextItemTx({ ...operation, leaseOwner: nextOwner });
+    const outcome = await enqueueAndProcessExternalRecoveryItem(operation);
     expect(outcome).toMatchObject({
       status: 'handled',
       cursor: {

@@ -161,6 +161,58 @@ describe('messagingService', () => {
     );
   });
 
+  it('returns the committed message when notification enqueue fails after commit', async () => {
+    const saved = {
+      id: 70,
+      thread_id: threadOne,
+      sender_uid: senderUid,
+      recipient_uid: recipientOne,
+      patient_uid: null,
+      subject: 'Bed update',
+      body: 'Patient shifted to B block.',
+      priority: 'urgent',
+      is_read: false,
+      read_at: null,
+      created_at: new Date('2026-06-03T08:00:00Z'),
+      tenant_id: tenantId
+    };
+    const tx = {
+      $queryRawUnsafe: jest
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{
+          id: threadOne,
+          priority: 'urgent',
+          subject: 'Bed update',
+          patient_uid: null,
+          admission_id: null
+        }])
+        .mockResolvedValueOnce([saved]),
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1)
+    };
+    prismaMock.$transaction.mockImplementationOnce(callback => callback(tx));
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ muted_until: null, urgent_only: false }])
+      .mockResolvedValueOnce([{ id: 42 }]);
+    notificationQueueMock.mockRejectedValueOnce(new Error('notification database unavailable'));
+
+    await expect(messagingService.sendMessage(
+      senderUid,
+      recipientOne,
+      saved.body,
+      'urgent',
+      null,
+      saved.subject,
+      tenantId
+    )).resolves.toEqual(saved);
+
+    expect(emitStaffMessageMock).not.toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Staff message notification failed after commit',
+      expect.objectContaining({ messageId: saved.id, tenantId })
+    );
+  });
+
   it('suppresses muted thread notifications without dropping the saved message', async () => {
     const tx = {
       $queryRawUnsafe: jest.fn().mockResolvedValueOnce([

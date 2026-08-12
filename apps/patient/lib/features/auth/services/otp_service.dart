@@ -1,5 +1,4 @@
 // otp_service.dart - Business logic service
-import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -173,7 +172,7 @@ class OtpService {
       }
 
       final response = await BackendApiService.firebaseLogin(idToken);
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (!response.isSuccess) {
         if (kDebugMode) {
           developer.log(
             '❌ Backend Firebase login failed: HTTP ${response.statusCode}',
@@ -183,27 +182,26 @@ class OtpService {
         return false;
       }
 
-      // Check if response is valid
-      if (response.body.isEmpty) {
+      // Safely access nested data from { success, data: { accessToken, user: { ... } } }
+      final data = response.dataAsMap();
+      if (data.isEmpty) {
         if (kDebugMode) {
-          developer.log('⚠️ Backend returned empty response', name: 'Auth');
+          developer.log(
+            '⚠️ Backend returned empty response data',
+            name: 'Auth',
+          );
         }
         return false;
       }
-
-      final decoded = jsonDecode(response.body);
-
-      // Safely access nested data from { success, data: { accessToken, user: { ... } } }
-      final data = decoded['data'] as Map<String, dynamic>?;
-      final user = data?['user'] as Map<String, dynamic>?;
-      final isNewUser = data?['isNewUser'] ?? user?['isNewUser'] ?? false;
-      final jwt = data?['accessToken'];
+      final user = data['user'] as Map<String, dynamic>?;
+      final isNewUser = data['isNewUser'] ?? user?['isNewUser'] ?? false;
+      final jwt = data['accessToken'];
       // C-9 companion (audit 2026-06-18): the backend now returns a separate
       // type:'refresh' token. Persist it so VHHttpClient refreshes via the
       // { refreshToken } body path — the old bearer-rotation now 401s at
       // /refresh-token (which accepts type:'refresh' only), which would force
       // a re-login every time the 1h access token expires.
-      final refreshToken = data?['refreshToken'];
+      final refreshToken = data['refreshToken'];
       final userPhone = user?['phone'];
       final userName = user?['name'];
       final hospitalNumber =
@@ -269,7 +267,7 @@ class OtpService {
             name: 'Auth',
           );
           developer.log(
-            '📋 Response structure: ${decoded.keys.toList()}',
+            '📋 Response structure: ${data.keys.toList()}',
             name: 'Auth',
           );
         }
