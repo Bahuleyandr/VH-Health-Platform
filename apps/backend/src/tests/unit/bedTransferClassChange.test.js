@@ -42,6 +42,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
     $transaction: txMock,
   },
   isTenantTransactionClient: () => true,
+  setTenant: setTenantTxMock,
   setTenantTx: setTenantTxMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
