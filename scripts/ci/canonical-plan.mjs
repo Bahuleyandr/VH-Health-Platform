@@ -27,11 +27,13 @@ export function buildCanonicalPlan({
   requestedTier = 'full',
 } = {}) {
   const normalizedFiles = normalizeFiles(files);
+  const explicitQuick = eventName === 'workflow_dispatch' && requestedTier === 'quick';
   const forceFull =
     eventName === 'merge_group' ||
     (eventName === 'workflow_dispatch' && requestedTier !== 'quick') ||
     normalizedFiles.length === 0 ||
-    normalizedFiles.some((file) => fullSweepPatterns.some((pattern) => pattern.test(file)));
+    (!explicitQuick && normalizedFiles.some((file) =>
+      fullSweepPatterns.some((pattern) => pattern.test(file))));
 
   const tier = forceFull ? 'full' : 'quick';
   const stages = forceFull

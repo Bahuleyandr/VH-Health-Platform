@@ -50,10 +50,11 @@ test('manual quick dispatch remains available for workflow diagnosis', () => {
   const plan = buildCanonicalPlan({
     eventName: 'workflow_dispatch',
     requestedTier: 'quick',
-    files: ['apps/admin/src/example.ts'],
+    files: ['apps/admin/src/example.ts', 'scripts/ci/run.mjs'],
   });
 
   assert.equal(plan.tier, 'quick');
   assert.equal(plan.selected.admin, true);
   assert.equal(plan.selected.contracts, true);
+  assert.equal(plan.selected.backend, true);
 });
