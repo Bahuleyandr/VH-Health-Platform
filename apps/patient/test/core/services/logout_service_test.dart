@@ -363,6 +363,197 @@ void main() {
     },
   );
 
+  test(
+    'logout COMPLETES when the realtime stop AND the disconnect BOTH hang',
+    () async {
+      // The PRODUCTION configuration, which the previous hang test could not
+      // reproduce. `disconnectRealtime` is `RealtimeClient.instance.disconnect`
+      // and the lifecycle `stop` reaches the same singleton method through
+      // main.dart's `_stopRealtime` → `RealtimeProvider.disconnect`. On a dead
+      // or black-holed socket BOTH wedge, on the same pending `sink.close()` —
+      // so the escape-hatch disconnect the teardown performs on expiry used to
+      // re-enter the very wedge it was escaping, and logout never returned.
+      // The old test paired a hung stop with an instantly-returning
+      // disconnect, a pairing that cannot occur.
+      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+      PatientRealtimeLifecycle.instance.attach(
+        owner: Object(),
+        start: () async {},
+        stop: ({required unsubscribe}) => Completer<void>().future,
+      );
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, hangOn: const {'realtime'}),
+      );
+
+      final outcome = await LogoutService.logout().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () =>
+            fail('logout() hung on the wedged realtime stop AND disconnect'),
+      );
+
+      expect(outcome.realtimeTeardownTimedOut, isTrue);
+      expect(outcome.serverSessionRevoked, isTrue);
+      // Both disconnects were still ATTEMPTED, and the whole PHI wipe ran
+      // between them.
+      expect(calls.where((call) => call == 'realtime'), hasLength(2));
+      expect(
+        calls,
+        containsAll(<String>[
+          'secure-storage',
+          'api-cache',
+          'file-cache',
+          'doc-staging',
+          'cycle-tracker',
+          'user-provider',
+          'firebase-signout',
+        ]),
+      );
+    },
+  );
+
+  test(
+    'a wedged step-1 realtime disconnect can no longer strand PHI on the device',
+    () async {
+      // The motivating case, and the one the bound at the END of logout did
+      // NOT fix. Step 1 runs BEFORE every local wipe and calls the same
+      // `RealtimeClient.instance.disconnect()` that wedges on a dead socket.
+      // Unbounded, logout hung right there: the teardown bound further down was
+      // never reached, and the JWT, the API cache, cached documents and staged
+      // plaintext PHI all survived on the device until the user force-quit.
+      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(calls, hangOn: const {'realtime'}),
+      );
+
+      final outcome = await LogoutService.logout().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () =>
+            fail('logout() hung at the step-1 realtime disconnect'),
+      );
+
+      expect(
+        calls,
+        containsAllInOrder(<String>['realtime', 'secure-storage']),
+        reason: 'the wipe must proceed THROUGH the wedged disconnect',
+      );
+      expect(
+        calls,
+        containsAll(<String>[
+          'api-cache',
+          'secure-storage',
+          'file-cache',
+          'doc-staging',
+          'cycle-tracker',
+          'dependents',
+          'user-provider',
+          'firebase-signout',
+        ]),
+      );
+      expect(outcome.serverSessionRevoked, isTrue);
+    },
+  );
+
+  test('a wedged FCM token delete cannot hold the rest of logout', () async {
+    // `FirebaseMessaging.deleteToken()` is a network round trip, and it had no
+    // ceiling of its own — so it belonged in the honest worst-case ceiling or
+    // in a bound. It is now bounded.
+    LogoutService.networkStepTimeout = const Duration(milliseconds: 50);
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, hangOn: const {'fcm-token'}),
+    );
+
+    await LogoutService.logout().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => fail('logout() hung on the FCM token delete'),
+    );
+
+    expect(
+      calls,
+      containsAllInOrder(<String>[
+        'fcm-token',
+        'secure-storage',
+        'firebase-signout',
+      ]),
+    );
+  });
+
+  test('a wedged Firebase sign-out cannot hold logout open', () async {
+    LogoutService.networkStepTimeout = const Duration(milliseconds: 50);
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(calls, hangOn: const {'firebase-signout'}),
+    );
+
+    final outcome = await LogoutService.logout().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => fail('logout() hung on the Firebase sign-out'),
+    );
+
+    expect(calls, contains('firebase-signout'));
+    expect(outcome.serverSessionRevoked, isTrue);
+  });
+
+  test(
+    'EVERY bounded step wedging in the same logout still returns, and still '
+    'wipes',
+    () async {
+      // Substantiates the worst-case ceiling documented on LogoutService: it is
+      // the SUM of the per-step bounds, with no unbounded network or socket
+      // call left in the path. If a future step is added without a bound, this
+      // test hangs.
+      LogoutService.networkStepTimeout = const Duration(milliseconds: 50);
+      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+      PatientRealtimeLifecycle.instance.attach(
+        owner: Object(),
+        start: () async {},
+        stop: ({required unsubscribe}) => Completer<void>().future,
+      );
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(
+        _dependencies(
+          calls,
+          hangOn: const {
+            'firebase-server-revoke',
+            'device-unregister',
+            'vh-server-revoke',
+            'realtime',
+            'fcm-token',
+            'firebase-signout',
+          },
+        ),
+      );
+
+      final stopwatch = Stopwatch()..start();
+      final outcome = await LogoutService.logout().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail('an unbounded step remains in the logout path'),
+      );
+      stopwatch.stop();
+
+      expect(outcome.serverSessionRevoked, isFalse);
+      expect(outcome.realtimeTeardownTimedOut, isTrue);
+      // The local PHI wipe is never the thing that gets skipped.
+      expect(
+        calls,
+        containsAll(<String>[
+          'api-cache',
+          'secure-storage',
+          'file-cache',
+          'doc-staging',
+          'cycle-tracker',
+          'dependents',
+          'user-provider',
+        ]),
+      );
+      // 7 bounded steps x 50ms, plus the degradation report. Generous margin,
+      // but orders of magnitude below "never".
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
+    },
+  );
+
   test('the teardown timeout is RECORDED, never swallowed', () async {
     // A silently-swallowed bound recreates exactly the quiet-degradation class
     // this codebase keeps being audited for: nobody would learn that patient
@@ -513,6 +704,70 @@ void main() {
     },
   );
 
+  test(
+    'a login that lands mid-drain defers the epoch-bumping VH revoke',
+    () async {
+      // TOCTOU: the live-session probe used to run ONCE, at the top of the
+      // drain, and the VH revoke could then fire whole network round trips
+      // later. A login completing in that window is bumped by /auth/logout's
+      // token-epoch increment and signed straight back out, seconds after
+      // signing in, with nothing on screen to explain it.
+      final store = _FakeRevocationStore(sessionToken: null)
+        ..signInDuringFirebaseRetry = 'fresh-jwt'
+        ..record = _pendingRecord(
+          token: 'jwt-abc',
+          firebasePending: true,
+          vhPending: true,
+        );
+      LogoutService.debugSetDependencies(
+        _dependencies(<String>[], store: store),
+      );
+
+      expect(
+        await LogoutService.retryPendingRevocation(),
+        PendingRevocationRetry.deferredLiveSession,
+      );
+      expect(
+        store.vhRetryBearers,
+        isEmpty,
+        reason: 'the epoch bump must not reach the session that just started',
+      );
+      // The handle survives, narrowed by the Firebase step that DID land.
+      final record = jsonDecode(store.record!) as Map<String, dynamic>;
+      expect(record['firebasePending'], isFalse);
+      expect(record['vhPending'], isTrue);
+    },
+  );
+
+  test(
+    'a login that appears while the VH revoke is in flight is REPORTED',
+    () async {
+      // The residual window no client-side check can close: between the probe
+      // and the backend acting on the revoke. It cannot be prevented, so it
+      // must not be invisible — the user is about to be signed out and support
+      // needs to know this happens.
+      final reporter = _RecordingCrashReporter();
+      CrashReporter.install(reporter);
+      final store = _FakeRevocationStore(sessionToken: null)
+        ..signInDuringVhRetry = 'fresh-jwt'
+        ..record = _pendingRecord(token: 'jwt-abc', vhPending: true);
+      LogoutService.debugSetDependencies(
+        _dependencies(<String>[], store: store),
+      );
+
+      expect(
+        await LogoutService.retryPendingRevocation(),
+        PendingRevocationRetry.revoked,
+      );
+      expect(store.record, isNull);
+      expect(reporter.errors, hasLength(1));
+      expect(
+        reporter.errors.single.context,
+        'LogoutService.retryPendingRevocation',
+      );
+    },
+  );
+
   test('a retry older than the cap is purged, not retried', () async {
     final store = _FakeRevocationStore(sessionToken: null)
       ..record = _pendingRecord(
@@ -634,17 +889,26 @@ class _FakeRevocationStore {
   final List<String> vhRetryBearers = [];
   final List<String> firebaseRetryBearers = [];
 
+  /// Models a login completing WHILE a retry call is in flight — the window
+  /// between the live-session probe and the server acting on the revoke.
+  String? signInDuringFirebaseRetry;
+  String? signInDuringVhRetry;
+
   /// The production key is deliberately distinct from `jwt`; this fake proves
   /// the record never lands in the session slot.
   bool get recordKeyIsSessionKey => LogoutService.pendingRevocationKey == 'jwt';
 
   Future<bool> retryVh(String bearer) async {
     vhRetryBearers.add(bearer);
+    if (signInDuringVhRetry != null) sessionToken = signInDuringVhRetry;
     return retrySucceeds;
   }
 
   Future<bool> retryFirebase(String bearer) async {
     firebaseRetryBearers.add(bearer);
+    if (signInDuringFirebaseRetry != null) {
+      sessionToken = signInDuringFirebaseRetry;
+    }
     return retrySucceeds;
   }
 }
@@ -652,6 +916,7 @@ class _FakeRevocationStore {
 LogoutServiceDependencies _dependencies(
   List<String> calls, {
   String? throwOn,
+  Set<String> hangOn = const <String>{},
   bool firebaseRevokeResult = true,
   bool vhRevokeResult = true,
   Completer<void>? firebaseRevokeGate,
@@ -661,6 +926,9 @@ LogoutServiceDependencies _dependencies(
     return () {
       calls.add(name);
       if (throwOn == name) throw StateError('$name failed');
+      // A step that never resolves — a black-holed socket or a dead network,
+      // not a step that fails fast. Only a per-step bound escapes this.
+      if (hangOn.contains(name)) return Completer<void>().future;
     };
   }
 
@@ -668,14 +936,18 @@ LogoutServiceDependencies _dependencies(
     revokeFirebaseSession: () async {
       calls.add('firebase-server-revoke');
       await firebaseRevokeGate?.future;
+      if (hangOn.contains('firebase-server-revoke')) {
+        await Completer<void>().future;
+      }
       if (throwOn == 'firebase-server-revoke') {
         throw StateError('firebase-server-revoke failed');
       }
       return firebaseRevokeResult;
     },
     unregisterDevice: step('device-unregister'),
-    revokeVhSession: () {
+    revokeVhSession: () async {
       calls.add('vh-server-revoke');
+      if (hangOn.contains('vh-server-revoke')) await Completer<void>().future;
       if (throwOn == 'vh-server-revoke') {
         throw StateError('vh-server-revoke failed');
       }

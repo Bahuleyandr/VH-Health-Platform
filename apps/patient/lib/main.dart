@@ -325,7 +325,26 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
   Future<void> _startRealtime() => _webSocketProvider.listen();
 
   Future<void> _stopRealtime({required bool unsubscribe}) async {
+    final generation = _realtimeLifecycle.generation;
     await _webSocketProvider.stop(unsubscribe: unsubscribe);
+    // Re-check the era before touching the PROCESS-WIDE RealtimeClient
+    // singleton. PatientRealtimeLifecycle bounds the logout teardown, so a stop
+    // slow enough to outlive that bound is abandoned while still in flight and
+    // cannot be cancelled. If a new login has connected the same singleton in
+    // the meantime, running the disconnect below would close its socket, clear
+    // its server subscriptions and close its event controllers — a silent
+    // realtime blackout for a session this teardown has nothing to do with.
+    // The lifecycle's own generation fence cannot cover this: it guards the
+    // INVOCATION, and by here we are already past it.
+    //
+    // This narrows the straggler window rather than closing it: the app-local
+    // teardown above has already run. That residue is survivable where this
+    // disconnect is not — its channel names were captured from the DEPARTING
+    // patient, so they only collide when the same patient signs back in, and
+    // the shared singleton stays connected for the new session either way.
+    // When the abandoned teardown took this branch, logout has already STARTED
+    // its own escape-hatch disconnect, so nothing is skipped.
+    if (_realtimeLifecycle.generation != generation) return;
     await _realtimeProvider.disconnect();
   }
 

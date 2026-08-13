@@ -324,15 +324,35 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(calls, fullTeardown);
+      // Asserted through the production selector rather than a copied string
+      // literal, so the test cannot silently drift out of sync with the copy
+      // it is guarding. This scenario is specifically the branch with NO retry
+      // queued: the Firebase revoke failed and no session token was captured.
+      const outcome = LogoutOutcome(
+        firebaseSessionRevoked: false,
+        vhSessionRevoked: true,
+      );
+      expect(outcome.revocationRetryQueued, isFalse);
       expect(
-        find.text(
-          'Signed out on this device. We could not reach the server, so '
-          'other devices may stay signed in until you retry.',
-        ),
+        find.text(LogoutButton.logoutWarningMessage(outcome)!),
         findsOneWidget,
       );
+      // And it must NOT be the "we will retry for you" copy — there is no
+      // retry handle on this device.
+      expect(
+        find.text(
+          LogoutButton.logoutWarningMessage(
+            const LogoutOutcome(
+              firebaseSessionRevoked: false,
+              vhSessionRevoked: true,
+              revocationRetryQueued: true,
+            ),
+          )!,
+        ),
+        findsNothing,
+      );
 
-      await tester.pump(const Duration(seconds: 7));
+      await tester.pump(const Duration(seconds: 9));
       await tester.pumpAndSettle();
     },
   );

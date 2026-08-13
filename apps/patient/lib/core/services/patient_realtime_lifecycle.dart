@@ -15,9 +15,18 @@ enum PatientRealtimeTeardownResult {
   completed,
 
   /// [PatientRealtimeLifecycle.stopTimeout] expired before the queued stop
-  /// resolved. The final disconnect was still attempted, the queue tail was
-  /// abandoned, and logout completed instead of hanging.
+  /// resolved. The final disconnect was still STARTED — deliberately without
+  /// awaiting it, see [PatientRealtimeLifecycle.completeTeardown] — and logout
+  /// completed instead of hanging.
   timedOut,
+
+  /// The drain threw. Distinct from [timedOut] because reporting a thrown
+  /// teardown as a timeout would be a lie, and reporting it as [completed]
+  /// would be the silent degradation the bound exists to make visible.
+  ///
+  /// [PatientRealtimeLifecycle.completeTeardown] returns this rather than
+  /// rethrowing, so the caller can never lose the result to its own `catch`.
+  failed,
 }
 
 /// Serializes Patient realtime lifecycle work and fences it across logout.
@@ -57,6 +66,11 @@ class PatientRealtimeLifecycle {
   /// second of spinner with no extra success probability for a socket that is
   /// by construction black-holed.
   ///
+  /// This is the SOCKET-shaped ceiling, and `LogoutService` uses it twice: for
+  /// its step-1 realtime disconnect (which runs before every local PHI wipe and
+  /// calls the same singleton method) and for the teardown here. Both are the
+  /// same hazard, so both take the same unit and the same knob.
+  ///
   /// Mutable so tests can shrink it; [debugReset] restores the default.
   static Duration stopTimeout = const Duration(seconds: 4);
 
@@ -80,6 +94,17 @@ class PatientRealtimeLifecycle {
   bool _tearingDown = false;
 
   bool get isTearingDown => _tearingDown;
+
+  /// The current lifecycle era. Advanced by [beginTeardown], by the release at
+  /// the end of [completeTeardown], and by [detach].
+  ///
+  /// Exposed so the OWNER of `_stop` can re-check it partway through its own
+  /// teardown: `_stop` touches the process-wide `RealtimeClient` singleton, and
+  /// a `_stop` slow enough to outlive [stopTimeout] is abandoned by logout while
+  /// still in flight. Comparing the generation before the singleton-level
+  /// disconnect is what stops that straggler from disconnecting a session a
+  /// LATER login has already established.
+  int get generation => _generation;
 
   void attach({
     required Object owner,
@@ -111,7 +136,14 @@ class PatientRealtimeLifecycle {
   }
 
   Future<void> queueStop({bool unsubscribe = false}) {
+    final requestedGeneration = _generation;
     return _enqueue(() async {
+      // Same fence as [queueStart], for the same reason in the other
+      // direction: a pause/background stop queued before a logout must not
+      // reach the shared realtime singleton after a NEW session has bound it.
+      // The teardown's own `_stop(unsubscribe: true)` is strictly stronger, so
+      // dropping a stale one loses nothing.
+      if (requestedGeneration != _generation) return;
       await _stop?.call(unsubscribe: unsubscribe);
     });
   }
@@ -126,9 +158,11 @@ class PatientRealtimeLifecycle {
   /// caller's final disconnect before starts are admitted for a future login.
   ///
   /// Bounded by [stopTimeout]. On expiry the final disconnect is still
-  /// ATTEMPTED — it is merely no longer waited on behind a dead socket — and
+  /// STARTED — but deliberately NOT awaited, see below — and
   /// [PatientRealtimeTeardownResult.timedOut] is returned so the caller can
-  /// record it. Nothing here is swallowed.
+  /// record it. Nothing here is swallowed, and nothing here can throw: a drain
+  /// error becomes [PatientRealtimeTeardownResult.failed] so the caller cannot
+  /// lose the result to its own `catch`.
   Future<PatientRealtimeTeardownResult> completeTeardown(
     PatientRealtimeStart finalDisconnect,
   ) async {
@@ -145,8 +179,19 @@ class PatientRealtimeLifecycle {
     }
 
     var timedOut = false;
+    var failed = false;
     try {
       final drain = _enqueue(() async {
+        // GENERATION FENCE ON THE DRAIN, mirroring [queueStart].
+        //
+        // Without it this closure is the one path that reaches `_stop` with no
+        // era check at all. A drain queued behind slow earlier work can arrive
+        // at the front of the queue only AFTER the bound below expired and the
+        // fence was released — by which time a new login may own the realtime
+        // fabric. Invoking `_stop(unsubscribe: true)` then would retire that
+        // NEW session's patient state, unsubscribe its channels and disconnect
+        // its socket, with no visible error anywhere.
+        if (_generation != teardownGeneration) return;
         try {
           final stopping = _stop?.call(unsubscribe: true);
           if (stopping != null) await stopping;
@@ -156,27 +201,53 @@ class PatientRealtimeLifecycle {
       });
       await drain.timeout(
         stopTimeout,
-        onTimeout: () async {
+        onTimeout: () {
           timedOut = true;
-          // Abandon the wedged chain. `_operations` still points at the drain
-          // that never resolved; leaving it there would make the NEXT login's
-          // queueStart wait behind the very same dead socket, turning a
-          // bounded logout into an unbounded login. Null rather than a
-          // completed future so the next chain anchors in the zone that
-          // actually drives it — see the [_operations] docstring.
-          _operations = null;
-          await attemptFinalDisconnect();
+          // NOT awaited — and that is the whole point of this branch.
+          //
+          // `finalDisconnect` resolves to `RealtimeClient.instance.disconnect`,
+          // the SAME singleton method `_stop` reaches through
+          // `_stopRealtime` → `RealtimeProvider.disconnect`. On the motivating
+          // case — a genuinely dead / black-holed socket — the first call is
+          // parked inside `await _channel?.sink.close(...)` and has not yet
+          // reached `_channel = null`, so a second call re-awaits that same
+          // pending close. Awaiting the escape hatch therefore re-enters the
+          // exact wedge the bound was added to escape, and `completeTeardown`
+          // never returns. Start it (the disconnect must still be ATTEMPTED)
+          // and let logout proceed.
+          unawaited(
+            attemptFinalDisconnect().catchError((Object error, StackTrace _) {
+              debugPrint(
+                'PatientRealtimeLifecycle: the post-timeout disconnect failed: '
+                '$error',
+              );
+            }),
+          );
+          // The queue tail is deliberately KEPT. An earlier cut nulled
+          // `_operations` here so the next login would not wait behind the
+          // dead socket — but nothing on any login path awaits [queueStart]
+          // (every call site in `main.dart` and `app_router.dart` wraps it in
+          // `unawaited`), so that bought nothing, and it restored concurrency:
+          // a new login's start would run alongside a still-in-flight `_stop`
+          // whose late effects tear the new session down. Keeping the tail
+          // keeps the queue serialized — a start after an abandoned teardown
+          // runs as soon as the straggler settles, and never before it.
         },
       );
+    } catch (error) {
+      // A thrown drain must not escape: the caller's `catch` would swallow the
+      // return value along with it and the timeout would go unreported.
+      failed = true;
+      debugPrint('PatientRealtimeLifecycle: the teardown drain threw: $error');
     } finally {
       if (_tearingDown && teardownGeneration == _generation) {
         _generation += 1;
         _tearingDown = false;
       }
     }
-    return timedOut
-        ? PatientRealtimeTeardownResult.timedOut
-        : PatientRealtimeTeardownResult.completed;
+    if (timedOut) return PatientRealtimeTeardownResult.timedOut;
+    if (failed) return PatientRealtimeTeardownResult.failed;
+    return PatientRealtimeTeardownResult.completed;
   }
 
   /// Clears every piece of cross-test state on the shared [instance],
