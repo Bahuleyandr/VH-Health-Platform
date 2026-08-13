@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/realtime_provider.dart';
 import 'package:vhhealth_staff/core/providers/message_unread_provider.dart';
 import 'package:vhhealth_staff/core/providers/notification_provider.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
+import 'package:vhhealth_staff/core/providers/websocket_provider.dart';
 import 'package:vhhealth_staff/core/services/auth_service.dart';
 import 'package:vhhealth_staff/core/widgets/logout_flow.dart';
 
@@ -18,13 +20,18 @@ void main() {
       var stopCalls = 0;
       var navigationCalls = 0;
       int? reportedCount;
+      final order = <String>[];
 
       await ForcedLogoutFlow.run(
         forcedLogout: () async {
           cleanupCalls += 1;
+          order.add('credential cleanup');
           return 4;
         },
-        stopSessionTracking: () => stopCalls += 1,
+        stopSessionTracking: () {
+          stopCalls += 1;
+          order.add('UI teardown');
+        },
         navigateToLogin: () => navigationCalls += 1,
         reportPreservedItems: (count) => reportedCount = count,
       );
@@ -33,6 +40,7 @@ void main() {
       expect(stopCalls, 1);
       expect(navigationCalls, 1);
       expect(reportedCount, 4);
+      expect(order, <String>['UI teardown', 'credential cleanup']);
     },
   );
 
@@ -59,6 +67,7 @@ void main() {
       reportPreservedItems: (_) => reportCalls += 1,
     );
 
+    await Future<void>.delayed(Duration.zero);
     expect(cleanupCalls, 1);
     release.complete();
     await Future.wait([httpExpiry, realtimeExpiry]);
@@ -156,8 +165,12 @@ void main() {
       timeoutDuration: const Duration(hours: 1),
     )..startTracking();
     final notifications = _TrackingNotificationProvider();
+    final websocket = _TrackingWebSocketProvider();
+    final realtime = _TrackingRealtimeProvider();
     addTearDown(timeout.dispose);
     addTearDown(notifications.dispose);
+    addTearDown(websocket.dispose);
+    addTearDown(realtime.dispose);
     final router = GoRouter(
       routes: [
         GoRoute(
@@ -191,6 +204,8 @@ void main() {
           ChangeNotifierProvider<NotificationProvider>.value(
             value: notifications,
           ),
+          ChangeNotifierProvider<WebSocketProvider>.value(value: websocket),
+          ChangeNotifierProvider<RealtimeProvider>.value(value: realtime),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -203,6 +218,8 @@ void main() {
     expect(timeout.isTracking, isFalse);
     expect(notifications.endCalls, 1);
     expect(notifications.lastUnregisterBackend, isFalse);
+    expect(websocket.endCalls, 1);
+    expect(realtime.disconnectCalls, 1);
     expect(find.text('Login destination'), findsOneWidget);
   });
 
@@ -267,8 +284,12 @@ void main() {
     'idle teardown unregisters notifications while auth is available',
     (tester) async {
       final notifications = _TrackingNotificationProvider();
+      final websocket = _TrackingWebSocketProvider();
+      final realtime = _TrackingRealtimeProvider();
       late BuildContext hostContext;
       addTearDown(notifications.dispose);
+      addTearDown(websocket.dispose);
+      addTearDown(realtime.dispose);
 
       await tester.pumpWidget(
         MultiProvider(
@@ -276,6 +297,8 @@ void main() {
             ChangeNotifierProvider<NotificationProvider>.value(
               value: notifications,
             ),
+            ChangeNotifierProvider<WebSocketProvider>.value(value: websocket),
+            ChangeNotifierProvider<RealtimeProvider>.value(value: realtime),
           ],
           child: MaterialApp(
             home: Builder(
@@ -295,6 +318,8 @@ void main() {
 
       expect(notifications.endCalls, 1);
       expect(notifications.lastUnregisterBackend, isTrue);
+      expect(websocket.endCalls, 1);
+      expect(realtime.disconnectCalls, 1);
     },
   );
 
@@ -358,6 +383,24 @@ class _TrackingNotificationProvider extends NotificationProvider {
   Future<void> endAuthenticatedSession({bool unregisterBackend = true}) async {
     endCalls += 1;
     lastUnregisterBackend = unregisterBackend;
+  }
+}
+
+class _TrackingWebSocketProvider extends WebSocketProvider {
+  int endCalls = 0;
+
+  @override
+  Future<void> endAuthenticatedSession() async {
+    endCalls += 1;
+  }
+}
+
+class _TrackingRealtimeProvider extends RealtimeProvider {
+  int disconnectCalls = 0;
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCalls += 1;
   }
 }
 

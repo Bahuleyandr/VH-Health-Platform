@@ -9,6 +9,7 @@ import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import '../../l10n/app_strings.dart';
 import '../platform_info.dart';
 import '../providers/notification_provider.dart';
+import '../providers/websocket_provider.dart';
 // Splash & Auth
 import '../../features/splash/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -197,6 +198,13 @@ final GoRouter appRouter = GoRouter(
     if (!isLoggedIn && !isOnLogin) return '/login';
 
     if (isLoggedIn) {
+      try {
+        unawaited(
+          context.read<WebSocketProvider>().beginAuthenticatedSession(),
+        );
+      } catch (_) {
+        // Provider may not be available during initial build.
+      }
       try {
         unawaited(context.read<NotificationProvider>().initialize());
       } catch (_) {

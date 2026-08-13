@@ -3,51 +3,69 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 
 import '../../l10n/app_strings.dart';
 import '../providers/clinical_inbox_provider.dart';
 import '../providers/message_unread_provider.dart';
 import '../providers/notification_provider.dart';
 import '../providers/session_timeout_provider.dart';
+import '../providers/websocket_provider.dart';
 import '../services/auth_service.dart';
 import '../services/staff_local_notifications.dart';
 import '../services/staff_notification_session.dart';
 import '../theme/app_theme.dart';
 import 'offline_sync_badge.dart';
 
-/// Stop the message-unread and clinical-inbox pollers (realtime
-/// subscriptions + periodic HTTP polls) and clear their cached PHI. Call on
-/// EVERY logout path — explicit logout, forced/revoked logout, and idle
-/// timeout — so nothing keeps polling or popping snackbars on the login
-/// screen of a shared ward device (STF-1). Provider lookups are best-effort:
-/// hosts that don't mount these providers (tests) are a no-op.
+/// End every session-scoped realtime/push surface and clear its cached PHI.
+/// Call on EVERY logout path — explicit logout, forced/revoked logout, and
+/// idle timeout — before local identity is cleared. Provider lookups are
+/// best-effort so focused widget-test hosts can omit production providers.
 Future<void> stopStaffRealtimePollers(
   BuildContext context, {
   bool unregisterNotificationBackend = false,
+  bool requireVerifiedNotificationTeardown = false,
+}) {
+  return _endStaffAuthenticatedSession(
+    messageProvider: _readProvider<MessageUnreadProvider>(context),
+    clinicalProvider: _readProvider<ClinicalInboxProvider>(context),
+    webSocketProvider: _readProvider<WebSocketProvider>(context),
+    notificationProvider: _readProvider<NotificationProvider>(context),
+    realtimeProvider: _readProvider<RealtimeProvider>(context),
+    unregisterNotificationBackend: unregisterNotificationBackend,
+    requireVerifiedNotificationTeardown: requireVerifiedNotificationTeardown,
+  );
+}
+
+Future<void> _endStaffAuthenticatedSession({
+  MessageUnreadProvider? messageProvider,
+  ClinicalInboxProvider? clinicalProvider,
+  WebSocketProvider? webSocketProvider,
+  NotificationProvider? notificationProvider,
+  RealtimeProvider? realtimeProvider,
+  required bool unregisterNotificationBackend,
+  required bool requireVerifiedNotificationTeardown,
 }) async {
+  messageProvider?.stop();
+  clinicalProvider?.stop();
   try {
-    context.read<MessageUnreadProvider>().stop();
-  } catch (_) {}
-  try {
-    context.read<ClinicalInboxProvider>().stop();
-  } catch (_) {}
-  late final NotificationProvider notificationProvider;
-  try {
-    notificationProvider = context.read<NotificationProvider>();
-  } catch (_) {
-    return;
+    await webSocketProvider?.endAuthenticatedSession();
+  } catch (e) {
+    debugPrint('Realtime adapter teardown failed: $e');
   }
 
   var notificationTeardownVerified = false;
-  try {
-    await notificationProvider.endAuthenticatedSession(
-      unregisterBackend: unregisterNotificationBackend,
-    );
-    notificationTeardownVerified = true;
-  } catch (e) {
-    debugPrint('Notification teardown remains unverified: $e');
+  if (notificationProvider != null) {
+    try {
+      await notificationProvider.endAuthenticatedSession(
+        unregisterBackend: unregisterNotificationBackend,
+      );
+      notificationTeardownVerified = true;
+    } catch (e) {
+      debugPrint('Notification teardown remains unverified: $e');
+    }
   }
-  if (!notificationTeardownVerified) {
+  if (notificationProvider != null && !notificationTeardownVerified) {
     try {
       await StaffNotificationSessionStore.instance.markInactive();
     } catch (e) {
@@ -58,6 +76,16 @@ Future<void> stopStaffRealtimePollers(
     } catch (e) {
       debugPrint('Delivered notification cleanup failed: $e');
     }
+  }
+  try {
+    await realtimeProvider?.disconnect();
+  } catch (e) {
+    debugPrint('Realtime transport teardown failed: $e');
+  }
+  if (notificationProvider != null &&
+      requireVerifiedNotificationTeardown &&
+      !notificationTeardownVerified) {
+    throw StateError('Notification session teardown could not be verified.');
   }
 }
 
@@ -107,8 +135,12 @@ class ForcedLogoutFlow {
     required VoidCallback navigateToLogin,
     required PreservedItemReporter reportPreservedItems,
   }) async {
+    try {
+      await stopSessionTracking?.call();
+    } catch (error) {
+      debugPrint('Forced session UI teardown failed: $error');
+    }
     final preservedCount = await forcedLogout();
-    await stopSessionTracking?.call();
     navigateToLogin();
     reportPreservedItems(preservedCount);
   }
@@ -148,12 +180,28 @@ class LogoutFlow {
     final timeoutProvider = _readProvider<SessionTimeoutProvider>(context);
     final messageProvider = _readProvider<MessageUnreadProvider>(context);
     final clinicalProvider = _readProvider<ClinicalInboxProvider>(context);
+    final webSocketProvider = _readProvider<WebSocketProvider>(context);
     final notificationProvider = _readProvider<NotificationProvider>(context);
+    final realtimeProvider = _readProvider<RealtimeProvider>(context);
+    Future<void> endAuthenticatedSession({
+      required bool unregisterNotificationBackend,
+      required bool requireVerifiedNotificationTeardown,
+    }) => _endStaffAuthenticatedSession(
+      messageProvider: messageProvider,
+      clinicalProvider: clinicalProvider,
+      webSocketProvider: webSocketProvider,
+      notificationProvider: notificationProvider,
+      realtimeProvider: realtimeProvider,
+      unregisterNotificationBackend: unregisterNotificationBackend,
+      requireVerifiedNotificationTeardown: requireVerifiedNotificationTeardown,
+    );
     final result =
         await (logoutOperation ??
             () => AuthService.logout(
-              beforeSessionRevocation:
-                  notificationProvider?.endAuthenticatedSession,
+              beforeSessionRevocation: () => endAuthenticatedSession(
+                unregisterNotificationBackend: true,
+                requireVerifiedNotificationTeardown: true,
+              ),
             ))();
     if (result.isSignedOut) {
       timeoutProvider?.stopTracking();
@@ -164,8 +212,9 @@ class LogoutFlow {
         // pre-revocation hook. Complete local teardown without making an
         // authenticated API call after that operation may have cleared auth.
         try {
-          await notificationProvider?.endAuthenticatedSession(
-            unregisterBackend: false,
+          await endAuthenticatedSession(
+            unregisterNotificationBackend: false,
+            requireVerifiedNotificationTeardown: false,
           );
         } catch (_) {}
       }

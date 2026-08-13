@@ -6,7 +6,6 @@ import '../../features/clinical_continuity/widgets/continuity_cache_action.dart'
 import '../config/role_config.dart';
 import '../providers/message_unread_provider.dart';
 import '../theme/app_theme.dart';
-import 'code_blue_listener.dart';
 import 'logout_action.dart';
 import 'message_unread_badge.dart';
 import 'offline_sync_badge.dart';
@@ -37,37 +36,35 @@ class StaffScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CodeBlueListener(
-      child: Scaffold(
-        backgroundColor: AppTheme.backgroundGrey,
-        appBar: AppBar(
-          leading: const NavigationBackAction(),
-          title: Text(title),
-          actions: [
-            const ContinuityCacheAction(),
-            const OfflineSyncBadge(),
-            const ThemeToggleAction(),
-            ...?actions,
-            // Global patient picker — magnifier next to logout. Open
-            // from any StaffScaffold screen via this icon (or Cmd+K
-            // when shortcuts are wired). Non-clinical roles will get
-            // a 403 displayed inside the sheet, not a crash.
-            if (role != StaffRole.housekeeping &&
-                role != StaffRole.housekeepingIncharge &&
-                role != StaffRole.maintenance)
-              const PatientSearchAction(),
-            // Universal logout — visible from every screen so the user
-            // doesn't have to navigate to Settings (the nurse / doctor /
-            // pharmacy bottom-nav variants don't include Settings, so
-            // without this the only logout path was to fully reinstall).
-            const LogoutAction(),
-          ],
-        ),
-        body: body,
-        floatingActionButton: floatingActionButton,
-        bottomNavigationBar: showBottomNav ? _buildBottomNav(context) : null,
-        bottomSheet: bottomSheet,
+    return Scaffold(
+      backgroundColor: AppTheme.backgroundGrey,
+      appBar: AppBar(
+        leading: const NavigationBackAction(),
+        title: Text(title),
+        actions: [
+          const ContinuityCacheAction(),
+          const OfflineSyncBadge(),
+          const ThemeToggleAction(),
+          ...?actions,
+          // Global patient picker — magnifier next to logout. Open
+          // from any StaffScaffold screen via this icon (or Cmd+K
+          // when shortcuts are wired). Non-clinical roles will get
+          // a 403 displayed inside the sheet, not a crash.
+          if (role != StaffRole.housekeeping &&
+              role != StaffRole.housekeepingIncharge &&
+              role != StaffRole.maintenance)
+            const PatientSearchAction(),
+          // Universal logout — visible from every screen so the user
+          // doesn't have to navigate to Settings (the nurse / doctor /
+          // pharmacy bottom-nav variants don't include Settings, so
+          // without this the only logout path was to fully reinstall).
+          const LogoutAction(),
+        ],
       ),
+      body: body,
+      floatingActionButton: floatingActionButton,
+      bottomNavigationBar: showBottomNav ? _buildBottomNav(context) : null,
+      bottomSheet: bottomSheet,
     );
   }
 
