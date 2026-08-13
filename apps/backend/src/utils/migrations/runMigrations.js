@@ -5,7 +5,15 @@ import { fileURLToPath } from 'url';
 import { Client as PgClient } from 'pg';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { parseMigrationDirectives } from '../../../scripts/lib/migrationDirectives.mjs';
+import {
+  parseMigrationDirectives,
+  safeMigrationStatementTimeout,
+} from '../../../scripts/lib/migrationDirectives.mjs';
+import {
+  applyNoTransactionStatements,
+  isTransactionBoundaryStatement,
+  statementPreview,
+} from './applyNoTransactionMigration.js';
 import { splitStatements } from './splitStatements.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,103 +115,18 @@ export async function readMigrationState({
   return evaluateMigrationState(files, executed);
 }
 
-function stripSqlComments(sql) {
-  let body = '';
-  let i = 0;
-  let mode = 'normal';
-
-  while (i < sql.length) {
-    const ch = sql[i];
-    const next = i + 1 < sql.length ? sql[i + 1] : '';
-
-    if (mode === 'line_comment') {
-      if (ch === '\n') {
-        body += ch;
-        mode = 'normal';
-      }
-      i += 1;
-      continue;
-    }
-
-    if (mode === 'block_comment') {
-      if (ch === '*' && next === '/') {
-        mode = 'normal';
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (mode === 'single_quote') {
-      body += ch;
-      if (ch === "'") {
-        if (next === "'") {
-          body += next;
-          i += 2;
-          continue;
-        }
-        mode = 'normal';
-      }
-      i += 1;
-      continue;
-    }
-
-    if (mode === 'double_quote') {
-      body += ch;
-      if (ch === '"') {
-        if (next === '"') {
-          body += next;
-          i += 2;
-          continue;
-        }
-        mode = 'normal';
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === '-' && next === '-') {
-      mode = 'line_comment';
-      i += 2;
-      continue;
-    }
-
-    if (ch === '/' && next === '*') {
-      mode = 'block_comment';
-      i += 2;
-      continue;
-    }
-
-    if (ch === "'") mode = 'single_quote';
-    if (ch === '"') mode = 'double_quote';
-
-    body += ch;
-    i += 1;
-  }
-
-  return body;
-}
-
-function isTransactionBoundaryStatement(stmt) {
-  const normalized = stripSqlComments(stmt).trim().replace(/\s+/g, ' ').toUpperCase();
-  return /^(BEGIN|START TRANSACTION)( WORK| TRANSACTION)?$/.test(normalized) ||
-    /^(COMMIT|END)( WORK)?$/.test(normalized) ||
-    /^ROLLBACK( WORK)?$/.test(normalized);
-}
-
-function statementPreview(stmt) {
-  return stripSqlComments(stmt).replace(/\s+/g, ' ').trim().slice(0, 180);
-}
-
 // A Postgres time/interval value we are willing to inject into SET. Files are
 // repo-authored, but validate anyway (defense-in-depth): a bare integer (ms),
-// '0' (disabled), or an integer with a ms/s/min unit.
+// '0' (disabled), or an integer with a ms/s/min unit. The validation itself
+// lives in scripts/lib/migrationDirectives.mjs so the CI applier
+// (scripts/ci-setup-db.mjs) and this runner cannot disagree about what a
+// directive means; all this wrapper adds is the operator-facing warning.
 function safeStatementTimeout(value, fallback = '120s') {
-  if (value == null) return fallback;
-  if (value === '0' || /^\d+(ms|s|min)?$/i.test(value)) return value;
-  logger.warn(`runMigrations: ignoring invalid @statement_timeout '${value}'; using ${fallback}`);
-  return fallback;
+  const safe = safeMigrationStatementTimeout(value, fallback);
+  if (value != null && safe !== value) {
+    logger.warn(`runMigrations: ignoring invalid @statement_timeout '${value}'; using ${fallback}`);
+  }
+  return safe;
 }
 
 async function runStatements(client, statements) {
@@ -212,20 +135,6 @@ async function runStatements(client, statements) {
     if (isTransactionBoundaryStatement(stmt)) continue;
     try {
       await client.$executeRawUnsafe(stmt);
-    } catch (err) {
-      err.migrationStatementIndex = index + 1;
-      err.migrationStatementPreview = statementPreview(stmt);
-      throw err;
-    }
-  }
-}
-
-async function runPgStatements(client, statements) {
-  for (let index = 0; index < statements.length; index += 1) {
-    const stmt = statements[index];
-    if (isTransactionBoundaryStatement(stmt)) continue;
-    try {
-      await client.query(stmt);
     } catch (err) {
       err.migrationStatementIndex = index + 1;
       err.migrationStatementPreview = statementPreview(stmt);
@@ -257,11 +166,13 @@ async function executeMigrationFile(
     // leaves the file partially applied and UNRECORDED, so a @no-transaction
     // migration MUST be written re-runnable (IF NOT EXISTS / CONCURRENTLY). The
     // file is recorded only after every statement succeeds.
+    //
+    // applyNoTransactionStatements is shared with every other consumer that has
+    // to apply a @no-transaction file (migration deep tests included) so none of
+    // them can reinvent a subtly different apply — see the module header.
     const client = await noTransactionClientFactory();
     try {
-      await client.query("SET lock_timeout = '15s'");
-      await client.query(`SET statement_timeout = '${timeout}'`);
-      await runPgStatements(client, statements);
+      await applyNoTransactionStatements(client, statements, { statementTimeout: timeout });
       await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file]);
     } finally {
       await client.end().catch(() => {});

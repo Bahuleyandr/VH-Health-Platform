@@ -5,22 +5,47 @@ import { fileURLToPath } from 'node:url';
 import { jest } from '@jest/globals';
 import pg from 'pg';
 
+import { parseMigrationDirectives } from '../../../scripts/lib/migrationDirectives.mjs';
+import {
+  applyNoTransactionMigrationSql,
+  stripSqlComments,
+} from '../../utils/migrations/applyNoTransactionMigration.js';
+
 const { Client } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const migrationPath = join(__dirname, '..', '..', 'migrations', '666_canonical_interop_live_receipts.sql');
 const migrationSql = readFileSync(migrationPath, 'utf8');
+const migrationDirectives = parseMigrationDirectives(migrationSql);
+// DDL only — the file's header explains itself in prose that mentions the same
+// keywords, so shape assertions must not read the comments.
+const migrationDdl = stripSqlComments(migrationSql);
 const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = hasDb ? describe : describe.skip;
 
 jest.setTimeout(90_000);
 
 describe('migration 666 static canonical-interoperability contract', () => {
-  test('is runner-atomic and declares the durable outcome and semantic receipts', () => {
+  test('is applied outside a transaction and declares the durable outcome and semantic receipts', () => {
+    // The file builds its patient_allergies FK anchor with CREATE UNIQUE INDEX
+    // CONCURRENTLY, which Postgres refuses inside a transaction block. That is
+    // only legal because the runner sees `-- @no-transaction` and applies the
+    // statements on a bare session, so the directive is part of the contract:
+    // drop it and the migration cannot apply at all.
+    expect(migrationDirectives.noTransaction).toBe(true);
+    expect(migrationDirectives.statementTimeout).toBe('0');
+    expect(migrationDdl).toMatch(
+      /CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_patient_allergies_tenant_id_for_fhir_receipt/,
+    );
+    // @no-transaction surrenders atomic rollback, so a partially applied file is
+    // replayed from the top: every object it creates must be re-runnable, and it
+    // must never open a transaction of its own around the CONCURRENTLY builds.
     expect(migrationSql).not.toMatch(/^\s*(BEGIN|COMMIT);\s*$/m);
-    expect(migrationSql).toMatch(/CREATE TABLE public\.hl7_inbound_clinical_receipts/);
+    expect(migrationDdl.match(/CREATE TABLE(?! IF NOT EXISTS)/g)).toBeNull();
+    expect(migrationDdl.match(/CREATE (UNIQUE )?INDEX(?! CONCURRENTLY)(?! IF NOT EXISTS)/g)).toBeNull();
+    expect(migrationSql).toMatch(/CREATE TABLE IF NOT EXISTS public\.hl7_inbound_clinical_receipts/);
     expect(migrationSql).toMatch(/UNIQUE \(tenant_id, sender_identity, message_control_id\)/);
     expect(migrationSql).toMatch(/CHECK \(acknowledgement_code = 'AA'\)/);
-    expect(migrationSql).toMatch(/CREATE TABLE public\.fhir_allergy_intolerance_receipts/);
+    expect(migrationSql).toMatch(/CREATE TABLE IF NOT EXISTS public\.fhir_allergy_intolerance_receipts/);
     expect(migrationSql).toMatch(/PRIMARY KEY \(tenant_id, resource_fingerprint\)/);
     expect(migrationSql).toMatch(/FOREIGN KEY \(tenant_id, patient_uid\) REFERENCES public\.users\(tenant_id, uid\)/);
     expect(migrationSql.match(/FOREIGN KEY \(tenant_id, patient_uid\)/g)).toHaveLength(2);
@@ -88,7 +113,23 @@ d('migration 666 constraints and tenant posture (isolated scratch database)', ()
       END
       $$;
     `);
-    await scratch.query(migrationSql);
+    // Apply the file exactly the way runMigrations' @no-transaction branch does
+    // — same directive parse, same statement split, same bare-session apply.
+    // Handing the whole file to client.query() would wrap it in an implicit
+    // transaction block and die on the CONCURRENTLY index statements, and any
+    // hand-rolled loop here would be free to drift from the real runner.
+    await applyNoTransactionMigrationSql(scratch, migrationSql);
+    // Apply it a second time. @no-transaction means a mid-file failure leaves
+    // the file partially applied and UNRECORDED, so the runner replays it from
+    // the top — the file's own header calls that its RE-RUNNABILITY CONTRACT.
+    // Nothing else proves it, and every assertion below then runs against a
+    // replayed schema, so a non-idempotent statement cannot reach production
+    // unnoticed.
+    await applyNoTransactionMigrationSql(scratch, migrationSql);
+    // The file's `@statement_timeout: 0` is a session setting with no
+    // transaction to scope it to, so it outlives the apply. Put a bound back on
+    // this connection for the rest of the suite.
+    await scratch.query("SET statement_timeout = '60s'");
     await scratch.query(`GRANT CONNECT ON DATABASE ${scratchName} TO ${runtimeRole}`);
     await scratch.query(`GRANT USAGE ON SCHEMA public TO ${runtimeRole}`);
     await scratch.query(`GRANT SELECT ON public.fhir_allergy_intolerance_receipts TO ${runtimeRole}`);

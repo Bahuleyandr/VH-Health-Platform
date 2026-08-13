@@ -43,6 +43,16 @@ jobs:
       - name: Vital bounds generated-contract drift
         run: node scripts/generate-vital-bounds.mjs --check
 
+      # Same class, same placement, same cost as the vital-bounds gate above:
+      # the staff role contract is rendered from backend role/route/RBAC policy
+      # and byte-compared. scripts/ci/flutter.mjs (the Forgejo/local canonical
+      # half) has run both since addce0351; this step is what keeps the GitHub
+      # half in parity, so a backend RBAC change that never regenerated the
+      # Dart contract fails here instead of shipping a client that disagrees
+      # with the server about who may see what.
+      - name: Staff role generated-contract drift
+        run: node scripts/generate-staff-role-contract.mjs --check
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           # Pin the exact Flutter (Dart) version so `dart format` is
