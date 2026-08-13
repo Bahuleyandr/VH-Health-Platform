@@ -265,6 +265,7 @@ class NotificationProvider extends ChangeNotifier {
 
   Future<void> beginAuthenticatedSession() {
     _acceptsInitialization = true;
+    StaffLocalNotifications.instance.beginAuthenticatedSession();
     return initialize();
   }
 
@@ -438,13 +439,24 @@ class NotificationProvider extends ChangeNotifier {
   Future<void> endAuthenticatedSession({bool unregisterBackend = true}) async {
     _acceptsInitialization = false;
     _sessionGeneration += 1;
-    var sessionMarkedInactive = false;
+    StaffLocalNotifications.instance.endAuthenticatedSession();
+    final deliveredNotificationsCleanup = _clearDeliveredNotifications();
+    final inactiveSessionWrite = _sessionStore.markInactive().then(
+      (_) => true,
+      onError: (Object error, StackTrace stack) {
+        debugPrint('❌ Notification session marker cleanup error: $error');
+        return false;
+      },
+    );
+
+    var deliveredNotificationsCleared = false;
     try {
-      await _sessionStore.markInactive();
-      sessionMarkedInactive = true;
+      await deliveredNotificationsCleanup;
+      deliveredNotificationsCleared = true;
     } catch (e) {
-      debugPrint('❌ Notification session marker cleanup error: $e');
+      debugPrint('❌ Delivered notification cleanup error: $e');
     }
+    var sessionMarkedInactive = await inactiveSessionWrite;
     final pendingInitialization = _initializationFuture;
     if (pendingInitialization != null) {
       try {
@@ -489,14 +501,6 @@ class NotificationProvider extends ChangeNotifier {
       sessionMarkedInactive = true;
     } catch (e) {
       debugPrint('❌ Notification session marker cleanup error: $e');
-    }
-
-    var deliveredNotificationsCleared = false;
-    try {
-      await _clearDeliveredNotifications();
-      deliveredNotificationsCleared = true;
-    } catch (e) {
-      debugPrint('❌ Delivered notification cleanup error: $e');
     }
 
     var backendUnregistered = false;

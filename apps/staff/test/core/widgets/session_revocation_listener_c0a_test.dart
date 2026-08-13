@@ -1,14 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth_staff/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth_staff/core/widgets/session_timeout_warning_layer.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('forced revocation reports preserved count and routes to login', (
     tester,
   ) async {

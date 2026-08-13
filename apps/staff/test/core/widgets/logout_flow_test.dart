@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_core/services/realtime_provider.dart';
 import 'package:vhhealth_staff/core/providers/message_unread_provider.dart';
 import 'package:vhhealth_staff/core/providers/notification_provider.dart';
@@ -13,6 +15,13 @@ import 'package:vhhealth_staff/core/services/auth_service.dart';
 import 'package:vhhealth_staff/core/widgets/logout_flow.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({});
+  });
+
   test(
     'forced server-expiry flow preserves count and performs one handoff',
     () async {

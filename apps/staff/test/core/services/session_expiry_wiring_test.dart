@@ -66,6 +66,10 @@ void main() {
       expect(timeoutHandler, contains('lockSession();'));
       expect(
         timeoutHandler.indexOf('lockSession();'),
+        lessThan(timeoutHandler.indexOf('await _beforeTimeoutCleanup?.call()')),
+      );
+      expect(
+        timeoutHandler.indexOf('await _beforeTimeoutCleanup?.call()'),
         lessThan(timeoutHandler.indexOf('await _pendingOfflineWriteCount()')),
       );
 

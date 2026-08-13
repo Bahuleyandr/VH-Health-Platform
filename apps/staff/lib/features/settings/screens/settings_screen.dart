@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
     show BiometricAuthResult, BiometricAuthService;
+import '../../../core/navigation/app_router.dart';
 import '../../../core/providers/locale_provider.dart';
+import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/utils/font_scale.dart';
 import '../../../core/services/auth_service.dart';
@@ -15,6 +17,102 @@ import '../../../core/widgets/logout_flow.dart';
 import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+
+typedef SettingsRegisteredDeviceRemover =
+    Future<Map<String, dynamic>> Function(String deviceId);
+typedef SettingsDeviceRemovalRevocation =
+    Future<bool> Function(String deviceId);
+
+/// Completes a Settings-triggered forced sign-out through the same ordered,
+/// deduplicated teardown used by server revocation. Session-scoped providers
+/// are stopped while authentication is still available, before local identity
+/// is cleared and before the router exposes the login screen.
+@visibleForTesting
+Future<void> forceSettingsReauthentication({
+  required StaffSessionStopper endAuthenticatedSession,
+  SessionTimeoutProvider? timeout,
+  ForcedSessionCleanup? forcedLogout,
+  VoidCallback? navigateToLogin,
+}) async {
+  timeout?.lockSession();
+  try {
+    await ForcedLogoutFlow.run(
+      forcedLogout: forcedLogout,
+      stopSessionTracking: () async {
+        timeout?.stopTracking();
+        await endAuthenticatedSession();
+      },
+      navigateToLogin: () {
+        (navigateToLogin ?? () => appRouter.go('/login')).call();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          timeout?.unlockSession();
+        });
+      },
+      reportPreservedItems: (_) {},
+    );
+  } catch (_) {
+    timeout?.unlockSession();
+    rethrow;
+  }
+}
+
+@visibleForTesting
+Future<bool> applySettingsPinReauthentication(
+  Map<String, dynamic> result, {
+  required StaffSessionStopper endAuthenticatedSession,
+  SessionTimeoutProvider? timeout,
+  ForcedSessionCleanup? forcedLogout,
+  VoidCallback? navigateToLogin,
+}) async {
+  if (result['reauthenticationRequired'] != true) return false;
+  await forceSettingsReauthentication(
+    endAuthenticatedSession: endAuthenticatedSession,
+    timeout: timeout,
+    forcedLogout: forcedLogout,
+    navigateToLogin: navigateToLogin,
+  );
+  return true;
+}
+
+/// Removes a trusted device on the backend, then applies the resulting
+/// all-session revocation locally through the authenticated teardown above.
+@visibleForTesting
+Future<void> removeSettingsRegisteredDevice(
+  BuildContext context,
+  String deviceId, {
+  SettingsRegisteredDeviceRemover? removeDevice,
+  SettingsDeviceRemovalRevocation? applyRemovalRevocation,
+  StaffSessionStopper? endAuthenticatedSession,
+  VoidCallback? navigateToLogin,
+}) async {
+  final timeout = _readSettingsSessionTimeout(context);
+  final capturedSessionStopper =
+      endAuthenticatedSession ??
+      captureStaffRealtimePollerStopper(
+        context,
+        unregisterNotificationBackend: true,
+        requireVerifiedNotificationTeardown: true,
+      );
+  await (removeDevice ?? HrApiService.removeRegisteredDevice)(deviceId);
+  await forceSettingsReauthentication(
+    endAuthenticatedSession: capturedSessionStopper,
+    timeout: timeout,
+    forcedLogout: () async {
+      await (applyRemovalRevocation ??
+          AuthService.applyDeviceRemovalRevocation)(deviceId);
+      return 0;
+    },
+    navigateToLogin: navigateToLogin,
+  );
+}
+
+SessionTimeoutProvider? _readSettingsSessionTimeout(BuildContext context) {
+  try {
+    return context.read<SessionTimeoutProvider>();
+  } catch (_) {
+    return null;
+  }
+}
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -67,6 +165,12 @@ class SettingsScreen extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
+      final timeout = _readSettingsSessionTimeout(context);
+      final endAuthenticatedSession = captureStaffRealtimePollerStopper(
+        context,
+        unregisterNotificationBackend: true,
+        requireVerifiedNotificationTeardown: true,
+      );
       try {
         final deviceToken = await AuthService.getDeviceToken();
         if (deviceToken == null || deviceToken.isEmpty) {
@@ -85,11 +189,12 @@ class SettingsScreen extends StatelessWidget {
               backgroundColor: AppTheme.successGreen,
             ),
           );
-          if (result['reauthenticationRequired'] == true) {
-            await AuthService.forceLogoutForRevocation();
-            if (context.mounted) context.go('/login');
-          }
         }
+        await applySettingsPinReauthentication(
+          result,
+          endAuthenticatedSession: endAuthenticatedSession,
+          timeout: timeout,
+        );
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -771,9 +876,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
   Future<void> _removeDevice(String deviceId) async {
     if (!OnlineOnlyActionGuard.require(context)) return;
     try {
-      await HrApiService.removeRegisteredDevice(deviceId);
-      await AuthService.applyDeviceRemovalRevocation(deviceId);
-      if (mounted) context.go('/login');
+      await removeSettingsRegisteredDevice(context, deviceId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

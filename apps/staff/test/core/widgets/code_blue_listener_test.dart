@@ -2,12 +2,17 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_core/services/realtime_provider.dart';
+import 'package:vhhealth_staff/core/providers/notification_provider.dart';
+import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth_staff/core/providers/websocket_provider.dart';
 import 'package:vhhealth_staff/core/widgets/code_blue_listener.dart';
+import 'package:vhhealth_staff/core/widgets/logout_flow.dart';
 
 class _FakeRealtimeProvider extends RealtimeProvider {
   final Map<String, StreamController<RealtimeEvent>> controllers = {};
@@ -94,6 +99,15 @@ class _FakeWebSocketProvider extends WebSocketProvider {
   Future<void> endAuthenticatedSession() async {
     _active = false;
     notifyListeners();
+  }
+}
+
+class _LockNotificationProvider extends NotificationProvider {
+  int endCalls = 0;
+
+  @override
+  Future<void> endAuthenticatedSession({bool unregisterBackend = true}) async {
+    endCalls += 1;
   }
 }
 
@@ -216,6 +230,99 @@ void main() {
     provider.dispose();
     await provider.events.close().timeout(const Duration(seconds: 3));
   });
+
+  testWidgets(
+    'idle lock tears down Code Blue before a delayed queue count can deliver',
+    (tester) async {
+      final provider = _FakeWebSocketProvider();
+      final notifications = _LockNotificationProvider();
+      final counterStarted = Completer<void>();
+      final releaseCounter = Completer<void>();
+      final cleanupCompleted = Completer<void>();
+      final notificationEventIds = <String>[];
+      final presentations = <_FakeCodeBluePresentation>[];
+      final navigatorKey = GlobalKey<NavigatorState>();
+      late BuildContext sessionContext;
+      late SessionTimeoutProvider timeout;
+      FlutterSecureStorage.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({});
+      await provider.beginAuthenticatedSession();
+
+      timeout = SessionTimeoutProvider(
+        timeoutDuration: const Duration(milliseconds: 10),
+        beforeTimeoutCleanup: () => stopStaffRealtimePollers(
+          sessionContext,
+          unregisterNotificationBackend: true,
+        ),
+        pendingOfflineWriteCount: () async {
+          counterStarted.complete();
+          await releaseCounter.future;
+          return 0;
+        },
+        onTimeoutCleanup: () async {
+          cleanupCompleted.complete();
+        },
+      );
+      addTearDown(timeout.dispose);
+      addTearDown(notifications.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<WebSocketProvider>.value(value: provider),
+            ChangeNotifierProvider<NotificationProvider>.value(
+              value: notifications,
+            ),
+            ChangeNotifierProvider<SessionTimeoutProvider>.value(
+              value: timeout,
+            ),
+          ],
+          child: Builder(
+            builder: (context) {
+              sessionContext = context;
+              return MaterialApp(
+                navigatorKey: navigatorKey,
+                home: CodeBlueListener(
+                  navigatorKey: navigatorKey,
+                  notificationPresenter: (data) async {
+                    notificationEventIds.add(data['eventId'].toString());
+                  },
+                  dialogPresenter: (_, _) {
+                    final presentation = _FakeCodeBluePresentation();
+                    presentations.add(presentation);
+                    return presentation;
+                  },
+                  child: const Scaffold(body: Text('Staff home')),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      timeout.startTracking();
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.pump();
+      await counterStarted.future.timeout(const Duration(seconds: 2));
+
+      expect(timeout.isSessionLocked, isTrue);
+      expect(provider.hasAuthenticatedSession, isFalse);
+      expect(notifications.endCalls, 1);
+
+      provider.events.deliverAfterCancellation(
+        _codeBlueEvent(eventId: 81, patientId: 'locked-session'),
+      );
+      await tester.pump();
+      expect(notificationEventIds, isEmpty);
+      expect(presentations, isEmpty);
+
+      releaseCounter.complete();
+      await cleanupCompleted.future.timeout(const Duration(seconds: 2));
+      await tester.pumpWidget(const SizedBox.shrink());
+      provider.dispose();
+      await provider.events.close().timeout(const Duration(seconds: 3));
+    },
+  );
 
   test('Code Blue listener is mounted once above routing', () {
     final mainSource = File('lib/main.dart').readAsStringSync();
