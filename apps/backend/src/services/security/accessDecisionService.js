@@ -1045,6 +1045,12 @@ async function findCareTeamRelationship(req, patient) {
   const patientUid = cleanUuid(patient?.uid);
   if (!patientUid) return null;
 
+  // A context-free longitudinal team is governed by its own status window.
+  // Episode-scoped teams must additionally point at the same tenant/patient
+  // and a currently valid episode. Appointment access retains the existing
+  // bounded 30-day clinical follow-up window; admission access ends as soon as
+  // the admission leaves admitted/transferred. This prevents a forgotten
+  // active care-team row from extending episode authority indefinitely.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT ctm.id, ctm.care_team_id
        FROM care_team_members ctm
@@ -1056,6 +1062,44 @@ async function findCareTeamRelationship(req, patient) {
         AND ctm.status = 'active'
         AND ctm.active_from <= NOW()
         AND (ctm.active_until IS NULL OR ctm.active_until >= NOW())
+        AND (
+          (
+            ct.appointment_id IS NULL
+            AND ct.admission_id IS NULL
+            AND LOWER(BTRIM(COALESCE(ct.team_kind, ''))) = 'longitudinal'
+          )
+          OR (
+            ct.appointment_id IS NOT NULL
+            AND ct.admission_id IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM appointments appointment
+                JOIN users appointment_patient
+                  ON appointment_patient.tenant_id = appointment.tenant_id
+                 AND appointment_patient.id = appointment.patient_id
+               WHERE appointment.tenant_id = ct.tenant_id
+                 AND appointment.id = ct.appointment_id
+                 AND appointment_patient.uid = ct.patient_uid
+                 AND UPPER(BTRIM(COALESCE(appointment.status, ''))) NOT IN (
+                   'CANCELLED', 'NO_SHOW', 'RESCHEDULED'
+                 )
+                 AND appointment.appointment_date >= (CURRENT_DATE - INTERVAL '30 days')
+                 AND appointment.appointment_date <= (CURRENT_DATE + INTERVAL '30 days')
+            )
+          )
+          OR (
+            ct.admission_id IS NOT NULL
+            AND ct.appointment_id IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM admissions admission
+               WHERE admission.tenant_id = ct.tenant_id
+                 AND admission.id = ct.admission_id
+                 AND admission.patient_uid = ct.patient_uid
+                 AND LOWER(BTRIM(COALESCE(admission.status, ''))) IN ('admitted', 'transferred')
+            )
+          )
+        )
         AND (
           ($3::uuid IS NOT NULL AND ctm.staff_uid = $3::uuid)
           OR ($4::int IS NOT NULL AND ctm.staff_id = $4::int)
@@ -1627,7 +1671,7 @@ async function findAppointmentRelationship(req, patient, role, policy = null, re
        LEFT JOIN users d ON d.id = a.doctor_id
       WHERE a.tenant_id = $1::uuid
         AND p.uid = $2::uuid
-        AND COALESCE(a.status, '') NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
+        AND UPPER(BTRIM(COALESCE(a.status, ''))) NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
         AND a.appointment_date >= (CURRENT_DATE - INTERVAL '30 days')
         AND a.appointment_date <= (CURRENT_DATE + INTERVAL '30 days')
         AND ($7::int IS NULL OR a.id = $7::int)
@@ -1671,7 +1715,7 @@ async function findAdmissionRelationship(req, patient, role) {
        FROM admissions
       WHERE tenant_id = $1::uuid
         AND patient_uid = $2::uuid
-        AND COALESCE(status, '') NOT IN ('DISCHARGED', 'CANCELLED')
+        AND LOWER(BTRIM(COALESCE(status, ''))) IN ('admitted', 'transferred')
         AND (
           $4::boolean = TRUE
           OR $5::boolean = TRUE

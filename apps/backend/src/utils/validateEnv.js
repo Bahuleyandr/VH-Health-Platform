@@ -326,6 +326,10 @@ export const envSchema = Joi.object({
     .allow('')
     .optional()
     .label('AUTH_ENFORCE_TENANT_RLS'),
+  CARE_TEAM_ENFORCEMENT_MODE: Joi.string()
+    .valid('off', 'shadow', 'enforce')
+    .optional()
+    .label('CARE_TEAM_ENFORCEMENT_MODE'),
   AUTH_TENANT_RLS_TEST_ROLE: Joi.string()
     .allow('')
     .optional()

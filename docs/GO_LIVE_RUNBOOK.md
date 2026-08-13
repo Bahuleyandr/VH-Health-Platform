@@ -477,20 +477,43 @@ Dependency: Phases 2 through 7 as applicable.
 
 Evidence gate:
 
-- Shadow telemetry covers every high-sensitivity PHI route family that will be enforced.
+- Shadow telemetry covers every governed PHI record type; the owner separately
+  confirms every in-scope URL sharing those policies was exercised.
 - No legitimate-access denials appear in `patient_access_audit_log` for the agreed observation window.
+- No `Patient access audit file fallback` entry exists in the observation
+  window; unresolved-patient and database-write failures are recorded there
+  rather than in `patient_access_audit_log`.
 - Break-glass procedure is rehearsed.
 - Enumeration-oracle check is clean: enforce responses do not reveal whether a patient/resource exists to unrelated staff.
 
 Commands:
 
+```powershell
+$env:DATABASE_URL = "<production-owner-url>" # the script enforces READ ONLY
+$env:CARE_TEAM_ENFORCEMENT_MODE = "shadow"
+npm --prefix apps/backend run care-team:audit-enforcement-readiness -- `
+  --tenant-id <pilot-tenant-uuid> `
+  --window-days 7 `
+  --output runs/care-team/<pilot-tenant-uuid>-readiness.json
+```
+
+The readiness audit runs in one repeatable-read, read-only snapshot. It blocks
+on a split observation window with no traffic, missing governed record types,
+any shadow denial, missing active
+appointment/admission clinician membership, any active episode-scoped team
+whose appointment/admission relationship is no longer valid, any active
+non-longitudinal team with no episode context, a missing end-to-end break-glass
+exercise, or an override that is still active. `READY FOR OWNER REVIEW` is not
+automatic activation authority: the clinical safety owner must review the
+report and retain the enumeration-oracle evidence before the SQL flip.
+
 ```sql
-SELECT access_decision, shadow_mode, COUNT(*)
+SELECT access_decision, metadata ->> 'shadow_mode' AS shadow_mode, COUNT(*)
 FROM patient_access_audit_log
 WHERE tenant_id = '<pilot-tenant-uuid>'
   AND created_at >= NOW() - INTERVAL '7 days'
-GROUP BY access_decision, shadow_mode
-ORDER BY access_decision, shadow_mode;
+GROUP BY access_decision, metadata ->> 'shadow_mode'
+ORDER BY access_decision, metadata ->> 'shadow_mode';
 
 UPDATE tenants
 SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{care_team_enforcement_mode}', '"enforce"', true)

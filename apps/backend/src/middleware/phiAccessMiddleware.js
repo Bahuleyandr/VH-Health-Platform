@@ -166,18 +166,10 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
         });
         return next();
       }
-      // CRITICAL NON-BREAKING GUARANTEE: in shadow mode the guard must NEVER
-      // block and NEVER 500. Any unexpected error fails OPEN (allow + log) so
-      // a PHI route can never be taken down by the access check while we are
-      // still observing. Legacy/enforce mode keeps the fail-closed 500.
-      if (shadow) {
-        logger.error('SECURITY ALERT: patient access guard failed OPEN in shadow mode (allowing request)', {
-          path: req.originalUrl || req.url,
-          recordType,
-          error: err?.message,
-        });
-        return next();
-      }
+      // Shadow changes the outcome of a genuine, successfully-computed denial;
+      // it is not permission to bypass a broken authorization engine. An
+      // unexpected dependency/query failure leaves the access decision unknown
+      // and therefore fails closed in every active mode.
       logger.error('Patient access guard failed:', err);
       return res.status(500).json({
         success: false,
@@ -265,16 +257,9 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
         });
         return next();
       }
-      // CRITICAL NON-BREAKING GUARANTEE: off/shadow never block and never 500.
-      // Fail OPEN on any unexpected error in shadow; only enforce fails closed.
-      if (shadow) {
-        logger.error('SECURITY ALERT: patient resource access guard failed OPEN in shadow mode (allowing request)', {
-          path: req.originalUrl || req.url,
-          resourceType,
-          error: err?.message,
-        });
-        return next();
-      }
+      // Shadow only makes a successfully-computed relationship denial
+      // observable. An engine failure is an unknown authorization outcome and
+      // must not grant access.
       logger.error('Patient resource access guard failed:', err);
       return res.status(500).json({
         success: false,

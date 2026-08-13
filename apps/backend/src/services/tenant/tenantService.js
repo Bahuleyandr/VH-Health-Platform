@@ -3,7 +3,9 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isDefaultTenantAllowed } from '../../config/tenantRlsConfig.js';
 import {
+  DEFAULT_CARE_TEAM_ENFORCEMENT_MODE,
   RESERVED_CARE_PATHWAYS_SETTINGS_KEY,
+  RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY,
   serializeGenericTenantSettings,
 } from './tenantSettingsMutationPolicy.js';
 
@@ -119,9 +121,13 @@ export async function createTenant(data = {}) {
 
   const region = validateRegion(clean(data.region || 'IN').toUpperCase());
   const compliance = validateProfile(clean(data.compliance_profile || 'DPDP').toUpperCase());
-  const serializedSettings = serializeGenericTenantSettings(
+  const genericSettings = JSON.parse(serializeGenericTenantSettings(
     Object.prototype.hasOwnProperty.call(data, 'settings') ? data.settings : {},
-  );
+  ));
+  const serializedSettings = JSON.stringify({
+    ...genericSettings,
+    [RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY]: DEFAULT_CARE_TEAM_ENFORCEMENT_MODE,
+  });
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO tenants (slug, name, region, compliance_profile, settings, created_at, updated_at)
@@ -172,16 +178,25 @@ export async function updateTenant(tenantId, patch = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'settings')) {
     fields.push(
-      `settings = CASE
-         WHEN jsonb_typeof(settings) = 'object'
-          AND settings ? '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}'
-         THEN $${idx}::jsonb
-              || jsonb_build_object(
-                   '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}',
-                   settings -> '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}'
-                 )
-         ELSE $${idx}::jsonb
-       END`
+      `settings = $${idx}::jsonb
+        || CASE
+             WHEN jsonb_typeof(settings) = 'object'
+              AND settings ? '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}'
+             THEN jsonb_build_object(
+                    '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}',
+                    settings -> '${RESERVED_CARE_PATHWAYS_SETTINGS_KEY}'
+                  )
+             ELSE '{}'::jsonb
+           END
+        || CASE
+             WHEN jsonb_typeof(settings) = 'object'
+              AND settings ? '${RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY}'
+             THEN jsonb_build_object(
+                    '${RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY}',
+                    settings -> '${RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY}'
+                  )
+             ELSE '{}'::jsonb
+           END`
     );
     values.push(serializeGenericTenantSettings(patch.settings));
     idx += 1;

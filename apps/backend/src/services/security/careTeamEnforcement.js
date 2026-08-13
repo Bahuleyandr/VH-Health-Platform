@@ -21,7 +21,7 @@
 // (tenantService.getTenantById already selects it and caches the row for 60s).
 // No migration / no new column → no schema drift. Resolution order:
 //   1. tenants.settings.care_team_enforcement_mode (per-tenant authority).
-//   2. CARE_TEAM_ENFORCEMENT_MODE env var (deployment-wide override / pin).
+//   2. CARE_TEAM_ENFORCEMENT_MODE env var (deployment-wide fallback).
 //   3. DEFAULT_ENFORCEMENT_MODE ('shadow').
 //
 // A tenant with no explicit setting uses shadow. A failed lookup is different:
@@ -31,6 +31,10 @@
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { getTenantById, requireTenantId } from '../tenant/tenantService.js';
+import {
+  DEFAULT_CARE_TEAM_ENFORCEMENT_MODE,
+  RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY,
+} from '../tenant/tenantSettingsMutationPolicy.js';
 
 export const CARE_TEAM_ENFORCEMENT_MODES = Object.freeze({
   OFF: 'off',
@@ -41,10 +45,10 @@ export const CARE_TEAM_ENFORCEMENT_MODES = Object.freeze({
 const VALID_MODES = new Set(Object.values(CARE_TEAM_ENFORCEMENT_MODES));
 
 // Platform-owner default. Shadow = log-only, non-breaking.
-export const DEFAULT_ENFORCEMENT_MODE = CARE_TEAM_ENFORCEMENT_MODES.SHADOW;
+export const DEFAULT_ENFORCEMENT_MODE = DEFAULT_CARE_TEAM_ENFORCEMENT_MODE;
 
 // The settings key on tenants.settings JSONB.
-export const ENFORCEMENT_MODE_SETTINGS_KEY = 'care_team_enforcement_mode';
+export const ENFORCEMENT_MODE_SETTINGS_KEY = RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY;
 
 /**
  * Normalize an arbitrary value to a valid enforcement mode, or null if it is
@@ -57,7 +61,7 @@ export function normalizeEnforcementMode(value) {
 }
 
 /**
- * Normalize the deployment-wide override. The resolver separately
+ * Normalize the deployment-wide fallback. The resolver separately
  * distinguishes an absent variable from an explicitly invalid value.
  */
 export function envEnforcementMode() {

@@ -15,6 +15,19 @@ function validate(extraEnv = {}) {
   return envSchema.validate({ ...BASE_ENV, ...extraEnv }, { abortEarly: false });
 }
 
+describe('validateEnv CARE_TEAM_ENFORCEMENT_MODE', () => {
+  it.each(['off', 'shadow', 'enforce'])('accepts the governed mode %s', (mode) => {
+    expect(validate({ CARE_TEAM_ENFORCEMENT_MODE: mode }).error).toBeUndefined();
+  });
+
+  it('rejects an invalid or empty explicit mode', () => {
+    expect(validate({ CARE_TEAM_ENFORCEMENT_MODE: 'observe' }).error?.details[0].message)
+      .toContain('CARE_TEAM_ENFORCEMENT_MODE');
+    expect(validate({ CARE_TEAM_ENFORCEMENT_MODE: '' }).error?.details[0].message)
+      .toContain('CARE_TEAM_ENFORCEMENT_MODE');
+  });
+});
+
 describe('validateEnv MIN_PATIENT_VERSION_CODE', () => {
   it('defaults the patient hard-upgrade gate to disabled', () => {
     const { error, value } = validate();

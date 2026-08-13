@@ -87,6 +87,10 @@ data:
   HTTP_BODY_LIMIT: "1mb"
   STATEMENT_TIMEOUT_MS: "30000"
   AUTH_ENFORCE_TENANT_RLS: "true"
+  # Relationship ABAC remains telemetry-gated. Keep the current rollout posture
+  # explicit and run `npm run care-team:audit-enforcement-readiness` before any
+  # tenant is moved to enforce; an unset value must not hide production intent.
+  CARE_TEAM_ENFORCEMENT_MODE: "shadow"
   # W1 (multi-tenancy): tenant resolution fails closed by default. The current
   # single-hospital deploy opts INTO the legacy default-tenant floor so behavior
   # is unchanged; flip to "false" at the multi-tenant cutover (W7) so a request

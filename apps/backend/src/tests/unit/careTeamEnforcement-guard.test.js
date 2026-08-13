@@ -5,7 +5,8 @@ import { jest } from '@jest/globals';
 //   * off     → ABAC skipped entirely, no prisma access, next() called.
 //   * shadow  → would-be denial is ALLOWED (next called) but a 'deny' audit row
 //               is still written. NEVER 403.
-//   * shadow  → an unexpected engine error FAILS OPEN (next called), never 500.
+//   * shadow  → an unexpected engine error FAILS CLOSED; shadow only affects a
+//               successfully-computed relationship denial.
 //   * enforce → a genuine denial returns 403.
 
 const prismaMock = {
@@ -181,7 +182,7 @@ describe('patientAccessGuard — enforcement mode shadow', () => {
     );
   });
 
-  it('FAILS OPEN (next called, no 500) when the engine throws an unexpected error', async () => {
+  it('FAILS CLOSED when the engine throws an unexpected error', async () => {
     modeMock.mockResolvedValue('shadow');
     // Patient resolve throws a non-schema-missing error.
     prismaMock.$queryRawUnsafe.mockRejectedValueOnce(new Error('connection reset'));
@@ -190,8 +191,31 @@ describe('patientAccessGuard — enforcement mode shadow', () => {
 
     await patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true })(unrelatedDoctorReq(), res, next);
 
-    expect(next).toHaveBeenCalledTimes(1);
-    expect(res.status).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PATIENT_ACCESS_CHECK_FAILED',
+    }));
+  });
+
+  it('FAILS CLOSED when resource ownership resolution throws', async () => {
+    modeMock.mockResolvedValue('shadow');
+    prismaMock.$queryRawUnsafe.mockRejectedValueOnce(new Error('connection reset'));
+    const next = jest.fn();
+    const res = resStub();
+    const req = unrelatedDoctorReq();
+    req.params = { id: '404' };
+
+    await patientAccessGuardForResource('ONCOLOGY_DIAGNOSIS', {
+      resourceType: 'oncology_diagnosis',
+      careTeamModeGoverned: true,
+    })(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PATIENT_ACCESS_CHECK_FAILED',
+    }));
   });
 });
 

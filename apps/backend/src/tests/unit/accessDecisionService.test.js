@@ -176,6 +176,8 @@ describe('accessDecisionService', () => {
     expect(decision.accessSource).toBe('appointment');
     expect(decision.appointmentId).toBe(77);
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('appointment');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[2][0])
+      .toMatch(/UPPER\(BTRIM\(COALESCE\(a\.status, ''\)\)\) NOT IN/);
   });
 
   it('keeps HR leave/reporting authority out of patient PHI access', async () => {
@@ -307,6 +309,8 @@ describe('accessDecisionService', () => {
     expect(decision.allowed).toBe(true);
     expect(decision.accessSource).toBe('admission');
     expect(decision.admissionId).toBe(27);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[3][0])
+      .toMatch(/LOWER\(BTRIM\(COALESCE\(status, ''\)\)\) IN \('admitted', 'transferred'\)/);
   });
 
   it.each([
@@ -1360,6 +1364,12 @@ describe('patient realtime subscription access decisions', () => {
       careTeamId: 44,
     });
     expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toMatch(/care_team_members/);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0])
+      .toMatch(/LOWER\(BTRIM\(COALESCE\(ct\.team_kind, ''\)\)\) = 'longitudinal'/);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0])
+      .toMatch(/appointment\.appointment_date >= \(CURRENT_DATE - INTERVAL '30 days'\)/);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0])
+      .toMatch(/LOWER\(BTRIM\(COALESCE\(admission\.status, ''\)\)\) IN \('admitted', 'transferred'\)/);
   });
 
   it('allows an active break-glass decision', async () => {
