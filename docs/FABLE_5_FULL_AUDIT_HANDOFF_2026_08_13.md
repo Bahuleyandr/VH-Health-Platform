@@ -37,6 +37,10 @@ work. It is not deployment or merge authority.
   ahead and 0 behind, with 491 changed files.
 - The consolidated worktree was clean before this document was added.
 - No draft pull request existed for this branch before the pause publication.
+- Pause publication created GitHub draft PR
+  [#867](https://github.com/Bahuleyandr/VH-Health-Platform/pull/867). It is the
+  single canonical continuation target and must remain draft until the listed
+  blockers and final gates are closed.
 
 Always fetch `github/main` and recheck ancestry before resuming. Do not use the
 local `main` worktree as the publication base without first proving it matches
