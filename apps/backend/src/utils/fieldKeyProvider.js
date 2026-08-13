@@ -68,6 +68,8 @@ export class LocalKekProvider {
   constructor({ activeKeyId, keks } = {}) {
     this.providerName = 'local-env';
     this._keks = new Map();
+    // tenantId -> the highest-versioned tenant keyId currently registered.
+    this._tenantActiveKeyIds = new Map();
 
     if (keks) {
       for (const [id, buf] of Object.entries(keks)) {
@@ -101,6 +103,36 @@ export class LocalKekProvider {
       throw new Error(`KEK for "${keyId}" must be a ${KEK_LENGTH}-byte Buffer`);
     }
     this._keks.set(keyId, buf);
+    this._indexTenantKek(keyId);
+  }
+
+  /**
+   * Keep tenantId -> highest registered `t:<tenantId>:v<n>` current. New writes
+   * for a tenant must be stamped with its highest version; older versions stay
+   * registered so payloads that name them still decrypt.
+   */
+  _indexTenantKek(keyId) {
+    const parsed = parseTenantKeyId(keyId);
+    if (!parsed) return;
+    const current = this._tenantActiveKeyIds.get(parsed.tenantId);
+    if (!current || (parseTenantKeyId(current)?.version ?? 0) <= parsed.version) {
+      this._tenantActiveKeyIds.set(parsed.tenantId, keyId);
+    }
+  }
+
+  _reindexTenant(tenantId) {
+    let best = null;
+    let bestVersion = 0;
+    for (const keyId of this._keks.keys()) {
+      const parsed = parseTenantKeyId(keyId);
+      if (!parsed || parsed.tenantId !== tenantId) continue;
+      if (parsed.version >= bestVersion) {
+        best = keyId;
+        bestVersion = parsed.version;
+      }
+    }
+    if (best) this._tenantActiveKeyIds.set(tenantId, best);
+    else this._tenantActiveKeyIds.delete(tenantId);
   }
 
   get activeKeyId() {
@@ -163,12 +195,24 @@ export class LocalKekProvider {
   // --- W3: per-tenant KEKs ----------------------------------------------------
   // Per-tenant KEKs are random keys stored (wrapped under a master KEK) in the
   // encryption_keys table and loaded async by tenantKekProvider, then registered
-  // here so the SYNC wrap/unwrap path can use them by their `t:<tenantId>:v1`
+  // here so the SYNC wrap/unwrap path can use them by their `t:<tenantId>:v<n>`
   // keyId. (Sync provider + async DB load → load-then-register.)
+  //
+  // A tenant can legitimately have several versions registered at once: new
+  // writes take the highest one, older ones stay loaded so payloads stamped with
+  // them still decrypt. A crypto-shred evicts every version it destroyed.
 
   /** Register an externally-loaded per-tenant KEK for sync wrap/unwrap. */
   registerTenantKek(keyId, kek) {
     this._registerKek(keyId, kek);
+  }
+
+  /**
+   * The keyId new writes for this tenant must be wrapped under — the highest
+   * registered version — or null when the tenant has no KEK loaded.
+   */
+  activeTenantKeyId(tenantId) {
+    return this._tenantActiveKeyIds.get(String(tenantId)) || null;
   }
 
   /** Is a KEK for this keyId loaded? Lets encrypt fall back to the global KEK
@@ -179,8 +223,18 @@ export class LocalKekProvider {
 
   /** Evict a (crypto-shredded) tenant KEK from the in-process cache. */
   evictKek(keyId) {
-    return this._keks.delete(keyId);
+    const removed = this._keks.delete(keyId);
+    const parsed = parseTenantKeyId(keyId);
+    if (parsed) this._reindexTenant(parsed.tenantId);
+    return removed;
   }
+}
+
+/** Split `t:<tenantId>:v<n>` into its parts; null for any other keyId. */
+export function parseTenantKeyId(keyId) {
+  const match = /^t:(.+):v(\d+)$/.exec(String(keyId ?? ''));
+  if (!match) return null;
+  return { tenantId: match[1], version: Number(match[2]) };
 }
 
 /**
@@ -238,5 +292,6 @@ export default {
   getKekProvider,
   setKekProvider,
   deriveKekFromMaterial,
+  parseTenantKeyId,
   DEFAULT_KEK_ID,
 };

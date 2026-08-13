@@ -6,7 +6,7 @@ import { decryptField, encryptField, getKeyId } from '../../utils/fieldEncryptio
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { generatePayslipPDF } from '../../utils/payslipPDF.js';
 import { getFileFromR2, uploadFileToR2 } from '../../utils/r2Storage.js';
-import { loadTenantKekIntoProvider, tenantKeyId } from '../security/tenantKekProvider.js';
+import { loadTenantKekIntoProvider } from '../security/tenantKekProvider.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 const PAYROLL_ATTEMPT_STALE_HOURS = 4;
@@ -1615,9 +1615,11 @@ function sha256Buffer(buffer) {
 }
 
 async function encryptPayslipCredential(tenantId, password) {
-  await loadTenantKekIntoProvider(tenantId);
+  // keyId is the tenant's CURRENT KEK version, so a tenant that was
+  // crypto-shredded and re-provisioned (v2+) still passes this check.
+  const { keyId } = await loadTenantKekIntoProvider(tenantId);
   const ciphertext = encryptField(password, { tenantId });
-  if (getKeyId(ciphertext) !== tenantKeyId(tenantId)) {
+  if (getKeyId(ciphertext) !== keyId) {
     throw new Error(`Tenant KEK is not active for payroll document encryption (${tenantId})`);
   }
   return ciphertext;

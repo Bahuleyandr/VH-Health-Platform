@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 const migration = readFileSync(
   new URL('../../migrations/669_payroll_attempt_document_delivery.sql', import.meta.url),
@@ -6,6 +6,10 @@ const migration = readFileSync(
 );
 const tenantKekProvider = readFileSync(
   new URL('../../services/security/tenantKekProvider.js', import.meta.url),
+  'utf8',
+);
+const kekVersioningMigration = readFileSync(
+  new URL('../../migrations/672_tenant_kek_versioned_reprovision.sql', import.meta.url),
   'utf8',
 );
 
@@ -33,6 +37,36 @@ test('tenant KEK provisioning cannot overwrite material under the fixed v1 key i
   expect(tenantKekProvider).not.toMatch(
     /ON CONFLICT \(tenant_id, key_id\) DO UPDATE SET\s+wrapped_key_material/i,
   );
+});
+
+test('672 makes tenant KEK material write-once for EVERY version, not just v1', () => {
+  expect(readdirSync(new URL('../../migrations/', import.meta.url)).filter(name => name.startsWith('672_')))
+    .toEqual(['672_tenant_kek_versioned_reprovision.sql']);
+  expect(kekVersioningMigration).toContain("SET LOCAL lock_timeout = '10s'");
+  expect(kekVersioningMigration).toContain("SET LOCAL statement_timeout = '60s'");
+  // Version-generic: 669 only ever matched `t:<tenant>:v1`, so a rotation would
+  // have left later versions unguarded.
+  expect(kekVersioningMigration).toContain("OLD.key_id ~ ('^t:' || OLD.tenant_id::text || ':v[0-9]+$')");
+  // Clearing (the crypto-shred) is the ONLY permitted material transition; both
+  // replacing live material and refilling a shredded row are refused.
+  expect(kekVersioningMigration).toContain(
+    'OLD.wrapped_key_material IS DISTINCT FROM NEW.wrapped_key_material',
+  );
+  expect(kekVersioningMigration).toContain('NEW.wrapped_key_material IS NOT NULL');
+  expect(kekVersioningMigration).not.toContain('OLD.wrapped_key_material IS NOT NULL');
+  expect(kekVersioningMigration).toContain('tenant KEK material is immutable');
+});
+
+test('crypto-shred clears every version and re-provisioning allocates the next one', () => {
+  // The shred must NULL the material (status alone would leave it recoverable)
+  // across all versions of the tenant's key.
+  expect(tenantKekProvider).toMatch(/UPDATE encryption_keys[\s\S]*wrapped_key_material = NULL/);
+  expect(tenantKekProvider).toMatch(
+    /UPDATE encryption_keys[\s\S]*key_id ~ \('\^t:' \|\| tenant_id::text \|\| ':v\[0-9\]\+\$'\)/,
+  );
+  // Re-provision allocates predecessor.version + 1 rather than reusing a key id.
+  expect(tenantKekProvider).toContain('const version = (predecessor?.version ?? 0) + 1;');
+  expect(tenantKekProvider).toContain('tenantKeyId(tenantId, version)');
 });
 
 test('legacy signed-unissued payroll and mutable cross-attempt identity fail closed', () => {

@@ -86,6 +86,7 @@ const {
   upsertInteropSecret,
 } = await import('../services/interop/tenantInteropSecretService.js');
 const {
+  activeTenantKeyId,
   cryptoShredTenant,
   provisionTenantKek,
   resetTenantKekCacheForTesting,
@@ -127,16 +128,43 @@ function operation() {
   };
 }
 
+// Put the tenant back on a known-good KEK using only the sanctioned path: retire
+// every existing version through the crypto-shred, then provision the NEXT
+// version. Key material is never overwritten in place and no key id is ever
+// reused (migration 672 refuses both at the database).
 async function replaceTenantKekFixture() {
   resetTenantKekCacheForTesting();
-  getKekProvider().evictKek(tenantKeyId(TENANT_ID));
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM encryption_keys
-      WHERE tenant_id = $1::uuid AND key_id = $2::text`,
-    TENANT_ID,
-    tenantKeyId(TENANT_ID),
-  );
+  await cryptoShredTenant(TENANT_ID);
   await provisionTenantKek(TENANT_ID);
+}
+
+// Land the tenant's CURRENT KEK in a state where the row is present and active
+// but its material cannot be unwrapped (e.g. wrapped under a master KEK this
+// process does not hold). That is a new version, not an edit of the live one.
+async function stampUnwrappableTenantKekVersion() {
+  const [row] = await prisma.$queryRawUnsafe(
+    `SELECT COALESCE(MAX((substring(key_id from '^t:.+:v([0-9]+)$'))::int), 0) + 1 AS next_version
+       FROM encryption_keys
+      WHERE tenant_id = $1::uuid
+        AND key_id ~ ('^t:' || tenant_id::text || ':v[0-9]+$')`,
+    TENANT_ID,
+  );
+  const nextVersion = Number(row.next_version);
+  const keyId = tenantKeyId(TENANT_ID, nextVersion);
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO encryption_keys
+       (tenant_id, key_id, provider, algorithm, status, wrapped_key_material,
+        activated_at, created_at, updated_at)
+     VALUES ($1::uuid, $2::text, 'local-tenant', 'aes-256-gcm', 'active',
+             'not-a-valid-wrapped-kek', NOW(), NOW(), NOW())`,
+    TENANT_ID,
+    keyId,
+  );
+  resetTenantKekCacheForTesting();
+  for (let version = 1; version <= nextVersion; version += 1) {
+    getKekProvider().evictKek(tenantKeyId(TENANT_ID, version));
+  }
+  return keyId;
 }
 
 async function atomicState() {
@@ -322,15 +350,7 @@ describeIfDb('I03 receipt/task/ACK/terminal/cursor atomicity', () => {
 
   test('rolls back the canonical transaction when the tenant KEK cannot be unwrapped', async () => {
     fault.step = null;
-    await prisma.$executeRawUnsafe(
-      `UPDATE encryption_keys
-          SET status = 'active', wrapped_key_material = 'not-a-valid-wrapped-kek'
-        WHERE tenant_id = $1::uuid AND key_id = $2::text`,
-      TENANT_ID,
-      tenantKeyId(TENANT_ID),
-    );
-    resetTenantKekCacheForTesting();
-    getKekProvider().evictKek(tenantKeyId(TENANT_ID));
+    await stampUnwrappableTenantKekVersion();
     await expect(processNextItemTx(operation())).rejects.toMatchObject({
       code: 'HL7_I03_RECOVERY_TENANT_KEK_REQUIRED',
       statusCode: 500,
@@ -494,10 +514,15 @@ describeIfDb('I03 receipt/task/ACK/terminal/cursor atomicity', () => {
       recovery.source_partition,
     ));
     expect(evidence).toHaveLength(1);
+    // Wrapped under THIS tenant's KEK (never the global one) — at whichever
+    // version the tenant currently holds, since a shredded tenant is
+    // re-provisioned onto the next one.
+    const currentTenantKeyId = await activeTenantKeyId(TENANT_ID);
+    expect(currentTenantKeyId).toMatch(new RegExp(`^t:${TENANT_ID}:v\\d+$`));
     expect(actualFieldEncryption.getKeyId(evidence[0].payload_ciphertext))
-      .toBe(tenantKeyId(TENANT_ID));
+      .toBe(currentTenantKeyId);
     expect(actualFieldEncryption.getKeyId(evidence[0].ack_ciphertext))
-      .toBe(tenantKeyId(TENANT_ID));
+      .toBe(currentTenantKeyId);
   }, 60_000);
 
 });

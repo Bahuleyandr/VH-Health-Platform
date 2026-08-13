@@ -141,13 +141,29 @@ function unpackEnvelope(value) {
  * @param {{tenantId?: string|null}} [opts]
  * @returns {string|null|undefined} enc:v2: payload, or the original null/empty.
  */
+/**
+ * The tenant KEK keyId a new write should be wrapped under: the highest tenant
+ * KEK VERSION the provider currently holds (`t:<tenantId>:v<n>`), not a fixed
+ * v1 — a crypto-shredded tenant is re-provisioned as the next version, and a
+ * rotation keeps older versions loaded for decrypt only. Falls back to v1 for a
+ * provider that predates the version index. Null = wrap under the global KEK.
+ */
+function resolveLoadedTenantKeyId(provider, tenantId) {
+  if (!tenantId) return null;
+  if (typeof provider.activeTenantKeyId === 'function') {
+    const keyId = provider.activeTenantKeyId(tenantId);
+    if (keyId) return keyId;
+  }
+  return `t:${tenantId}:v1`;
+}
+
 export function encryptField(plaintext, { tenantId = getCurrentTenantId() } = {}) {
   if (plaintext === null || plaintext === undefined || plaintext === '') return plaintext;
 
   let dek;
   try {
     const provider = getKekProvider();
-    const tenantKid = tenantId ? `t:${tenantId}:v1` : null;
+    const tenantKid = resolveLoadedTenantKeyId(provider, tenantId);
     const keyId = tenantKid && provider.hasKek(tenantKid) ? tenantKid : undefined;
     dek = provider.generateDek();
     const iv = crypto.randomBytes(DEK_IV_LENGTH);
@@ -279,7 +295,7 @@ export function decryptField(encryptedValue) {
  * @param {Object} [opts]
  * @param {Object} [opts.provider]  KEK provider (defaults to the active one).
  * @param {string} [opts.keyId]     target KEK keyId to wrap under (e.g. a tenant
- *                                  KEK `t:<tenantId>:v1`); defaults to the
+ *                                  KEK `t:<tenantId>:v<n>`); defaults to the
  *                                  provider's active keyId.
  * @returns {string|null} possibly-rewrapped value.
  */
