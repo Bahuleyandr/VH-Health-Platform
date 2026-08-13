@@ -1,12 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
+import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
 
 void main() {
   tearDown(() {
     LogoutService.debugResetDependencies();
     LogoutService.networkStepTimeout = const Duration(seconds: 6);
+    PatientRealtimeLifecycle.instance.debugReset();
+    CrashReporter.reset();
   });
 
   test(
@@ -307,6 +312,258 @@ void main() {
   );
 
   test(
+    'logout COMPLETES when the realtime stop never resolves — the hang case',
+    () async {
+      // THE regression test for this packet. Before the bound, a genuinely
+      // dead / black-holed socket left `_stop` pending forever, so
+      // LogoutService.logout() never returned and the blocking "Signing out…"
+      // dialog spun until the user force-quit — reaching the SAME server-side
+      // outcome, only later and with no telemetry.
+      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+      PatientRealtimeLifecycle.instance.attach(
+        owner: Object(),
+        start: () async {},
+        // Never completes.
+        stop: ({required unsubscribe}) => Completer<void>().future,
+      );
+      final calls = <String>[];
+      LogoutService.debugSetDependencies(_dependencies(calls));
+
+      final outcome = await LogoutService.logout().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail('logout() hung on the wedged realtime stop'),
+      );
+
+      expect(outcome.realtimeTeardownTimedOut, isTrue);
+      // The server-side revocation is the authoritative severance and it still
+      // happened, so this is a clean logout — not a failed one.
+      expect(outcome.serverSessionRevoked, isTrue);
+      // Every local wipe step ran, and the final disconnect was still
+      // ATTEMPTED (2 realtime calls: step 1 plus the bounded final one).
+      expect(
+        calls,
+        containsAll(<String>[
+          'secure-storage',
+          'api-cache',
+          'file-cache',
+          'doc-staging',
+          'cycle-tracker',
+          'user-provider',
+          'firebase-signout',
+        ]),
+      );
+      expect(calls.where((call) => call == 'realtime'), hasLength(2));
+      expect(
+        calls.lastIndexOf('realtime'),
+        greaterThan(calls.indexOf('secure-storage')),
+        reason:
+            'The bound must not reorder the final disconnect ahead of the '
+            'credential wipe.',
+      );
+    },
+  );
+
+  test('the teardown timeout is RECORDED, never swallowed', () async {
+    // A silently-swallowed bound recreates exactly the quiet-degradation class
+    // this codebase keeps being audited for: nobody would learn that patient
+    // devices are wedging on teardown.
+    final reporter = _RecordingCrashReporter();
+    CrashReporter.install(reporter);
+    PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+    PatientRealtimeLifecycle.instance.attach(
+      owner: Object(),
+      start: () async {},
+      stop: ({required unsubscribe}) => Completer<void>().future,
+    );
+    LogoutService.debugSetDependencies(_dependencies(<String>[]));
+
+    final outcome = await LogoutService.logout().timeout(
+      const Duration(seconds: 5),
+    );
+
+    expect(outcome.realtimeTeardownTimedOut, isTrue);
+    expect(reporter.errors, hasLength(1));
+    expect(reporter.errors.single.context, 'LogoutService.completeTeardown');
+    expect(reporter.errors.single.extra['timeout_ms'], 50);
+  });
+
+  test('a teardown inside the bound reports no timeout', () async {
+    PatientRealtimeLifecycle.instance.attach(
+      owner: Object(),
+      start: () async {},
+      stop: ({required unsubscribe}) async {},
+    );
+    final reporter = _RecordingCrashReporter();
+    CrashReporter.install(reporter);
+    LogoutService.debugSetDependencies(_dependencies(<String>[]));
+
+    final outcome = await LogoutService.logout();
+
+    expect(outcome.realtimeTeardownTimedOut, isFalse);
+    expect(reporter.errors, isEmpty);
+  });
+
+  test(
+    'a failed server revocation tells the user AND durably queues the retry',
+    () async {
+      // No false "signed out everywhere" claim: local teardown always
+      // completes, so without a durable handle the departing JWT would simply
+      // stay live server-side for the rest of its 7-day life with nothing on
+      // the device able to kill it.
+      final store = _FakeRevocationStore(sessionToken: 'jwt-abc');
+      LogoutService.debugSetDependencies(
+        _dependencies(<String>[], vhRevokeResult: false, store: store),
+      );
+
+      final outcome = await LogoutService.logout();
+
+      // Told honestly.
+      expect(outcome.serverSessionRevoked, isFalse);
+      // And a retry genuinely exists.
+      expect(outcome.revocationRetryQueued, isTrue);
+      expect(store.record, isNotNull);
+      final record = jsonDecode(store.record!) as Map<String, dynamic>;
+      expect(record['version'], 1);
+      expect(record['token'], 'jwt-abc');
+      expect(record['vhPending'], isTrue);
+      expect(record['firebasePending'], isFalse);
+      // Parked under a key that is never an authentication source — storing it
+      // as `jwt` would resurrect the signed-out user on the next app start.
+      expect(store.recordKeyIsSessionKey, isFalse);
+    },
+  );
+
+  test(
+    'a confirmed revocation queues nothing and leaves no credential behind',
+    () async {
+      final store = _FakeRevocationStore(sessionToken: 'jwt-abc');
+      LogoutService.debugSetDependencies(
+        _dependencies(<String>[], store: store),
+      );
+
+      final outcome = await LogoutService.logout();
+
+      expect(outcome.serverSessionRevoked, isTrue);
+      expect(outcome.revocationRetryQueued, isFalse);
+      expect(store.record, isNull);
+    },
+  );
+
+  test(
+    'a failed revocation with no captured token does NOT claim a retry',
+    () async {
+      // Promising a retry that cannot exist is the same false reassurance the
+      // honest-reporting rule forbids.
+      final store = _FakeRevocationStore(sessionToken: null);
+      LogoutService.debugSetDependencies(
+        _dependencies(<String>[], vhRevokeResult: false, store: store),
+      );
+
+      final outcome = await LogoutService.logout();
+
+      expect(outcome.serverSessionRevoked, isFalse);
+      expect(outcome.revocationRetryQueued, isFalse);
+      expect(store.record, isNull);
+    },
+  );
+
+  test('the queued retry revokes on the next signed-out start', () async {
+    final store = _FakeRevocationStore(sessionToken: null)
+      ..record = _pendingRecord(token: 'jwt-abc', vhPending: true);
+    LogoutService.debugSetDependencies(_dependencies(<String>[], store: store));
+
+    expect(
+      await LogoutService.retryPendingRevocation(),
+      PendingRevocationRetry.revoked,
+    );
+    expect(store.vhRetryBearers, ['jwt-abc']);
+    expect(store.record, isNull, reason: 'A confirmed retry must be deleted.');
+  });
+
+  test('a still-failing retry keeps the handle for a later attempt', () async {
+    final store = _FakeRevocationStore(sessionToken: null, retrySucceeds: false)
+      ..record = _pendingRecord(token: 'jwt-abc', vhPending: true);
+    LogoutService.debugSetDependencies(_dependencies(<String>[], store: store));
+
+    expect(
+      await LogoutService.retryPendingRevocation(),
+      PendingRevocationRetry.stillFailing,
+    );
+    expect(store.record, isNotNull);
+  });
+
+  test(
+    'the retry defers while a session is live — it must not sign out a fresh '
+    'login',
+    () async {
+      // /auth/logout bumps the identity token epoch, which would invalidate a
+      // session minted AFTER this record was queued.
+      final store = _FakeRevocationStore(sessionToken: 'fresh-jwt')
+        ..record = _pendingRecord(token: 'jwt-abc', vhPending: true);
+      LogoutService.debugSetDependencies(
+        _dependencies(<String>[], store: store),
+      );
+
+      expect(
+        await LogoutService.retryPendingRevocation(),
+        PendingRevocationRetry.deferredLiveSession,
+      );
+      expect(store.vhRetryBearers, isEmpty);
+      expect(store.record, isNotNull);
+    },
+  );
+
+  test('a retry older than the cap is purged, not retried', () async {
+    final store = _FakeRevocationStore(sessionToken: null)
+      ..record = _pendingRecord(
+        token: 'jwt-abc',
+        vhPending: true,
+        queuedAt: DateTime.now().toUtc().subtract(const Duration(days: 8)),
+      );
+    LogoutService.debugSetDependencies(_dependencies(<String>[], store: store));
+
+    expect(
+      await LogoutService.retryPendingRevocation(),
+      PendingRevocationRetry.expired,
+    );
+    expect(store.vhRetryBearers, isEmpty);
+    expect(
+      store.record,
+      isNull,
+      reason:
+          'A token past its usable life must not linger on a shared device.',
+    );
+  });
+
+  test('a re-queued retry does not reset its own expiry clock', () async {
+    // Otherwise a retry on every app start would hold the departed user's
+    // credential on the device forever.
+    final queuedAt = DateTime.now().toUtc().subtract(const Duration(days: 3));
+    final store = _FakeRevocationStore(sessionToken: null, retrySucceeds: false)
+      ..record = _pendingRecord(
+        token: 'jwt-abc',
+        vhPending: true,
+        queuedAt: queuedAt,
+      );
+    LogoutService.debugSetDependencies(_dependencies(<String>[], store: store));
+
+    await LogoutService.retryPendingRevocation();
+
+    final record = jsonDecode(store.record!) as Map<String, dynamic>;
+    expect(DateTime.parse(record['queuedAt'] as String), queuedAt);
+  });
+
+  test('draining with nothing queued is a no-op', () async {
+    final store = _FakeRevocationStore(sessionToken: null);
+    LogoutService.debugSetDependencies(_dependencies(<String>[], store: store));
+
+    expect(
+      await LogoutService.retryPendingRevocation(),
+      PendingRevocationRetry.nothingQueued,
+    );
+  });
+
+  test(
     'a refused Firebase revocation makes the combined outcome false',
     () async {
       final calls = <String>[];
@@ -323,12 +580,82 @@ void main() {
   );
 }
 
+String _pendingRecord({
+  required String token,
+  bool firebasePending = false,
+  bool vhPending = false,
+  DateTime? queuedAt,
+}) => jsonEncode({
+  'version': 1,
+  'queuedAt': (queuedAt ?? DateTime.now().toUtc()).toIso8601String(),
+  'token': token,
+  'firebasePending': firebasePending,
+  'vhPending': vhPending,
+});
+
+class _RecordedError {
+  const _RecordedError(this.context, this.extra);
+  final String? context;
+  final Map<String, Object?> extra;
+}
+
+class _RecordingCrashReporter implements CrashReporter {
+  final List<_RecordedError> errors = [];
+
+  @override
+  Future<void> recordError(
+    Object error,
+    StackTrace? stack, {
+    String? context,
+    Map<String, Object?> extra = const {},
+    bool fatal = false,
+  }) async {
+    errors.add(_RecordedError(context, extra));
+  }
+
+  @override
+  Future<void> log(String message) async {}
+
+  @override
+  Future<void> setUserId(String? userId) async {}
+
+  @override
+  Future<void> setCustomKey(String key, Object value) async {}
+}
+
+/// In-memory stand-in for the two secure-storage entries this path touches:
+/// the live session token (`jwt`) and the pending-revocation record.
+class _FakeRevocationStore {
+  _FakeRevocationStore({required this.sessionToken, this.retrySucceeds = true});
+
+  String? sessionToken;
+  final bool retrySucceeds;
+  String? record;
+  final List<String> vhRetryBearers = [];
+  final List<String> firebaseRetryBearers = [];
+
+  /// The production key is deliberately distinct from `jwt`; this fake proves
+  /// the record never lands in the session slot.
+  bool get recordKeyIsSessionKey => LogoutService.pendingRevocationKey == 'jwt';
+
+  Future<bool> retryVh(String bearer) async {
+    vhRetryBearers.add(bearer);
+    return retrySucceeds;
+  }
+
+  Future<bool> retryFirebase(String bearer) async {
+    firebaseRetryBearers.add(bearer);
+    return retrySucceeds;
+  }
+}
+
 LogoutServiceDependencies _dependencies(
   List<String> calls, {
   String? throwOn,
   bool firebaseRevokeResult = true,
   bool vhRevokeResult = true,
   Completer<void>? firebaseRevokeGate,
+  _FakeRevocationStore? store,
 }) {
   LogoutStep step(String name) {
     return () {
@@ -367,5 +694,17 @@ LogoutServiceDependencies _dependencies(
     clearDependentsProvider: step('dependents'),
     clearUserProvider: step('user-provider'),
     signOutFirebase: step('firebase-signout'),
+    readVhToken: () => store?.sessionToken,
+    readPendingRevocation: () => store?.record,
+    writePendingRevocation: (value) {
+      store?.record = value;
+    },
+    clearPendingRevocation: () {
+      store?.record = null;
+    },
+    retryFirebaseRevocation: (bearer) async =>
+        store == null || await store.retryFirebase(bearer),
+    retryVhRevocation: (bearer) async =>
+        store == null || await store.retryVh(bearer),
   );
 }

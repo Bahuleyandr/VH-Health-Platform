@@ -6,6 +6,20 @@ typedef PatientRealtimeStart = Future<void> Function();
 typedef PatientRealtimeStop =
     Future<void> Function({required bool unsubscribe});
 
+/// What [PatientRealtimeLifecycle.completeTeardown] actually achieved.
+///
+/// Returned rather than swallowed so the caller can report the degraded case
+/// instead of presenting an identical "signed out" result either way.
+enum PatientRealtimeTeardownResult {
+  /// The queued work drained and the final disconnect ran within the bound.
+  completed,
+
+  /// [PatientRealtimeLifecycle.stopTimeout] expired before the queued stop
+  /// resolved. The final disconnect was still attempted, the queue tail was
+  /// abandoned, and logout completed instead of hanging.
+  timedOut,
+}
+
 /// Serializes Patient realtime lifecycle work and fences it across logout.
 ///
 /// A start request captures the current generation when it is queued. Logout
@@ -15,6 +29,36 @@ class PatientRealtimeLifecycle {
   PatientRealtimeLifecycle();
 
   static final PatientRealtimeLifecycle instance = PatientRealtimeLifecycle();
+
+  /// Hard bound on the best-effort client-side realtime teardown.
+  ///
+  /// WHY BOUNDING THIS IS SAFE. The authoritative severance is SERVER-SIDE,
+  /// not here: patient logout POSTs `/auth/logout`, which reaches
+  /// `authService.logout` → `revokeAllUserTokens(..., reason: 'logout')` →
+  /// `tokenBlacklist.js` ("R14: close the revoked identity's live
+  /// WebSockets") → `wsServer.pushSessionRevoked` → `deliverUserLocal`, whose
+  /// `isRevocation` branch CLOSES the identity's sockets server-side. The
+  /// `_stop` awaited in [completeTeardown] is belt-and-braces LOCAL cleanup
+  /// layered on top of that, so putting a ceiling on it cannot weaken the
+  /// severance invariant.
+  ///
+  /// Leaving it unbounded, by contrast, is a real defect: a genuinely dead or
+  /// black-holed socket means `LogoutService.logout()` never returns and the
+  /// blocking "Signing out…" dialog spins forever, until the user force-quits
+  /// — which reaches the SAME server-side outcome, only later, and with no
+  /// telemetry at all.
+  ///
+  /// 4 seconds is chosen to match `LogoutService._networkCallTimeout`, the
+  /// app's established "one short attempt" unit, so the whole logout keeps a
+  /// predictable ceiling. A healthy client-side disconnect needs no network
+  /// round trip and returns in milliseconds; the only reason this can take
+  /// seconds is a wedged socket. 3s risks cutting a legitimately slow but
+  /// progressing in-flight start on a poor mobile link, and 5s buys a further
+  /// second of spinner with no extra success probability for a socket that is
+  /// by construction black-holed.
+  ///
+  /// Mutable so tests can shrink it; [debugReset] restores the default.
+  static Duration stopTimeout = const Duration(seconds: 4);
 
   /// Tail of the serialized operation queue, created lazily by [_enqueue].
   ///
@@ -80,22 +124,59 @@ class PatientRealtimeLifecycle {
 
   /// Drains earlier work, retires personal subscriptions, and performs the
   /// caller's final disconnect before starts are admitted for a future login.
-  Future<void> completeTeardown(PatientRealtimeStart finalDisconnect) async {
+  ///
+  /// Bounded by [stopTimeout]. On expiry the final disconnect is still
+  /// ATTEMPTED — it is merely no longer waited on behind a dead socket — and
+  /// [PatientRealtimeTeardownResult.timedOut] is returned so the caller can
+  /// record it. Nothing here is swallowed.
+  Future<PatientRealtimeTeardownResult> completeTeardown(
+    PatientRealtimeStart finalDisconnect,
+  ) async {
     final teardownGeneration = _generation;
+    // The final disconnect is attempted exactly once, whether the queued
+    // teardown reaches it or the bound below expires first. Without this
+    // one-shot claim an abandoned drain that later unwedges would disconnect
+    // a second time, after a new login may already have reconnected.
+    var finalDisconnectClaimed = false;
+    Future<void> attemptFinalDisconnect() async {
+      if (finalDisconnectClaimed) return;
+      finalDisconnectClaimed = true;
+      await finalDisconnect();
+    }
+
+    var timedOut = false;
     try {
-      await _enqueue(() async {
+      final drain = _enqueue(() async {
         try {
-          await _stop?.call(unsubscribe: true);
+          final stopping = _stop?.call(unsubscribe: true);
+          if (stopping != null) await stopping;
         } finally {
-          await finalDisconnect();
+          await attemptFinalDisconnect();
         }
       });
+      await drain.timeout(
+        stopTimeout,
+        onTimeout: () async {
+          timedOut = true;
+          // Abandon the wedged chain. `_operations` still points at the drain
+          // that never resolved; leaving it there would make the NEXT login's
+          // queueStart wait behind the very same dead socket, turning a
+          // bounded logout into an unbounded login. Null rather than a
+          // completed future so the next chain anchors in the zone that
+          // actually drives it — see the [_operations] docstring.
+          _operations = null;
+          await attemptFinalDisconnect();
+        },
+      );
     } finally {
       if (_tearingDown && teardownGeneration == _generation) {
         _generation += 1;
         _tearingDown = false;
       }
     }
+    return timedOut
+        ? PatientRealtimeTeardownResult.timedOut
+        : PatientRealtimeTeardownResult.completed;
   }
 
   /// Clears every piece of cross-test state on the shared [instance],
@@ -110,11 +191,14 @@ class PatientRealtimeLifecycle {
     _stop = null;
     _generation = 0;
     _tearingDown = false;
+    // Also restore the process-wide bound, so a suite that shrinks it to keep
+    // a hang test fast cannot leak that value into unrelated suites.
+    stopTimeout = const Duration(seconds: 4);
   }
 
   Future<void> _enqueue(PatientRealtimeStart operation) {
     final next = (_operations ?? Future<void>.value()).then((_) => operation());
-    _operations = next.catchError((Object _, StackTrace __) {});
+    _operations = next.catchError((Object _, StackTrace _) {});
     return next;
   }
 }

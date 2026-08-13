@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
@@ -48,6 +50,28 @@ class LogoutService {
   /// `retryTransientFailures: false` so one dead request fails once, fast.
   static const Duration _networkCallTimeout = Duration(seconds: 4);
 
+  /// Secure-storage key holding a queued server-revocation retry.
+  ///
+  /// Deliberately NOT `jwt`. `ApiConfig.authenticatedHeaders()` and the splash
+  /// screen both treat a `jwt` entry as a live session, so parking the
+  /// departing token under that key would resurrect the signed-out user on the
+  /// next app start. This record is read by exactly one code path
+  /// ([retryPendingRevocation]) and is never an authentication source. It also
+  /// survives step 5's `deleteAll` only because it is written afterwards.
+  @visibleForTesting
+  static const String pendingRevocationKey =
+      'patient.pending_session_revocation.v1';
+
+  /// Hard lifetime of a queued revocation retry.
+  ///
+  /// Patient access tokens live 7 days, and the backend's `blacklistToken`
+  /// short-circuits once a token is past its own `exp`, so a record older than
+  /// this can no longer revoke anything. Purge rather than retry — and never
+  /// keep a departed user's credential on a shared device longer than it could
+  /// possibly be useful.
+  @visibleForTesting
+  static const Duration pendingRevocationMaxAge = Duration(days: 7);
+
   /// Awaits a server revocation step but never longer than
   /// [networkStepTimeout]. Rethrows so each call site keeps its own
   /// step-specific logging.
@@ -92,6 +116,16 @@ class LogoutService {
     // yield, so it cannot re-bind the departing patient's identity.
     PatientRealtimeLifecycle.instance.beginTeardown();
     BiometricGate.clearUnlockState();
+
+    // Captured BEFORE step 5's deleteAll. If either server revocation below
+    // fails, step 11 durably queues a retry — and that retry needs the very
+    // credential the wipe is about to remove. Held in memory only until then.
+    String? vhToken;
+    try {
+      vhToken = await _dependencies.readVhToken();
+    } catch (e) {
+      debugPrint('LogoutService: could not read the session token: $e');
+    }
 
     // 0. Revoke both server sessions before step 4 wipes secure storage. The
     //    Firebase revoke must run first because both calls authenticate with
@@ -258,34 +292,232 @@ class LogoutService {
       debugPrint('LogoutService: Firebase sign-out failed: $e');
     }
 
+    // 11. Durably queue a retry when the server never confirmed a revocation.
+    //     Local teardown always completes, so without this the departing JWT
+    //     simply stays live server-side for the rest of its 7-day life with
+    //     nothing left on the device that could ever kill it — and the user
+    //     was told "other devices may stay signed in until you retry" with no
+    //     retry to speak of. Written AFTER step 5's deleteAll (which would
+    //     otherwise erase it) and after every PHI wipe step; this record is a
+    //     revocation handle, not PHI.
+    var revocationRetryQueued = false;
+    if (!(firebaseSessionRevoked && vhSessionRevoked)) {
+      revocationRetryQueued = await _queuePendingRevocation(
+        token: vhToken,
+        firebasePending: !firebaseSessionRevoked,
+        vhPending: !vhSessionRevoked,
+      );
+    }
+
     // Drain any start that was already in flight, unsubscribe the app-owned
     // personal channels, and disconnect again after credentials are gone. The
     // first disconnect above cannot provide this guarantee because a lifecycle
     // callback may already have passed its pre-await start check.
+    //
+    // Bounded by PatientRealtimeLifecycle.stopTimeout: the AUTHORITATIVE
+    // severance is the server-side socket close driven by the revocation above
+    // (wsServer.pushSessionRevoked), so this best-effort local cleanup must
+    // never hold the blocking "Signing out…" dialog open indefinitely. The
+    // disconnect is still ATTEMPTED on the timeout path — just not waited on.
+    var realtimeTeardownTimedOut = false;
     try {
-      await PatientRealtimeLifecycle.instance.completeTeardown(() async {
-        try {
-          await Future<void>.sync(_dependencies.disconnectRealtime);
-        } catch (e) {
-          debugPrint('LogoutService: final realtime disconnect failed: $e');
+      final teardown = await PatientRealtimeLifecycle.instance.completeTeardown(
+        () async {
           try {
             await Future<void>.sync(_dependencies.disconnectRealtime);
-          } catch (finalError) {
-            debugPrint(
-              'LogoutService: final realtime disconnect retry failed: '
-              '$finalError',
-            );
+          } catch (e) {
+            debugPrint('LogoutService: final realtime disconnect failed: $e');
+            try {
+              await Future<void>.sync(_dependencies.disconnectRealtime);
+            } catch (finalError) {
+              debugPrint(
+                'LogoutService: final realtime disconnect retry failed: '
+                '$finalError',
+              );
+            }
           }
-        }
-      });
+        },
+      );
+      realtimeTeardownTimedOut =
+          teardown == PatientRealtimeTeardownResult.timedOut;
     } catch (e) {
       debugPrint('LogoutService: final realtime teardown failed: $e');
+    }
+
+    // A bound that expires SILENTLY is the same quiet degradation the unbounded
+    // await was: nobody learns that patient devices are wedging on teardown.
+    // Never `catch {}` this — log it and report it as a non-fatal so the rate
+    // is visible in Crashlytics, and surface it on the outcome below.
+    if (realtimeTeardownTimedOut) {
+      debugPrint(
+        'LogoutService: realtime teardown exceeded '
+        '${PatientRealtimeLifecycle.stopTimeout.inMilliseconds}ms; completing '
+        'logout anyway (server-side revocation is the authoritative severance)',
+      );
+      try {
+        await CrashReporter.instance.recordError(
+          StateError('Patient realtime teardown timed out during logout'),
+          StackTrace.current,
+          context: 'LogoutService.completeTeardown',
+          extra: {
+            'timeout_ms': PatientRealtimeLifecycle.stopTimeout.inMilliseconds,
+            'server_session_revoked':
+                firebaseSessionRevoked && vhSessionRevoked,
+          },
+        );
+      } catch (e) {
+        debugPrint('LogoutService: teardown-timeout report failed: $e');
+      }
     }
 
     return LogoutOutcome(
       firebaseSessionRevoked: firebaseSessionRevoked,
       vhSessionRevoked: vhSessionRevoked,
+      realtimeTeardownTimedOut: realtimeTeardownTimedOut,
+      revocationRetryQueued: revocationRetryQueued,
     );
+  }
+
+  /// Persists the retry handle for a server revocation that did not happen.
+  ///
+  /// Returns whether a retry is actually recoverable. False means the caller
+  /// must NOT imply one is pending — with no token there is nothing on this
+  /// device that could ever revoke the session, and saying otherwise would be
+  /// the same false reassurance this whole path exists to avoid.
+  static Future<bool> _queuePendingRevocation({
+    required String? token,
+    required bool firebasePending,
+    required bool vhPending,
+    DateTime? queuedAt,
+  }) async {
+    if (token == null || token.isEmpty) {
+      debugPrint(
+        'LogoutService: server revocation failed and no session token was '
+        'captured — no retry can be queued',
+      );
+      return false;
+    }
+    try {
+      await _dependencies.writePendingRevocation(
+        jsonEncode({
+          'version': 1,
+          // Preserved across re-queues so a retry on every app start cannot
+          // keep resetting the clock and hold the credential past its cap.
+          'queuedAt': (queuedAt ?? DateTime.now()).toUtc().toIso8601String(),
+          'token': token,
+          'firebasePending': firebasePending,
+          'vhPending': vhPending,
+        }),
+      );
+      return true;
+    } catch (e) {
+      debugPrint('LogoutService: queuing the revocation retry failed: $e');
+      return false;
+    }
+  }
+
+  /// Drains a revocation queued by a logout whose server call never landed.
+  ///
+  /// Call at app start, BEFORE the user can sign in again — see the
+  /// [PendingRevocationRetry.deferredLiveSession] rationale. Safe to call when
+  /// nothing is queued, and idempotent: the record is deleted once the server
+  /// has confirmed, and purged once it is too old to revoke anything.
+  static Future<PendingRevocationRetry> retryPendingRevocation() async {
+    String? raw;
+    try {
+      raw = await _dependencies.readPendingRevocation();
+    } catch (e) {
+      debugPrint('LogoutService: reading the queued revocation failed: $e');
+      return PendingRevocationRetry.nothingQueued;
+    }
+    if (raw == null || raw.isEmpty) {
+      return PendingRevocationRetry.nothingQueued;
+    }
+
+    // A queued record must never revoke a LIVE session. The backend's
+    // /auth/logout bumps the identity's token_epoch (R1), which invalidates
+    // every token that identity holds — including one minted by a login that
+    // happened after this record was queued. Draining only while signed out is
+    // what keeps the retry from signing the user out of a session they just
+    // started.
+    try {
+      final liveToken = await _dependencies.readVhToken();
+      if (liveToken != null && liveToken.isNotEmpty) {
+        return PendingRevocationRetry.deferredLiveSession;
+      }
+    } catch (e) {
+      debugPrint('LogoutService: live-session probe failed: $e');
+      return PendingRevocationRetry.deferredLiveSession;
+    }
+
+    Map<String, dynamic> record;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic> || decoded['version'] != 1) {
+        throw const FormatException('Unrecognized pending-revocation record');
+      }
+      record = decoded;
+    } catch (e) {
+      debugPrint('LogoutService: discarding unreadable revocation record: $e');
+      await _clearPendingRevocation();
+      return PendingRevocationRetry.expired;
+    }
+
+    final token = record['token'];
+    final queuedAt = DateTime.tryParse('${record['queuedAt']}');
+    if (token is! String ||
+        token.isEmpty ||
+        queuedAt == null ||
+        DateTime.now().toUtc().difference(queuedAt.toUtc()) >
+            pendingRevocationMaxAge) {
+      debugPrint('LogoutService: queued revocation is stale — purging');
+      await _clearPendingRevocation();
+      return PendingRevocationRetry.expired;
+    }
+
+    // Firebase before VH, for the same reason logout itself uses that order:
+    // both authenticate with this token and the VH revoke invalidates it.
+    var firebasePending = record['firebasePending'] == true;
+    var vhPending = record['vhPending'] == true;
+    if (firebasePending) {
+      try {
+        if (await _dependencies.retryFirebaseRevocation(token)) {
+          firebasePending = false;
+        }
+      } catch (e) {
+        debugPrint('LogoutService: Firebase revocation retry failed: $e');
+      }
+    }
+    if (vhPending) {
+      try {
+        if (await _dependencies.retryVhRevocation(token)) vhPending = false;
+      } catch (e) {
+        debugPrint('LogoutService: VH revocation retry failed: $e');
+      }
+    }
+
+    if (!firebasePending && !vhPending) {
+      await _clearPendingRevocation();
+      return PendingRevocationRetry.revoked;
+    }
+
+    // Still unconfirmed: keep the handle (with the outstanding steps narrowed)
+    // rather than dropping it and silently giving up on the live session.
+    await _queuePendingRevocation(
+      token: token,
+      firebasePending: firebasePending,
+      vhPending: vhPending,
+      queuedAt: queuedAt,
+    );
+    return PendingRevocationRetry.stillFailing;
+  }
+
+  static Future<void> _clearPendingRevocation() async {
+    try {
+      await _dependencies.clearPendingRevocation();
+    } catch (e) {
+      debugPrint('LogoutService: clearing the revocation record failed: $e');
+    }
   }
 
   /// Shared handler for definitive session death (the 401-after-failed-refresh
@@ -326,6 +558,49 @@ class LogoutService {
 
   /// Deactivates this device's registration server-side so the backend stops
   /// sending pushes to it. Best-effort by design (see the call site).
+  static Future<String?> _readVhToken() => _storage.read(key: 'jwt');
+
+  static Future<String?> _readPendingRevocation() =>
+      _storage.read(key: pendingRevocationKey);
+
+  static Future<void> _writePendingRevocation(String record) =>
+      _storage.write(key: pendingRevocationKey, value: record);
+
+  static Future<void> _clearPendingRevocationRecord() =>
+      _storage.delete(key: pendingRevocationKey);
+
+  /// Retries the Firebase server-session revoke with an explicit bearer.
+  ///
+  /// `bearerOverride` is required because this runs after logout wiped the
+  /// session token — there is no ambient credential left for the HTTP client
+  /// to attach, and restoring one to secure storage would make the app treat
+  /// the departed user as signed in again.
+  static Future<bool> _retryFirebaseRevocation(String bearer) async {
+    final response = await ApiClient.post(
+      '/auth/firebase/revoke-my-session',
+      body: const {},
+      timeout: _networkCallTimeout,
+      retryTransientFailures: false,
+      refreshOnUnauthorized: false,
+      bearerOverride: bearer,
+    );
+    // A 401 means the token is already dead server-side, which is exactly the
+    // end state this retry exists to reach — treat it as done, not as failure.
+    return response.isSuccess || response.isUnauthorized;
+  }
+
+  static Future<bool> _retryVhRevocation(String bearer) async {
+    final response = await ApiClient.post(
+      '/auth/logout',
+      body: const {},
+      timeout: _networkCallTimeout,
+      retryTransientFailures: false,
+      refreshOnUnauthorized: false,
+      bearerOverride: bearer,
+    );
+    return response.isSuccess || response.isUnauthorized;
+  }
+
   static Future<void> _unregisterDevice() async {
     final phone = await _storage.read(key: 'user_phone') ?? '';
     if (phone.isEmpty || phone == 'guest') return;
@@ -344,18 +619,59 @@ class LogoutOutcome {
   const LogoutOutcome({
     required this.firebaseSessionRevoked,
     required this.vhSessionRevoked,
+    this.realtimeTeardownTimedOut = false,
+    this.revocationRetryQueued = false,
   });
 
   final bool firebaseSessionRevoked;
   final bool vhSessionRevoked;
+
+  /// The client-side realtime teardown hit its bound and was abandoned.
+  ///
+  /// NOT a failed logout: the server-side revocation closes the sockets, and
+  /// the final disconnect was still attempted. Reported so the timeout is
+  /// observable rather than silent.
+  final bool realtimeTeardownTimedOut;
+
+  /// A server revocation did not land AND a retry handle was durably stored.
+  ///
+  /// False alongside a false [serverSessionRevoked] means nothing on this
+  /// device can ever revoke the session — the user must be told that, not told
+  /// to wait for a retry that does not exist.
+  final bool revocationRetryQueued;
 
   /// True only when the backend confirmed both independently refreshable
   /// server credentials were revoked.
   bool get serverSessionRevoked => firebaseSessionRevoked && vhSessionRevoked;
 }
 
+/// Result of draining a queued server-revocation retry.
+enum PendingRevocationRetry {
+  /// No logout has left an unconfirmed revocation behind.
+  nothingQueued,
+
+  /// A session is currently signed in. Retrying now would bump the identity's
+  /// token epoch and sign that live session out too, so the record is kept for
+  /// the next signed-out start.
+  deferredLiveSession,
+
+  /// The record was unreadable, or older than [LogoutService
+  /// .pendingRevocationMaxAge] — the token can no longer revoke anything, so
+  /// it was purged rather than retained.
+  expired,
+
+  /// The backend confirmed the revocation and the record was deleted.
+  revoked,
+
+  /// Still unconfirmed. The record was kept for a later attempt.
+  stillFailing,
+}
+
 typedef LogoutStep = FutureOr<void> Function();
 typedef LogoutRevokeStep = FutureOr<bool> Function();
+typedef LogoutTokenRead = FutureOr<String?> Function();
+typedef LogoutRecordWrite = FutureOr<void> Function(String record);
+typedef LogoutRetryRevokeStep = FutureOr<bool> Function(String bearer);
 
 @visibleForTesting
 class LogoutServiceDependencies {
@@ -376,6 +692,15 @@ class LogoutServiceDependencies {
     required this.clearDependentsProvider,
     required this.clearUserProvider,
     required this.signOutFirebase,
+    // Optional with production defaults so existing constructions (including
+    // every test fixture) keep compiling; only the pending-revocation suites
+    // need to override them.
+    this.readVhToken = LogoutService._readVhToken,
+    this.readPendingRevocation = LogoutService._readPendingRevocation,
+    this.writePendingRevocation = LogoutService._writePendingRevocation,
+    this.clearPendingRevocation = LogoutService._clearPendingRevocationRecord,
+    this.retryFirebaseRevocation = LogoutService._retryFirebaseRevocation,
+    this.retryVhRevocation = LogoutService._retryVhRevocation,
   });
 
   factory LogoutServiceDependencies.defaults() {
@@ -429,4 +754,10 @@ class LogoutServiceDependencies {
   final LogoutStep clearDependentsProvider;
   final LogoutStep clearUserProvider;
   final LogoutStep signOutFirebase;
+  final LogoutTokenRead readVhToken;
+  final LogoutTokenRead readPendingRevocation;
+  final LogoutRecordWrite writePendingRevocation;
+  final LogoutStep clearPendingRevocation;
+  final LogoutRetryRevokeStep retryFirebaseRevocation;
+  final LogoutRetryRevokeStep retryVhRevocation;
 }

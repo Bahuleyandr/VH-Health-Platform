@@ -221,6 +221,24 @@ Future<void> main() async {
         }
       }());
 
+      // Drain any revocation a previous logout could not confirm with the
+      // server. Runs here, off the critical path and BEFORE the user can sign
+      // in again, because the retry bumps the identity's token epoch — firing
+      // it against a fresh login would sign that new session straight back
+      // out. A no-op when nothing is queued, and it defers itself if a session
+      // is already live. Without this the durable handle would never be
+      // serviced, which is worse than not queuing one at all.
+      unawaited(() async {
+        try {
+          final result = await LogoutService.retryPendingRevocation();
+          if (result != PendingRevocationRetry.nothingQueued) {
+            debugPrint('Pending session revocation retry: ${result.name}');
+          }
+        } catch (e) {
+          debugPrint('Pending session revocation retry failed: $e');
+        }
+      }());
+
       // Start network connectivity monitoring.
       ConnectivityService.startMonitoring();
       unawaited(PatientOutageConfigStore.instance.load());
