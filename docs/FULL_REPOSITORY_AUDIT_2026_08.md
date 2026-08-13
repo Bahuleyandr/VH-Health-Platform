@@ -3,6 +3,11 @@
 **Status:** OPEN — validated remediation is in progress.  This document is a
 finding and evidence ledger, not deployment authority.
 
+**Pause/restart receipt:**
+`docs/FULL_REPOSITORY_AUDIT_REMEDIATION_CHECKPOINT_2026_08_13.md` records the
+clean integrated head, all preserved lane worktrees, unresolved review
+blockers, activation holds, and the required resumption order.
+
 **Audited source:** dependency-upgrade content commit
 `8a692269f71b0666182fa82a5b7582119b9e2539`.  The published draft PR head is
 the no-source-change full-CI marker
