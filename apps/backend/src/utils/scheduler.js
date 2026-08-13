@@ -315,7 +315,7 @@ import { reconcileExpiredClaims } from '../services/notification/notificationDel
 import { verifyAuditChain } from '../services/clinical/documentIntegrityService.js';
 import { sendSecurityWebhook } from './securityWebhook.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
-import { runForEachTenant } from './tenantFanout.js';
+import { runFleetJob, runForEachTenant } from './tenantFanout.js';
 
 /**
  * Verify the per-tenant audit hash chain for every active tenant (plus the
@@ -1009,9 +1009,13 @@ if (process.env.NODE_ENV !== 'test') {
   // tenant. Append-only triggers (migration 324) make undetected tampering by
   // the app role impossible in the first place; this is the detection backstop
   // for any out-of-band (e.g. superuser/DBA) tamper.
+  // It enumerates tenants itself rather than being fanned out, so it takes the
+  // fleet-scope receipt (migration 670): withJobLock swallows the throw, and
+  // without a durable run row a failed hourly verification looked exactly like
+  // an hour in which the cron never fired.
   registerCron('0 * * * *', withJobLock('audit-chain-verify', async () => {
-    const r = await runAuditChainVerification();
-    logger.info('audit-chain-verify sweep complete', r);
+    const { result } = await runFleetJob('audit-chain-verify', () => runAuditChainVerification());
+    logger.info('audit-chain-verify sweep complete', result);
   }));
 
   // 🚑 Every 2 minutes — results-inbox escalation engine
@@ -1021,8 +1025,12 @@ if (process.env.NODE_ENV !== 'test') {
   // security webhook), and backfills any breached SLA instance that lost its
   // task. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper); each
   // tenant's writes re-scope via setTenantTx.
+  // Fleet-scope receipt (migration 670) for the same reason as
+  // audit-chain-verify: this sweep visits only the tenants that own an active
+  // task-scope rule, so it has no discoverable tenant set to fan out over, and
+  // a failed critical-result escalation tick left no durable trace.
   registerCron('*/2 * * * *', withJobLock('results-inbox-escalation', async () => {
-    await runEscalationSweep({});
+    await runFleetJob('results-inbox-escalation', () => runEscalationSweep({}));
   }));
 
   // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
@@ -1320,7 +1328,7 @@ export async function runAllScheduledTasksNow() {
     ));
     await runManualTask('results-inbox-escalation', () => (
       withDbAdvisoryLock('results-inbox-escalation', () => (
-        runWithSuperAdmin(() => runEscalationSweep({}))
+        runWithSuperAdmin(() => runFleetJob('results-inbox-escalation', () => runEscalationSweep({})))
       ))
     ));
 

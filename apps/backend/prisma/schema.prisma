@@ -27713,6 +27713,7 @@ model scheduled_job_runs {
   failure_code              String?                     @db.VarChar(80)
   started_at                DateTime                    @default(now()) @db.Timestamptz(6)
   finished_at               DateTime?                   @db.Timestamptz(6)
+  scope                     String                      @default("tenant_fanout") @db.VarChar(24)
   scheduled_job_tenant_runs scheduled_job_tenant_runs[]
 
   @@index([finished_at, id], map: "idx_scheduled_job_runs_finished_retention", where: raw("((aggregate_status)::text <> 'running'::text)"))

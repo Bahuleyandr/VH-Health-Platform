@@ -276,7 +276,7 @@ export const SCHEMA_CONTRACTS = [
       {
         name: 'scheduled_job_runs',
         columns: [
-          'id', 'job_label', 'lock_key', 'discovery_status', 'aggregate_status',
+          'id', 'job_label', 'lock_key', 'scope', 'discovery_status', 'aggregate_status',
           'tenants_discovered', 'tenants_succeeded', 'tenants_failed',
           'tenants_unresolved', 'failure_code', 'started_at', 'finished_at',
         ],
