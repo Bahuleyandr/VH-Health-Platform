@@ -71,7 +71,7 @@ overrides should create `medication_safety_reviews`.
 ### One-time per clone
 ```bash
 # Global tooling (once per machine)
-dart pub global activate melos 7.5.1
+dart pub global activate melos 8.2.2
 lefthook install                    # registers pre-commit/pre-push hooks
 
 # Per-stack installs

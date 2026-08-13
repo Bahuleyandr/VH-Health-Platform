@@ -58,7 +58,7 @@ jobs:
           dart --version
 
       - name: Activate Melos
-        run: dart pub global activate melos 7.5.1
+        run: dart pub global activate melos 8.2.2
 
       - name: Resolve pub workspace
         run: dart pub get
@@ -141,7 +141,7 @@ jobs:
           cache: true
 
       - name: Activate Melos
-        run: dart pub global activate melos 7.5.1
+        run: dart pub global activate melos 8.2.2
 
       - name: Resolve pub workspace
         run: dart pub get

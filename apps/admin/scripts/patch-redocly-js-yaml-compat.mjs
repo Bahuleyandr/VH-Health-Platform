@@ -2,7 +2,7 @@ import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-const REDOCLY_VERSION = "1.34.18";
+const REDOCLY_VERSION = "1.34.19";
 const JS_YAML_VERSION = "5.2.3";
 const packageRoot = process.cwd();
 const nodeModulesRoot = path.resolve(packageRoot, "node_modules");

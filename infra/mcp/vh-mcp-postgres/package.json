@@ -13,9 +13,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "express": "^5.2.1",
-    "pg": "^8.21.0",
+    "pg": "^8.23.0",
     "zod": "^4.4.3"
   }
 }

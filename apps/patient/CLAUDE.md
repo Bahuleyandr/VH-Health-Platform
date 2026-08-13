@@ -343,7 +343,7 @@ GitHub Actions workflows at the monorepo root:
 Run from the monorepo root — the Dart pub workspace resolves `vhhealth_core` automatically:
 ```bash
 # Once per clone
-dart pub global activate melos 7.5.1
+dart pub global activate melos 8.2.2
 dart pub get
 melos bootstrap
 

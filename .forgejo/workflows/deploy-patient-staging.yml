@@ -48,8 +48,11 @@ jobs:
           flutter-version: 3.44.0
           cache: true
 
+      - name: Install Android API 37 toolchain
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
       - name: Activate Melos
-        run: dart pub global activate melos 7.5.1
+        run: dart pub global activate melos 8.2.2
 
       - name: Bootstrap workspace
         run: |

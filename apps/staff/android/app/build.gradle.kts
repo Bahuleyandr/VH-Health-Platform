@@ -1,4 +1,5 @@
 import org.gradle.api.GradleException
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 plugins {
@@ -17,7 +18,7 @@ if (hasReleaseSigningConfig) {
 
 android {
     namespace = "com.vhhealth.staff.vhhealth_staff"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -26,10 +27,6 @@ android {
         // flutter_local_notifications (Code Blue full-screen intent) uses
         // Java 8 time APIs — desugaring backports them to pre-API-26 devices.
         isCoreLibraryDesugaringEnabled = true
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -63,6 +60,12 @@ android {
                 signingConfigs.getByName("debug")
             }
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
