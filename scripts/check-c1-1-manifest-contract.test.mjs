@@ -194,6 +194,14 @@ test('load-bearing C1.1 docs trigger the manifest workflow and infra stage', () 
   for (const path of docs) {
     assert.deepEqual(stagesForChangedFiles([path], stageOrder), ['security', 'infra']);
   }
+  for (const path of [
+    'scripts/check-prod-digests-pinned.mjs',
+    'scripts/check-prod-digests-pinned.test.mjs',
+    'scripts/check-prod-helm-image-inventory.mjs',
+    'scripts/check-prod-helm-image-inventory.test.mjs',
+  ]) {
+    assert.deepEqual(stagesForChangedFiles([path], stageOrder), ['security', 'infra']);
+  }
   assert.match(workflow, /quick_infra:[\s\S]*uses: \.\/\.github\/workflows\/_reusable-kubernetes-manifests\.yml/);
   assert.match(workflow, /full_infra:[\s\S]*uses: \.\/\.github\/workflows\/_reusable-kubernetes-manifests\.yml/);
 });

@@ -56,6 +56,8 @@ const infraPatterns = [
   /^scripts\/check-kyverno-enforce-readiness\.mjs$/,
   /^scripts\/check-prod-digests-pinned\.mjs$/,
   /^scripts\/check-prod-digests-pinned\.test\.mjs$/,
+  /^scripts\/check-prod-helm-image-inventory\.mjs$/,
+  /^scripts\/check-prod-helm-image-inventory\.test\.mjs$/,
   /^scripts\/update-prod-digests\.mjs$/,
   /^scripts\/update-prod-digests\.test\.mjs$/,
 ];

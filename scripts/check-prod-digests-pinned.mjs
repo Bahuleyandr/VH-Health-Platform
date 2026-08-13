@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Render both ArgoCD production roots, inventory every rendered image-reference
-// field used by workloads, CRDs, and operator configuration, and verify every
-// active tag@digest against its live registry.
+// Render both Kustomize-controlled ArgoCD production roots, inventory every
+// rendered image-reference field plus the JSON runtime manifests synthesized
+// by the scheduled restore proof, and verify every active tag@digest against
+// its registry.
 // The three platform-owned application placeholders are an explicit held state:
 // they are accepted only in the apps root and only as the exact full all-zero
 // fail-closed references below.
@@ -24,11 +25,68 @@ export const ZERO_DIGEST = `sha256:${'0'.repeat(64)}`;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
-export const HELD_APP_REFERENCES = new Set([
-  `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`,
-  `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`,
-  `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`,
+const heldBackend = `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`;
+const heldAdmin = `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`;
+const heldStaffWeb = `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`;
+
+export const HELD_APP_OCCURRENCES = Object.freeze([
+  {
+    target: 'infra/kubernetes/apps',
+    resourceKind: 'Deployment',
+    resourceNamespace: 'vhhealth',
+    resourceName: 'vhhealth-admin',
+    container: 'admin',
+    field: 'image',
+    ref: heldAdmin,
+  },
+  {
+    target: 'infra/kubernetes/apps',
+    resourceKind: 'Deployment',
+    resourceNamespace: 'vhhealth',
+    resourceName: 'vhhealth-backend',
+    container: 'backend',
+    field: 'image',
+    ref: heldBackend,
+  },
+  {
+    target: 'infra/kubernetes/apps',
+    resourceKind: 'Deployment',
+    resourceNamespace: 'vhhealth',
+    resourceName: 'vhhealth-staff-web',
+    container: 'nginx',
+    field: 'image',
+    ref: heldStaffWeb,
+  },
+  {
+    target: 'infra/kubernetes/apps',
+    resourceKind: 'CronJob',
+    resourceNamespace: 'vhhealth',
+    resourceName: 'ward-downtime-packs',
+    container: 'ward-downtime-packs',
+    field: 'image',
+    ref: heldBackend,
+  },
+  {
+    target: 'infra/kubernetes/apps',
+    resourceKind: 'Job',
+    resourceNamespace: 'vhhealth',
+    resourceName: 'vhhealth-backend-migrate',
+    container: 'migrate',
+    field: 'image',
+    ref: heldBackend,
+  },
+  {
+    target: 'infra/kubernetes/apps',
+    resourceKind: 'Job',
+    resourceNamespace: 'vhhealth',
+    resourceName: 'vhhealth-backend-migrate',
+    container: 'wait-owner-bypassrls',
+    field: 'image',
+    ref: heldBackend,
+  },
 ]);
+
+export const HELD_APP_REFERENCES = new Set(HELD_APP_OCCURRENCES.map(({ ref }) => ref));
 
 // These reviewed platform images must remain real multi-architecture indexes,
 // not architecture-specific manifests. Application release images may be
@@ -81,9 +139,58 @@ export function findKustomize() {
   return 'kustomize';
 }
 
+function scalarValue(raw) {
+  const trimmed = raw.trim();
+  const quoted = trimmed.match(/^(?:"([^"]*)"|'([^']*)')\s*(?:#.*)?$/);
+  if (quoted) return quoted[1] ?? quoted[2];
+  return trimmed.replace(/\s+#.*$/, '').trim();
+}
+
+function containerNameAfterImage(lines, index, field) {
+  if (field !== 'image') return '';
+  const leading = lines[index].match(/^\s*/)?.[0].length || 0;
+  const sequence = /^\s*-\s*/.test(lines[index]);
+  const propertyIndent = leading + (sequence ? 2 : 0);
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    if (/^---\s*$/.test(lines[cursor])) break;
+    if (!lines[cursor].trim()) continue;
+    const indent = lines[cursor].match(/^\s*/)?.[0].length || 0;
+    if (indent < propertyIndent) break;
+    const match = lines[cursor].match(new RegExp(`^\\s{${propertyIndent}}name:\\s*(\\S+)\\s*$`));
+    if (match) return scalarValue(match[1]);
+  }
+  return '';
+}
+
 export function extractRenderedImages(rendered, target) {
   const images = [];
-  for (const [index, line] of rendered.split(/\r?\n/).entries()) {
+  const lines = rendered.split(/\r?\n/);
+  let resourceKind = '';
+  let resourceName = '';
+  let resourceNamespace = '';
+  let inMetadata = false;
+  for (const [index, line] of lines.entries()) {
+    if (/^---\s*$/.test(line)) {
+      resourceKind = '';
+      resourceName = '';
+      resourceNamespace = '';
+      inMetadata = false;
+      continue;
+    }
+    const kindMatch = line.match(/^kind:\s*(\S+)\s*$/);
+    if (kindMatch) resourceKind = scalarValue(kindMatch[1]);
+    if (/^metadata:\s*$/.test(line)) {
+      inMetadata = true;
+    } else if (inMetadata) {
+      if (line.trim() && !/^\s/.test(line)) {
+        inMetadata = false;
+      } else {
+        const nameMatch = line.match(/^  name:\s*(\S+)\s*$/);
+        const namespaceMatch = line.match(/^  namespace:\s*(\S+)\s*$/);
+        if (nameMatch) resourceName = scalarValue(nameMatch[1]);
+        if (namespaceMatch) resourceNamespace = scalarValue(namespaceMatch[1]);
+      }
+    }
     // Keep this field contract aligned with extractImageRefs in
     // check-c1-1-manifest-contract.mjs. `imageName` is used by CNPG CRDs and
     // operator/bootstrap configuration uses keys such as `operatorImage`.
@@ -91,17 +198,83 @@ export function extractRenderedImages(rendered, target) {
       /^\s*(?:-\s*)?((?:image|imageName)|(?:[A-Za-z0-9_-]+Image)):\s*(.*?)\s*$/,
     );
     if (!match) continue;
-    const value = match[2].trim().replace(/\s+#.*$/, '').trim();
-    const quoted =
-      value.length >= 2 &&
-      ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'")));
     images.push({
       field: match[1],
-      ref: quoted ? value.slice(1, -1) : value,
+      ref: scalarValue(match[2]),
       target,
       line: index + 1,
+      source: 'rendered',
+      resourceKind,
+      resourceNamespace,
+      resourceName,
+      container: containerNameAfterImage(lines, index, match[1]),
     });
+  }
+  return images;
+}
+
+function literalEnvironment(lines) {
+  const values = new Map();
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)-\s+name:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/);
+    if (!match) continue;
+    let cursor = index + 1;
+    while (cursor < lines.length && (!lines[cursor].trim() || /^\s*#/.test(lines[cursor]))) cursor += 1;
+    const valueMatch = lines[cursor]?.match(
+      new RegExp(`^\\s{${match[1].length + 2}}value:\\s*(.*?)\\s*$`),
+    );
+    if (!valueMatch) continue;
+    const value = scalarValue(valueMatch[1]);
+    if (!values.has(match[2])) values.set(match[2], new Set());
+    values.get(match[2]).add(value);
+  }
+  return values;
+}
+
+function resolveSynthesizedImage(value, variables, target, line) {
+  const variable = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
+  if (!variable) {
+    if (value.includes('${')) {
+      throw new Error(
+        `${target}:${line}: synthesized runtime image ${value} is not one exactly resolvable variable`,
+      );
+    }
+    return value;
+  }
+  const candidates = [...(variables.get(variable[1]) || [])];
+  if (candidates.length !== 1) {
+    throw new Error(
+      `${target}:${line}: synthesized runtime image ${value} must resolve to exactly one rendered ` +
+        `literal; found ${candidates.length}`,
+    );
+  }
+  return candidates[0];
+}
+
+export function extractSynthesizedImages(rendered, target) {
+  const images = [];
+  const lines = rendered.split(/\r?\n/);
+  const variables = literalEnvironment(lines);
+  for (const [index, line] of lines.entries()) {
+    for (const match of line.matchAll(
+      /"((?:image|imageName)|(?:[A-Za-z0-9_-]+Image))"\s*:\s*"([^"]*)"/g,
+    )) {
+      const expression = match[2];
+      const prefix = line.slice(0, match.index);
+      const names = [...prefix.matchAll(/"name":"([^"]+)"/g)];
+      images.push({
+        field: match[1],
+        ref: resolveSynthesizedImage(expression, variables, target, index + 1),
+        target,
+        line: index + 1,
+        source: 'synthesized',
+        runtimeExpression: expression,
+        resourceKind: line.match(/"kind":"([^"]+)"/)?.[1] || '',
+        resourceNamespace: line.match(/"namespace":"([^"]+)"/)?.[1] || '',
+        resourceName: line.match(/"metadata":\{"name":"([^"]+)"/)?.[1] || '',
+        container: match[1] === 'image' ? names.at(-1)?.[1] || '' : '',
+      });
+    }
   }
   return images;
 }
@@ -120,7 +293,10 @@ export function renderProductionImages({
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const targetImages = extractRenderedImages(rendered, target);
+    const targetImages = [
+      ...extractRenderedImages(rendered, target),
+      ...extractSynthesizedImages(rendered, target),
+    ];
     if (targetImages.length === 0) {
       throw new Error(`${target}: rendered successfully but contained no image references`);
     }
@@ -155,11 +331,23 @@ export function parseImageReference(ref) {
   return { ref, registry, repositoryPath, repository, tag, digest };
 }
 
+function heldOccurrenceKey(occurrence) {
+  return [
+    occurrence.target,
+    occurrence.resourceKind,
+    occurrence.resourceNamespace,
+    occurrence.resourceName,
+    occurrence.container,
+    occurrence.field,
+    occurrence.ref,
+  ].join('|');
+}
+
+const HELD_APP_OCCURRENCE_KEYS = new Set(HELD_APP_OCCURRENCES.map(heldOccurrenceKey));
+
 export function classifyImageOccurrence(occurrence, { requirePinned = false } = {}) {
   const parsed = parseImageReference(occurrence.ref);
-  const held =
-    occurrence.target === 'infra/kubernetes/apps' &&
-    HELD_APP_REFERENCES.has(occurrence.ref);
+  const held = HELD_APP_OCCURRENCE_KEYS.has(heldOccurrenceKey(occurrence));
 
   if (held) {
     if (requirePinned) {
@@ -170,6 +358,13 @@ export function classifyImageOccurrence(occurrence, { requirePinned = false } = 
     }
     return { ...parsed, ...occurrence, held: true };
   }
+  if (parsed.digest === ZERO_DIGEST) {
+    throw new Error(
+      `${occurrence.target}:${occurrence.line}: ${occurrence.ref} is an unauthorized all-zero ` +
+        `image occurrence at ${occurrence.resourceKind || '(unknown kind)'}/` +
+        `${occurrence.resourceName || '(unknown name)'} container ${occurrence.container || '(none)'}`,
+    );
+  }
   if (!parsed.tag) {
     throw new Error(`${occurrence.target}:${occurrence.line}: ${occurrence.ref} has no immutable tag@digest tag`);
   }
@@ -179,6 +374,24 @@ export function classifyImageOccurrence(occurrence, { requirePinned = false } = 
     );
   }
   return { ...parsed, ...occurrence, held: false };
+}
+
+export function assertHeldOccurrenceInventory(heldOccurrences) {
+  const actualKeys = heldOccurrences.map(heldOccurrenceKey);
+  const actualSet = new Set(actualKeys);
+  const missing = HELD_APP_OCCURRENCES
+    .filter((expected) => !actualSet.has(heldOccurrenceKey(expected)))
+    .map(heldOccurrenceKey);
+  const extras = actualKeys.filter(
+    (key, index) => !HELD_APP_OCCURRENCE_KEYS.has(key) || actualKeys.indexOf(key) !== index,
+  );
+  if (actualKeys.length !== HELD_APP_OCCURRENCES.length || missing.length > 0 || extras.length > 0) {
+    throw new Error(
+      `held all-zero occurrence inventory must be the exact expected six` +
+        `${missing.length > 0 ? `; missing: ${missing.join(', ')}` : ''}` +
+        `${extras.length > 0 ? `; extra: ${extras.join(', ')}` : ''}`,
+    );
+  }
 }
 
 function parseBearerChallenge(header) {
@@ -193,33 +406,30 @@ function parseBearerChallenge(header) {
 
 function registryCredentials(registry, env) {
   if (registry === 'ghcr.io') {
-    const githubHosted = /github\.com$/i.test(
-      new URL(env.GITHUB_SERVER_URL || 'https://example.invalid').hostname,
-    );
     return {
-      username:
-        env.GHCR_USERNAME || env.CONTAINER_REGISTRY_USERNAME || env.GITHUB_ACTOR || '',
-      password:
-        env.GHCR_TOKEN ||
-        env.CONTAINER_REGISTRY_PASSWORD ||
-        (githubHosted ? env.GITHUB_TOKEN || '' : ''),
+      username: env.GHCR_USERNAME || '',
+      password: env.GHCR_TOKEN || '',
     };
   }
   if (registry === 'docker.io') {
     return {
-      username: env.DOCKERHUB_USERNAME || env.DOCKER_USERNAME || '',
-      password:
-        env.DOCKERHUB_TOKEN || env.DOCKERHUB_PASSWORD || env.DOCKER_PASSWORD || '',
+      username: env.DOCKERHUB_USERNAME || '',
+      password: env.DOCKERHUB_TOKEN || '',
     };
   }
-  return {
-    username: env.CONTAINER_REGISTRY_USERNAME || '',
-    password: env.CONTAINER_REGISTRY_PASSWORD || '',
-  };
+  return { username: '', password: '' };
 }
 
 function registryHost(registry) {
   return registry === 'docker.io' ? 'registry-1.docker.io' : registry;
+}
+
+function tokenAuthority(registry) {
+  return registry === 'docker.io' ? 'auth.docker.io' : registryHost(registry);
+}
+
+function tokenService(registry) {
+  return registry === 'docker.io' ? 'registry.docker.io' : registryHost(registry);
 }
 
 function retryDelayMs(response, attempt) {
@@ -259,6 +469,38 @@ async function fetchWithRetry(url, options, {
   throw new Error(`network request failed after ${retries + 1} attempt(s): ${lastError?.message}`);
 }
 
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+async function fetchManifestWithSafeRedirects(url, headers, options) {
+  let current = new URL(url);
+  let currentHeaders = { ...headers };
+  for (let redirects = 0; redirects <= 5; redirects += 1) {
+    const response = await fetchWithRetry(
+      current,
+      { headers: currentHeaders, redirect: 'manual' },
+      options,
+    );
+    if (!REDIRECT_STATUSES.has(response.status)) return response;
+    const location = response.headers.get('location');
+    await response.body?.cancel?.().catch(() => {});
+    if (!location) throw new Error(`${current.origin} returned a redirect without Location`);
+    if (redirects === 5) throw new Error(`${current.origin} exceeded five manifest redirects`);
+    const next = new URL(location, current);
+    if (next.protocol !== 'https:' || next.username || next.password) {
+      throw new Error(
+        `${current.origin} manifest redirect must use credential-free HTTPS; got ` +
+          `${next.protocol}//${next.host || '(missing)'}`,
+      );
+    }
+    if (next.origin !== current.origin && currentHeaders.Authorization) {
+      currentHeaders = { ...currentHeaders };
+      delete currentHeaders.Authorization;
+    }
+    current = next;
+  }
+  throw new Error('unreachable manifest redirect state');
+}
+
 function rateLimitDetails(response) {
   const values = [
     ['ratelimit-limit', response.headers.get('ratelimit-limit')],
@@ -277,15 +519,36 @@ function responseFailure(label, response, { authenticated }) {
 }
 
 async function exchangeBearerToken(challenge, image, options) {
-  const tokenUrl = new URL(challenge.realm);
-  if (challenge.service) tokenUrl.searchParams.set('service', challenge.service);
-  tokenUrl.searchParams.set('scope', challenge.scope || `repository:${image.repositoryPath}:pull`);
+  let tokenUrl;
+  try {
+    tokenUrl = new URL(challenge.realm);
+  } catch {
+    throw new Error(`${image.registry} returned an invalid bearer-token realm`);
+  }
+  if (
+    tokenUrl.protocol !== 'https:' ||
+    tokenUrl.username ||
+    tokenUrl.password ||
+    tokenUrl.host.toLowerCase() !== tokenAuthority(image.registry).toLowerCase()
+  ) {
+    throw new Error(
+      `${image.registry} bearer-token realm must use HTTPS authority ` +
+        `${tokenAuthority(image.registry)}; got ${tokenUrl.protocol}//${tokenUrl.host || '(missing)'}`,
+    );
+  }
+  tokenUrl.search = '';
+  tokenUrl.hash = '';
+  tokenUrl.searchParams.set('service', tokenService(image.registry));
+  tokenUrl.searchParams.set('scope', `repository:${image.repositoryPath}:pull`);
   const credentials = registryCredentials(image.registry, options.env);
+  if (Boolean(credentials.username) !== Boolean(credentials.password)) {
+    throw new Error(`${image.registry} credentials require both the registry-specific username and token`);
+  }
   const headers = {};
   if (credentials.username && credentials.password) {
     headers.Authorization = `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64')}`;
   }
-  const response = await fetchWithRetry(tokenUrl, { headers }, options);
+  const response = await fetchWithRetry(tokenUrl, { headers, redirect: 'error' }, options);
   if (!response.ok) {
     throw new Error(responseFailure(`${image.registry} bearer-token exchange`, response, {
       authenticated: Boolean(headers.Authorization),
@@ -302,7 +565,7 @@ async function fetchManifest(image, options) {
     `https://${registryHost(image.registry)}/v2/${image.repositoryPath}/manifests/${image.digest}`,
   );
   const headers = { Accept: MANIFEST_ACCEPT };
-  let response = await fetchWithRetry(url, { headers }, options);
+  let response = await fetchManifestWithSafeRedirects(url, headers, options);
   if (response.status === 401) {
     const challenge = parseBearerChallenge(response.headers.get('www-authenticate'));
     await response.body?.cancel?.().catch(() => {});
@@ -314,7 +577,7 @@ async function fetchManifest(image, options) {
     }
     const token = await exchangeBearerToken(challenge, image, options);
     headers.Authorization = `Bearer ${token}`;
-    response = await fetchWithRetry(url, { headers }, options);
+    response = await fetchManifestWithSafeRedirects(url, headers, options);
   }
   if (!response.ok) {
     throw new Error(responseFailure(`${image.repository}:${image.tag}@${image.digest}`, response, {
@@ -397,6 +660,7 @@ export async function validateProductionImages({
   const classified = occurrences.map((occurrence) =>
     classifyImageOccurrence(occurrence, { requirePinned }));
   const heldOccurrences = classified.filter((image) => image.held);
+  assertHeldOccurrenceInventory(heldOccurrences);
   const heldByRef = new Map();
   for (const image of heldOccurrences) {
     const existing = heldByRef.get(image.ref);
@@ -457,10 +721,12 @@ async function main() {
     )].sort();
     console.log(
       `[check-prod-digests] verified ${result.verified.length} active unique tag@digest pin(s) ` +
-        `across ${result.activeOccurrences.length} rendered image-field occurrence(s) ` +
-        `(${activeFields.join(', ')}) from ${PRODUCTION_ROOTS.length} production roots; ` +
+        `across ${result.activeOccurrences.length} Kustomize-controlled or scheduled-proof-synthesized ` +
+        `image-field occurrence(s) (${activeFields.join(', ')}) from ${PRODUCTION_ROOTS.length} ` +
+        `production roots; ` +
         `${result.held.length} platform-owned application pin(s) remain deliberately held ` +
-        `fail-closed across ${result.heldOccurrences.length} rendered occurrence(s).`,
+        `fail-closed across the exact ${result.heldOccurrences.length} rendered workload occurrence(s). ` +
+        `Helm chart-generated workloads are outside this proof.`,
     );
   } catch (error) {
     const message = `[check-prod-digests] FAIL: ${error.message}`;

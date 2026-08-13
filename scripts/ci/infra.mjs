@@ -70,23 +70,31 @@ function installLinuxManifestValidators() {
   };
 }
 
-export function runInfraStage({ install } = {}) {
+export function runInfraStage({
+  install,
+  platform = process.platform,
+  commandAvailable = checkCommand,
+  installValidators = installLinuxManifestValidators,
+  runCommand = run,
+} = {}) {
   let installedTools;
   try {
     if (
       install &&
-      process.platform === 'linux' &&
-      (!checkCommand('kustomize', ['version']) || !checkCommand('kubeconform', ['-v']))
+      platform === 'linux' &&
+      (!commandAvailable('kustomize', ['version']) || !commandAvailable('kubeconform', ['-v']))
     ) {
-      installedTools = installLinuxManifestValidators();
+      installedTools = installValidators();
     }
 
-    run(process.execPath, [
+    runCommand(process.execPath, [
       '--test',
       'scripts/update-prod-digests.test.mjs',
       'scripts/check-prod-digests-pinned.test.mjs',
-    ]);
-    run(
+      'scripts/check-prod-helm-image-inventory.test.mjs',
+      'scripts/ci/infra.test.mjs',
+    ], { env: installedTools?.env });
+    runCommand(
       process.execPath,
       [
         '--test',
@@ -95,23 +103,29 @@ export function runInfraStage({ install } = {}) {
       ],
       { env: installedTools?.env },
     );
-    run(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
-    run(process.execPath, ['scripts/check-c1-1-manifest-contract.mjs'], {
+    runCommand(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
+    runCommand(process.execPath, ['scripts/check-c1-1-manifest-contract.mjs'], {
       env: installedTools?.env,
     });
 
-    run(process.execPath, ['scripts/validate-kubernetes-manifests.mjs'], {
+    runCommand(process.execPath, ['scripts/validate-kubernetes-manifests.mjs'], {
       env: installedTools?.env,
     });
 
-    run(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
+    runCommand(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
 
-    // Render both ArgoCD production roots, inventory workload/CRD/operator
-    // image fields, reject every unpinned active reference, and prove each
-    // unique tag@digest exists at its live registry. The exact three
-    // platform-owned all-zero app references remain an explicit fail-closed
-    // hold.
-    run(process.execPath, ['scripts/check-prod-digests-pinned.mjs']);
+    // Bound the exact chart Applications outside the Kustomize image render.
+    // A chart/version/values-source change fails until it is reviewed, while
+    // activation still requires a separately rendered Helm image inventory.
+    runCommand(process.execPath, ['scripts/check-prod-helm-image-inventory.mjs'], {
+      env: installedTools?.env,
+    });
+
+    // Render the Kustomize-controlled roots, include the scheduled restore
+    // proof's synthesized runtime manifests, and live-verify each active pin.
+    runCommand(process.execPath, ['scripts/check-prod-digests-pinned.mjs'], {
+      env: installedTools?.env,
+    });
   } finally {
     if (installedTools?.temporary && installedTools?.dir) {
       rmSync(installedTools.dir, { recursive: true, force: true });

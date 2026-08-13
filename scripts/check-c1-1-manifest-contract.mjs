@@ -942,6 +942,16 @@ function assertCnpgProofContracts(platformDocs, platformRender) {
   const proofScript = read('infra/kubernetes/base/cnpg/scheduled-restore-proof.sh');
   requireCondition(proofScript.includes('cnpg-dr-reader-credentials'), 'scheduled restore proof lacks the reader identity');
   rejectText(proofScript, /cnpg-backup-producer-credentials/, 'scheduled restore proof reuses the producer identity');
+  const synthesizedImageFields = [...proofScript.matchAll(/"(image|imageName)":"([^"]+)"/g)]
+    .map((match) => `${match[1]}=${match[2]}`);
+  requireCondition(
+    synthesizedImageFields.length === 3 &&
+      synthesizedImageFields.filter((value) => value === `image=${EXPECTED_AWS_CLI_IMAGE}`).length === 1 &&
+      synthesizedImageFields.filter((value) => value === 'imageName=${PG18_IMAGE}').length === 1 &&
+      synthesizedImageFields.filter((value) => value === 'image=${PG18_IMAGE}').length === 1,
+    `scheduled restore proof must synthesize exactly the reviewed three runtime image occurrences; ` +
+      `found ${synthesizedImageFields.join(', ') || 'none'}`,
+  );
   for (const required of [
     'extract_uid()',
     'verify_disposable_identity()',

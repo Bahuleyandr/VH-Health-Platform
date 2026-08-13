@@ -27,14 +27,17 @@ Stages:
 - `admin`: admin audit/lint/type-check/test/build/Clinical AI bundle check.
 - `flutter`: workspace `dart pub get`, Melos bootstrap, format, analyze, test.
 - `infra`: Kubernetes manifest validation + Kyverno Enforce readiness contract
-  + production image registry proof (`scripts/check-kyverno-enforce-readiness.mjs`,
-  `scripts/check-prod-digests-pinned.mjs`). The image guard renders both ArgoCD
-  production roots, inventories workload `image`, CRD `imageName`, and
-  operator/config `*Image` fields, rejects non-immutable active references,
-  and verifies each unique committed digest exists at the live registry. Only
-  the exact three platform-owned all-zero application references are reported
-  as deliberately held fail-closed; all external platform/workload images must
-  verify.
+  + bounded Helm source inventory + Kustomize-controlled production image
+  registry proof (`scripts/check-kyverno-enforce-readiness.mjs`,
+  `scripts/check-prod-helm-image-inventory.mjs`,
+  `scripts/check-prod-digests-pinned.mjs`). The digest guard inventories
+  workload `image`, CRD `imageName`, operator/config `*Image`, and the three
+  scheduled-restore-proof-synthesized runtime fields, rejects non-immutable active references,
+  and verifies each unique digest against its live registry. The all-zero hold
+  is limited to six exact workload occurrences. Longhorn,
+  kube-prometheus-stack, and Loki chart-generated images are not rendered by
+  this gate; a separate fail-closed check holds their exact chart repositories,
+  revisions, and values sources for activation-time rendered image review.
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
 
 ## GitHub pull-request merge boundary
