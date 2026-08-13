@@ -192,6 +192,7 @@ function runSemgrepFocused() {
 export async function runSecurityStage() {
   const gitleaksEnv = await ensureGitleaks();
   run('git', ['diff', '--check']);
+  run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'range'], { env: gitleaksEnv });

@@ -49,7 +49,7 @@ jobs:
       GHCR_IMAGE_OWNER: ${{ vars.GHCR_IMAGE_OWNER }}
       NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_ADMIN }}
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -188,7 +188,7 @@ jobs:
 
       - name: Upload dalek image reports
         if: always()
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
         with:
           name: dalekdefender-image-release-${{ github.sha }}
           path: output/dalekdefender
@@ -211,7 +211,7 @@ jobs:
       GHCR_PULL_USERNAME: ${{ secrets.GHCR_PULL_USERNAME }}
       GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
 
@@ -219,15 +219,15 @@ jobs:
         run: node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy
 
       - name: Tailscale connect
-        uses: https://github.com/tailscale/github-action@v4
+        uses: https://github.com/tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:gha-deploy
-          version: latest
+          version: 1.102.2
 
       - name: SSH agent
-        uses: https://github.com/webfactory/ssh-agent@v0.10.0
+        uses: https://github.com/webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
         with:
           ssh-private-key: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
 

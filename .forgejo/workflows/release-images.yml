@@ -85,7 +85,7 @@ jobs:
       STAFF_WEB_APP_NAME: ${{ vars.STAFF_WEB_APP_NAME }}
       SENTRY_DSN_STAFF: ${{ secrets.SENTRY_DSN_STAFF }}
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -311,7 +311,7 @@ jobs:
 
       - name: Upload image release reports
         if: always() && steps.selection.outputs.selected == 'true'
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
         with:
           name: release-image-${{ matrix.app }}-${{ github.ref_name }}
           path: output/release-images/${{ matrix.app }}
@@ -334,12 +334,12 @@ jobs:
       COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
           fetch-depth: 0
 
-      - uses: https://data.forgejo.org/actions/setup-node@v4
+      - uses: https://data.forgejo.org/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '26.5.0'
 
@@ -372,7 +372,7 @@ jobs:
           esac
 
       - name: Download build-emitted image ref
-        uses: https://data.forgejo.org/actions/download-artifact@v3
+        uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3
         with:
           name: release-image-${{ env.RELEASE_APP }}-${{ github.ref_name }}
           path: output/release-artifact
@@ -417,7 +417,7 @@ jobs:
 
       - name: Upload digest verification evidence
         if: always()
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
         with:
           name: release-pin-digests-${{ github.ref_name }}
           path: output/release-pin-digests
