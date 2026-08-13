@@ -31,7 +31,7 @@ export const EXPECTED_HELM_APPLICATIONS = Object.freeze([
     chart: 'kube-prometheus-stack',
     repository: 'https://prometheus-community.github.io/helm-charts',
     revision: '65.2.0',
-    sourceOccurrences: 2,
+    sourceOccurrences: 1,
     valueFile: '$vhhealth-git/infra/kubernetes/base/monitoring/kube-prometheus-values.yaml',
   },
   {

@@ -29,8 +29,8 @@ is not an incident you want.
 | Volume | Capacity | Type | Purpose |
 |--------|----------|------|---------|
 | Boot | 2× 480 GB SSD in RAID1 | Enterprise SATA / NVMe | OS only |
-| Cluster data (min) | 2× 1 TB NVMe in RAID1 | Enterprise NVMe (PLP / power-loss protection mandatory) | Pods, PVCs, container images |
-| Cluster data (recommended) | 2× 2 TB NVMe in RAID1 | Same | More room for logs + image cache + staging PITR |
+| Cluster data (minimum for the committed PVC requests) | 2× 2 TB NVMe in RAID1 | Enterprise NVMe (PLP / power-loss protection mandatory) | Pods, PVCs, container images; verify actual per-node placement before ordering |
+| Cluster data (recommended) | 2× 4 TB NVMe in RAID1 | Same | 3-year reservation headroom, logs, image cache, and staging PITR |
 | etcd | Optional dedicated NVMe partition (separate device) | Enterprise NVMe | Isolates etcd fsync latency |
 
 RAID1 can be hardware RAID (Dell PERC / HPE Smart Array / LSI MegaRAID)
@@ -65,13 +65,13 @@ direct upgrade.
 | Etcd data + WAL | 2 GB | 100 GB reserved | Dedicated volume if possible |
 | Postgres (CNPG data + WAL PVCs) | 100 GiB data + 20 GiB WAL | 500 GB data + 100 GB WAL planning allowance | One instance per node; both PVCs currently use `local-path`, with PostgreSQL streaming replication between instances |
 | PostgreSQL offsite archive | — | 100 GB planning allowance | Intended Barman Cloud Plugin/R2 contract is inert until operator qualification; size from measured WAL generation and approved retention |
-| MinIO data drives | 100 GB × 4 drives = 400 GB | 1.6 TB | Distributed erasure-coding across all 3 nodes; sizing is per-node |
+| MinIO local PVCs | Up to 800 GiB on the node hosting two of four server pods | Measure before expansion; 1.6 TiB raw cluster baseline | The manifest is one 4-server pool × 4 PVCs/server × 100 GiB with EC:4 (about 1.2 TiB usable). Preferred spreading across three nodes does not guarantee whole-node tolerance; qualify a fourth failure domain or retain a recovery-only posture. |
 | Harbor registry | 50 GB | 200 GB | Grows with image tag retention; prune stale tags weekly |
 | Container image cache (containerd) | 20 GB | 50 GB | Set `containerd` garbage-collection retention to 168h |
 | Prometheus | 50 GB | 100 GB | 30-day metric retention |
 | Loki | 100 GB | 300 GB | 30-day log retention; bump for HIPAA audit trail needs |
 | Backend pod logs (transient) | 10 GB | 10 GB | Rotated out to Loki |
-| **Total per node (3-year)** | ~500 GB | ~1.3 TB | Hence 2× 1 TB NVMe in RAID1 = 1 TB usable is the floor; 2× 2 TB RAID1 = 2 TB usable for 5-year runway |
+| **Total per node (worst planned placement)** | ~1.1 TB requested | ~2.3 TB before future MinIO expansion | A 1 TB RAID1 data volume cannot satisfy the committed worst-case PVC placement. Validate scheduler/PVC evidence, then procure at least 2 TB usable; 4 TB usable is the current 3-year recommendation. |
 
 ---
 
@@ -143,7 +143,7 @@ Zero inbound ports opened on the hospital firewall.
 ## Concrete vendor SKUs (reference)
 
 Prices are **approximate, India, April 2026**, per server, including
-3-year NBD warranty, 2× PSU, IPMI, 64 GB RAM, 2× 1 TB NVMe. Rates
+3-year NBD warranty, 2× PSU, IPMI, 64 GB RAM, and at least 2× 2 TB NVMe. Rates
 change — use as order-of-magnitude estimates only.
 
 ### Tier 1 (enterprise, 3–5 year OEM warranty)

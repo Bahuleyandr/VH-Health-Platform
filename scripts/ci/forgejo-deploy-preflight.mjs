@@ -59,7 +59,7 @@ const mode = args.mode;
 const config = MODES[mode];
 
 if (!config) {
-  console.error(`Usage: node scripts/ci/forgejo-deploy-preflight.mjs --mode <${Object.keys(MODES).join('|')}> [--allow-skip] [--summary-file <path>]`);
+  console.error(`Usage: node scripts/ci/forgejo-deploy-preflight.mjs --mode <${Object.keys(MODES).join('|')}> [--allow-skip] [--summary-file <path>] [--result-file <path>]`);
   process.exit(2);
 }
 
@@ -69,11 +69,19 @@ const missing = config.required
 
 const allowSkip = args.allowSkip === true;
 const summaryFile = args.summaryFile || '';
+const resultFile = args.resultFile || '';
 
 writeGithubOutput('missing', missing.join(','));
 writeGithubOutput('skip', missing.length > 0 && allowSkip ? 'true' : 'false');
+writeGithubOutput(
+  'status',
+  missing.length === 0 ? 'ready' : allowSkip ? 'not_deployed' : 'blocked',
+);
 
 if (missing.length === 0) {
+  if (resultFile) {
+    writeResult(resultFile, mode, config.description, [], 'ready');
+  }
   console.log(`Forgejo preflight OK (${mode}): ${config.description}`);
   process.exit(0);
 }
@@ -86,6 +94,15 @@ console.error(message);
 if (summaryFile) {
   writeSummary(summaryFile, mode, config.description, missing, allowSkip);
 }
+if (resultFile) {
+  writeResult(
+    resultFile,
+    mode,
+    config.description,
+    missing,
+    allowSkip ? 'not_deployed' : 'blocked',
+  );
+}
 
 process.exit(allowSkip ? 0 : 1);
 
@@ -95,6 +112,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--mode') parsed.mode = argv[++i];
     else if (arg === '--summary-file') parsed.summaryFile = argv[++i];
+    else if (arg === '--result-file') parsed.resultFile = argv[++i];
     else if (arg === '--allow-skip') parsed.allowSkip = true;
     else {
       console.error(`Unknown argument: ${arg}`);
@@ -135,4 +153,16 @@ function writeSummary(filePath, modeName, description, missingNames, skipped) {
     'No secret values are printed by this preflight.',
     '',
   ].join('\n'));
+}
+
+function writeResult(filePath, modeName, description, missingNames, status) {
+  const target = resolve(filePath);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `${JSON.stringify({
+    schema_version: 1,
+    status,
+    mode: modeName,
+    description,
+    missing_requirements: missingNames,
+  }, null, 2)}\n`);
 }

@@ -31,10 +31,6 @@ function validFixture() {
         '        persistence: {}',
       ].join('\n')),
       application('vhhealth-kube-prometheus', [
-        '  source:',
-        '    chart: kube-prometheus-stack',
-        '    repoURL: https://prometheus-community.github.io/helm-charts',
-        '    targetRevision: 65.2.0',
         '  sources:',
         '  - chart: kube-prometheus-stack',
         '    repoURL: https://prometheus-community.github.io/helm-charts',

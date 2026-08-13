@@ -569,8 +569,8 @@ credentials.
 # metadata.name: vhhealth-backend-env
 # metadata.namespace: vhhealth
 kubeseal \
-  --controller-namespace sealed-secrets \
-  --controller-name sealed-secrets-controller \
+  --controller-namespace vhhealth-security \
+  --controller-name sealed-secrets \
   --scope strict \
   -f /secure/operator-work/vhhealth-backend-env.yaml \
   -w infra/kubernetes/apps/backend/sealed-secret.yaml

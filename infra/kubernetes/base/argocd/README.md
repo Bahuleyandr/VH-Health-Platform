@@ -15,12 +15,17 @@ Pinned at **v7.7.5** (Argo CD app v2.13.1). See `chart-tracker.yaml`.
 1. Apply `base/argocd/namespace.yaml` manually (before Argo CD exists,
    there is no one to sync it).
 
-2. Apply the SealedSecret controller and its public key bundle (so
-   that the next step's sealed secrets decrypt):
+2. Validate and apply the Sealed Secrets controller with the repository helper
+   (so that the next step's sealed secrets decrypt):
 
    ```bash
-   kubectl apply -f infra/kubernetes/base/sealed-secrets/
+   scripts/bootstrap-sealed-secrets.sh --check
+   scripts/bootstrap-sealed-secrets.sh --apply
    ```
+
+   The helper renders the Kustomization, validates the exact controller
+   identity (`vhhealth-security/sealed-secrets`), applies it with
+   `kubectl apply -k`, and waits for its Deployment to become available.
 
 3. Apply the `repo-vhhealth-platform` sealed secret so Argo CD can
    pull the repo.

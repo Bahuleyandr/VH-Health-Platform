@@ -41,6 +41,7 @@ jobs:
           --mode post-deploy-smoke
           --allow-skip
           --summary-file output/post-deploy-smoke/SKIPPED.md
+          --result-file output/post-deploy-smoke/deployment-status.json
 
       - name: Run post-deploy smoke
         if: steps.preflight.outputs.skip != 'true'

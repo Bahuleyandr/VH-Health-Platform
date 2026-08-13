@@ -9,7 +9,7 @@ name: Deploy dalekdefender
 #
 # SSH host keys are pinned from the DALEKDEFENDER_SSH_HOST_KEYS repository
 # variable (populate with `ssh-keyscan dalekdefender` output from a tailnet
-# machine); the deploy skips with a warning until it is set. The host pull
+# machine); a required deploy fails closed until it is set. The host pull
 # secret prefers the read-scoped GHCR_PULL_USERNAME/GHCR_PULL_TOKEN secrets
 # (read:packages only) over the write-scoped registry credentials.
 
@@ -216,11 +216,9 @@ jobs:
           fetch-depth: 1
 
       - name: Probe deploy prerequisites
-        id: prereq
-        run: node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy --allow-skip
+        run: node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy
 
       - name: Tailscale connect
-        if: steps.prereq.outputs.skip != 'true'
         uses: https://github.com/tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -229,31 +227,24 @@ jobs:
           version: latest
 
       - name: SSH agent
-        if: steps.prereq.outputs.skip != 'true'
         uses: https://github.com/webfactory/ssh-agent@v0.10.0
         with:
           ssh-private-key: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
 
       - name: Pin dalekdefender host key
-        id: hostkey
-        if: steps.prereq.outputs.skip != 'true'
         env:
           SSH_HOST_KEYS: ${{ vars.DALEKDEFENDER_SSH_HOST_KEYS }}
         run: |
           set -euo pipefail
           if [ -z "${SSH_HOST_KEYS:-}" ]; then
-            echo "::warning::Skipping deploy — Forgejo repository variable DALEKDEFENDER_SSH_HOST_KEYS is empty. Populate it with the output of 'ssh-keyscan dalekdefender' (run from a tailnet machine) so SSH can pin the host key."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::DALEKDEFENDER_SSH_HOST_KEYS is empty. A required deployment cannot continue without a pinned host key."
+            exit 1
           fi
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_HOST_KEYS" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Verify host deploy helper is current
-        id: helper
-        if: steps.prereq.outputs.skip != 'true' && steps.hostkey.outputs.skip != 'true'
         env:
           DALEK_HOST: bahuleyan@dalekdefender
         run: |
@@ -264,17 +255,12 @@ jobs:
             "$DALEK_HOST" \
             "sha256sum /usr/local/sbin/vhhealth-gha-deploy 2>/dev/null | cut -d ' ' -f1" || true)"
           actual="${actual:-missing}"
-          echo "expected_sha=$expected" >> "$GITHUB_OUTPUT"
-          echo "actual_sha=$actual" >> "$GITHUB_OUTPUT"
           if [ "$actual" != "$expected" ]; then
-            echo "::warning::Dalekdefender host helper is missing or stale; skipping cluster mutation. expected_sha=$expected actual_sha=$actual. Install $helper_path to /usr/local/sbin/vhhealth-gha-deploy."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::Dalekdefender host helper is missing or stale. expected_sha=$expected actual_sha=$actual. Install $helper_path to /usr/local/sbin/vhhealth-gha-deploy."
+            exit 1
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Pin deployments to verified digests
-        if: steps.prereq.outputs.skip != 'true' && steps.hostkey.outputs.skip != 'true' && steps.helper.outputs.skip != 'true'
         env:
           DALEK_HOST: bahuleyan@dalekdefender
           BACKEND_REF: ${{ needs.build-scan-sign.outputs.backend-ref }}

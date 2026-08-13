@@ -92,6 +92,8 @@ export function runInfraStage({
       'scripts/update-prod-digests.test.mjs',
       'scripts/check-prod-digests-pinned.test.mjs',
       'scripts/check-prod-helm-image-inventory.test.mjs',
+      'scripts/infra-truthfulness.test.mjs',
+      'scripts/ci/forgejo-deploy-preflight.test.mjs',
       'scripts/ci/infra.test.mjs',
     ], { env: installedTools?.env });
     runCommand(
