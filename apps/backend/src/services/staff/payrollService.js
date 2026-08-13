@@ -2129,20 +2129,32 @@ export async function ensurePayslipDocumentReady({
         expectedAdvanceDeduction: effectRows[0].advance_deduction,
         expectedArrearsAmount: effectRows[0].arrears_amount,
       });
+      // This notice is queued while the run is still `processing` and both
+      // approvals are NULL (the FOR UPDATE guard above asserts exactly that).
+      // Its delivery receipt is what `issuePayrollRun` waits on before it
+      // locks the run, so the row has to exist here — but the payslip is a
+      // draft, `revealPayslipCredential` refuses anything that is not
+      // `issued`/`viewed`/`downloaded`, and there is nothing for the staff
+      // member to collect yet. The copy therefore states the pending state
+      // and offers no action; the collectable "available" notice is queued
+      // by `issuePayrollRun` after owner approval and issuance.
       const outbox = await notificationOutbox.queue({
         tenantId: tid,
         recipientId: staffUid,
-        title: `Payslip ${String(payslip.month).padStart(2, '0')}/${payslip.year} ready`,
-        body: 'Your password-protected payslip is ready in the VH Health staff app.',
+        title: `Payslip ${String(payslip.month).padStart(2, '0')}/${payslip.year} is being prepared`,
+        body: 'Your payslip is awaiting HR and admin approval. It cannot be opened yet — '
+          + 'we will notify you when it has been issued.',
         channel: 'inapp',
         type: 'payslip_ready',
         sourceEventKey: `payslip-document:${prepared.object_token}`,
-        templateVersion: 'payslip_ready.v1',
+        templateVersion: 'payslip_pending_issue.v1',
         data: {
           payslip_id: payslipId,
           document_id: String(prepared.id),
           month: String(payslip.month),
           year: String(payslip.year),
+          collectable: 'false',
+          stage: 'pending_issue',
         },
       }, { tx, strict: true });
       const rows = await tx.$queryRawUnsafe(
@@ -2355,7 +2367,8 @@ export async function issuePayrollRun({
           AND payslip.generation_attempt_token = result.attempt_token
           AND payslip.document_revision = result.payslip_document_revision
           AND payslip.status IN ('draft', 'issued', 'viewed', 'downloaded')
-        RETURNING payslip.id`,
+        RETURNING payslip.id, payslip.staff_uid::text AS staff_uid,
+                  payslip.month, payslip.year, payslip.document_revision`,
       tid, Number(run.id), run.attempt_token,
     );
     if (issuedRows.length !== Number(run.total_staff || 0)) {
@@ -2369,6 +2382,34 @@ export async function issuePayrollRun({
           AND attempt_token = $3::uuid AND status IN ('approved', 'locked')`,
       tid, Number(run.id), run.attempt_token,
     );
+
+    // Only now is the payslip actually collectable: it is `issued`, its
+    // document is `notification_accepted`, and revealPayslipCredential will
+    // hand over the PDF password. This is the first user-visible message that
+    // tells staff to go and open it. Re-running issue on an already-locked run
+    // re-queues the same intent, which the outbox dedupes on
+    // ux_notification_outbox_delivery_intent.
+    for (const issued of issuedRows) {
+      await notificationOutbox.queue({
+        tenantId: tid,
+        recipientId: issued.staff_uid,
+        title: `Payslip ${String(issued.month).padStart(2, '0')}/${issued.year} available`,
+        body: 'Your password-protected payslip has been approved and issued. '
+          + 'Open the VH Health staff app to view it.',
+        channel: 'inapp',
+        type: 'payslip_ready',
+        sourceEventKey: `payslip-issued:${issued.id}:${issued.document_revision}`,
+        templateVersion: 'payslip_issued.v1',
+        data: {
+          payslip_id: String(issued.id),
+          month: String(issued.month),
+          year: String(issued.year),
+          collectable: 'true',
+          stage: 'issued',
+        },
+      }, { tx, strict: true });
+    }
+
     return {
       ok: true,
       issued: issuedRows.length,
