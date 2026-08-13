@@ -1801,6 +1801,23 @@ class AppStrings {
       _t('payroll.detail.pdf_download_button');
   String get payrollDetailOpening => _t('payroll.detail.opening');
   String get payrollDetailNotFound => _t('payroll.detail.not_found');
+  String get payrollDetailPasswordTitle => _t('payroll.detail.password_title');
+  String get payrollDetailPasswordDescription =>
+      _t('payroll.detail.password_description');
+  String get payrollDetailPasswordReveal =>
+      _t('payroll.detail.password_reveal');
+  String get payrollDetailPasswordRetrieving =>
+      _t('payroll.detail.password_retrieving');
+  String get payrollDetailPasswordUnavailable =>
+      _t('payroll.detail.password_unavailable');
+  String get payrollDetailPasswordDialogTitle =>
+      _t('payroll.detail.password_dialog_title');
+  String get payrollDetailPasswordFieldLabel =>
+      _t('payroll.detail.password_field_label');
+  String get payrollDetailPasswordShow => _t('payroll.detail.password_show');
+  String get payrollDetailPasswordHide => _t('payroll.detail.password_hide');
+  String get payrollDetailPasswordCopy => _t('payroll.detail.password_copy');
+  String get payrollDetailPasswordClose => _t('payroll.detail.password_close');
   String get payrollDetailAttendanceHeader =>
       _t('payroll.detail.attendance_header');
   String get payrollDetailEarningsHeader =>
@@ -5262,6 +5279,19 @@ class AppStrings {
       'payroll.detail.pdf_download_button': 'Download PDF Payslip',
       'payroll.detail.opening': 'Opening...',
       'payroll.detail.not_found': 'Payslip not found',
+      'payroll.detail.password_title': 'PDF password',
+      'payroll.detail.password_description':
+          'Request the password only when you are ready to open this payslip.',
+      'payroll.detail.password_reveal': 'View PDF password',
+      'payroll.detail.password_retrieving': 'Retrieving...',
+      'payroll.detail.password_unavailable':
+          'Unable to retrieve the payslip password. Try again.',
+      'payroll.detail.password_dialog_title': 'Payslip PDF password',
+      'payroll.detail.password_field_label': 'Password',
+      'payroll.detail.password_show': 'Show password',
+      'payroll.detail.password_hide': 'Hide password',
+      'payroll.detail.password_copy': 'Copy',
+      'payroll.detail.password_close': 'Close',
       'payroll.detail.attendance_header': '📅 Attendance',
       'payroll.detail.earnings_header': '💰 Earnings',
       'payroll.detail.deductions_header': '📉 Deductions',

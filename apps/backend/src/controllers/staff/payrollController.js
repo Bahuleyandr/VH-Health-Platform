@@ -249,6 +249,8 @@ export const downloadPayslip = async (req, res) => {
 };
 
 export const revealPayslipPassword = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
   try {
     const payslipId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(payslipId) || payslipId <= 0) {
@@ -260,8 +262,6 @@ export const revealPayslipPassword = async (req, res) => {
       staffUid: req.user?.uid,
     });
     if (!revealed) return error(res, 'Payslip password not available', HTTP_STATUS.NOT_FOUND);
-    res.setHeader('Cache-Control', 'no-store, max-age=0');
-    res.setHeader('Pragma', 'no-cache');
     await logAudit(req, 'payslip-password-revealed', {
       payslip_id: payslipId,
       document_id: revealed.document_id,

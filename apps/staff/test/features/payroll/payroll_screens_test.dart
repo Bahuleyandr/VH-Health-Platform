@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/payroll/screens/investment_declaration_screen.dart';
 import 'package:vhhealth_staff/features/payroll/screens/payslip_detail_screen.dart';
@@ -42,6 +43,110 @@ void main() {
     expect(find.text('₹48,123.45'), findsOneWidget);
     expect(find.text('Gross Salary'), findsOneWidget);
     expect(find.text('PF (Employee 12%)'), findsOneWidget);
+  });
+
+  testWidgets(
+    'payslip password requires one gesture, starts masked, and clears on close',
+    (tester) async {
+      final pendingReveal = Completer<String>();
+      String? copiedPassword;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              copiedPassword = (call.arguments as Map)['text'] as String?;
+            }
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      var revealCalls = 0;
+      await tester.pumpWidget(
+        _host(
+          PayslipDetailScreen(
+            payslipId: '7',
+            monthLabel: 'April 2026',
+            loadPayslip: (_) async => {..._payslipDetail(), 'pdf_key': 'pdf'},
+            revealPassword: (_) {
+              revealCalls += 1;
+              return pendingReveal.future;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(revealCalls, 0);
+      final revealButton = find.byKey(
+        const Key('payslip-password-reveal-button'),
+      );
+      await tester.ensureVisible(revealButton);
+      await tester.pumpAndSettle();
+      await tester.tap(revealButton);
+      await tester.pump();
+      await tester.tap(revealButton, warnIfMissed: false);
+      await tester.pump();
+      expect(revealCalls, 1);
+
+      pendingReveal.complete('PDF-only-secret');
+      await tester.pumpAndSettle();
+
+      final passwordField = tester.widget<TextField>(
+        find.byKey(const Key('payslip-password-field')),
+      );
+      expect(passwordField.obscureText, isTrue);
+
+      await tester.tap(find.text('Copy'));
+      await tester.pump();
+      expect(copiedPassword, 'PDF-only-secret');
+
+      await tester.tap(find.byTooltip('Show password'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('payslip-password-field')))
+            .obscureText,
+        isFalse,
+      );
+
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('payslip-password-field')), findsNothing);
+      expect(find.text('PDF-only-secret'), findsNothing);
+    },
+  );
+
+  testWidgets('payslip password failure is generic and does not echo details', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        PayslipDetailScreen(
+          payslipId: '7',
+          monthLabel: 'April 2026',
+          loadPayslip: (_) async => {..._payslipDetail(), 'pdf_key': 'pdf'},
+          revealPassword: (_) async =>
+              throw Exception('backend credential PDF-only-secret'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final revealButton = find.byKey(
+      const Key('payslip-password-reveal-button'),
+    );
+    await tester.ensureVisible(revealButton);
+    await tester.pumpAndSettle();
+    await tester.tap(revealButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Unable to retrieve the payslip password. Try again.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('PDF-only-secret'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
   });
 
   testWidgets('payslip query screen renders and submits once while pending', (

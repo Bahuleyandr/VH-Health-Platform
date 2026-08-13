@@ -110,6 +110,8 @@ export const API_ENDPOINTS = {
     payslips: {
       list: "/api/v1/staff/hr/payroll/my-payslips", // GET
       download: (id: string) => `/api/v1/staff/hr/payroll/my-payslips/${id}/download`, // GET
+      password: (id: string) =>
+        `/api/v1/staff/hr/payroll/my-payslips/${encodeURIComponent(id)}/password`, // POST
       taxSummary: "/api/v1/staff/hr/payroll/tax-summary", // GET
     },
     replacements: {

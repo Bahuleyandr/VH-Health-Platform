@@ -4,6 +4,15 @@ import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 import 'api_client.dart';
 import 'staff_notification_session.dart';
 
+class PayslipPasswordRevealException implements Exception {
+  final int statusCode;
+
+  const PayslipPasswordRevealException(this.statusCode);
+
+  @override
+  String toString() => 'Unable to retrieve payslip password';
+}
+
 /// HR-related API calls: dashboard, staff management, performance,
 /// incidents, grievances, housekeeping, payroll.
 class HrApiService {
@@ -723,6 +732,28 @@ class HrApiService {
   static Future<Map<String, dynamic>> getPayslipDetail(String id) async {
     final result = await _get('/staff/hr/payroll/my-payslips/$id');
     return (result['data'] as Map<String, dynamic>?) ?? result;
+  }
+
+  /// POST /staff/hr/payroll/my-payslips/:id/password
+  ///
+  /// Credential reveal is deliberately not retried or replayed after session
+  /// refresh. A new authenticated user gesture must initiate every request.
+  static Future<String> revealPayslipPassword(String id) async {
+    final response = await ApiClient.post(
+      '/staff/hr/payroll/my-payslips/${Uri.encodeComponent(id)}/password',
+      body: const {},
+      retryTransientFailures: false,
+      refreshOnUnauthorized: false,
+    );
+    if (!response.isSuccess) {
+      throw PayslipPasswordRevealException(response.statusCode);
+    }
+    final data = response.dataAsMap();
+    final password = data['password'];
+    if (password is! String || password.isEmpty) {
+      throw PayslipPasswordRevealException(response.statusCode);
+    }
+    return password;
   }
 
   /// GET /staff/hr/payroll/tax-summary?fy=2025-26
