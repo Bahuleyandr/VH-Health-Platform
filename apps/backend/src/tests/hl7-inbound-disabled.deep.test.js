@@ -17,18 +17,32 @@
 // decorative: nothing is consumed while off (no admission row, no durable
 // replay-guard row — i.e. the gate runs ahead of credential consumption), and
 // only the exact string 'true' enables ingress.
+//
+// Review follow-up (the second describe below): being refused is not enough —
+// the refusal must COST the sender. The gate was mounted in app.js ahead of
+// `app.use('/api/v1/hl7', hl7Routes)`, so it short-circuited before the router's
+// limiter ever ran: a disabled POST /api/v1/hl7/receive was an un-rate-limited
+// 403 that also wrote one warn line per request. That half drives
+// mountHl7Interface() — the exact function app.js calls — because the defect
+// was in the mount ORDER, which the bare router below cannot expose.
 
 import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
+import { jest } from '@jest/globals';
 
+import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 import prisma from '../lib/prisma.js';
+import logger from '../logging/logger.js';
 import hl7Routes from '../routes/hl7/hl7Routes.js';
 import {
   isHl7InboundIngressEnabled,
   assertHl7InboundIngressEnabled,
+  hl7InboundIngressGate,
   HL7_INBOUND_DISABLED_CODE,
+  __resetHl7InboundRefusalLogWindow,
 } from '../routes/hl7/hl7InboundIngressGate.js';
+import { mountHl7Interface } from '../routes/hl7/mountHl7Interface.js';
 import {
   resolveInteropCredentialSnapshot,
   upsertInteropSecret,
@@ -352,5 +366,181 @@ d('HL7_INBOUND_ENABLED is authoritative over I03 ingress', () => {
       .send({ event_type: 'ADT_A01', admission_id: 1 });
     // Refused by JWT auth, NOT by the inbound gate.
     expect(generate.status).toBe(401);
+  }, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// A refusal must cost the sender.
+//
+// These drive `mountHl7Interface()` — the function app.js calls, holding all
+// three `app.use` statements — rather than the bare router above, because the
+// defect was in the MOUNT ORDER: the app-level ingress gate answered before
+// `app.use('/api/v1/hl7', hl7Routes)` could reach the router's limiter, so
+// `hl7Routes.js`'s "registered AFTER the limiter on purpose" comment described a
+// layer that was dead in production. A test against the router alone cannot see
+// that, since the router's own ordering was always correct.
+//
+// The enabled path is the other half of the contract: the fix must not simply
+// stack a second limiter in front of the router's, because express-rate-limit
+// counts per invocation — two invocations per request would silently halve the
+// quota. With max=2 that is directly observable: single-counting 429s on the
+// THIRD request, double-counting on the second.
+// ---------------------------------------------------------------------------
+const RATE_LIMIT_BURST_MAX = 2;
+// One bucket per burst. The generic limiter's MemoryStore lives for the whole
+// process and its window is 15 minutes, so the two bursts must not share a key.
+const RATE_LIMIT_BUCKET_DISABLED = `hl7-gate-off-burst-${crypto.randomUUID()}`;
+const RATE_LIMIT_BUCKET_ENABLED = `hl7-gate-on-burst-${crypto.randomUUID()}`;
+
+function buildProductionMountApp() {
+  const app = express();
+  app.use(express.json());
+  mountHl7Interface(app);
+  return app;
+}
+
+d('a disabled I03 ingress is rate limited at the production mount', () => {
+  let mountedApp;
+  let previousBurstFlag;
+  let previousEnforceInTest;
+  let previousMax;
+
+  async function burst(bucketKey, count, controlIdPrefix) {
+    const responses = [];
+    for (let attempt = 0; attempt < count; attempt += 1) {
+      // Sequential on purpose: the assertions below are about the ORDER in
+      // which the limiter starts refusing, so the requests must be ordered.
+      // The x-api-key header is the limiter's bucket selector (see
+      // defaultKeyGenerator) — a unique value per test keeps the two bursts
+      // from sharing one counter. No API-key VALIDATION happens on this app;
+      // validateApiKey is mounted globally in app.js, above this router.
+      responses.push(await request(mountedApp)
+        .post('/api/v1/hl7/receive')
+        .set('x-api-key', bucketKey)
+        .set('x-forwarded-for', '203.0.113.44')
+        .send({ message: adt(`${controlIdPrefix}${attempt}`) }));
+    }
+    return responses;
+  }
+
+  beforeAll(() => {
+    mountedApp = buildProductionMountApp();
+    previousBurstFlag = process.env.HL7_INBOUND_ENABLED;
+    previousEnforceInTest = RATE_LIMIT_PROFILES.default.enforceInTest;
+    previousMax = RATE_LIMIT_PROFILES.default.max;
+    // The generic limiter is skipped under NODE_ENV=test unless its profile
+    // opts in; both knobs are read per request, so flipping them here is
+    // enough (same seam as hl7-receive-body-limit.test.js).
+    RATE_LIMIT_PROFILES.default.enforceInTest = true;
+    RATE_LIMIT_PROFILES.default.max = RATE_LIMIT_BURST_MAX;
+  });
+
+  beforeEach(() => {
+    __resetHl7InboundRefusalLogWindow();
+  });
+
+  afterAll(() => {
+    RATE_LIMIT_PROFILES.default.enforceInTest = previousEnforceInTest;
+    RATE_LIMIT_PROFILES.default.max = previousMax;
+    if (previousBurstFlag === undefined) delete process.env.HL7_INBOUND_ENABLED;
+    else process.env.HL7_INBOUND_ENABLED = previousBurstFlag;
+  });
+
+  it('burns quota while refused: the disabled path turns into 429, not an unbounded stream of 403s', async () => {
+    process.env.HL7_INBOUND_ENABLED = 'false';
+    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    try {
+      const responses = await burst(
+        RATE_LIMIT_BUCKET_DISABLED,
+        RATE_LIMIT_BURST_MAX + 2,
+        'GATEBURSTOFF',
+      );
+
+      // Refused, refused, then throttled — the refusal path is not free.
+      expect(responses.map(response => response.status)).toEqual([403, 403, 429, 429]);
+      expect(responses[0].headers['content-type']).toContain('application/hl7-v2');
+      expect(responses[0].text).toContain('MSA|AR');
+      expect(responses[1].text).toContain('MSA|AR');
+      // Non-recovery requests keep the limiter's ordinary JSON envelope.
+      expect(responses[2].body).toMatchObject({ success: false, code: 'RATE_LIMITED' });
+      expect(responses[3].body).toMatchObject({ success: false, code: 'RATE_LIMITED' });
+      // Past the limit the gate is not even reached, so nothing is logged and
+      // no ACK is generated on the attacker's behalf.
+      expect(responses[3].headers['content-type']).not.toContain('application/hl7-v2');
+
+      // Log volume is bounded twice over: the limiter caps how many requests
+      // reach the gate, and the gate itself writes at most one refusal line per
+      // window. Four requests => one line.
+      const refusalLogs = warnSpy.mock.calls.filter(
+        ([message]) => message === 'HL7 inbound ingress refused: interface is disabled',
+      );
+      expect(refusalLogs).toHaveLength(1);
+      expect(refusalLogs[0][1]).toMatchObject({
+        code: HL7_INBOUND_DISABLED_CODE,
+        suppressedSinceLastLog: 0,
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  }, 30000);
+
+  it('samples the refusal log rather than dropping refusals: the next window reports what it stood for', () => {
+    // Drives the gate directly — the limiter is proved above; this is about the
+    // sampler's own bookkeeping, which needs the clock to cross a window.
+    process.env.HL7_INBOUND_ENABLED = 'false';
+    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    jest.useFakeTimers();
+    const refusalLines = () => warnSpy.mock.calls.filter(
+      ([message]) => message === 'HL7 inbound ingress refused: interface is disabled',
+    );
+    const refuse = (requestId) => {
+      const res = {
+        setHeader() {},
+        status() { return this; },
+        send() { return this; },
+      };
+      hl7InboundIngressGate({ id: requestId }, res, () => {
+        throw new Error('the gate must not call next() while the interface is off');
+      });
+    };
+
+    try {
+      refuse('window-1-first');
+      refuse('window-1-second');
+      refuse('window-1-third');
+      expect(refusalLines()).toHaveLength(1);
+      expect(refusalLines()[0][1]).toMatchObject({ suppressedSinceLastLog: 0 });
+
+      jest.advanceTimersByTime(60_000);
+      refuse('window-2-first');
+      expect(refusalLines()).toHaveLength(2);
+      expect(refusalLines()[1][1]).toMatchObject({ suppressedSinceLastLog: 2 });
+    } finally {
+      jest.useRealTimers();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('limits the ENABLED path exactly once — the fix does not double-count the quota', async () => {
+    process.env.HL7_INBOUND_ENABLED = 'true';
+    const responses = await burst(
+      RATE_LIMIT_BUCKET_ENABLED,
+      RATE_LIMIT_BURST_MAX + 1,
+      'GATEBURSTON',
+    );
+
+    // Unsigned messages, so each request is refused by the authenticity check —
+    // 401 AR, generated only AFTER the request has passed the gate. That is what
+    // makes these three requests real traffic on the enabled path.
+    expect(responses[0].status).toBe(401);
+    expect(responses[0].text).toContain('MSA|AR');
+    // The discriminator: with the same limiter invoked at both the app mount and
+    // inside the router, max=2 would already be spent here.
+    expect(responses[1].status).toBe(401);
+    expect(responses[1].text).toContain('MSA|AR');
+    // Exactly one token per request => the third is the first throttled one,
+    // identical to the pre-existing behaviour pinned by hl7-receive-body-limit.
+    expect(responses[2].status).toBe(429);
+    expect(responses[2].body).toMatchObject({ success: false, code: 'RATE_LIMITED' });
   }, 30000);
 });

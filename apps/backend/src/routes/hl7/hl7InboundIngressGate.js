@@ -46,6 +46,38 @@ import { AppError } from '../../utils/AppError.js';
 export const HL7_INBOUND_DISABLED_CODE = 'HL7_INBOUND_DISABLED';
 export const HL7_INBOUND_DISABLED_MESSAGE = 'HL7 inbound ingress is disabled';
 
+// Refusal logging is itself a resource. `hl7IngressLimiter` now runs ahead of
+// this gate (app.js mount + router), which bounds refusals per rate-limit
+// bucket — but the bucket key is per API key / per IP, so N buckets still buy N
+// times the log volume from an endpoint that does no useful work. Cap it per
+// PROCESS as well: the first refusal in each window logs immediately, further
+// refusals inside the window are counted rather than written, and the next line
+// reports how many it stood for. The fact that refusals happened is never lost;
+// only the per-request repetition is.
+const REFUSAL_LOG_WINDOW_MS = 60_000;
+let refusalLogWindowStartedAt = 0;
+let refusalsSuppressedSinceLastLog = 0;
+
+// Returns the extra log fields when this refusal should be written, or null
+// when it should only be counted.
+function claimRefusalLogSlot(now = Date.now()) {
+  if (now - refusalLogWindowStartedAt < REFUSAL_LOG_WINDOW_MS) {
+    refusalsSuppressedSinceLastLog += 1;
+    return null;
+  }
+  const suppressedSinceLastLog = refusalsSuppressedSinceLastLog;
+  refusalLogWindowStartedAt = now;
+  refusalsSuppressedSinceLastLog = 0;
+  return { refusalLogWindowMs: REFUSAL_LOG_WINDOW_MS, suppressedSinceLastLog };
+}
+
+// Test seam only: the window is process-global, so a suite that asserts on the
+// sampling must start from a known state.
+export function __resetHl7InboundRefusalLogWindow() {
+  refusalLogWindowStartedAt = 0;
+  refusalsSuppressedSinceLastLog = 0;
+}
+
 export function isHl7InboundIngressEnabled() {
   return process.env.HL7_INBOUND_ENABLED === 'true';
 }
@@ -60,13 +92,18 @@ export function assertHl7InboundIngressEnabled() {
 }
 
 // Mount-boundary guard. Answers with a raw HL7 ACK without touching the body,
-// the database, or any secret.
+// the database, or any secret. Mount it BEHIND hl7IngressLimiter — see
+// hl7IngressRateLimit.js — so the refusal path costs an attacker quota.
 export function hl7InboundIngressGate(req, res, next) {
   if (isHl7InboundIngressEnabled()) return next();
-  logger.warn('HL7 inbound ingress refused: interface is disabled', {
-    code: HL7_INBOUND_DISABLED_CODE,
-    requestId: req.id,
-  });
+  const refusalLogFields = claimRefusalLogSlot();
+  if (refusalLogFields) {
+    logger.warn('HL7 inbound ingress refused: interface is disabled', {
+      code: HL7_INBOUND_DISABLED_CODE,
+      requestId: req.id,
+      ...refusalLogFields,
+    });
+  }
   res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
   return res.status(403).send(generateACK('UNKNOWN', 'AR', HL7_INBOUND_DISABLED_MESSAGE));
 }
