@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
@@ -953,6 +954,10 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
   String? _department;
   bool _loading = true;
   bool _sending = false;
+  // One key per compose attempt. `_sending` already blocks a second tap while
+  // in flight, but it cannot cover the request that reached the server and
+  // whose 2xx was lost in transit — that retry must replay, not re-send.
+  final _sendAttempt = IdempotencyAttempt('staff-message-send');
   String? _error;
   String _search = '';
 
@@ -1078,6 +1083,13 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
           body: body,
           subject: subject,
           priority: _priority,
+          idempotencyKey: _sendAttempt.keyFor({
+            'mode': 'direct',
+            'recipient': _selected.first,
+            'body': body,
+            'subject': subject,
+            'priority': _priority,
+          }),
         );
       } else {
         await MessagingApiService.sendBroadcast(
@@ -1087,8 +1099,19 @@ class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
           body: body,
           subject: subject,
           priority: _priority,
+          idempotencyKey: _sendAttempt.keyFor({
+            'mode': _mode,
+            'department': _department,
+            'recipients': _mode == 'selected' ? _selected.toList() : const [],
+            'body': body,
+            'subject': subject,
+            'priority': _priority,
+          }),
         );
       }
+      // Only now is the attempt over — a later compose is a new message, not a
+      // replay of this one.
+      _sendAttempt.reset();
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       _showError(e.toString().replaceFirst('Exception: ', ''));

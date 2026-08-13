@@ -449,13 +449,21 @@ class CathLabApiService {
         .toList(growable: false);
   }
 
+  /// POST /cath-lab/cases/:id/consumables.
+  ///
+  /// Mounted with `requireIdempotencyKey({ required: true, scope:
+  /// 'cath_consumable_usage' })`, so [idempotencyKey] is required — without it
+  /// the call is a hard 400. Hold one key for the life of a capture attempt so
+  /// a retry replays instead of decrementing inventory twice.
   static Future<CathCaseConsumableUsage> createConsumableUsage(
     int caseId,
-    CathConsumableUsageDraft draft,
-  ) async {
+    CathConsumableUsageDraft draft, {
+    required String idempotencyKey,
+  }) async {
     final response = await ApiClient.post(
       '/cath-lab/cases/$caseId/consumables',
       body: draft.toJson(),
+      idempotencyKey: idempotencyKey,
     );
     final data = _successfulData(
       response,

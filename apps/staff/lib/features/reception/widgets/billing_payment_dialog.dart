@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/services/billing_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -23,6 +24,10 @@ Future<bool> showBillingPaymentDialog({
   var mode = 'UPI';
   var saving = false;
   String? dialogError;
+  // Scoped to this dialog, i.e. to one payment-collection attempt. `saving`
+  // blocks a second tap; this makes the retry of a request whose 2xx was lost
+  // replay server-side instead of recording the cash twice.
+  final paymentAttempt = IdempotencyAttempt('billing-payment');
 
   final collected = await showDialog<bool>(
     context: context,
@@ -73,6 +78,14 @@ Future<bool> showBillingPaymentDialog({
                 notes: notesCtrl.text.trim().isEmpty
                     ? null
                     : notesCtrl.text.trim(),
+                idempotencyKey: paymentAttempt.keyFor({
+                  'invoice_id': id,
+                  'amount': amount,
+                  'mode': mode,
+                  'reference': reference,
+                  'shift': shift,
+                  'notes': notesCtrl.text.trim(),
+                }),
               );
               if (dialogContext.mounted) {
                 Navigator.of(dialogContext).pop(true);

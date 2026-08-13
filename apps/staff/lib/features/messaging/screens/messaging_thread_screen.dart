@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 import '../attachment_saver.dart';
 import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/services/messaging_api_service.dart';
@@ -193,6 +194,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   List<ThreadMessage> _messages = [];
   bool _loading = true;
   bool _sending = false;
+  // See _ComposeMessageSheetState: `_sending` guards a second tap, this guards
+  // a retry of a request whose response never arrived.
+  final _sendAttempt = IdempotencyAttempt('staff-message-send');
   bool _uploadingAttachment = false;
   String? _error;
   String? _myUid;
@@ -341,7 +345,18 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         threadId: _threadId,
         patientUid: _patientUid,
         admissionId: _admissionId,
+        idempotencyKey: _sendAttempt.keyFor({
+          'recipient': widget.otherStaffUid,
+          'body': text,
+          'priority': _selectedPriority,
+          'thread': _threadId,
+          'patient': _patientUid,
+          'admission': _admissionId,
+        }),
       );
+      // The attempt ends only on success; the composer is cleared next, so the
+      // following message is genuinely a new one.
+      _sendAttempt.reset();
 
       _textController.clear();
       setState(() => _selectedPriority = 'normal');

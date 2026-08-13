@@ -1,4 +1,5 @@
 // src/lib/api/payroll.ts
+import { assertIdempotencyKey } from "../idempotencyKey";
 import { getJSON, postJSON, QueryParams } from "./core";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -178,8 +179,27 @@ export const getPayrollRunDetail = <T = { run: PayrollRun; payslips: Payslip[] }
   runId: string | number
 ) => getJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}`);
 
-export const runPayroll = <T = unknown>(data: { month: number; year: number }) =>
-  postJSON<T>("/api/v1/staff/admin/payroll/run", data);
+/**
+ * POST /staff/admin/payroll/run.
+ *
+ * The route is mounted with `requireIdempotencyKey({ required: true, scope:
+ * 'payroll_run' })`, so the header is not optional — omitting it is a hard 400,
+ * not a degraded call. `idempotencyKey` is therefore a REQUIRED parameter: a
+ * call site that forgets it fails to compile instead of failing in production.
+ *
+ * Mint the key with `useIdempotencyKey`/`createAttemptKeyStore`, keyed on the
+ * `{ month, year }` payload, and `reset()` the attempt once the run concludes.
+ * Do NOT pass a fresh `crypto.randomUUID()` per click: that makes a
+ * double-click run payroll twice, which is the failure this header exists to
+ * prevent.
+ */
+export const runPayroll = <T = unknown>(
+  data: { month: number; year: number },
+  idempotencyKey: string,
+) =>
+  postJSON<T>("/api/v1/staff/admin/payroll/run", data, true, {
+    "Idempotency-Key": assertIdempotencyKey(idempotencyKey),
+  });
 
 export const issuePayslips = <T = unknown>(data: {
   month: number;

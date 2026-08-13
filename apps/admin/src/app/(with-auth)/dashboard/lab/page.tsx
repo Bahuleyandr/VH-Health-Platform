@@ -6,12 +6,15 @@
 
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminAPI } from "@/lib/api";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { useRealtimeInvalidation } from "@/hooks/useRealtimeInvalidation";
+import { fetchAdminAPI } from "@/lib/api";
+import { payloadIdentity } from "@/lib/idempotencyKey";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+
 import { LAB_CHANNEL, labRefetchMs } from "./realtime";
 
 type Tab = "worklist" | "alerts";
@@ -82,23 +85,34 @@ function PathologistWorklist() {
     },
   });
 
+  // `/lab/pathologist/signoff` is mounted with requireIdempotencyKey({
+  // required: true, scope: 'lab-pathologist-signoff' }). One key per
+  // (result set + decision + signer) attempt so a double-click replays the
+  // first sign-off instead of signing the batch twice; rotated on success.
+  const signOffKey = useIdempotencyKey("lab-pathologist-signoff");
+
   const signMutation = useMutation({
     mutationFn: async (decision: "verified" | "rejected") => {
       if (selected.size === 0) throw new Error("Nothing selected");
       if (!signedByName) {
         throw new Error("Pathologist name is required for sign-off");
       }
+      const body = {
+        result_ids: Array.from(selected),
+        decision,
+        signed_off_by_name: signedByName,
+        signed_off_by_reg: signedByReg,
+      };
       return fetchAdminAPI("/lab/pathologist/signoff", {
         method: "POST",
-        body: {
-          result_ids: Array.from(selected),
-          decision,
-          signed_off_by_name: signedByName,
-          signed_off_by_reg: signedByReg,
+        body,
+        headers: {
+          "Idempotency-Key": signOffKey.keyFor(payloadIdentity(body)),
         },
       });
     },
     onSuccess: () => {
+      signOffKey.reset();
       setSelected(new Set());
       qc.invalidateQueries({ queryKey: ["lab", "pathologist", "pending"] });
     },

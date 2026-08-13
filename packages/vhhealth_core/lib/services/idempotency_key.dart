@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 /// Generates RFC-4122 v4 UUIDs for use as `Idempotency-Key` header values.
@@ -42,4 +43,63 @@ class IdempotencyKey {
         '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
         '${hex.substring(20)}';
   }
+}
+
+/// Holds one `Idempotency-Key` for the life of a single logical write attempt.
+///
+/// The header only prevents duplicates if the SAME key is resent on a retry. A
+/// freshly generated key per button press is worse than sending none at all: a
+/// double-tap then mints two keys and the server runs the operation twice,
+/// which is precisely what routes mounted with
+/// `requireIdempotencyKey({ required: true })` exist to stop.
+///
+/// [keyFor] returns a stable key while the request payload is unchanged, so a
+/// double-tap or a transport retry replays the first result. [reset] ends the
+/// attempt so the *next* deliberate write is a genuinely separate one rather
+/// than being swallowed as a replay.
+///
+/// ```dart
+/// final _sendAttempt = IdempotencyAttempt('staff-message-send');
+/// ...
+/// await MessagingApiService.sendDirect(
+///   ...,
+///   idempotencyKey: _sendAttempt.keyFor(payload),
+/// );
+/// _sendAttempt.reset(); // only after the send succeeded
+/// ```
+class IdempotencyAttempt {
+  IdempotencyAttempt(this.scope);
+
+  /// Human-readable prefix, kept inside the backend's `[A-Za-z0-9_-:.]` set so
+  /// the resulting key is legible in `idempotency_keys` during triage.
+  final String scope;
+
+  String? _identity;
+  String? _key;
+
+  static final RegExp _unsafe = RegExp(r'[^A-Za-z0-9_\-.]');
+
+  /// The key for an attempt whose identity is [payload] (JSON-encoded).
+  ///
+  /// The payload must be the request body: the backend hashes the body and
+  /// answers 422 when a key is replayed against different content, so a key
+  /// bound to a stale payload would fail rather than replay.
+  String keyFor(Object? payload) {
+    final identity = jsonEncode(payload);
+    if (_key == null || _identity != identity) {
+      _identity = identity;
+      final prefix = scope.replaceAll(_unsafe, '-');
+      _key = '$prefix:${IdempotencyKey.generate()}';
+    }
+    return _key!;
+  }
+
+  /// Forget the current attempt. Call after the write has concluded.
+  void reset() {
+    _identity = null;
+    _key = null;
+  }
+
+  /// The open attempt's key, or null when no attempt is open.
+  String? get current => _key;
 }

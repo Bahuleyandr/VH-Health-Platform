@@ -21,6 +21,97 @@ void main() {
     VHHttpClient.onSessionExpired = null;
   });
 
+  // /messaging/send and /messaging/broadcast are mounted with
+  // requireIdempotencyKey({ required: true }) — without the header the backend
+  // answers 400 and the message is never sent. Pin that the client sends one.
+  test(
+    'sendDirect puts the caller key on the Idempotency-Key header',
+    () async {
+      String? seenHeader;
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          expect(request.url.path, endsWith('/messaging/send'));
+          seenHeader =
+              request.headers['idempotency-key'] ??
+              request.headers['Idempotency-Key'];
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'id': 1},
+            }),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await MessagingApiService.sendDirect(
+        recipientUid: 'u-1',
+        body: 'hello',
+        idempotencyKey: 'staff-message-send:abc-123',
+      );
+
+      expect(seenHeader, 'staff-message-send:abc-123');
+    },
+  );
+
+  test(
+    'sendBroadcast puts the caller key on the Idempotency-Key header',
+    () async {
+      String? seenHeader;
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          expect(request.url.path, endsWith('/messaging/broadcast'));
+          seenHeader =
+              request.headers['idempotency-key'] ??
+              request.headers['Idempotency-Key'];
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'sent': 3},
+            }),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      await MessagingApiService.sendBroadcast(
+        scope: 'all',
+        body: 'ward meeting at 6',
+        idempotencyKey: 'staff-message-send:def-456',
+      );
+
+      expect(seenHeader, 'staff-message-send:def-456');
+    },
+  );
+
+  // A blank key would reach the backend as a missing header and 400. Fail in
+  // the app instead, where the cause is obvious.
+  test('rejects a blank idempotency key before any request is made', () async {
+    var called = false;
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        called = true;
+        return http.Response(
+          '{}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await expectLater(
+      MessagingApiService.sendDirect(
+        recipientUid: 'u-1',
+        body: 'hello',
+        idempotencyKey: '   ',
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(called, isFalse);
+  });
+
   test('void mutations reject an HTTP failure response', () async {
     VHHttpClient.setClientForTesting(
       MockClient((request) async {

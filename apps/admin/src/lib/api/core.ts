@@ -2,6 +2,7 @@
 // Core request helpers, error class, and shared utilities
 
 import { toast } from "react-hot-toast";
+
 import { API_ENDPOINTS } from "../api-config";
 import { apiFetch } from "../api-fetch";
 import { navigateToLogin } from "../browserNavigation";
@@ -287,15 +288,26 @@ export function getJSONEnvelope<T = unknown>(
   });
 }
 
+/**
+ * `headers` exists so callers can attach an `Idempotency-Key`. Routes mounted
+ * with `requireIdempotencyKey({ required: true })` hard-400 without it, and the
+ * 401→refresh replay above only re-sends an unsafe method when the header is
+ * present. Mint the key with `lib/idempotencyKey` — a fresh random value per
+ * click defeats the point. `Content-Type` is set last so it cannot be
+ * accidentally overridden by a caller.
+ */
 export function postJSON<T = unknown>(
   endpoint: string,
   body?: unknown,
   useAuth = true,
+  headers?: HeadersInit,
 ) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Type", "application/json");
   return requestJSON<T>(endpoint, {
     method: "POST",
     body: serializeJsonBody(body),
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders,
     useAuth,
   });
 }
@@ -317,15 +329,19 @@ export function postJSONEnvelope<T = unknown>(
   });
 }
 
+/** See `postJSON` for why `headers` exists. */
 export function putJSON<T = unknown>(
   endpoint: string,
   body?: unknown,
   useAuth = true,
+  headers?: HeadersInit,
 ) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Type", "application/json");
   return requestJSON<T>(endpoint, {
     method: "PUT",
     body: serializeJsonBody(body),
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders,
     useAuth,
   });
 }

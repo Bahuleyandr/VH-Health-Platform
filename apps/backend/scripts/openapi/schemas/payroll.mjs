@@ -228,6 +228,22 @@ export const schemas = {
   // ---- PAYSLIP_DETAIL_SELECT — manualEditPayslip return. Curated select →
   // STRICT. gross_salary/total_deductions/net_salary are JS-recomputed but read
   // BACK from the NUMERIC column via the select → string (the trap). ----
+  // ---- manualEditPayslip POST /payroll/payslips/{id}/edit. The response is
+  // exactly the 39-column RETURNING list of the second UPDATE in
+  // payrollService.editPayslipAndRegenerate — attendance + every earning and
+  // deduction component, plus the attempt-ledger bookkeeping the atomic-run
+  // rewrite (migrations 664/669) added. The schema is `additionalProperties:
+  // false`, so it must enumerate all of them: the run-atomicity rewrite widened
+  // the RETURNING list without widening this schema, which made every live
+  // response fail the contract gate with 15 "must NOT have additional
+  // properties" errors the moment the suite could reach this step.
+  //
+  // NOTE for the payroll-atomicity lane: `generation_attempt_token` and
+  // `document_revision` are internal attempt bookkeeping and nothing reads them
+  // from the HTTP response (only from the DB, in
+  // payroll-atomic-generation.deep.test.js). Declaring them here makes the
+  // contract honest about what is currently sent; dropping them from the
+  // response instead would be the tighter fix and is worth a follow-up.
   PayslipDetail: {
     type: 'object', additionalProperties: false,
     required: ['id', 'month', 'year', 'status'],
@@ -237,6 +253,21 @@ export const schemas = {
       month: { type: 'integer' },
       year: { type: 'integer' },
       payroll_run_id: { type: 'integer', nullable: true },
+      generation_attempt_token: { type: 'string', format: 'uuid', nullable: true },
+      document_revision: { type: 'integer', nullable: true },
+      total_working_days: { type: 'integer', nullable: true },
+      days_present: { type: 'integer', nullable: true },
+      days_absent: { type: 'integer', nullable: true },
+      days_leave: { type: 'integer', nullable: true },
+      overtime_hours: { type: MT, nullable: true },
+      overtime_rate: { type: MT, nullable: true },
+      bonus_this_month: { type: MT, nullable: true },
+      arrears_amount: { type: MT, nullable: true },
+      other_deductions: { type: MT, nullable: true },
+      advance_deduction: { type: MT, nullable: true },
+      lop_days: { type: MT, nullable: true },
+      lop_deduction: { type: MT, nullable: true },
+      revision_note: { type: 'string', nullable: true },
       basic_earned: { type: MT, nullable: true },
       hra_earned: { type: MT, nullable: true },
       da_earned: { type: MT, nullable: true },

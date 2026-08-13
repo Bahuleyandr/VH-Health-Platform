@@ -204,6 +204,7 @@ void main() {
     'tracked implant capture shows batch and wastage fields and keeps warning usage',
     (tester) async {
       CathConsumableUsageDraft? submitted;
+      String? submittedIdempotencyKey;
       final batch = CathInventoryBatch(
         id: _batch.id,
         inventoryItemId: _batch.inventoryItemId,
@@ -220,8 +221,13 @@ void main() {
             searchCatalog: _trackedSearch,
             loadBatches: (_) async => [batch],
             scanCode: () async => 'CATH-DES-30',
-            createUsage: (caseId, draft) async {
+            createUsage: (caseId, draft, {required idempotencyKey}) async {
               expect(caseId, 42);
+              // The route hard-400s without this header; pin that the capture
+              // sheet actually mints one rather than relying on the default.
+              expect(idempotencyKey, isNotEmpty);
+              expect(idempotencyKey.length, lessThanOrEqualTo(200));
+              submittedIdempotencyKey = idempotencyKey;
               submitted = draft;
               return CathCaseConsumableUsage(
                 id: 71,
@@ -300,6 +306,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(submitted, isNotNull);
+      expect(submittedIdempotencyKey, isNotNull);
+      expect(submittedIdempotencyKey, startsWith('cath-consumable-usage:'));
       expect(submitted!.inventoryBatchId, 44);
       expect(submitted!.batchNumber, 'B-2026-07');
       expect(submitted!.lotNumber, 'LOT-7');
