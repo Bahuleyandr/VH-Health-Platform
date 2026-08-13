@@ -91,12 +91,12 @@ test('renders both roots and rejects an empty rendered image inventory', () => {
 });
 
 test('normalizes Docker Hub shorthand and preserves explicit registries', () => {
-  assert.deepEqual(parseImageReference(`redis:7.4.1-alpine@${digestA}`), {
-    ref: `redis:7.4.1-alpine@${digestA}`,
+  assert.deepEqual(parseImageReference(`redis:7.4.10-alpine@${digestA}`), {
+    ref: `redis:7.4.10-alpine@${digestA}`,
     registry: 'docker.io',
     repositoryPath: 'library/redis',
     repository: 'docker.io/library/redis',
-    tag: '7.4.1-alpine',
+    tag: '7.4.10-alpine',
     digest: digestA,
   });
   assert.equal(
@@ -216,7 +216,7 @@ test('current renders contain exactly six held workload occurrences and three sy
 });
 
 test('verifies the rendered digest exists and records platforms', async () => {
-  const image = parseImageReference(`redis:7.4.1-alpine@${digestA}`);
+  const image = parseImageReference(`redis:7.4.10-alpine@${digestA}`);
   const verified = await verifyRegistryPin(image, {
     fetchImpl: async () => manifestResponse(),
     retries: 0,
@@ -388,7 +388,7 @@ test('never falls back to generic credentials for GHCR or Docker Hub', async () 
 });
 
 test('rejects a registry response for a different digest', async () => {
-  const image = parseImageReference(`redis:7.4.1-alpine@${digestA}`);
+  const image = parseImageReference(`redis:7.4.10-alpine@${digestA}`);
   await assert.rejects(
     verifyRegistryPin(image, {
       fetchImpl: async () => manifestResponse({ digest: digestB }),
@@ -399,7 +399,7 @@ test('rejects a registry response for a different digest', async () => {
 });
 
 test('rejects a single-platform manifest for the reviewed platform repositories', async () => {
-  const image = parseImageReference(`redis:7.4.1-alpine@${digestA}`);
+  const image = parseImageReference(`redis:7.4.10-alpine@${digestA}`);
   await assert.rejects(
     verifyRegistryPin(image, {
       fetchImpl: async () => manifestResponse({

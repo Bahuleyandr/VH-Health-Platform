@@ -75,25 +75,43 @@ charts with the committed values, inventory every resulting image, pin or
 otherwise approve those image references under the activation procedure, and
 verify them separately against their registries.
 
-## 2026-08-13 registry correction evidence
+## 2026-08-13 registry and Redis security evidence
 
 Baseline commit: `614216b28ffbf8f0270c4d88178cceae604ac091`.
 
-Before correction, `docker buildx imagetools inspect <tag@digest>` returned
-`not found` for all eight reviewed platform references below. Each unchanged
-tag was then resolved live with:
+Before the registry correction, `docker buildx imagetools inspect <tag@digest>`
+returned `not found` for all eight reviewed platform references below. The
+seven behavior-preserving tags were resolved live with:
 
 ```bash
 docker buildx imagetools inspect <image:tag> --format '{{json .Manifest}}'
 ```
 
-The resolved objects were multi-architecture indexes/manifest lists containing
-`linux/amd64` plus at least one additional Linux platform. No image version was
-changed and no held resource was composed or activated.
+Redis was revalidated separately from consolidated commit
+`6dfb40a23dbe1f5666a793730a90468860d24179`. The critical
+[`GHSA-4789-qfc9-5f9q`](https://github.com/redis/redis/security/advisories/GHSA-4789-qfc9-5f9q)
+advisory fixes the Lua use-after-free in Redis 7.4.6. The live upstream release
+list showed [`7.4.10`](https://github.com/redis/redis/releases/tag/7.4.10) as the
+newest non-draft, non-prerelease 7.4.x patch, so the platform pin was upgraded
+to that compatible patch rather than stopping at the first fixed version.
+
+The exact production tag was resolved and the resulting pin was requested
+again with:
+
+```bash
+docker buildx imagetools inspect docker.io/library/redis:7.4.10-alpine --format '{{json .Manifest}}'
+docker buildx imagetools inspect docker.io/library/redis:7.4.10-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2 --format '{{.Manifest.Digest}} {{.Manifest.MediaType}}'
+```
+
+The pinned object is an OCI image index. It contains Linux images for amd64,
+arm/v6, arm/v7, arm64/v8, 386, ppc64le, riscv64, and s390x. The other resolved
+objects were also multi-architecture indexes/manifest lists containing
+`linux/amd64` plus at least one additional Linux platform. No held resource was
+composed or activated.
 
 | Image tag | Correct multi-architecture digest |
 |---|---|
-| `redis:7.4.1-alpine` | `sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275` |
+| `redis:7.4.10-alpine` | `sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2` |
 | `oliver006/redis_exporter:v1.66.0` | `sha256:d98e6db8094f491b95791e9f776b0ba30a20aeacb90e18334935d5e51bf2e6a1` |
 | `busybox:1.37.0` | `sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0` |
 | `hashicorp/vault:1.18.2` | `sha256:2090eb7ac7a4bdef802f685698bd4dc0740de683affe8ff7df55f4fc77077ba7` |
@@ -102,11 +120,12 @@ changed and no held resource was composed or activated.
 | `cloudflare/cloudflared:2024.11.1` | `sha256:665dda65335e35a782ed9319aa63e8404f88b34d2644d30adf3e91253604ffa0` |
 | `ghcr.io/kubereboot/kured:1.16.2` | `sha256:c8c19766c778ba7fe87b4321eef05ba81dcc893a366a4cb3da00bf66a6d5d4df` |
 
-This table records the tag resolution used for the committed correction. The
-CI guard remains the authoritative current availability proof for the
-Kustomize-controlled and scheduled-restore-proof inventory described above: it
-requests every unique active digest on each infrastructure gate and detects a
-missing or invalid manifest. It deliberately does not require an upstream
-version tag to remain bound forever; the digest, not the mutable tag, is
-Kubernetes' pull authority. Helm chart-generated images remain outside that
-proof as documented in the preceding boundary.
+This table records the current tag resolution after the committed registry
+correction and Redis security upgrade. The CI guard remains the authoritative
+current availability proof for the Kustomize-controlled and
+scheduled-restore-proof inventory described above: it requests every unique
+active digest on each infrastructure gate and detects a missing or invalid
+manifest. It deliberately does not require an upstream version tag to remain
+bound forever; the digest, not the mutable tag, is Kubernetes' pull authority.
+Helm chart-generated images remain outside that proof as documented in the
+preceding boundary.

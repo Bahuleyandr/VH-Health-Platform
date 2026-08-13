@@ -109,7 +109,7 @@ function commonOptions() {
     //
     // This is a conservative choice, NOT a compatibility requirement. The
     // deployed server IS pinned — infra/kubernetes/base/redis/redis-sentinel.yaml
-    // runs redis:7.4.1-alpine by sha256 digest — and 7.4 speaks RESP3 fine, so
+    // runs redis:7.4.10-alpine by sha256 digest — and 7.4 speaks RESP3 fine, so
     // dropping this line is safe whenever someone wants to make that change
     // deliberately and observe it on its own. Nothing here needs RESP3: the only
     // commands issued are get/set/del/scan plus pattern pub/sub, whose reply

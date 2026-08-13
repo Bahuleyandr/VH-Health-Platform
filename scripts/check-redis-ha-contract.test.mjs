@@ -16,8 +16,17 @@ test('Redis source contract keeps quorum discovery and activation fail closed', 
   const discovery = read('infra/kubernetes/base/redis/config/sentinel-discovery.sh');
   const credentialSchema = read('infra/kubernetes/base/redis/redis-credentials.sealed-secret.yaml.example');
   const backendConfig = read('infra/kubernetes/apps/backend/configmap.yaml');
+  const pinEvidence = read('infra/kubernetes/base/IMAGE_PIN_VERIFICATION.md');
+  const redisTag = 'redis:7.4.10-alpine';
+  const redisDigest =
+    'sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2';
+  const redisImage = `${redisTag}@${redisDigest}`;
 
   assert.match(manifest, /podManagementPolicy: Parallel/);
+  assert.equal(manifest.split(redisImage).length - 1, 2);
+  assert.doesNotMatch(manifest, /redis:7\.4\.1-alpine/);
+  assert.equal(pinEvidence.includes(`| \`${redisTag}\` | \`${redisDigest}\` |`), true);
+  assert.match(pinEvidence, /security\/advisories\/GHSA-4789-qfc9-5f9q/);
   assert.doesNotMatch(manifest, /checksum\/config|will-be-filled-by-kustomize/);
   assert.equal((manifest.match(/- name: REDIS_ALLOW_FIRST_CLUSTER_BOOTSTRAP/g) || []).length, 2);
   assert.equal((manifest.match(/value: "false"/g) || []).length >= 2, true);
