@@ -1,7 +1,17 @@
 # Full-Repository Audit Remediation Pause Checkpoint — 2026-08-13
 
-**Status:** PAUSED BY OWNER. This is a restart receipt, not release,
-activation, merge, or deployment authority.
+**Status:** HISTORICAL — SUPERSEDED. This was a restart receipt at
+`1d77413bb`, and it is not release, activation, merge, or deployment authority.
+
+> **Superseded 2026-08-14.** The "Preserved, uncommitted lanes" table below is
+> no longer actionable: every lane it lists has since been reviewed, committed,
+> and integrated into `fix/full-repository-audit-2026-08`, now at
+> `b3807dccb` (72 commits ahead of `github/main`). There are **no uncommitted
+> diffs left to recover** from those worktrees. For current state use
+> `docs/FULL_REPOSITORY_AUDIT_2026_08.md` (reconciled finding ledger and
+> rating) and `docs/FABLE_5_FULL_AUDIT_HANDOFF_2026_08_13.md` (owner authority,
+> hard stops, deferrals). The activation and safety holds in this file remain
+> in force and are restated in the reconciled ledger's HELD section.
 
 ## Durable integrated checkpoint
 
