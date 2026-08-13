@@ -13,6 +13,7 @@ import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
+import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
@@ -86,6 +87,10 @@ class LogoutService {
   }
 
   static Future<LogoutOutcome> _performLogout() async {
+    // Advance the lifecycle generation synchronously. Any online/resume start
+    // already queued by the app root is stale before the first disconnect can
+    // yield, so it cannot re-bind the departing patient's identity.
+    PatientRealtimeLifecycle.instance.beginTeardown();
     BiometricGate.clearUnlockState();
 
     // 0. Revoke both server sessions before step 4 wipes secure storage. The
@@ -231,12 +236,14 @@ class LogoutService {
       debugPrint('LogoutService: user provider clear failed: $e');
     }
 
-    // 10. Sign out of Firebase — LAST. The router treats a live Firebase user
+    // 10. Sign out of Firebase — the last identity-state change. The router
+    //    treats a live Firebase user
     //    as "logged in" and re-evaluates its redirect on Firebase auth-state
     //    changes (refreshListenable). Signing out after every other session
     //    signal (JWT, UserProvider) is gone means that when the auth-state
     //    event fires, the redirect sees a fully logged-out app and lands the
-    //    user on /login instead of stranding them on a dead dashboard.
+    //    user on /login instead of stranding them on a dead dashboard. The
+    //    transport-only final realtime fence below follows this state change.
     //    Previously only the explicit Settings→Logout button did this; the
     //    automatic paths (idle timeout, 401 expiry, session revocation) left
     //    the Firebase session alive.
@@ -249,6 +256,30 @@ class LogoutService {
       await Future<void>.sync(_dependencies.signOutFirebase);
     } catch (e) {
       debugPrint('LogoutService: Firebase sign-out failed: $e');
+    }
+
+    // Drain any start that was already in flight, unsubscribe the app-owned
+    // personal channels, and disconnect again after credentials are gone. The
+    // first disconnect above cannot provide this guarantee because a lifecycle
+    // callback may already have passed its pre-await start check.
+    try {
+      await PatientRealtimeLifecycle.instance.completeTeardown(() async {
+        try {
+          await Future<void>.sync(_dependencies.disconnectRealtime);
+        } catch (e) {
+          debugPrint('LogoutService: final realtime disconnect failed: $e');
+          try {
+            await Future<void>.sync(_dependencies.disconnectRealtime);
+          } catch (finalError) {
+            debugPrint(
+              'LogoutService: final realtime disconnect retry failed: '
+              '$finalError',
+            );
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint('LogoutService: final realtime teardown failed: $e');
     }
 
     return LogoutOutcome(

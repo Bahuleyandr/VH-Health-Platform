@@ -542,6 +542,132 @@ describe('cross-process realtime fan-out (Redis pub/sub)', () => {
     await otherTenantSilent;
   });
 
+  test('patient channel delivery revalidates and evicts revoked care-team and break-glass access', async () => {
+    const patientUid = 'fa11ed00-0000-4000-8000-000000000018';
+    const careTeamUid = 'fa11ed00-0000-4000-8000-000000000019';
+    const breakGlassUid = 'fa11ed00-0000-4000-8000-00000000001a';
+    const appointmentsChannel = `patient:${patientUid}:appointments`;
+    const queueChannel = `patient:${patientUid}:queue`;
+    const careTeamKey = realtimeRelationshipKey(TENANT_1, patientUid, careTeamUid);
+    const breakGlassKey = realtimeRelationshipKey(TENANT_1, patientUid, breakGlassUid);
+    realtimeAccess.patients.add(`${TENANT_1}:${patientUid}`.toLowerCase());
+    realtimeAccess.careTeam.add(careTeamKey);
+    realtimeAccess.breakGlass.add(breakGlassKey);
+
+    const careTeamClinician = await openAndConnect(procB.port, ticket({
+      uid: careTeamUid,
+      role: 'DOCTOR',
+      tenantId: TENANT_1,
+    }));
+    const breakGlassAdmin = await openAndConnect(procB.port, ticket({
+      uid: breakGlassUid,
+      role: 'ADMIN',
+      tenantId: TENANT_1,
+    }));
+    sockets.push(careTeamClinician, breakGlassAdmin);
+
+    await subscribe(careTeamClinician, appointmentsChannel);
+    await subscribe(breakGlassAdmin, queueChannel);
+
+    // Authority is time/status bounded in production. Removing these live
+    // relationships simulates care-team revocation and break-glass expiry
+    // after the original ACK.
+    realtimeAccess.careTeam.delete(careTeamKey);
+    realtimeAccess.breakGlass.delete(breakGlassKey);
+
+    const careTeamDenied = awaitEvent(
+      careTeamClinician,
+      (message) => message.event === 'subscribe-denied'
+        && message.channel === appointmentsChannel,
+    );
+    const breakGlassDenied = awaitEvent(
+      breakGlassAdmin,
+      (message) => message.event === 'subscribe-denied'
+        && message.channel === queueChannel,
+    );
+    const careTeamSilent = expectNoEvent(
+      careTeamClinician,
+      (message) => message.event === appointmentsChannel,
+    );
+    const breakGlassSilent = expectNoEvent(
+      breakGlassAdmin,
+      (message) => message.event === queueChannel,
+    );
+
+    procA.wsMod.broadcast(
+      appointmentsChannel,
+      { appointmentId: '51', status: 'CONFIRMED' },
+      { tenantId: TENANT_1 },
+    );
+    procA.wsMod.broadcast(
+      queueChannel,
+      { appointmentId: '51', position: 2 },
+      { tenantId: TENANT_1 },
+    );
+
+    await expect(careTeamDenied).resolves.toMatchObject({
+      reason: 'Patient channel access denied',
+    });
+    await expect(breakGlassDenied).resolves.toMatchObject({
+      reason: 'Patient channel access denied',
+    });
+    await careTeamSilent;
+    await breakGlassSilent;
+
+    // Restoring authority without a new subscribe must not restore delivery:
+    // the failed revalidation must have evicted the old membership.
+    realtimeAccess.careTeam.add(careTeamKey);
+    realtimeAccess.breakGlass.add(breakGlassKey);
+    const evictedCareTeamSilent = expectNoEvent(
+      careTeamClinician,
+      (message) => message.event === appointmentsChannel,
+    );
+    const evictedBreakGlassSilent = expectNoEvent(
+      breakGlassAdmin,
+      (message) => message.event === queueChannel,
+    );
+    procA.wsMod.broadcast(
+      appointmentsChannel,
+      { appointmentId: '51', status: 'IN_PROGRESS' },
+      { tenantId: TENANT_1 },
+    );
+    procA.wsMod.broadcast(
+      queueChannel,
+      { appointmentId: '51', position: 1 },
+      { tenantId: TENANT_1 },
+    );
+    await evictedCareTeamSilent;
+    await evictedBreakGlassSilent;
+
+    // Explicitly subscribing again after authority is restored remains valid.
+    await subscribe(careTeamClinician, appointmentsChannel);
+    await subscribe(breakGlassAdmin, queueChannel);
+    const careTeamDelivery = awaitEvent(
+      careTeamClinician,
+      (message) => message.event === appointmentsChannel,
+    );
+    const breakGlassDelivery = awaitEvent(
+      breakGlassAdmin,
+      (message) => message.event === queueChannel,
+    );
+    procA.wsMod.broadcast(
+      appointmentsChannel,
+      { appointmentId: '51', status: 'COMPLETED' },
+      { tenantId: TENANT_1 },
+    );
+    procA.wsMod.broadcast(
+      queueChannel,
+      { appointmentId: '51', position: 0 },
+      { tenantId: TENANT_1 },
+    );
+    await expect(careTeamDelivery).resolves.toMatchObject({
+      data: { appointmentId: '51', status: 'COMPLETED' },
+    });
+    await expect(breakGlassDelivery).resolves.toMatchObject({
+      data: { appointmentId: '51', position: 0 },
+    });
+  });
+
   // sendToUser cross-process: a user connected on process B receives a
   // sendToUser issued on process A.
   test('sendToUser on process A reaches that user on process B', async () => {

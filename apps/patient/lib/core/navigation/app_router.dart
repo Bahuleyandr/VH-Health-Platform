@@ -6,13 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:vhhealth_core/services/realtime_client.dart';
-import 'package:vhhealth_core/services/realtime_provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/navigation/go_router_refresh_stream.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
-import 'package:vhhealth/core/providers/websocket_provider.dart';
+import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 
 // Import all your screens
@@ -91,21 +89,12 @@ class AppRouter {
   /// navigation finds it fully disconnected. The patient bridge registers its
   /// personal channels before the shared client connects, so authenticated
   /// readiness and subscription acknowledgements cannot race.
-  static void _ensureRealtimeConnected(BuildContext context) {
-    try {
-      unawaited(context.read<WebSocketProvider>().listen());
-      return;
-    } catch (_) {
-      // Provider may not be mounted in narrow router tests.
-    }
-    try {
-      unawaited(context.read<RealtimeProvider>().ensureConnected());
-    } catch (_) {
-      if (RealtimeClient.instance.connectionState ==
-          RealtimeConnectionState.disconnected) {
-        unawaited(RealtimeClient.instance.connect());
-      }
-    }
+  static void _ensureRealtimeConnected() {
+    unawaited(
+      PatientRealtimeLifecycle.instance.queueStart().catchError((Object error) {
+        if (kDebugMode) debugPrint('Realtime login re-arm skipped: $error');
+      }),
+    );
   }
 
   /// Wraps a route's screen in the patient's optional biometric lock
@@ -254,7 +243,7 @@ class AppRouter {
 
         // Re-arm realtime for this (possibly in-process re-)login.
         if (!isGuestSession && context.mounted) {
-          _ensureRealtimeConnected(context);
+          _ensureRealtimeConnected();
         }
 
         // Hydrate UserProvider from storage in case this route was reached
@@ -275,7 +264,7 @@ class AppRouter {
         // a Firebase auth-state change re-running the /login branch above
         // (dev login, profile-setup completion).
         if (!isGuestSession && context.mounted) {
-          _ensureRealtimeConnected(context);
+          _ensureRealtimeConnected();
         }
       }
 

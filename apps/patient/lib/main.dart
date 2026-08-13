@@ -39,6 +39,7 @@ import 'package:vhhealth/core/services/firebase_crash_reporter.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
+import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
@@ -263,20 +264,26 @@ class VHRoot extends StatefulWidget {
 class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
   late final RealtimeProvider _realtimeProvider;
   late final WebSocketProvider _webSocketProvider;
+  late final PatientRealtimeLifecycle _realtimeLifecycle;
   StreamSubscription<bool>? _realtimeConnectivitySubscription;
-  Future<void> _realtimeLifecycle = Future<void>.value();
 
   @override
   void initState() {
     super.initState();
     _realtimeProvider = RealtimeProvider();
     _webSocketProvider = WebSocketProvider(realtimeProvider: _realtimeProvider);
+    _realtimeLifecycle = PatientRealtimeLifecycle.instance;
+    _realtimeLifecycle.attach(
+      owner: this,
+      start: _startRealtime,
+      stop: _stopRealtime,
+    );
     _realtimeConnectivitySubscription = ConnectivityService.onChange.listen((
       online,
     ) {
-      if (online) _queueRealtimeLifecycle(_startRealtime);
+      if (online) _runRealtimeLifecycle(_realtimeLifecycle.queueStart());
     });
-    _queueRealtimeLifecycle(_startRealtime);
+    _runRealtimeLifecycle(_realtimeLifecycle.queueStart());
     WidgetsBinding.instance.addObserver(this);
     // PAT-6: block screenshots and suppress the app-switcher thumbnail
     // so PHI cannot leak via Android recents or iOS Exposé.
@@ -299,16 +306,16 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
 
   Future<void> _startRealtime() => _webSocketProvider.listen();
 
-  Future<void> _stopRealtime() async {
-    await _webSocketProvider.stop();
+  Future<void> _stopRealtime({required bool unsubscribe}) async {
+    await _webSocketProvider.stop(unsubscribe: unsubscribe);
     await _realtimeProvider.disconnect();
   }
 
-  void _queueRealtimeLifecycle(Future<void> Function() operation) {
-    _realtimeLifecycle = _realtimeLifecycle.then((_) => operation()).catchError(
-      (Object error) {
+  void _runRealtimeLifecycle(Future<void> operation) {
+    unawaited(
+      operation.catchError((Object error) {
         if (kDebugMode) debugPrint('Realtime lifecycle skipped: $error');
-      },
+      }),
     );
   }
 
@@ -316,6 +323,7 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _realtimeConnectivitySubscription?.cancel();
+    _realtimeLifecycle.detach(this);
     _webSocketProvider.dispose();
     _realtimeProvider.dispose();
     unawaited(RealtimeClient.instance.disconnect());
@@ -328,14 +336,14 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // Save battery: disconnect WebSocket and stop connectivity polling
-      _queueRealtimeLifecycle(_stopRealtime);
+      _runRealtimeLifecycle(_realtimeLifecycle.queueStop());
       ConnectivityService.stopMonitoring();
       PatientOutageController.instance.onBackgrounded();
     } else if (state == AppLifecycleState.resumed) {
       // Reconnect when the app comes back to foreground
       ConnectivityService.startMonitoring();
       PatientOutageController.instance.onResumed();
-      _queueRealtimeLifecycle(_startRealtime);
+      _runRealtimeLifecycle(_realtimeLifecycle.queueStart());
       // Returning from the system viewer is the normal recovery point for
       // deleting its short-lived plaintext copy.
       unawaited(DocStaging.purge());

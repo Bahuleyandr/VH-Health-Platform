@@ -9,6 +9,7 @@ import {
   isUserTokensRevoked,
 } from '../tokenBlacklist.js';
 import { authorizeSubscriptionChannel } from './subscriptionAuth.js';
+import { parsePatientChannel } from './channelAuth.js';
 import { createWsFanout } from './wsRedisAdapter.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import { recordWsBroadcastDropped } from '../../observability/reliabilityMetrics.js';
@@ -35,7 +36,7 @@ const clients = new Map();
 /** @type {Map<string, Set<import('ws').WebSocket>>} authenticated owner uid → Set of sockets */
 const revocationClients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string> }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string>, patientDeliveryQueue: Promise<void> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -327,6 +328,7 @@ async function authenticateAndRegister(ws, token) {
       sessionFamilyId: decoded.sessionFamilyId ?? null,
       stableDeviceId: decoded.stableDeviceId ?? null,
       channels: new Set(),
+      patientDeliveryQueue: Promise.resolve(),
     });
   };
 
@@ -474,14 +476,71 @@ function tenantMatches(socketTenantId, eventTenantId) {
   return String(socketTenantId) === String(eventTenantId);
 }
 
+async function deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId) {
+  const decision = await authorizeSubscriptionChannel(channel, meta);
+  if (
+    socketMeta.get(ws) !== meta
+    || ws.readyState !== 1
+    || !meta.channels.has(channel)
+    || !tenantMatches(meta.tenantId, tenantId)
+  ) {
+    return;
+  }
+  if (!decision.allowed) {
+    meta.channels.delete(channel);
+    ws.send(JSON.stringify({
+      event: 'subscribe-denied',
+      channel,
+      reason: decision.reason,
+      ts: Date.now(),
+    }));
+    return;
+  }
+  if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+    recordWsBroadcastDropped('backpressure');
+    logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+    return;
+  }
+  ws.send(payload);
+}
+
+function queuePatientBroadcastDelivery(ws, meta, channel, payload, tenantId) {
+  const delivery = meta.patientDeliveryQueue.then(() => (
+    deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId)
+  ));
+  meta.patientDeliveryQueue = delivery.catch((err) => {
+    // An unexpected authorization/delivery failure must not leave a personal
+    // PHI subscription live. A new subscribe can re-establish it after recovery.
+    meta.channels.delete(channel);
+    logger.error('Patient realtime delivery failed closed', {
+      error: err?.message,
+      topic: parsePatientChannel(channel)?.topic,
+    });
+  });
+}
+
 /** Deliver a channel broadcast to this process's subscribed sockets. */
 function deliverBroadcastLocal(channel, event, data, tenantId) {
   if (!wss) return;
+  const patientChannel = parsePatientChannel(channel);
+  if (patientChannel && tenantId == null) {
+    logger.warn('Dropping patient realtime broadcast without tenant scope', {
+      topic: patientChannel.topic,
+    });
+    return;
+  }
   const payload = JSON.stringify({ event: event ?? channel, data });
   for (const [ws, meta] of socketMeta) {
     if (!meta.channels.has(channel) || ws.readyState !== 1) continue;
     // Cross-tenant realtime leak guard: drop messages for a different tenant.
     if (!tenantMatches(meta.tenantId, tenantId)) continue;
+    if (patientChannel) {
+      // Care-team and break-glass authority can expire or be revoked after the
+      // subscription ACK. Re-authorize immediately before every personal PHI
+      // delivery and serialize per socket so events cannot overtake each other.
+      queuePatientBroadcastDelivery(ws, meta, channel, payload, tenantId);
+      continue;
+    }
     // Skip slow clients to prevent memory buildup (1MB buffer cap).
     if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
       recordWsBroadcastDropped('backpressure');

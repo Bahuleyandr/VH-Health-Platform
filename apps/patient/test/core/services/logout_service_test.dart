@@ -10,8 +10,8 @@ void main() {
   });
 
   test(
-    'logout revokes both server sessions first, clears realtime, caches, '
-    'staging and user provider state, and signs out of Firebase last',
+    'logout fences realtime first, clears caches and identity, then performs '
+    'a final disconnect after Firebase sign-out',
     () async {
       final calls = <String>[];
       LogoutService.debugSetDependencies(_dependencies(calls));
@@ -19,6 +19,8 @@ void main() {
       await LogoutService.logout();
 
       expect(calls, [
+        // The generation fence itself is synchronous and is covered by the
+        // dedicated PatientRealtimeLifecycle race tests.
         // Both server revocations run first, with Firebase before VH because
         // the VH logout invalidates the bearer token used by both calls; the
         // device unregister also authenticates with that token so it must
@@ -38,11 +40,13 @@ void main() {
         'cycle-tracker',
         'dependents',
         'user-provider',
-        // Firebase sign-out MUST come last: it is what fires the router's
-        // auth-state refreshListenable, and by then every other logged-in
-        // signal (JWT, UserProvider) must already be gone so the redirect
-        // lands on /login.
+        // Firebase sign-out is the final identity-state change: it fires the
+        // router's auth-state refreshListenable only after JWT/UserProvider are
+        // gone. The final transport disconnect then drains behind the fence.
         'firebase-signout',
+        // Final disconnect runs after the secure-storage credential wipe and
+        // after any in-flight lifecycle start has drained.
+        'realtime',
       ]);
     },
   );
@@ -184,6 +188,11 @@ void main() {
 
       expect(outcome.serverSessionRevoked, isFalse);
       expect(calls, containsAll(<String>['secure-storage', 'user-provider']));
+      expect(calls.where((call) => call == 'realtime'), hasLength(2));
+      expect(
+        calls.lastIndexOf('realtime'),
+        greaterThan(calls.indexOf('secure-storage')),
+      );
     },
   );
 
