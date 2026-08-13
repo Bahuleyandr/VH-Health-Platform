@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -18,7 +17,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
-    FlutterSecureStorage.setMockInitialValues({});
     SharedPreferences.setMockInitialValues({});
   });
 
@@ -190,6 +188,7 @@ void main() {
                 context,
                 confirmationTitle: 'Confirm',
                 confirmationBody: 'Confirm body',
+                recentPatientsClear: _noopRecentPatientsClear,
                 logoutOperation: () async =>
                     const StaffLogoutResult.signedOut(),
               ),
@@ -236,6 +235,7 @@ void main() {
     'successful logout clears captured providers after host disposal',
     (tester) async {
       final releaseLogout = Completer<void>();
+      Future<bool>? logout;
       final timeout = SessionTimeoutProvider(
         timeoutDuration: const Duration(hours: 1),
       )..startTracking();
@@ -257,17 +257,18 @@ void main() {
             home: Scaffold(
               body: Builder(
                 builder: (context) => ElevatedButton(
-                  onPressed: () => unawaited(
-                    LogoutFlow.start(
+                  onPressed: () {
+                    logout = LogoutFlow.start(
                       context,
                       confirmationTitle: 'Confirm',
                       confirmationBody: 'Confirm body',
+                      recentPatientsClear: _noopRecentPatientsClear,
                       logoutOperation: () async {
                         await releaseLogout.future;
                         return const StaffLogoutResult.signedOut();
                       },
-                    ),
-                  ),
+                    );
+                  },
                   child: const Text('Start logout'),
                 ),
               ),
@@ -282,6 +283,7 @@ void main() {
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       releaseLogout.complete();
+      await logout;
       await tester.pump();
 
       expect(timeout.isTracking, isFalse);
@@ -323,6 +325,7 @@ void main() {
       await stopStaffRealtimePollers(
         hostContext,
         unregisterNotificationBackend: true,
+        recentPatientsClear: _noopRecentPatientsClear,
       );
 
       expect(notifications.endCalls, 1);
@@ -345,6 +348,7 @@ void main() {
                   context,
                   confirmationTitle: 'Confirm',
                   confirmationBody: 'Confirm body',
+                  recentPatientsClear: _noopRecentPatientsClear,
                   logoutOperation: () async =>
                       const StaffLogoutResult.signedOut(
                         serverRevocationFailed: true,
@@ -428,6 +432,7 @@ Widget _logoutHost({
                 context,
                 confirmationTitle: 'Confirm',
                 confirmationBody: 'Confirm body',
+                recentPatientsClear: _noopRecentPatientsClear,
                 logoutOperation: logoutOperation,
                 syncStatusOpener: syncStatusOpener,
               ),
@@ -439,3 +444,5 @@ Widget _logoutHost({
     ),
   );
 }
+
+Future<void> _noopRecentPatientsClear() async {}

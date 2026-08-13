@@ -72,8 +72,28 @@ class _DeferredInboxApi extends ClinicalInboxApi {
 
   @override
   Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId}) {
-    throw UnimplementedError();
+    throw UnsupportedError('Acknowledgement is outside this fixture');
   }
+
+  @override
+  Future<ClinicalInboxTask> claimTask(String id) =>
+      throw UnsupportedError('Claim is outside this fixture');
+
+  @override
+  Future<DiagnosticActionReceipt> recordDiagnosticAction(
+    DiagnosticActionCommand command,
+  ) => throw UnsupportedError('Action is outside this fixture');
+
+  @override
+  Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
+    PostDischargeCrossSignCommand command,
+  ) => throw UnsupportedError('Cross-sign is outside this fixture');
+
+  @override
+  Future<DiagnosticActionReceipt> reopenDiagnosticResult({
+    required String generationId,
+    required String reason,
+  }) => throw UnsupportedError('Reopen is outside this fixture');
 }
 
 Widget _host(ClinicalInboxProvider provider) {
@@ -97,8 +117,28 @@ class _InboxApi extends ClinicalInboxApi {
 
   @override
   Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId}) {
-    throw UnimplementedError();
+    throw UnsupportedError('Acknowledgement is outside this fixture');
   }
+
+  @override
+  Future<ClinicalInboxTask> claimTask(String id) =>
+      throw UnsupportedError('Claim is outside this fixture');
+
+  @override
+  Future<DiagnosticActionReceipt> recordDiagnosticAction(
+    DiagnosticActionCommand command,
+  ) => throw UnsupportedError('Action is outside this fixture');
+
+  @override
+  Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
+    PostDischargeCrossSignCommand command,
+  ) => throw UnsupportedError('Cross-sign is outside this fixture');
+
+  @override
+  Future<DiagnosticActionReceipt> reopenDiagnosticResult({
+    required String generationId,
+    required String reason,
+  }) => throw UnsupportedError('Reopen is outside this fixture');
 }
 
 ClinicalInboxTask _task() {

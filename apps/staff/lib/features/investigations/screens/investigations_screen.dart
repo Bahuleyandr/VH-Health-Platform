@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
+import '../../../core/config/staff_role_contract.g.dart';
 import '../../../core/services/clinical_inbox_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -56,6 +57,17 @@ bool investigationsCanUploadResultsForRole(StaffRole role) {
   return role != StaffRole.doctor &&
       role != StaffRole.dutyDoctor &&
       role != StaffRole.anaesthetist;
+}
+
+@visibleForTesting
+bool investigationsCanUploadResultsForRawRole(String rawRole) {
+  final normalized = rawRole.trim().toUpperCase();
+  if (canonicalStaffRoleCodes.contains(normalized)) {
+    return canonicalStaffFeatureRouteRoleCodes['investigations_upload']
+            ?.contains(normalized) ??
+        false;
+  }
+  return investigationsCanUploadResultsForRole(StaffRole.fromString(rawRole));
 }
 
 @visibleForTesting
@@ -231,8 +243,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   }
 
   Future<void> _loadRolePermissions() async {
-    final role = StaffRole.fromString(await ApiConfig.getRole());
-    final canUpload = investigationsCanUploadResultsForRole(role);
+    final rawRole = await ApiConfig.getRole();
+    final role = StaffRole.fromString(rawRole);
+    final canUpload = investigationsCanUploadResultsForRawRole(rawRole);
     final canManagePendingStatus = investigationsCanManagePendingStatusForRole(
       role,
     );

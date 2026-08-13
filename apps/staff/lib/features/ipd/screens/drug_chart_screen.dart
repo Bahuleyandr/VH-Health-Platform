@@ -51,20 +51,29 @@ const _doseSlots = <_DoseSlot>[
   _DoseSlot('night', 'Night', '22:00'),
 ];
 
-const _fallbackDrugs = <String>[
-  'Paracetamol 650 mg',
-  'Pantoprazole 40 mg',
-  'Ondansetron 4 mg',
-  'Ceftriaxone 1 g',
-  'Amoxicillin-Clavulanate 625 mg',
-  'Metformin 500 mg',
-  'Insulin regular',
-  'Normal Saline 500 mL',
-  'Ringer Lactate 500 mL',
-  'Tramadol 50 mg',
-  'Enoxaparin 40 mg',
-  'Aspirin 75 mg',
-];
+enum DrugChartDraftValidationFailure {
+  drugRequired,
+  catalogSelectionRequired,
+  doseRequired,
+  administrationTimeRequired,
+}
+
+DrugChartDraftValidationFailure? validateDrugChartDraft({
+  required String drug,
+  required int? catalogId,
+  required String dose,
+  required Iterable<String> doseTimes,
+}) {
+  if (drug.trim().isEmpty) return DrugChartDraftValidationFailure.drugRequired;
+  if (catalogId == null) {
+    return DrugChartDraftValidationFailure.catalogSelectionRequired;
+  }
+  if (dose.trim().isEmpty) return DrugChartDraftValidationFailure.doseRequired;
+  if (doseTimes.isEmpty) {
+    return DrugChartDraftValidationFailure.administrationTimeRequired;
+  }
+  return null;
+}
 
 class DrugChartScreen extends StatefulWidget {
   final int admissionId;
@@ -156,16 +165,33 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     final doseTimes = row.selectedTimes.toList()
       ..sort((a, b) => _slotIndex(a).compareTo(_slotIndex(b)));
 
-    String? error;
-    if (drug.isEmpty) {
-      error = s.lookup('s4.lib.drug_chart.drug_required');
-    } else if (dose.isEmpty) {
-      error = s.lookup('s4.lib.drug_chart.dose_required');
-    } else if (doseTimes.isEmpty) {
-      error = s.lookup('s4.lib.drug_chart.administration_time_required');
-    }
-    if (error != null) {
-      _showSnack(error, isError: true);
+    final validationFailure = validateDrugChartDraft(
+      drug: drug,
+      catalogId: row.catalogId,
+      dose: dose,
+      doseTimes: doseTimes,
+    );
+    if (validationFailure != null) {
+      if (validationFailure ==
+              DrugChartDraftValidationFailure.catalogSelectionRequired &&
+          row.catalogUnavailable) {
+        await showOfflineClinicalFallbackDialog(
+          context,
+          paperFormSet: s.offlineClinicalFallbackInpatientDrugCharts,
+        );
+        return;
+      }
+      final key = switch (validationFailure) {
+        DrugChartDraftValidationFailure.drugRequired =>
+          's4.lib.drug_chart.drug_required',
+        DrugChartDraftValidationFailure.catalogSelectionRequired =>
+          's4.lib.drug_chart.catalog_selection_required',
+        DrugChartDraftValidationFailure.doseRequired =>
+          's4.lib.drug_chart.dose_required',
+        DrugChartDraftValidationFailure.administrationTimeRequired =>
+          's4.lib.drug_chart.administration_time_required',
+      };
+      _showSnack(s.lookup(key), isError: true);
       return;
     }
 
@@ -1116,8 +1142,11 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
             _tableCell(
               width: _drugCol,
               height: _draftRowHeight,
-              child: _DrugAutocompleteField(
+              child: DrugCatalogSearchField(
                 controller: row.drugCtrl,
+                onAvailabilityChanged: (unavailable) {
+                  row.catalogUnavailable = unavailable;
+                },
                 onTextChanged: (value) => setState(() {
                   row.clearCatalogIdentity();
                   _applyDerivedDose(value);
@@ -1393,80 +1422,106 @@ class _DictationProvenance extends StatelessWidget {
   }
 }
 
-class _DrugAutocompleteField extends StatefulWidget {
+typedef DrugCatalogSearch =
+    Future<List<Map<String, dynamic>>> Function(String query);
+
+class DrugCatalogSearchField extends StatefulWidget {
   final TextEditingController controller;
   final ValueChanged<String>? onTextChanged;
+  final ValueChanged<bool>? onAvailabilityChanged;
   final ValueChanged<Map<String, dynamic>> onSelected;
+  final DrugCatalogSearch search;
 
-  const _DrugAutocompleteField({
+  const DrugCatalogSearchField({
+    super.key,
     required this.controller,
     this.onTextChanged,
+    this.onAvailabilityChanged,
     required this.onSelected,
-  });
+    DrugCatalogSearch? search,
+  }) : search = search ?? MedicalApiService.searchMedicationCatalog;
 
   @override
-  State<_DrugAutocompleteField> createState() => _DrugAutocompleteFieldState();
+  State<DrugCatalogSearchField> createState() => _DrugCatalogSearchFieldState();
 }
 
-class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
+class _DrugCatalogSearchFieldState extends State<DrugCatalogSearchField> {
   final _focusNode = FocusNode();
-  Timer? _debounce;
-  List<Map<String, dynamic>> _catalogSuggestions = const [];
+  var _searchGeneration = 0;
   bool _loading = false;
+  bool _catalogUnavailable = false;
+
+  void _updateSearchState({
+    required bool loading,
+    required bool catalogUnavailable,
+  }) {
+    final availabilityChanged = _catalogUnavailable != catalogUnavailable;
+    setState(() {
+      _loading = loading;
+      _catalogUnavailable = catalogUnavailable;
+    });
+    if (availabilityChanged) {
+      widget.onAvailabilityChanged?.call(catalogUnavailable);
+    }
+  }
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _focusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _search(String value) async {
-    final query = value.trim();
+  Future<Iterable<Map<String, dynamic>>> _optionsFor(
+    TextEditingValue value,
+  ) async {
+    final generation = ++_searchGeneration;
+    final query = value.text.trim();
     if (query.length < 2) {
-      setState(() => _catalogSuggestions = const []);
-      return;
+      if (mounted) {
+        _updateSearchState(loading: false, catalogUnavailable: false);
+      }
+      return const <Map<String, dynamic>>[];
     }
-    setState(() => _loading = true);
+    if (mounted) {
+      _updateSearchState(loading: true, catalogUnavailable: false);
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (generation != _searchGeneration) {
+      return const <Map<String, dynamic>>[];
+    }
     try {
-      final rows = await MedicalApiService.searchMedicationCatalog(query);
-      if (!mounted) return;
-      setState(() => _catalogSuggestions = rows.take(6).toList());
+      final rows = await widget.search(query);
+      if (!mounted || generation != _searchGeneration) {
+        return const <Map<String, dynamic>>[];
+      }
+      _updateSearchState(loading: false, catalogUnavailable: false);
+      return _matchingOptions(rows, query);
     } catch (_) {
-      if (!mounted) return;
-      setState(() => _catalogSuggestions = const []);
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted || generation != _searchGeneration) {
+        return const <Map<String, dynamic>>[];
+      }
+      _updateSearchState(loading: false, catalogUnavailable: true);
+      return const <Map<String, dynamic>>[];
     }
   }
 
-  void _onChanged(String value) {
-    widget.onTextChanged?.call(value);
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 250), () => _search(value));
-  }
-
-  Iterable<Map<String, dynamic>> _optionsFor(String query) {
-    final q = query.trim();
-    if (q.length < 2) return const <Map<String, dynamic>>[];
+  Iterable<Map<String, dynamic>> _matchingOptions(
+    Iterable<Map<String, dynamic>> suggestions,
+    String query,
+  ) {
     final rows = <Map<String, dynamic>>[];
     final seen = <String>{};
 
     void add(Map<String, dynamic> row) {
       final label = _catalogDrugLabel(row);
-      if (label.isEmpty) return;
+      if (label.isEmpty || _catalogIdFromRow(row) == null) return;
       if (seen.add(label.toLowerCase())) rows.add(row);
     }
 
-    for (final row in _catalogSuggestions) {
-      if (_catalogRowMatchesQuery(row, q)) add(row);
+    for (final row in suggestions) {
+      if (_catalogRowMatchesQuery(row, query)) add(row);
     }
-    for (final drug in _fallbackDrugs) {
-      if (drug.toLowerCase().contains(q.toLowerCase())) {
-        add({'name': drug, '__fallback': true});
-      }
-    }
-    return rows.take(7);
+    return rows.take(6);
   }
 
   @override
@@ -1475,7 +1530,7 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
       textEditingController: widget.controller,
       focusNode: _focusNode,
       displayStringForOption: _catalogDrugLabel,
-      optionsBuilder: (value) => _optionsFor(value.text),
+      optionsBuilder: _optionsFor,
       onSelected: (row) {
         final label = _catalogDrugLabel(row);
         widget.controller.text = label;
@@ -1488,7 +1543,7 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
         return TextField(
           controller: controller,
           focusNode: focusNode,
-          onChanged: _onChanged,
+          onChanged: widget.onTextChanged,
           textInputAction: TextInputAction.next,
           onSubmitted: (_) {
             onSubmitted();
@@ -1500,6 +1555,17 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
             hintText: AppStrings.of(
               context,
             ).lookup('s4.lib.prescriptions.type_drug_name'),
+            helperText: _catalogUnavailable
+                ? AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.drug_chart.catalog_unavailable')
+                : null,
+            helperMaxLines: 2,
+            errorText: _catalogUnavailable
+                ? AppStrings.of(
+                    context,
+                  ).lookup('s4.lib.drug_chart.catalog_unavailable_short')
+                : null,
             isDense: true,
             suffixIcon: _loading
                 ? const Padding(
@@ -1544,7 +1610,6 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                   final strength = _catalogStrength(row);
                   final form = _catalogForm(row);
                   final s = AppStrings.of(context);
-                  final catalogBacked = row['__fallback'] != true;
                   final availability = _text(
                     row['availability_status'],
                   ).toLowerCase();
@@ -1562,13 +1627,11 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                       style: TextStyle(color: AppTheme.textPrimary),
                     ),
                     subtitle: Text(
-                      catalogBacked
-                          ? [
-                              if (generic.isNotEmpty) generic,
-                              if (strength.isNotEmpty) strength,
-                              if (form.isNotEmpty) form,
-                            ].join(' - ')
-                          : AppStrings.of(context).drugChartFreeText,
+                      [
+                        if (generic.isNotEmpty) generic,
+                        if (strength.isNotEmpty) strength,
+                        if (form.isNotEmpty) form,
+                      ].join(' - '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1576,12 +1639,10 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
                         fontSize: 12,
                       ),
                     ),
-                    trailing: catalogBacked
-                        ? _MiniPill(
-                            label: _catalogStockLabel(s, row),
-                            color: stockColor,
-                          )
-                        : null,
+                    trailing: _MiniPill(
+                      label: _catalogStockLabel(s, row),
+                      color: stockColor,
+                    ),
                     onTap: () => onSelected(row),
                   );
                 },
@@ -1911,6 +1972,7 @@ class _DrugChartDraftRow {
   String foodTiming = '';
   bool saving = false;
   bool daw = false;
+  bool catalogUnavailable = false;
 
   void applyDerivedDose({String? drug, bool overwrite = false}) {
     final derived = _text(strength).isNotEmpty
@@ -1942,11 +2004,6 @@ class _DrugChartDraftRow {
     final label = _catalogDrugLabel(row);
     drugCtrl.text = label;
     drugCtrl.selection = TextSelection.collapsed(offset: label.length);
-
-    if (row['__fallback'] == true) {
-      clearCatalogIdentity();
-      return;
-    }
 
     catalogId = _catalogIdFromRow(row);
     this.originalCatalogId = originalCatalogId ?? catalogId;

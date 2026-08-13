@@ -54,6 +54,7 @@ void main() {
               forcedLogoutCalls += 1;
               return 2;
             },
+            recentPatientsClear: _noopRecentPatientsClear,
             navigateToLogin: () => router.go('/login'),
             child: child ?? const SizedBox.shrink(),
           ),
@@ -87,6 +88,7 @@ void main() {
     )..startTracking();
     addTearDown(timeout.dispose);
     final releaseCleanup = Completer<void>();
+    final cleanupStarted = Completer<void>();
     var forcedLogoutCalls = 0;
     final router = GoRouter(
       routes: [
@@ -112,9 +114,11 @@ void main() {
             revocationEvents: events.stream,
             forcedLogout: () async {
               forcedLogoutCalls += 1;
+              if (!cleanupStarted.isCompleted) cleanupStarted.complete();
               await releaseCleanup.future;
               return 1;
             },
+            recentPatientsClear: _noopRecentPatientsClear,
             navigateToLogin: () => router.go('/login'),
             child: child ?? const SizedBox.shrink(),
           ),
@@ -127,6 +131,7 @@ void main() {
       ..add(const {'reason': 'new_login_elsewhere'})
       ..add(const {'reason': 'new_login_elsewhere'});
     await tester.pump();
+    await cleanupStarted.future;
     expect(forcedLogoutCalls, 1);
 
     releaseCleanup.complete();
@@ -178,6 +183,7 @@ void main() {
                 await releaseCleanup.future;
                 return 0;
               },
+              recentPatientsClear: _noopRecentPatientsClear,
               navigateToLogin: () => router.go('/login'),
               child: SessionTimeoutWarningLayer(
                 child: child ?? const SizedBox.shrink(),
@@ -206,3 +212,5 @@ void main() {
     },
   );
 }
+
+Future<void> _noopRecentPatientsClear() async {}

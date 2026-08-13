@@ -4,12 +4,29 @@
 import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/core/config/role_config.dart';
+import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
 import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 void main() {
   final strings = AppStrings.forLocale(const Locale('en'));
 
   group('StaffRole.fromString', () {
+    test(
+      'every canonical backend staff role has a deterministic archetype',
+      () {
+        expect(canonicalStaffRoleCodes, hasLength(83));
+        expect(canonicalStaffRoleArchetypeCodes.keys, canonicalStaffRoleCodes);
+        for (final rawRole in canonicalStaffRoleCodes) {
+          expect(
+            StaffRole.tryFromString(rawRole),
+            isNotNull,
+            reason: '$rawRole must not be sent back to login',
+          );
+        }
+        expect(StaffRole.tryFromString('NEW_UNMAPPED_ROLE'), isNull);
+      },
+    );
+
     test('parses canonical uppercase backend values', () {
       expect(StaffRole.fromString('DOCTOR'), StaffRole.doctor);
       expect(StaffRole.fromString('ANESTHETIST'), StaffRole.anaesthetist);
@@ -151,6 +168,21 @@ void main() {
   });
 
   group('RoleFeatures.getFeaturesForRole', () {
+    test('exact backend roles do not inherit lossy archetype authority', () {
+      Set<String> idsFor(String rawRole) => RoleFeatures.getFeaturesForRawRole(
+        rawRole,
+      ).map((feature) => feature.id).toSet();
+
+      expect(idsFor('TECHNICIAN'), contains('cath_lab'));
+      expect(idsFor('TECHNICIAN'), isNot(contains('patient_records')));
+      expect(idsFor('TECHNICIAN'), isNot(contains('investigation_results')));
+      expect(idsFor('MEDICAL_RECORDS'), contains('investigation_results'));
+      expect(idsFor('DIETITIAN'), contains('dietary'));
+      expect(idsFor('DIETARY_STAFF'), contains('dietary'));
+      expect(idsFor('DIALYSIS_TECHNICIAN'), contains('blood_bank'));
+      expect(idsFor('NEW_UNMAPPED_ROLE'), isEmpty);
+    });
+
     test('doctor gets clinical features but NOT HR dashboard', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.doctor);
       final ids = feats.map((f) => f.id).toSet();
@@ -398,11 +430,11 @@ void main() {
       expect(RoleFeatures.hasOpAiAssist(StaffRole.nurse), isFalse);
     });
 
-    test('general staff sees housekeeping hub + tasks, no clinical/HR', () {
+    test('general staff keeps self-service without housekeeping authority', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.general);
       final ids = feats.map((f) => f.id).toSet();
-      expect(ids, contains('housekeeping_hub'));
-      expect(ids, contains('housekeeping_tasks'));
+      expect(ids, isNot(contains('housekeeping_hub')));
+      expect(ids, isNot(contains('housekeeping_tasks')));
       expect(ids, contains('payroll'));
       expect(ids, isNot(contains('patient_records')));
       expect(ids, isNot(contains('hr_dashboard')));

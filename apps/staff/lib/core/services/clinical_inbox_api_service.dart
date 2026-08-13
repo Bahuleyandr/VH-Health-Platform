@@ -16,30 +16,20 @@ abstract class ClinicalInboxApi {
 
   Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId});
 
-  Future<ClinicalInboxTask> claimTask(String id) {
-    throw UnimplementedError('Task claiming is not implemented');
-  }
+  Future<ClinicalInboxTask> claimTask(String id);
 
   Future<DiagnosticActionReceipt> recordDiagnosticAction(
     DiagnosticActionCommand command,
-  ) {
-    throw UnimplementedError('Diagnostic actions are not implemented');
-  }
+  );
 
   Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
     PostDischargeCrossSignCommand command,
-  ) {
-    throw UnimplementedError(
-      'Post-discharge pending-result cross-sign is not implemented',
-    );
-  }
+  );
 
   Future<DiagnosticActionReceipt> reopenDiagnosticResult({
     required String generationId,
     required String reason,
-  }) {
-    throw UnimplementedError('Diagnostic result reopen is not implemented');
-  }
+  });
 }
 
 class ClinicalInboxApiService extends ClinicalInboxApi {

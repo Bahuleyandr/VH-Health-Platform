@@ -27,11 +27,13 @@ class SessionRevocationListener extends StatefulWidget {
     @visibleForTesting this.revocationEvents,
     @visibleForTesting this.forcedLogout,
     @visibleForTesting this.navigateToLogin,
+    this.recentPatientsClear,
   });
   final Widget child;
   final Stream<dynamic>? revocationEvents;
   final Future<int> Function()? forcedLogout;
   final VoidCallback? navigateToLogin;
+  final StaffRecentPatientsClear? recentPatientsClear;
 
   @override
   State<SessionRevocationListener> createState() =>
@@ -79,7 +81,10 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
             // Kill the poll-timer providers too — the forced cleanup already
             // tears down the WebSocket, but the pollers would keep firing
             // authenticated-looking requests and holding cached PHI (STF-1).
-            await stopStaffRealtimePollers(context);
+            await stopStaffRealtimePollers(
+              context,
+              recentPatientsClear: widget.recentPatientsClear,
+            );
           }
         },
         navigateToLogin: () {

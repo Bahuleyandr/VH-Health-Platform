@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import '../config/api_config.dart';
+import '../navigation/staff_route_policy.dart';
 import '../platform_info.dart';
 import '../services/code_blue_notifier.dart';
 import '../services/hr_api_service.dart';
@@ -141,9 +142,11 @@ class NotificationItem {
   String? get actionRoute {
     final explicit = data['route']?.toString().trim();
     if (explicit != null && explicit.isNotEmpty) {
-      return _normalizeStaffRoute(explicit);
+      return StaffRoutePolicy.sanitizeExternalRoute(explicit);
     }
-    return _defaultRouteForType(normalizedType);
+    return StaffRoutePolicy.sanitizeExternalRoute(
+      _defaultRouteForType(normalizedType),
+    );
   }
 
   String get actionLabel {
@@ -671,13 +674,4 @@ String? _defaultRouteForType(String type) {
   if (t.contains('ATTENDANCE')) return '/attendance';
   if (t.contains('LEAVE')) return '/leave';
   return null;
-}
-
-String _normalizeStaffRoute(String route) {
-  if (route == '/admissions') return '/emr/admissions';
-  if (route.startsWith('/admissions?')) {
-    return route.replaceFirst('/admissions', '/emr/admissions');
-  }
-  if (route == '/housekeeping') return '/housekeeping-tasks';
-  return route;
 }

@@ -103,6 +103,24 @@ void main() {
             headers: {'content-type': 'application/json'},
           );
         }
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/pharmacy-orders/catalog')) {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': [
+                {
+                  'catalog_id': 41,
+                  'name': 'Aspirin',
+                  'strength': '75 mg',
+                  'form': 'tablet',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
         return http.Response(
           jsonEncode({'success': true, 'data': const {}}),
           200,
@@ -277,6 +295,12 @@ void main() {
         strings.drugChartColumnDose,
       );
       await tester.enterText(drugField, 'Aspirin');
+      await tester.pump(const Duration(milliseconds: 300));
+      await pumpUiTransition(tester);
+      final catalogSuggestion = find.widgetWithText(ListTile, 'Aspirin');
+      expect(catalogSuggestion, findsOneWidget);
+      await tester.tap(catalogSuggestion);
+      await pumpUiTransition(tester);
       await tester.enterText(doseField, '75 mg');
       final save = find.widgetWithText(FilledButton, strings.actionSave);
       await tester.ensureVisible(save);

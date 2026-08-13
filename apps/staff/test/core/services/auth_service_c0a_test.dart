@@ -18,6 +18,7 @@ import 'package:vhhealth_core/services/offline_queue.dart';
 import 'package:vhhealth_staff/core/config/api_config.dart';
 import 'package:vhhealth_staff/core/config/c0a_reconciliation_config.dart';
 import 'package:vhhealth_staff/core/services/auth_service.dart';
+import 'package:vhhealth_staff/core/services/recent_patients_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -35,12 +36,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     secureStorage.reset();
     VHHttpClient.resetClientForTesting();
+    await RecentPatientsService.resetForTesting();
     await ConnectivitySyncService.instance.resetForTesting();
     await OfflineQueue.deleteTestDatabase();
   });
 
   tearDown(() async {
     VHHttpClient.resetClientForTesting();
+    await RecentPatientsService.resetForTesting();
     await ConnectivitySyncService.instance.resetForTesting();
     await OfflineQueue.deleteTestDatabase();
   });
@@ -218,7 +221,7 @@ void main() {
       expect(await storage.read(key: 'device_token'), 'registered-device');
       expect(
         await storage.read(key: 'recent_patients:staff:staff-current'),
-        '[{"uid":"patient-a"}]',
+        isNull,
       );
       expect(
         await storage.read(key: OfflineQueue.debugEncryptionKeyName),
@@ -239,6 +242,10 @@ void main() {
       final queueKey = await storage.read(
         key: OfflineQueue.debugEncryptionKeyName,
       );
+      await storage.write(
+        key: 'recent_patients:staff:staff-current',
+        value: '[{"uid":"patient-a"}]',
+      );
       var backendPosts = 0;
       VHHttpClient.setClientForTesting(
         MockClient((request) async {
@@ -255,6 +262,10 @@ void main() {
       expect(
         await storage.read(key: OfflineQueue.debugEncryptionKeyName),
         queueKey,
+      );
+      expect(
+        await storage.read(key: 'recent_patients:staff:staff-current'),
+        isNull,
       );
 
       await OfflineQueue.resetForTesting();

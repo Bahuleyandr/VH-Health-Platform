@@ -12,6 +12,7 @@ export function runFlutterStage() {
   run(process.execPath, ['--test', 'scripts/check-docs-plugin-versions.test.mjs']);
   run(process.execPath, ['scripts/check-docs-plugin-versions.mjs']);
   run(process.execPath, ['scripts/generate-vital-bounds.mjs', '--check']);
+  run(process.execPath, ['scripts/generate-staff-role-contract.mjs', '--check']);
 
   run('dart', ['pub', 'get']);
   run('dart', ['run', 'melos', 'bootstrap']);

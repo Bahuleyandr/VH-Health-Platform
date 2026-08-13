@@ -7495,6 +7495,11 @@ class AppStrings {
       's4.lib.drug_chart.dose_required':
           "Dose is required; select a drug with strength or enter dose",
       's4.lib.drug_chart.drug_required': "Drug is required",
+      's4.lib.drug_chart.catalog_selection_required':
+          "Select a medication from the canonical catalog before saving.",
+      's4.lib.drug_chart.catalog_unavailable':
+          "Medication catalog unavailable. Retry before creating this order.",
+      's4.lib.drug_chart.catalog_unavailable_short': "Catalog unavailable",
       's4.lib.drug_chart.empty_body':
           "Add a medication row to start this inpatient chart.",
       's4.lib.drug_chart.inpatient_drug_chart': "Inpatient Drug Chart",
@@ -13916,6 +13921,11 @@ class AppStrings {
       's4.lib.drug_chart.dose_required':
           "खुराक आवश्यक है; ताकत वाली दवा चुनें या खुराक दर्ज करें",
       's4.lib.drug_chart.drug_required': "दवा आवश्यक है",
+      's4.lib.drug_chart.catalog_selection_required':
+          "सहेजने से पहले अधिकृत दवा सूची से दवा चुनें।",
+      's4.lib.drug_chart.catalog_unavailable':
+          "दवा सूची उपलब्ध नहीं है। यह आदेश बनाने से पहले फिर से प्रयास करें।",
+      's4.lib.drug_chart.catalog_unavailable_short': "दवा सूची उपलब्ध नहीं है",
       's4.lib.drug_chart.empty_body':
           "इस इनपेशेंट चार्ट को शुरू करने के लिए दवा पंक्ति जोड़ें।",
       's4.lib.drug_chart.inpatient_drug_chart': "रोगी दवा चार्ट",
@@ -20868,6 +20878,12 @@ class AppStrings {
       's4.lib.drug_chart.dose_required':
           "அளவு தேவை; வலிமையுள்ள மருந்தைத் தேர்ந்தெடுக்கவும் அல்லது அளவை உள்ளிடவும்",
       's4.lib.drug_chart.drug_required': "மருந்து தேவை",
+      's4.lib.drug_chart.catalog_selection_required':
+          "சேமிப்பதற்கு முன் அங்கீகரிக்கப்பட்ட மருந்துப் பட்டியலிலிருந்து ஒரு மருந்தைத் தேர்ந்தெடுக்கவும்.",
+      's4.lib.drug_chart.catalog_unavailable':
+          "மருந்துப் பட்டியல் கிடைக்கவில்லை. இந்த உத்தரவை உருவாக்கும் முன் மீண்டும் முயற்சிக்கவும்.",
+      's4.lib.drug_chart.catalog_unavailable_short':
+          "மருந்துப் பட்டியல் கிடைக்கவில்லை",
       's4.lib.drug_chart.empty_body':
           "இந்த உள்நோயாளி அட்டவணையைத் தொடங்க ஒரு மருந்து வரிசையைச் சேர்க்கவும்.",
       's4.lib.drug_chart.inpatient_drug_chart':
@@ -27853,6 +27869,12 @@ class AppStrings {
       's4.lib.drug_chart.dose_required':
           "మోతాదు అవసరం; బలం ఉన్న మందును ఎంచుకోండి లేదా మోతాదును నమోదు చేయండి",
       's4.lib.drug_chart.drug_required': "మందు అవసరం",
+      's4.lib.drug_chart.catalog_selection_required':
+          "సేవ్ చేయడానికి ముందు ఆమోదించబడిన మందుల జాబితా నుండి ఒక మందును ఎంచుకోండి.",
+      's4.lib.drug_chart.catalog_unavailable':
+          "మందుల జాబితా అందుబాటులో లేదు. ఈ ఆర్డర్‌ను రూపొందించే ముందు మళ్లీ ప్రయత్నించండి.",
+      's4.lib.drug_chart.catalog_unavailable_short':
+          "మందుల జాబితా అందుబాటులో లేదు",
       's4.lib.drug_chart.empty_body':
           "ఈ ఇన్‌పేషెంట్ చార్ట్‌ను ప్రారంభించడానికి మందు వరుసను చేర్చండి.",
       's4.lib.drug_chart.inpatient_drug_chart': "ఇన్‌పేషెంట్ డ్రగ్ చార్ట్",

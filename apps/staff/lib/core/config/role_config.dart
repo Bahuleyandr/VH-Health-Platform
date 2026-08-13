@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'staff_role_contract.g.dart';
+
 // ─── Staff Role Enum ────────────────────────────────────────────────────────
 
 enum StaffRole {
@@ -47,8 +49,20 @@ enum StaffRole {
   final String value;
   const StaffRole(this.value);
 
-  static StaffRole fromString(String role) {
+  static StaffRole fromString(String role) =>
+      tryFromString(role) ?? StaffRole.general;
+
+  /// Parses a backend role without silently granting the GENERAL_STAFF
+  /// capability set to an unknown value. Route authorization uses this
+  /// nullable form so a misspelled or newly introduced role fails closed.
+  static StaffRole? tryFromString(String role) {
     final normalized = role.trim().toUpperCase();
+    final canonicalArchetype = canonicalStaffRoleArchetypeCodes[normalized];
+    if (canonicalArchetype != null) {
+      return StaffRole.values.firstWhere(
+        (role) => role.value == canonicalArchetype,
+      );
+    }
     if (const {
       'CONSULTANT',
       'CONSULTANT_PHYSICIAN',
@@ -196,10 +210,10 @@ enum StaffRole {
     if (const {'HOUSEKEEPING', 'HOUSEKEEPING_ATTENDANT'}.contains(normalized)) {
       return StaffRole.housekeeping;
     }
-    return StaffRole.values.firstWhere(
-      (r) => r.value == normalized,
-      orElse: () => StaffRole.general,
-    );
+    for (final role in StaffRole.values) {
+      if (role.value == normalized) return role;
+    }
+    return null;
   }
 
   String get displayNameKey => 'role.display.${value.toLowerCase()}';
@@ -1368,8 +1382,6 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
-        _housekeepingHub,
-        _housekeepingTasks,
         _leave,
         _staffDirectory,
         _messaging,
@@ -1383,6 +1395,39 @@ class RoleFeatures {
       _reportsGrievances,
     ];
   }
+
+  /// Returns features authorized for an exact canonical backend role.
+  /// Presentation archetypes remain useful for labels and ordering, but they
+  /// must not grant or hide a protected route for a different raw role.
+  static List<DashboardFeature> getFeaturesForRawRole(String rawRole) {
+    final role = StaffRole.tryFromString(rawRole);
+    if (role == null) return const [];
+    final normalized = rawRole.trim().toUpperCase();
+    if (!canonicalStaffRoleCodes.contains(normalized)) {
+      return getFeaturesForRole(role);
+    }
+
+    final allowedIds = canonicalStaffFeatureRouteRoleCodes.entries
+        .where((entry) => entry.value.contains(normalized))
+        .map((entry) => entry.key)
+        .toSet();
+    final ordered = <DashboardFeature>[];
+    final seen = <String>{};
+    for (final feature in [
+      ...getFeaturesForRole(role),
+      ..._featureCatalogById.values,
+    ]) {
+      if (allowedIds.contains(feature.id) && seen.add(feature.id)) {
+        ordered.add(feature);
+      }
+    }
+    return ordered;
+  }
+
+  static final Map<String, DashboardFeature> _featureCatalogById = {
+    for (final role in StaffRole.values)
+      for (final feature in getFeaturesForRole(role)) feature.id: feature,
+  };
 
   static List<DashboardFeature> _withPayrollSelfService(
     StaffRole role,

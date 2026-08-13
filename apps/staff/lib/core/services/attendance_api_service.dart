@@ -5,7 +5,7 @@ import 'api_client.dart';
 class AttendanceApiService {
   AttendanceApiService._();
 
-  // ─── Helpers (shared with StaffApiService) ────────────────────────────────
+  // ─── Response-envelope helpers ───────────────────────────────────────────
 
   static Future<Map<String, dynamic>> _get(
     String path, {

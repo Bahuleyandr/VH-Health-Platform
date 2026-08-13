@@ -10,6 +10,7 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import 'api_client.dart';
+import 'recent_patients_service.dart';
 import 'telemetry_service.dart';
 
 class StaffSsoProvider {
@@ -169,6 +170,7 @@ class AuthService {
         'device_type',
         currentDeviceType,
       );
+      RecentPatientsService.beginSession();
     } catch (_) {
       await ApiConfig.clearSessionIdentity();
       if (trustedDeviceToken != null) {
@@ -518,6 +520,10 @@ class AuthService {
     } catch (e) {
       debugPrint('AuthService: realtime teardown failed: $e');
     }
+    // This is the one local-PHI retention policy for explicit, idle, forced,
+    // and server-revoked logout. It must run before identity is cleared so an
+    // install whose cache index is damaged can still target the current key.
+    await RecentPatientsService.clear();
     await ApiConfig.clearSessionIdentity();
     await Telemetry.event(telemetryEvent);
     await CrashReporter.instance.setUserId(null);

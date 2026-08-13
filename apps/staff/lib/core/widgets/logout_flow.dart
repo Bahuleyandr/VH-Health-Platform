@@ -26,10 +26,12 @@ Future<void> stopStaffRealtimePollers(
   BuildContext context, {
   bool unregisterNotificationBackend = false,
   bool requireVerifiedNotificationTeardown = false,
+  StaffRecentPatientsClear? recentPatientsClear,
 }) => captureStaffRealtimePollerStopper(
   context,
   unregisterNotificationBackend: unregisterNotificationBackend,
   requireVerifiedNotificationTeardown: requireVerifiedNotificationTeardown,
+  recentPatientsClear: recentPatientsClear,
 )();
 
 /// Captures session-owned providers while their authenticated route is still
@@ -39,6 +41,7 @@ Future<void> Function() captureStaffRealtimePollerStopper(
   BuildContext context, {
   bool unregisterNotificationBackend = false,
   bool requireVerifiedNotificationTeardown = false,
+  StaffRecentPatientsClear? recentPatientsClear,
 }) {
   final messageProvider = _readProvider<MessageUnreadProvider>(context);
   final clinicalProvider = _readProvider<ClinicalInboxProvider>(context);
@@ -53,6 +56,7 @@ Future<void> Function() captureStaffRealtimePollerStopper(
     realtimeProvider: realtimeProvider,
     unregisterNotificationBackend: unregisterNotificationBackend,
     requireVerifiedNotificationTeardown: requireVerifiedNotificationTeardown,
+    recentPatientsClear: recentPatientsClear,
   );
 }
 
@@ -64,6 +68,7 @@ Future<void> _endStaffAuthenticatedSession({
   RealtimeProvider? realtimeProvider,
   required bool unregisterNotificationBackend,
   required bool requireVerifiedNotificationTeardown,
+  StaffRecentPatientsClear? recentPatientsClear,
 }) async {
   messageProvider?.stop();
   clinicalProvider?.stop();
@@ -110,7 +115,7 @@ Future<void> _endStaffAuthenticatedSession({
     }
   }
   await _settleStaffSessionCleanup(
-    RecentPatientsService.clear(),
+    (recentPatientsClear ?? RecentPatientsService.clear)(),
     failureLabel: 'Recent-patient cleanup failed',
   );
   await _settleStaffSessionCleanup(
@@ -158,6 +163,7 @@ T? _readProvider<T>(BuildContext context) {
 
 typedef StaffLogoutOperation = Future<StaffLogoutResult> Function();
 typedef StaffSyncStatusOpener = Future<void> Function(BuildContext context);
+typedef StaffRecentPatientsClear = Future<void> Function();
 typedef ForcedSessionCleanup = Future<int> Function();
 typedef PreservedItemReporter = void Function(int count);
 typedef StaffSessionStopper = FutureOr<void> Function();
@@ -214,6 +220,7 @@ class LogoutFlow {
     required String confirmationBody,
     @visibleForTesting StaffLogoutOperation? logoutOperation,
     @visibleForTesting StaffSyncStatusOpener? syncStatusOpener,
+    @visibleForTesting StaffRecentPatientsClear? recentPatientsClear,
   }) async {
     final strings = AppStrings.of(context);
     final confirmed = await showDialog<bool>(
@@ -253,6 +260,7 @@ class LogoutFlow {
       realtimeProvider: realtimeProvider,
       unregisterNotificationBackend: unregisterNotificationBackend,
       requireVerifiedNotificationTeardown: requireVerifiedNotificationTeardown,
+      recentPatientsClear: recentPatientsClear,
     );
     final result =
         await (logoutOperation ??
