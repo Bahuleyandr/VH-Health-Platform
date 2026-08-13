@@ -127,12 +127,19 @@ spec:
         - protocol: TCP
           port: 587
 
-    # Ollama deep-tier LLM — same namespace (vhhealth).
-    # Backend calls CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434
+    # Ollama deep-tier LLM — same namespace (vhhealth). HELD capability: the
+    # workload lives at infra/kubernetes/held/clinical-ai-deep-tier/ and is
+    # composed by nothing, so today this selector matches no pod and the rule
+    # grants no reachable egress. It is retained so that activating the held
+    # tier does not also require editing this active policy; the real
+    # fail-closed switch is the backend's own CLINICAL_AI_DEEP_PROVIDER, which
+    # is unset. Backend would call
+    # CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434
     # for deep-tier clinical AI modules (discharge_summary, medication_reconciliation,
     # abnormal_result_triage, obstetric_risk_assistant).
-    # The Ollama NetworkPolicy (apps/ollama/network-policy.yaml) mirrors this by
-    # allowing ingress from app.kubernetes.io/name=vhhealth-backend pods only.
+    # The held Ollama NetworkPolicy
+    # (held/clinical-ai-deep-tier/network-policy.yaml) mirrors this by allowing
+    # ingress from app.kubernetes.io/name=vhhealth-backend pods only.
     - to:
         - podSelector:
             matchLabels:

@@ -32,24 +32,121 @@ export const EXPECTED_AWS_CLI_IMAGE =
 export const EXPECTED_ALPINE_OPENSSL_IMAGE =
   'docker.io/alpine/openssl:3.5.7@sha256:045a40a53b8e283cff95052e0c39f256b7467d48c7445260d4f180fc0e767999';
 
+// The generation the LIVE cluster is declared to run (docs/DEPLOYMENT_GUIDE.md
+// §6, docs/PRODUCTION_DB_HARDENING.md, docs/GO_LIVE_ACTIVATION_CHECKLIST.md A4).
+// The exact secure PG17 minor and its digest are operator evidence this
+// repository does not hold — docs/CNPG_POSTGRES_18_QUALIFICATION.md §1 requires
+// the operator to capture the digest off the running cluster — so the digest is
+// the documented all-zero FAIL-CLOSED placeholder. Audit 2026-08-13, P1: before
+// this, the production Cluster carried EXPECTED_PG_IMAGE, so one ordinary sync
+// of the platform Application would have run a declarative offline pg_upgrade
+// on the live clinical database.
+export const EXPECTED_ACTIVE_PG_IMAGE = `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@sha256:${'0'.repeat(64)}`;
+
+// The same declared PostgreSQL 17 generation, at its REAL publicly resolvable
+// digest, for the non-production overlays. The fail-closed all-zero hold above
+// exists for exactly two production-only reasons — the qualified minor+digest of
+// the LIVE clinical database is operator evidence, and a major-version bump on
+// that cluster is an irreversible pg_upgrade of patient data. Neither applies to
+// dev or staging, so inheriting the hold there bought no safety and cost them
+// their database entirely. check-prod-digests-pinned.mjs re-verifies this digest
+// against ghcr.io on every run.
+export const NON_PROD_ACTIVE_PG_IMAGE =
+  'ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@sha256:f94c0eea2a7e9d40880adebd27a912d8473d5805a99c4dbc6eb6244ad9770620';
+
+// ── PostgreSQL generation pairing ──────────────────────────────────────────
+// A Cluster's `imageName` generation and its Barman `serverName` archive
+// identity are ONE decision, not two. docs/CNPG_POSTGRES_18_QUALIFICATION.md
+// ("Credential and archive identities"): PostgreSQL 18 archives use
+// `vhhealth-pg18`, distinct from the historical PostgreSQL 17 identity
+// `vhhealth-pg`, and PostgreSQL 18 WAL must never be appended to the
+// PostgreSQL 17 identity.
+export const PG17_ARCHIVE_IDENTITY = 'vhhealth-pg';
+export const PG18_ARCHIVE_IDENTITY = 'vhhealth-pg18';
+
+// Every PostgreSQL image this repository may declare on a Cluster, mapped to
+// the archive-identity generation it must be paired with.
+export const PG_IMAGE_GENERATIONS = new Map([
+  [EXPECTED_ACTIVE_PG_IMAGE, 17],
+  [NON_PROD_ACTIVE_PG_IMAGE, 17],
+  [EXPECTED_PG_IMAGE, 18],
+]);
+
+// Non-production clusters share the production R2 bucket and destination
+// prefix, so `serverName` is the only thing keeping their WAL out of the
+// production archive. They must therefore use neither production identity.
+export const ENVIRONMENT_DATABASE_CONTRACT = Object.freeze([
+  {
+    root: 'infra/kubernetes/overlays/prod',
+    production: true,
+    imageName: EXPECTED_ACTIVE_PG_IMAGE,
+    archiveIdentity: PG17_ARCHIVE_IDENTITY,
+  },
+  {
+    root: 'infra/kubernetes/overlays/staging',
+    production: false,
+    imageName: NON_PROD_ACTIVE_PG_IMAGE,
+    archiveIdentity: 'vhhealth-pg-staging',
+  },
+  {
+    root: 'infra/kubernetes/overlays/dev',
+    production: false,
+    imageName: NON_PROD_ACTIVE_PG_IMAGE,
+    archiveIdentity: 'vhhealth-pg-dev',
+  },
+]);
+
+export const NON_PRODUCTION_ROOTS = Object.freeze(
+  ENVIRONMENT_DATABASE_CONTRACT.filter(({ production }) => !production).map(({ root }) => root),
+);
+
+// Pending-GPU clinical-AI deep tier. Held, composed by nothing.
+export const HELD_OLLAMA_IMAGE =
+  'docker.io/ollama/ollama:0.5.4@sha256:18bfb1d605604fd53dcad20d0556df4c781e560ebebcd923454d627c994a0e37';
+
+export const PG18_CUTOVER_HELD_SOURCE =
+  'infra/kubernetes/held/c1-1-pg18-cutover/pg18-cutover-target.yaml';
+export const DEEP_TIER_HELD_SOURCES = [
+  'infra/kubernetes/held/clinical-ai-deep-tier/kustomization.yaml',
+  'infra/kubernetes/held/clinical-ai-deep-tier/statefulset.yaml',
+  'infra/kubernetes/held/clinical-ai-deep-tier/deep-tier-preflight-job.yaml',
+];
+
 export const ALLOWED_ZERO_DIGEST_IMAGES = new Set([
   `ghcr.io/bahuleyandr/vh-health-platform-backend@sha256:${'0'.repeat(64)}`,
   `ghcr.io/bahuleyandr/vh-health-platform-adminportal@sha256:${'0'.repeat(64)}`,
   `ghcr.io/bahuleyandr/vhhealth-staff-web@sha256:${'0'.repeat(64)}`,
+  EXPECTED_ACTIVE_PG_IMAGE,
 ]);
 
 const expectedRenderedPins = [
-  EXPECTED_PG_IMAGE,
+  EXPECTED_ACTIVE_PG_IMAGE,
   'quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332',
-  'docker.io/ollama/ollama:0.5.4@sha256:18bfb1d605604fd53dcad20d0556df4c781e560ebebcd923454d627c994a0e37',
-  'docker.io/library/busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662',
   EXPECTED_CURL_IMAGE,
   EXPECTED_AWS_CLI_IMAGE,
   EXPECTED_ALPINE_OPENSSL_IMAGE,
 ];
 
+// Images that must NEVER appear as a rendered workload image field in either
+// active production root. Each names a capability that is deliberately held
+// outside the active graph; a reappearance here is an unreviewed activation.
+const forbiddenActiveWorkloadImages = [
+  {
+    ref: EXPECTED_PG_IMAGE,
+    why:
+      'PostgreSQL 18.4 is the HELD cutover target; the active graph must stay on its ' +
+      `declared PostgreSQL 17 generation (see ${PG18_CUTOVER_HELD_SOURCE})`,
+  },
+  {
+    ref: HELD_OLLAMA_IMAGE,
+    why:
+      'the pending-GPU clinical-AI deep tier is HELD at ' +
+      'infra/kubernetes/held/clinical-ai-deep-tier/ and must not be composed',
+  },
+];
+
 const pgImageSourceFiles = [
-  'infra/kubernetes/base/cnpg/cluster.yaml',
+  PG18_CUTOVER_HELD_SOURCE,
   'infra/kubernetes/base/cnpg/operator.yaml',
   'infra/kubernetes/base/cnpg/dr-restore-drill.yaml',
   'infra/kubernetes/base/cnpg/pg18-upgrade-rehearsal.yaml',
@@ -336,12 +433,28 @@ export function assertLiteralAndImageContract(platformRender, appsRender) {
   requireCondition(
     zeroDigestRefs.size === ALLOWED_ZERO_DIGEST_IMAGES.size &&
       [...ALLOWED_ZERO_DIGEST_IMAGES].every((ref) => zeroDigestRefs.has(ref)),
-    `rendered all-zero image exceptions must be exactly the three documented app repositories`,
+    'rendered all-zero image exceptions must be exactly the three documented app ' +
+      'repositories plus the fail-closed active PostgreSQL 17 database pin',
   );
 
   const renderedRefSet = new Set(imageRefs.map(({ ref }) => ref));
   for (const expected of expectedRenderedPins) {
     requireCondition(renderedRefSet.has(expected), `required pinned image is absent from production renders: ${expected}`);
+  }
+
+  // Held capabilities must not reappear as rendered workload images. The
+  // version markers scanned above deliberately still carry the PostgreSQL 18.4
+  // provenance pin, so this check is scoped to fields that actually schedule a
+  // container: `image` and `imageName`.
+  for (const { ref, why } of forbiddenActiveWorkloadImages) {
+    const offender = imageRefs.find(
+      (entry) => entry.ref === ref && (entry.key === 'image' || entry.key === 'imageName'),
+    );
+    requireCondition(
+      !offender,
+      `${offender?.target}:${offender?.line} composes a HELD image into the active ` +
+        `production graph (${ref}) — ${why}`,
+    );
   }
 
   return imageRefs;
@@ -355,6 +468,22 @@ function assertVersionAndImageSources(imageRefs) {
       `${path} must use the exact PostgreSQL 18.4 Bookworm image pin`,
     );
   }
+
+  // The live cluster definition is composed into the production overlay, so it
+  // must carry the declared PostgreSQL 17 generation and must not name the
+  // PostgreSQL 18 target at all.
+  const activeCluster = read('infra/kubernetes/base/cnpg/cluster.yaml');
+  requireCondition(
+    activeCluster.includes(`imageName: ${EXPECTED_ACTIVE_PG_IMAGE}`),
+    'base/cnpg/cluster.yaml must pin the fail-closed active PostgreSQL 17 image ' +
+      `(${EXPECTED_ACTIVE_PG_IMAGE})`,
+  );
+  rejectText(
+    activeCluster,
+    new RegExp(`^\\s*imageName:\\s*${escapeRegExp(EXPECTED_PG_IMAGE)}\\s*$`, 'm'),
+    'base/cnpg/cluster.yaml pins the HELD PostgreSQL 18.4 target on the live cluster; ' +
+      `the cutover belongs in ${PG18_CUTOVER_HELD_SOURCE}`,
+  );
 
   const operator = read('infra/kubernetes/base/cnpg/operator.yaml');
   for (const required of [
@@ -406,12 +535,251 @@ function assertVersionAndImageSources(imageRefs) {
     );
   }
 
-  const cnpgPostgresRefs = imageRefs
-    .map(({ ref }) => ref)
-    .filter((ref) => ref.startsWith('ghcr.io/cloudnative-pg/postgresql:'));
+  // Two distinct roles, asserted separately so neither can drift into the other:
+  //   - workload fields (`image` / `imageName`) actually schedule a database
+  //     container and must be the declared, fail-closed PostgreSQL 17 pin;
+  //   - the inert `postgresImage` provenance marker in the operator version
+  //     ConfigMap records the qualified PostgreSQL 18.4 ladder target.
+  const cnpgPostgresRefs = imageRefs.filter(({ ref }) =>
+    ref.startsWith('ghcr.io/cloudnative-pg/postgresql:'),
+  );
   requireCondition(cnpgPostgresRefs.length > 0, 'production render contains no CNPG PostgreSQL image');
-  for (const ref of cnpgPostgresRefs) {
-    requireCondition(ref === EXPECTED_PG_IMAGE, `inconsistent CNPG PostgreSQL image: ${ref}`);
+
+  const workloadRefs = cnpgPostgresRefs.filter(
+    ({ key }) => key === 'image' || key === 'imageName',
+  );
+  requireCondition(
+    workloadRefs.length > 0,
+    'production render schedules no CNPG PostgreSQL container',
+  );
+  for (const { ref, target, line } of workloadRefs) {
+    requireCondition(
+      ref === EXPECTED_ACTIVE_PG_IMAGE,
+      `${target}:${line} runs a CNPG PostgreSQL image that is not the declared, ` +
+        `fail-closed active generation: ${ref}`,
+    );
+  }
+
+  const markerRefs = cnpgPostgresRefs.filter(({ key }) => key === 'postgresImage');
+  requireCondition(
+    markerRefs.length === 1 && markerRefs[0].ref === EXPECTED_PG_IMAGE,
+    'the inert CNPG version marker must record exactly one PostgreSQL 18.4 ladder target',
+  );
+}
+
+// ── Archive-identity generation, and the pairing invariant ─────────────────
+// `vhhealth-pg18` and any identity derived from it are PostgreSQL 18 archives;
+// everything else in the `vhhealth-pg*` family is a PostgreSQL 17 archive.
+export function archiveIdentityGeneration(identity) {
+  return /^vhhealth-pg18(?![0-9])/.test(identity) ? 18 : 17;
+}
+
+// The single invariant behind both halves of this contract: an imageName
+// generation and a serverName archive identity may never change independently.
+export function assertDatabaseGenerationPairing({ label, imageName, serverName }) {
+  const imageGeneration = PG_IMAGE_GENERATIONS.get(imageName);
+  requireCondition(
+    imageGeneration !== undefined,
+    `${label} declares an unrecognised PostgreSQL image ${imageName}; every Cluster image must ` +
+      'be one of the reviewed generation pins in check-c1-1-manifest-contract.mjs',
+  );
+  const identityGeneration = archiveIdentityGeneration(serverName);
+  requireCondition(
+    identityGeneration === imageGeneration,
+    `${label} pairs a PostgreSQL ${imageGeneration} image with a PostgreSQL ${identityGeneration} ` +
+      `archive identity (imageName ${imageName}, serverName ${serverName}). Image generation and ` +
+      'archive identity MOVE TOGETHER: PostgreSQL 18 WAL must never be appended to a PostgreSQL 17 ' +
+      'archive, nor the reverse (docs/CNPG_POSTGRES_18_QUALIFICATION.md, "Credential and archive ' +
+      `identities"). The cutover replaces both in one atomic patch — ${PG18_CUTOVER_HELD_SOURCE}.`,
+  );
+  return imageGeneration;
+}
+
+function soleMatch(raw, pattern, label, what) {
+  const matches = [...raw.matchAll(pattern)].map((match) => unquote(match[1]));
+  requireCondition(matches.length === 1, `${label} must declare exactly one ${what}; found ${matches.length}`);
+  return matches[0];
+}
+
+function clusterGenerationFields(docs, label) {
+  const cluster = resource(docs, 'Cluster', 'vhhealth-pg');
+  return {
+    imageName: soleMatch(cluster.raw, /^\s*imageName:\s*(.+?)\s*$/gm, label, 'imageName'),
+    serverName: soleMatch(cluster.raw, /^\s*serverName:\s*(.+?)\s*$/gm, label, 'plugin serverName'),
+  };
+}
+
+function renderedEnvValue(doc, name, label) {
+  return soleMatch(
+    doc.raw,
+    new RegExp(`^\\s*-\\s*name:\\s*${escapeRegExp(name)}\\s*\\n\\s*value:\\s*(.+?)\\s*$`, 'gm'),
+    label,
+    `${name} value`,
+  );
+}
+
+// Audit 2026-08-13 (P1) follow-up: the archive identity was previously asserted
+// as the literal post-cutover `vhhealth-pg18` regardless of the image, so the
+// gate red-lined the correct live PG17 identity and green-lit the contaminating
+// one. It now asserts the PAIR, per environment, in every rendered overlay —
+// including staging and dev, which the previous evidence table never covered.
+export function assertDatabaseGenerationContract(docsByRoot) {
+  for (const { root, production, imageName, archiveIdentity } of ENVIRONMENT_DATABASE_CONTRACT) {
+    const docs = docsByRoot.get(root);
+    requireCondition(docs, `${root} was not rendered; the database generation contract needs it`);
+
+    const fields = clusterGenerationFields(docs, `${root} Cluster/vhhealth-pg`);
+    requireCondition(
+      fields.imageName === imageName,
+      `${root} Cluster/vhhealth-pg must render imageName ${imageName}; got ${fields.imageName}`,
+    );
+    requireCondition(
+      fields.serverName === archiveIdentity,
+      `${root} Cluster/vhhealth-pg must render the archive identity ${archiveIdentity}; got ` +
+        `${fields.serverName}`,
+    );
+    assertDatabaseGenerationPairing({
+      label: `${root} Cluster/vhhealth-pg`,
+      imageName: fields.imageName,
+      serverName: fields.serverName,
+    });
+
+    if (!production) {
+      // A non-production cluster that adopts a production archive identity
+      // writes its WAL into the production archive prefix — a strictly worse
+      // outcome than the generation mismatch this contract exists to stop.
+      requireCondition(
+        fields.serverName !== PG17_ARCHIVE_IDENTITY && fields.serverName !== PG18_ARCHIVE_IDENTITY,
+        `${root} Cluster/vhhealth-pg uses the PRODUCTION archive identity ${fields.serverName}; a ` +
+          'non-production cluster shares the production bucket and prefix, so it must archive ' +
+          'under its own environment identity',
+      );
+      // The all-zero hold is a production-only decision. Inheriting it here is
+      // exactly the blast radius this check exists to catch: an overlay that
+      // renders successfully and can bring up no database at all.
+      rejectText(
+        fields.imageName,
+        /@sha256:0{64}$/,
+        `${root} Cluster/vhhealth-pg inherited the production fail-closed all-zero digest; ` +
+          'dev and staging carry no clinical data and must pin a real, pullable PostgreSQL 17 ' +
+          'digest',
+      );
+    }
+
+    // The daily verifier is NOT suspended: it reads the prefix this Cluster
+    // writes, so its archive identity must be the same value.
+    const verifier = resource(docs, 'CronJob', cnpgVerifierName);
+    const verifierIdentity = renderedEnvValue(
+      verifier,
+      'BARMAN_SERVER_NAME',
+      `${root} CronJob/${cnpgVerifierName}`,
+    );
+    requireCondition(
+      verifierIdentity === fields.serverName,
+      `${root} CronJob/${cnpgVerifierName} verifies archive identity ${verifierIdentity} while ` +
+        `Cluster/vhhealth-pg writes ${fields.serverName}; the daily verifier would prove nothing ` +
+        'about the archive this cluster actually produces',
+    );
+
+    // The restore proof is the other side: a suspended, owner-gated,
+    // POST-CUTOVER pair. It may name the PostgreSQL 18 identity only while it
+    // also names the PostgreSQL 18 image and stays suspended.
+    const proof = resource(docs, 'CronJob', 'cnpg-scheduled-restore-proof');
+    const proofLabel = `${root} CronJob/cnpg-scheduled-restore-proof`;
+    requireText(proof.raw, /^\s{2}suspend:\s*true\s*$/m, `${proofLabel} must remain suspended`);
+    assertDatabaseGenerationPairing({
+      label: proofLabel,
+      imageName: renderedEnvValue(proof, 'PG18_IMAGE', proofLabel),
+      serverName: renderedEnvValue(proof, 'BARMAN_SERVER_NAME', proofLabel),
+    });
+  }
+}
+
+// The held cutover patch `test`s the live archive identity, then `replace`s it.
+// That test is only meaningful while the supplied live value is NOT already the
+// post-cutover identity — otherwise it passes vacuously, the replace is a no-op,
+// and PostgreSQL 18 WAL lands in an archive holding PostgreSQL 17 WAL while the
+// guard reports success.
+export function assertCutoverPatchIsNonVacuous() {
+  const cutover = read(PG18_CUTOVER_HELD_SOURCE);
+  for (const required of [
+    `sourceArchiveIdentity: "${PG17_ARCHIVE_IDENTITY}"`,
+    `targetArchiveIdentity: "${PG18_ARCHIVE_IDENTITY}"`,
+    ': "${LIVE_PG17_ARCHIVE_IDENTITY:?Read the live PG17 archive identity off the running Cluster}"',
+    'if [ "${LIVE_PG17_ARCHIVE_IDENTITY}" = "vhhealth-pg18" ]; then',
+    '\\"op\\":\\"test\\",\\"path\\":\\"/spec/plugins/0/parameters/serverName\\",\\"value\\":\\"${LIVE_PG17_ARCHIVE_IDENTITY}\\"',
+    `\\"op\\":\\"replace\\",\\"path\\":\\"/spec/plugins/0/parameters/serverName\\",\\"value\\":\\"${PG18_ARCHIVE_IDENTITY}\\"`,
+    '\\"op\\":\\"replace\\",\\"path\\":\\"/spec/imageName\\"',
+  ]) {
+    requireCondition(
+      cutover.includes(required),
+      `${PG18_CUTOVER_HELD_SOURCE} cutover patch is not a non-vacuous atomic flip: missing ${required}`,
+    );
+  }
+}
+
+// Audit 2026-08-13 (P1): both pending capabilities must stay outside the active
+// graph, be genuinely composed by nothing, and fail closed on activation.
+function assertHeldActivationBoundary(appsDocs) {
+  const appsBarrel = read('infra/kubernetes/apps/kustomization.yaml');
+  rejectText(
+    appsBarrel,
+    /^\s*-\s*ollama\/?\s*$/m,
+    'the app barrel composes ollama/ again; the deep tier is HELD at ' +
+      'infra/kubernetes/held/clinical-ai-deep-tier/',
+  );
+  for (const doc of appsDocs) {
+    rejectText(
+      doc.raw,
+      /^\s{2}name:\s*ollama(-internal)?\s*$/m,
+      'the apps render contains an Ollama workload; the deep tier is HELD',
+    );
+  }
+
+  const cnpgBarrel = read('infra/kubernetes/base/cnpg/kustomization.yaml');
+  for (const excluded of ['dr-restore-drill.yaml', 'pg18-upgrade-rehearsal.yaml']) {
+    rejectText(
+      cnpgBarrel,
+      new RegExp(`^\\s*-\\s*${escapeRegExp(excluded)}\\s*$`, 'm'),
+      `base/cnpg/kustomization.yaml composes the operator-owned template ${excluded}`,
+    );
+  }
+
+  // Each held path must exist, be self-describing, and still carry its exact pin
+  // so "held" never degrades into "quietly deleted".
+  const cutover = read(PG18_CUTOVER_HELD_SOURCE);
+  for (const required of [EXPECTED_PG_IMAGE, 'vhhealth.app/deploy-state: "held"']) {
+    requireCondition(
+      cutover.includes(required),
+      `${PG18_CUTOVER_HELD_SOURCE} lacks required held-cutover value: ${required}`,
+    );
+  }
+  requireCondition(
+    read('infra/kubernetes/held/c1-1-pg18-cutover/kustomization.yaml').includes(
+      'vhhealth-c1-1-pg18-cutover-held',
+    ),
+    'the PG18 cutover kustomization lacks its -held identity',
+  );
+
+  const [deepTierBarrel, deepTierWorkload, deepTierPreflight] =
+    DEEP_TIER_HELD_SOURCES.map(read);
+  requireCondition(
+    deepTierBarrel.includes('vhhealth-clinical-ai-deep-tier-held'),
+    'the deep-tier kustomization lacks its -held identity',
+  );
+  requireCondition(
+    deepTierWorkload.includes(HELD_OLLAMA_IMAGE),
+    'the held deep tier lost its exact pinned Ollama image',
+  );
+  // The preflight must gate activation, not report failure after the fact.
+  for (const required of [
+    'argocd.argoproj.io/hook: PreSync',
+    'argocd.argoproj.io/hook-delete-policy: BeforeHookCreation',
+  ]) {
+    requireCondition(
+      deepTierPreflight.includes(required),
+      `the deep-tier preflight is not a fail-closed activation hook: missing ${required}`,
+    );
   }
 }
 
@@ -503,7 +871,16 @@ function assertScheduleObjectStoreAndEndpoint(platformDocs, appsDocs) {
     cluster.raw.includes(objectStore.name),
     `Cluster/vhhealth-pg does not reference ObjectStore/${objectStore.name}`,
   );
-  requireText(cluster.raw, /^\s+serverName:\s*vhhealth-pg18\s*$/m, 'Cluster/vhhealth-pg lacks the PG18 archive identity');
+  // The archive identity is NOT asserted as a literal here. Asserting the
+  // post-cutover `vhhealth-pg18` unconditionally was fail-OPEN: it red-lined an
+  // operator who wrote the correct live PostgreSQL 17 identity and green-lit
+  // the contaminating one. It is asserted as a PAIR with the image generation,
+  // per environment, in assertDatabaseGenerationContract().
+  requireText(
+    cluster.raw,
+    /^\s+serverName:\s*\S+\s*$/m,
+    'Cluster/vhhealth-pg declares no Barman archive identity',
+  );
   requireText(
     cluster.raw,
     /^\s+(?:-\s*)?isWALArchiver:\s*true\s*$/m,
@@ -1251,6 +1628,14 @@ export function runManifestContract({ kustomize } = {}) {
   const platformDocs = parseRenderedDocuments(platformRender, PLATFORM_TARGET);
   const appsDocs = parseRenderedDocuments(appsRender, APPS_TARGET);
 
+  // Every environment overlay that composes base/cnpg, not just prod. The
+  // 2026-08-13 hold landed in base/, so its blast radius was every overlay —
+  // and no gate rendered staging or dev to notice.
+  const docsByRoot = new Map([[PLATFORM_TARGET, platformDocs]]);
+  for (const root of NON_PRODUCTION_ROOTS) {
+    docsByRoot.set(root, parseRenderedDocuments(run(kustomizeBin, ['build', root]), root));
+  }
+
   assertNoIngressClassParameters(platformRender, PLATFORM_TARGET);
   assertNoIngressClassParameters(appsRender, APPS_TARGET);
   const imageRefs = assertLiteralAndImageContract(platformRender, appsRender);
@@ -1258,12 +1643,19 @@ export function runManifestContract({ kustomize } = {}) {
   assertScheduleObjectStoreAndEndpoint(platformDocs, appsDocs);
   assertBackendArchiveContracts(appsDocs);
   assertCnpgProofContracts(platformDocs, platformRender);
+  assertHeldActivationBoundary(appsDocs);
+  assertDatabaseGenerationContract(docsByRoot);
+  assertCutoverPatchIsNonVacuous();
 
+  const environmentSummary = ENVIRONMENT_DATABASE_CONTRACT
+    .map(({ root, archiveIdentity }) => `${root.split('/').pop()}=${archiveIdentity}`)
+    .join(', ');
   console.log(
     `[c1.1-contract] OK: ${platformDocs.length} platform + ${appsDocs.length} app resources; ` +
-      'CNPG/plugin/images/endpoints/backups/proofs are internally consistent.',
+      'CNPG/plugin/images/endpoints/backups/proofs are internally consistent; ' +
+      `database image/archive-identity pairs verified per overlay (${environmentSummary}).`,
   );
-  return { platformRender, appsRender, platformDocs, appsDocs, imageRefs };
+  return { platformRender, appsRender, platformDocs, appsDocs, imageRefs, docsByRoot };
 }
 
 const thisFile = fileURLToPath(import.meta.url);

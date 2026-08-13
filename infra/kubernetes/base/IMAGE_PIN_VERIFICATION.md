@@ -8,6 +8,22 @@ infra/kubernetes/overlays/prod
 infra/kubernetes/apps
 ```
 
+It must also render the two non-production overlays, which compose the same
+`base/` content and are therefore in the blast radius of anything placed there:
+
+```text
+infra/kubernetes/overlays/staging
+infra/kubernetes/overlays/dev
+```
+
+That coverage is not cosmetic. The 2026-08-13 database hold was placed in
+`base/cnpg/cluster.yaml`, so its all-zero, unpullable digest rendered into
+staging and dev as well — and because the guard built only the production roots,
+both overlays silently lost the ability to bring up any database, with nothing
+red. Each non-production overlay now patches the real, registry-verified
+PostgreSQL 17 digest and its own archive identity; see
+`infra/kubernetes/overlays/{staging,dev}/kustomization.yaml`.
+
 Run both repository guards from the repository root:
 
 ```bash
@@ -40,24 +56,48 @@ token authority, and the exact `repository:<path>:pull` scope; authentication
 and rate-limit failures report actionable diagnostics without printing
 credentials.
 
-The following repositories at the exact all-zero digest are the only
-exceptions, and only in the rendered `infra/kubernetes/apps` root. A tag, a
-different repository spelling, or the same reference in the platform root is
-not held:
+The following references at the exact all-zero digest are the only exceptions,
+and each is bound to one specific render root. A tag, a different repository
+spelling, or the same reference in the wrong root is not held.
+
+Application images, only in the rendered `infra/kubernetes/apps` root:
 
 - `ghcr.io/bahuleyandr/vh-health-platform-backend`
 - `ghcr.io/bahuleyandr/vh-health-platform-adminportal`
 - `ghcr.io/bahuleyandr/vhhealth-staff-web`
 
-For each entry above, the only accepted held form is
-`<repository>@sha256:0000000000000000000000000000000000000000000000000000000000000000`.
-The exception is also bound to the exact six rendered workload occurrences:
-the admin, backend, and staff-web Deployments; the ward-downtime-packs CronJob;
-and both containers in the backend migration Job. A missing, duplicated, or
-additional all-zero occurrence fails the guard.
+Database image, only in the rendered `infra/kubernetes/overlays/prod` root
+(audit 2026-08-13, P1):
 
-They are deliberately held fail-closed until the signed release pipeline
-writes build-emitted digests. The default guard reports them as `HELD`; pass
+- `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm`
+
+The same tag at its **real** digest is required — not held — in
+`infra/kubernetes/overlays/staging` and `infra/kubernetes/overlays/dev`. The
+hold is production-only because its two reasons are production-only: the exact
+qualified minor and digest of the LIVE clinical database are operator evidence,
+and a major-version bump on that cluster is an irreversible `pg_upgrade` of
+patient data. Neither applies to dev or staging, so an all-zero digest reaching
+either of those roots is a hard guard failure, not a held state.
+
+The application entries take the form
+`<repository>@sha256:0000000000000000000000000000000000000000000000000000000000000000`;
+the database entry keeps its tag, because the tag names the declared
+generation while the digest is what the operator must supply. The exception is
+also bound to the exact seven rendered workload occurrences: the admin,
+backend, and staff-web Deployments; the ward-downtime-packs CronJob; both
+containers in the backend migration Job; and `Cluster/vhhealth-pg`'s
+`imageName`. A missing, duplicated, or additional all-zero occurrence fails the
+guard.
+
+The application pins are deliberately held fail-closed until the signed release
+pipeline writes build-emitted digests. The database pin is held because the
+exact qualified PostgreSQL 17 minor and digest are operator evidence this
+repository does not hold — see
+[`CNPG_POSTGRES_18_QUALIFICATION.md`](../../../docs/CNPG_POSTGRES_18_QUALIFICATION.md)
+§1 and `infra/kubernetes/held/c1-1-pg18-cutover/README.md`. Holding it
+fail-closed is what keeps the PostgreSQL 18.4 cutover target out of the active
+graph, where an ordinary platform sync would have run an irreversible
+`pg_upgrade`. The default guard reports all four as `HELD`; pass
 `--require-pinned` during activation to reject them.
 
 ## Helm chart boundary

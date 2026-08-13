@@ -1,11 +1,17 @@
 #!/usr/bin/env node
-// Render both Kustomize-controlled ArgoCD production roots, inventory every
-// rendered image-reference field plus the JSON runtime manifests synthesized
-// by the scheduled restore proof, and verify every active tag@digest against
-// its registry.
-// The three platform-owned application placeholders are an explicit held state:
-// they are accepted only in the apps root and only as the exact full all-zero
-// fail-closed references below.
+// Render every Kustomize-controlled root — the two ArgoCD production roots plus
+// the staging and dev overlays — inventory every rendered image-reference field
+// plus the JSON runtime manifests synthesized by the scheduled restore proof,
+// and verify every active tag@digest against its registry.
+// Four placeholders are an explicit held state, accepted only as the exact full
+// all-zero fail-closed references below: the three platform-owned application
+// images in the apps root, and the active PostgreSQL 17 database pin in the prod
+// root (audit 2026-08-13, P1).
+// The non-production overlays are deliberately NOT exempt. The database hold was
+// placed in base/cnpg/, so it rendered into them too; because this gate built
+// only the production roots, dev and staging silently lost their database. Their
+// PostgreSQL 17 pin is now a real, registry-verified digest, and an all-zero
+// digest reaching them is a hard failure.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -21,6 +27,19 @@ export const PRODUCTION_ROOTS = [
   'infra/kubernetes/apps',
 ];
 
+// Audit 2026-08-13 (P1) follow-up. The database hold was placed in
+// `base/cnpg/`, so its all-zero, unpullable digest rendered into EVERY overlay
+// — but this gate only ever built the production roots, so dev and staging lost
+// their database with nothing red. They are verified here too: an all-zero
+// digest outside the exact HELD_APP_OCCURRENCES inventory below is rejected,
+// and every real pin is re-resolved against its registry.
+export const ENVIRONMENT_ROOTS = [
+  'infra/kubernetes/overlays/staging',
+  'infra/kubernetes/overlays/dev',
+];
+
+export const VERIFIED_ROOTS = [...PRODUCTION_ROOTS, ...ENVIRONMENT_ROOTS];
+
 export const ZERO_DIGEST = `sha256:${'0'.repeat(64)}`;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
@@ -28,6 +47,15 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const heldBackend = `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`;
 const heldAdmin = `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`;
 const heldStaffWeb = `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`;
+// Audit 2026-08-13 (P1). The live database's declared generation is
+// PostgreSQL 17, but its exact qualified minor + digest are operator evidence
+// this repository does not hold (docs/CNPG_POSTGRES_18_QUALIFICATION.md §1
+// requires capturing it off the running cluster). It therefore carries the same
+// fail-closed all-zero hold as the application images: unpullable, so the
+// platform overlay cannot be synced until an operator pins the real digest —
+// and, critically, cannot carry the PostgreSQL 18.4 cutover target, which would
+// have made an ordinary sync perform an irreversible pg_upgrade.
+const heldActivePostgres = `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@${ZERO_DIGEST}`;
 
 export const HELD_APP_OCCURRENCES = Object.freeze([
   {
@@ -83,6 +111,15 @@ export const HELD_APP_OCCURRENCES = Object.freeze([
     container: 'wait-owner-bypassrls',
     field: 'image',
     ref: heldBackend,
+  },
+  {
+    target: 'infra/kubernetes/overlays/prod',
+    resourceKind: 'Cluster',
+    resourceNamespace: 'vhhealth-platform',
+    resourceName: 'vhhealth-pg',
+    container: null,
+    field: 'imageName',
+    ref: heldActivePostgres,
   },
 ]);
 
@@ -280,7 +317,7 @@ export function extractSynthesizedImages(rendered, target) {
 }
 
 export function renderProductionImages({
-  roots = PRODUCTION_ROOTS,
+  roots = VERIFIED_ROOTS,
   cwd = repoRoot,
   kustomize = findKustomize(),
   execFile = execFileSync,
@@ -387,7 +424,8 @@ export function assertHeldOccurrenceInventory(heldOccurrences) {
   );
   if (actualKeys.length !== HELD_APP_OCCURRENCES.length || missing.length > 0 || extras.length > 0) {
     throw new Error(
-      `held all-zero occurrence inventory must be the exact expected six` +
+      'held all-zero occurrence inventory must be the exact expected ' +
+        `${HELD_APP_OCCURRENCES.length}` +
         `${missing.length > 0 ? `; missing: ${missing.join(', ')}` : ''}` +
         `${extras.length > 0 ? `; extra: ${extras.join(', ')}` : ''}`,
     );
@@ -723,8 +761,8 @@ async function main() {
       `[check-prod-digests] verified ${result.verified.length} active unique tag@digest pin(s) ` +
         `across ${result.activeOccurrences.length} Kustomize-controlled or scheduled-proof-synthesized ` +
         `image-field occurrence(s) (${activeFields.join(', ')}) from ${PRODUCTION_ROOTS.length} ` +
-        `production roots; ` +
-        `${result.held.length} platform-owned application pin(s) remain deliberately held ` +
+        `production + ${ENVIRONMENT_ROOTS.length} non-production roots; ` +
+        `${result.held.length} platform-owned application/database pin(s) remain deliberately held ` +
         `fail-closed across the exact ${result.heldOccurrences.length} rendered workload occurrence(s). ` +
         `Helm chart-generated workloads are outside this proof.`,
     );

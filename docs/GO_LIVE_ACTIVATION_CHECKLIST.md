@@ -179,7 +179,7 @@ for the exact operator sequence.
 
 ## Phase I — Clinical data load
 
-- [ ] **I1.** Stand up the deep-tier embedder (B5.4): GPU node + Ollama, set `CLINICAL_AI_EMBED_URL`; the Ollama preflight Job goes green. (date / initials): ______
+- [ ] **I1.** Stand up the deep-tier embedder (B5.4). The Ollama manifests are HELD at `infra/kubernetes/held/clinical-ai-deep-tier/` and composed by nothing, so this is an explicit operator activation, not a sync: provision + label the GPU node, render and apply that held directory per its `README.md`, pull a model, and let the fail-closed `PreSync` preflight hook pass. Then set `CLINICAL_AI_EMBED_URL` / the deep-tier bindings. (date / initials): ______
 - [ ] **I2.** Import hospital-owned knowledge into the RAG KB: `node apps/backend/scripts/knowledge-curation-import.mjs` (formulary / antibiogram / protocols) → review the `pending` queue → approve. Imports stay dark to retrieval until `curation_status='approved'`. ([`CLINICAL_AI_KNOWLEDGE_CURATION.md`](CLINICAL_AI_KNOWLEDGE_CURATION.md)) (date / initials): ______
 - [ ] **I3.** Load the real hospital formulary + antibiogram data (the starter KBs in migration 311 are flagged placeholders). (date / initials): ______
 - [ ] **I4.** **[flagged — licensed]** Import a commercial drug-interaction KB (Medi-Span / FDB) if procured; `drugKnowledgeBaseService` + migration 277 are ready for the feed. (date / initials): ______

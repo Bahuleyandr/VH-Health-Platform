@@ -84,8 +84,18 @@ spec:
                   value: "vhhealth-db-backups"
                 - name: R2_PREFIX
                   value: "cluster/"
+                # This CronJob is NOT suspended: it runs daily and verifies the
+                # archive the live Cluster writes. It must therefore carry the
+                # SAME archive identity as
+                # `Cluster/vhhealth-pg .spec.plugins[0].parameters.serverName`
+                # (cluster.yaml), which is the PostgreSQL 17 generation
+                # identity. Pointing it at `vhhealth-pg18` while the cluster is
+                # on PostgreSQL 17 makes it verify a prefix nothing writes.
+                # scripts/check-c1-1-manifest-contract.mjs asserts the two
+                # values are equal in every rendered overlay; the non-production
+                # overlays patch both to their own environment identity.
                 - name: BARMAN_SERVER_NAME
-                  value: "vhhealth-pg18"
+                  value: "vhhealth-pg"
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:

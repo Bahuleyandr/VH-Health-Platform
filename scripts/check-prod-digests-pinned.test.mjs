@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  ENVIRONMENT_ROOTS,
   HELD_APP_OCCURRENCES,
   HELD_APP_REFERENCES,
+  VERIFIED_ROOTS,
   ZERO_DIGEST,
   assertHeldOccurrenceInventory,
   classifyImageOccurrence,
@@ -110,8 +112,11 @@ test('accepts only the exact documented zero app placeholders as held', () => {
     `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`,
     `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`,
     `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`,
+    // Audit 2026-08-13 (P1): the active database generation is held fail-closed
+    // in the prod root, so the PG18 cutover target cannot ride an ordinary sync.
+    `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@${ZERO_DIGEST}`,
   ]);
-  assert.equal(HELD_APP_OCCURRENCES.length, 6);
+  assert.equal(HELD_APP_OCCURRENCES.length, 7);
   const heldOccurrence = { ...HELD_APP_OCCURRENCES[1], line: 10 };
   const held = classifyImageOccurrence(heldOccurrence);
   assert.equal(held.held, true);
@@ -206,13 +211,61 @@ test('inventories scheduled restore manifests synthesized at runtime and rejects
   );
 });
 
-test('current renders contain exactly six held workload occurrences and three synthesized images', () => {
+test('every rendered root is inventoried, with the held all-zero set confined to production', () => {
+  // Audit 2026-08-13 (P1) follow-up: this gate previously rendered only the two
+  // production roots, which is why an all-zero database digest placed in
+  // base/cnpg/ reached dev and staging with nothing red. All four roots render.
+  assert.deepEqual(VERIFIED_ROOTS, [
+    'infra/kubernetes/overlays/prod',
+    'infra/kubernetes/apps',
+    'infra/kubernetes/overlays/staging',
+    'infra/kubernetes/overlays/dev',
+  ]);
+
   const occurrences = renderProductionImages();
   const held = occurrences
     .filter(({ ref }) => ref.endsWith(ZERO_DIGEST))
     .map((occurrence) => classifyImageOccurrence(occurrence));
   assert.doesNotThrow(() => assertHeldOccurrenceInventory(held));
-  assert.equal(occurrences.filter(({ source }) => source === 'synthesized').length, 3);
+
+  // Every held occurrence is production-only. A non-production overlay that
+  // inherited the hold would appear here and fail classification outright.
+  assert.deepEqual(
+    [...new Set(held.map(({ target }) => target))].sort(),
+    ['infra/kubernetes/apps', 'infra/kubernetes/overlays/prod'],
+  );
+  for (const root of ENVIRONMENT_ROOTS) {
+    assert.equal(
+      occurrences.filter(({ target, ref }) => target === root && ref.endsWith(ZERO_DIGEST)).length,
+      0,
+      `${root} must not render an all-zero digest`,
+    );
+    const clusterImage = occurrences.find(
+      ({ target, resourceKind, field }) =>
+        target === root && resourceKind === 'Cluster' && field === 'imageName',
+    );
+    assert.ok(clusterImage, `${root} renders no Cluster imageName`);
+    assert.match(
+      clusterImage.ref,
+      /^ghcr\.io\/cloudnative-pg\/postgresql:17\.10-standard-bookworm@sha256:[0-9a-f]{64}$/,
+    );
+  }
+
+  // The scheduled restore proof synthesizes three runtime image fields, and it
+  // is composed by base/cnpg — so once per root that carries the CNPG base.
+  const synthesizedByRoot = new Map();
+  for (const { target, source } of occurrences) {
+    if (source !== 'synthesized') continue;
+    synthesizedByRoot.set(target, (synthesizedByRoot.get(target) || 0) + 1);
+  }
+  assert.deepEqual(
+    [...synthesizedByRoot.entries()].sort(),
+    [
+      ['infra/kubernetes/overlays/dev', 3],
+      ['infra/kubernetes/overlays/prod', 3],
+      ['infra/kubernetes/overlays/staging', 3],
+    ],
+  );
 });
 
 test('verifies the rendered digest exists and records platforms', async () => {
@@ -451,8 +504,8 @@ test('deduplicates active refs while retaining deliberate held occurrences', asy
   assert.deepEqual([...result.active[0].fields].sort(), ['image', 'operatorImage']);
   assert.equal(result.active[0].occurrences, 2);
   assert.equal(result.activeOccurrences.length, 2);
-  assert.equal(result.held.length, 3);
-  assert.equal(result.heldOccurrences.length, 6);
+  assert.equal(result.held.length, 4);
+  assert.equal(result.heldOccurrences.length, 7);
   assert.equal(result.verified.length, 1);
 });
 
@@ -465,7 +518,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       })),
       verify: async (image) => image,
     }),
-    /exact expected six.*missing/,
+    /exact expected 7.*missing/,
   );
   await assert.rejects(
     validateProductionImages({
@@ -474,7 +527,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       ),
       verify: async (image) => image,
     }),
-    /exact expected six.*extra/,
+    /exact expected 7.*extra/,
   );
 });
 

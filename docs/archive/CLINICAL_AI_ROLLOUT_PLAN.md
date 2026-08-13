@@ -327,6 +327,14 @@ back to it if any phase breaks.
 ### Phase 4: Local Ollama for the deep tier (~1–2 days infra + integration) — ✅ SHIPPED 2026-04-30
 
 **What landed:**
+> **SUPERSEDED 2026-08-13 (audit P1).** The manifests below moved to
+> `infra/kubernetes/held/clinical-ai-deep-tier/` and were removed from the app
+> barrel. Phase 4 is blocked on GPU hardware, so composing it into the active
+> graph produced a permanently Pending StatefulSet and a failing preflight Job.
+> Activation is now an explicit operator action gated by a fail-closed
+> `PreSync` hook; see that directory's `README.md`. Do not re-add `ollama/` to
+> `infra/kubernetes/apps/kustomization.yaml`.
+
 - New manifest set under `infra/kubernetes/apps/ollama/`:
   - `statefulset.yaml` — single-replica StatefulSet with a 100GB volumeClaimTemplate for model weights, GPU node selector (`nvidia.com/gpu.present: "true"`) + GPU toleration, request/limit `nvidia.com/gpu: 1`, `OLLAMA_KEEP_ALIVE=30m` so models stay loaded between requests, generous startup probe (15-minute model-pull tolerance) → fast 30s probes thereafter.
   - `service.yaml` — both a headless `ollama-internal` service and a regular `ollama` ClusterIP service. The backend connects to `ollama-internal.vhhealth.svc.cluster.local:11434`.

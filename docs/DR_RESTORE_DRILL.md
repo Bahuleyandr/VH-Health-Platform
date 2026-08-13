@@ -14,9 +14,19 @@ Cloudflare R2 through the Barman Cloud Plugin
 (`base/cnpg/barman-cloud-object-store.yaml` +
 `base/cnpg/scheduled-backup.yaml`).
 
-The running production database remains PostgreSQL 17. The committed
-PostgreSQL 18.4 and `vhhealth-pg18` archive target are inert until C1.2 moves
-RKE2 to Kubernetes 1.34 or newer and
+The running production database remains PostgreSQL 17, and the active graph now
+declares that generation: `base/cnpg/cluster.yaml` carries a fail-closed
+PostgreSQL 17 pin and the PostgreSQL 18.4 target moved to the held cutover path
+`infra/kubernetes/held/c1-1-pg18-cutover/` (audit 2026-08-13, P1). The active
+Cluster's archive identity is the matching PostgreSQL 17 identity `vhhealth-pg`,
+and the daily verifier reads the same value; `vhhealth-pg18` is the
+**post-cutover** identity and now appears on the active graph only in the
+suspended restore proof, where it is paired with the PostgreSQL 18 image. Image
+generation and archive identity move together and are gated by
+`scripts/check-c1-1-manifest-contract.mjs`. Confirm the live cluster's
+`{.spec.plugins[0].parameters.serverName}` matches before pinning a real image
+digest or unsuspending the restore proof. Both remain inert until C1.2 moves RKE2 to
+Kubernetes 1.34 or newer and
 [`CNPG_POSTGRES_18_QUALIFICATION.md`](CNPG_POSTGRES_18_QUALIFICATION.md) is
 completed. A pre-upgrade PostgreSQL 17 reader-only restore is a mandatory gate.
 
