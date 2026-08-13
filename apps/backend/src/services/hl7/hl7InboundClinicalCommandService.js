@@ -91,6 +91,27 @@ function permanentVisitConflict(message, code) {
   return AppError.conflict(message, code);
 }
 
+async function assertClinicalPatient(tx, { tenantId, patientUid }) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid::text
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = true
+        AND UPPER(BTRIM(COALESCE(role::text, ''))) = 'PATIENT'
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    patientUid,
+  );
+  if (!rows[0]) {
+    throw AppError.conflict(
+      'HL7 clinical subject is not an active patient in the authenticated tenant',
+      'HL7_CLINICAL_PATIENT_INVALID',
+    );
+  }
+}
+
 function eventContract(messageType, detail) {
   if (messageType === 'ADT^A01') {
     return {
@@ -331,6 +352,8 @@ export async function processHl7InboundClinicalMessage(input = {}) {
     : null;
 
   return setTenantTx(tenantId, async (tx) => {
+    await assertClinicalPatient(tx, { tenantId, patientUid });
+
     await tx.$queryRawUnsafe(
       `SELECT pg_advisory_xact_lock(
          pg_catalog.hashtextextended($1::text, 666)

@@ -295,6 +295,61 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
     expect(evidence[0]).toEqual({ receipt_count: 1, timeline_count: 1, audit_count: 1 });
   });
 
+  test('POST /AllergyIntolerance rejects non-active lifecycle states', async () => {
+    const validActive = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        clinicalStatus: { coding: [
+          {
+            system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical',
+            code: 'active',
+          },
+          { system: 'urn:example:local-allergy-status', code: 'A' },
+        ] },
+        code: { text: 'C3TEST Active With Local Translation' },
+        patient: { reference: `Patient/${patientUid}` },
+      });
+    expect(validActive.status).toBe(201);
+
+    const res = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        clinicalStatus: { coding: [{
+          system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical',
+          code: 'resolved',
+        }] },
+        code: { text: 'C3TEST Resolved Unsupported' },
+        patient: { reference: `Patient/${patientUid}` },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.resourceType).toBe('OperationOutcome');
+
+    const foreignOnly = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        clinicalStatus: { coding: [{
+          system: 'urn:example:local-allergy-status',
+          code: 'active',
+        }] },
+        code: { text: 'C3TEST Foreign Active Unsupported' },
+        patient: { reference: `Patient/${patientUid}` },
+      });
+    expect(foreignOnly.status).toBe(400);
+    expect(foreignOnly.body.resourceType).toBe('OperationOutcome');
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT allergy_name FROM patient_allergies
+        WHERE allergy_name IN (
+          'C3TEST Resolved Unsupported',
+          'C3TEST Foreign Active Unsupported'
+        )`,
+    );
+    expect(rows).toEqual([]);
+  });
+
   test('GET /AllergyIntolerance reconciles every active keyed source with a patient reference', async () => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO patient_allergies
@@ -335,7 +390,7 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
       criticality: 'low',
     });
     expect(byCode.get('C3TEST Legacy Latex')).toMatchObject({
-      id: expect.stringMatching(/^allergy-/),
+      id: expect.stringMatching(/^\d+$/),
       patient: { reference: `Patient/${patientUid}` },
       criticality: 'low',
     });

@@ -335,7 +335,7 @@ d('HL7 /receive tenant binding (C-4)', () => {
   });
 
   test.each([
-    ['inactive', async () => {
+    ['inactive', 409, 'AE', async () => {
       await prisma.$executeRawUnsafe(
         `UPDATE tenant_interop_secrets
             SET status = 'inactive'
@@ -345,7 +345,7 @@ d('HL7 /receive tenant binding (C-4)', () => {
         TENANT_B,
       );
     }],
-    ['unreadable', async () => {
+    ['unreadable', 500, 'AR', async () => {
       await prisma.$executeRawUnsafe(
         `UPDATE tenant_interop_secrets
             SET status = 'active', secret_ciphertext = 'enc:v2:not-readable'
@@ -357,6 +357,8 @@ d('HL7 /receive tenant binding (C-4)', () => {
     }],
   ])('env fallback cannot bypass an enrolled I03 offset with an %s credential row', async (
     _label,
+    expectedStatus,
+    expectedAck,
     makeUnavailable,
   ) => {
     const row = await upsertInteropSecret({
@@ -398,8 +400,8 @@ d('HL7 /receive tenant binding (C-4)', () => {
         .set(signHeaders({ message, controlId }))
         .send({ message });
 
-      expect(response.status).toBe(409);
-      expect(response.text).toContain('MSA|AE');
+      expect(response.status).toBe(expectedStatus);
+      expect(response.text).toContain(`MSA|${expectedAck}`);
       expect(response.text).not.toContain('MSA|AA');
       const after = await prisma.$queryRawUnsafe(
         `SELECT COUNT(*)::integer AS count FROM admissions WHERE patient_uid = $1::uuid`,

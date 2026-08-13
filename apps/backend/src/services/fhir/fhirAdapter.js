@@ -650,6 +650,13 @@ export function toFhirAllergyIntolerance(allergy) {
     },
   };
 
+  if (!isString && Array.isArray(allergy.identifiers) && allergy.identifiers.length > 0) {
+    resource.identifier = allergy.identifiers.map(identifier => ({
+      system: identifier.system,
+      value: String(identifier.value),
+    }));
+  }
+
   if (patientRef) {
     resource.patient = { reference: `Patient/${patientRef}` };
   }

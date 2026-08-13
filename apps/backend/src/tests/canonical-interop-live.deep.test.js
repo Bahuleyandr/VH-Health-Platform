@@ -9,6 +9,10 @@ import {
   resolveInteropCredentialSnapshot,
   upsertInteropSecret,
 } from '../services/interop/tenantInteropSecretService.js';
+import {
+  __testing__ as hl7ClinicalTesting,
+  processHl7InboundClinicalMessage,
+} from '../services/hl7/hl7InboundClinicalCommandService.js';
 import { __testing__ as signedRequestTesting } from '../utils/signedRequest.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -17,6 +21,7 @@ const d = databaseUrl ? describe : describe.skip;
 const TENANT_ID = 'ca110000-0000-4000-8000-000000000001';
 const PATIENT_UID = 'ca110000-0000-4000-8000-000000000002';
 const OTHER_PATIENT_UID = 'ca110000-0000-4000-8000-000000000003';
+const STAFF_UID = 'ca110000-0000-4000-8000-000000000004';
 const OLDER_ENCOUNTER_ID = 'ca110000-0000-4000-8000-000000000011';
 const NEWER_ENCOUNTER_ID = 'ca110000-0000-4000-8000-000000000012';
 const OTHER_ENCOUNTER_ID = 'ca110000-0000-4000-8000-000000000013';
@@ -50,7 +55,12 @@ function adtMessage(
   ward,
   bed,
   eventTime = '20260813080500+0530',
-  { visitNumber = `VISIT-${controlId}`, patientUid = PATIENT_UID } = {},
+  {
+    visitNumber = `VISIT-${controlId}`,
+    patientUid = PATIENT_UID,
+    sendingApp = 'CANONICAL-SENDER',
+    sendingFacility = 'CANONICAL-SITE',
+  } = {},
 ) {
   const pv1 = Array(46).fill('');
   pv1[0] = 'PV1';
@@ -61,7 +71,7 @@ function adtMessage(
   pv1[44] = eventTime;
   pv1[45] = event === 'A03' ? eventTime : '';
   return [
-    `MSH|^~\\&|CANONICAL-SENDER|CANONICAL-SITE|VH|${FACILITY}|${eventTime}||ADT^${event}|${controlId}|P|2.5`,
+    `MSH|^~\\&|${sendingApp}|${sendingFacility}|VH|${FACILITY}|${eventTime}||ADT^${event}|${controlId}|P|2.5`,
     `EVN|${event}|${eventTime}`,
     `PID|1||${patientUid}||Canonical Interop Patient||19900101|F|||Addr|||${PHONE}`,
     pv1.join('|'),
@@ -116,15 +126,19 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM admissions
       WHERE tenant_id = $1::uuid
-        AND patient_uid IN ($2::uuid, $3::uuid)`,
+        AND patient_uid IN ($2::uuid, $3::uuid, $4::uuid)`,
     TENANT_ID,
     PATIENT_UID,
     OTHER_PATIENT_UID,
+    STAFF_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM investigations WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+    `DELETE FROM investigations
+      WHERE tenant_id = $1::uuid
+        AND patient_uid IN ($2::uuid, $3::uuid)`,
     TENANT_ID,
     PATIENT_UID,
+    STAFF_UID,
   ).catch(() => {});
   await clearVolatileReplayWindow().catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -138,10 +152,11 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM users
       WHERE tenant_id = $1::uuid
-        AND uid IN ($2::uuid, $3::uuid)`,
+        AND uid IN ($2::uuid, $3::uuid, $4::uuid)`,
     TENANT_ID,
     PATIENT_UID,
     OTHER_PATIENT_UID,
+    STAFF_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id = $1::uuid`,
@@ -151,6 +166,7 @@ async function cleanup() {
 
 d('live HL7 canonical clinical commands', () => {
   let app;
+  let authenticatedSenderIdentity;
 
   beforeAll(async () => {
     await cleanup();
@@ -163,11 +179,13 @@ d('live HL7 canonical clinical commands', () => {
       `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
        VALUES
          ($1::uuid, $2::uuid, $3, 'Canonical Interop Patient', 'PATIENT', true, NOW()),
-         ($4::uuid, $2::uuid, '+919811100003', 'Canonical Interop Other Patient', 'PATIENT', true, NOW())`,
+         ($4::uuid, $2::uuid, '+919811100003', 'Canonical Interop Other Patient', 'PATIENT', true, NOW()),
+         ($5::uuid, $2::uuid, '+919811100004', 'Canonical Interop Staff', 'DOCTOR', true, NOW())`,
       PATIENT_UID,
       TENANT_ID,
       PHONE,
       OTHER_PATIENT_UID,
+      STAFF_UID,
     );
     await upsertInteropSecret({
       tenantId: TENANT_ID,
@@ -177,6 +195,7 @@ d('live HL7 canonical clinical commands', () => {
     });
     const credential = await resolveInteropCredentialSnapshot('hl7_inbound', FACILITY);
     expect(credential.tenant_id).toBe(TENANT_ID);
+    authenticatedSenderIdentity = `hl7-inbound-credential:${credential.id}`;
     app = buildApp();
   }, 30_000);
 
@@ -299,7 +318,9 @@ d('live HL7 canonical clinical commands', () => {
     expect(first.status).toBe(200);
 
     await clearVolatileReplayWindow();
-    const changed = original.replace('CBC^Complete Blood Count', 'CMP^Comprehensive Metabolic Panel');
+    const changed = original
+      .replace('CANONICAL-SENDER|CANONICAL-SITE', 'CHANGED-SENDER|CHANGED-SITE')
+      .replace('CBC^Complete Blood Count', 'CMP^Comprehensive Metabolic Panel');
     const drift = await sendSigned(app, changed);
     expect(drift.status).toBe(409);
     expect(drift.text).toContain('MSA|AR|CAN-ORM-DRIFT|Message rejected');
@@ -315,6 +336,141 @@ d('live HL7 canonical clinical commands', () => {
       PATIENT_UID,
     );
     expect(counts[0]).toEqual({ changed_details: 0, receipts: 1 });
+  });
+
+  it('serializes concurrent duplicates into one detail, timeline, audit, and receipt', async () => {
+    const message = ormMessage('CAN-ORM-CONCURRENT');
+    const responses = await Promise.all([
+      sendSigned(app, message),
+      sendSigned(app, message),
+    ]);
+    expect(responses.map(response => response.status)).toEqual([200, 200]);
+    expect(responses.every(response => response.text.includes('MSA|AA'))).toBe(true);
+
+    const [counts] = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM investigations investigation
+           JOIN hl7_inbound_clinical_receipts receipt
+             ON receipt.detail_table = 'investigations'
+            AND receipt.detail_id = investigation.id
+          WHERE receipt.tenant_id = $1::uuid
+            AND receipt.message_control_id = 'CAN-ORM-CONCURRENT') AS details,
+         (SELECT COUNT(*)::int FROM hl7_inbound_clinical_receipts
+           WHERE tenant_id = $1::uuid
+             AND message_control_id = 'CAN-ORM-CONCURRENT') AS receipts,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events timeline
+           JOIN hl7_inbound_clinical_receipts receipt
+             ON receipt.timeline_event_id = timeline.id
+          WHERE receipt.tenant_id = $1::uuid
+            AND receipt.message_control_id = 'CAN-ORM-CONCURRENT') AS timelines,
+         (SELECT COUNT(*)::int FROM clinical_audit_events audit
+           JOIN hl7_inbound_clinical_receipts receipt
+             ON receipt.audit_event_id = audit.id
+          WHERE receipt.tenant_id = $1::uuid
+            AND receipt.message_control_id = 'CAN-ORM-CONCURRENT') AS audits`,
+      TENANT_ID,
+    );
+    expect(counts).toEqual({ details: 1, receipts: 1, timelines: 1, audits: 1 });
+  });
+
+  it('rejects an active same-tenant staff row at both route and transaction boundaries', async () => {
+    const staffMessage = adtMessage(
+      'A01',
+      'CAN-ADT-STAFF',
+      'STAFF-WARD',
+      'STAFF-BED',
+      '20260813082500+0530',
+      { patientUid: STAFF_UID },
+    );
+    const response = await sendSigned(app, staffMessage);
+    expect(response.status).toBe(404);
+    expect(response.text).toContain('MSA|AE|CAN-ADT-STAFF');
+
+    await expect(processHl7InboundClinicalMessage({
+      tenantId: TENANT_ID,
+      patientUid: STAFF_UID,
+      patientPhone: '+919811100004',
+      senderIdentity: authenticatedSenderIdentity,
+      messageControlId: 'CAN-ORM-STAFF-DIRECT',
+      messageType: 'ORM^O01',
+      message: ormMessage('CAN-ORM-STAFF-DIRECT').replace(PATIENT_UID, STAFF_UID),
+      order: { test_name: 'Should Not Exist', status: 'PENDING' },
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'HL7_CLINICAL_PATIENT_INVALID',
+    });
+
+    const [counts] = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM admissions
+           WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid) AS admissions,
+         (SELECT COUNT(*)::int FROM investigations
+           WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid) AS investigations,
+         (SELECT COUNT(*)::int FROM hl7_inbound_clinical_receipts
+           WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid) AS receipts`,
+      TENANT_ID,
+      STAFF_UID,
+    );
+    expect(counts).toEqual({ admissions: 0, investigations: 0, receipts: 0 });
+  });
+
+  it('permanently rejects a PV1-19 value that resolves to multiple active admissions', async () => {
+    const [{ id: numericId }] = await prisma.$queryRawUnsafe(
+      `SELECT nextval(pg_get_serial_sequence('admissions', 'id'))::integer AS id`,
+    );
+    const visitNumber = String(numericId);
+    const migrationSourceKey = hl7ClinicalTesting.visitMigrationSourceKey({
+      senderIdentity: authenticatedSenderIdentity,
+      visitNumber,
+    });
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (id, tenant_id, patient_uid, status, ward, bed_number,
+          admitted_at, created_at, updated_at)
+       VALUES
+         ($1, $2::uuid, $3::uuid, 'ADMITTED', 'NUMERIC-WARD', 'NUMERIC-BED',
+          NOW(), NOW(), NOW())`,
+      numericId,
+      TENANT_ID,
+      PATIENT_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, status, ward, bed_number,
+          admitted_at, migration_source_key, created_at, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'ADMITTED', 'HASH-WARD', 'HASH-BED',
+          NOW(), $3, NOW(), NOW())`,
+      TENANT_ID,
+      PATIENT_UID,
+      migrationSourceKey,
+    );
+
+    const response = await sendSigned(app, adtMessage(
+      'A02',
+      'CAN-ADT-AMBIGUOUS',
+      'SHOULD-NOT-WRITE',
+      'NO-BED',
+      '20260813082700+0530',
+      { visitNumber },
+    ));
+    expect(response.status).toBe(409);
+    expect(response.text).toContain('MSA|AR|CAN-ADT-AMBIGUOUS|Message rejected');
+
+    const admissions = await prisma.$queryRawUnsafe(
+      `SELECT status, ward, bed_number
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND (id = $2 OR migration_source_key = $3)
+        ORDER BY id`,
+      TENANT_ID,
+      numericId,
+      migrationSourceKey,
+    );
+    expect(admissions).toEqual([
+      { status: 'ADMITTED', ward: 'NUMERIC-WARD', bed_number: 'NUMERIC-BED' },
+      { status: 'ADMITTED', ward: 'HASH-WARD', bed_number: 'HASH-BED' },
+    ]);
   });
 
   it('targets the exact older PV1-19 visit and permanently rejects unknown or mismatched visits', async () => {

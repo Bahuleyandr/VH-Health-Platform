@@ -45,6 +45,13 @@ function normalizeAllergyInput(input) {
     throw AppError.badRequest('FHIR AllergyIntolerance severity is invalid', 'FHIR_ALLERGY_SEVERITY_INVALID');
   }
   const reaction = normalizeText(input.reaction, 4000);
+  const clinicalStatus = String(input.clinicalStatus || 'active').trim().toLowerCase();
+  if (clinicalStatus !== 'active') {
+    throw AppError.badRequest(
+      'Only active AllergyIntolerance creates are supported',
+      'FHIR_ALLERGY_LIFECYCLE_UNSUPPORTED',
+    );
+  }
   const resourceFingerprint = allergyIdentityFingerprint({ patientUid, allergen });
   const payloadSha256 = allergyPayloadFingerprint({ severity, reaction });
   return {
@@ -53,6 +60,7 @@ function normalizeAllergyInput(input) {
     allergen,
     severity,
     reaction,
+    clinicalStatus,
     resourceFingerprint,
     payloadSha256,
   };
@@ -69,8 +77,38 @@ function publicAllergy(row) {
 }
 
 function readablePatientUid(row) {
-  const uidMatch = String(row.patient_uid_match || '').trim().toLowerCase() || null;
-  const idMatch = String(row.patient_id_match || '').trim().toLowerCase() || null;
+  const resolveIdentity = ({ raw, match, role, isActive }) => {
+    if (raw == null || String(raw).trim() === '') return null;
+    const resolved = String(match || '').trim().toLowerCase() || null;
+    if (!resolved || !UUID_RE.test(resolved)) {
+      throw AppError.internal(
+        'FHIR AllergyIntolerance source row has an unresolved patient identity',
+        'FHIR_ALLERGY_PATIENT_UNRESOLVED',
+      );
+    }
+    if (
+      String(role || '').trim().toUpperCase() !== 'PATIENT'
+      || isActive !== true
+    ) {
+      throw AppError.internal(
+        'FHIR AllergyIntolerance source row does not belong to an active patient',
+        'FHIR_ALLERGY_PATIENT_INVALID',
+      );
+    }
+    return resolved;
+  };
+  const uidMatch = resolveIdentity({
+    raw: row.patient_uid_raw,
+    match: row.patient_uid_match,
+    role: row.patient_uid_role,
+    isActive: row.patient_uid_active,
+  });
+  const idMatch = resolveIdentity({
+    raw: row.patient_id_raw,
+    match: row.patient_id_match,
+    role: row.patient_id_role,
+    isActive: row.patient_id_active,
+  });
   if (uidMatch && idMatch && uidMatch !== idMatch) {
     throw AppError.internal(
       'FHIR AllergyIntolerance source row has conflicting patient identities',
@@ -135,10 +173,17 @@ function mergeReadableAllergyRows(rows) {
       rankSeverity(right.severity) - rankSeverity(left.severity)
       || readableRowPrecedence(left) - readableRowPrecedence(right)
     )).find(row => String(row.reaction || '').trim());
-    const sourcePrefix = primary.source === 'patient_allergies' ? 'pa' : 'allergy';
+    const identifiers = ordered.map(row => ({
+      system: row.source === 'patient_allergies'
+        ? 'urn:vhhealth:patient-allergy'
+        : 'urn:vhhealth:allergy',
+      value: String(row.id),
+    })).filter((identifier, index, all) => all.findIndex(candidate => (
+      candidate.system === identifier.system && candidate.value === identifier.value
+    )) === index);
     merged.push({
       id: primary.id,
-      fhir_id: `${sourcePrefix}-${primary.id}`,
+      fhir_id: primary.source === 'patient_allergies' ? `pa-${primary.id}` : String(primary.id),
       patient_uid: primary.patient_uid,
       allergy_name: primary.allergy_name,
       severity: strongest?.severity || null,
@@ -146,6 +191,7 @@ function mergeReadableAllergyRows(rows) {
       is_active: true,
       created_at: primary.recorded_at || primary.created_at,
       sources: [...new Set(ordered.map(row => row.source))],
+      identifiers,
     });
   }
 
@@ -219,6 +265,27 @@ async function findUnreceiptedAllergy(tx, {
   return rows[0] || null;
 }
 
+async function assertClinicalPatient(tx, { tenantId, patientUid }) {
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT uid::text
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND is_active = true
+        AND UPPER(BTRIM(COALESCE(role::text, ''))) = 'PATIENT'
+      LIMIT 1
+      FOR SHARE`,
+    tenantId,
+    patientUid,
+  );
+  if (!rows[0]) {
+    throw AppError.notFound(
+      'FHIR AllergyIntolerance patient not found',
+      'FHIR_ALLERGY_PATIENT_INVALID',
+    );
+  }
+}
+
 export async function createFhirAllergyIntolerance(input = {}) {
   const normalized = normalizeAllergyInput(input);
   const {
@@ -232,6 +299,8 @@ export async function createFhirAllergyIntolerance(input = {}) {
   } = normalized;
 
   return setTenantTx(tenantId, async (tx) => {
+    await assertClinicalPatient(tx, { tenantId, patientUid });
+
     await tx.$queryRawUnsafe(
       `SELECT pg_advisory_xact_lock(
          pg_catalog.hashtextextended($1::text, 666)
@@ -350,8 +419,14 @@ export async function listFhirAllergyIntolerances(input = {}) {
               allergy.id, allergy.allergy_name, allergy.severity,
               allergy.reaction, allergy.created_at, NULL::timestamptz AS recorded_at,
               (receipt.allergy_id IS NOT NULL) AS has_fhir_receipt,
+              allergy.patient_uid::text AS patient_uid_raw,
+              allergy.patient_id::text AS patient_id_raw,
               uid_patient.uid::text AS patient_uid_match,
-              id_patient.uid::text AS patient_id_match
+              uid_patient.role::text AS patient_uid_role,
+              uid_patient.is_active AS patient_uid_active,
+              id_patient.uid::text AS patient_id_match,
+              id_patient.role::text AS patient_id_role,
+              id_patient.is_active AS patient_id_active
          FROM patient_allergies allergy
          LEFT JOIN users uid_patient
            ON uid_patient.tenant_id = allergy.tenant_id
@@ -378,14 +453,20 @@ export async function listFhirAllergyIntolerances(input = {}) {
               COALESCE(NULLIF(allergy.allergen, ''), allergy.name) AS allergy_name,
               allergy.severity, allergy.reaction, allergy.created_at,
               allergy.recorded_at, FALSE AS has_fhir_receipt,
+              allergy.patient_uid::text AS patient_uid_raw,
+              NULL::text AS patient_id_raw,
               patient.uid::text AS patient_uid_match,
-              NULL::text AS patient_id_match
+              patient.role::text AS patient_uid_role,
+              patient.is_active AS patient_uid_active,
+              NULL::text AS patient_id_match,
+              NULL::text AS patient_id_role,
+              NULL::boolean AS patient_id_active
          FROM allergies allergy
          LEFT JOIN users patient
            ON patient.tenant_id = allergy.tenant_id
           AND patient.uid = allergy.patient_uid
         WHERE allergy.tenant_id = $1::uuid
-          AND COALESCE(allergy.status, 'active') NOT IN (
+          AND LOWER(BTRIM(COALESCE(allergy.status, 'active'))) NOT IN (
             'inactive', 'resolved', 'entered-in-error'
           )
           AND ($2::uuid IS NULL OR allergy.patient_uid = $2::uuid)`,

@@ -20,11 +20,7 @@ import {
 } from '../../services/hl7/hl7Transformer.js';
 import { AppError } from '../../utils/AppError.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
-import {
-  getInteropSecret,
-  resolveInteropCredentialSnapshot,
-  resolveTenantBySender,
-} from '../../services/interop/tenantInteropSecretService.js';
+import { resolveInteropCredentialSnapshot } from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import {
   assertEnvBackedHl7InboundLivePathAvailable,
@@ -37,6 +33,7 @@ const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
 const PERMANENT_HL7_CLINICAL_REJECTION_CODES = new Set([
   'HL7_CLINICAL_RECEIPT_IDENTITY_DRIFT',
+  'HL7_CLINICAL_PATIENT_INVALID',
   'HL7_ADMISSION_VISIT_REQUIRED',
   'HL7_ADMISSION_VISIT_ALREADY_EXISTS',
   'HL7_ADMISSION_VISIT_UNKNOWN',
@@ -161,8 +158,12 @@ async function assertHl7InboundAuthentic(req, {
     tenantId = credentialSnapshot.tenant_id;
     secret = credentialSnapshot.secret;
   } else {
-    tenantId = await resolveTenantBySender('hl7_inbound', receivingFacility);
-    secret = tenantId ? await getInteropSecret(tenantId, 'hl7_inbound') : null;
+    credentialSnapshot = await resolveInteropCredentialSnapshot(
+      'hl7_inbound',
+      receivingFacility,
+    );
+    tenantId = credentialSnapshot?.tenant_id;
+    secret = credentialSnapshot?.secret;
   }
   // CAN-021: a per-tenant inbound secret authenticates a SPECIFIC tenant's feed,
   // so the named patient MUST belong to that tenant (strict). The shared-secret
@@ -181,6 +182,9 @@ async function assertHl7InboundAuthentic(req, {
   if (!tenantId || !secret) {
     throw AppError.unauthorized('HL7 inbound sender not recognized', 'HL7_INBOUND_SENDER_UNKNOWN');
   }
+  const authenticatedSenderIdentity = credentialSnapshot
+    ? `hl7-inbound-credential:${credentialSnapshot.id}`
+    : 'hl7-inbound-credential:legacy-env';
 
   // Sync fast-path: HMAC + freshness + same-process replay.
   const signedRequest = {
@@ -236,6 +240,7 @@ async function assertHl7InboundAuthentic(req, {
   req.tenantId = tenantId; // the authenticated destination tenant
   req.hl7StrictTenant = strictTenant; // CAN-021: enforce patient-tenant match on the per-tenant-secret path
   req.hl7CredentialSnapshot = credentialSnapshot;
+  req.hl7AuthenticatedSenderIdentity = authenticatedSenderIdentity;
 }
 
 function i03MessageFamily(messageType) {
@@ -266,7 +271,12 @@ export function hl7ClinicalAckCode(error) {
 // if not found.
 async function loadHl7Patient(patientUid, authenticatedTenantId, strictTenant) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid, tenant_id::text AS tenant_id, phone FROM users WHERE uid = $1::uuid AND is_active = true LIMIT 1`,
+    `SELECT uid, tenant_id::text AS tenant_id, phone
+       FROM users
+      WHERE uid = $1::uuid
+        AND is_active = true
+        AND UPPER(BTRIM(COALESCE(role::text, ''))) = 'PATIENT'
+      LIMIT 1`,
     patientUid,
   );
   const row = rows[0] || null;
@@ -421,10 +431,7 @@ router.post(
       requestId: req.id,
     });
 
-    const senderIdentity = [parsed.msh.sendingApp, parsed.msh.sendingFacility]
-      .map(value => String(value || '').trim())
-      .filter(Boolean)
-      .join('|');
+    const senderIdentity = req.hl7AuthenticatedSenderIdentity;
 
     try {
       // Route based on message type

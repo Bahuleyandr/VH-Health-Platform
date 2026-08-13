@@ -56,7 +56,7 @@ describe('canonical interoperability identities', () => {
   it('binds the HL7 durable identity to tenant, sender, and MSH-10', () => {
     const identity = {
       tenantId: TENANT_ID,
-      senderIdentity: 'CANONICAL-SENDER|CANONICAL-SITE',
+      senderIdentity: 'hl7-inbound-credential:481',
       messageControlId: 'CAN-ADT-001',
     };
     const baseline = hl7Testing.receiptIdentityHash(identity);
@@ -68,7 +68,7 @@ describe('canonical interoperability identities', () => {
     })).not.toBe(baseline);
     expect(hl7Testing.receiptIdentityHash({
       ...identity,
-      senderIdentity: 'OTHER-SENDER|CANONICAL-SITE',
+      senderIdentity: 'hl7-inbound-credential:482',
     })).not.toBe(baseline);
     expect(hl7Testing.receiptIdentityHash({
       ...identity,

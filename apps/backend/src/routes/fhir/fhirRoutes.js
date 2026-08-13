@@ -118,6 +118,8 @@ async function assertPatientInTenant(patientUid, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT uid, tenant_id FROM users
       WHERE uid = $1::uuid AND tenant_id = $2::uuid
+        AND is_active = true
+        AND UPPER(BTRIM(COALESCE(role::text, ''))) = 'PATIENT'
       LIMIT 1`,
     patientUid,
     tenantId,
@@ -484,6 +486,47 @@ function parsePagination(query) {
 function isMissingSchemaError(err) {
   const message = String(err?.message || '');
   return /does not exist|column .* does not exist|relation .* does not exist/i.test(message);
+}
+
+function assertSupportedAllergyLifecycle(resource) {
+  const clinicalSystem = 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical';
+  const verificationSystem = 'http://terminology.hl7.org/CodeSystem/allergyintolerance-verification';
+  const clinicalStatus = resource?.clinicalStatus;
+  const clinicalCodes = Array.isArray(clinicalStatus?.coding)
+    ? clinicalStatus.coding
+      .filter(coding => String(coding?.system || '').trim() === clinicalSystem)
+      .map(coding => String(coding?.code || '').trim().toLowerCase())
+      .filter(Boolean)
+    : [];
+  if (
+    clinicalStatus != null
+    && (clinicalCodes.length === 0 || clinicalCodes.some(code => code !== 'active'))
+  ) {
+    throw AppError.badRequest(
+      'Only active AllergyIntolerance creates are supported',
+      'FHIR_ALLERGY_LIFECYCLE_UNSUPPORTED',
+    );
+  }
+  const verificationStatus = resource?.verificationStatus;
+  const verificationCodes = Array.isArray(verificationStatus?.coding)
+    ? resource.verificationStatus.coding
+      .filter(coding => String(coding?.system || '').trim() === verificationSystem)
+      .map(coding => String(coding?.code || '').trim().toLowerCase())
+      .filter(Boolean)
+    : [];
+  if (verificationStatus != null && verificationCodes.length === 0) {
+    throw AppError.badRequest(
+      'AllergyIntolerance verificationStatus must use the FHIR R4 code system',
+      'FHIR_ALLERGY_LIFECYCLE_UNSUPPORTED',
+    );
+  }
+  if (verificationCodes.some(code => ['refuted', 'entered-in-error'].includes(code))) {
+    throw AppError.badRequest(
+      'Refuted or entered-in-error AllergyIntolerance creates are not supported',
+      'FHIR_ALLERGY_LIFECYCLE_UNSUPPORTED',
+    );
+  }
+  return 'active';
 }
 
 async function optionalFhirQuery(sql, ...params) {
@@ -1225,6 +1268,7 @@ router.post(
     const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'AllergyIntolerance');
+    const clinicalStatus = assertSupportedAllergyLifecycle(resource);
     const patientUid = patientUidFromReference(resource.patient?.reference || resource.subject?.reference);
     await assertPatientInTenant(patientUid, tenantId);
 
@@ -1248,6 +1292,7 @@ router.post(
       allergen,
       severity,
       reaction: reactionText,
+      clinicalStatus,
       actorUid: req.user?.uid || req.smart?.user_uid || null,
       actorRole: req.user?.role || req.smart?.user_role || 'SMART_APP',
       requestId: req.id || null,
