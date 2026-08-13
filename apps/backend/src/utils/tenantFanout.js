@@ -37,18 +37,19 @@ function normalizedFailureCode(err, fallback) {
   return candidate || 'JOB_FAILED';
 }
 
-async function createRun(label, lockKey) {
+async function createRun(label, lockKey, scope = 'tenant_fanout') {
   const rows = await prisma.$queryRawUnsafe(
     `WITH pruned AS MATERIALIZED (
        SELECT public.prune_scheduled_job_run_evidence()
      ), inserted AS (
-       INSERT INTO scheduled_job_runs (job_label, lock_key)
-       SELECT $1::text, $2::text FROM pruned
+       INSERT INTO scheduled_job_runs (job_label, lock_key, scope)
+       SELECT $1::text, $2::text, $3::text FROM pruned
        RETURNING id
      )
      SELECT id FROM inserted`,
     label,
     lockKey,
+    scope,
   );
   if (!rows?.[0]?.id) throw new Error(`${label}: failed to create scheduler run receipt`);
   return rows[0].id;
@@ -601,4 +602,110 @@ export async function runForEachTenant(label, perTenantFn, { lockKey = label } =
   return result;
 }
 
-export default { runForEachTenant };
+async function recordFleetFinished(runId, { status, failureCode = null }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH updated AS (
+       UPDATE scheduled_job_runs
+          SET aggregate_status = $2::text,
+              failure_code = $3::text,
+              finished_at = NOW()
+         WHERE id = $1::bigint
+           AND scope = 'fleet'
+           AND aggregate_status = 'running'
+        RETURNING id
+     )
+     SELECT id FROM updated
+     UNION ALL
+     SELECT existing.id
+       FROM scheduled_job_runs existing
+      WHERE existing.id = $1::bigint
+        AND existing.scope = 'fleet'
+        AND existing.aggregate_status = $2::text
+        AND existing.failure_code IS NOT DISTINCT FROM $3::text
+        AND NOT EXISTS (SELECT 1 FROM updated)
+      LIMIT 1`,
+    runId,
+    status,
+    failureCode,
+  );
+  if (!rows?.length) throw new Error('Fleet scheduler outcome receipt was not persisted');
+}
+
+/**
+ * Run a single-pass fleet job under the same durable receipt and failure
+ * boundary `runForEachTenant` gives a per-tenant fan-out.
+ *
+ * Fleet jobs (audit-chain verification, results-inbox escalation) sweep every
+ * tenant in one body rather than being fanned out, so they have no discovery
+ * step and no per-tenant children. Migration 671 gives them their own row
+ * shape in `scheduled_job_runs`: `scope='fleet'`, discovery permanently
+ * 'pending', all tenant counters 0.
+ *
+ * The receipt is the point. `withJobLock` logs and swallows whatever this
+ * throws, so before 671 a tick that failed and a tick that never fired left
+ * exactly the same trace. Now the run row says which one happened, and a
+ * success is never reported without its own persisted evidence.
+ *
+ * @param {string} label job label for the durable receipt and logs
+ * @param {() => Promise<T>} fleetFn
+ * @param {Object} [options]
+ * @param {string} [options.lockKey=label] fleet advisory-lock key
+ * @returns {Promise<{runId: string, result: T}>}
+ */
+export async function runFleetJob(label, fleetFn, { lockKey = label } = {}) {
+  const jobLabel = normalizedLabel(label);
+  const jobLockKey = normalizedLabel(lockKey);
+  if (typeof fleetFn !== 'function') {
+    throw new TypeError(`${jobLabel}: fleetFn must be a function`);
+  }
+
+  const runId = await createRun(jobLabel, jobLockKey, 'fleet');
+  const failWith = async (err, status, fallbackCode, message) => {
+    const failureCode = normalizedFailureCode(err, fallbackCode);
+    try {
+      await persistReceipt(() => recordFleetFinished(runId, { status, failureCode }));
+    } catch (receiptErr) {
+      throw fanoutError(
+        jobLabel,
+        runId,
+        [err, receiptErr],
+        `${message}, and its failure receipt also failed`,
+        { runId: String(runId), scope: 'fleet' },
+      );
+    }
+    throw fanoutError(jobLabel, runId, [err], message, { runId: String(runId), scope: 'fleet' });
+  };
+
+  try {
+    await reconcileStaleRuns(runId);
+  } catch (err) {
+    await failWith(
+      err,
+      'reconciliation_failed',
+      'STALE_RECONCILIATION_FAILED',
+      `${jobLabel}: stale-run reconciliation failed`,
+    );
+  }
+
+  let result;
+  try {
+    result = await fleetFn();
+  } catch (err) {
+    await failWith(err, 'job_failed', 'FLEET_JOB_FAILED', `${jobLabel}: fleet job failed`);
+  }
+
+  try {
+    await persistReceipt(() => recordFleetFinished(runId, { status: 'succeeded' }));
+  } catch (receiptErr) {
+    throw fanoutError(
+      jobLabel,
+      runId,
+      [receiptErr],
+      `${jobLabel}: fleet job completed but its outcome receipt failed`,
+      { runId: String(runId), scope: 'fleet' },
+    );
+  }
+  return { runId: String(runId), result };
+}
+
+export default { runForEachTenant, runFleetJob };
