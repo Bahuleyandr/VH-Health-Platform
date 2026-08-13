@@ -8,6 +8,22 @@ infra/kubernetes/overlays/prod
 infra/kubernetes/apps
 ```
 
+It must also render the two non-production overlays, which compose the same
+`base/` content and are therefore in the blast radius of anything placed there:
+
+```text
+infra/kubernetes/overlays/staging
+infra/kubernetes/overlays/dev
+```
+
+That coverage is not cosmetic. The 2026-08-13 database hold was placed in
+`base/cnpg/cluster.yaml`, so its all-zero, unpullable digest rendered into
+staging and dev as well — and because the guard built only the production roots,
+both overlays silently lost the ability to bring up any database, with nothing
+red. Each non-production overlay now patches the real, registry-verified
+PostgreSQL 17 digest and its own archive identity; see
+`infra/kubernetes/overlays/{staging,dev}/kustomization.yaml`.
+
 Run both repository guards from the repository root:
 
 ```bash
@@ -54,6 +70,14 @@ Database image, only in the rendered `infra/kubernetes/overlays/prod` root
 (audit 2026-08-13, P1):
 
 - `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm`
+
+The same tag at its **real** digest is required — not held — in
+`infra/kubernetes/overlays/staging` and `infra/kubernetes/overlays/dev`. The
+hold is production-only because its two reasons are production-only: the exact
+qualified minor and digest of the LIVE clinical database are operator evidence,
+and a major-version bump on that cluster is an irreversible `pg_upgrade` of
+patient data. Neither applies to dev or staging, so an all-zero digest reaching
+either of those roots is a hard guard failure, not a held state.
 
 The application entries take the form
 `<repository>@sha256:0000000000000000000000000000000000000000000000000000000000000000`;

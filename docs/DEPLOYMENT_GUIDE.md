@@ -694,6 +694,19 @@ kustomization composes. Applying that held path — not syncing the platform
 overlay — is what converts the database, and it is gated on the
 qualification evidence recorded there.
 
+The active Cluster's WAL archive identity is the matching PostgreSQL 17 identity
+`vhhealth-pg`, and the daily backup verifier reads the same value. Pinning the
+real PostgreSQL 17 digest is a MINOR change and does not authorize touching the
+archive identity: image generation and archive identity move together, only
+through the held cutover's atomic patch, and
+`scripts/check-c1-1-manifest-contract.mjs` rejects any overlay that pairs them
+across generations. The non-production overlays are not held — `staging` and
+`dev` pin the real `17.10-standard-bookworm` digest and archive under
+`vhhealth-pg-staging` / `vhhealth-pg-dev`, because the hold's two reasons
+(operator-owned live evidence, irreversible conversion of live clinical data)
+are production-only and inheriting it left those environments with no database
+at all.
+
 Before any major change, re-derive and install the current secure PostgreSQL 17
 minor (17.10 as of 2026-07-28), prove a PG17 backup and reader-only restore, and
 rehearse the entire CNPG operator ladder without changing the database major

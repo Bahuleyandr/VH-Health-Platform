@@ -92,25 +92,64 @@ Then apply the single atomic patch from `pg18-cutover-target.yaml`, which
 archive identity and the image together. Rollback is restore-into-a-new-cluster
 only; a physical `pg_upgrade` is not reversible in place.
 
-## Known residual (not fixed here — needs live evidence)
+## Archive identity: closed, not residual
 
-`infra/kubernetes/base/cnpg/cluster.yaml` still declares the **post-cutover**
-WAL archive identity `serverName: vhhealth-pg18` (line ~330), and the backup
-verifier (`r2-backup-hardening.yaml:88`) and suspended restore proof
-(`scheduled-restore-proof.yaml:106`) read the same value. On a PostgreSQL 17
-cluster that identity is wrong — `docs/CNPG_POSTGRES_18_QUALIFICATION.md`
-records `vhhealth-pg` as the historical PostgreSQL 17 identity, and
-`pg18-upgrade-rehearsal.sh` `test`-guards that the identity is still the PG17
-one immediately before conversion.
+An earlier revision of this document recorded the archive identity as a KNOWN
+RESIDUAL: `base/cnpg/cluster.yaml` declared the **post-cutover**
+`serverName: vhhealth-pg18` while pinning a PostgreSQL 17 image, on the argument
+that the live identity is operator evidence and flipping it blind could orphan a
+real WAL archive. That framing was wrong in two concrete ways, and both are now
+closed.
 
-This was deliberately **not** changed. Which identity the running cluster is
-actually archiving under is live state, not repository state; flipping it blind
-would orphan a real WAL archive, which is a worse failure than the one being
-fixed. It requires the operator to read
-`{.spec.plugins[0].parameters.serverName}` off the running Cluster and
-reconcile the manifest to it in a reviewed change. Until then, the fail-closed
-image placeholder keeps the active graph unsyncable, so no WAL is written under
-a wrong identity as a result of this repository.
+1. **It was fail-OPEN, not merely undecided.** The `imageName` comment directs
+   the operator to pin the real PostgreSQL 17 digest before the first sync.
+   Doing exactly that, and nothing else, would have started archiving
+   PostgreSQL 17 WAL under the PostgreSQL 18 identity — the contamination
+   `docs/CNPG_POSTGRES_18_QUALIFICATION.md` ("Credential and archive
+   identities") forbids. The repository was one intended operator action away
+   from the failure it claimed to be avoiding.
+2. **It defeated this cutover's own guard.** `cutoverPatch` `test`s
+   `/spec/plugins/0/parameters/serverName` against `${LIVE_PG17_ARCHIVE_IDENTITY}`
+   and then `replace`s it with `vhhealth-pg18`. If the live value were already
+   `vhhealth-pg18`, the test would pass **vacuously**, the replace would be a
+   no-op, and the imageName replace would append PostgreSQL 18 WAL to an archive
+   already holding PostgreSQL 17 WAL — with the guard reporting success.
+
+What changed:
+
+- `base/cnpg/cluster.yaml` declares the PostgreSQL 17 identity `vhhealth-pg`,
+  documented by `docs/CNPG_POSTGRES_18_QUALIFICATION.md` as the historical
+  PostgreSQL 17 identity, paired with the PostgreSQL 17 image pin.
+- `r2-backup-hardening.yaml` (the daily, **unsuspended** verifier) follows the
+  cluster it verifies. `scheduled-restore-proof.yaml` deliberately does not: it
+  is a suspended, owner-gated, post-cutover proof whose PG18 image and PG18
+  identity are a matched pair.
+- `cutoverPatch` refuses outright if `LIVE_PG17_ARCHIVE_IDENTITY` is already
+  `vhhealth-pg18`, so the `test` operation can no longer pass vacuously.
+- `scripts/check-c1-1-manifest-contract.mjs` enforces the pairing in both
+  directions, in every rendered overlay: neither the image generation nor the
+  archive identity may change without the other.
+
+**Still operator-owned:** the repository declares the identity it expects; only
+the operator can confirm what the running cluster is actually archiving under
+(`kubectl get cluster vhhealth-pg -n vhhealth-platform -o
+jsonpath='{.spec.plugins[0].parameters.serverName}'`). If the live value differs
+from `vhhealth-pg`, reconcile in a reviewed change **before** pinning a real
+image digest — and if it is already `vhhealth-pg18`, that is a live
+misconfiguration to fix on its own, not a reason to proceed with the cutover.
+The fail-closed image placeholder keeps the active graph unsyncable meanwhile.
+
+## Non-production overlays
+
+`overlays/staging` and `overlays/dev` compose the same `base/cnpg`. They do
+**not** inherit this hold: they pin the real, publicly resolvable digest for
+`17.10-standard-bookworm` and archive under their own identities
+(`vhhealth-pg-staging` / `vhhealth-pg-dev`). The hold exists because the live
+production database holds clinical data and a major-version bump converts it
+irreversibly; neither is true of dev or staging, where inheriting an unpullable
+digest only meant those environments could bring up no database at all. Their
+distinct identities also keep non-production WAL out of the production archive
+prefix, which they would otherwise share.
 
 ## Validation
 

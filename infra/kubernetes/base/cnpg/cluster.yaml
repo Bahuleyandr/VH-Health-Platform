@@ -24,6 +24,17 @@
 # Backup: the Barman Cloud Plugin references ObjectStore
 # `vhhealth-pg18-producer`. Credentials are a producer-only SealedSecret;
 # see `cnpg-backup-producer-credentials.sealed-secret.yaml.example`.
+#
+# ObjectStore NAME vs ARCHIVE IDENTITY — they are not the same thing. The
+# ObjectStore is a Kubernetes object holding only the bucket, endpoint, and
+# credentials; the archive prefix Barman actually writes is
+# `<destinationPath>/<serverName>/`. So the historically-named
+# `vhhealth-pg18-producer` ObjectStore is shared across generations, while
+# `serverName` below is what keeps PostgreSQL 17 and PostgreSQL 18 WAL in
+# disjoint prefixes (docs/CNPG_POSTGRES_18_QUALIFICATION.md, "Credential and
+# archive identities"). Renaming the ObjectStore object would change nothing
+# about archive separation and would break the prod overlay's endpoint
+# replacement; the identity that matters is `serverName`.
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -57,6 +68,10 @@ spec:
   #   kubectl get cluster vhhealth-pg -n vhhealth-platform \
   #     -o jsonpath='{.status.pgDataImageInfo.image}'
   # Do NOT substitute the PostgreSQL 18.4 target to make a sync succeed.
+  # Pinning the real PostgreSQL 17 digest here is a MINOR change and must leave
+  # `spec.plugins[0].parameters.serverName` on its PostgreSQL 17 archive
+  # identity (see the plugins block below). Image generation and archive
+  # identity only ever move together, and only through the held cutover patch.
   imageName: ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@sha256:0000000000000000000000000000000000000000000000000000000000000000
   instances: 3
   minSyncReplicas: 1
@@ -352,30 +367,51 @@ spec:
         key: queries.yaml
 
   # CNPG 1.30 delegates WAL archiving and base backups to the separately
-  # installed Barman Cloud Plugin. `serverName` below is the POST-CUTOVER PG18
-  # archive identity; PG17 evidence must remain under its previous identity
-  # (`vhhealth-pg`, per docs/CNPG_POSTGRES_18_QUALIFICATION.md).
+  # installed Barman Cloud Plugin.
   #
-  # KNOWN RESIDUAL (audit 2026-08-13, P1 — deliberately not changed): with the
-  # cluster held on its PostgreSQL 17 generation above, this value is the
-  # future identity, not the live one. Which identity the running cluster is
-  # actually archiving under is LIVE state, not repository state; flipping it
-  # blind would orphan a real WAL archive, a worse failure than the one being
-  # fixed. The operator must read
+  # ── IMAGE AND ARCHIVE IDENTITY MOVE TOGETHER ───────────────────────────────
+  # `serverName` is the WAL archive identity and MUST match the generation of
+  # `spec.imageName` above. docs/CNPG_POSTGRES_18_QUALIFICATION.md ("Credential
+  # and archive identities"): PostgreSQL 18 archives use `vhhealth-pg18`,
+  # distinct from the historical PostgreSQL 17 identity `vhhealth-pg`, and
+  # PostgreSQL 18 WAL must never be appended to the PostgreSQL 17 identity.
+  #
+  # Until this change the active Cluster declared PostgreSQL 17 above and
+  # `vhhealth-pg18` here, documented as a residual for the operator. That was
+  # fail-OPEN in two ways, both closed now:
+  #   1. The OPERATOR note on imageName tells the operator to pin the real PG17
+  #      digest. Doing exactly that, and nothing else, would have started
+  #      archiving PostgreSQL 17 WAL into the PostgreSQL 18 identity — the
+  #      contamination the qualification document forbids.
+  #   2. The held cutover patch (infra/kubernetes/held/c1-1-pg18-cutover/) is a
+  #      `test`-then-`replace` on this field. With the live value already
+  #      `vhhealth-pg18` the test would pass vacuously and the replace would be
+  #      a no-op, so PostgreSQL 18 WAL would land in an archive that already
+  #      held PostgreSQL 17 WAL, with the guard reporting success.
+  # scripts/check-c1-1-manifest-contract.mjs now enforces the pairing in both
+  # directions: neither imageName nor serverName may change generation without
+  # the other, in every rendered overlay.
+  #
+  # OPERATOR: this is the PG17-generation identity. Confirm it against the
+  # running cluster BEFORE pinning the real digest above —
   #   kubectl get cluster vhhealth-pg -n vhhealth-platform \
   #     -o jsonpath='{.spec.plugins[0].parameters.serverName}'
-  # and reconcile this value (and BARMAN_SERVER_NAME in
-  # r2-backup-hardening.yaml + scheduled-restore-proof.yaml) in a reviewed
-  # change. Until then the fail-closed image digest above keeps this cluster
-  # definition unsyncable, so no WAL is written under a wrong identity as a
-  # result of this repository. The cutover flips image and identity together in
-  # one atomic patch — see infra/kubernetes/held/c1-1-pg18-cutover/.
+  # — and if the live value differs, reconcile in a reviewed change together
+  # with BARMAN_SERVER_NAME in r2-backup-hardening.yaml (the daily verifier
+  # reads the prefix this cluster writes). Do not point it at `vhhealth-pg18`
+  # while imageName is a PostgreSQL 17 image. The cutover flips image and
+  # identity together in one atomic patch — see
+  # infra/kubernetes/held/c1-1-pg18-cutover/.
+  #
+  # Non-production overlays MUST NOT share this identity: overlays/staging and
+  # overlays/dev patch it to `vhhealth-pg-staging` / `vhhealth-pg-dev` so a
+  # non-production cluster can never append WAL to the production archive.
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
       parameters:
         barmanObjectName: vhhealth-pg18-producer
-        serverName: vhhealth-pg18
+        serverName: vhhealth-pg
 
   # Replica bootstrap: not used. Set to null so the operator knows to
   # promote in-place from existing cluster members during upgrades.

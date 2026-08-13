@@ -170,6 +170,36 @@ PostgreSQL 18 archives use the server identity `vhhealth-pg18`, distinct from
 the historical PostgreSQL 17 identity `vhhealth-pg`. Successful conversion
 must never append PostgreSQL 18 WAL to the PostgreSQL 17 archive identity.
 
+The identity is `spec.plugins[].parameters.serverName`, **not** the `ObjectStore`
+object's name. The `ObjectStore` carries only the bucket, endpoint, and
+credentials; the archive prefix Barman writes is
+`<destinationPath>/<serverName>/`. That is why the historically-named
+`vhhealth-pg18-producer` `ObjectStore` is shared across generations while
+`serverName` is what keeps the two generations' WAL disjoint.
+
+**Image generation and archive identity move together.** A `Cluster`'s
+`spec.imageName` generation and its `serverName` are one decision. Changing
+either alone produces the contamination this section forbids:
+
+- PostgreSQL 17 image + `vhhealth-pg18` writes PostgreSQL 17 WAL into the
+  PostgreSQL 18 archive. This is reachable by an operator who does nothing more
+  than follow the `imageName` OPERATOR note and pin the real PostgreSQL 17
+  digest, so the repository must never declare that pair.
+- PostgreSQL 18 image + `vhhealth-pg` is the forbidden direction stated above.
+
+The cutover therefore replaces both fields in one atomic `kubectl patch`
+(`infra/kubernetes/held/c1-1-pg18-cutover/`), guarded by a `test` on the live
+identity. That guard is only meaningful while the supplied live identity is not
+already `vhhealth-pg18` — otherwise the `test` passes vacuously and the
+`replace` is a no-op — so the patch refuses that input outright.
+`scripts/check-c1-1-manifest-contract.mjs` enforces the pairing in both
+directions across every rendered overlay.
+
+Non-production clusters share the production bucket and destination prefix, so
+`serverName` is the only separation available to them. `overlays/staging` and
+`overlays/dev` archive under `vhhealth-pg-staging` and `vhhealth-pg-dev`; they
+must never adopt `vhhealth-pg` or `vhhealth-pg18`.
+
 Backend upload archives use disjoint identities:
 
 - `minio-backup-source-reader` reads the source MinIO upload bucket;

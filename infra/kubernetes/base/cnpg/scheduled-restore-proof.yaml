@@ -5,11 +5,20 @@
 # NOTE (audit 2026-08-13, P1): `PG18_IMAGE` and `BARMAN_SERVER_NAME` below
 # describe the POST-CUTOVER PostgreSQL 18 generation, while the live cluster is
 # held on PostgreSQL 17 (see cluster.yaml and
-# infra/kubernetes/held/c1-1-pg18-cutover/). That mismatch is contained rather
-# than dangerous: this CronJob is `suspend: true` AND every operator input is
-# still a literal OWNER_INPUT placeholder that the proof script rejects, so it
-# synthesizes nothing. Reconcile both values with the live cluster in the same
-# reviewed change that pins the real PostgreSQL 17 digest — before unsuspending.
+# infra/kubernetes/held/c1-1-pg18-cutover/). They are a MATCHED pair — a
+# PostgreSQL 18 image restoring the PostgreSQL 18 archive identity — so this
+# proof can never open a PostgreSQL 17 archive with a PostgreSQL 18 image, nor
+# the reverse. The generation mismatch against the live cluster is contained
+# rather than dangerous: this CronJob is `suspend: true` AND every operator
+# input is still a literal OWNER_INPUT placeholder that the proof script
+# rejects, so it synthesizes nothing.
+#
+# scripts/check-c1-1-manifest-contract.mjs enforces all three properties: the
+# image/identity pair must stay matched, the CronJob must stay suspended, and
+# the active Cluster's own image/identity pair is checked separately. Unlike
+# `r2-backup-hardening.yaml` — a daily, unsuspended verifier that MUST track the
+# live cluster identity — this proof stays on the PostgreSQL 18 pair and is
+# unsuspended only after the cutover, with the owner inputs supplied.
 ---
 apiVersion: v1
 kind: ServiceAccount

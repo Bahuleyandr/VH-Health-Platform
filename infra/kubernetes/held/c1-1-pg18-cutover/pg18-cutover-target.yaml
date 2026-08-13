@@ -39,6 +39,13 @@ data:
   # identities").
   targetArchiveIdentity: "vhhealth-pg18"
 
+  # Pre-conversion identity as declared in base/cnpg/cluster.yaml, which the
+  # active production overlay composes. The two MUST differ: if the source and
+  # target identities were equal there would be no archive separation at all,
+  # and the patch's `test` operation could not distinguish "not yet cut over"
+  # from "already cut over".
+  sourceArchiveIdentity: "vhhealth-pg"
+
   targetCluster: "vhhealth-pg"
   targetNamespace: "vhhealth-platform"
 
@@ -55,7 +62,27 @@ data:
   #   kubectl get cluster vhhealth-pg -n vhhealth-platform \
   #     -o jsonpath='{.spec.plugins[0].parameters.serverName}'
   # into LIVE_PG17_ARCHIVE_IDENTITY. Do not guess it.
+  #
+  # The leading refusal is what keeps the `test` operation meaningful. A JSON
+  # Patch `test` compares the live value against whatever the operator supplied:
+  # if LIVE_PG17_ARCHIVE_IDENTITY were itself "vhhealth-pg18", the test would
+  # pass VACUOUSLY, the serverName `replace` would be a no-op, and the imageName
+  # `replace` would then append PostgreSQL 18 WAL to an archive that already
+  # holds PostgreSQL 17 WAL — the exact contamination
+  # docs/CNPG_POSTGRES_18_QUALIFICATION.md ("Credential and archive identities")
+  # forbids, with the guard reporting success. The repository side of the same
+  # invariant is base/cnpg/cluster.yaml, which now declares the PostgreSQL 17
+  # identity `vhhealth-pg`; scripts/check-c1-1-manifest-contract.mjs rejects a
+  # PostgreSQL 18 identity paired with a PostgreSQL 17 image in any overlay.
   cutoverPatch: |
+    : "${LIVE_PG17_ARCHIVE_IDENTITY:?Read the live PG17 archive identity off the running Cluster}"
+    if [ "${LIVE_PG17_ARCHIVE_IDENTITY}" = "vhhealth-pg18" ]; then
+      echo "REFUSING: the live archive identity is already the PostgreSQL 18 identity." >&2
+      echo "  The test operation below would pass vacuously and the serverName replace" >&2
+      echo "  would be a no-op, so PostgreSQL 18 WAL would be appended to an archive that" >&2
+      echo "  already holds PostgreSQL 17 WAL. Stop and reconcile the live identity first." >&2
+      exit 1
+    fi
     kubectl patch cluster vhhealth-pg -n vhhealth-platform --type json -p "[
       {\"op\":\"test\",\"path\":\"/spec/plugins/0/name\",\"value\":\"barman-cloud.cloudnative-pg.io\"},
       {\"op\":\"test\",\"path\":\"/spec/plugins/0/parameters/serverName\",\"value\":\"${LIVE_PG17_ARCHIVE_IDENTITY}\"},
@@ -89,7 +116,10 @@ data:
        synthetic archive, isolated from production data and credentials.
     6. A completed production Backup CR, plus an agreed downtime window.
     7. The live PG17 archive identity read from the running Cluster and pinned
-       into LIVE_PG17_ARCHIVE_IDENTITY above.
+       into LIVE_PG17_ARCHIVE_IDENTITY above. If that live value is already
+       "vhhealth-pg18", the cutover does NOT proceed: the patch refuses, and the
+       live cluster is archiving PostgreSQL 17 WAL under the PostgreSQL 18
+       identity, which must be reconciled in its own reviewed change first.
     8. Owner sign-off recorded. Absent it, this cutover does not happen.
 
   rollback: |
