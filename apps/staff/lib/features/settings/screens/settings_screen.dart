@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../../../core/config/api_config.dart';
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show BiometricAuthResult, BiometricAuthService;
 import '../../../core/providers/locale_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/utils/font_scale.dart';
@@ -67,8 +68,16 @@ class SettingsScreen extends StatelessWidget {
 
     if (confirmed == true && context.mounted) {
       try {
-        final employeeId = await ApiConfig.getEmployeeId() ?? '';
-        await HrApiService.setupPin(employeeId: employeeId, pin: pinCtrl.text);
+        final deviceToken = await AuthService.getDeviceToken();
+        if (deviceToken == null || deviceToken.isEmpty) {
+          throw StateError(
+            'This device is not registered. Sign in with your password first.',
+          );
+        }
+        final result = await HrApiService.setupPin(
+          pin: pinCtrl.text,
+          deviceToken: deviceToken,
+        );
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -76,6 +85,10 @@ class SettingsScreen extends StatelessWidget {
               backgroundColor: AppTheme.successGreen,
             ),
           );
+          if (result['reauthenticationRequired'] == true) {
+            await AuthService.forceLogoutForRevocation();
+            if (context.mounted) context.go('/login');
+          }
         }
       } catch (e) {
         if (context.mounted) {
@@ -609,15 +622,57 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
   bool _enabled = false;
   bool _loading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final installationId = await AuthService.getInstallationId();
+      final data = await HrApiService.getRegisteredDevices();
+      final devices = data['devices'] as List? ?? const [];
+      final current = devices.whereType<Map>().where(
+        (device) => device['id']?.toString() == installationId,
+      );
+      if (mounted && current.isNotEmpty) {
+        setState(() => _enabled = current.first['biometricEnabled'] == true);
+      }
+    } catch (_) {
+      // The toggle remains off when the server cannot prove enrollment.
+    }
+  }
+
   Future<void> _toggle(bool value) async {
     if (!OnlineOnlyActionGuard.require(context)) return;
+    final biometricReason = AppStrings.of(context).settingsBiometricSubtitle;
     setState(() => _loading = true);
     try {
+      if (value) {
+        final available = await BiometricAuthService.instance.isAvailable();
+        if (!available) {
+          throw StateError('Biometric authentication is not available.');
+        }
+        final result = await BiometricAuthService.instance.authenticate(
+          reason: biometricReason,
+        );
+        if (result != BiometricAuthResult.success) {
+          if (result == BiometricAuthResult.cancelled) return;
+          throw StateError('Biometric authentication is not available.');
+        }
+      }
       final deviceToken = await AuthService.getDeviceToken() ?? '';
+      if (deviceToken.isEmpty) {
+        throw StateError(
+          'This device is not registered. Sign in with your password first.',
+        );
+      }
       await HrApiService.toggleBiometric(
         enabled: value,
         deviceToken: deviceToken,
       );
+      if (!mounted) return;
       setState(() => _enabled = value);
       if (mounted) {
         final s = AppStrings.of(context);
@@ -717,6 +772,12 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
     if (!OnlineOnlyActionGuard.require(context)) return;
     try {
       await HrApiService.removeRegisteredDevice(deviceId);
+      if (deviceId == await AuthService.getInstallationId()) {
+        await AuthService.clearDeviceToken();
+        await AuthService.forceLogoutForRevocation();
+        if (mounted) context.go('/login');
+        return;
+      }
       if (mounted) {
         final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(

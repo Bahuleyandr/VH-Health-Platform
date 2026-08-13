@@ -332,8 +332,8 @@ export const deviceRegistrationValidator = [
     .notEmpty()
     .withMessage('Device name is required'),
   body('deviceInfo.platform')
-    .isIn(['ios', 'android'])
-    .withMessage('Platform must be ios or android'),
+    .isIn(['ios', 'android', 'windows', 'macos', 'linux', 'web'])
+    .withMessage('Platform must be ios, android, windows, macos, linux, or web'),
   deviceTypeValidator,
 ];
 

@@ -863,12 +863,12 @@ class HrApiService {
 
   /// POST /auth/staff/setup-pin — set up quick-access PIN
   static Future<Map<String, dynamic>> setupPin({
-    required String employeeId,
     required String pin,
+    required String deviceToken,
   }) async {
     return _post('/auth/staff/setup-pin', {
-      'employeeId': employeeId,
       'pin': pin,
+      'deviceToken': deviceToken,
     });
   }
 
@@ -881,47 +881,6 @@ class HrApiService {
       'enabled': enabled,
       'deviceToken': deviceToken,
     });
-  }
-
-  /// POST /auth/staff/quick-login — PIN or biometric quick login
-  static Future<Map<String, dynamic>> quickLogin({
-    required String employeeId,
-    String? pin,
-    String? biometricToken,
-    String? deviceToken,
-  }) async {
-    final installationId =
-        await core_auth.AuthService.getOrCreateInstallationId();
-    return _post('/auth/staff/quick-login', {
-      'employeeId': employeeId,
-      'pin': ?pin,
-      'biometricToken': ?biometricToken,
-      'deviceToken': ?deviceToken,
-      'installationId': installationId,
-    });
-  }
-
-  /// POST /auth/staff/register-device — register a trusted device
-  static Future<Map<String, dynamic>> registerTrustedDevice({
-    required String deviceToken,
-    required String deviceName,
-    required String platform,
-  }) async {
-    final installationId =
-        await core_auth.AuthService.getOrCreateInstallationId();
-    return _post('/auth/staff/register-device', {
-      'deviceToken': deviceToken,
-      'deviceName': deviceName,
-      'platform': platform,
-      'installationId': installationId,
-    });
-  }
-
-  /// POST /auth/staff/verify-device — verify a device token
-  static Future<Map<String, dynamic>> verifyDevice({
-    required String deviceToken,
-  }) async {
-    return _post('/auth/staff/verify-device', {'deviceToken': deviceToken});
   }
 
   /// GET /auth/staff/devices — list registered devices

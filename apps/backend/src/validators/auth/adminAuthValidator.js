@@ -40,11 +40,14 @@ export const staffPinLoginValidator = [
   body('employeeId')
     .trim()
     .notEmpty().withMessage('Employee ID is required')
-    .matches(/^[A-Z0-9]+$/).withMessage('Invalid employee ID format'),
+    .matches(/^[A-Z0-9-]{3,20}$/).withMessage('Invalid employee ID format'),
   body('pin')
     .notEmpty().withMessage('PIN is required')
     .isLength({ min: 4, max: 6 }).withMessage('PIN must be between 4 and 6 digits')
     .isNumeric().withMessage('PIN must contain only numbers'),
+  body('deviceToken')
+    .trim()
+    .notEmpty().withMessage('Device token is required'),
   staffInstallationIdValidator,
   deviceTypeValidator,
 ];

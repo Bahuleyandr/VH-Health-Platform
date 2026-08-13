@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show BiometricAuthResult, BiometricAuthService, RealtimeProvider;
 import '../../../core/providers/clinical_inbox_provider.dart';
 import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/providers/notification_provider.dart';
@@ -112,11 +113,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final employeeId = '$_empIdPrefix${_empIdController.text.trim()}';
     try {
       if (_mode == _LoginMode.quickLogin) {
-        final deviceToken = await AuthService.getDeviceToken();
         await AuthService.quickLogin(
           employeeId: employeeId,
           pin: _pinController.text.isNotEmpty ? _pinController.text : null,
-          deviceToken: deviceToken,
         );
       } else if (_mode == _LoginMode.password) {
         await LoginService.loginWithPassword(
@@ -160,6 +159,38 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } finally {
       if (mounted) setState(() => _ssoLoading = false);
+    }
+  }
+
+  Future<void> _submitBiometricQuickLogin() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _isLockedOut = false;
+    });
+    final employeeId = '$_empIdPrefix${_empIdController.text.trim()}';
+    try {
+      final employeeIdError = LoginService.validateEmployeeId(employeeId);
+      if (employeeIdError != null) throw Exception(employeeIdError);
+      final result = await BiometricAuthService.instance.authenticate(
+        reason: AppStrings.of(context).loginUseBiometric,
+      );
+      if (result != BiometricAuthResult.success) {
+        if (result == BiometricAuthResult.cancelled) return;
+        throw Exception('Biometric authentication is not available.');
+      }
+      await AuthService.quickLogin(employeeId: employeeId, biometric: true);
+      _finishLogin();
+    } catch (e) {
+      if (mounted) {
+        final msg = e.toString().replaceFirst('Exception: ', '');
+        setState(() {
+          _error = msg;
+          _isLockedOut = _looksLikeLockout(msg);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -597,6 +628,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                       : s.loginSignInWithPin,
                                 ),
                         ),
+
+                        if (_mode == _LoginMode.quickLogin) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: (_loading || _ssoLoading)
+                                  ? null
+                                  : _submitBiometricQuickLogin,
+                              icon: const Icon(Icons.fingerprint),
+                              label: Text(s.loginUseBiometric),
+                            ),
+                          ),
+                        ],
 
                         if (_ssoProviders.isNotEmpty) ...[
                           const SizedBox(height: 12),

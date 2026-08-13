@@ -8,7 +8,6 @@ import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as staffAuthController from '../../controllers/auth/staffAuthController.js';
 import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
-import { requireDeviceType } from '../../middleware/requireDeviceTypeMiddleware.js';
 import { error } from '../../utils/responseHelper.js';
 import { passwordComplexityMiddleware } from '../../validators/passwordValidator.js';
 import { staffPinLoginValidator } from '../../validators/auth/adminAuthValidator.js';
@@ -16,12 +15,10 @@ import {
   staffPasswordLoginValidator,
   deviceRegistrationValidator,
   pinSetupValidator,
-  quickLoginValidator,
-  attendanceValidator
+  quickLoginValidator
 } from '../../validators/auth/authValidator.js';
 
 const router = express.Router();
-const mobileOnly = requireDeviceType('mobile');
 
 const ownProfileUpdateValidator = [
   body('name')
@@ -89,14 +86,6 @@ wrapRoutesWithValidation(
         ...quickLoginValidator,
         handleValidation,
         staffAuthController.quickLogin
-      ],
-      
-      // Verify device token
-      [
-        '/verify-device',
-        body('deviceToken').notEmpty().withMessage('Device token is required'),
-        handleValidation,
-        staffAuthController.verifyDevice
       ]
     ],
     
@@ -136,24 +125,6 @@ wrapRoutesWithValidation(
         body('deviceToken').notEmpty().withMessage('Device token is required'),
         handleValidation,
         staffAuthController.toggleBiometric
-      ],
-      
-      // Mark attendance (check-in)
-      [
-        '/check-in',
-        mobileOnly,
-        ...attendanceValidator,
-        handleValidation,
-        staffAuthController.checkIn
-      ],
-      
-      // Mark attendance (check-out)
-      [
-        '/check-out',
-        mobileOnly,
-        ...attendanceValidator,
-        handleValidation,
-        staffAuthController.checkOut
       ],
       
       // Logout from device

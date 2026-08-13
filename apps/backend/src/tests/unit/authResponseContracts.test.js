@@ -386,7 +386,7 @@ describe('auth response contracts', () => {
       expect(res.body).toEqual({
         success: false,
         message: 'PIN login requires a registered device',
-        details: { code: 'PIN_DEVICE_NOT_REGISTERED' },
+        code: 'PIN_DEVICE_NOT_REGISTERED',
       });
     });
 

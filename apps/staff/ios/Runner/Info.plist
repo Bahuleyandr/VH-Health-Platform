@@ -90,6 +90,10 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Location is used to route emergency SOS alerts to the nearest responders and to tag ward-based actions.</string>
 
+	<!-- Device-local Face ID consent for biometric quick login. -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID confirms your identity before VH Health Staff signs in on this registered device.</string>
+
 	<!-- Code Blue critical notifications. Pair with the "Critical Alerts"
 	     entitlement (com.apple.developer.usernotifications.critical-alerts)
 	     in Runner.entitlements to bypass silent mode. That entitlement
