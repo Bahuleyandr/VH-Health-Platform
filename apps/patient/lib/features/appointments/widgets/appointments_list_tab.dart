@@ -49,6 +49,7 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   String? _patientId;
   String? _error;
   WebSocketProvider? _webSocketProvider;
+  int _lastAppointmentEventRevision = 0;
 
   @override
   void initState() {
@@ -63,7 +64,8 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
     if (_webSocketProvider == provider) return;
     _webSocketProvider?.removeListener(_onWsEvent);
     _webSocketProvider = provider;
-    // Refresh when the backend pushes an appointment-status-changed event.
+    _lastAppointmentEventRevision = provider.appointmentEventRevision;
+    // Refresh when the backend pushes a personal appointment/queue event.
     _webSocketProvider?.addListener(_onWsEvent);
   }
 
@@ -76,11 +78,12 @@ class AppointmentsListTabState extends State<AppointmentsListTab> {
   void _onWsEvent() {
     final wsProv = _webSocketProvider;
     if (wsProv == null) return;
-    final event = wsProv.lastAppointmentEvent;
-    if (event != null) {
-      wsProv.clearAppointmentEvent();
-      _fetchAppointments();
+    if (wsProv.appointmentEventRevision <= _lastAppointmentEventRevision ||
+        wsProv.lastAppointmentEvent == null) {
+      return;
     }
+    _lastAppointmentEventRevision = wsProv.appointmentEventRevision;
+    _fetchAppointments();
   }
 
   /// Re-fetch the appointment list. Called by the parent (via GlobalKey)

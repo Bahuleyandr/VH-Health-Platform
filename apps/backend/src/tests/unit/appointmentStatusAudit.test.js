@@ -6,6 +6,7 @@ const validateStatusUpdateMock = jest.fn();
 const logAuditMock = jest.fn();
 const broadcastMock = jest.fn();
 const sendToUserMock = jest.fn();
+const emitAppointmentEventMock = jest.fn();
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
@@ -43,7 +44,7 @@ jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
 
 jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
   emitQueuePosition: jest.fn(),
-  emitAppointmentEvent: jest.fn(),
+  emitAppointmentEvent: emitAppointmentEventMock,
 }));
 
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({
@@ -92,6 +93,7 @@ describe('appointment status audit context', () => {
       patient_id: 51,
       patient_uid: '33333333-3333-4333-8333-333333333333',
       doctor_id: 12,
+      doctor_uid: '44444444-4444-4444-8444-444444444444',
       status: 'CONFIRMED',
     });
     updateAppointmentStatusMock.mockResolvedValue({
@@ -100,6 +102,7 @@ describe('appointment status audit context', () => {
       patient_id: 51,
       patient_uid: '33333333-3333-4333-8333-333333333333',
       doctor_id: 12,
+      doctor_uid: '44444444-4444-4444-8444-444444444444',
       status: 'IN_PROGRESS',
     });
     logAuditMock.mockResolvedValue(undefined);
@@ -134,6 +137,27 @@ describe('appointment status audit context', () => {
         note_present: true,
       }),
       { resource: 'appointment', resourceId: '77' },
+    );
+    expect(emitAppointmentEventMock).toHaveBeenCalledWith(
+      'status-changed',
+      {
+        tenantId: '00000000-0000-4000-8000-000000000001',
+        patientUid: '33333333-3333-4333-8333-333333333333',
+        appointmentId: '77',
+        status: 'IN_PROGRESS',
+      },
+    );
+    expect(sendToUserMock).toHaveBeenCalledWith(
+      '44444444-4444-4444-8444-444444444444',
+      'appointment-status-changed',
+      { appointmentId: '77', status: 'IN_PROGRESS' },
+      { tenantId: '00000000-0000-4000-8000-000000000001' },
+    );
+    expect(sendToUserMock).not.toHaveBeenCalledWith(
+      51,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
     );
   });
 });

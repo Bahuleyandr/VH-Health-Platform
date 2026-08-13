@@ -556,7 +556,7 @@ function appointmentResponse(appointment) {
 }
 
 function checkinResponse({ appointment, checkin, queue, frontDeskRequired = false, idempotent = false }) {
-  return {
+  const response = {
     checkin: {
       id: checkin?.id ?? null,
       status: checkin?.status ?? (frontDeskRequired ? 'front_desk_required' : 'checked_in'),
@@ -571,6 +571,11 @@ function checkinResponse({ appointment, checkin, queue, frontDeskRequired = fals
     appointment: appointmentResponse(appointment),
     queue,
   };
+  Object.defineProperty(response, '__patient_uid', {
+    value: appointment.patient_uid ?? null,
+    enumerable: false,
+  });
+  return response;
 }
 
 async function recordCheckin(db, {
@@ -754,9 +759,15 @@ async function performCheckin({
 
   if (result.checkin.status === 'checked_in' && !result.checkin.idempotent) {
     try {
-      emitAppointmentEvent('patient-flow-checkin', { tenantId });
+      emitAppointmentEvent('patient-flow-checkin', {
+        tenantId,
+        patientUid: result.__patient_uid,
+        appointmentId: result.appointment?.id,
+        status: result.appointment?.status,
+      });
       emitQueuePosition({
-        patientId: result.appointment?.patient_id,
+        patientUid: result.__patient_uid,
+        tenantId,
         appointmentId: result.appointment?.id,
         position: result.queue?.queue_position,
         etaMinutes: null,

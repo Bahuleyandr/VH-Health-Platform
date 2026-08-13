@@ -26,14 +26,13 @@ void main() {
         'firebase-server-revoke',
         'device-unregister',
         'vh-server-revoke',
-        'websocket',
         'realtime',
         'push-user',
         'fcm-token',
         'notifications',
         'health-sync',
-        'secure-storage',
         'api-cache',
+        'secure-storage',
         'file-cache',
         'doc-staging',
         'cycle-tracker',
@@ -49,11 +48,11 @@ void main() {
   );
 
   test(
-    'logout continues clearing local state when websocket teardown fails',
+    'logout continues clearing local state when realtime teardown fails',
     () async {
       final calls = <String>[];
       LogoutService.debugSetDependencies(
-        _dependencies(calls, throwOn: 'websocket'),
+        _dependencies(calls, throwOn: 'realtime'),
       );
 
       await LogoutService.logout();
@@ -96,7 +95,7 @@ void main() {
 
       await expectLater(LogoutService.logout(), completes);
 
-      expect(calls, containsAllInOrder(['health-sync', 'secure-storage']));
+      expect(calls, containsAllInOrder(['health-sync', 'api-cache']));
     },
   );
 
@@ -265,7 +264,6 @@ void main() {
             await never.future;
             return true;
           },
-          disconnectWebSocket: base.disconnectWebSocket,
           disconnectRealtime: base.disconnectRealtime,
           clearPushSignedInUser: base.clearPushSignedInUser,
           deleteFcmToken: base.deleteFcmToken,
@@ -347,7 +345,6 @@ LogoutServiceDependencies _dependencies(
       }
       return vhRevokeResult;
     },
-    disconnectWebSocket: step('websocket'),
     disconnectRealtime: step('realtime'),
     clearPushSignedInUser: step('push-user'),
     deleteFcmToken: step('fcm-token'),

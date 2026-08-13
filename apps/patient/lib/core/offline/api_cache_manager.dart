@@ -30,12 +30,46 @@ class ApiCacheManager {
 
   static String? _cacheDir;
   static int _sessionGeneration = 0;
-  static SecretKey? _aesKey;
+  static SecretKeyData? _aesKey;
+  static Future<SecretKeyData>? _aesKeyInFlight;
+  static Future<void>? _teardownInFlight;
+  static Future<void> _cacheIo = Future<void>.value();
   static final AesGcm _aesGcm = AesGcm.with256bits();
 
-  /// Retrieve or generate a 256-bit AES key stored in secure storage.
+  /// Retrieve or generate one 256-bit AES key for the current session.
+  /// Concurrent first use shares the same initialization future, and logout
+  /// waits for that future before deleting the persisted key.
   static Future<SecretKey> _getEncryptionKey() async {
-    if (_aesKey != null) return _aesKey!;
+    final teardown = _teardownInFlight;
+    if (teardown != null) {
+      await teardown;
+      throw StateError('Cache teardown was in progress');
+    }
+
+    final existingKey = _aesKey;
+    if (existingKey != null) return existingKey;
+    final existingInit = _aesKeyInFlight;
+    if (existingInit != null) return existingInit;
+
+    final generation = _sessionGeneration;
+    late final Future<SecretKeyData> tracked;
+    tracked = _loadOrCreateEncryptionKey()
+        .then((key) {
+          if (generation != _sessionGeneration || _teardownInFlight != null) {
+            key.destroy();
+            throw StateError('Cache session changed during key initialization');
+          }
+          _aesKey = key;
+          return key;
+        })
+        .whenComplete(() {
+          if (identical(_aesKeyInFlight, tracked)) _aesKeyInFlight = null;
+        });
+    _aesKeyInFlight = tracked;
+    return tracked;
+  }
+
+  static Future<SecretKeyData> _loadOrCreateEncryptionKey() async {
     final storage = VHSecureStorage.instance;
     var keyBase64 = await storage.read(key: 'cache_aes_key');
     if (keyBase64 == null) {
@@ -47,14 +81,19 @@ class ApiCacheManager {
       keyBase64 = base64Encode(keyBytes);
       await storage.write(key: 'cache_aes_key', value: keyBase64);
     }
-    _aesKey = SecretKey(base64Decode(keyBase64));
-    return _aesKey!;
+    return SecretKeyData(
+      Uint8List.fromList(base64Decode(keyBase64)),
+      overwriteWhenDestroyed: true,
+      debugLabel: 'patient-cache-session-key',
+    );
   }
 
   /// Encrypt plaintext using AES-256-GCM with a random 12-byte IV.
   /// Returns `iv_base64:ciphertext_base64`.
   static Future<String> _encrypt(String plaintext) async {
+    final generation = _sessionGeneration;
     final key = await _getEncryptionKey();
+    _requireCurrentGeneration(generation);
     final nonce = _secureRandomBytes(12);
     final box = await _aesGcm.encrypt(
       utf8.encode(plaintext),
@@ -62,12 +101,15 @@ class ApiCacheManager {
       nonce: nonce,
     );
     final combined = Uint8List.fromList([...box.cipherText, ...box.mac.bytes]);
+    _requireCurrentGeneration(generation);
     return '${base64Encode(nonce)}:${base64Encode(combined)}';
   }
 
   /// Decrypt a string produced by [_encrypt].
   static Future<String> _decrypt(String ciphertext) async {
+    final generation = _sessionGeneration;
     final key = await _getEncryptionKey();
+    _requireCurrentGeneration(generation);
     final parts = ciphertext.split(':');
     if (parts.length != 2) {
       throw const FormatException('Invalid encrypted data');
@@ -83,6 +125,7 @@ class ApiCacheManager {
       SecretBox(cipherText, nonce: nonce, mac: mac),
       secretKey: key,
     );
+    _requireCurrentGeneration(generation);
     return utf8.decode(plain);
   }
 
@@ -97,7 +140,9 @@ class ApiCacheManager {
   /// ciphertext+tag. Keeping it binary (not base64) avoids inflating large
   /// reports/scans by ~33%. Decrypt with [decryptBytes].
   static Future<Uint8List> encryptBytes(List<int> plainBytes) async {
+    final generation = _sessionGeneration;
     final key = await _getEncryptionKey();
+    _requireCurrentGeneration(generation);
     final nonce = _secureRandomBytes(12);
     final box = await _aesGcm.encrypt(plainBytes, secretKey: key, nonce: nonce);
     final out = Uint8List(nonce.length + box.cipherText.length + 16);
@@ -112,6 +157,7 @@ class ApiCacheManager {
       out.length,
       box.mac.bytes,
     );
+    _requireCurrentGeneration(generation);
     return out;
   }
 
@@ -121,7 +167,9 @@ class ApiCacheManager {
     if (storedBytes.length <= 12) {
       throw const FormatException('Invalid encrypted file');
     }
+    final generation = _sessionGeneration;
     final key = await _getEncryptionKey();
+    _requireCurrentGeneration(generation);
     final bytes = Uint8List.fromList(storedBytes);
     if (bytes.length < 28) {
       throw const FormatException('Invalid encrypted file');
@@ -133,7 +181,14 @@ class ApiCacheManager {
       SecretBox(cipherText, nonce: nonce, mac: mac),
       secretKey: key,
     );
+    _requireCurrentGeneration(generation);
     return Uint8List.fromList(plain);
+  }
+
+  static void _requireCurrentGeneration(int generation) {
+    if (generation != _sessionGeneration || _teardownInFlight != null) {
+      throw StateError('Cache session was retired');
+    }
   }
 
   static Uint8List _secureRandomBytes(int length) {
@@ -143,6 +198,17 @@ class ApiCacheManager {
       bytes[i] = random.nextInt(256);
     }
     return bytes;
+  }
+
+  /// Drop only the process-local key, preserving secure storage to model a
+  /// cold process restart in tests.
+  @visibleForTesting
+  static Future<void> debugForgetInMemoryKey() async {
+    final initializing = _aesKeyInFlight;
+    if (initializing != null) await initializing;
+    final key = _aesKey;
+    _aesKey = null;
+    key?.destroy();
   }
 
   static Future<String> _getCacheDir() async {
@@ -193,6 +259,7 @@ class ApiCacheManager {
     CacheProfileScope? profile,
   }) async {
     try {
+      final generation = _sessionGeneration;
       if (profile != null && !profile.isCurrent) return null;
       final dir = await _getCacheDir();
       if (profile != null && !profile.isCurrent) return null;
@@ -201,8 +268,20 @@ class ApiCacheManager {
       final cachedAt = DateTime.now();
       final envelope = {'cachedAt': cachedAt.toIso8601String(), 'data': data};
       final encrypted = await _encrypt(jsonEncode(envelope));
-      if (profile != null && !profile.isCurrent) return null;
-      await file.writeAsString(encrypted);
+      if (generation != _sessionGeneration ||
+          (profile != null && !profile.isCurrent)) {
+        return null;
+      }
+      var wrote = false;
+      await _serializeCacheIo(() async {
+        if (generation != _sessionGeneration ||
+            (profile != null && !profile.isCurrent)) {
+          return;
+        }
+        await file.writeAsString(encrypted);
+        wrote = true;
+      });
+      if (!wrote) return null;
       return cachedAt;
     } catch (e) {
       if (kDebugMode) {
@@ -316,10 +395,40 @@ class ApiCacheManager {
   }
 
   /// Clear all cached API data.
-  static Future<void> clearAll() async {
+  static Future<void> clearAll() {
     // Invalidate request-time scopes synchronously. A response that started
     // before logout must not recreate PHI cache files after this wipe.
     _sessionGeneration += 1;
+    final existing = _teardownInFlight;
+    if (existing != null) return existing;
+
+    late final Future<void> tracked;
+    tracked = _serializeCacheIo(_clearAllForRetiredSession).whenComplete(() {
+      if (identical(_teardownInFlight, tracked)) _teardownInFlight = null;
+    });
+    _teardownInFlight = tracked;
+    return tracked;
+  }
+
+  static Future<void> _clearAllForRetiredSession() async {
+    final initializing = _aesKeyInFlight;
+    if (initializing != null) {
+      try {
+        await initializing;
+      } catch (_) {
+        // Its generation was retired; cleanup below is still authoritative.
+      }
+    }
+    final key = _aesKey;
+    _aesKey = null;
+    key?.destroy();
+
+    try {
+      await VHSecureStorage.instance.delete(key: 'cache_aes_key');
+    } catch (e) {
+      if (kDebugMode) debugPrint('Failed to delete cache encryption key: $e');
+    }
+
     try {
       final dir = await _getCacheDir();
       final directory = Directory(dir);
@@ -332,6 +441,25 @@ class ApiCacheManager {
         debugPrint('ApiCacheManager.clearAll failed: ${logSafeError(e)}');
       }
     }
+  }
+
+  /// Serialize a non-JSON cache write with logout teardown and reject it when
+  /// the request-time patient profile/session has been retired.
+  static Future<T?> writeForSession<T>(
+    CacheProfileScope profile,
+    Future<T> Function() operation,
+  ) {
+    return _serializeCacheIo(() async {
+      if (!profile.isCurrent) return null;
+      final result = await operation();
+      return profile.isCurrent ? result : null;
+    });
+  }
+
+  static Future<T> _serializeCacheIo<T>(Future<T> Function() operation) {
+    final result = _cacheIo.then((_) => operation());
+    _cacheIo = result.then<void>((_) {}, onError: (_) {});
+    return result;
   }
 }
 

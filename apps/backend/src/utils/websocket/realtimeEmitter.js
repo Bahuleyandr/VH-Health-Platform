@@ -255,15 +255,15 @@ export function emitStaffMessage({ recipientUid, message, senderUid, priority, s
 }
 
 /** Queue position recomputed for a patient. */
-export function emitQueuePosition({ patientId, appointmentId, position, etaMinutes }) {
-  if (!patientId) return;
+export function emitQueuePosition({ patientUid, tenantId, appointmentId, position, etaMinutes }) {
+  if (!patientUid) return;
   try {
-    sendToUser(String(patientId), 'queue-position', {
+    broadcast(`patient:${String(patientUid)}:queue`, {
       appointmentId: String(appointmentId),
       position,
       etaMinutes: etaMinutes ?? null,
       at: new Date().toISOString(),
-    });
+    }, { tenantId });
   } catch (err) {
     logger.warn('emitQueuePosition failed:', err.message);
   }
@@ -429,12 +429,29 @@ export function emitPathologyEvent(kind, { tenantId } = {}) {
   }
 }
 
-/** Appointment/queue board change (book / confirm / no-show / complete / cancel / reschedule / walk-in / status). */
-export function emitAppointmentEvent(kind, { tenantId } = {}) {
+/** Appointment/queue board change plus an optional personal patient nudge. */
+export function emitAppointmentEvent(kind, {
+  tenantId,
+  patientUid = null,
+  appointmentId = null,
+  status = null,
+} = {}) {
   try {
     broadcast('staff:appointments', { kind, at: new Date().toISOString() }, { tenantId });
   } catch (err) {
-    logger.warn('emitAppointmentEvent failed:', err.message);
+    logger.warn('emitAppointmentEvent staff broadcast failed:', err.message);
+  }
+  if (patientUid) {
+    try {
+      broadcast(`patient:${String(patientUid)}:appointments`, {
+        kind,
+        appointmentId: appointmentId === null ? null : String(appointmentId),
+        status,
+        at: new Date().toISOString(),
+      }, { tenantId });
+    } catch (err) {
+      logger.warn('emitAppointmentEvent patient broadcast failed:', err.message);
+    }
   }
 }
 

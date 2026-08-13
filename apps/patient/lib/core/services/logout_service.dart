@@ -14,7 +14,6 @@ import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
-import 'package:vhhealth/core/services/websocket_service.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
@@ -128,16 +127,10 @@ class LogoutService {
       debugPrint('LogoutService: VH server session revoke failed: $e');
     }
 
-    // 1. Disconnect real-time services. Both the legacy WebSocketService AND
-    //    the shared RealtimeClient (vhhealth_core) must be torn down — the
-    //    RealtimeClient singleton otherwise stays authenticated and keeps
+    // 1. Disconnect the shared real-time service. The singleton otherwise
+    //    stays authenticated and keeps
     //    receiving PHI events (queue-position, broadcasts) for the prior user
     //    after logout, a real exposure on shared/family devices.
-    try {
-      await Future<void>.sync(_dependencies.disconnectWebSocket);
-    } catch (e) {
-      debugPrint('LogoutService: WebSocket disconnect failed: $e');
-    }
     try {
       await Future<void>.sync(_dependencies.disconnectRealtime);
     } catch (e) {
@@ -173,18 +166,21 @@ class LogoutService {
       debugPrint('LogoutService: health sync cleanup failed: $e');
     }
 
-    // 4. Clear all secure storage (JWT, phone, device token, etc.)
-    try {
-      await Future<void>.sync(_dependencies.clearSecureStorage);
-    } catch (e) {
-      debugPrint('LogoutService: secure storage clear failed: $e');
-    }
-
-    // 5. Clear API cache
+    // 4. Retire the session cache generation, destroy its in-memory AES key,
+    //    and delete encrypted cache files before the broad storage wipe. This
+    //    serializes against any in-flight key creation so it cannot recreate a
+    //    prior user's key after logout.
     try {
       await Future<void>.sync(_dependencies.clearApiCache);
     } catch (e) {
       debugPrint('LogoutService: cache clear failed: $e');
+    }
+
+    // 5. Clear all remaining secure storage (JWT, phone, device token, etc.)
+    try {
+      await Future<void>.sync(_dependencies.clearSecureStorage);
+    } catch (e) {
+      debugPrint('LogoutService: secure storage clear failed: $e');
     }
 
     // 6. Clear downloaded-file cache (vhhealth_cache) — this holds
@@ -197,7 +193,7 @@ class LogoutService {
       debugPrint('LogoutService: file cache clear failed: $e');
     }
 
-    // 7. Purge plaintext document staging + the OS temp dir. DocumentOpener
+    // 7. Purge plaintext document staging. DocumentOpener
     //    and the cached-file viewer decrypt PHI into a temp staging file so the
     //    system viewer can read it; those plaintext copies must not survive
     //    logout on a shared/family device. Audit §3 (patient).
@@ -336,7 +332,6 @@ class LogoutServiceDependencies {
     required this.revokeFirebaseSession,
     required this.unregisterDevice,
     required this.revokeVhSession,
-    required this.disconnectWebSocket,
     required this.disconnectRealtime,
     required this.clearPushSignedInUser,
     required this.deleteFcmToken,
@@ -363,7 +358,6 @@ class LogoutServiceDependencies {
       ),
       unregisterDevice: LogoutService._unregisterDevice,
       revokeVhSession: LogoutService._revokeVhSession,
-      disconnectWebSocket: WebSocketService.instance.disconnect,
       disconnectRealtime: RealtimeClient.instance.disconnect,
       clearPushSignedInUser: PushNotificationService.clearSignedInUser,
       cancelNotifications: NotificationScheduler.cancelAll,
@@ -391,7 +385,6 @@ class LogoutServiceDependencies {
   final LogoutRevokeStep revokeFirebaseSession;
   final LogoutStep unregisterDevice;
   final LogoutRevokeStep revokeVhSession;
-  final LogoutStep disconnectWebSocket;
   final LogoutStep disconnectRealtime;
   final LogoutStep clearPushSignedInUser;
   final LogoutStep deleteFcmToken;

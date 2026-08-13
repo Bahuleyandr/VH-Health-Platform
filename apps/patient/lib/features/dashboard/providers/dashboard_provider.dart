@@ -7,10 +7,9 @@ import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
-import 'package:vhhealth/core/services/websocket_service.dart';
 
 typedef DashboardUidProvider = String? Function();
-typedef DashboardWsConnected = bool Function();
+typedef DashboardRealtimeReady = bool Function();
 typedef DashboardCacheInvalidator = Future<void> Function(String path);
 typedef DashboardTimerFactory =
     Timer Function(Duration duration, void Function() callback);
@@ -30,7 +29,7 @@ class DashboardProvider extends ChangeNotifier {
     DashboardCachedGet? cachedGet,
     DashboardGet? get,
     DashboardCacheInvalidator? invalidateCache,
-    DashboardWsConnected? isWebSocketConnected,
+    DashboardRealtimeReady? isAppointmentRealtimeReady,
     DashboardTimerFactory? createTimer,
     this.appointmentFallbackBase = const Duration(seconds: 120),
     this.smartPollBase = const Duration(seconds: 60),
@@ -39,9 +38,7 @@ class DashboardProvider extends ChangeNotifier {
        _cachedGet = cachedGet ?? _defaultCachedGet,
        _get = get ?? _defaultGet,
        _invalidateCache = invalidateCache ?? ApiCacheManager.invalidate,
-       _isWebSocketConnected =
-           isWebSocketConnected ??
-           (() => WebSocketService.instance.isConnected),
+       _isAppointmentRealtimeReady = isAppointmentRealtimeReady,
        _createTimer = createTimer ?? Timer.new;
 
   final bool _isGuestSession;
@@ -49,7 +46,7 @@ class DashboardProvider extends ChangeNotifier {
   final DashboardCachedGet _cachedGet;
   final DashboardGet _get;
   final DashboardCacheInvalidator _invalidateCache;
-  final DashboardWsConnected _isWebSocketConnected;
+  final DashboardRealtimeReady? _isAppointmentRealtimeReady;
   final DashboardTimerFactory _createTimer;
   final Duration appointmentFallbackBase;
   final Duration smartPollBase;
@@ -57,6 +54,7 @@ class DashboardProvider extends ChangeNotifier {
   Timer? _appointmentPoller;
   Timer? _smartWidgetPoller;
   WebSocketProvider? _webSocketProvider;
+  int _lastAppointmentEventRevision = 0;
   bool _started = false;
   bool _disposed = false;
   int _appointmentPollFailures = 0;
@@ -93,8 +91,9 @@ class DashboardProvider extends ChangeNotifier {
   void attachWebSocketProvider(WebSocketProvider provider) {
     if (identical(_webSocketProvider, provider)) return;
     _webSocketProvider?.removeListener(_handleAppointmentEvent);
-    _webSocketProvider = provider..addListener(_handleAppointmentEvent);
-    _handleAppointmentEvent();
+    _webSocketProvider = provider;
+    _lastAppointmentEventRevision = provider.appointmentEventRevision;
+    provider.addListener(_handleAppointmentEvent);
   }
 
   Future<void> refreshAppointments({bool invalidateCache = false}) async {
@@ -255,10 +254,14 @@ class DashboardProvider extends ChangeNotifier {
 
   void _handleAppointmentEvent() {
     if (_isGuestSession || _disposed) return;
-    final event = _webSocketProvider?.lastAppointmentEvent;
-    if (event == null) return;
+    final provider = _webSocketProvider;
+    if (provider == null ||
+        provider.appointmentEventRevision <= _lastAppointmentEventRevision ||
+        provider.lastAppointmentEvent == null) {
+      return;
+    }
 
-    _webSocketProvider?.clearAppointmentEvent();
+    _lastAppointmentEventRevision = provider.appointmentEventRevision;
     unawaited(refreshAppointments(invalidateCache: true));
   }
 
@@ -282,7 +285,11 @@ class DashboardProvider extends ChangeNotifier {
     _appointmentPoller?.cancel();
     _appointmentPoller = _createTimer(delay, () {
       unawaited(() async {
-        if (!_isWebSocketConnected()) {
+        final realtimeReady =
+            _isAppointmentRealtimeReady?.call() ??
+            _webSocketProvider?.isAppointmentSubscriptionAcknowledged ??
+            false;
+        if (!realtimeReady) {
           await refreshAppointments();
         }
         if (!_disposed) _scheduleNextAppointmentFallback();

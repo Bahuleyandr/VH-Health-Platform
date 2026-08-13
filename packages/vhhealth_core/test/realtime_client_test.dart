@@ -367,6 +367,7 @@ void main() {
       await RealtimeClient.instance.connect();
 
       expect(harness.subscribedChannels, isEmpty);
+      expect(RealtimeClient.instance.isSubscribed('staff:code-blue'), isFalse);
       expect(
         RealtimeClient.instance.connectionState,
         RealtimeConnectionState.reconnecting,
@@ -375,10 +376,48 @@ void main() {
       final event = await received.future.timeout(const Duration(seconds: 3));
       expect(event.channel, 'staff:code-blue');
       expect(harness.subscribedChannels, ['staff:code-blue']);
+      expect(RealtimeClient.instance.isSubscribed('staff:code-blue'), isTrue);
       expect(
         RealtimeClient.instance.connectionState,
         RealtimeConnectionState.connected,
       );
+    },
+  );
+
+  test(
+    'subscription readiness clears immediately when the socket drops',
+    () async {
+      final harness = await _WsHarness.start(acceptFreshToken: true);
+      addTearDown(harness.close);
+      RealtimeClient.setWsUrlForTesting(harness.wsUrl);
+      RealtimeClient.setReconnectBackoffForTesting(initialMs: 500, maxMs: 500);
+      await AuthService.setJwt('fresh-access');
+
+      final acknowledgedSets = <Set<String>>[];
+      final acknowledgedSub = RealtimeClient.instance.onSubscribedChannelsChange
+          .listen(acknowledgedSets.add);
+      addTearDown(acknowledgedSub.cancel);
+      final eventSub = RealtimeClient.instance
+          .events('patient:patient-uid-1:appointments')
+          .listen((_) {});
+      addTearDown(eventSub.cancel);
+
+      await RealtimeClient.instance.connect();
+      await _waitFor(
+        () => RealtimeClient.instance.isSubscribed(
+          'patient:patient-uid-1:appointments',
+        ),
+        reason: 'patient appointment acknowledgement',
+      );
+
+      await harness.closeClients();
+      await _waitFor(
+        () => !RealtimeClient.instance.isSubscribed(
+          'patient:patient-uid-1:appointments',
+        ),
+        reason: 'acknowledgement cleared after disconnect',
+      );
+      expect(acknowledgedSets, contains(isEmpty));
     },
   );
 

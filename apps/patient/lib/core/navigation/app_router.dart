@@ -12,7 +12,7 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/navigation/go_router_refresh_stream.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
-import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/providers/websocket_provider.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 
 // Import all your screens
@@ -88,21 +88,23 @@ class AppRouter {
   /// by every logout path, but an in-process re-login never re-ran connect —
   /// so the `session:revoked` "logged in elsewhere" kick was dead after the
   /// first logout. Re-arm both realtime clients whenever an authenticated
-  /// navigation finds them fully disconnected (idempotent: no-ops while
-  /// connected or mid-reconnect, and both clients skip connecting without a
-  /// JWT).
+  /// navigation finds it fully disconnected. The patient bridge registers its
+  /// personal channels before the shared client connects, so authenticated
+  /// readiness and subscription acknowledgements cannot race.
   static void _ensureRealtimeConnected(BuildContext context) {
-    if (RealtimeClient.instance.connectionState ==
-        RealtimeConnectionState.disconnected) {
-      try {
-        unawaited(context.read<RealtimeProvider>().ensureConnected());
-      } catch (_) {
-        // Provider not mounted (tests) — fall back to the client directly.
+    try {
+      unawaited(context.read<WebSocketProvider>().listen());
+      return;
+    } catch (_) {
+      // Provider may not be mounted in narrow router tests.
+    }
+    try {
+      unawaited(context.read<RealtimeProvider>().ensureConnected());
+    } catch (_) {
+      if (RealtimeClient.instance.connectionState ==
+          RealtimeConnectionState.disconnected) {
         unawaited(RealtimeClient.instance.connect());
       }
-    }
-    if (!WebSocketService.instance.isConnected) {
-      unawaited(WebSocketService.instance.connect());
     }
   }
 

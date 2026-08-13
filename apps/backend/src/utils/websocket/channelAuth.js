@@ -12,7 +12,7 @@ import { hasRole, SUPER_ADMIN, normalizeRole } from '../roles.js';
  *   staff:<topic>           — any staff role (clinical, ops, leadership) + admin
  *   staff:clinical:<topic>  — clinical-only (doctors, nurses, allied health)
  *   admin:<topic>           — admin only
- *   patient:<userId>:<top>  — the patient themselves, or clinical staff caring for them
+ *   patient:<patientUid>:<top> — the patient themselves, or clinical staff caring for them
  *
  * Legacy channels are listed in LEGACY_CHANNELS to keep existing clients working.
  */
@@ -112,6 +112,6 @@ export const CHANNEL_CATALOG = Object.freeze({
   'admin:teleconsult-ops':     { description: 'Teleconsult operations snapshot — join failures, TURN usage, modality mix, consent, active/waiting counts', roles: 'admin' },
   'staff:ed-board':           { description: 'ED tracking board — visit arrivals, transitions, triage priority', roles: 'staff' },
   'admin:audit':              { description: 'Security-audit events (logins, lockouts, role changes)', roles: 'admin' },
-  'patient:<userId>:queue':   { description: 'Queue position for the patient\'s active appointment', roles: 'owner-or-clinical' },
-  'patient:<userId>:appointments': { description: 'Status changes on the patient\'s own appointments', roles: 'owner-or-clinical' },
+  'patient:<patientUid>:queue':   { description: 'Queue position for the patient\'s active appointment', roles: 'owner-or-clinical' },
+  'patient:<patientUid>:appointments': { description: 'Status changes on the patient\'s own appointments', roles: 'owner-or-clinical' },
 });

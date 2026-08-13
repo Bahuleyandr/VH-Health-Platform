@@ -1,69 +1,247 @@
-// lib/core/providers/websocket_provider.dart
-
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
+import 'package:vhhealth_core/services/realtime_provider.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
-import 'package:vhhealth/core/services/websocket_service.dart';
+typedef PatientRealtimeUidReader = Future<String?> Function();
 
-/// Provider that bridges [WebSocketService] events into the widget tree.
+@visibleForTesting
+abstract interface class PatientRealtimeBinding {
+  void addListener(VoidCallback listener);
+  void removeListener(VoidCallback listener);
+  Future<void> ensureConnected();
+  Stream<RealtimeEvent> events(String channel, {bool broadcastChannel = true});
+  bool isSubscribed(String channel);
+  void unsubscribe(String channel);
+}
+
+class _SharedRealtimeBinding implements PatientRealtimeBinding {
+  const _SharedRealtimeBinding(this.provider);
+
+  final RealtimeProvider provider;
+
+  @override
+  void addListener(VoidCallback listener) => provider.addListener(listener);
+
+  @override
+  void removeListener(VoidCallback listener) =>
+      provider.removeListener(listener);
+
+  @override
+  Future<void> ensureConnected() => provider.ensureConnected();
+
+  @override
+  Stream<RealtimeEvent> events(
+    String channel, {
+    bool broadcastChannel = true,
+  }) => provider.events(channel, broadcastChannel: broadcastChannel);
+
+  @override
+  bool isSubscribed(String channel) => provider.isSubscribed(channel);
+
+  @override
+  void unsubscribe(String channel) => provider.unsubscribe(channel);
+}
+
+/// Patient-specific bridge over the shared realtime fabric.
 ///
-/// Listens for "notification" and "appointment-status-changed" events and
-/// exposes them so that [NotificationProvider] and appointment screens can
-/// react in real time.
+/// The app used to own a second WebSocket client that subscribed to staff-only
+/// legacy channels before authentication completed. This provider now binds
+/// the single shared [RealtimeProvider] to the two personal, acknowledged
+/// patient channels keyed by the authenticated `patient_uid`.
 class WebSocketProvider extends ChangeNotifier {
-  StreamSubscription<Map<String, dynamic>>? _subscription;
+  WebSocketProvider({
+    RealtimeProvider? realtimeProvider,
+    @visibleForTesting PatientRealtimeBinding? realtimeBinding,
+    PatientRealtimeUidReader? patientUidReader,
+  }) : _realtime =
+           realtimeBinding ??
+           (realtimeProvider == null
+               ? null
+               : _SharedRealtimeBinding(realtimeProvider)),
+       _patientUidReader =
+           patientUidReader ??
+           (() => VHSecureStorage.instance.read(key: 'firebase_uid')) {
+    _realtime?.addListener(_handleRealtimeStateChanged);
+  }
 
-  /// The most recent "appointment-status-changed" event payload, or `null`.
+  final PatientRealtimeBinding? _realtime;
+  final PatientRealtimeUidReader _patientUidReader;
+
+  StreamSubscription<RealtimeEvent>? _appointmentSubscription;
+  StreamSubscription<RealtimeEvent>? _queueSubscription;
+  StreamSubscription<RealtimeEvent>? _notificationSubscription;
+  Future<void>? _listenInFlight;
+  String? _patientUid;
+  String? _appointmentChannel;
+  String? _queueChannel;
+  bool _listening = false;
+  bool _disposed = false;
+  bool _appointmentAcknowledged = false;
+  bool _queueAcknowledged = false;
+
   Map<String, dynamic>? _lastAppointmentEvent;
   Map<String, dynamic>? get lastAppointmentEvent => _lastAppointmentEvent;
 
-  /// Pending in-app notifications received over WS (not yet consumed).
+  /// Monotonic event version so multiple consumers can react independently.
+  /// Clearing a shared payload inside the first listener used to make later
+  /// listeners miss the same appointment update.
+  int _appointmentEventRevision = 0;
+  int get appointmentEventRevision => _appointmentEventRevision;
+
+  bool get isAppointmentSubscriptionAcknowledged => _appointmentAcknowledged;
+  bool get isQueueSubscriptionAcknowledged => _queueAcknowledged;
+
   final List<Map<String, dynamic>> _wsNotifications = [];
   List<Map<String, dynamic>> get wsNotifications =>
       List.unmodifiable(_wsNotifications);
 
-  /// Start listening to the WebSocket stream.
-  void listen() {
-    _subscription?.cancel();
-    _subscription = WebSocketService.instance.stream.listen(_onEvent);
+  /// Bind the current signed-in patient and ensure the shared socket connects.
+  /// Safe to call at startup, foreground resume, and after an in-process login.
+  Future<void> listen() {
+    final existing = _listenInFlight;
+    if (existing != null) return existing;
+
+    late final Future<void> tracked;
+    tracked = _bindCurrentPatient().whenComplete(() {
+      if (identical(_listenInFlight, tracked)) _listenInFlight = null;
+    });
+    _listenInFlight = tracked;
+    return tracked;
   }
 
-  void _onEvent(Map<String, dynamic> event) {
-    final name = event['event'] as String?;
-    if (name == null) return;
+  Future<void> _bindCurrentPatient() async {
+    final realtime = _realtime;
+    if (realtime == null || _disposed) return;
 
-    switch (name) {
-      case 'notification':
-        final data = event['data'];
-        if (data is Map<String, dynamic>) {
-          _wsNotifications.add(data);
-          notifyListeners();
-        }
-      case 'appointment-status-changed':
-        _lastAppointmentEvent = event['data'] as Map<String, dynamic>?;
-        notifyListeners();
-      default:
-        if (kDebugMode) {
-          debugPrint('WebSocketProvider: unhandled event "$name"');
-        }
+    final uid = (await _patientUidReader())?.trim();
+    if (_disposed) return;
+    if (uid == null || uid.isEmpty) {
+      await stop(unsubscribe: true);
+      return;
     }
+
+    if (!_listening || uid != _patientUid) {
+      await stop(unsubscribe: true);
+      if (_disposed) return;
+
+      _patientUid = uid;
+      _appointmentChannel = 'patient:$uid:appointments';
+      _queueChannel = 'patient:$uid:queue';
+
+      _appointmentSubscription = realtime
+          .events(_appointmentChannel!)
+          .listen(_onPatientEvent, onDone: _handleStreamDone);
+      _queueSubscription = realtime
+          .events(_queueChannel!)
+          .listen(_onPatientEvent, onDone: _handleStreamDone);
+      _notificationSubscription = realtime
+          .events('notification', broadcastChannel: false)
+          .listen(_onNotification, onDone: _handleStreamDone);
+      _listening = true;
+      _syncAcknowledgements();
+    }
+
+    await realtime.ensureConnected();
   }
 
-  /// Clear consumed notifications (called after they are merged into
-  /// [NotificationProvider]).
+  void _onPatientEvent(RealtimeEvent event) {
+    _lastAppointmentEvent = <String, dynamic>{
+      ...event.data,
+      'realtimeChannel': event.channel,
+    };
+    _appointmentEventRevision += 1;
+    notifyListeners();
+  }
+
+  void _onNotification(RealtimeEvent event) {
+    _wsNotifications.add(event.data);
+    notifyListeners();
+  }
+
+  void _handleRealtimeStateChanged() => _syncAcknowledgements();
+
+  void _syncAcknowledgements() {
+    final realtime = _realtime;
+    final appointmentChannel = _appointmentChannel;
+    final queueChannel = _queueChannel;
+    final appointmentAcknowledged =
+        realtime != null &&
+        appointmentChannel != null &&
+        realtime.isSubscribed(appointmentChannel);
+    final queueAcknowledged =
+        realtime != null &&
+        queueChannel != null &&
+        realtime.isSubscribed(queueChannel);
+    if (_appointmentAcknowledged == appointmentAcknowledged &&
+        _queueAcknowledged == queueAcknowledged) {
+      return;
+    }
+    _appointmentAcknowledged = appointmentAcknowledged;
+    _queueAcknowledged = queueAcknowledged;
+    notifyListeners();
+  }
+
+  void _handleStreamDone() {
+    _listening = false;
+    _retirePatientState();
+    _syncAcknowledgements();
+  }
+
+  void _retirePatientState() {
+    final changed =
+        _lastAppointmentEvent != null || _wsNotifications.isNotEmpty;
+    _lastAppointmentEvent = null;
+    _wsNotifications.clear();
+    if (changed && !_disposed) notifyListeners();
+  }
+
+  /// Stop the app-level listeners. [unsubscribe] is used when identity changes;
+  /// an app-background disconnect can skip frames because the shared provider
+  /// immediately tears down the whole socket.
+  Future<void> stop({bool unsubscribe = false}) async {
+    final oldAppointmentChannel = _appointmentChannel;
+    final oldQueueChannel = _queueChannel;
+    _listening = false;
+    await _appointmentSubscription?.cancel();
+    await _queueSubscription?.cancel();
+    await _notificationSubscription?.cancel();
+    _appointmentSubscription = null;
+    _queueSubscription = null;
+    _notificationSubscription = null;
+    if (unsubscribe) {
+      if (oldAppointmentChannel != null) {
+        _realtime?.unsubscribe(oldAppointmentChannel);
+      }
+      if (oldQueueChannel != null) {
+        _realtime?.unsubscribe(oldQueueChannel);
+      }
+      _retirePatientState();
+    }
+    _patientUid = null;
+    _appointmentChannel = null;
+    _queueChannel = null;
+    _appointmentAcknowledged = false;
+    _queueAcknowledged = false;
+  }
+
   void clearNotifications() {
     _wsNotifications.clear();
   }
 
-  /// Clear the last appointment event after the screen has reacted.
+  /// Kept for compatibility with older callers. New consumers use
+  /// [appointmentEventRevision] and never consume the event globally.
   void clearAppointmentEvent() {
     _lastAppointmentEvent = null;
   }
 
   @override
   void dispose() {
-    _subscription?.cancel();
+    _disposed = true;
+    _realtime?.removeListener(_handleRealtimeStateChanged);
+    unawaited(stop());
     super.dispose();
   }
 }

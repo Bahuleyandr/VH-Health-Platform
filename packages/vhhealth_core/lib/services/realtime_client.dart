@@ -74,6 +74,8 @@ class RealtimeClient {
 
   /// Channels the server has acknowledged as subscribed this connection.
   final Set<String> _serverSubscribed = <String>{};
+  final StreamController<Set<String>> _subscribedController =
+      StreamController<Set<String>>.broadcast();
 
   /// Channels the server answered with `subscribe-denied` (FL-M4). They STAY
   /// in [_desiredChannels] — a denial can be transient (server hiccup,
@@ -117,6 +119,16 @@ class RealtimeClient {
   /// with degraded realtime. Never closed.
   Stream<Set<String>> get onDeniedChannelsChange => _deniedController.stream;
 
+  /// Channels the server has explicitly acknowledged for this connection.
+  /// A live socket alone is not evidence that a channel can deliver events.
+  Set<String> get subscribedChannels => Set.unmodifiable(_serverSubscribed);
+
+  bool isSubscribed(String channel) => _serverSubscribed.contains(channel);
+
+  /// Emits the full acknowledged-channel set whenever it changes.
+  Stream<Set<String>> get onSubscribedChannelsChange =>
+      _subscribedController.stream;
+
   void _setConnectionState(RealtimeConnectionState state) {
     if (_connectionState == state) return;
     _connectionState = state;
@@ -125,6 +137,16 @@ class RealtimeClient {
 
   void _emitDenied() {
     _deniedController.add(Set.unmodifiable(_deniedChannels));
+  }
+
+  void _emitSubscribed() {
+    _subscribedController.add(Set.unmodifiable(_serverSubscribed));
+  }
+
+  void _clearServerSubscriptions() {
+    if (_serverSubscribed.isEmpty) return;
+    _serverSubscribed.clear();
+    _emitSubscribed();
   }
 
   /// True while the underlying socket is open.
@@ -216,7 +238,7 @@ class RealtimeClient {
         return;
       }
 
-      _serverSubscribed.clear();
+      _clearServerSubscriptions();
 
       _wsSub = channel.stream.listen(
         _onMessage,
@@ -265,14 +287,16 @@ class RealtimeClient {
       case 'subscribed':
         if (msg['channel'] is String) {
           final channel = msg['channel'] as String;
-          _serverSubscribed.add(channel);
+          if (_serverSubscribed.add(channel)) _emitSubscribed();
           // Successful (re)join — the channel is no longer denied.
           if (_deniedChannels.remove(channel)) _emitDenied();
         }
         return;
       case 'unsubscribed':
         if (msg['channel'] is String) {
-          _serverSubscribed.remove(msg['channel'] as String);
+          if (_serverSubscribed.remove(msg['channel'] as String)) {
+            _emitSubscribed();
+          }
         }
         return;
       case 'subscribe-denied':
@@ -323,7 +347,7 @@ class RealtimeClient {
     _wsSub?.cancel();
     _wsSub = null;
     _channel = null;
-    _serverSubscribed.clear();
+    _clearServerSubscriptions();
 
     _setConnectionState(
       _shouldReconnect
@@ -387,9 +411,9 @@ class RealtimeClient {
   /// Safe to call before [connect] — the subscription will be sent once the
   /// socket is open. Calling twice for the same channel returns the same stream.
   ///
-  /// Set [broadcastChannel] to `false` for personal-delivery events like
-  /// `queue-position` or `notification` that the backend targets by `userId`
-  /// (no server-side subscribe needed — the client just listens for the event).
+  /// Set [broadcastChannel] to `false` for direct personal-delivery events such
+  /// as `notification` that the backend targets by user ID (no server-side
+  /// subscribe needed — the client just listens for the event).
   Stream<RealtimeEvent> events(String channel, {bool broadcastChannel = true}) {
     final existing = _controllers[channel];
     if (existing != null && !existing.isClosed) {
@@ -427,7 +451,7 @@ class RealtimeClient {
   /// Stop receiving events on [channel] and tell the server to drop it.
   void unsubscribe(String channel) {
     _desiredChannels.remove(channel);
-    _serverSubscribed.remove(channel);
+    if (_serverSubscribed.remove(channel)) _emitSubscribed();
     if (_deniedChannels.remove(channel)) _emitDenied();
     final c = _controllers.remove(channel);
     c?.close();
@@ -455,7 +479,7 @@ class RealtimeClient {
       await _channel?.sink.close(ws_status.normalClosure);
     } catch (_) {}
     _channel = null;
-    _serverSubscribed.clear();
+    _clearServerSubscriptions();
     for (final c in _controllers.values) {
       await c.close();
     }

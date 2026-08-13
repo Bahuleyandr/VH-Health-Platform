@@ -40,14 +40,15 @@ import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
-import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth/core/widgets/patient_outage_scope.dart';
 import 'package:vhhealth/core/outage/patient_outage_config.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
-import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show RealtimeClient, RealtimeProvider;
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -64,6 +65,9 @@ Future<void> main() async {
   await runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      // A process kill can bypass logout while an external document viewer is
+      // open. Purge any crash-recovery plaintext before auth or UI startup.
+      await DocStaging.purge();
       // Fail fast on misconfigured production builds (audit finding H7):
       // throws when PRODUCTION=true but CERT_PIN_HASHES is missing/malformed,
       // so an unpinned PHI build can never reach patients.
@@ -221,17 +225,6 @@ Future<void> main() async {
       unawaited(PatientOutageConfigStore.instance.load());
       unawaited(PatientOutageController.instance.initialize());
 
-      ConnectivityService.onChange.listen((online) {
-        if (online) {
-          unawaited(
-            WebSocketService.instance.handleConnectivityChanged(online),
-          );
-        }
-      });
-
-      // Connect the WebSocket service for real-time updates.
-      unawaited(WebSocketService.instance.connect());
-
       runApp(const VHRoot());
     },
     (error, stack) {
@@ -268,9 +261,22 @@ class VHRoot extends StatefulWidget {
 }
 
 class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
+  late final RealtimeProvider _realtimeProvider;
+  late final WebSocketProvider _webSocketProvider;
+  StreamSubscription<bool>? _realtimeConnectivitySubscription;
+  Future<void> _realtimeLifecycle = Future<void>.value();
+
   @override
   void initState() {
     super.initState();
+    _realtimeProvider = RealtimeProvider();
+    _webSocketProvider = WebSocketProvider(realtimeProvider: _realtimeProvider);
+    _realtimeConnectivitySubscription = ConnectivityService.onChange.listen((
+      online,
+    ) {
+      if (online) _queueRealtimeLifecycle(_startRealtime);
+    });
+    _queueRealtimeLifecycle(_startRealtime);
     WidgetsBinding.instance.addObserver(this);
     // PAT-6: block screenshots and suppress the app-switcher thumbnail
     // so PHI cannot leak via Android recents or iOS Exposé.
@@ -291,9 +297,28 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _startRealtime() => _webSocketProvider.listen();
+
+  Future<void> _stopRealtime() async {
+    await _webSocketProvider.stop();
+    await _realtimeProvider.disconnect();
+  }
+
+  void _queueRealtimeLifecycle(Future<void> Function() operation) {
+    _realtimeLifecycle = _realtimeLifecycle.then((_) => operation()).catchError(
+      (Object error) {
+        if (kDebugMode) debugPrint('Realtime lifecycle skipped: $error');
+      },
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _realtimeConnectivitySubscription?.cancel();
+    _webSocketProvider.dispose();
+    _realtimeProvider.dispose();
+    unawaited(RealtimeClient.instance.disconnect());
     super.dispose();
   }
 
@@ -303,14 +328,17 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // Save battery: disconnect WebSocket and stop connectivity polling
-      WebSocketService.instance.disconnect();
+      _queueRealtimeLifecycle(_stopRealtime);
       ConnectivityService.stopMonitoring();
       PatientOutageController.instance.onBackgrounded();
     } else if (state == AppLifecycleState.resumed) {
       // Reconnect when the app comes back to foreground
       ConnectivityService.startMonitoring();
       PatientOutageController.instance.onResumed();
-      WebSocketService.instance.connect();
+      _queueRealtimeLifecycle(_startRealtime);
+      // Returning from the system viewer is the normal recovery point for
+      // deleting its short-lived plaintext copy.
+      unawaited(DocStaging.purge());
       // HealthKit / Google Health Connect: fire-and-forget delta sync. Noop if
       // the user never granted permissions (service requests them on first call).
       unawaited(HealthSyncService.instance.syncNow());
@@ -326,12 +354,14 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => UserProvider()),
         ChangeNotifierProvider(create: (_) => DependentsProvider()),
-        ChangeNotifierProvider(create: (_) => WebSocketProvider()..listen()),
         // Realtime fabric lifecycle owner. Widgets listen via
         // `context.read<RealtimeProvider>().events(channel)` instead of
         // calling `RealtimeClient.instance.connect()` directly.
-        ChangeNotifierProvider(
-          create: (_) => RealtimeProvider()..ensureConnected(),
+        ChangeNotifierProvider<RealtimeProvider>.value(
+          value: _realtimeProvider,
+        ),
+        ChangeNotifierProvider<WebSocketProvider>.value(
+          value: _webSocketProvider,
         ),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(

@@ -57,14 +57,13 @@ const List<String> fullTeardown = [
   'firebase-server-revoke',
   'device-unregister',
   'vh-server-revoke',
-  'websocket',
   'realtime',
   'push-user',
   'fcm-token',
   'notifications',
   'health-sync',
-  'secure-storage',
   'api-cache',
+  'secure-storage',
   'file-cache',
   'doc-staging',
   'cycle-tracker',
@@ -445,7 +444,6 @@ LogoutServiceDependencies _recordingDependencies(
       calls.add('vh-server-revoke');
       return vhSessionRevoked;
     },
-    disconnectWebSocket: step('websocket'),
     disconnectRealtime: step('realtime'),
     clearPushSignedInUser: step('push-user'),
     deleteFcmToken: step('fcm-token'),

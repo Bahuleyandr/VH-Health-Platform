@@ -37,7 +37,7 @@ void main() {
       expect(invalidated, ['/appointments/uid/uid-1']);
       expect(fetched, ['/appointments/uid/uid-1']);
       expect(provider.todayAppointment?['id'], 17);
-      expect(ws.lastAppointmentEvent, isNull);
+      expect(ws.lastAppointmentEvent, isNotNull);
     },
   );
 
@@ -62,13 +62,60 @@ void main() {
     expect(fetched, ['/appointments/uid/uid-1']);
     expect(provider.todayAppointment?['id'], 24);
   });
+
+  test(
+    'fallback polling stops only after appointment channel acknowledgement',
+    () async {
+      final timers = <void Function()>[];
+      final fetched = <String>[];
+      var acknowledged = false;
+      final provider = DashboardProvider(
+        isGuestSession: false,
+        uidProvider: () => 'uid-1',
+        isAppointmentRealtimeReady: () => acknowledged,
+        createTimer: (_, callback) {
+          timers.add(callback);
+          return _FakeTimer();
+        },
+        cachedGet: (path, {timeout, cacheTtl}) async {
+          fetched.add(path);
+          return _cachedAppointments(const []);
+        },
+        get: (_, {timeout}) async => ApiResponse(
+          statusCode: 200,
+          isSuccess: true,
+          data: const <String, dynamic>{},
+          raw: const <String, dynamic>{},
+        ),
+      );
+      addTearDown(provider.dispose);
+
+      provider.start();
+      await Future<void>.delayed(Duration.zero);
+      fetched.clear();
+
+      timers.first();
+      await Future<void>.delayed(Duration.zero);
+      expect(fetched, ['/appointments/uid/uid-1']);
+
+      acknowledged = true;
+      fetched.clear();
+      timers.last();
+      await Future<void>.delayed(Duration.zero);
+      expect(fetched, isEmpty);
+    },
+  );
 }
 
 class _FakeWebSocketProvider extends WebSocketProvider {
   Map<String, dynamic>? _event;
+  int _revision = 0;
 
   @override
   Map<String, dynamic>? get lastAppointmentEvent => _event;
+
+  @override
+  int get appointmentEventRevision => _revision;
 
   @override
   void clearAppointmentEvent() {
@@ -77,8 +124,22 @@ class _FakeWebSocketProvider extends WebSocketProvider {
 
   void emitAppointmentEvent(Map<String, dynamic> data) {
     _event = data;
+    _revision += 1;
     notifyListeners();
   }
+}
+
+class _FakeTimer implements Timer {
+  var _active = true;
+
+  @override
+  void cancel() => _active = false;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => 0;
 }
 
 CachedApiResponse _cachedAppointments(

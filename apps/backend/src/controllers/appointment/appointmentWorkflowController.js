@@ -371,7 +371,12 @@ export const confirmAppointment = async (req, res) => {
       } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
     });
 
-    emitAppointmentEvent('confirm', { tenantId });
+    emitAppointmentEvent('confirm', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
     return relayAppError(res, err, 'Failed to confirm appointment');
@@ -403,7 +408,12 @@ export const markNoShow = async (req, res) => {
       to_status: 'NO_SHOW',
     });
 
-    emitAppointmentEvent('no-show', { tenantId });
+    emitAppointmentEvent('no-show', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, 'Marked as no-show');
   } catch (err) {
     return relayAppError(res, err, 'Failed');
@@ -626,7 +636,12 @@ export const rescheduleAppointment = async (req, res) => {
         replacement_appointment_time: replacement.appointment_time,
         reschedule_note: note || null,
       });
-      emitAppointmentEvent('reschedule', { tenantId });
+      emitAppointmentEvent('reschedule', {
+        tenantId,
+        patientUid: original.patient_uid,
+        appointmentId: original.id,
+        status: original.status,
+      });
     }
     success(res, {
       original,
@@ -761,7 +776,12 @@ export const completeAppointment = async (req, res) => {
       }
     });
 
-    emitAppointmentEvent('complete', { tenantId });
+    emitAppointmentEvent('complete', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, 'Appointment completed');
   } catch (err) {
     return relayAppError(res, err, 'Failed');
@@ -814,7 +834,12 @@ export const cancelAppointment = async (req, res) => {
       });
     }
 
-    emitAppointmentEvent('cancel', { tenantId });
+    emitAppointmentEvent('cancel', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, 'Appointment cancelled');
   } catch (err) {
     return relayAppError(res, err, 'Failed');
@@ -2423,7 +2448,12 @@ export const registerWalkIn = async (req, res) => {
       resourceId: result.id,
     });
 
-    emitAppointmentEvent('walk-in-created', { tenantId: actingTenantId });
+    emitAppointmentEvent('walk-in-created', {
+      tenantId: actingTenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, `Walk-in registered. Visit ${result.visit_no}`);
   } catch (err) {
     // Surface a stable error code so dashboards/alerts can group these and

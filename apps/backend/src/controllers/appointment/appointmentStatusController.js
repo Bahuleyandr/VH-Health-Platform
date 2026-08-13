@@ -7,7 +7,7 @@ import * as pointService from '../../services/gamification/pointService.js';
 import { getWaitingQueueForDoctor } from '../../services/appointment/waitTimeService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
-import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
+import { sendToUser } from '../../utils/websocket/wsServer.js';
 import { emitAppointmentEvent, emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
 import { logAudit } from '../../utils/logAudit.js';
 
@@ -30,14 +30,19 @@ function attachAppointmentPhiContext(req, appointment) {
   };
 }
 
-async function fanOutQueuePositions(appointment) {
+async function fanOutQueuePositions(appointment, tenantId) {
   if (!appointment?.doctor_id || !appointment?.appointment_date) return;
   const date = new Date(appointment.appointment_date).toISOString().split('T')[0];
   try {
-    const waiting = await getWaitingQueueForDoctor(appointment.doctor_id, date);
+    const waiting = await getWaitingQueueForDoctor(
+      appointment.doctor_id,
+      date,
+      tenantId,
+    );
     for (const row of waiting) {
       emitQueuePosition({
-        patientId: row.patientId,
+        patientUid: row.patientUid,
+        tenantId,
         appointmentId: row.appointmentId,
         position: row.position,
         etaMinutes: row.etaMinutes,
@@ -109,31 +114,25 @@ export const updateAppointmentStatus = async (req, res) => {
       resourceId: id,
     });
 
-    // Emit WebSocket event for appointment status change
-    broadcast('appointment-updates', {
+    // Staff board + personal patient feed. The personal channel is keyed by
+    // the authenticated users.uid, never the integer appointments.patient_id.
+    emitAppointmentEvent('status-changed', {
+      tenantId,
+      patientUid: updatedAppointment.patient_uid ?? appointment.patient_uid,
       appointmentId: id,
       status: statusValidation.status,
-      updatedBy: req.user?.name,
     });
-    // Notify patient and doctor directly
-    if (updatedAppointment.patient_id) {
-      sendToUser(updatedAppointment.patient_id, 'appointment-status-changed', {
-        appointmentId: id, status: statusValidation.status,
-      });
+    const doctorUid = updatedAppointment.doctor_uid ?? appointment.doctor_uid;
+    if (doctorUid) {
+      sendToUser(doctorUid, 'appointment-status-changed', {
+        appointmentId: id,
+        status: statusValidation.status,
+      }, { tenantId });
     }
-    if (updatedAppointment.doctor_id) {
-      sendToUser(updatedAppointment.doctor_id, 'appointment-status-changed', {
-        appointmentId: id, status: statusValidation.status,
-      });
-    }
-
-    // Staff-wide appointment feed (gated to staff roles via channelAuth).
-    // PHI-free {kind, at} nudge — consumers (Flutter staff app + admin board) refetch.
-    emitAppointmentEvent('status-changed', { tenantId });
 
     // Queue-position fan-out to remaining waiting patients on status transitions that shift the queue
     if (QUEUE_SHIFTING_STATUSES.has(statusValidation.status)) {
-      fanOutQueuePositions(updatedAppointment).catch(err =>
+      fanOutQueuePositions(updatedAppointment, tenantId).catch(err =>
         logger.warn('Queue-position fan-out failed after status change', {
           appointmentId: id,
           status: statusValidation.status,

@@ -497,7 +497,13 @@ export const rescheduleAppointment = async (req, res) => {
       resourceId: id,
     });
 
-    emitAppointmentEvent('reschedule', { tenantId });
+    emitAppointmentEvent('reschedule', {
+      tenantId,
+      patientUid:
+        result.appointment?.patient_uid ?? appointment.patient_uid ?? null,
+      appointmentId: result.appointment?.id ?? appointment.id ?? id,
+      status: result.appointment?.status ?? null,
+    });
     success(res, {
       appointment: result.appointment,
       previous: {
