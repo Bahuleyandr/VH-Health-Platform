@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import prisma from '../lib/prisma.js';
 import { runFleetJob } from '../utils/tenantFanout.js';
 
-// Migration 670 gives single-pass fleet sweeps (audit-chain verification,
+// Migration 671 gives single-pass fleet sweeps (audit-chain verification,
 // results-inbox escalation) the durable receipt that 668 only gave to
 // per-tenant fan-outs. withJobLock logs and swallows whatever these jobs
 // throw, so the run row is the only thing that distinguishes "the tick failed"
@@ -23,7 +23,7 @@ async function readRun(runId) {
   return rows[0];
 }
 
-describe('fleet scheduled-job receipts (migration 670)', () => {
+describe('fleet scheduled-job receipts (migration 671)', () => {
   afterAll(async () => {
     await prisma.$disconnect();
   });

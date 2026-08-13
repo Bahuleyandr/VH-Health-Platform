@@ -1,4 +1,4 @@
--- Migration 670: durable run receipts for fleet-scope scheduled jobs.
+-- Migration 671: durable run receipts for fleet-scope scheduled jobs.
 --
 -- 668 gave every tenant-fanned cron a durable receipt in scheduled_job_runs.
 -- The crons that sweep the whole fleet in a single pass could not be recorded

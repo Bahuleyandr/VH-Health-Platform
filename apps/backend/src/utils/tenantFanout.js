@@ -637,12 +637,12 @@ async function recordFleetFinished(runId, { status, failureCode = null }) {
  *
  * Fleet jobs (audit-chain verification, results-inbox escalation) sweep every
  * tenant in one body rather than being fanned out, so they have no discovery
- * step and no per-tenant children. Migration 670 gives them their own row
+ * step and no per-tenant children. Migration 671 gives them their own row
  * shape in `scheduled_job_runs`: `scope='fleet'`, discovery permanently
  * 'pending', all tenant counters 0.
  *
  * The receipt is the point. `withJobLock` logs and swallows whatever this
- * throws, so before 670 a tick that failed and a tick that never fired left
+ * throws, so before 671 a tick that failed and a tick that never fired left
  * exactly the same trace. Now the run row says which one happened, and a
  * success is never reported without its own persisted evidence.
  *

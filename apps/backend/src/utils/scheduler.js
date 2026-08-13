@@ -1010,7 +1010,7 @@ if (process.env.NODE_ENV !== 'test') {
   // the app role impossible in the first place; this is the detection backstop
   // for any out-of-band (e.g. superuser/DBA) tamper.
   // It enumerates tenants itself rather than being fanned out, so it takes the
-  // fleet-scope receipt (migration 670): withJobLock swallows the throw, and
+  // fleet-scope receipt (migration 671): withJobLock swallows the throw, and
   // without a durable run row a failed hourly verification looked exactly like
   // an hour in which the cron never fired.
   registerCron('0 * * * *', withJobLock('audit-chain-verify', async () => {
@@ -1025,7 +1025,7 @@ if (process.env.NODE_ENV !== 'test') {
   // security webhook), and backfills any breached SLA instance that lost its
   // task. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper); each
   // tenant's writes re-scope via setTenantTx.
-  // Fleet-scope receipt (migration 670) for the same reason as
+  // Fleet-scope receipt (migration 671) for the same reason as
   // audit-chain-verify: this sweep visits only the tenants that own an active
   // task-scope rule, so it has no discoverable tenant set to fan out over, and
   // a failed critical-result escalation tick left no durable trace.
