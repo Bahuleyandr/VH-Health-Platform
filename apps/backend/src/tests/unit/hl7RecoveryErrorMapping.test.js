@@ -3,12 +3,15 @@ import { jest } from '@jest/globals';
 import request from 'supertest';
 
 import { AppError } from '../../utils/AppError.js';
+import { enableHl7InboundForTest } from '../helpers/hl7InboundTestEnv.js';
 
 // The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
 // when it is not exactly 'true'; declare the interface ON so the recovery
 // error-mapping paths are reachable. The refused-while-off contract lives in
 // hl7-inbound-disabled.deep.test.js.
-process.env.HL7_INBOUND_ENABLED = 'true';
+// The helper supplies HL7_INBOUND_SHARED_SECRET with the flag — validateEnv
+// requires the pair, and a test that splits them exits the worker outright.
+enableHl7InboundForTest();
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const RECOVERY = Object.freeze({ generation: 1 });

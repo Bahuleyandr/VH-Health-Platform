@@ -38,12 +38,16 @@ import {
 } from '../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { registerExternalRecoveryOffset } from './helpers/externalRecoveryOperabilityTestHelper.js';
+import { enableHl7InboundForTest } from './helpers/hl7InboundTestEnv.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 // The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
 // when it is not exactly 'true'; declare the interface ON to exercise it. The
 // refused-while-off contract lives in hl7-inbound-disabled.deep.test.js.
-process.env.HL7_INBOUND_ENABLED = 'true';
+// The helper supplies HL7_INBOUND_SHARED_SECRET with the flag — validateEnv
+// requires the pair, and a test that splits them exits the worker outright.
+// beforeAll below overwrites the secret with this suite's own legacy value.
+enableHl7InboundForTest();
 
 const DB_CONFIGURED = !!databaseUrl;
 const d = DB_CONFIGURED ? describe : describe.skip;

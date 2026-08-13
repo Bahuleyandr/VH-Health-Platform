@@ -119,12 +119,19 @@ describeIfDb('C6.1-E I05 CSV recovery adapter', () => {
         `csv-recovery-target-${SUFFIX}`,
       );
       systemId = systems[0].id;
+      // Deliberately NOT activated — see the note in
+      // src/tests/helpers/interfaceEngineAdapterRecoveryContract.js. Migration
+      // 665 (re-planted by 670) only accepts an active channel for a connector
+      // the runtime drives, and `internal_backend` has no driver. This suite
+      // asserts that late I05 work is HELD with no effect and no send; the
+      // recovery path reads no channel status. Activation is asserted in
+      // src/tests/deep/interfaceEngineRuntimeActivation.deep.test.js.
       const channels = await tx.$queryRawUnsafe(
         `INSERT INTO interop_channels
            (tenant_id, channel_key, display_name, source_system_id, target_system_id,
             direction, connector_kind, protocol, status, auth_kind)
          VALUES ($1::uuid, $2::text, 'CSV recovery channel', $3::integer, $3::integer,
-                 'bidirectional', 'internal_backend', 'csv', 'active', 'internal') RETURNING id`,
+                 'bidirectional', 'internal_backend', 'csv', 'draft', 'internal') RETURNING id`,
         TENANT_ID,
         `csv-recovery-channel-${SUFFIX}`,
         systemId,
@@ -133,19 +140,13 @@ describeIfDb('C6.1-E I05 CSV recovery adapter', () => {
       const versions = await tx.$queryRawUnsafe(
         `INSERT INTO interop_channel_versions
            (tenant_id, channel_id, version_number, status, routing_policy, transform_dsl)
-         VALUES ($1::uuid, $2::integer, 1, 'active',
+         VALUES ($1::uuid, $2::integer, 1, 'candidate',
                  '{"adapter":"backend.interop.csv"}'::jsonb,
                  '{"kind":"csv-to-backend-adapter"}'::jsonb) RETURNING id`,
         TENANT_ID,
         channelId,
       );
       versionId = versions[0].id;
-      await tx.$executeRawUnsafe(
-        'UPDATE interop_channels SET active_version_id = $3::integer WHERE tenant_id = $1::uuid AND id = $2::integer',
-        TENANT_ID,
-        channelId,
-        versionId,
-      );
     });
   });
 
