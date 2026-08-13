@@ -38,6 +38,12 @@ import {
   provisionTenantKek,
   resetTenantKekCacheForTesting,
 } from '../services/security/tenantKekProvider.js';
+import { notificationOutbox } from '../utils/notifications/notificationOutbox.js';
+import {
+  applyProviderReceiptToCursor,
+  beginProviderAttempts,
+  recordProviderReceipt,
+} from '../services/notification/notificationDeliveryLedgerService.js';
 
 // executePayrollRun loads the tenant KEK before it writes a payslip, so the
 // suite must provision one. A fresh database has none — without this the run
@@ -65,7 +71,7 @@ const PAYROLL_RUN_IDEMPOTENCY_KEY = 'payroll-contract-deep:run:2099-07';
 // (Hex-only v4 UUIDs — 'pay…' literals are not valid UUIDs and 22P02 the cast.)
 const STAFF_UID = 'a0500001-0001-4d00-8d00-a05000000001'; // main GENERAL_STAFF: salary config + payslip + HR self-service
 const STAFF2_UID = 'a0500002-0002-4d00-8d00-a05000000002'; // fresh GENERAL_STAFF: no payslip → tax summary 404
-const HR_UID = 'a0500003-0003-4d00-8d00-a05000000003'; // ADMIN-role HR signer (hr-sign)
+const HR_UID = 'a0500003-0003-4d00-8d00-a05000000003'; // HR_STAFF-role HR signer (hr-sign)
 const ADMIN_UID = 'a0500004-0004-4d00-8d00-a05000000004'; // ADMIN-role admin signer (admin-sign) — distinct uid for SoD
 
 const STAFF_PHONE = '9501000001';
@@ -73,11 +79,18 @@ const STAFF2_PHONE = '9501000002';
 const HR_PHONE = '9501000003';
 const ADMIN_PHONE = '9501000004';
 
-// SEPARATION OF DUTIES: payroll-run + salary-revision admin-sign reject (403)
-// when the admin signer == the hr signer (uid comparison in
-// adminSignPayrollRun / adminSignRevision). Both signers are ADMIN role (the
-// staffAccessGuard short-circuits for ADMIN; HR role is NOT in the role-policy
-// graph and is denied), but carry DISTINCT uids — that satisfies the guard.
+// SEPARATION OF DUTIES is enforced on TWO independent axes, and the fixture has
+// to satisfy both:
+//   • by ROLE — hr-sign is gated by requireRole('HR_STAFF') on the route
+//     (staffAdminRoutes.js:26,264) and by `users.role === 'HR_STAFF'` in
+//     payrollService.signPayrollRun; admin-sign is gated by
+//     requireRole('ADMIN','SUPER_ADMIN') and by `users.role ∈ {ADMIN,
+//     SUPER_ADMIN}`. One account can therefore never hold both signatures.
+//   • by IDENTITY — adminSignPayrollRun additionally refuses when the admin
+//     signer uid equals the hr signer uid (`same_signer`).
+// So the two signers here are a real HR_STAFF and a real ADMIN, with distinct
+// uids. Both the JWT role and the users.role row must match, because the route
+// gate reads the token and the service gate reads the database.
 function mkClient(role, uid, phone) {
   const token = generateTestToken(role, { uid, id: undefined, phone });
   return {
@@ -85,6 +98,63 @@ function mkClient(role, uid, phone) {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
+}
+
+// Stand in for the `notification-outbox-drain` cron (scheduler.js), which does
+// not run inside jest. `issuePayrollRun` refuses to issue a payslip whose
+// document has no ACKNOWLEDGED in-app provider receipt (migration 669 —
+// `delivery_pending` / PAYSLIP_DELIVERY_PENDING), and executePayrollRun queues
+// exactly that "payslip is being prepared" intent and stores its outbox id on
+// `payslip_documents.notification_outbox_id`. So a payroll run is not issuable
+// until the notification the staff member depends on has actually been
+// delivered — which is the point of the gate, and something a contract test
+// must satisfy the same way production does rather than route around.
+//
+// This drives the real drain seam end to end: claim → begin attempt → record an
+// acknowledged provider receipt → advance the channel cursor. Nothing is forged
+// with raw SQL; the outbox's own transition guard still refuses SENT without an
+// acknowledged receipt.
+//
+// All four steps are load-bearing. `beginProviderAttempts` moves the per-channel
+// cursor to `delivering`, and `claimPendingBatch` refuses to claim anything while
+// a cursor sits in `delivering`/`paused_*`. Omitting the final
+// `applyProviderReceiptToCursor` therefore does not merely skip bookkeeping — it
+// wedges the channel, and every later claim in the database silently returns
+// zero rows. Claiming is also strictly contiguous per channel, so an older
+// undrained inapp row blocks ours; hence the loop.
+async function drainInappNotifications(maxRounds = 10) {
+  for (let round = 0; round < maxRounds; round += 1) {
+    const claimed = await notificationOutbox.claimPendingBatch({
+      tenantId: DEFAULT_TENANT_ID,
+      limit: 50,
+    });
+    if (claimed.length === 0) return;
+    for (const row of claimed.filter((r) => r.channel === 'inapp')) {
+      const [attempt] = await beginProviderAttempts({
+        tenantId: DEFAULT_TENANT_ID,
+        outboxId: row.id,
+        claimToken: row.claim_token,
+        claimGeneration: row.claim_generation,
+        renderedIntentHash: row.rendered_intent_hash,
+        channels: ['inapp'],
+      });
+      const receipt = await recordProviderReceipt({
+        tenantId: DEFAULT_TENANT_ID,
+        attemptId: attempt.attempt_id,
+        outboxId: row.id,
+        channel: 'inapp',
+        outcome: 'acknowledged',
+        receiptSource: 'provider_response',
+        providerReference: `payroll-contract-deep:${row.id}`,
+        providerCode: 'accepted',
+        evidence: { delivered: true },
+      });
+      await applyProviderReceiptToCursor({
+        tenantId: DEFAULT_TENANT_ID,
+        receiptId: receipt.receipt_id,
+      });
+    }
+  }
 }
 
 async function cleanup() {
@@ -193,19 +263,18 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     );
 
     admin = mkClient('ADMIN', ADMIN_UID, ADMIN_PHONE);
-    // The HR signer's DATABASE role is now HR_STAFF, not a second ADMIN:
-    // signPayrollRun reads users.role and refuses the HR signature unless it is
-    // exactly 'HR_STAFF' (payrollService.js:1109-1111). Dual control is
-    // meaningless if one admin can mint a second admin and sign both sides, so
-    // that guard is right and the fixture is what had to change.
-    //
-    // The TOKEN role stays ADMIN. The two gates are independent: the route gate
-    // (requireRole) and staffAccessGuard read the JWT role, the dual-control
-    // check reads users.role. An HR_STAFF *token* is denied by staffAccessGuard
-    // on the salary-revision hr-sign path further down this suite — worth its
-    // own look, since it means a real HR_STAFF user cannot counter-sign a
-    // salary revision at all, but it is not this fixture's job to paper over.
-    hr = mkClient('ADMIN', HR_UID, HR_PHONE);
+    // The HR signer is a real HR_STAFF on BOTH axes — token role and users.role.
+    // Three gates read one or the other, and all three have to agree:
+    //   1. requireRole('HR_STAFF') on the route reads the JWT role;
+    //   2. guardPayrollWriteCollection (staff.payroll.write) reads the JWT role
+    //      too, and its policy is collection_access:'payroll', which
+    //      collectionDecisionAllowed admits for exactly SUPER_ADMIN, ADMIN and
+    //      HR_STAFF (staffAccessDecisionService.js:147-160);
+    //   3. payrollService.signPayrollRun reads users.role from the database and
+    //      refuses the HR signature unless it is exactly 'HR_STAFF'.
+    // Dual control is meaningless if one admin can mint a second admin and sign
+    // both sides, so all three are right and the fixture is what had to change.
+    hr = mkClient('HR_STAFF', HR_UID, HR_PHONE);
     // GENERAL_STAFF (not the bare 'STAFF' placeholder): only a concrete staff
     // role present in BOTH the staffHRRoutes RBAC allowlist AND the role-policy
     // graph passes the wrapAutoRBAC gate + reaches staffAccessGuard, where
@@ -374,18 +443,8 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     expect(edit.body.data.manually_edited).toBe(true);
     expect(typeof edit.body.data.gross_salary).toBe('string');
 
-    // POST /payroll/runs/{runId}/hr-sign (HR signer) → PayrollRunResponse.
+    // POST /payroll/runs/{runId}/hr-sign (HR_STAFF signer) → PayrollRunResponse.
     const hrSign = await hr.post(`${ADMIN_BASE}/payroll/runs/${runId}/hr-sign`).send({ comment: 'HR ok' });
-    // KNOWN BLOCKER (not this lane's): hr-sign currently 403s for EVERY role.
-    // The payroll-atomicity work added `payrollHrSignerRoles =
-    // requireRole('HR_STAFF')` on this route (staffAdminRoutes.js:26,264) while
-    // `guardPayrollWriteCollection` (staff.payroll.write) denies HR_STAFF — so
-    // the two gates on the same line have an empty intersection. Measured on a
-    // fresh DB: an ADMIN token and an HR_STAFF token both return
-    // 403 {"success":false,"error":"Forbidden"}. SUPER_ADMIN clears both gates
-    // but then fails signPayrollRun's `users.role === 'HR_STAFF'` check
-    // (payrollService.js:1109). Payroll dual-control sign-off is unreachable
-    // until that lane picks one of the three to change.
     expect(hrSign.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/runs/{runId}/hr-sign`, hrSign.body);
     expect(hrSign.body.data.hr_approved_at).toBeTruthy();
@@ -400,8 +459,28 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     expect(adminSign.body.data.admin_approved_by).toBe(ADMIN_UID);
     expect(adminSign.body.data.approval_hash).toBeTruthy();
 
+    // Issuance is also gated on delivery: until every payslip document's in-app
+    // notification carries an acknowledged provider receipt, issue answers 409
+    // PAYSLIP_DELIVERY_PENDING and names the staff still waiting. Prove that
+    // gate is live before satisfying it — a payslip must never become
+    // collectable while the staff member has not been told it exists.
+    const issueBeforeDelivery = await admin.post(`${ADMIN_BASE}/payroll/issue`)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
+    expect(issueBeforeDelivery.statusCode).toBe(409);
+    expect(issueBeforeDelivery.body.code).toBe('PAYSLIP_DELIVERY_PENDING');
+    expect(issueBeforeDelivery.body.details.pending_staff.map((s) => s.staff_uid))
+      .toContain(STAFF_UID);
+    // …and the payslip really is still a draft — the refusal is not cosmetic.
+    const beforeIssueRow = await prisma.$queryRawUnsafe(
+      `SELECT status FROM payslips WHERE id = $1::int`, Number(payslipId),
+    );
+    expect(beforeIssueRow[0].status).toBe('draft');
+
+    await drainInappNotifications();
+
     // POST /payroll/issue → IssuePayslipsResponse ({ issued } integer). Requires
-    // both signatures (now satisfied). Flips the draft payslips → issued.
+    // both signatures AND delivered documents (now satisfied). Flips the draft
+    // payslips → issued.
     const issue = await admin.post(`${ADMIN_BASE}/payroll/issue`).send({ month: RUN_MONTH, year: RUN_YEAR });
     expect(issue.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/issue`, issue.body);
