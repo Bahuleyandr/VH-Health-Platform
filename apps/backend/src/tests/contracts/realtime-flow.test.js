@@ -42,6 +42,16 @@ import { EventEmitter } from 'events';
 import http from 'http';
 import WebSocket from 'ws';
 
+const realtimeAccess = {
+  patients: new Set(),
+  careTeam: new Set(),
+  breakGlass: new Set(),
+};
+
+function realtimeRelationshipKey(tenantId, patientUid, actorUid) {
+  return `${tenantId}:${patientUid}:${actorUid}`.toLowerCase();
+}
+
 // Stub ONLY the revocation store so the harness doesn't need a live Redis/DB.
 // verifyToken/generateToken are the REAL implementations (the whole point — see
 // header). Set up before any dynamic import below.
@@ -71,6 +81,29 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
         guardian_merged_into_uid: null,
       }],
     }),
+  },
+}));
+jest.unstable_mockModule('../../services/security/accessDecisionService.js', () => ({
+  authorizePatientAccessRequest: async (req, { patient }) => {
+    const tenantId = req.tenantId || req.user?.tenant_id;
+    const patientUid = patient?.uid;
+    const patientKey = `${tenantId}:${patientUid}`.toLowerCase();
+    if (!realtimeAccess.patients.has(patientKey)) {
+      return { allowed: false, no_patient_context: true };
+    }
+    if (req.user?.role === 'PATIENT'
+      && String(req.user?.uid).toLowerCase() === String(patientUid).toLowerCase()) {
+      return { allowed: true, accessSource: 'guardian' };
+    }
+    const actorUid = req.acting?.actorUid || req.user?.uid;
+    const relationshipKey = realtimeRelationshipKey(tenantId, patientUid, actorUid);
+    if (realtimeAccess.breakGlass.has(relationshipKey)) {
+      return { allowed: true, accessSource: 'break_glass' };
+    }
+    if (realtimeAccess.careTeam.has(relationshipKey)) {
+      return { allowed: true, accessSource: 'care_team' };
+    }
+    return { allowed: false, accessSource: 'unknown' };
   },
 }));
 jest.unstable_mockModule('../../observability/reliabilityMetrics.js', () => ({
@@ -281,10 +314,17 @@ describe('channel authorization contract', () => {
     expect(allowed.reason).toMatch(/admin/i);
   });
 
-  test('patient:<userId>:... is allowed only for the owner or clinical', () => {
-    expect(authorizeChannel('patient:42:queue', { role: 'PATIENT', userId: '42' }).allowed).toBe(true);
-    expect(authorizeChannel('patient:42:queue', { role: 'PATIENT', userId: '99' }).allowed).toBe(false);
-    expect(authorizeChannel('patient:42:queue', { role: 'DOCTOR', userId: '999' }).allowed).toBe(true);
+  test('patient:<userId>:... static authorization never grants another subject', () => {
+    const patientUid = '11111111-1111-4111-8111-111111111111';
+    const actorUid = '22222222-2222-4222-8222-222222222222';
+    expect(authorizeChannel(`patient:${patientUid}:queue`, {
+      role: 'PATIENT',
+      userId: patientUid,
+    }).allowed).toBe(true);
+    expect(authorizeChannel(`patient:${patientUid}:queue`, { role: 'PATIENT', userId: actorUid }).allowed).toBe(false);
+    expect(authorizeChannel(`patient:${patientUid}:queue`, { role: 'DOCTOR', userId: actorUid }).allowed).toBe(false);
+    expect(authorizeChannel(`patient:${patientUid}:queue`, { role: 'ADMIN', userId: actorUid }).allowed).toBe(false);
+    expect(authorizeChannel(`patient:${patientUid}:queue`, { role: 'SUPER_ADMIN', userId: actorUid }).allowed).toBe(false);
   });
 
   test('staff:code-blue is gated to staff roles', () => {
@@ -309,6 +349,9 @@ describe('cross-process realtime fan-out (Redis pub/sub)', () => {
   const sockets = [];
 
   beforeEach(async () => {
+    realtimeAccess.patients.clear();
+    realtimeAccess.careTeam.clear();
+    realtimeAccess.breakGlass.clear();
     bus = createFakeRedisBus();
     procA = await startProcess(bus);
     procB = await startProcess(bus);
@@ -380,6 +423,123 @@ describe('cross-process realtime fan-out (Redis pub/sub)', () => {
     const r1 = await t1Received;
     expect(r1.data.kind).toBe('patient-admitted');
     await t2Silent; // tenant-2 must have received nothing
+  });
+
+  test('patient channel acknowledgement enforces governed relationships and tenant isolation', async () => {
+    const patientUid = 'fa11ed00-0000-4000-8000-000000000013';
+    const guardianUid = 'fa11ed00-0000-4000-8000-000000000014';
+    const clinicianUid = 'fa11ed00-0000-4000-8000-000000000015';
+    const careTeamUid = 'fa11ed00-0000-4000-8000-000000000016';
+    const breakGlassUid = 'fa11ed00-0000-4000-8000-000000000017';
+    const channel = `patient:${patientUid}:appointments`;
+    realtimeAccess.patients.add(`${TENANT_1}:${patientUid}`.toLowerCase());
+    realtimeAccess.patients.add(`${TENANT_2}:${patientUid}`.toLowerCase());
+    realtimeAccess.careTeam.add(realtimeRelationshipKey(TENANT_1, patientUid, careTeamUid));
+    realtimeAccess.breakGlass.add(realtimeRelationshipKey(TENANT_1, patientUid, breakGlassUid));
+    const owner = await openAndConnect(procB.port, ticket({
+      uid: patientUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+    }));
+    const delegatedSubject = await openAndConnect(procB.port, ticket({
+      uid: patientUid,
+      role: 'PATIENT',
+      tenantId: TENANT_1,
+      revocationOwnerUid: guardianUid,
+    }));
+    const unrelatedClinician = await openAndConnect(procB.port, ticket({
+      uid: clinicianUid,
+      role: 'DOCTOR',
+      tenantId: TENANT_1,
+    }));
+    const careTeamClinician = await openAndConnect(procB.port, ticket({
+      uid: careTeamUid,
+      role: 'DOCTOR',
+      tenantId: TENANT_1,
+    }));
+    const breakGlassAdmin = await openAndConnect(procB.port, ticket({
+      uid: breakGlassUid,
+      role: 'ADMIN',
+      tenantId: TENANT_1,
+    }));
+    const otherTenantSameSubject = await openAndConnect(procB.port, ticket({
+      uid: patientUid,
+      role: 'PATIENT',
+      tenantId: TENANT_2,
+    }));
+    sockets.push(
+      owner,
+      delegatedSubject,
+      unrelatedClinician,
+      careTeamClinician,
+      breakGlassAdmin,
+      otherTenantSameSubject,
+    );
+
+    await subscribe(owner, channel);
+    await subscribe(delegatedSubject, channel);
+    await subscribe(careTeamClinician, channel);
+    await subscribe(breakGlassAdmin, channel);
+    await subscribe(otherTenantSameSubject, channel);
+
+    const denied = awaitEvent(
+      unrelatedClinician,
+      (message) => message.event === 'subscribe-denied' && message.channel === channel,
+    );
+    const deniedAck = expectNoEvent(
+      unrelatedClinician,
+      (message) => message.event === 'subscribed' && message.channel === channel,
+    );
+    unrelatedClinician.send(JSON.stringify({ action: 'subscribe', channel }));
+    await expect(denied).resolves.toMatchObject({
+      event: 'subscribe-denied',
+      channel,
+      reason: 'Patient channel access denied',
+    });
+    await deniedAck;
+
+    const ownerDelivery = awaitEvent(owner, (message) => message.event === channel);
+    const delegatedDelivery = awaitEvent(
+      delegatedSubject,
+      (message) => message.event === channel,
+    );
+    const careTeamDelivery = awaitEvent(
+      careTeamClinician,
+      (message) => message.event === channel,
+    );
+    const breakGlassDelivery = awaitEvent(
+      breakGlassAdmin,
+      (message) => message.event === channel,
+    );
+    const clinicianSilent = expectNoEvent(
+      unrelatedClinician,
+      (message) => message.event === channel,
+    );
+    const otherTenantSilent = expectNoEvent(
+      otherTenantSameSubject,
+      (message) => message.event === channel,
+    );
+
+    procA.wsMod.broadcast(
+      channel,
+      { appointmentId: '42', status: 'CONFIRMED' },
+      { tenantId: TENANT_1 },
+    );
+
+    await expect(ownerDelivery).resolves.toMatchObject({
+      data: { appointmentId: '42', status: 'CONFIRMED' },
+    });
+    await expect(delegatedDelivery).resolves.toMatchObject({
+      data: { appointmentId: '42', status: 'CONFIRMED' },
+    });
+    await expect(careTeamDelivery).resolves.toMatchObject({
+      data: { appointmentId: '42', status: 'CONFIRMED' },
+    });
+    await expect(breakGlassDelivery).resolves.toMatchObject({
+      data: { appointmentId: '42', status: 'CONFIRMED' },
+    });
+    await clinicianSilent;
+    await otherTenantSilent;
   });
 
   // sendToUser cross-process: a user connected on process B receives a

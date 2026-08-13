@@ -121,6 +121,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../utils/websocket/channelAuth.js', () => ({
   authorizeChannel: () => ({ allowed: true, reason: 'ok' }),
+  parsePatientChannel: () => null,
 }));
 jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
   getCurrentTenantId: () => null,

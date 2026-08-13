@@ -63,7 +63,7 @@ describe('emitAppointmentEvent', () => {
       { tenantId: 't1' },
     );
   });
-  test('patient subscription ownership uses the JWT uid, not numeric patient id', () => {
+  test('patient subscription ownership uses only the JWT subject uid', () => {
     const uid = '33333333-3333-4333-8333-333333333333';
     expect(authorizeChannel(`patient:${uid}:appointments`, {
       role: 'PATIENT',
@@ -72,7 +72,13 @@ describe('emitAppointmentEvent', () => {
     expect(authorizeChannel('patient:51:appointments', {
       role: 'PATIENT',
       userId: uid,
-    })).toEqual({ allowed: false, reason: 'Not your channel' });
+    })).toEqual({ allowed: false, reason: 'Malformed patient channel' });
+    for (const role of ['DOCTOR', 'ADMIN', 'SUPER_ADMIN']) {
+      expect(authorizeChannel(`patient:${uid}:appointments`, {
+        role,
+        userId: '44444444-4444-4444-8444-444444444444',
+      })).toEqual({ allowed: false, reason: 'Not your channel' });
+    }
     expect(authorizeChannel('appointment-updates', {
       role: 'PATIENT',
       userId: uid,

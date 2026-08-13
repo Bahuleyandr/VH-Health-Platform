@@ -10,6 +10,7 @@ import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+import 'package:vhhealth_core/services/realtime_provider.dart';
 
 class _RecordingCrashReporter implements CrashReporter {
   final List<Map<String, Object?>> errors = [];
@@ -81,6 +82,7 @@ class _WsHarness {
     int denyFirstSubscribes = 0,
     bool denyAllSubscribes = false,
     Duration authReadyDelay = Duration.zero,
+    Duration subscribeAckDelay = Duration.zero,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final harness = _WsHarness._(server);
@@ -134,18 +136,34 @@ class _WsHarness {
               );
               return;
             }
-            socket.add(jsonEncode({'event': 'subscribed', 'channel': channel}));
-            if (emitAfterFreshSubscribe &&
-                (channel == 'staff:clinical-alerts' ||
-                    channel == 'staff:code-blue')) {
-              scheduleMicrotask(() {
-                socket.add(
-                  jsonEncode({
-                    'event': channel,
-                    'data': {'taskId': 'task-1', 'status': 'pending'},
-                  }),
-                );
-              });
+            void acknowledgeSubscription() {
+              if (socket.readyState != WebSocket.open) return;
+              socket.add(
+                jsonEncode({'event': 'subscribed', 'channel': channel}),
+              );
+              if (emitAfterFreshSubscribe &&
+                  (channel == 'staff:clinical-alerts' ||
+                      channel == 'staff:code-blue')) {
+                scheduleMicrotask(() {
+                  socket.add(
+                    jsonEncode({
+                      'event': channel,
+                      'data': {'taskId': 'task-1', 'status': 'pending'},
+                    }),
+                  );
+                });
+              }
+            }
+
+            if (subscribeAckDelay == Duration.zero) {
+              acknowledgeSubscription();
+            } else {
+              unawaited(
+                Future<void>.delayed(
+                  subscribeAckDelay,
+                  acknowledgeSubscription,
+                ),
+              );
             }
         }
       });
@@ -418,6 +436,48 @@ void main() {
         reason: 'acknowledgement cleared after disconnect',
       );
       expect(acknowledgedSets, contains(isEmpty));
+    },
+  );
+
+  test(
+    'RealtimeProvider notifies when channel readiness is acknowledged and retired',
+    () async {
+      final harness = await _WsHarness.start(
+        acceptFreshToken: true,
+        subscribeAckDelay: const Duration(milliseconds: 150),
+      );
+      addTearDown(harness.close);
+      RealtimeClient.setWsUrlForTesting(harness.wsUrl);
+      RealtimeClient.setReconnectBackoffForTesting(initialMs: 500, maxMs: 500);
+      await AuthService.setJwt('fresh-access');
+
+      final provider = RealtimeProvider();
+      addTearDown(provider.dispose);
+      var notifications = 0;
+      provider.addListener(() => notifications += 1);
+      const channel =
+          'patient:11111111-1111-4111-8111-111111111111:appointments';
+      final eventSub = provider.events(channel).listen((_) {});
+      addTearDown(eventSub.cancel);
+
+      await provider.ensureConnected();
+      await _waitFor(() => provider.isConnected, reason: 'provider connected');
+      expect(provider.isSubscribed(channel), isFalse);
+      final notificationsBeforeAck = notifications;
+
+      await _waitFor(
+        () => provider.isSubscribed(channel),
+        reason: 'provider subscription acknowledgement',
+      );
+      expect(notifications, greaterThan(notificationsBeforeAck));
+      final notificationsAfterAck = notifications;
+
+      await harness.closeClients();
+      await _waitFor(
+        () => !provider.isSubscribed(channel) && !provider.isConnected,
+        reason: 'provider readiness retirement',
+      );
+      expect(notifications, greaterThan(notificationsAfterAck));
     },
   );
 

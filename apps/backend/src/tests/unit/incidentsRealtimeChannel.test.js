@@ -18,10 +18,16 @@ describe('SUPER_ADMIN channel bypass', () => {
   test('SUPER_ADMIN may subscribe to staff:incidents (isStaff is false for it)', () => {
     expect(authorizeChannel('staff:incidents', { role: 'SUPER_ADMIN', userId: '9' }).allowed).toBe(true);
   });
-  test('the bypass is general — SUPER_ADMIN may subscribe to any channel namespace', () => {
+  test('the bypass covers staff/admin boards but never another patient identity', () => {
     expect(authorizeChannel('staff:beds', { role: 'SUPER_ADMIN', userId: '9' }).allowed).toBe(true);
     expect(authorizeChannel('admin:anything', { role: 'SUPER_ADMIN', userId: '9' }).allowed).toBe(true);
-    expect(authorizeChannel('patient:other-uid:vitals', { role: 'SUPER_ADMIN', userId: '9' }).allowed).toBe(true);
+    expect(authorizeChannel('patient:11111111-1111-4111-8111-111111111111:appointments', {
+      role: 'SUPER_ADMIN',
+      userId: '22222222-2222-4222-8222-222222222222',
+    })).toEqual({
+      allowed: false,
+      reason: 'Not your channel',
+    });
   });
   test('a non-super-admin is still gated normally', () => {
     expect(authorizeChannel('admin:anything', { role: 'NURSING_STAFF', userId: '2' }).allowed).toBe(false);
