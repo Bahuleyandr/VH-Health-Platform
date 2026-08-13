@@ -19,12 +19,17 @@ import request from 'supertest';
 // /metrics (SELECT 1). Default: healthy migration row. Tests can override.
 const queryRawMock = jest.fn();
 const tenantRlsRolePostureMock = jest.fn();
+const readMigrationStateMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   __esModule: true,
   default: { $queryRaw: queryRawMock, $queryRawUnsafe: queryRawMock },
   circuitBreakerStatus: () => ({ open: false, consecutiveFailures: 0 }),
   tenantRlsRolePosture: tenantRlsRolePostureMock,
+}));
+
+jest.unstable_mockModule('../../utils/migrations/runMigrations.js', () => ({
+  readMigrationState: readMigrationStateMock,
 }));
 
 // The monitoring-access gate now fails CLOSED in every env (audit 2026-06-18
@@ -48,8 +53,15 @@ const withToken = (req) => req.set('x-monitoring-token', MONITORING_TOKEN);
 beforeEach(() => {
   queryRawMock.mockReset();
   tenantRlsRolePostureMock.mockReset();
-  // Default: healthy migration-106 probe.
+  readMigrationStateMock.mockReset();
   queryRawMock.mockResolvedValue([{ exists: true }]);
+  readMigrationStateMock.mockResolvedValue({
+    requiredCurrent: true,
+    expectedTip: '667_current.sql',
+    executedTip: '667_current.sql',
+    pending: [],
+    unexpected: [],
+  });
 });
 
 describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () => {
@@ -73,13 +85,50 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
   });
 
   it('still returns 503 when the DB probe fails (reachability IS gated)', async () => {
-    queryRawMock.mockRejectedValueOnce(new Error('connection refused'));
+    readMigrationStateMock.mockRejectedValueOnce(new Error('connection refused'));
 
     const res = await withToken(request(makeApp()).get('/health/ready'));
 
     expect(res.status).toBe(503);
     expect(res.body.status).toBe('degraded');
     expect(res.body.checks.database.status).toBe('error');
+  });
+
+  it('returns 503 when the image requires migrations absent from the database', async () => {
+    readMigrationStateMock.mockResolvedValueOnce({
+      requiredCurrent: false,
+      expectedTip: '667_pending.sql',
+      executedTip: '666_applied.sql',
+      pending: ['667_pending.sql'],
+      unexpected: [],
+    });
+
+    const res = await withToken(request(makeApp()).get('/health/ready'));
+
+    expect(res.status).toBe(503);
+    expect(res.body.checks.migrations).toMatchObject({
+      status: 'error',
+      expected_tip: '667_pending.sql',
+      pending_count: 1,
+    });
+  });
+
+  it('keeps an old pod ready when an additive rolling deployment moves the database ahead', async () => {
+    readMigrationStateMock.mockResolvedValueOnce({
+      requiredCurrent: true,
+      expectedTip: '666_old-image.sql',
+      executedTip: '667_new-image.sql',
+      pending: [],
+      unexpected: ['667_new-image.sql'],
+    });
+
+    const res = await withToken(request(makeApp()).get('/health/ready'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.checks.migrations).toMatchObject({
+      status: 'ok',
+      database_ahead: true,
+    });
   });
 
   it('does not even call tenantRlsRolePosture from the readiness path', async () => {

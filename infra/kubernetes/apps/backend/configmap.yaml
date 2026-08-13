@@ -113,6 +113,10 @@ data:
   # vhhealth_runtime does NOT own the tables, so even unforced tenant_isolation
   # policies are enforced on the connection — and SET LOCAL ROLE vhhealth_app
   # remains the belt-and-braces scope marker. Both roles are created by CNPG
-  # `spec.managed.roles` (base/cnpg/cluster.yaml); grants are ensured at backend
-  # boot (ensureTenantRlsRuntimeRoleGrants in src/lib/prisma.js).
+  # `spec.managed.roles` (base/cnpg/cluster.yaml); grants are ensured by the
+  # owner-credential PreSync migration Job, never by API workers.
   AUTH_TENANT_RLS_RUNTIME_ROLE: "vhhealth_app"
+  # Production API workers are read-only migration consumers. They verify that
+  # `_migrations` exactly matches the image and refuse to listen on drift; only
+  # the owner-credential PreSync Job may apply DDL.
+  RUN_MIGRATIONS: "false"

@@ -215,6 +215,8 @@ spec:
               npm run db:ensure-pgvector
               echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql, tracker-driven)"
               node scripts/ci-setup-db.mjs --skip-seeds
+              echo ">> ensure runtime-role grants (owner-only bootstrap)"
+              node scripts/ensure-runtime-role-grants.mjs
               echo ">> migrations complete"
           env:
             - name: NODE_ENV

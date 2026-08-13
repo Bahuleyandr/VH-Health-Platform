@@ -4,6 +4,7 @@ import express from 'express';
 import prisma, { circuitBreakerStatus, tenantRlsRolePosture } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { requireProductionMonitoringAccess } from '../../middleware/infrastructureAccessMiddleware.js';
+import { readMigrationState } from '../../utils/migrations/runMigrations.js';
 
 const router = express.Router();
 
@@ -71,22 +72,26 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
 
   try {
     const start = Date.now();
-    const [migrationState] = await prisma.$queryRaw`
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-          AND table_name = 'appointment_status_history'
-      ) AS exists
-    `;
+    const migrationState = await readMigrationState();
 
     checks.database = { status: 'ok', latency_ms: Date.now() - start };
-    checks.migration_106 = migrationState?.exists
-      ? { status: 'ok', table: 'appointment_status_history' }
-      : { status: 'error', table: 'appointment_status_history', message: 'Migration 106 table missing' };
+    checks.migrations = migrationState.requiredCurrent
+      ? {
+        status: 'ok',
+        expected_tip: migrationState.expectedTip,
+        database_tip: migrationState.executedTip,
+        database_ahead: migrationState.unexpected.length > 0,
+      }
+      : {
+        status: 'error',
+        expected_tip: migrationState.expectedTip,
+        database_tip: migrationState.executedTip,
+        pending_count: migrationState.pending.length,
+        message: 'Required migrations are pending',
+      };
   } catch (err) {
     checks.database = { status: 'error', message: 'Database check failed' };
-    checks.migration_106 = { status: 'unknown', table: 'appointment_status_history' };
+    checks.migrations = { status: 'unknown', message: 'Migration tracker check failed' };
     logger.warn('Readiness probe failed:', err.message);
   }
 
@@ -95,7 +100,9 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
   // table after a migration, or a bypassing role) made `ready` false on EVERY
   // replica simultaneously → a full API outage triggered by a security WARNING,
   // not by the service being unable to serve traffic. Readiness now gates only
-  // on DB reachability + the migration-106 schema check. RLS posture is still
+  // on DB reachability + the image's required migration set. A database ahead
+  // of an old pod remains ready during a rolling deploy, while a new pod with
+  // pending requirements is rejected. RLS posture is still
   // surfaced loudly elsewhere: a boot-time ERROR (logTenantRlsRolePosture in
   // bin/www.js) and a live signal on GET /health/metrics (`tenant_rls`), which
   // is where alerting should hang — not on the traffic-admission probe.

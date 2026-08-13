@@ -20,6 +20,41 @@ function canSkipOptionalPgvectorMigration() {
   return process.env.NODE_ENV !== 'production' && process.env.REQUIRE_PGVECTOR !== 'true';
 }
 
+function migrationFiles(migrationsDir) {
+  if (!fs.existsSync(migrationsDir)) {
+    const err = new Error(`Migrations directory not found: ${migrationsDir}`);
+    err.code = 'MIGRATIONS_DIRECTORY_MISSING';
+    throw err;
+  }
+
+  return fs
+    .readdirSync(migrationsDir)
+    .filter((file) => file.endsWith('.sql'))
+    .sort();
+}
+
+export function evaluateMigrationState(files, executedRows) {
+  const expected = [...files].sort();
+  const executed = new Set(
+    (Array.isArray(executedRows) ? executedRows : executedRows?.rows ?? [])
+      .map((row) => row?.name)
+      .filter(Boolean),
+  );
+  const pending = expected.filter((file) => !executed.has(file));
+  const unexpected = [...executed].filter((file) => !expected.includes(file)).sort();
+
+  return {
+    current: pending.length === 0 && unexpected.length === 0,
+    requiredCurrent: pending.length === 0,
+    expectedCount: expected.length,
+    executedCount: executed.size,
+    expectedTip: expected.at(-1) ?? null,
+    executedTip: [...executed].sort().at(-1) ?? null,
+    pending,
+    unexpected,
+  };
+}
+
 function isOptionalPgvectorUnavailable(file, err) {
   if (file !== OPTIONAL_PGVECTOR_MIGRATION) return false;
   if (!canSkipOptionalPgvectorMigration()) return false;
@@ -33,6 +68,43 @@ async function isPgvectorAvailable() {
     "SELECT 1 FROM pg_available_extensions WHERE name = 'vector' LIMIT 1",
   );
   return (Array.isArray(rows) ? rows : rows?.rows ?? []).length > 0;
+}
+
+/**
+ * Production workers are read-only migration consumers. Argo's owner-credential
+ * PreSync Job applies DDL; every API worker must only prove that the tracker is
+ * an exact match for the image's immutable migration directory before it binds
+ * a socket. This deliberately performs no CREATE/INSERT/ALTER operation.
+ */
+export async function verifyMigrationsCurrent({
+  migrationsDir = DEFAULT_MIGRATIONS_DIR,
+} = {}) {
+  const state = await readMigrationState({ migrationsDir });
+  if (!state.current) {
+    const err = new Error(
+      `Database migration tracker does not match this image `
+      + `(expected tip ${state.expectedTip || 'none'}, database tip ${state.executedTip || 'none'}, `
+      + `${state.pending.length} pending, ${state.unexpected.length} unexpected)`,
+    );
+    err.code = 'MIGRATION_TIP_MISMATCH';
+    err.migrationState = state;
+    throw err;
+  }
+  return state;
+}
+
+export async function readMigrationState({
+  migrationsDir = DEFAULT_MIGRATIONS_DIR,
+} = {}) {
+  let files = migrationFiles(migrationsDir);
+  if (files.includes(OPTIONAL_PGVECTOR_MIGRATION)
+    && canSkipOptionalPgvectorMigration()
+    && !(await isPgvectorAvailable())) {
+    files = files.filter((file) => file !== OPTIONAL_PGVECTOR_MIGRATION);
+  }
+
+  const executed = await prisma.$queryRawUnsafe('SELECT name FROM _migrations ORDER BY name');
+  return evaluateMigrationState(files, executed);
 }
 
 function stripSqlComments(sql) {
@@ -249,15 +321,7 @@ export async function runMigrations({
     (Array.isArray(executed) ? executed : executed?.rows ?? []).map((r) => r.name),
   );
 
-  if (!fs.existsSync(migrationsDir)) {
-    logger.info('No migrations directory found, skipping.');
-    return;
-  }
-
-  const files = fs
-    .readdirSync(migrationsDir)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
+  const files = migrationFiles(migrationsDir);
 
   let ran = 0;
   let skippedOptional = 0;

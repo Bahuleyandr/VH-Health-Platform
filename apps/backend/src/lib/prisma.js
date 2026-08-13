@@ -1011,11 +1011,29 @@ export function rlsDisabledLogLevel(nodeEnv = process.env.NODE_ENV) {
  * Boot-time guard: log the tenant-RLS role posture. Emits a loud ERROR when
  * enforcement is on but the effective role bypasses RLS (policies inert), and
  * a loud WARNING when enforcement is off in production (policies inert), so
- * a misconfigured deployment can't silently ship inert isolation. Best-effort
- * — never throws, never blocks startup.
+ * a misconfigured deployment can't silently ship inert isolation. Boot callers
+ * may request bounded retries; the returned error posture is then handled by
+ * tenantRlsPostureMustFailClosed rather than being mistaken for safety.
  */
-export async function logTenantRlsRolePosture() {
-  const posture = await tenantRlsRolePosture();
+export async function logTenantRlsRolePosture({
+  attempts = 1,
+  delayMs = 0,
+  probe = tenantRlsRolePosture,
+} = {}) {
+  const boundedAttempts = Math.max(1, Math.min(5, Number.parseInt(attempts, 10) || 1));
+  let posture;
+  for (let attempt = 1; attempt <= boundedAttempts; attempt += 1) {
+    posture = await probe();
+    if (!posture?.error) break;
+    if (attempt < boundedAttempts && delayMs > 0) {
+      logger.warn('Tenant RLS posture probe failed; retrying before startup', {
+        reason: posture.reason,
+        attempt,
+        attempts: boundedAttempts,
+      });
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
   if (posture.error) {
     logger.warn('Tenant RLS posture probe failed', { reason: posture.reason });
     return posture;
@@ -1100,7 +1118,7 @@ export async function logTenantRlsRolePosture() {
  * Production refuses to start when RLS is disabled (`!enforced`) or inert
  * (`!ok` — effective role bypasses RLS / owns unforced policy tables) so a
  * misconfigured deployment can't silently serve PHI with isolation off. A
- * probe error is not treated as fatal (it is logged as a warning). An explicit,
+ * probe error is unsafe because the service cannot prove isolation. An explicit,
  * audited override (`AUTH_TENANT_RLS_FAIL_OPEN=true`) is honoured for a
  * confirmed single-tenant maintenance window. Non-production never fails closed.
  * Pure + env-injectable so the boot guard is unit-testable.
@@ -1108,7 +1126,7 @@ export async function logTenantRlsRolePosture() {
 export function tenantRlsPostureMustFailClosed(posture, env = process.env) {
   if (String(env.NODE_ENV || '').toLowerCase() !== 'production') return false;
   if (String(env.AUTH_TENANT_RLS_FAIL_OPEN || '').toLowerCase() === 'true') return false;
-  if (!posture || posture.error) return false;
+  if (!posture || posture.error) return true;
   return !posture.enforced || !posture.ok;
 }
 
