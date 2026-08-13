@@ -1,5 +1,6 @@
 import { __testing__ as fhirTesting } from '../../services/fhir/fhirAllergyIntoleranceService.js';
 import { __testing__ as hl7Testing } from '../../services/hl7/hl7InboundClinicalCommandService.js';
+import { parseADTToAdmission } from '../../services/hl7/hl7Transformer.js';
 
 const TENANT_ID = 'fa110000-0000-4000-8000-000000000001';
 const PATIENT_UID = 'fa110000-0000-4000-8000-000000000002';
@@ -84,5 +85,28 @@ describe('canonical interoperability identities', () => {
     expect(hl7Testing.messageFingerprint(`${message}\rPID|1||patient-a`)).not.toBe(
       hl7Testing.messageFingerprint(message),
     );
+  });
+
+  it('threads the PV1-19 visit identity through the inbound ADT transformer', () => {
+    const pv1 = Array(46).fill('');
+    pv1[0] = 'PV1';
+    pv1[1] = '1';
+    pv1[2] = 'I';
+    pv1[3] = 'WARD-1^BED-1';
+    pv1[19] = 'VISIT-ADT-1042';
+    const message = [
+      'MSH|^~\\&|CANONICAL-SENDER|CANONICAL-SITE|VH|CANONICAL-INTEROP|20260813080500+0530||ADT^A02|CAN-ADT-002|P|2.5',
+      `PID|1||${PATIENT_UID}`,
+      pv1.join('|'),
+    ].join('\r');
+
+    const { admission } = parseADTToAdmission(message);
+
+    expect(admission).toEqual(expect.objectContaining({
+      visit_number: 'VISIT-ADT-1042',
+      status: 'TRANSFERRED',
+      ward: 'WARD-1',
+      bed_number: 'BED-1',
+    }));
   });
 });

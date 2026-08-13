@@ -6,6 +6,7 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 
 const SUPPORTED_MESSAGE_TYPES = new Set(['ADT^A01', 'ADT^A02', 'ADT^A03', 'ORM^O01']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const POSTGRES_INT4_MAX = 2_147_483_647;
 
 function cleanRequired(value, label, maxLength) {
   const normalized = String(value || '').trim();
@@ -32,6 +33,62 @@ function receiptIdentityHash({ tenantId, senderIdentity, messageControlId }) {
   return createHash('sha256')
     .update(`${tenantId}\n${senderIdentity}\n${messageControlId}`, 'utf8')
     .digest('hex');
+}
+
+function normalizeVisitNumber(value, { required = false } = {}) {
+  const component = String(value || '').split('^', 1)[0].trim();
+  if (!component) {
+    if (required) {
+      throw AppError.badRequest(
+        'HL7 ADT transfer and discharge require PV1-19 visit number',
+        'HL7_ADMISSION_VISIT_REQUIRED',
+      );
+    }
+    return null;
+  }
+  return cleanRequired(component, 'HL7 PV1-19 visit number', 199);
+}
+
+function visitMigrationSourceKey({ senderIdentity, visitNumber }) {
+  const fingerprint = createHash('sha256')
+    .update(`${senderIdentity}\n${visitNumber}`, 'utf8')
+    .digest('hex');
+  return `hl7-live-visit:${fingerprint}`;
+}
+
+function numericAdmissionId(visitNumber) {
+  if (!/^\d+$/.test(visitNumber)) return null;
+  const parsed = Number(visitNumber);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= POSTGRES_INT4_MAX
+    ? parsed
+    : null;
+}
+
+async function findAdmissionsByVisit(tx, {
+  tenantId, senderIdentity, visitNumber,
+}) {
+  return tx.$queryRawUnsafe(
+    `SELECT id, patient_uid::text, status, ward, bed_number,
+            admitted_at, discharged_at, encounter_id::text,
+            migration_source_key
+       FROM admissions
+      WHERE tenant_id = $1::uuid
+        AND (
+          ($2::integer IS NOT NULL AND id = $2::integer)
+          OR ($3::uuid IS NOT NULL AND encounter_id = $3::uuid)
+          OR migration_source_key = $4
+        )
+      ORDER BY id
+      FOR UPDATE`,
+    tenantId,
+    numericAdmissionId(visitNumber),
+    UUID_RE.test(visitNumber) ? visitNumber : null,
+    visitMigrationSourceKey({ senderIdentity, visitNumber }),
+  );
+}
+
+function permanentVisitConflict(message, code) {
+  return AppError.conflict(message, code);
 }
 
 function eventContract(messageType, detail) {
@@ -120,38 +177,82 @@ function assertExactReceipt(receipt, { messageType, payloadSha256, patientUid })
   }
 }
 
-async function mutateAdt(tx, { messageType, tenantId, patientUid, admission }) {
+async function mutateAdt(tx, {
+  messageType,
+  tenantId,
+  patientUid,
+  senderIdentity,
+  visitNumber,
+  admission,
+}) {
   if (messageType === 'ADT^A01') {
+    if (visitNumber) {
+      const existing = await findAdmissionsByVisit(tx, {
+        tenantId,
+        senderIdentity,
+        visitNumber,
+      });
+      if (existing.length > 0) {
+        throw permanentVisitConflict(
+          'HL7 PV1-19 visit number is already bound to an admission',
+          'HL7_ADMISSION_VISIT_ALREADY_EXISTS',
+        );
+      }
+    }
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO admissions
          (patient_uid, status, ward, bed_number, admitting_doctor,
-          admitted_at, reason, tenant_id, created_at, updated_at)
+          admitted_at, reason, tenant_id, migration_source_key,
+          created_at, updated_at)
        VALUES ($1::uuid, 'ADMITTED', $2, $3, $4::uuid,
-               $5::timestamptz, NULL, $6::uuid, NOW(), NOW())
+               $5::timestamptz, NULL, $6::uuid, $7, NOW(), NOW())
        RETURNING id, patient_uid::text, status, ward, bed_number,
-                 admitted_at, discharged_at`,
+                 admitted_at, discharged_at, encounter_id::text,
+                 migration_source_key`,
       patientUid,
       admission.ward || null,
       admission.bed_number || null,
       uuidOrNull(admission.admitting_doctor),
       admission.admitted_at || new Date().toISOString(),
       tenantId,
+      visitNumber ? visitMigrationSourceKey({ senderIdentity, visitNumber }) : null,
     );
     return rows[0];
   }
 
+  const matches = await findAdmissionsByVisit(tx, {
+    tenantId,
+    senderIdentity,
+    visitNumber,
+  });
+  if (matches.length === 0) {
+    throw permanentVisitConflict(
+      `HL7 ${messageType} references an unknown PV1-19 visit number`,
+      'HL7_ADMISSION_VISIT_UNKNOWN',
+    );
+  }
+  if (matches.length > 1) {
+    throw permanentVisitConflict(
+      `HL7 ${messageType} PV1-19 visit number resolves ambiguously`,
+      'HL7_ADMISSION_VISIT_AMBIGUOUS',
+    );
+  }
+  const target = matches[0];
+  if (String(target.patient_uid).toLowerCase() !== patientUid) {
+    throw permanentVisitConflict(
+      `HL7 ${messageType} PV1-19 visit belongs to a different patient`,
+      'HL7_ADMISSION_VISIT_PATIENT_MISMATCH',
+    );
+  }
+  if (!['admitted', 'transferred'].includes(String(target.status || '').toLowerCase())) {
+    throw permanentVisitConflict(
+      `HL7 ${messageType} PV1-19 visit is not an active admission`,
+      'HL7_ADMISSION_VISIT_NOT_ACTIVE',
+    );
+  }
+
   const rows = await tx.$queryRawUnsafe(
-    `WITH current_admission AS (
-       SELECT id
-         FROM admissions
-        WHERE tenant_id = $1::uuid
-          AND patient_uid = $2::uuid
-          AND LOWER(status) IN ('admitted', 'transferred')
-        ORDER BY admitted_at DESC NULLS LAST, id DESC
-        LIMIT 1
-        FOR UPDATE
-     )
-     UPDATE admissions AS admission_row
+    `UPDATE admissions AS admission_row
         SET status = $3::text,
             ward = CASE WHEN $4::text IS NULL THEN admission_row.ward ELSE $4 END,
             bed_number = CASE WHEN $5::text IS NULL THEN admission_row.bed_number ELSE $5 END,
@@ -160,23 +261,26 @@ async function mutateAdt(tx, { messageType, tenantId, patientUid, admission }) {
               ELSE admission_row.discharged_at
             END,
             updated_at = NOW()
-       FROM current_admission
-      WHERE admission_row.id = current_admission.id
+      WHERE admission_row.tenant_id = $1::uuid
+        AND admission_row.patient_uid = $2::uuid
+        AND admission_row.id = $7::integer
       RETURNING admission_row.id, admission_row.patient_uid::text,
                 admission_row.status, admission_row.ward,
                 admission_row.bed_number, admission_row.admitted_at,
-                admission_row.discharged_at`,
+                admission_row.discharged_at, admission_row.encounter_id::text,
+                admission_row.migration_source_key`,
     tenantId,
     patientUid,
     messageType === 'ADT^A03' ? 'DISCHARGED' : 'TRANSFERRED',
     admission.ward || null,
     admission.bed_number || null,
     admission.discharged_at || new Date().toISOString(),
+    target.id,
   );
   if (!rows[0]) {
-    throw AppError.conflict(
-      `HL7 ${messageType} requires one active admission for the patient`,
-      'HL7_ACTIVE_ADMISSION_REQUIRED',
+    throw permanentVisitConflict(
+      `HL7 ${messageType} PV1-19 target changed before mutation`,
+      'HL7_ADMISSION_VISIT_TARGET_CHANGED',
     );
   }
   return rows[0];
@@ -220,6 +324,11 @@ export async function processHl7InboundClinicalMessage(input = {}) {
   }
   const payloadSha256 = messageFingerprint(input.message);
   const identityHash = receiptIdentityHash({ tenantId, senderIdentity, messageControlId });
+  const visitNumber = messageType.startsWith('ADT^')
+    ? normalizeVisitNumber(input.admission?.visit_number, {
+      required: messageType === 'ADT^A02' || messageType === 'ADT^A03',
+    })
+    : null;
 
   return setTenantTx(tenantId, async (tx) => {
     await tx.$queryRawUnsafe(
@@ -228,6 +337,14 @@ export async function processHl7InboundClinicalMessage(input = {}) {
        )::text AS lock_result`,
       `${tenantId}:${senderIdentity}:${messageControlId}`,
     );
+    if (visitNumber) {
+      await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(
+           pg_catalog.hashtextextended($1::text, 666)
+         )::text AS lock_result`,
+        `${tenantId}:${senderIdentity}:visit:${visitNumber}`,
+      );
+    }
 
     const existing = await findReceipt(tx, { tenantId, senderIdentity, messageControlId });
     if (existing) {
@@ -240,6 +357,8 @@ export async function processHl7InboundClinicalMessage(input = {}) {
         messageType,
         tenantId,
         patientUid,
+        senderIdentity,
+        visitNumber,
         admission: input.admission || {},
       })
       : await createInvestigation(tx, {
@@ -271,6 +390,7 @@ export async function processHl7InboundClinicalMessage(input = {}) {
         sender_identity: senderIdentity,
         message_control_id: messageControlId,
         payload_sha256: payloadSha256,
+        ...(visitNumber ? { visit_number: visitNumber } : {}),
       },
       timelineIdempotencyKey: `hl7-live:${identityHash}:timeline`,
       auditIdempotencyKey: `hl7-live:${identityHash}:audit`,
@@ -307,6 +427,8 @@ export async function processHl7InboundClinicalMessage(input = {}) {
 export const __testing__ = {
   messageFingerprint,
   receiptIdentityHash,
+  normalizeVisitNumber,
+  visitMigrationSourceKey,
 };
 
 export default { processHl7InboundClinicalMessage };

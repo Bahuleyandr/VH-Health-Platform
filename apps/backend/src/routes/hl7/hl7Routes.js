@@ -35,6 +35,16 @@ import { processHl7InboundClinicalMessage } from '../../services/hl7/hl7InboundC
 
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
+const PERMANENT_HL7_CLINICAL_REJECTION_CODES = new Set([
+  'HL7_CLINICAL_RECEIPT_IDENTITY_DRIFT',
+  'HL7_ADMISSION_VISIT_REQUIRED',
+  'HL7_ADMISSION_VISIT_ALREADY_EXISTS',
+  'HL7_ADMISSION_VISIT_UNKNOWN',
+  'HL7_ADMISSION_VISIT_AMBIGUOUS',
+  'HL7_ADMISSION_VISIT_PATIENT_MISMATCH',
+  'HL7_ADMISSION_VISIT_NOT_ACTIVE',
+  'HL7_ADMISSION_VISIT_TARGET_CHANGED',
+]);
 
 function assertLocalInvestigationExportContract(investigation, { requireResults = false } = {}) {
   const orderedTestCode = String(investigation?.test_code || '').trim();
@@ -241,6 +251,10 @@ function sendHl7Ack(res, status, controlId, code, text) {
 
 export function hl7AuthenticityAckCode(error, { recovery = false } = {}) {
   return recovery && Number(error?.statusCode) >= 500 ? 'AE' : 'AR';
+}
+
+export function hl7ClinicalAckCode(error) {
+  return PERMANENT_HL7_CLINICAL_REJECTION_CODES.has(error?.code) ? 'AR' : 'AE';
 }
 
 // Resolve the patient by uid GLOBALLY (the sender's tenant is not in the
@@ -523,7 +537,7 @@ router.post(
       res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
       const status = err?.statusCode || 500;
       const messageText = status < 500 ? 'Message rejected' : 'Internal processing error';
-      return res.status(status).send(generateACK(controlId, 'AE', messageText));
+      return res.status(status).send(generateACK(controlId, hl7ClinicalAckCode(err), messageText));
     }
   })
 );

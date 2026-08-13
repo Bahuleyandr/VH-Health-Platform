@@ -93,7 +93,7 @@ d('FHIR AllergyIntolerance canonical tenant contract', () => {
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect();
-  });
+  }, 30_000);
 
   it('deduplicates semantic retries and keeps each tenant reader isolated', async () => {
     const firstA = await createFhirAllergyIntolerance({

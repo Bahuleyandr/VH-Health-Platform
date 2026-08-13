@@ -16,6 +16,10 @@ const d = databaseUrl ? describe : describe.skip;
 
 const TENANT_ID = 'ca110000-0000-4000-8000-000000000001';
 const PATIENT_UID = 'ca110000-0000-4000-8000-000000000002';
+const OTHER_PATIENT_UID = 'ca110000-0000-4000-8000-000000000003';
+const OLDER_ENCOUNTER_ID = 'ca110000-0000-4000-8000-000000000011';
+const NEWER_ENCOUNTER_ID = 'ca110000-0000-4000-8000-000000000012';
+const OTHER_ENCOUNTER_ID = 'ca110000-0000-4000-8000-000000000013';
 const FACILITY = 'CANONICAL-INTEROP-LIVE';
 const SECRET = 'canonical-interop-live-secret';
 const PHONE = '+919811100002';
@@ -40,12 +44,27 @@ function signHeaders(message, requestSuffix = crypto.randomUUID()) {
   };
 }
 
-function adtMessage(event, controlId, ward, bed, eventTime = '20260813080500+0530') {
+function adtMessage(
+  event,
+  controlId,
+  ward,
+  bed,
+  eventTime = '20260813080500+0530',
+  { visitNumber = `VISIT-${controlId}`, patientUid = PATIENT_UID } = {},
+) {
+  const pv1 = Array(46).fill('');
+  pv1[0] = 'PV1';
+  pv1[1] = '1';
+  pv1[2] = 'I';
+  pv1[3] = `${ward}^${bed}`;
+  pv1[19] = visitNumber || '';
+  pv1[44] = eventTime;
+  pv1[45] = event === 'A03' ? eventTime : '';
   return [
     `MSH|^~\\&|CANONICAL-SENDER|CANONICAL-SITE|VH|${FACILITY}|${eventTime}||ADT^${event}|${controlId}|P|2.5`,
     `EVN|${event}|${eventTime}`,
-    `PID|1||${PATIENT_UID}||Canonical Interop Patient||19900101|F|||Addr|||${PHONE}`,
-    `PV1|1|I|${ward}^${bed}|||||||||||||||||||||||||||||||||||||||||${eventTime}|${event === 'A03' ? eventTime : ''}`,
+    `PID|1||${patientUid}||Canonical Interop Patient||19900101|F|||Addr|||${PHONE}`,
+    pv1.join('|'),
   ].join('\r');
 }
 
@@ -95,9 +114,12 @@ async function cleanup() {
     ).catch(() => {});
   }
   await prisma.$executeRawUnsafe(
-    `DELETE FROM admissions WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+    `DELETE FROM admissions
+      WHERE tenant_id = $1::uuid
+        AND patient_uid IN ($2::uuid, $3::uuid)`,
     TENANT_ID,
     PATIENT_UID,
+    OTHER_PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM investigations WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
@@ -114,9 +136,12 @@ async function cleanup() {
     FACILITY,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+    `DELETE FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid IN ($2::uuid, $3::uuid)`,
     TENANT_ID,
     PATIENT_UID,
+    OTHER_PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id = $1::uuid`,
@@ -136,10 +161,13 @@ d('live HL7 canonical clinical commands', () => {
     );
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, $2::uuid, $3, 'Canonical Interop Patient', 'PATIENT', true, NOW())`,
+       VALUES
+         ($1::uuid, $2::uuid, $3, 'Canonical Interop Patient', 'PATIENT', true, NOW()),
+         ($4::uuid, $2::uuid, '+919811100003', 'Canonical Interop Other Patient', 'PATIENT', true, NOW())`,
       PATIENT_UID,
       TENANT_ID,
       PHONE,
+      OTHER_PATIENT_UID,
     );
     await upsertInteropSecret({
       tenantId: TENANT_ID,
@@ -157,10 +185,11 @@ d('live HL7 canonical clinical commands', () => {
   }, 30_000);
 
   it('commits A01/A02/A03 as one admission mutation, timeline, audit, and durable receipt each', async () => {
+    const visitNumber = 'CANONICAL-VISIT-001';
     const messages = [
-      adtMessage('A01', 'CAN-ADT-001', 'WARD-1', 'BED-1'),
-      adtMessage('A02', 'CAN-ADT-002', 'WARD-2', 'BED-9', '20260813081000+0530'),
-      adtMessage('A03', 'CAN-ADT-003', 'WARD-2', 'BED-9', '20260813082000+0530'),
+      adtMessage('A01', 'CAN-ADT-001', 'WARD-1', 'BED-1', '20260813080500+0530', { visitNumber }),
+      adtMessage('A02', 'CAN-ADT-002', 'WARD-2', 'BED-9', '20260813081000+0530', { visitNumber }),
+      adtMessage('A03', 'CAN-ADT-003', 'WARD-2', 'BED-9', '20260813082000+0530', { visitNumber }),
     ];
 
     for (const message of messages) {
@@ -273,7 +302,7 @@ d('live HL7 canonical clinical commands', () => {
     const changed = original.replace('CBC^Complete Blood Count', 'CMP^Comprehensive Metabolic Panel');
     const drift = await sendSigned(app, changed);
     expect(drift.status).toBe(409);
-    expect(drift.text).toContain('MSA|AE');
+    expect(drift.text).toContain('MSA|AR|CAN-ORM-DRIFT|Message rejected');
 
     const counts = await prisma.$queryRawUnsafe(
       `SELECT
@@ -286,5 +315,98 @@ d('live HL7 canonical clinical commands', () => {
       PATIENT_UID,
     );
     expect(counts[0]).toEqual({ changed_details: 0, receipts: 1 });
+  });
+
+  it('targets the exact older PV1-19 visit and permanently rejects unknown or mismatched visits', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, encounter_id, status, ward, bed_number,
+          admitted_at, created_at, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, $3::uuid, 'ADMITTED', 'OLDER-WARD', 'OLDER-BED',
+          '2026-08-11T08:00:00.000Z', '2026-08-11T08:00:00.000Z', NOW()),
+         ($1::uuid, $2::uuid, $4::uuid, 'ADMITTED', 'NEWER-WARD', 'NEWER-BED',
+          '2026-08-12T08:00:00.000Z', '2026-08-12T08:00:00.000Z', NOW()),
+         ($1::uuid, $5::uuid, $6::uuid, 'ADMITTED', 'OTHER-WARD', 'OTHER-BED',
+          '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z', NOW())`,
+      TENANT_ID,
+      PATIENT_UID,
+      OLDER_ENCOUNTER_ID,
+      NEWER_ENCOUNTER_ID,
+      OTHER_PATIENT_UID,
+      OTHER_ENCOUNTER_ID,
+    );
+
+    const targeted = await sendSigned(app, adtMessage(
+      'A02',
+      'CAN-ADT-EXACT-OLDER',
+      'TARGET-WARD',
+      'TARGET-BED',
+      '20260813083000+0530',
+      { visitNumber: OLDER_ENCOUNTER_ID },
+    ));
+    expect(targeted.status).toBe(200);
+    expect(targeted.text).toContain('MSA|AA|CAN-ADT-EXACT-OLDER|Message accepted');
+
+    const admissions = await prisma.$queryRawUnsafe(
+      `SELECT encounter_id::text, status, ward, bed_number
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND encounter_id IN ($2::uuid, $3::uuid)
+        ORDER BY encounter_id`,
+      TENANT_ID,
+      OLDER_ENCOUNTER_ID,
+      NEWER_ENCOUNTER_ID,
+    );
+    expect(admissions).toEqual([
+      {
+        encounter_id: OLDER_ENCOUNTER_ID,
+        status: 'TRANSFERRED',
+        ward: 'TARGET-WARD',
+        bed_number: 'TARGET-BED',
+      },
+      {
+        encounter_id: NEWER_ENCOUNTER_ID,
+        status: 'ADMITTED',
+        ward: 'NEWER-WARD',
+        bed_number: 'NEWER-BED',
+      },
+    ]);
+
+    const unknown = await sendSigned(app, adtMessage(
+      'A02',
+      'CAN-ADT-UNKNOWN-VISIT',
+      'SHOULD-NOT-WRITE',
+      'NO-BED',
+      '20260813083500+0530',
+      { visitNumber: 'ca110000-0000-4000-8000-000000000099' },
+    ));
+    expect(unknown.status).toBe(409);
+    expect(unknown.text).toContain('MSA|AR|CAN-ADT-UNKNOWN-VISIT|Message rejected');
+
+    const mismatched = await sendSigned(app, adtMessage(
+      'A03',
+      'CAN-ADT-MISMATCHED-VISIT',
+      'SHOULD-NOT-WRITE',
+      'NO-BED',
+      '20260813084000+0530',
+      { visitNumber: OTHER_ENCOUNTER_ID },
+    ));
+    expect(mismatched.status).toBe(409);
+    expect(mismatched.text).toContain('MSA|AR|CAN-ADT-MISMATCHED-VISIT|Message rejected');
+
+    const rejectedEffects = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM hl7_inbound_clinical_receipts
+           WHERE tenant_id = $1::uuid
+             AND message_control_id IN (
+               'CAN-ADT-UNKNOWN-VISIT', 'CAN-ADT-MISMATCHED-VISIT'
+             )) AS receipts,
+         (SELECT ward FROM admissions
+           WHERE tenant_id = $1::uuid AND encounter_id = $2::uuid) AS other_ward`,
+      TENANT_ID,
+      OTHER_ENCOUNTER_ID,
+    );
+    expect(rejectedEffects[0]).toEqual({ receipts: 0, other_ward: 'OTHER-WARD' });
   });
 });
