@@ -2,12 +2,7 @@
 // Shared types for the admin Dashboard and its sub-components.
 
 export type HealthStatus =
-  | 'healthy'
-  | 'warning'
-  | 'critical'
-  | 'unknown'
-  | 'unavailable'
-  | 'stale';
+  "healthy" | "warning" | "critical" | "unknown" | "unavailable" | "stale";
 
 export type Quick = {
   totalUsers?: number;
@@ -32,7 +27,7 @@ export type SystemHealth = {
   errorRate?: number; // %
   modules?: Array<{ name: string; status: HealthStatus }>;
   observedAt?: string;
-  lastKnownStatus?: Exclude<HealthStatus, 'unknown' | 'unavailable' | 'stale'>;
+  lastKnownStatus?: Exclude<HealthStatus, "unknown" | "unavailable" | "stale">;
   detail?: string;
 };
 

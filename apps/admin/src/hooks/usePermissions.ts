@@ -1,15 +1,15 @@
 // src/hooks/usePermissions.ts
-'use client';
+"use client";
 
-import { useMemo, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import type { AdminUser } from '@/lib/types';
+import { useMemo, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import type { AdminUser } from "@/lib/types";
 import {
   normalizePortalRole,
   portalAccessLevel,
   portalRoleRank,
   type PortalAccessLevel,
-} from '@/lib/roles';
+} from "@/lib/roles";
 
 export interface UsePermissionsOptions {
   requiredRole?: PortalAccessLevel;
@@ -24,14 +24,14 @@ export interface UsePermissionsResult {
 
   // Granular role checks
   isSuperAdmin: boolean;
-  isAdmin: boolean;       // ADMIN | SUPER_ADMIN
+  isAdmin: boolean; // ADMIN | SUPER_ADMIN
   isHR: boolean;
   isDoctor: boolean;
   isStaff: boolean;
 
   // Tiered checks (role OR above)
-  isHROrAbove: boolean;         // HR | ADMIN | SUPER_ADMIN
-  isStaffOrAbove: boolean;      // STAFF | HR | DOCTOR | ADMIN | SUPER_ADMIN
+  isHROrAbove: boolean; // HR | ADMIN | SUPER_ADMIN
+  isStaffOrAbove: boolean; // STAFF | HR | DOCTOR | ADMIN | SUPER_ADMIN
 
   loading: boolean;
 
@@ -44,40 +44,49 @@ export interface UsePermissionsResult {
   permsAllowed: boolean;
 }
 
-export function usePermissions(options?: UsePermissionsOptions): UsePermissionsResult {
+export function usePermissions(
+  options?: UsePermissionsOptions,
+): UsePermissionsResult {
   const { user, loading } = useAuth();
 
   const rawRole = normalizePortalRole(user?.role);
   const role = portalAccessLevel(rawRole);
   const isRecognizedRole = rawRole !== null;
 
-  const permissions = useMemo<string[]>(
-    () => user?.permissions ?? [],
-    [user]
-  );
+  const permissions = useMemo<string[]>(() => user?.permissions ?? [], [user]);
 
-  const isSuperAdmin = rawRole === 'SUPER_ADMIN';
-  const isAdmin      = isSuperAdmin || role === 'ADMIN';
-  const isHR         = role === 'HR';
-  const isDoctor     = role === 'DOCTOR';
-  const isStaff      = role === 'STAFF';
+  const isSuperAdmin = rawRole === "SUPER_ADMIN";
+  const isAdmin = isSuperAdmin || role === "ADMIN";
+  const isHR = role === "HR";
+  const isDoctor = role === "DOCTOR";
+  const isStaff = role === "STAFF";
 
-  const isHROrAbove     = isSuperAdmin || role === 'ADMIN' || role === 'HR';
-  const isStaffOrAbove  = portalRoleRank(rawRole) >= portalRoleRank('STAFF');
+  const isHROrAbove = isSuperAdmin || role === "ADMIN" || role === "HR";
+  const isStaffOrAbove = portalRoleRank(rawRole) >= portalRoleRank("STAFF");
 
   const hasPermission = useCallback(
-    (perm: string) => isRecognizedRole && (isSuperAdmin || permissions.includes('*') || permissions.includes(perm)),
-    [isRecognizedRole, isSuperAdmin, permissions]
+    (perm: string) =>
+      isRecognizedRole &&
+      (isSuperAdmin || permissions.includes("*") || permissions.includes(perm)),
+    [isRecognizedRole, isSuperAdmin, permissions],
   );
 
   const hasAnyPermission = useCallback(
-    (perms: string[]) => isRecognizedRole && (isSuperAdmin || permissions.includes('*') || perms.some((p) => permissions.includes(p))),
-    [isRecognizedRole, isSuperAdmin, permissions]
+    (perms: string[]) =>
+      isRecognizedRole &&
+      (isSuperAdmin ||
+        permissions.includes("*") ||
+        perms.some((p) => permissions.includes(p))),
+    [isRecognizedRole, isSuperAdmin, permissions],
   );
 
   const hasAllPermissions = useCallback(
-    (perms: string[]) => isRecognizedRole && (isSuperAdmin || permissions.includes('*') || perms.every((p) => permissions.includes(p))),
-    [isRecognizedRole, isSuperAdmin, permissions]
+    (perms: string[]) =>
+      isRecognizedRole &&
+      (isSuperAdmin ||
+        permissions.includes("*") ||
+        perms.every((p) => permissions.includes(p))),
+    [isRecognizedRole, isSuperAdmin, permissions],
   );
 
   const { roleAllowed, permsAllowed, allowed } = useMemo(() => {
@@ -93,9 +102,11 @@ export function usePermissions(options?: UsePermissionsOptions): UsePermissionsR
         portalRoleRank(rawRole) >= portalRoleRank(requiredRole));
 
     const permsAllowed =
-      requiredPermissions.length === 0 || hasAllPermissions(requiredPermissions);
+      requiredPermissions.length === 0 ||
+      hasAllPermissions(requiredPermissions);
 
-    const allowed = !!user && !loading && isRecognizedRole && roleAllowed && permsAllowed;
+    const allowed =
+      !!user && !loading && isRecognizedRole && roleAllowed && permsAllowed;
 
     return { roleAllowed, permsAllowed, allowed };
   }, [

@@ -67,7 +67,9 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * All admin auth routes are POST-only, so in practice every call is gated; the
  * safe-method exemption is kept for correctness if a route ever adds GET.
  */
-export function assertSameOriginOrAllowed(request: Request): NextResponse | null {
+export function assertSameOriginOrAllowed(
+  request: Request,
+): NextResponse | null {
   if (SAFE_METHODS.has(request.method)) return null;
 
   const reject = () =>

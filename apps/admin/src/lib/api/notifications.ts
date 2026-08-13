@@ -20,7 +20,15 @@ export function sendAnnouncement<T = unknown>(data: {
 export function sendTargetedNotification<T = unknown>(data: {
   title: string;
   message: string;
-  type?: "APPOINTMENT" | "MEDICATION" | "EMERGENCY" | "SYSTEM" | "REMINDER" | "ALERT" | "INFO" | "ANNOUNCEMENT";
+  type?:
+    | "APPOINTMENT"
+    | "MEDICATION"
+    | "EMERGENCY"
+    | "SYSTEM"
+    | "REMINDER"
+    | "ALERT"
+    | "INFO"
+    | "ANNOUNCEMENT";
   priority?: "HIGH" | "MEDIUM" | "LOW";
   user_ids?: number[];
   criteria?: Record<string, unknown>;
@@ -48,7 +56,10 @@ export function getNotificationOverview<T = unknown>() {
   return getJSON<T>("/api/v1/notifications/admin/overview");
 }
 
-export function getNotificationManageList<T = unknown>(params?: { page?: number; limit?: number }) {
+export function getNotificationManageList<T = unknown>(params?: {
+  page?: number;
+  limit?: number;
+}) {
   return getJSON<T>("/api/v1/notifications/admin/manage", params);
 }
 

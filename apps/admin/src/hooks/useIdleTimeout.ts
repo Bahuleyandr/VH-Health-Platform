@@ -12,7 +12,13 @@ import {
 } from "@/lib/api-client";
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-const EVENTS = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"] as const;
+const EVENTS = [
+  "mousedown",
+  "mousemove",
+  "keydown",
+  "scroll",
+  "touchstart",
+] as const;
 
 const SERVER_REVOCATION_WARNING =
   "Your local session was cleared after inactivity, but server-side session revocation failed. Your previous session may still be active; contact an administrator.";
@@ -32,7 +38,10 @@ export function useIdleTimeout(timeoutMs = IDLE_TIMEOUT_MS) {
       const result = await adminLogout();
       if (!result.serverSignOutOk) {
         try {
-          sessionStorage.setItem(IDLE_SIGN_OUT_WARNING_KEY, SERVER_REVOCATION_WARNING);
+          sessionStorage.setItem(
+            IDLE_SIGN_OUT_WARNING_KEY,
+            SERVER_REVOCATION_WARNING,
+          );
         } catch {
           /* storage may be unavailable; the toast remains visible */
         }
@@ -44,7 +53,10 @@ export function useIdleTimeout(timeoutMs = IDLE_TIMEOUT_MS) {
       }
     } catch (error) {
       try {
-        sessionStorage.setItem(IDLE_SIGN_OUT_WARNING_KEY, SERVER_REVOCATION_WARNING);
+        sessionStorage.setItem(
+          IDLE_SIGN_OUT_WARNING_KEY,
+          SERVER_REVOCATION_WARNING,
+        );
       } catch {
         /* storage may be unavailable; the toast remains visible */
       }

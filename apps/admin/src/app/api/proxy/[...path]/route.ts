@@ -13,8 +13,12 @@ export const runtime = "nodejs";
 
 // W5 S4: a tenant override may only ever come from the server-set acting_tenant
 // cookie of a verified SUPER_ADMIN — never a raw client header.
-const TENANT_OVERRIDE_HEADERS = new Set(["x-tenant-id", "x-tenant-override-reason"]);
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TENANT_OVERRIDE_HEADERS = new Set([
+  "x-tenant-id",
+  "x-tenant-override-reason",
+]);
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MIN_OVERRIDE_REASON_LEN = 8;
 
 // Allowed API path prefixes — all other paths are rejected.
@@ -171,10 +175,7 @@ async function handleProxy(req: NextRequest) {
 
   // Block path traversal attempts
   if (path.includes("..") || path.includes("//")) {
-    return NextResponse.json(
-      { message: "Invalid path" },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: "Invalid path" }, { status: 400 });
   }
 
   // ADM-1: per-admin permission flags are enforced HERE, not just in the nav.
@@ -228,9 +229,16 @@ async function handleProxy(req: NextRequest) {
     const role = await getVerifiedTokenRole(token);
     if (isSuperAdminRole(role)) {
       try {
-        const acting = JSON.parse(actingRaw) as { id?: string; reason?: string };
+        const acting = JSON.parse(actingRaw) as {
+          id?: string;
+          reason?: string;
+        };
         const reason = typeof acting.reason === "string" ? acting.reason : "";
-        if (acting.id && UUID_RE.test(acting.id) && reason.length >= MIN_OVERRIDE_REASON_LEN) {
+        if (
+          acting.id &&
+          UUID_RE.test(acting.id) &&
+          reason.length >= MIN_OVERRIDE_REASON_LEN
+        ) {
           headers["x-tenant-id"] = acting.id;
           headers["x-tenant-override-reason"] = reason;
         }
@@ -251,8 +259,8 @@ async function handleProxy(req: NextRequest) {
         init.body = text;
       }
       // Ensure content-type is set (normalize to lowercase, no duplicates)
-      delete (headers as Record<string,string>)["content-type"];
-      (headers as Record<string,string>)["content-type"] = "application/json";
+      delete (headers as Record<string, string>)["content-type"];
+      (headers as Record<string, string>)["content-type"] = "application/json";
     } else if (
       ct.includes("multipart/form-data") ||
       ct.includes("application/x-www-form-urlencoded")

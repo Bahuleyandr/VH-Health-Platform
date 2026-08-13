@@ -73,10 +73,56 @@ describe("legacy Admin PWA retirement", () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 
-  it("does not treat arbitrary application caches as retired Workbox output", () => {
-    expect(isLegacyAdminCache("static-image-assets")).toBe(true);
-    expect(isLegacyAdminCache("hospital-offline-forms")).toBe(false);
-    expect(isLegacyAdminCache("workbox-runtime-other-app")).toBe(false);
+  it("does not treat arbitrary same-origin caches as retired Workbox output", () => {
+    const origin = "https://admin.vhhealth.app";
+    expect(isLegacyAdminCache("static-image-assets", origin)).toBe(true);
+    expect(isLegacyAdminCache("hospital-offline-forms", origin)).toBe(false);
+    expect(isLegacyAdminCache("workbox-runtime-other-app", origin)).toBe(false);
+    expect(
+      isLegacyAdminCache(
+        "workbox-precache-v2-https://admin.vhhealth.app/",
+        origin,
+      ),
+    ).toBe(true);
+    expect(
+      isLegacyAdminCache(
+        "workbox-precache-v2-https://admin.vhhealth.app/other-app/",
+        origin,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps retirement retryable when unregister returns false", async () => {
+    const setItem = jest.fn();
+    await expect(
+      retireLegacyPwa({
+        origin: "https://admin.vhhealth.app",
+        storage: { getItem: () => null, setItem },
+        registrations: async () => [
+          registration(
+            "https://admin.vhhealth.app/sw.js",
+            jest.fn().mockResolvedValue(false),
+          ),
+        ],
+        cacheNames: async () => [],
+        deleteCache: async () => true,
+      }),
+    ).rejects.toThrow(/service worker 1/);
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps retirement retryable when cache deletion returns false", async () => {
+    const setItem = jest.fn();
+    await expect(
+      retireLegacyPwa({
+        origin: "https://admin.vhhealth.app",
+        storage: { getItem: () => null, setItem },
+        registrations: async () => [],
+        cacheNames: async () => ["apis"],
+        deleteCache: async () => false,
+      }),
+    ).rejects.toThrow(/legacy Admin cache apis/);
+    expect(setItem).not.toHaveBeenCalled();
   });
 
   it("detects a legacy worker in any registration lifecycle slot", async () => {

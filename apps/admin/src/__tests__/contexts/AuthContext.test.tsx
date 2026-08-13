@@ -20,12 +20,16 @@ jest.mock("@/lib/api-client", () => ({
   adminMfaSetupConfirm: jest.fn(),
 }));
 
-const mockedGetAdminProfile = getAdminProfile as jest.MockedFunction<typeof getAdminProfile>;
-const mockedGetAdminUser = getAdminUser as jest.MockedFunction<typeof getAdminUser>;
+const mockedGetAdminProfile = getAdminProfile as jest.MockedFunction<
+  typeof getAdminProfile
+>;
+const mockedGetAdminUser = getAdminUser as jest.MockedFunction<
+  typeof getAdminUser
+>;
 
 function Probe() {
   const { user, loading } = useAuth();
-  return <div>{loading ? "loading" : user?.name ?? "signed out"}</div>;
+  return <div>{loading ? "loading" : (user?.name ?? "signed out")}</div>;
 }
 
 describe("AuthProvider profile probing", () => {
@@ -53,7 +57,9 @@ describe("AuthProvider profile probing", () => {
       </AuthProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("Cookie Admin")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Cookie Admin")).toBeInTheDocument(),
+    );
     expect(mockedGetAdminProfile).toHaveBeenCalledTimes(1);
   });
 
@@ -67,6 +73,8 @@ describe("AuthProvider profile probing", () => {
       </AuthProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("signed out")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("signed out")).toBeInTheDocument(),
+    );
   });
 });

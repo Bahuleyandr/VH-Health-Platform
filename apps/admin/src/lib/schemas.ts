@@ -80,10 +80,16 @@ export const DoctorSchema = z.object({
   education: z.string().optional().nullable(),
   qualifications: z.array(z.string()).optional().nullable(),
   available_days: z.array(z.string()).optional().nullable(),
-  available_hours: z.record(z.string(), z.object({
-    start: z.string(),
-    end: z.string(),
-  })).optional().nullable(),
+  available_hours: z
+    .record(
+      z.string(),
+      z.object({
+        start: z.string(),
+        end: z.string(),
+      }),
+    )
+    .optional()
+    .nullable(),
 });
 
 export const PatientSchema = z.object({
@@ -149,12 +155,16 @@ export const DashboardDataSchema = z.object({
 
 export const LoginFormSchema = z.object({
   username: z.string().min(1, "Username is required"),
-  password: z.string()
+  password: z
+    .string()
     .min(8, "Password must be at least 8 characters")
     .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
     .regex(/[a-z]/, "Password must contain at least one lowercase letter")
     .regex(/[0-9]/, "Password must contain at least one number")
-    .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
+    .regex(
+      /[^A-Za-z0-9]/,
+      "Password must contain at least one special character",
+    ),
 });
 
 export const CreateDoctorFormSchema = z.object({

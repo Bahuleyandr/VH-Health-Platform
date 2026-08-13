@@ -3,15 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose/jwt/verify";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const secretKey = JWT_SECRET
-  ? new TextEncoder().encode(JWT_SECRET)
-  : null;
+const secretKey = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
 
 if (!secretKey && process.env.NODE_ENV === "production") {
   console.error(
     "FATAL: JWT_SECRET is not set in production. " +
-    "Middleware will reject all authenticated requests. " +
-    "Set JWT_SECRET to enable JWT signature verification.",
+      "Middleware will reject all authenticated requests. " +
+      "Set JWT_SECRET to enable JWT signature verification.",
   );
 }
 
@@ -183,7 +181,10 @@ function isIpAllowed(request: NextRequest): boolean {
     request.headers.get("x-real-ip") ||
     "";
 
-  return clientIp !== "" && allowlist.some((entry) => ipMatchesAllowlistEntry(clientIp, entry));
+  return (
+    clientIp !== "" &&
+    allowlist.some((entry) => ipMatchesAllowlistEntry(clientIp, entry))
+  );
 }
 
 // ── Nonce-based CSP (audit finding M9) ──────────────────────────────────────
@@ -284,10 +285,16 @@ export async function middleware(request: NextRequest) {
       console.warn(
         `[middleware] DENY (no route policy entry): ${pathname} — add one to src/lib/routePolicy.ts`,
       );
-      return withCsp(NextResponse.redirect(trustedRedirectUrl("/dashboard", request)), csp);
+      return withCsp(
+        NextResponse.redirect(trustedRedirectUrl("/dashboard", request)),
+        csp,
+      );
     }
     if (!roleSatisfiesPolicy(role, policy)) {
-      return withCsp(NextResponse.redirect(trustedRedirectUrl("/dashboard", request)), csp);
+      return withCsp(
+        NextResponse.redirect(trustedRedirectUrl("/dashboard", request)),
+        csp,
+      );
     }
 
     return withCsp(

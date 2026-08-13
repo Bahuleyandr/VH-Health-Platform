@@ -58,10 +58,11 @@ export function isLegacyAdminServiceWorker(
   });
 }
 
-export function isLegacyAdminCache(cacheName: string): boolean {
+export function isLegacyAdminCache(cacheName: string, origin: string): boolean {
+  const legacyPrecacheName = `workbox-precache-v2-${new URL("/", origin).href}`;
   return (
     LEGACY_WORKBOX_CACHE_NAMES.has(cacheName) ||
-    cacheName.startsWith("workbox-precache-v2-")
+    cacheName === legacyPrecacheName
   );
 }
 
@@ -83,12 +84,31 @@ export async function retireLegacyPwa(
   const legacyRegistrations = registrations.filter((registration) =>
     isLegacyAdminServiceWorker(registration, environment.origin),
   );
-  const legacyCacheNames = cacheNames.filter(isLegacyAdminCache);
+  const legacyCacheNames = cacheNames.filter((cacheName) =>
+    isLegacyAdminCache(cacheName, environment.origin),
+  );
 
-  await Promise.all([
-    ...legacyRegistrations.map((registration) => registration.unregister()),
-    ...legacyCacheNames.map((cacheName) => environment.deleteCache(cacheName)),
-  ]);
+  const cleanupOperations = [
+    ...legacyRegistrations.map((registration, index) => ({
+      label: `legacy Admin service worker ${index + 1}`,
+      run: () => registration.unregister(),
+    })),
+    ...legacyCacheNames.map((cacheName) => ({
+      label: `legacy Admin cache ${cacheName}`,
+      run: () => environment.deleteCache(cacheName),
+    })),
+  ];
+  const cleanupResults = await Promise.all(
+    cleanupOperations.map(({ run }) => run()),
+  );
+  const failedOperations = cleanupOperations
+    .filter((_, index) => cleanupResults[index] !== true)
+    .map(({ label }) => label);
+  if (failedOperations.length > 0) {
+    throw new Error(
+      `Legacy Admin PWA cleanup returned false for: ${failedOperations.join(", ")}`,
+    );
+  }
 
   try {
     environment.storage.setItem(LEGACY_PWA_RETIREMENT_KEY, "complete");

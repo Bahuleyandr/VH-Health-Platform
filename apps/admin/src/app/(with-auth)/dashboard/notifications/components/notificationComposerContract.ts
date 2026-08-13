@@ -1,6 +1,7 @@
 import { API_ENDPOINTS } from "@/lib/api-config";
 
-export type ComposerNotificationType = "info" | "warning" | "critical" | "success";
+export type ComposerNotificationType =
+  "info" | "warning" | "critical" | "success";
 export type ComposerTargetType = "all" | "department" | "role" | "user";
 
 type Priority = "HIGH" | "MEDIUM" | "LOW";

@@ -25,11 +25,11 @@
         "src/lib/browserNavigation.ts",
         "src/lib/roles.ts"
       ],
-      "total": 2546,
+      "total": 2545,
       "rules": {
         "@next/next/no-location-assign-relative-destination": 2,
         "eslint/unused-disable": 15,
-        "import/order": 1346,
+        "import/order": 1345,
         "jsx-a11y/click-events-have-key-events": 6,
         "jsx-a11y/control-has-associated-label": 900,
         "jsx-a11y/heading-has-content": 1,

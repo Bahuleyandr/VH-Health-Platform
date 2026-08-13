@@ -58,7 +58,11 @@ interface AuthContextType {
    *  render a TOTP prompt when the backend asks for a second factor. */
   login: (username: string, password: string) => Promise<LoginOutcome>;
   /** Completes the 2FA step after a `login()` that returned `{ kind: "mfa" }`. */
-  verifyMfa: (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => Promise<void>;
+  verifyMfa: (args: {
+    challengeToken: string;
+    code: string;
+    useBackupCode?: boolean;
+  }) => Promise<void>;
   /** First leg of first-time MFA enrollment — returns QR + backup codes + encryptedSecret. */
   mfaSetupEnroll: (args: { setupToken: string }) => Promise<{
     qrCodeDataUrl: string;
@@ -144,7 +148,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             challenge: {
               challengeToken: result.challengeToken,
               expiresAt: result.expiresAt,
-              adminHint: result.admin?.username ? { username: result.admin.username } : undefined,
+              adminHint: result.admin?.username
+                ? { username: result.admin.username }
+                : undefined,
             },
           };
         }
@@ -156,7 +162,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             challenge: {
               setupToken: result.setupToken,
               expiresIn: result.expiresIn,
-              adminHint: result.admin?.username ? { username: result.admin.username } : undefined,
+              adminHint: result.admin?.username
+                ? { username: result.admin.username }
+                : undefined,
             },
           };
         }
@@ -179,7 +187,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const verifyMfa = useCallback(
-    async (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => {
+    async (args: {
+      challengeToken: string;
+      code: string;
+      useBackupCode?: boolean;
+    }) => {
       try {
         setLoading(true);
         setError(null);
@@ -197,13 +209,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [router],
   );
 
-  const mfaSetupEnroll = useCallback(
-    async (args: { setupToken: string }) => {
-      setError(null);
-      return adminMfaSetupEnroll(args);
-    },
-    [],
-  );
+  const mfaSetupEnroll = useCallback(async (args: { setupToken: string }) => {
+    setError(null);
+    return adminMfaSetupEnroll(args);
+  }, []);
 
   const mfaSetupConfirm = useCallback(
     async (args: {

@@ -10,7 +10,9 @@ jest.mock("@/lib/browserNavigation", () => ({
 }));
 
 const mockedApiFetch = apiFetch as jest.MockedFunction<typeof apiFetch>;
-const mockedNavigateToLogin = navigateToLogin as jest.MockedFunction<typeof navigateToLogin>;
+const mockedNavigateToLogin = navigateToLogin as jest.MockedFunction<
+  typeof navigateToLogin
+>;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -213,9 +215,14 @@ describe("fetchAdminAPI shared refresh and mutation replay", () => {
         ? jsonResponse({ message: "Unauthorized" }, 401)
         : jsonResponse({ data: { endpoint: key } });
     });
-    const refreshFetch = jest.spyOn(globalThis, "fetch").mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ ok: true } as Response), 10)),
-    );
+    const refreshFetch = jest
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ ok: true } as Response), 10),
+          ),
+      );
 
     const [first, second] = await Promise.all([
       fetchAdminAPI<{ endpoint: string }>("/admin/a"),
@@ -233,9 +240,13 @@ describe("fetchAdminAPI shared refresh and mutation replay", () => {
     mockedApiFetch
       .mockResolvedValueOnce(jsonResponse({ message: "Unauthorized" }, 401))
       .mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
-    const refreshFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+    const refreshFetch = jest
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ ok: true } as Response);
 
-    await expect(fetchAdminAPI("/users", { headers: { "X-Test": "same" } })).resolves.toEqual({ ok: true });
+    await expect(
+      fetchAdminAPI("/users", { headers: { "X-Test": "same" } }),
+    ).resolves.toEqual({ ok: true });
 
     expect(mockedApiFetch).toHaveBeenCalledTimes(2);
     const first = mockedApiFetch.mock.calls[0][1] as RequestInit;
@@ -269,7 +280,9 @@ describe("fetchAdminAPI shared refresh and mutation replay", () => {
     mockedApiFetch
       .mockResolvedValueOnce(jsonResponse({ message: "Unauthorized" }, 401))
       .mockResolvedValueOnce(jsonResponse({ data: { id: 8 } }));
-    const refreshFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+    const refreshFetch = jest
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ ok: true } as Response);
 
     await expect(
       fetchAdminAPI("/users", {
@@ -282,18 +295,26 @@ describe("fetchAdminAPI shared refresh and mutation replay", () => {
     expect(mockedApiFetch).toHaveBeenCalledTimes(2);
     for (const call of mockedApiFetch.mock.calls) {
       expect((call[1] as RequestInit).body).toBe('{"name":"once"}');
-      expect(new Headers((call[1] as RequestInit).headers).get("Idempotency-Key")).toBe("request-8");
+      expect(
+        new Headers((call[1] as RequestInit).headers).get("Idempotency-Key"),
+      ).toBe("request-8");
     }
     refreshFetch.mockRestore();
   });
 
   it("clears the profile and redirects to login when refresh fails", async () => {
-    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ message: "Unauthorized" }, 401));
-    const refreshFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false } as Response);
+    mockedApiFetch.mockResolvedValueOnce(
+      jsonResponse({ message: "Unauthorized" }, 401),
+    );
+    const refreshFetch = jest
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ ok: false } as Response);
     await expect(fetchAdminAPI("/users")).rejects.toThrow(APIError);
 
     expect(localStorage.getItem("adminUser")).toBeNull();
-    expect(mockedNavigateToLogin).toHaveBeenCalledWith("/login?reason=session_expired");
+    expect(mockedNavigateToLogin).toHaveBeenCalledWith(
+      "/login?reason=session_expired",
+    );
     refreshFetch.mockRestore();
   });
 });

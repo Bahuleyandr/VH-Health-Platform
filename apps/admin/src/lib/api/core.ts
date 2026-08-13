@@ -54,20 +54,28 @@ function isBrowser() {
 /** Normalize legacy frontend endpoints to the backend's current routes. */
 function normalizeAdminEndpoint(endpoint: string): string {
   const [rawPath, rawQuery = ""] = endpoint.split("?", 2);
-  const path = rawPath.startsWith("/api/v1") ? rawPath.slice(7) || "/" : rawPath;
+  const path = rawPath.startsWith("/api/v1")
+    ? rawPath.slice(7) || "/"
+    : rawPath;
   const query = rawQuery ? `?${rawQuery}` : "";
 
   // /admin/users/*, /admin/doctors/*, /admin/departments/* rewrites:
   // - Exact match (list): /admin/doctors -> /doctors
   // - With sub-path (/admin/doctors/:id/...): keep as /admin/doctors/:id/... -> /api/v1/admin/doctors/:id/...
-  if (path === "/admin/users" || path.startsWith("/admin/users?")) return `/users${query}`;
-  if (path === "/admin/doctors" || path.startsWith("/admin/doctors?")) return `/doctors${query}`;
-  if (path === "/admin/departments" || path.startsWith("/admin/departments?")) return `/departments${query}`;
+  if (path === "/admin/users" || path.startsWith("/admin/users?"))
+    return `/users${query}`;
+  if (path === "/admin/doctors" || path.startsWith("/admin/doctors?"))
+    return `/doctors${query}`;
+  if (path === "/admin/departments" || path.startsWith("/admin/departments?"))
+    return `/departments${query}`;
   // Sub-paths like /admin/doctors/:id/profile pass through as /admin/doctors/:id/profile -> /api/v1/admin/doctors/:id/profile
-  if (path === "/feedback") return `/feedback/recent${query || "?page=1&limit=100"}`;
+  if (path === "/feedback")
+    return `/feedback/recent${query || "?page=1&limit=100"}`;
   if (path === "/feedback/stats") return `/feedback/dashboard${query}`;
-  if (path === "/notifications") return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
-  if (path === "/notifications/stats") return `/notifications/admin/overview${query}`;
+  if (path === "/notifications")
+    return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
+  if (path === "/notifications/stats")
+    return `/notifications/admin/overview${query}`;
   if (path === "/admin/appointments" || path === "/appointments") {
     return `/appointments/list${query}`;
   }
@@ -144,11 +152,7 @@ interface InternalOptions extends RequestInit {
   _redirectOnUnauthorized?: boolean;
 }
 
-const AUTOMATICALLY_REPLAYABLE_METHODS = new Set([
-  "GET",
-  "HEAD",
-  "OPTIONS",
-]);
+const AUTOMATICALLY_REPLAYABLE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function canReplayAfterRefresh(method: string, headers?: HeadersInit): boolean {
   if (AUTOMATICALLY_REPLAYABLE_METHODS.has(method)) return true;
@@ -222,7 +226,8 @@ async function requestJSON<T = unknown>(
     const message =
       isJson && typeof (payload as APIResponse | null)?.message === "string"
         ? ((payload as APIResponse).message as string)
-        : isJson && typeof (payload as { error?: unknown } | null)?.error === "string"
+        : isJson &&
+            typeof (payload as { error?: unknown } | null)?.error === "string"
           ? (payload as { error: string }).error
           : _fallbackErrorMessage
             ? `HTTP ${res.status} ${_fallbackErrorMessage}`
@@ -332,7 +337,12 @@ export function deleteJSON<T = unknown>(endpoint: string, useAuth = true) {
 /** Back-compat helper used widely across pages */
 export async function fetchAdminAPI<T = unknown>(
   endpoint: string,
-  init?: { method?: string; body?: unknown; token?: string; headers?: HeadersInit },
+  init?: {
+    method?: string;
+    body?: unknown;
+    token?: string;
+    headers?: HeadersInit;
+  },
 ): Promise<T> {
   const { method = "GET", body, headers } = init ?? {};
   const prefixedEndpoint = toApiV1Endpoint(endpoint);
@@ -346,7 +356,8 @@ export async function fetchAdminAPI<T = unknown>(
   }
   return requestJSON<T>(prefixedEndpoint, {
     method,
-    headers: Array.from(requestHeaders.keys()).length > 0 ? requestHeaders : undefined,
+    headers:
+      Array.from(requestHeaders.keys()).length > 0 ? requestHeaders : undefined,
     body: serializedBody,
     _fallbackErrorMessage: `calling ${method} ${endpoint}`,
   });

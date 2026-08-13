@@ -5,11 +5,7 @@
 // All API calls go through /api/proxy which uses the cookie automatically.
 
 import { API_ENDPOINTS } from "./api-config";
-import {
-  getJSON,
-  fetchAdminAPI,
-  APIError,
-} from "./api";
+import { getJSON, fetchAdminAPI, APIError } from "./api";
 import { StoredAdminUserSchema } from "./schemas";
 import type { AdminUser } from "./types";
 
@@ -39,7 +35,10 @@ export function getAdminUser(): AdminUser | null {
     const result = StoredAdminUserSchema.safeParse(parsed);
     if (!result.success) {
       if (process.env.NODE_ENV === "development") {
-        console.warn("[api-client] Stored admin user failed validation:", result.error.format());
+        console.warn(
+          "[api-client] Stored admin user failed validation:",
+          result.error.format(),
+        );
       }
       localStorage.removeItem(USER_KEY);
       return null;
@@ -87,9 +86,13 @@ function parseAdminUser(candidate: unknown): AdminUser {
   const parsed = StoredAdminUserSchema.safeParse(candidate);
   if (!parsed.success) {
     clearAuthData();
-    throw new APIError("Admin profile has an unsupported or invalid role", 403, {
-      issues: parsed.error.issues,
-    });
+    throw new APIError(
+      "Admin profile has an unsupported or invalid role",
+      403,
+      {
+        issues: parsed.error.issues,
+      },
+    );
   }
   return parsed.data as AdminUser;
 }
@@ -194,7 +197,7 @@ export async function adminLogin(
     body: JSON.stringify({ username, password }),
   });
 
-  const loginResult = await response.json() as LoginResponse;
+  const loginResult = (await response.json()) as LoginResponse;
 
   if (!response.ok) {
     throw new Error(loginResult?.message ?? "Login failed");
@@ -203,7 +206,10 @@ export async function adminLogin(
   const payload = (loginResult?.data ?? loginResult) as Record<string, unknown>;
 
   // 2FA challenge — caller must complete via verifyAdminMfa()
-  if (payload?.requiresTwoFactor && typeof payload?.challengeToken === "string") {
+  if (
+    payload?.requiresTwoFactor &&
+    typeof payload?.challengeToken === "string"
+  ) {
     return {
       success: true,
       requiresTwoFactor: true,
@@ -222,7 +228,8 @@ export async function adminLogin(
       requiresTwoFactor: false,
       requiresMfaSetup: true,
       setupToken: payload.setupToken as string,
-      expiresIn: typeof payload.expiresIn === "number" ? payload.expiresIn : 600,
+      expiresIn:
+        typeof payload.expiresIn === "number" ? payload.expiresIn : 600,
       admin: payload.admin as Partial<AdminUser> | undefined,
     };
   }
@@ -263,7 +270,8 @@ export async function adminMfaSetupEnroll(params: {
     throw new Error(json?.message ?? "Failed to start MFA setup");
   }
   const payload = json?.data ?? json;
-  const { qrCodeDataUrl, otpauthUrl, backupCodes, encryptedSecret } = payload ?? {};
+  const { qrCodeDataUrl, otpauthUrl, backupCodes, encryptedSecret } =
+    payload ?? {};
   if (!qrCodeDataUrl || !encryptedSecret || !Array.isArray(backupCodes)) {
     throw new Error("Incomplete MFA setup response");
   }
@@ -312,7 +320,7 @@ export async function verifyAdminMfa(params: {
     body: JSON.stringify(params),
   });
 
-  const json = await response.json() as LoginResponse;
+  const json = (await response.json()) as LoginResponse;
   if (!response.ok) {
     throw new Error(json?.message ?? "MFA verification failed");
   }
@@ -337,9 +345,10 @@ export async function getAdminProfile(): Promise<AdminUser> {
     true,
     false,
   );
-  const candidate: unknown = (data && typeof data === 'object' && 'admin' in data && data.admin)
-    ? data.admin
-    : data;
+  const candidate: unknown =
+    data && typeof data === "object" && "admin" in data && data.admin
+      ? data.admin
+      : data;
   return cacheAdminUser(candidate);
 }
 
@@ -380,7 +389,10 @@ export async function adminLogout(): Promise<AdminLogoutResult> {
     // the caller must tell the admin the server-side sign-out failed.
     serverSignOutOk = false;
     serverSignOutError = err instanceof Error ? err.message : String(err);
-    console.warn("Backend logout failed — server-side session may still be active:", err);
+    console.warn(
+      "Backend logout failed — server-side session may still be active:",
+      err,
+    );
   } finally {
     // Clear httpOnly cookie via logout route
     await fetch("/api/logout", { method: "POST" }).catch(() => {});

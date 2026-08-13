@@ -93,7 +93,9 @@ function LoginInner() {
       if (idleWarning) {
         setError(idleWarning);
         sessionStorage.removeItem(IDLE_SIGN_OUT_WARNING_KEY);
-      } else if (new URLSearchParams(window.location.search).get("reason") === "idle") {
+      } else if (
+        new URLSearchParams(window.location.search).get("reason") === "idle"
+      ) {
         setError("You were signed out after a period of inactivity.");
       }
     } catch {
@@ -116,7 +118,9 @@ function LoginInner() {
   useEffect(() => {
     let active = true;
     const loadProviders = async (protocol: SsoProvider["protocol"]) => {
-      const response = await fetch(`/api/login/sso/${protocol}/providers`, { cache: "no-store" });
+      const response = await fetch(`/api/login/sso/${protocol}/providers`, {
+        cache: "no-store",
+      });
       if (!response.ok) return [];
       const body = await response.json();
       const providers = body?.data?.providers ?? body?.providers ?? [];
@@ -126,7 +130,9 @@ function LoginInner() {
           const item = provider as Partial<SsoProvider>;
           return {
             provider_key: String(item.provider_key || "").trim(),
-            display_name: String(item.display_name || item.provider_key || "").trim(),
+            display_name: String(
+              item.display_name || item.provider_key || "",
+            ).trim(),
             protocol,
           };
         })
@@ -379,8 +385,7 @@ function LoginInner() {
                 disabled={disabled}
                 onClick={() => {
                   setError("");
-                  window.location.href =
-                    `/api/login/sso/${provider.protocol}/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
+                  window.location.href = `/api/login/sso/${provider.protocol}/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
                 }}
               >
                 {provider.protocol === "saml" ? (

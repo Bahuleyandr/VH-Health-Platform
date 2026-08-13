@@ -25,10 +25,7 @@
 // sub-routes wrapped with ADMIN], /api/v1/records [RECORD_ROUTE_ROLES +
 // patientAccessGuard]). Keep both in sync.
 
-import {
-  normalizePortalRole,
-  PORTAL_ROLE_RANK,
-} from "./roles";
+import { normalizePortalRole, PORTAL_ROLE_RANK } from "./roles";
 
 export const ROLE_RANK: Readonly<Record<string, number>> = PORTAL_ROLE_RANK;
 

@@ -94,11 +94,7 @@ export const PORTAL_ROLE_VALUES = [
 
 export type PortalRole = (typeof PORTAL_ROLE_VALUES)[number];
 export type PortalAccessLevel =
-  | "STAFF"
-  | "DOCTOR"
-  | "HR"
-  | "ADMIN"
-  | "SUPER_ADMIN";
+  "STAFF" | "DOCTOR" | "HR" | "ADMIN" | "SUPER_ADMIN";
 
 const PORTAL_ROLE_SET = new Set<string>(PORTAL_ROLE_VALUES);
 
@@ -121,7 +117,8 @@ const CLINICAL_LEAD_ROLES = new Set<PortalRole>([
 const HR_ROLES = new Set<PortalRole>(["HR", "HR_STAFF", "HR_MANAGER"]);
 
 export function normalizePortalRole(value: unknown): PortalRole | null {
-  const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase() : "";
   return PORTAL_ROLE_SET.has(normalized) ? (normalized as PortalRole) : null;
 }
 

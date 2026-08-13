@@ -34,7 +34,16 @@ describe("isAuthenticated", () => {
   it("returns true when a valid user profile is cached", () => {
     localStorage.setItem(
       "adminUser",
-      JSON.stringify({ id: 1, name: "Admin", email: "admin@test.com", phone: "0000000000", is_active: true, created_at: "2024-01-01", role: "ADMIN" as const, permissions: [] }),
+      JSON.stringify({
+        id: 1,
+        name: "Admin",
+        email: "admin@test.com",
+        phone: "0000000000",
+        is_active: true,
+        created_at: "2024-01-01",
+        role: "ADMIN" as const,
+        permissions: [],
+      }),
     );
     expect(isAuthenticated()).toBe(true);
   });
@@ -42,7 +51,16 @@ describe("isAuthenticated", () => {
   it("returns false after user data is cleared", () => {
     localStorage.setItem(
       "adminUser",
-      JSON.stringify({ id: 1, name: "Admin", email: "admin@test.com", phone: "0000000000", is_active: true, created_at: "2024-01-01", role: "ADMIN" as const, permissions: [] }),
+      JSON.stringify({
+        id: 1,
+        name: "Admin",
+        email: "admin@test.com",
+        phone: "0000000000",
+        is_active: true,
+        created_at: "2024-01-01",
+        role: "ADMIN" as const,
+        permissions: [],
+      }),
     );
     clearAuthData();
     expect(isAuthenticated()).toBe(false);
@@ -68,14 +86,29 @@ describe("getAdminUser", () => {
   });
 
   it("returns the stored user when valid", () => {
-    const user = { id: 1, name: "Admin", email: "admin@test.com", phone: "0000000000", is_active: true, created_at: "2024-01-01", role: "ADMIN" as const, permissions: [] };
+    const user = {
+      id: 1,
+      name: "Admin",
+      email: "admin@test.com",
+      phone: "0000000000",
+      is_active: true,
+      created_at: "2024-01-01",
+      role: "ADMIN" as const,
+      permissions: [],
+    };
     localStorage.setItem("adminUser", JSON.stringify(user));
     const result = getAdminUser();
     expect(result?.name).toBe("Admin");
   });
 
   it("keeps real HR staff sessions cached", () => {
-    const user = { id: 1005, name: "Test HR", role: "HR_STAFF" as const, permissions: [], employee_id: "EMP-1005" };
+    const user = {
+      id: 1005,
+      name: "Test HR",
+      role: "HR_STAFF" as const,
+      permissions: [],
+      employee_id: "EMP-1005",
+    };
     localStorage.setItem("adminUser", JSON.stringify(user));
     const result = getAdminUser();
     expect(result?.role).toBe("HR_STAFF");
@@ -84,7 +117,12 @@ describe("getAdminUser", () => {
   it("clears and rejects cached profiles with unknown roles", () => {
     localStorage.setItem(
       "adminUser",
-      JSON.stringify({ id: 7, name: "Mystery", role: "UNKNOWN_ROLE", permissions: [] }),
+      JSON.stringify({
+        id: 7,
+        name: "Mystery",
+        role: "UNKNOWN_ROLE",
+        permissions: [],
+      }),
     );
 
     expect(getAdminUser()).toBeNull();
@@ -158,7 +196,16 @@ describe("clearAuthData", () => {
   it("removes user data from localStorage", () => {
     localStorage.setItem(
       "adminUser",
-      JSON.stringify({ id: 1, name: "A", email: "a@b.com", phone: "0000000000", is_active: true, created_at: "2024-01-01", role: "ADMIN" as const, permissions: [] }),
+      JSON.stringify({
+        id: 1,
+        name: "A",
+        email: "a@b.com",
+        phone: "0000000000",
+        is_active: true,
+        created_at: "2024-01-01",
+        role: "ADMIN" as const,
+        permissions: [],
+      }),
     );
     clearAuthData();
     expect(localStorage.getItem("adminUser")).toBeNull();

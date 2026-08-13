@@ -8,8 +8,7 @@
 //     $env:ADMIN_PASSWORD="<your-admin-password>"
 //     npx tsx src/scripts/check-backend.ts
 
-const API_BASE =
-  process.env.API_BASE_URL ?? "https://api.vhhealth.app";
+const API_BASE = process.env.API_BASE_URL ?? "https://api.vhhealth.app";
 
 // API_KEY, ADMIN_EMAIL, and ADMIN_PASSWORD must be supplied via environment variables.
 // Example (Linux/macOS):

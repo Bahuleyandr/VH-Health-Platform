@@ -64,9 +64,9 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
 
   const canSend = Boolean(
     title.trim() &&
-      body.trim() &&
-      (target === "all" || targetValue.trim()) &&
-      (scheduleMode === "now" || (scheduledDate && scheduledTime)),
+    body.trim() &&
+    (target === "all" || targetValue.trim()) &&
+    (scheduleMode === "now" || (scheduledDate && scheduledTime)),
   );
 
   async function handleSend() {

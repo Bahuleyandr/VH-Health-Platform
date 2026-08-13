@@ -10,13 +10,14 @@
  *     backend call failed, so the UI can surface the failure honestly.
  */
 
-const postJSONMock = jest.fn();
+const backendLogoutMock = jest.fn();
 
 jest.mock("@/lib/api", () => {
   const actual = jest.requireActual("@/lib/api");
   return {
     ...actual,
-    postJSON: (...args: unknown[]) => postJSONMock(...args),
+    postJSON: (...args: unknown[]) => backendLogoutMock(...args),
+    fetchAdminAPI: (...args: unknown[]) => backendLogoutMock(...args),
   };
 });
 
@@ -26,7 +27,7 @@ describe("adminLogout server-side sign-out honesty", () => {
   const fetchMock = jest.fn();
 
   beforeEach(() => {
-    postJSONMock.mockReset();
+    backendLogoutMock.mockReset();
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({ ok: true } as Response);
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -37,7 +38,7 @@ describe("adminLogout server-side sign-out honesty", () => {
   });
 
   it("reports serverSignOutOk=true and clears local state on backend success", async () => {
-    postJSONMock.mockResolvedValueOnce({});
+    backendLogoutMock.mockResolvedValueOnce({});
 
     const result = await adminLogout();
 
@@ -49,7 +50,7 @@ describe("adminLogout server-side sign-out honesty", () => {
   });
 
   it("reports serverSignOutOk=false (not a silent success) when the backend logout 500s", async () => {
-    postJSONMock.mockRejectedValueOnce(new Error("Failed to logout"));
+    backendLogoutMock.mockRejectedValueOnce(new Error("Failed to logout"));
 
     const result = await adminLogout();
 
@@ -61,7 +62,7 @@ describe("adminLogout server-side sign-out honesty", () => {
   });
 
   it("does not throw when both the backend and the cookie route fail, but reports the failure", async () => {
-    postJSONMock.mockRejectedValueOnce(new Error("network down"));
+    backendLogoutMock.mockRejectedValueOnce(new Error("network down"));
     fetchMock.mockRejectedValueOnce(new Error("cookie route down"));
 
     const result = await adminLogout();

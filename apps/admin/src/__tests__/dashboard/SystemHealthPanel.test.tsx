@@ -21,7 +21,9 @@ describe("SystemHealthSection truthfulness", () => {
         />,
       );
 
-      expect(screen.getByText(status === "stale" ? "Stale" : "Unavailable")).toBeInTheDocument();
+      expect(
+        screen.getByText(status === "stale" ? "Stale" : "Unavailable"),
+      ).toBeInTheDocument();
       expect(screen.getByText(`${status} health evidence`)).toBeInTheDocument();
     },
   );

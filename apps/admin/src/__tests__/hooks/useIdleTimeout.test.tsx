@@ -21,8 +21,12 @@ jest.mock("@sentry/nextjs", () => ({
   captureException: jest.fn(),
 }));
 
-const mockedAdminLogout = adminLogout as jest.MockedFunction<typeof adminLogout>;
-const mockedClearAuthData = clearAuthData as jest.MockedFunction<typeof clearAuthData>;
+const mockedAdminLogout = adminLogout as jest.MockedFunction<
+  typeof adminLogout
+>;
+const mockedClearAuthData = clearAuthData as jest.MockedFunction<
+  typeof clearAuthData
+>;
 
 describe("useIdleTimeout", () => {
   beforeEach(() => {
@@ -61,7 +65,9 @@ describe("useIdleTimeout", () => {
       await Promise.resolve();
     });
 
-    expect(sessionStorage.getItem(IDLE_SIGN_OUT_WARNING_KEY)).toMatch(/revocation failed/i);
+    expect(sessionStorage.getItem(IDLE_SIGN_OUT_WARNING_KEY)).toMatch(
+      /revocation failed/i,
+    );
     expect(Sentry.captureMessage).toHaveBeenCalledWith(
       "Idle sign-out backend revocation failed",
       expect.objectContaining({ level: "error" }),
