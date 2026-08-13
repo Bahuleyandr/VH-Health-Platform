@@ -290,6 +290,7 @@ import { sendInvestigationNotifications } from './notifications/InvestigationNot
 import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { executeCleanup } from './r2CleanupJob.js';
 import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.js';
+import { dispatchOutboundMessages } from '../services/interfaceEngine/interfaceEngineService.js';
 import { sweepWaitlists } from '../services/scheduling/schedulingOptimizationService.js';
 import { expiryRadarSweep } from '../services/staff/credentialingService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
@@ -905,6 +906,15 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('*/2 * * * *', withJobLock('hl7-outbound-feeds', async () => {
     await runForEachTenant('hl7-outbound-feeds', tenantId => (
       deliverPendingFeedMessages({ tenantId, limit: 50 })
+    ));
+  }));
+
+  // Every minute — bounded, tenant-scoped interface-engine HTTP dispatch.
+  // Delivery claims and durable retry timestamps fence each message; the
+  // fleet-wide job lock prevents duplicate autonomous worker ticks.
+  registerCron('* * * * *', withJobLock('interface-engine-outbound-dispatch', async () => {
+    await runForEachTenant('interface-engine-outbound-dispatch', tenantId => (
+      dispatchOutboundMessages({ tenantId, batchSize: 25, maxInFlight: 100 })
     ));
   }));
 

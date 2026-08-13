@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { jest } from '@jest/globals';
 
 import prisma from '../lib/prisma.js';
 import { purgeInterfaceEngineTestData } from './helpers/interfaceEngineEvidenceCleanup.js';
@@ -7,6 +8,7 @@ import {
   createChannel,
   createChannelVersion,
   createReplayBatch,
+  createSystem,
   createTransformTest,
   dispatchOutboundMessages,
   enqueueOutboundMessage,
@@ -16,9 +18,11 @@ import {
   runTransformTest,
 } from '../services/interfaceEngine/interfaceEngineService.js';
 import { upsertInteropSecret } from '../services/interop/tenantInteropSecretService.js';
+import { _transport } from '../utils/ssrfGuard.js';
 
 process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'interface-engine-test-field-key-32chars';
 process.env.FIELD_KEK_LOCAL_SECRET = process.env.FIELD_KEK_LOCAL_SECRET || 'interface-engine-test-kek-key-32chars';
+process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS = 'true';
 
 const SFX = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
 const TENANT_A = 'a7500000-0000-4000-8000-0000000000a1';
@@ -31,6 +35,7 @@ const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 const HL7_A = `MSH|^~\\&|ACME_HIS|ACME_FAC|VH|${RECEIVER_A}|202607080930||ADT^A01|CTRL-${SFX}|P|2.5\rPID|||${PATIENT_UID}||KUMAR^Asha\rPV1||I|WARD^101^A||||DR01`;
 let inboundChannel;
 let outboundChannel;
+let originalFetch;
 
 function sign(secret, payload, requestId = `req-${SFX}`) {
   const timestamp = String(Date.now());
@@ -56,10 +61,20 @@ async function ensureTenant(id, slug) {
 }
 
 async function createActiveInboundChannel() {
+  const sourceSystem = await createSystem({
+    tenantId: TENANT_A,
+    systemKey: `his-source-${SFX}`,
+    displayName: 'HIS inbound source',
+    kind: 'his',
+    direction: 'inbound',
+    status: 'active',
+    allowedSourceIps: ['127.0.0.0/8'],
+  });
   const channel = await createChannel({
     tenantId: TENANT_A,
     channelKey: `his-adt-${SFX}`,
     displayName: 'HIS ADT inbound test',
+    sourceSystemId: sourceSystem.id,
     direction: 'inbound',
     connectorKind: 'http_inbound',
     protocol: 'hl7v2',
@@ -117,12 +132,18 @@ async function createActiveOutboundChannel() {
     protocol: 'hl7v2',
     messageTypes: ['ORU^R01'],
     authKind: 'none',
-    maxAttempts: 1,
+    maxAttempts: 2,
+    retryPolicy: {
+      backoff: 'fixed',
+      initialDelaySeconds: 1,
+      maxDelaySeconds: 1,
+      jitterRatio: 0,
+    },
   });
   const version = await createChannelVersion({
     tenantId: TENANT_A,
     channelId: channel.id,
-    connectorConfig: {},
+    connectorConfig: { endpointUrl: 'http://127.0.0.1:39999/hl7' },
     transformDsl: {},
   });
   const fixture = await createTransformTest({
@@ -144,6 +165,7 @@ async function createActiveOutboundChannel() {
 
 describe('NL11-S11 interface engine runtime', () => {
   beforeAll(async () => {
+    originalFetch = _transport.fetch;
     expect(await purgeInterfaceEngineTestData(prisma, [TENANT_A, TENANT_B]))
       .toEqual(expect.objectContaining({ total: 0 }));
     await ensureTenant(TENANT_A, `ie-a-${SFX}`);
@@ -169,6 +191,7 @@ describe('NL11-S11 interface engine runtime', () => {
       expect(await purgeInterfaceEngineTestData(prisma, [TENANT_A, TENANT_B]))
         .toEqual(expect.objectContaining({ total: 0 }));
     } finally {
+      _transport.fetch = originalFetch;
       await prisma.$disconnect();
     }
   }, 30000);
@@ -183,7 +206,7 @@ describe('NL11-S11 interface engine runtime', () => {
       sourceIp: '127.0.0.1',
     });
 
-    expect(accepted.status).toBe('delivered');
+    expect(accepted.status).toBe('transformed');
     expect(accepted.message_type).toBe('ADT^A01');
     expect(accepted.redacted_preview).toContain(`CTRL-${SFX}`);
     expect(accepted.redacted_preview).not.toContain('Asha');
@@ -198,10 +221,17 @@ describe('NL11-S11 interface engine runtime', () => {
         protocol: 'hl7v2',
         direction: 'inbound',
         adapter_key: 'backend.interop.preview',
-        receipt_status: 'accepted',
+        receipt_status: 'previewed',
         payload_sha256: accepted.payload_hash,
       }),
     ]);
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE interop_messages
+          SET status = 'delivered'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_A,
+      accepted.id,
+    )).rejects.toThrow(/preview-only interface messages cannot be marked delivered/);
 
     await expect(receiveHttpHl7Message({
       channelKey: inboundChannel.channel_key,
@@ -209,6 +239,23 @@ describe('NL11-S11 interface engine runtime', () => {
       headers,
       sourceIp: '127.0.0.1',
     })).rejects.toMatchObject({ code: 'INTEROP_HL7_REPLAY' });
+  }, 30000);
+
+  it('enforces the source IP policy before consuming signed request replay state', async () => {
+    const requestId = `req-source-${SFX}`;
+    const headers = sign(SECRET_A, HL7_A, requestId);
+    await expect(receiveHttpHl7Message({
+      channelKey: inboundChannel.channel_key,
+      message: HL7_A,
+      headers,
+      sourceIp: '10.0.0.8',
+    })).rejects.toMatchObject({ code: 'INTEROP_SOURCE_IP_NOT_ALLOWED' });
+    await expect(receiveHttpHl7Message({
+      channelKey: inboundChannel.channel_key,
+      message: HL7_A,
+      headers,
+      sourceIp: null,
+    })).rejects.toMatchObject({ code: 'INTEROP_SOURCE_IP_REQUIRED' });
   }, 30000);
 
   it('fails closed when the signed receiver maps to another tenant', async () => {
@@ -221,7 +268,68 @@ describe('NL11-S11 interface engine runtime', () => {
     })).rejects.toMatchObject({ statusCode: 404 });
   }, 30000);
 
-  it('holds outbound delivery for owner reconciliation when the connector lacks a safe endpoint', async () => {
+  it('refuses activation for draft-only connectors and missing outbound endpoints', async () => {
+    const cases = [
+      {
+        key: `manual-${SFX}`,
+        connectorKind: 'manual_upload',
+        direction: 'inbound',
+        protocol: 'csv',
+        connectorConfig: {},
+        code: 'INTEROP_CONNECTOR_RUNTIME_UNSUPPORTED',
+        payload: 'patient_id,name\n1,Test',
+      },
+      {
+        key: `http-no-endpoint-${SFX}`,
+        connectorKind: 'http_outbound',
+        direction: 'outbound',
+        protocol: 'json',
+        connectorConfig: {},
+        code: 'INTEROP_OUTBOUND_URL_REQUIRED',
+        payload: '{"kind":"test"}',
+      },
+    ];
+    for (const item of cases) {
+      const channel = await createChannel({
+        tenantId: TENANT_A,
+        channelKey: item.key,
+        displayName: item.key,
+        direction: item.direction,
+        connectorKind: item.connectorKind,
+        protocol: item.protocol,
+        authKind: 'none',
+      });
+      const version = await createChannelVersion({
+        tenantId: TENANT_A,
+        channelId: channel.id,
+        connectorConfig: item.connectorConfig,
+        transformDsl: {},
+      });
+      const fixture = await createTransformTest({
+        tenantId: TENANT_A,
+        channelVersionId: version.id,
+        name: `Activation fixture ${item.key}`,
+        inputPayload: item.payload,
+        expectedOutput: {},
+      });
+      await expect(runTransformTest({ tenantId: TENANT_A, testId: fixture.id }))
+        .resolves.toMatchObject({ last_run_status: 'passed' });
+      await expect(activateChannelVersion({
+        tenantId: TENANT_A,
+        channelVersionId: version.id,
+      })).rejects.toMatchObject({ code: item.code });
+    }
+  }, 30000);
+
+  it('delivers only after a correlated positive acknowledgement and sends a stable idempotency key', async () => {
+    const requestHeaders = [];
+    _transport.fetch = jest.fn(async (_url, options) => {
+      requestHeaders.push(options.headers);
+      return new Response(
+        `MSH|^~\\&|LIS|LIS|VH|VH|202607080931||ACK|ACK-${SFX}|P|2.5\rMSA|AA|OUT-${SFX}`,
+        { status: 200 },
+      );
+    });
     const message = await enqueueOutboundMessage({
       tenantId: TENANT_A,
       channelId: outboundChannel.id,
@@ -229,34 +337,120 @@ describe('NL11-S11 interface engine runtime', () => {
       messageType: 'ORU^R01',
     });
     expect(message.status).toBe('queued');
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE interop_messages
+          SET status = 'delivered'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_A,
+      message.id,
+    )).rejects.toThrow(/outbound interface delivery requires an accepted same-message receipt/);
+    await expect(enqueueOutboundMessage({
+      tenantId: TENANT_A,
+      channelId: outboundChannel.id,
+      protocol: 'json',
+      payload: '{"kind":"wrong-protocol"}',
+    })).rejects.toMatchObject({ code: 'INTEROP_OUTBOUND_PROTOCOL_MISMATCH' });
 
-    const stats = await dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 });
-    expect(stats).toMatchObject({ picked: 1, held: 1 });
+    const ticks = await Promise.all([
+      dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 }),
+      dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 }),
+    ]);
+    expect(ticks.reduce((total, stats) => ({
+      picked: total.picked + stats.picked,
+      delivered: total.delivered + stats.delivered,
+      held: total.held + stats.held,
+    }), { picked: 0, delivered: 0, held: 0 })).toEqual({
+      picked: 1,
+      delivered: 1,
+      held: 0,
+    });
+    expect(_transport.fetch).toHaveBeenCalledTimes(1);
+    expect(requestHeaders[0]).toMatchObject({
+      'Idempotency-Key': `vh-interop:${TENANT_A}:${message.id}:${message.payload_hash}`,
+      'X-VH-Interop-Message-Id': String(message.id),
+    });
+    const delivered = await getMessage({ tenantId: TENANT_A, id: message.id });
+    expect(delivered).toMatchObject({ status: 'delivered', last_delivery_outcome: 'accepted' });
+    expect(delivered.receipts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ direction: 'outbound', receipt_status: 'accepted' }),
+    ]));
+  }, 30000);
+
+  it('honors retry policy and replay queues only a definitively retryable delivery', async () => {
+    _transport.fetch = jest.fn(async () => new Response('', { status: 429 }));
+    const message = await enqueueOutboundMessage({
+      tenantId: TENANT_A,
+      channelId: outboundChannel.id,
+      payload: `MSH|^~\\&|VH|VH|LIS|LIS|202607080930||ORU^R01|RETRY-${SFX}|P|2.5`,
+      messageType: 'ORU^R01',
+    });
+
+    const first = await dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 });
+    expect(first).toMatchObject({ picked: 1, retry_scheduled: 1, held: 0 });
+    const failed = await getMessage({ tenantId: TENANT_A, id: message.id });
+    expect(failed).toMatchObject({
+      status: 'failed',
+      last_delivery_outcome: 'definitive_retryable',
+      last_delivery_response_status: 429,
+    });
+    expect(failed.retry_at).not.toBeNull();
+
+    const replay = await createReplayBatch({
+      tenantId: TENANT_A,
+      channelId: outboundChannel.id,
+      reason: 'Retry after the downstream rate limit was confirmed.',
+      mode: 'retry_delivery',
+      selectionFilter: { statuses: ['failed'], limit: 10 },
+    });
+    expect(replay).toMatchObject({
+      status: 'completed',
+      selected_count: 1,
+      queued_count: 1,
+      skipped_count: 0,
+    });
+
+    const queued = await getMessage({ tenantId: TENANT_A, id: message.id });
+    expect(queued).toMatchObject({ status: 'queued', retry_at: null });
+    await expect(createReplayBatch({
+      tenantId: TENANT_A,
+      channelId: outboundChannel.id,
+      reason: 'Unsupported replay must not claim success.',
+      mode: 'redeliver_external',
+    })).rejects.toMatchObject({ code: 'INTEROP_REPLAY_MODE_UNSUPPORTED' });
+
+    const second = await dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 });
+    expect(second).toMatchObject({ picked: 1, dead: 1, retry_scheduled: 0 });
+    const dead = await getMessage({ tenantId: TENANT_A, id: message.id });
+    expect(dead).toMatchObject({ status: 'dead', last_delivery_outcome: 'definitive_retryable' });
+  }, 30000);
+
+  it('quarantines an ambiguous transport outcome and does not send it twice', async () => {
+    _transport.fetch = jest.fn(async () => {
+      throw new Error('socket closed after request write');
+    });
+    const message = await enqueueOutboundMessage({
+      tenantId: TENANT_A,
+      channelId: outboundChannel.id,
+      payload: `MSH|^~\\&|VH|VH|LIS|LIS|202607080930||ORU^R01|AMB-${SFX}|P|2.5`,
+      messageType: 'ORU^R01',
+    });
+    const first = await dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 });
+    expect(first).toMatchObject({ picked: 1, ambiguous: 1, held: 1 });
 
     const listed = await listMessages({ tenantId: TENANT_A, channelId: outboundChannel.id, status: 'quarantined' });
     expect(listed.count).toBe(1);
-    expect(listed.messages[0].last_error_code).toBe('INTEROP_OUTBOUND_URL_REQUIRED');
     expect(listed.messages[0]).toMatchObject({
       send_authority: 'held',
       owner_reconciliation_required: true,
+      last_delivery_outcome: 'ambiguous',
       delivery_claim_generation: 1,
       delivery_claimed_at: null,
       delivery_lease_expires_at: null,
     });
 
-    const replay = await createReplayBatch({
-      tenantId: TENANT_A,
-      channelId: outboundChannel.id,
-      reason: 'Owner requested a reconciliation review without authorizing a resend.',
-      mode: 'redeliver_external',
-      selectionFilter: { statuses: ['quarantined'], limit: 10 },
-    });
-    expect(replay.safe_summary).toMatch(/Held 1 message/);
-    const stillHeld = await listMessages({
-      tenantId: TENANT_A,
-      channelId: outboundChannel.id,
-      status: 'quarantined',
-    });
-    expect(stillHeld.count).toBe(1);
+    const second = await dispatchOutboundMessages({ tenantId: TENANT_A, batchSize: 10 });
+    expect(second.picked).toBe(0);
+    expect(_transport.fetch).toHaveBeenCalledTimes(1);
+    expect(listed.messages[0].id).toBe(message.id);
   }, 30000);
 });

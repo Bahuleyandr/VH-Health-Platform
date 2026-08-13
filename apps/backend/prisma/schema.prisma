@@ -21293,6 +21293,9 @@ model interop_messages {
   delivery_claimed_at                                                                                                                             DateTime?                                   @db.Timestamptz(6)
   delivery_lease_expires_at                                                                                                                       DateTime?                                   @db.Timestamptz(6)
   owner_release_client_event_id                                                                                                                   String?                                     @db.Uuid
+  retry_at                                                                                                                                        DateTime?                                   @db.Timestamptz(6)
+  last_delivery_outcome                                                                                                                           String?                                     @db.VarChar(40)
+  last_delivery_response_status                                                                                                                   Int?
   clinical_continuity_reconciliation_items                                                                                                        clinical_continuity_reconciliation_items?
   clinical_continuity_replay_effect_evidence_clinical_continuity_replay_effect_evidence_tenant_id_interop_message_idTointerop_messages            clinical_continuity_replay_effect_evidence? @relation("clinical_continuity_replay_effect_evidence_tenant_id_interop_message_idTointerop_messages")
   clinical_continuity_replay_receipts                                                                                                             clinical_continuity_replay_receipts?
@@ -21308,7 +21311,7 @@ model interop_messages {
   @@unique([tenant_id, channel_id, direction, protocol, source_position], map: "ux_interop_messages_recovery_position", where: raw("(recovery_ledger_version = 1)"))
   @@unique([tenant_id, id], map: "ux_interop_messages_tenant_id")
   @@index([tenant_id, channel_id, status, created_at(sort: Desc)], map: "idx_interop_messages_channel_status")
-  @@index([tenant_id, status, updated_at], map: "idx_interop_messages_due_outbound", where: raw("(((direction)::text = ANY ((ARRAY['outbound'::character varying, 'bidirectional'::character varying])::text[])) AND ((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[])))"))
+  @@index([tenant_id, status, retry_at, updated_at, id], map: "idx_interop_messages_due_outbound_v2", where: raw("(((direction)::text = ANY ((ARRAY['outbound'::character varying, 'bidirectional'::character varying])::text[])) AND ((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[])))"))
   @@index([tenant_id, payload_hash], map: "idx_interop_messages_payload_hash")
   @@index([tenant_id, delivery_lease_expires_at, id], map: "idx_interop_messages_delivery_lease", where: raw("(((status)::text = 'delivering'::text) AND (delivery_claim_token IS NOT NULL))"))
 }
@@ -21329,6 +21332,9 @@ model interop_replay_batches {
   created_at       DateTime         @default(now()) @db.Timestamptz(6)
   started_at       DateTime?        @db.Timestamptz(6)
   completed_at     DateTime?        @db.Timestamptz(6)
+  selected_count   Int              @default(0)
+  queued_count     Int              @default(0)
+  skipped_count    Int              @default(0)
   interop_channels interop_channels @relation(fields: [tenant_id, channel_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_interop_replay_batches_channel_tenant")
   tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_replay_batches_tenant")
 

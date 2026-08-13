@@ -1,4 +1,7 @@
+import { jest } from '@jest/globals';
+
 import {
+  deliverHl7v2BackendTx,
   evaluateHl7v2ExternalResponse,
 } from '../../services/interfaceEngine/protocolAdapters/hl7v2Adapter.js';
 import {
@@ -64,5 +67,24 @@ describe('I05 HL7v2 protocol adapter', () => {
       accepted: false,
       parsed: { state: 'control_id_mismatch', correlationMatches: false },
     });
+  });
+
+  test('records the preview adapter as previewed rather than accepted', async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce([{ id: '1', receipt_status: 'previewed' }]);
+    await expect(deliverHl7v2BackendTx({
+      tx: { $queryRawUnsafe: query },
+      tenantId: '00000000-0000-4000-8000-000000000001',
+      message: {
+        ...message,
+        id: 1,
+        channel_id: 2,
+        channel_version_id: 3,
+      },
+      adapterKey: 'backend.interop.preview',
+      rawPayload: payload,
+      transformedPayload: {},
+    })).resolves.toMatchObject({ receipt_status: 'previewed' });
+    expect(query.mock.calls[0][0]).toContain("'previewed'");
   });
 });

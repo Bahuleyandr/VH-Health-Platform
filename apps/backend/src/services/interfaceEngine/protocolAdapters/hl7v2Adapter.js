@@ -49,7 +49,7 @@ export async function deliverHl7v2BackendTx({
         transformed_payload, receipt_status, evidence)
      VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, 'hl7v2',
              'inbound', $5::text, $6::text, $7::char(64), $8::integer,
-             $9::jsonb, 'accepted', $10::jsonb)
+             $9::jsonb, 'previewed', $10::jsonb)
      ON CONFLICT (tenant_id, message_id, adapter_key, receipt_status)
      DO NOTHING
      RETURNING id::text, receipt_status, adapter_key, adapter_version,
@@ -76,12 +76,12 @@ export async function deliverHl7v2BackendTx({
             payload_sha256::text, payload_bytes, created_at
        FROM interop_backend_delivery_receipts
       WHERE tenant_id = $1::uuid AND message_id = $2::integer
-        AND adapter_key = $3::text AND receipt_status = 'accepted'`,
+        AND adapter_key = $3::text AND receipt_status = 'previewed'`,
     tenantId,
     message.id,
     adapterKey,
   );
-  if (!existing[0]) refuse('HL7v2 backend receipt could not be recorded');
+  if (!existing[0]) refuse('HL7v2 preview receipt could not be recorded');
   return existing[0];
 }
 

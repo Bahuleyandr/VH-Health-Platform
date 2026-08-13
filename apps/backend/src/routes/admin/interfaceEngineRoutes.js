@@ -263,7 +263,7 @@ router.post('/replay-batches', async (req, res, next) => {
       selectionFilter: req.body?.selection_filter || {},
       requestedBy: req.user?.uid || null,
     });
-    return success(res, row, 'Replay batch completed', 201);
+    return success(res, row, 'Replay batch evaluated and eligible messages queued', 201);
   } catch (err) {
     return next(err);
   }
