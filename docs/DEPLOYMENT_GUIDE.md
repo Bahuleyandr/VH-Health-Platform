@@ -289,6 +289,14 @@ Ansible role for missing config.
 The platform baseline (Redis, MinIO, Harbor, ArgoCD itself,
 monitoring) is committed under `infra/kubernetes/`. Two-step bootstrap:
 
+Production image references and their registry-verification procedure are
+recorded in
+[`../infra/kubernetes/base/IMAGE_PIN_VERIFICATION.md`](../infra/kubernetes/base/IMAGE_PIN_VERIFICATION.md).
+Run `node scripts/check-prod-digests-pinned.mjs` before any reviewed sync; it
+renders both production ArgoCD roots, verifies active `tag@digest` references
+against their live registries, and reports the deliberately held application
+placeholders separately.
+
 > **C1.1 activation boundary:** the current production overlay declares the
 > digest-pinned PostgreSQL 18.4 target and Barman `ObjectStore` resources. Do
 > not apply it to the live PostgreSQL 17 cluster, imperatively or through

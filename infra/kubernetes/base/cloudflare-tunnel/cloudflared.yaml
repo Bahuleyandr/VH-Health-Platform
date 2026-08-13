@@ -155,7 +155,7 @@ spec:
                     app.kubernetes.io/instance: cloudflared
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared:2024.11.1@sha256:8ac9dd0a9f3e87b1cbd4c2a3f0b5e4cf7c1e9d8bfb2a8e5a3d7d2c9a2e4c7b5d
+          image: cloudflare/cloudflared:2024.11.1@sha256:665dda65335e35a782ed9319aa63e8404f88b34d2644d30adf3e91253604ffa0
           imagePullPolicy: IfNotPresent
           args:
             - tunnel

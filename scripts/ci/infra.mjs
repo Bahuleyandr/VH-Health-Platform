@@ -81,7 +81,11 @@ export function runInfraStage({ install } = {}) {
       installedTools = installLinuxManifestValidators();
     }
 
-    run(process.execPath, ['--test', 'scripts/update-prod-digests.test.mjs']);
+    run(process.execPath, [
+      '--test',
+      'scripts/update-prod-digests.test.mjs',
+      'scripts/check-prod-digests-pinned.test.mjs',
+    ]);
     run(
       process.execPath,
       [
@@ -102,11 +106,9 @@ export function runInfraStage({ install } = {}) {
 
     run(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
 
-    // B0.6 / H11: fail the build if any prod image digest is still the
-    // all-zeros fail-closed placeholder when running on `main` (the script
-    // auto-detects main via GITHUB_REF/GITHUB_EVENT_NAME and is a no-op
-    // off-main, where placeholders are expected until the release pipeline
-    // writes real digests).
+    // Render both ArgoCD production roots, reject every unpinned active image,
+    // and prove each tag@digest exists at its live registry. The exact three
+    // platform-owned all-zero app pins remain an explicit fail-closed hold.
     run(process.execPath, ['scripts/check-prod-digests-pinned.mjs']);
   } finally {
     if (installedTools?.temporary && installedTools?.dir) {

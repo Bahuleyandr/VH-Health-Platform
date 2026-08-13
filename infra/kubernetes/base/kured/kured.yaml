@@ -138,7 +138,7 @@ spec:
         runAsUser: 0
       containers:
         - name: kured
-          image: ghcr.io/kubereboot/kured:1.16.2@sha256:c8df12c37e8fbdf7a7cf4d0f9b6c5cb66a12f81eb1f7a0fd9b9a1f68eb1b5d85
+          image: ghcr.io/kubereboot/kured:1.16.2@sha256:c8c19766c778ba7fe87b4321eef05ba81dcc893a366a4cb3da00bf66a6d5d4df
           imagePullPolicy: IfNotPresent
           command:
             - /usr/bin/kured

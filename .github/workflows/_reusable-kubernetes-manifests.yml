@@ -60,6 +60,7 @@ jobs:
           scripts/c1-1-backup-scripts.test.mjs
           scripts/vhhealth-gha-deploy.test.mjs
           scripts/update-prod-digests.test.mjs
+          scripts/check-prod-digests-pinned.test.mjs
 
       - name: Check C1.1 production render contract
         run: node scripts/check-c1-1-manifest-contract.mjs
@@ -75,17 +76,11 @@ jobs:
       - name: Check Kyverno Enforce readiness (static policy contract)
         run: node scripts/check-kyverno-enforce-readiness.mjs
 
-      # B0.6 / H11: surfaces the prod image digest pin state on every run.
-      # --warn-only because main deliberately carries the all-zeros fail-closed
-      # placeholder digests while the deployment is held (pods cannot pull the
-      # placeholder, and every prod ArgoCD Application requires an explicit
-      # operator sync, so an unpinned main cannot deploy anything). Drop
-      # --warn-only when the release pipeline writes real digests to main as
-      # part of go-live activation; the script then hard-fails main/PR-to-main
-      # with any placeholder left. Canonical CI (scripts/ci/infra.mjs) already
-      # runs the strict variant on the Forgejo side.
-      - name: Report prod image digest pin state
-        run: node scripts/check-prod-digests-pinned.mjs --warn-only
+      # Render both ArgoCD production roots and verify every active tag@digest
+      # pull target exists at its live registry. The validator recognizes only
+      # the exact three platform-owned all-zero app pins as a deliberate hold.
+      - name: Verify production image pins against registries
+        run: node scripts/check-prod-digests-pinned.mjs
 
       # Full continuity-edge suite (audit-log chain, mTLS gateway, activation,
       # policy purge, verifier contract, platform contract, metrics labels —

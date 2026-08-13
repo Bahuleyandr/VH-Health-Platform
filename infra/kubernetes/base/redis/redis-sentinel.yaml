@@ -247,7 +247,7 @@ spec:
                     app.kubernetes.io/instance: vhhealth-redis
       initContainers:
         - name: render-config
-          image: redis:7.4.1-alpine@sha256:ea96c435dc17b011f54c7a0266ab998fa9f6a25fc3a6fc9fc82a7b80d1d4ed9d
+          image: redis:7.4.1-alpine@sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "/config/entrypoint.sh", "/bin/true"]
           securityContext:
@@ -273,7 +273,7 @@ spec:
               mountPath: /data
       containers:
         - name: redis
-          image: redis:7.4.1-alpine@sha256:ea96c435dc17b011f54c7a0266ab998fa9f6a25fc3a6fc9fc82a7b80d1d4ed9d
+          image: redis:7.4.1-alpine@sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275
           imagePullPolicy: IfNotPresent
           command: ["redis-server", "/etc/redis/redis.conf"]
           ports:
@@ -337,7 +337,7 @@ spec:
             - name: tmp
               mountPath: /tmp
         - name: sentinel
-          image: redis:7.4.1-alpine@sha256:ea96c435dc17b011f54c7a0266ab998fa9f6a25fc3a6fc9fc82a7b80d1d4ed9d
+          image: redis:7.4.1-alpine@sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275
           imagePullPolicy: IfNotPresent
           command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
           ports:
@@ -390,7 +390,7 @@ spec:
             - name: data
               mountPath: /data
         - name: metrics
-          image: oliver006/redis_exporter:v1.66.0@sha256:cdbad9ce2a2f99e64f0a8b09e4f0c8ec7a2a0dcf3b1f4e52afef3c7d9d7ae1e8
+          image: oliver006/redis_exporter:v1.66.0@sha256:d98e6db8094f491b95791e9f776b0ba30a20aeacb90e18334935d5e51bf2e6a1
           imagePullPolicy: IfNotPresent
           args:
             - --redis.addr=redis://localhost:6379
