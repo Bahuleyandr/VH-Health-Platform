@@ -221,6 +221,24 @@ Future<void> main() async {
         }
       }());
 
+      // Drain any revocation a previous logout could not confirm with the
+      // server. Runs here, off the critical path and BEFORE the user can sign
+      // in again, because the retry bumps the identity's token epoch — firing
+      // it against a fresh login would sign that new session straight back
+      // out. A no-op when nothing is queued, and it defers itself if a session
+      // is already live. Without this the durable handle would never be
+      // serviced, which is worse than not queuing one at all.
+      unawaited(() async {
+        try {
+          final result = await LogoutService.retryPendingRevocation();
+          if (result != PendingRevocationRetry.nothingQueued) {
+            debugPrint('Pending session revocation retry: ${result.name}');
+          }
+        } catch (e) {
+          debugPrint('Pending session revocation retry failed: $e');
+        }
+      }());
+
       // Start network connectivity monitoring.
       ConnectivityService.startMonitoring();
       unawaited(PatientOutageConfigStore.instance.load());
@@ -307,7 +325,26 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
   Future<void> _startRealtime() => _webSocketProvider.listen();
 
   Future<void> _stopRealtime({required bool unsubscribe}) async {
+    final generation = _realtimeLifecycle.generation;
     await _webSocketProvider.stop(unsubscribe: unsubscribe);
+    // Re-check the era before touching the PROCESS-WIDE RealtimeClient
+    // singleton. PatientRealtimeLifecycle bounds the logout teardown, so a stop
+    // slow enough to outlive that bound is abandoned while still in flight and
+    // cannot be cancelled. If a new login has connected the same singleton in
+    // the meantime, running the disconnect below would close its socket, clear
+    // its server subscriptions and close its event controllers — a silent
+    // realtime blackout for a session this teardown has nothing to do with.
+    // The lifecycle's own generation fence cannot cover this: it guards the
+    // INVOCATION, and by here we are already past it.
+    //
+    // This narrows the straggler window rather than closing it: the app-local
+    // teardown above has already run. That residue is survivable where this
+    // disconnect is not — its channel names were captured from the DEPARTING
+    // patient, so they only collide when the same patient signs back in, and
+    // the shared singleton stays connected for the new session either way.
+    // When the abandoned teardown took this branch, logout has already STARTED
+    // its own escape-hatch disconnect, so nothing is skipped.
+    if (_realtimeLifecycle.generation != generation) return;
     await _realtimeProvider.disconnect();
   }
 

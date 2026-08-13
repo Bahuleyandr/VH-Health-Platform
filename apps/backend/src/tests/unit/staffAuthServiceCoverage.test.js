@@ -1126,6 +1126,37 @@ describe('logoutStaff', () => {
     expect(mockRevokeAllUserTokens).not.toHaveBeenCalled();
   });
 
+  it('R14: a device-scoped logout severs THAT device\'s sockets, scoped so siblings survive', async () => {
+    // The gap this closes is the WIRING, not either layer. tokenBlacklist.test
+    // pins that blacklistToken pushes `session:revoked` when it is given a
+    // `userId`, and wsSessionRevocation.test pins that wsServer honours the
+    // family/device selectors so other sessions of the same user stay open.
+    // Nothing pinned that logoutStaff actually SUPPLIES them — drop `userId`
+    // here and both of those suites stay green while a removed tablet's socket
+    // silently keeps delivering.
+    read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
+    read(/SELECT device_id FROM staff_devices/, [{ device_id: 'dev-uuid' }]);
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+    await StaffAuthService.logoutStaff('uid', 'tok', REQ, {
+      accessTokenJti: 'jti-123',
+      accessTokenExpiresAt: expiresAt,
+      sessionFamilyId: 'family-1',
+      stableDeviceId: 'device-1',
+    });
+
+    expect(mockBlacklistToken).toHaveBeenCalledWith('jti-123', expiresAt, 'logout', {
+      requireEvidence: true,
+      // Without this the push never fires at all.
+      userId: 'uid',
+      // With these the push is scoped to this login only, honouring the
+      // refresh-path rule that a device must not receive its own
+      // `session:revoked` for a session that is merely rotating.
+      sessionFamilyId: 'family-1',
+      stableDeviceId: 'device-1',
+    });
+  });
+
   it('fails loudly when the all-device revocation is not persisted', async () => {
     read(/SELECT id, tenant_id FROM users WHERE uid/, [{ id: 42, tenant_id: STAFF_TENANT_ID }]);
     mockPersistRevokeAllUserTokens.mockRejectedValueOnce(new Error('no store accepted it'));

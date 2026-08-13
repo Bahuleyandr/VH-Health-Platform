@@ -45,6 +45,12 @@ class ApiClient {
     );
   }
 
+  /// [bearerOverride] authenticates with the supplied token instead of the
+  /// session token in secure storage — see `VHHttpClient.post`. The only
+  /// caller is the logout-revocation retry in [LogoutService], which runs
+  /// after the local wipe has already removed the credential it must revoke.
+  /// It still passes through the outage gate below, so a blocked retry stays
+  /// queued rather than being reported as done.
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
@@ -52,6 +58,7 @@ class ApiClient {
     String? idempotencyKey,
     bool retryTransientFailures = true,
     bool refreshOnUnauthorized = true,
+    String? bearerOverride,
   }) => _mutate(
     'POST',
     path,
@@ -62,6 +69,7 @@ class ApiClient {
       idempotencyKey: idempotencyKey,
       retryTransientFailures: retryTransientFailures,
       refreshOnUnauthorized: refreshOnUnauthorized,
+      bearerOverride: bearerOverride,
     ),
   );
 

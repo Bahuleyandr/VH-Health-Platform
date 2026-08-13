@@ -43,6 +43,7 @@ import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
+import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
@@ -79,10 +80,18 @@ void main() {
   setUp(() {
     _installSecureStorageFake();
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    // LogoutService's final realtime fence runs through the process-wide
+    // PatientRealtimeLifecycle singleton, which serializes work on a stored
+    // future. That future belongs to the async zone that created it, and each
+    // testWidgets body gets a fresh FakeAsync zone — so without this reset the
+    // second and later widget tests queue their teardown behind a future from
+    // an already-dead zone and logout() never completes.
+    PatientRealtimeLifecycle.instance.debugReset();
   });
 
   tearDown(() {
     LogoutService.debugResetDependencies();
+    PatientRealtimeLifecycle.instance.debugReset();
     UserProvider.instance = null;
   });
 
@@ -315,15 +324,35 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(calls, fullTeardown);
+      // Asserted through the production selector rather than a copied string
+      // literal, so the test cannot silently drift out of sync with the copy
+      // it is guarding. This scenario is specifically the branch with NO retry
+      // queued: the Firebase revoke failed and no session token was captured.
+      const outcome = LogoutOutcome(
+        firebaseSessionRevoked: false,
+        vhSessionRevoked: true,
+      );
+      expect(outcome.revocationRetryQueued, isFalse);
       expect(
-        find.text(
-          'Signed out on this device. We could not reach the server, so '
-          'other devices may stay signed in until you retry.',
-        ),
+        find.text(LogoutButton.logoutWarningMessage(outcome)!),
         findsOneWidget,
       );
+      // And it must NOT be the "we will retry for you" copy — there is no
+      // retry handle on this device.
+      expect(
+        find.text(
+          LogoutButton.logoutWarningMessage(
+            const LogoutOutcome(
+              firebaseSessionRevoked: false,
+              vhSessionRevoked: true,
+              revocationRetryQueued: true,
+            ),
+          )!,
+        ),
+        findsNothing,
+      );
 
-      await tester.pump(const Duration(seconds: 7));
+      await tester.pump(const Duration(seconds: 9));
       await tester.pumpAndSettle();
     },
   );
