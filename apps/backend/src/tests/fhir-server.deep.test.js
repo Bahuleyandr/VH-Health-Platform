@@ -11,6 +11,31 @@ const PHONE = `+9199915${String(Date.now() % 10000).padStart(4, '0')}`;
 let patientUid;
 
 async function cleanup() {
+  const allergyReceipts = await prisma.$queryRawUnsafe(
+    `SELECT receipt.timeline_event_id::text, receipt.audit_event_id::text
+       FROM fhir_allergy_intolerance_receipts receipt
+       JOIN patient_allergies allergy
+         ON allergy.tenant_id = receipt.tenant_id
+        AND allergy.id = receipt.allergy_id
+      WHERE allergy.allergy_name LIKE 'C3TEST%'`,
+  ).catch(() => []);
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM fhir_allergy_intolerance_receipts receipt
+      USING patient_allergies allergy
+      WHERE allergy.tenant_id = receipt.tenant_id
+        AND allergy.id = receipt.allergy_id
+        AND allergy.allergy_name LIKE 'C3TEST%'`,
+  ).catch(() => {});
+  for (const receipt of allergyReceipts) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE id = $1::uuid`,
+      receipt.audit_event_id,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE id = $1::uuid`,
+      receipt.timeline_event_id,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM fhir_vital_observation_set_resources ownership
       USING fhir_vital_observation_sets vital_set
@@ -201,6 +226,42 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
       });
     expect(res.status).toBe(201);
     expect(res.body.id).toMatch(/^pa-/);
+    expect(res.body.code.text).toBe('C3TEST Penicillin');
+    expect(res.body.patient.reference).toBe(`Patient/${patientUid}`);
+    expect(res.body.reaction).toEqual([{
+      description: 'anaphylaxis',
+      manifestation: [{ text: 'anaphylaxis' }],
+    }]);
+
+    const immediateRead = await authClient('DOCTOR')
+      .get('/api/v1/fhir/AllergyIntolerance')
+      .query({ patient: patientUid });
+    expect(immediateRead.status).toBe(200);
+    const roundTrip = immediateRead.body.entry
+      .map((entry) => entry.resource)
+      .find((resource) => resource.id === res.body.id);
+    expect(roundTrip).toEqual(expect.objectContaining({
+      id: res.body.id,
+      code: { text: 'C3TEST Penicillin' },
+      patient: { reference: `Patient/${patientUid}` },
+      criticality: 'high',
+      reaction: [{
+        description: 'anaphylaxis',
+        manifestation: [{ text: 'anaphylaxis' }],
+      }],
+    }));
+
+    const duplicate = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        code: { text: '  C3TEST   PENICILLIN  ' },
+        patient: { reference: `Patient/${patientUid}` },
+        criticality: 'high',
+        reaction: [{ severity: 'severe', manifestation: [{ text: 'ANAPHYLAXIS' }] }],
+      });
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body.id).toBe(res.body.id);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT allergy_name, severity, is_active FROM patient_allergies WHERE allergy_name = 'C3TEST Penicillin'`,
@@ -208,6 +269,18 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].severity).toBe('SEVERE');
     expect(rows[0].is_active).toBe(true);
+
+    const evidence = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM fhir_allergy_intolerance_receipts
+           WHERE patient_uid = $1::uuid) AS receipt_count,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events
+           WHERE patient_uid = $1::uuid AND event_type = 'allergy.recorded') AS timeline_count,
+         (SELECT COUNT(*)::int FROM clinical_audit_events
+           WHERE patient_uid = $1::uuid AND action = 'allergy.recorded') AS audit_count`,
+      patientUid,
+    );
+    expect(evidence[0]).toEqual({ receipt_count: 1, timeline_count: 1, audit_count: 1 });
   });
 
   test('$everything carries the problem-list Condition', async () => {
@@ -229,6 +302,12 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
       .map((e) => e.resource)
       .filter((r) => r.resourceType === 'Condition');
     expect(conditions.some((c) => c.id?.startsWith('p-') && c.code?.text === 'C3TEST Hypothyroidism')).toBe(true);
+    const allergies = res.body.entry
+      .map((e) => e.resource)
+      .filter((r) => r.resourceType === 'AllergyIntolerance');
+    expect(allergies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: { text: 'C3TEST Penicillin' } }),
+    ]));
   });
 
   test('writes are role-gated with an OperationOutcome', async () => {

@@ -141,6 +141,29 @@ function adt(patientUid, controlId) {
 }
 
 async function cleanup() {
+  const receipts = await prisma.$queryRawUnsafe(
+    `SELECT timeline_event_id::text, audit_event_id::text
+       FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_A,
+    PATIENT_B,
+  ).catch(() => []);
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_A,
+    PATIENT_B,
+  ).catch(() => {});
+  for (const receipt of receipts) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE id = $1::uuid`,
+      receipt.audit_event_id,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE id = $1::uuid`,
+      receipt.timeline_event_id,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid IN ($1::uuid,$2::uuid)`, PATIENT_A, PATIENT_B).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM interop_replay_guard WHERE namespace = 'hl7-inbound'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier = $1`, FACILITY).catch(() => {});

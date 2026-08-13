@@ -188,6 +188,29 @@ function buildRecoveryRequest(controlId) {
 }
 
 async function cleanup() {
+  const receipts = await prisma.$queryRawUnsafe(
+    `SELECT timeline_event_id::text, audit_event_id::text
+       FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_UID,
+    DEFAULT_PATIENT_UID,
+  ).catch(() => []);
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_UID,
+    DEFAULT_PATIENT_UID,
+  ).catch(() => {});
+  for (const receipt of receipts) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE id = $1::uuid`,
+      receipt.audit_event_id,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE id = $1::uuid`,
+      receipt.timeline_event_id,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, DEFAULT_PATIENT_UID).catch(() => {});

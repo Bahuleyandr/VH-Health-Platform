@@ -7615,17 +7615,19 @@ model password_reset_otps {
 }
 
 model patient_allergies {
-  id           Int       @id @default(autoincrement())
-  patient_id   Int?
-  patient_uid  String?   @db.Uuid
-  allergy_name String    @db.VarChar(255)
-  severity     String?   @db.VarChar(50)
-  reaction     String?
-  is_active    Boolean?  @default(true)
-  created_at   DateTime? @default(now()) @db.Timestamptz(6)
-  tenant_id    String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants      tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_allergies_tenant")
+  id                                Int                                @id @default(autoincrement())
+  patient_id                        Int?
+  patient_uid                       String?                            @db.Uuid
+  allergy_name                      String                             @db.VarChar(255)
+  severity                          String?                            @db.VarChar(50)
+  reaction                          String?
+  is_active                         Boolean?                           @default(true)
+  created_at                        DateTime?                          @default(now()) @db.Timestamptz(6)
+  tenant_id                         String                             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  fhir_allergy_intolerance_receipts fhir_allergy_intolerance_receipts?
+  tenants                           tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_allergies_tenant")
 
+  @@unique([tenant_id, id], map: "ux_patient_allergies_tenant_id_for_fhir_receipt")
   @@index([tenant_id], map: "idx_patient_allergies_tenant_id")
 }
 
@@ -10657,6 +10659,7 @@ model tenants {
   feedback                                             feedback[]
   feedback_nps_responses                               feedback_nps_responses[]
   feedback_nps_rollups                                 feedback_nps_rollups[]
+  fhir_allergy_intolerance_receipts                    fhir_allergy_intolerance_receipts[]
   fhir_vital_observation_receipts                      fhir_vital_observation_receipts[]
   fhir_vital_observation_sets                          fhir_vital_observation_sets[]
   file_access_logs                                     file_access_logs[]
@@ -10676,6 +10679,7 @@ model tenants {
   help_center_categories                               help_center_categories[]
   hipaa_access_log                                     hipaa_access_log[]
   hl7_feed_subscriptions                               hl7_feed_subscriptions[]
+  hl7_inbound_clinical_receipts                        hl7_inbound_clinical_receipts[]
   hl7_inbound_recovery_receipts                        hl7_inbound_recovery_receipts[]
   hl7_outbound_messages                                hl7_outbound_messages[]
   housekeeping_floor_assignments                       housekeeping_floor_assignments[]
@@ -11662,6 +11666,7 @@ model users {
   external_recovery_operability_actions                                                                                            external_recovery_operability_actions[]
   family_members                                                                                                                   family_members[]
   feedback_nps_responses                                                                                                           feedback_nps_responses[]
+  fhir_allergy_intolerance_receipts                                                                                                fhir_allergy_intolerance_receipts[]
   fhir_vital_observation_receipts                                                                                                  fhir_vital_observation_receipts[]                      @relation("fhir_vital_observation_receipt_patient")
   fhir_vital_observation_sets_as_importer                                                                                          fhir_vital_observation_sets[]                          @relation("fhir_vital_observation_set_importer")
   fhir_vital_observation_sets_as_patient                                                                                           fhir_vital_observation_sets[]                          @relation("fhir_vital_observation_set_patient")
@@ -11669,6 +11674,7 @@ model users {
   geofence_breaches_geofence_breaches_staff_idTousers                                                                              geofence_breaches[]                                    @relation("geofence_breaches_staff_idTousers")
   geofence_breaches_geofence_breaches_staff_uidTousers                                                                             geofence_breaches[]                                    @relation("geofence_breaches_staff_uidTousers")
   hai_cases                                                                                                                        hai_cases[]
+  hl7_inbound_clinical_receipts                                                                                                    hl7_inbound_clinical_receipts[]
   hl7_inbound_recovery_receipts                                                                                                    hl7_inbound_recovery_receipts[]
   housekeeping_logs_housekeeping_logs_staff_idTousers                                                                              housekeeping_logs[]                                    @relation("housekeeping_logs_staff_idTousers")
   housekeeping_logs_housekeeping_logs_staff_uidTousers                                                                             housekeeping_logs[]                                    @relation("housekeeping_logs_staff_uidTousers")
@@ -16415,6 +16421,8 @@ model clinical_timeline_events {
   ed_closure_evidence                                                                                         ed_closure_evidence[]
   ed_encounter_evidence                                                                                       ed_encounter_evidence[]
   ed_recovery_contact_events                                                                                  ed_recovery_contact_events[]
+  fhir_allergy_intolerance_receipts                                                                           fhir_allergy_intolerance_receipts?
+  hl7_inbound_clinical_receipts                                                                               hl7_inbound_clinical_receipts?
   inpatient_primary_physician_assignments                                                                     inpatient_primary_physician_assignments[]
   lab_critical_alert_acknowledgement_receipts                                                                 lab_critical_alert_acknowledgement_receipts?
   mlc_completeness_reviews                                                                                    mlc_completeness_reviews[]
@@ -16503,6 +16511,8 @@ model clinical_audit_events {
   ed_injury_diagram_attachments                                                                         ed_injury_diagram_attachments[]
   ed_recovery_contact_events                                                                            ed_recovery_contact_events[]
   external_recovery_operability_actions                                                                 external_recovery_operability_actions[]
+  fhir_allergy_intolerance_receipts                                                                     fhir_allergy_intolerance_receipts?
+  hl7_inbound_clinical_receipts                                                                         hl7_inbound_clinical_receipts?
   inpatient_primary_physician_assignments                                                               inpatient_primary_physician_assignments[]
   lab_critical_alert_acknowledgement_receipts                                                           lab_critical_alert_acknowledgement_receipts?
   mlc_completeness_reviews                                                                              mlc_completeness_reviews[]
@@ -27525,6 +27535,60 @@ model icu_code_status_history {
   tenants              tenants        @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_icu_code_status_history_tenant")
 
   @@index([tenant_id, icu_admission_id, changed_at(sort: Desc)], map: "idx_icu_code_status_history_admission")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model fhir_allergy_intolerance_receipts {
+  tenant_id                String                   @db.Uuid
+  resource_fingerprint     String                   @db.Char(64)
+  payload_sha256           String                   @db.Char(64)
+  patient_uid              String                   @db.Uuid
+  allergy_id               Int
+  timeline_event_id        String                   @db.Uuid
+  audit_event_id           String                   @db.Uuid
+  recorded_at              DateTime                 @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  patient_allergies        patient_allergies        @relation(fields: [tenant_id, allergy_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_allergy")
+  clinical_audit_events    clinical_audit_events    @relation(fields: [tenant_id, audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_audit")
+  users                    users                    @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_patient")
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_tenant")
+  clinical_timeline_events clinical_timeline_events @relation(fields: [tenant_id, timeline_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_timeline")
+
+  @@id([tenant_id, resource_fingerprint])
+  @@unique([tenant_id, allergy_id], map: "ux_fhir_allergy_intolerance_receipt_allergy")
+  @@unique([tenant_id, audit_event_id], map: "ux_fhir_allergy_intolerance_receipt_audit")
+  @@unique([tenant_id, timeline_event_id], map: "ux_fhir_allergy_intolerance_receipt_timeline")
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_fhir_allergy_intolerance_receipts_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model hl7_inbound_clinical_receipts {
+  id                       BigInt                   @id @default(autoincrement())
+  tenant_id                String                   @db.Uuid
+  sender_identity          String                   @db.VarChar(255)
+  message_control_id       String                   @db.VarChar(199)
+  message_type             String                   @db.VarChar(20)
+  payload_sha256           String                   @db.Char(64)
+  patient_uid              String                   @db.Uuid
+  detail_table             String                   @db.VarChar(40)
+  detail_id                Int
+  timeline_event_id        String                   @db.Uuid
+  audit_event_id           String                   @db.Uuid
+  acknowledgement_code     String                   @default("AA") @db.Char(2)
+  acknowledgement_text     String                   @default("Message accepted") @db.VarChar(255)
+  recorded_at              DateTime                 @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  clinical_audit_events    clinical_audit_events    @relation(fields: [tenant_id, audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_audit")
+  users                    users                    @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_patient")
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_tenant")
+  clinical_timeline_events clinical_timeline_events @relation(fields: [tenant_id, timeline_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_timeline")
+
+  @@unique([tenant_id, audit_event_id], map: "ux_hl7_inbound_clinical_receipt_audit")
+  @@unique([tenant_id, sender_identity, message_control_id], map: "ux_hl7_inbound_clinical_receipt_identity")
+  @@unique([tenant_id, timeline_event_id], map: "ux_hl7_inbound_clinical_receipt_timeline")
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_hl7_inbound_clinical_receipts_patient")
 }
 
 enum transplant_organ_type {

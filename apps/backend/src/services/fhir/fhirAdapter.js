@@ -664,7 +664,10 @@ export function toFhirAllergyIntolerance(allergy) {
   }
 
   if (!isString && allergy.reaction) {
-    resource.reaction = [{ description: allergy.reaction }];
+    resource.reaction = [{
+      description: allergy.reaction,
+      manifestation: [{ text: allergy.reaction }],
+    }];
   }
 
   return resource;
