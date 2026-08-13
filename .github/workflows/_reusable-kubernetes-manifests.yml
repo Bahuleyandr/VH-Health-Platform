@@ -80,6 +80,7 @@ jobs:
           scripts/check-prod-helm-image-inventory.test.mjs
           scripts/operator-lifecycle-preflight.test.mjs
           scripts/infra-truthfulness.test.mjs
+          scripts/backend-image-command-contract.test.mjs
           scripts/ci/forgejo-deploy-preflight.test.mjs
           scripts/ci/infra.test.mjs
 
