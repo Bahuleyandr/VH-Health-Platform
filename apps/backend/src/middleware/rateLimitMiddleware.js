@@ -3,7 +3,7 @@ import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
 import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
-import { getRedisClient } from '../lib/redis.js';
+import { initRedis } from '../lib/redis.js';
 import { getRateLimitOverride } from '../services/tenant/tenantSettingsService.js';
 
 /**
@@ -78,8 +78,8 @@ export const selectStore = (prefix = 'rl:') => {
   if (!process.env.REDIS_URL) return undefined;
   return new RedisStore({
     prefix,
-    sendCommand: (...args) => {
-      const client = getRedisClient();
+    sendCommand: async (...args) => {
+      const client = await initRedis();
       if (!client) throw new Error('rate-limit: redis client unavailable');
       return client.call(...args);
     },

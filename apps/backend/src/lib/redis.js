@@ -2,6 +2,7 @@
 import logger from '../logging/logger.js';
 
 let redis = null;
+let redisInitPromise = null;
 let isConnected = false;
 
 /**
@@ -69,10 +70,20 @@ async function createClient() {
  * Initialise the singleton. Safe to call multiple times — only connects once.
  */
 export async function initRedis() {
-  if (!redis) {
-    redis = await createClient();
+  if (redis) return redis;
+
+  if (!redisInitPromise) {
+    redisInitPromise = createClient()
+      .then((client) => {
+        redis = client;
+        return client;
+      })
+      .finally(() => {
+        redisInitPromise = null;
+      });
   }
-  return redis;
+
+  return redisInitPromise;
 }
 
 /**

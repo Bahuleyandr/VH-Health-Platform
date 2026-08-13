@@ -7,9 +7,9 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 // Updated plugin versions to resolve the conflict.
 plugins {
     // Updated to the version required by your environment
-    id("com.android.application") version "8.10.1" apply false
+    id("com.android.application") version "8.13.2" apply false
     // Updated Kotlin version for compatibility
-    id("org.jetbrains.kotlin.android") version "2.3.0" apply false
+    id("org.jetbrains.kotlin.android") version "2.3.20" apply false
     // This line for the Google Services plugin is correct
     id("com.google.gms.google-services") version "4.4.2" apply false
 }

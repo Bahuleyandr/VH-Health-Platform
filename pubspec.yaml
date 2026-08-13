@@ -1,9 +1,9 @@
 name: vhhealth_workspace
 publish_to: none
-description: Root pubspec for the VH Health Flutter monorepo (Melos 7 + pub workspace).
+description: Root pubspec for the VH Health Flutter monorepo (Melos 8 + pub workspace).
 
 environment:
-  sdk: ^3.8.0
+  sdk: ^3.11.0
 
 workspace:
   - apps/patient
@@ -11,7 +11,7 @@ workspace:
   - packages/vhhealth_core
 
 dev_dependencies:
-  melos: ^7.8.1
+  melos: ^8.2.2
 
 dependency_overrides:
   lucide_icons:

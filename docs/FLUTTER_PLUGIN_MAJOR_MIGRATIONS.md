@@ -63,38 +63,60 @@ Read current constraints from source:
 Resolved versions for the entire graph, including transitive packages, are in
 the root `pubspec.lock`.
 
+## Consolidated dependency pass — applied 2026-08-13
+
+<!-- vh:historical-start 2026-08-13 consolidated dependency pass -->
+
+The post-#865 pass upgraded every dependency that the current toolchain can
+resolve safely in one graph. The Flutter-specific changes were:
+
+| Component | Version applied |
+| --------- | --------------- |
+| `flutter_local_notifications` | `^22.3.0` |
+| `flutter_web_auth_2` | `^5.1.0` |
+| `go_router` | `^17.5.0` |
+| `livekit_client` | `^2.11.0` |
+| `permission_handler` | `^13.0.1` |
+| `table_calendar` | `^3.2.1` |
+| `file_picker` | `^11.0.3` |
+| Melos | `^8.2.2` |
+| Android Gradle Plugin | `8.13.2` |
+| Gradle | `8.14.5` |
+| Kotlin | `2.3.20` |
+| Android compile SDK | `37` |
+
+Both Android debug APKs built successfully with that toolchain. AGP 9.0.1 and
+Gradle 9.1 were also tested, but upstream plugins that omit their Kotlin Gradle
+plugin under AGP 9 failed to compile on Flutter 3.44.0. Flutter's built-in
+Kotlin migration is only available from Flutter 3.47, so the AGP 8 toolchain
+above is the newest safe bridge for the repository's pinned Flutter release.
+
+<!-- vh:historical-end -->
+
 ## Deferred upgrades
 
-Every entry below was re-verified on 2026-08-06 — override and pin claims
-against the repository tree, resolver claims against a live `dart pub outdated`
-run on the dependency-majors tree (PR #752). Nothing here is carried forward
-unchecked.
+Every entry below was re-verified on 2026-08-13 against the repository tree and
+a live `dart pub outdated` run after the consolidated pass. Nothing here is
+carried forward unchecked.
 
-- **`permission_handler` — held back deliberately; the resolver is not the
-  blocker.** `dart pub outdated` reports the next major as resolvable, so the
-  constraint graph would allow it. It is held because upstream
-  `permission_handler_android` 14.0.0 requires `compileSdk` 37, while both apps
-  resolve `compileSdk` 36 from `flutter.compileSdkVersion` on the pinned
-  Flutter 3.44.0 — and no CI lane builds Android, so a bad bump would surface
-  only after merge, in the staging-deploy and release pipelines. It stays at
-  the constraint recorded in the app pubspecs until the Flutter pin moves.
 - **`vector_math` — held by the Flutter SDK, not by this repo.** The
-  SDK-vendored `flutter` and `flutter_test` packages depend on it and each
-  Flutter release pins an exact version (2.2.0 on Flutter 3.44.0, with 2.4.2
-  latest upstream), so the resolver cannot move it whatever the app constraint
-  allows. The P3 note attributed the hold to "the explicit workspace override";
-  no such override exists anywhere in the tree.
-- **`flutter_secure_storage` — a new major upstream that P3 predates.** The
-  2026-08-06 resolver run shows 11.0.0 published while the dependency graph
-  holds the workspace on the 10.x line. Separately, the P3 note recorded
-  several `flutter_secure_storage_*` platform packages as "overridden" — none
-  are. The only `dependency_overrides` in the repository are `lucide_icons`
-  (root) and `geolocator_android` plus `flutter_plugin_android_lifecycle`
-  (`apps/patient`), all path overrides unrelated to secure storage.
-- **`device_info_plus` — still blocked by the dependency graph.** The resolver
-  holds it at 12.4.0; 13.2.0 is published upstream but unreachable.
-- **`share_plus` — still blocked by the dependency graph.** The resolver holds
-  it at 12.0.2; 13.3.0 is published upstream but unreachable.
+  SDK-vendored `flutter` and `flutter_test` packages depend on an exact version,
+  so the resolver cannot move it independently of the Flutter SDK.
+- **`intl` — held by `flutter_localizations`.** It must move with a Flutter SDK
+  release whose localization package advances the exact pin.
+- **`build_runner` — held by the Flutter test graph.** Newer analyzer and
+  build-runner releases require a newer `meta` patch than the pinned Flutter
+  test package currently permits.
+- **The Win32 plugin cohort must move together.** Stable `file_picker` still
+  requires the older Win32 generation, which prevents the next majors of
+  `device_info_plus`, `package_info_plus`, `share_plus`, and
+  `flutter_secure_storage`, plus the next compatible `geolocator` patch, from
+  resolving in one stable graph. The first compatible `file_picker` line is
+  still prerelease-only, so forcing individual packages would trade a stable
+  graph for a beta transitive base.
+- **AGP 9 waits for Flutter's built-in Kotlin support.** Move the pinned Flutter
+  SDK to a release with built-in Kotlin support, confirm all Android plugins use
+  it correctly, and only then advance AGP and Gradle together.
 
 Do not force any of these blindly. Re-derive the whole list before the next
 migration wave:
@@ -107,9 +129,24 @@ dart pub upgrade --major-versions --dry-run
 Then validate patient and staff Android release builds with signing and
 production `--dart-define` values before acting on the result.
 
+The next safe upgrade order is therefore:
+
+1. Move Flutter to a release with built-in Kotlin support and re-run the full
+   analyzer, test, code-generation, Android, web, and Windows matrix.
+2. Migrate to built-in Kotlin and AGP 9 after every Android plugin compiles on
+   that path.
+3. Once a stable `file_picker` supports the newer Win32 generation, advance the
+   Win32 plugin cohort as a single resolver and platform-build change.
+4. Re-evaluate the SDK-owned `intl`, `vector_math`, `meta`, and `build_runner`
+   ceilings after the Flutter move.
+
 ## Validation
 
 ```bash
 dart run melos run analyze
+dart run melos run test
+dart run melos run codegen
+flutter build apk --debug
+flutter build web --release
 node scripts/check-docs-plugin-versions.mjs
 ```

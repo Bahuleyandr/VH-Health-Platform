@@ -10,6 +10,19 @@ class FakeRedisStore {
 }
 jest.unstable_mockModule('rate-limit-redis', () => ({ RedisStore: FakeRedisStore }));
 
+const redisCall = jest.fn(async () => 'script-sha');
+const initRedis = jest.fn(async () => ({ call: redisCall }));
+jest.unstable_mockModule('../../lib/redis.js', () => ({
+  initRedis,
+  getRedisClient: jest.fn(() => null),
+  isRedisConnected: jest.fn(() => false),
+  cacheGet: jest.fn(async () => null),
+  cacheSet: jest.fn(async () => false),
+  cacheDelete: jest.fn(async () => undefined),
+  cacheClear: jest.fn(async () => undefined),
+  disconnectRedis: jest.fn(async () => undefined),
+}));
+
 const {
   __testing__,
   tenantKeyGenerator,
@@ -55,13 +68,16 @@ describe('rate limit tenant keying', () => {
     if (prev) process.env.REDIS_URL = prev;
   });
 
-  it('selectStore builds a Redis store with the given namespace when REDIS_URL is set', () => {
+  it('selectStore builds a Redis store with the given namespace when REDIS_URL is set', async () => {
     const prev = process.env.REDIS_URL;
     process.env.REDIS_URL = 'redis://localhost:6379';
     const store = selectStore('rl:patient:');
     expect(store).toBeInstanceOf(FakeRedisStore);
     expect(store.opts.prefix).toBe('rl:patient:');
     expect(typeof store.opts.sendCommand).toBe('function');
+    await expect(store.opts.sendCommand('SCRIPT', 'LOAD', 'return 1')).resolves.toBe('script-sha');
+    expect(initRedis).toHaveBeenCalledTimes(1);
+    expect(redisCall).toHaveBeenCalledWith('SCRIPT', 'LOAD', 'return 1');
     if (prev) process.env.REDIS_URL = prev;
     else delete process.env.REDIS_URL;
   });
