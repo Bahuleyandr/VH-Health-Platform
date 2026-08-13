@@ -6,11 +6,11 @@
 # configured post-bootstrap (see README note at the bottom of this
 # file).
 #
-# Sizing: 1 pool * 4 servers * 4 volumes * 100Gi = 1.6 TiB raw.
-# Explicit EC:4 parity gives 12 data + 4 parity shards and about 1.2 TiB
-# usable before filesystem/object overhead. It tolerates up to four unavailable
-# drives for an affected object while quorum remains. It does not tolerate the
-# loss of a "pool": this manifest defines only pool-0.
+# Sizing: 1 pool * 4 servers * 4 volumes * 100Gi = 1600 GiB = 1.5625 TiB raw.
+# Explicit EC:4 parity gives 12 data + 4 parity shards: 1200 GiB = 1.171875 TiB
+# before filesystem/object overhead. It tolerates up to four unavailable drives
+# for an affected object while quorum remains. It does not tolerate the loss of
+# a "pool": this manifest defines only pool-0.
 #
 # Pod topology: pool-0 creates four server pods, each with four PVCs. Preferred
 # anti-affinity spreads them across available nodes but does not guarantee a

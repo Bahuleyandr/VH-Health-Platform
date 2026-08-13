@@ -65,7 +65,7 @@ direct upgrade.
 | Etcd data + WAL | 2 GB | 100 GB reserved | Dedicated volume if possible |
 | Postgres (CNPG data + WAL PVCs) | 100 GiB data + 20 GiB WAL | 500 GB data + 100 GB WAL planning allowance | One instance per node; both PVCs currently use `local-path`, with PostgreSQL streaming replication between instances |
 | PostgreSQL offsite archive | — | 100 GB planning allowance | Intended Barman Cloud Plugin/R2 contract is inert until operator qualification; size from measured WAL generation and approved retention |
-| MinIO local PVCs | Up to 800 GiB on the node hosting two of four server pods | Measure before expansion; 1.6 TiB raw cluster baseline | The manifest is one 4-server pool × 4 PVCs/server × 100 GiB with EC:4 (about 1.2 TiB usable). Preferred spreading across three nodes does not guarantee whole-node tolerance; qualify a fourth failure domain or retain a recovery-only posture. |
+| MinIO local PVCs | Up to 800 GiB on the node hosting two of four server pods | Measure before expansion; 1600 GiB (1.5625 TiB) raw cluster baseline | The manifest is one 4-server pool × 4 PVCs/server × 100 GiB with EC:4, yielding 1200 GiB (1.171875 TiB) before filesystem/object overhead. Preferred spreading across three nodes does not guarantee whole-node tolerance; qualify a fourth failure domain or retain a recovery-only posture. |
 | Harbor registry | 50 GB | 200 GB | Grows with image tag retention; prune stale tags weekly |
 | Container image cache (containerd) | 20 GB | 50 GB | Set `containerd` garbage-collection retention to 168h |
 | Prometheus | 50 GB | 100 GB | 30-day metric retention |

@@ -24,10 +24,12 @@ jobs:
   validate:
     name: Kubernetes manifests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       KUSTOMIZE_VERSION: 5.8.1
       KUBECONFORM_VERSION: 0.7.0
+      KIND_VERSION: 0.32.0
+      KIND_LINUX_AMD64_SHA256: 50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -53,6 +55,20 @@ jobs:
           kustomize version
           kubeconform -v
 
+      - name: Install pinned kind
+        run: |
+          set -euo pipefail
+
+          curl -sSfL \
+            --retry 5 \
+            --retry-all-errors \
+            --connect-timeout 30 \
+            "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64" \
+            -o /tmp/kind
+          echo "${KIND_LINUX_AMD64_SHA256}  /tmp/kind" | sha256sum --check --strict
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version
+
       - name: Test C1.1 manifest + backup contracts
         run: >-
           node --test
@@ -65,6 +81,9 @@ jobs:
           scripts/infra-truthfulness.test.mjs
           scripts/ci/forgejo-deploy-preflight.test.mjs
           scripts/ci/infra.test.mjs
+
+      - name: Prove Sealed Secrets bootstrap on a fresh cluster
+        run: node scripts/sealed-secrets-bootstrap-smoke.mjs --require-cluster
 
       - name: Check C1.1 production render contract
         run: node scripts/check-c1-1-manifest-contract.mjs

@@ -64,10 +64,10 @@ Namespace layout:
 | `vhhealth-platform` | Stateful platform: CNPG, Redis, MinIO, cloudflared   |
 | `ingress-nginx`     | Ingress controller DaemonSet                         |
 | `cnpg-system`       | CloudNativePG operator                               |
-| `sealed-secrets`    | Sealed-secrets controller                            |
+| `vhhealth-security` | Sealed-secrets controller and security tooling       |
 | `argocd`            | ArgoCD control plane                                 |
 | `harbor`            | In-cluster container registry (pull-through to ghcr) |
-| `monitoring`        | Prometheus + Alertmanager + Grafana + Loki           |
+| `vhhealth-monitoring` | Prometheus + Alertmanager + Grafana + Loki         |
 
 ---
 
@@ -98,7 +98,7 @@ following invariants:
 See [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md) for the full
 procurement spec. Summary of what you need in-rack before continuing:
 
-- 3× servers matching at least the "Minimum" tier (16 vCPU / 64 GB ECC / 2× 1 TB NVMe RAID1 / dual 10 GbE / IPMI).
+- 3× servers matching at least the "Minimum" tier (16 vCPU / 64 GB ECC / 2× 2 TB NVMe RAID1 / dual 10 GbE / IPMI).
 - Rack + dual PDU + UPS + ToR switches configured.
 - Dedicated VLAN for cluster, separate VLAN for IPMI.
 - Outbound 443 internet access through the hospital firewall.
@@ -318,6 +318,12 @@ Install the sealed-secrets controller and ArgoCD itself through their pinned
 bootstrap instructions in `infra/kubernetes/base/sealed-secrets/README.md` and
 `infra/kubernetes/base/argocd/README.md`. Install CNPG and the Barman plugin
 through §4.3.
+
+The Sealed Secrets helper applies a bootstrap-only Kustomization containing
+the `vhhealth-security` Namespace, the SealedSecret CRD, and the exact
+`vhhealth-security/sealed-secrets` controller identity. Its ServiceMonitor is
+owned by `base/monitoring` and must not be submitted until the Prometheus
+Operator has installed the `monitoring.coreos.com` CRDs.
 
 Do **not** use `kustomize build infra/kubernetes/overlays/prod | kubectl apply`
 as a bootstrap shortcut. It bypasses the manual Argo gate and, in C1.1, would
@@ -755,7 +761,7 @@ After steps 3–7 are complete:
       succeeds with `method: plugin`; its `Backup` is complete under the
       distinct `vhhealth-pg18` R2 archive identity. Until then, production
       remains on its qualified PostgreSQL 17 backup path
-- [ ] Grafana dashboards (port-forward `monitoring/grafana`) — all panels populated, no "No data"
+- [ ] Grafana dashboards (port-forward the Grafana Service in `vhhealth-monitoring`) — all panels populated, no "No data"
 - [ ] A merge leaves the C1.1 `PrometheusRule` definitions inert. After the
       approved `vhhealth-platform` manual sync, confirm Prometheus loads and
       evaluates them; C1.3 separately owns Alertmanager receiver/delivery

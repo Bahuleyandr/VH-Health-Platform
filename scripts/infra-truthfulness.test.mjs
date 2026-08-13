@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
+import { validateBootstrap } from './validate-sealed-secrets-bootstrap.mjs';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readRepo = relative => readFileSync(path.join(repoRoot, relative), 'utf8');
 const bashPath = value => {
@@ -23,6 +25,42 @@ const bashPath = value => {
 const spawnBash = (args, options) => process.platform === 'win32'
   ? spawnSync('wsl.exe', ['-e', 'bash', ...args], options)
   : spawnSync('bash', args, options);
+const commandWorks = (command, args) => spawnSync(command, args, {
+  cwd: repoRoot,
+  encoding: 'utf8',
+  stdio: 'pipe',
+}).status === 0;
+const findKustomize = () => {
+  const candidates = [
+    process.env.KUSTOMIZE_BIN,
+    process.platform === 'win32' ? 'D:\\Dev\\Tools\\kubetools\\kustomize.exe' : null,
+    'kustomize',
+  ].filter(Boolean);
+  return candidates.find(candidate => commandWorks(candidate, ['version']));
+};
+const renderBootstrap = () => {
+  const kustomize = findKustomize();
+  assert.ok(kustomize, 'kustomize is required for the Sealed Secrets bootstrap contract');
+  const result = spawnSync(kustomize, [
+    'build',
+    path.join(repoRoot, 'infra', 'kubernetes', 'base', 'sealed-secrets'),
+  ], { cwd: repoRoot, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result.stdout;
+};
+const mutateResource = (rendered, kind, mutate) => {
+  let matches = 0;
+  const mutated = rendered
+    .split(/^---\s*$/m)
+    .map(document => {
+      if (!new RegExp(`^kind:\\s*${kind}\\s*$`, 'm').test(document)) return document;
+      matches += 1;
+      return mutate(document);
+    })
+    .join('\n---\n');
+  assert.equal(matches, 1, `expected exactly one ${kind} fixture document`);
+  return mutated;
+};
 
 test('inactive Admin metrics and duplicate Argo source are absent', () => {
   const adminKustomization = readRepo('infra/kubernetes/apps/admin/kustomization.yaml');
@@ -36,31 +74,101 @@ test('inactive Admin metrics and duplicate Argo source are absent', () => {
   }
 });
 
-test('Sealed Secrets bootstrap helper binds the rendered controller identity', t => {
+test('Sealed Secrets bootstrap render is self-contained and rejects identity drift', () => {
+  const sealedKustomization = readRepo('infra/kubernetes/base/sealed-secrets/kustomization.yaml');
+  const monitoringKustomization = readRepo('infra/kubernetes/base/monitoring/kustomization.yaml');
+  const commonNamespaces = readRepo('infra/kubernetes/base/_common/namespaces.yaml');
+  const controller = readRepo('infra/kubernetes/base/sealed-secrets/sealed-secrets.yaml');
+
+  assert.match(sealedKustomization, /^\s*- namespace\.yaml\s*$/m);
+  assert.match(sealedKustomization, /^\s*- crd\.yaml\s*$/m);
+  assert.match(sealedKustomization, /^\s*- sealed-secrets\.yaml\s*$/m);
+  assert.doesNotMatch(sealedKustomization, /service-monitor/i);
+  assert.match(monitoringKustomization, /^\s*- sealed-secrets-service-monitor\.yaml\s*$/m);
+  assert.doesNotMatch(commonNamespaces, /^\s{2}name:\s*vhhealth-security\s*$/m);
+  assert.doesNotMatch(controller, /^kind:\s*ServiceMonitor\s*$/m);
+
+  const rendered = renderBootstrap();
+  assert.doesNotThrow(() => validateBootstrap(rendered));
+
+  const cases = [
+    {
+      label: 'controller name',
+      rendered: mutateResource(rendered, 'Deployment', document =>
+        document.replace(/^  name:\s*sealed-secrets\s*$/m, '  name: wrong-controller')),
+      pattern: /expected exactly one Deployment\/vhhealth-security\/sealed-secrets/,
+    },
+    {
+      label: 'controller namespace',
+      rendered: mutateResource(rendered, 'Deployment', document =>
+        document.replace(/^  namespace:\s*vhhealth-security\s*$/m, '  namespace: wrong-namespace')),
+      pattern: /expected exactly one Deployment\/vhhealth-security\/sealed-secrets/,
+    },
+    {
+      label: 'deployment service account',
+      rendered: mutateResource(rendered, 'Deployment', document =>
+        document.replace(/serviceAccountName:\s*sealed-secrets/, 'serviceAccountName: wrong-account')),
+      pattern: /Deployment must use ServiceAccount sealed-secrets/,
+    },
+    {
+      label: 'unsupported controller flag',
+      rendered: mutateResource(rendered, 'Deployment', document =>
+        document.replace('--listen-addr=:8080', '--listen-address=:8080')),
+      pattern: /controller args must include --listen-addr=:8080/,
+    },
+    {
+      label: 'binding subject',
+      rendered: mutateResource(rendered, 'ClusterRoleBinding', document =>
+        document.replace(/namespace:\s*vhhealth-security/, 'namespace: wrong-namespace')),
+      pattern: /must bind only vhhealth-security\/sealed-secrets/,
+    },
+    {
+      label: 'monitoring CR',
+      rendered: `${rendered}\n---\napiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: sealed-secrets\n  namespace: vhhealth-security\n`,
+      pattern: /monitoring CRs must be installed by the monitoring Kustomization/,
+    },
+  ];
+
+  for (const candidate of cases) {
+    assert.throws(
+      () => validateBootstrap(candidate.rendered),
+      candidate.pattern,
+      `${candidate.label} drift must fail closed`,
+    );
+  }
+});
+
+test('Sealed Secrets bootstrap helper validates the exact bytes before kubectl', t => {
   const temp = mkdtempSync(path.join(tmpdir(), 'vhhealth-sealed-bootstrap-'));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
 
   const calls = path.join(temp, 'calls.log');
+  const fixture = path.join(temp, 'bootstrap.yaml');
   const fakeKustomize = path.join(temp, 'kustomize');
   const fakeKubectl = path.join(temp, 'kubectl');
-  const fakePython = path.join(temp, 'python3');
   const executable = { mode: 0o755 };
 
-  writeFileSync(fakeKustomize, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"kustomize:$*\" >> \"${bashPath(calls)}\"\ncat <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: sealed-secrets\n  namespace: vhhealth-security\nYAML\n`, executable);
-  writeFileSync(fakeKubectl, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"kubectl:$*\" >> \"${bashPath(calls)}\"\n`, executable);
-  writeFileSync(fakePython, '#!/usr/bin/env bash\nexit 0\n', executable);
+  writeFileSync(fixture, renderBootstrap());
+  writeFileSync(
+    fakeKustomize,
+    `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "kustomize:$*" >> "${bashPath(calls)}"\ncat "${bashPath(fixture)}"\n`,
+    executable,
+  );
+  writeFileSync(
+    fakeKubectl,
+    `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "kubectl:$*" >> "${bashPath(calls)}"\n`,
+    executable,
+  );
   chmodSync(fakeKustomize, 0o755);
   chmodSync(fakeKubectl, 0o755);
-  chmodSync(fakePython, 0o755);
 
   const helper = path.join(repoRoot, 'scripts/bootstrap-sealed-secrets.sh');
   const invoke = mode => spawnBash([
     '-c',
-    'KUSTOMIZE_BIN="$1" KUBECTL_BIN="$2" PYTHON_BIN="$3" "$4" "$5"',
+    'KUSTOMIZE_BIN="$1" KUBECTL_BIN="$2" "$3" "$4"',
     'vhhealth-sealed-bootstrap-test',
     bashPath(fakeKustomize),
     bashPath(fakeKubectl),
-    bashPath(fakePython),
     bashPath(helper),
     mode,
   ], { encoding: 'utf8', env: process.env });
@@ -73,8 +181,24 @@ test('Sealed Secrets bootstrap helper binds the rendered controller identity', t
   const commandLog = readFileSync(calls, 'utf8');
   assert.match(commandLog, /kustomize:build .*infra\/kubernetes\/base\/sealed-secrets/);
   assert.match(commandLog, /kubectl:apply --dry-run=client -f /);
-  assert.match(commandLog, /kubectl:apply -k .*infra\/kubernetes\/base\/sealed-secrets/);
+  assert.match(commandLog, /kubectl:apply -f /);
   assert.match(commandLog, /kubectl:-n vhhealth-security rollout status deployment\/sealed-secrets --timeout=180s/);
+
+  const kubectlCallsBeforeDrift = (commandLog.match(/^kubectl:/gm) ?? []).length;
+  writeFileSync(
+    fixture,
+    mutateResource(renderBootstrap(), 'Deployment', document =>
+      document.replace(/serviceAccountName:\s*sealed-secrets/, 'serviceAccountName: wrong-account')),
+  );
+  const rejected = invoke('--check');
+  assert.notEqual(rejected.status, 0, rejected.stderr || rejected.stdout);
+  assert.match(rejected.stderr, /Deployment must use ServiceAccount sealed-secrets/);
+  const afterDrift = readFileSync(calls, 'utf8');
+  assert.equal(
+    (afterDrift.match(/^kubectl:/gm) ?? []).length,
+    kubectlCallsBeforeDrift,
+    'kubectl must not run after validator rejection',
+  );
 });
 
 test('Sealed Secrets documentation matches the committed controller', () => {
@@ -88,8 +212,28 @@ test('Sealed Secrets documentation matches the committed controller', () => {
     assert.doesNotMatch(document, /--controller-namespace sealed-secrets(?:\s|\\)/);
     assert.doesNotMatch(document, /--controller-name sealed-secrets-controller/);
   }
+  assert.match(deploymentGuide, /^\| `vhhealth-security`\s*\|/m);
+  assert.match(deploymentGuide, /^\| `vhhealth-monitoring`\s*\|/m);
+  assert.doesNotMatch(deploymentGuide, /^\| `sealed-secrets`\s*\|/m);
+  assert.doesNotMatch(deploymentGuide, /^\| `monitoring`\s*\|/m);
+  assert.doesNotMatch(deploymentGuide, /monitoring\/grafana/);
+  assert.match(deploymentGuide, /16 vCPU \/ 64 GB ECC \/ 2× 2 TB NVMe RAID1/);
   assert.doesNotMatch(argoReadme, /kubectl apply -f infra\/kubernetes\/base\/sealed-secrets\//);
   assert.match(argoReadme, /bootstrap-sealed-secrets\.sh --apply/);
+});
+
+test('fresh-cluster proof is required in GitHub CI and static proof remains canonical', () => {
+  const smoke = readRepo('scripts/sealed-secrets-bootstrap-smoke.mjs');
+  const infraStage = readRepo('scripts/ci/infra.mjs');
+  const workflow = readRepo('.github/workflows/_reusable-kubernetes-manifests.yml');
+
+  assert.ok(
+    smoke.indexOf('validateBootstrap(rendered)') < smoke.indexOf('const kind = firstAvailable'),
+    'mandatory static validation must run before runtime availability is considered',
+  );
+  assert.match(infraStage, /sealed-secrets-bootstrap-smoke\.mjs', '--auto/);
+  assert.match(workflow, /kind-linux-amd64/);
+  assert.match(workflow, /sealed-secrets-bootstrap-smoke\.mjs --require-cluster/);
 });
 
 test('Dalek deploy workflow is strict and verifies the deployed commit', () => {
@@ -110,11 +254,14 @@ test('MinIO capacity and failure claims match the rendered single-pool topology'
   const tenant = readRepo('infra/kubernetes/base/minio/tenant.yaml');
   const hardware = readRepo('docs/HARDWARE_REQUIREMENTS.md');
 
-  assert.match(tenant, /1 pool \* 4 servers \* 4 volumes \* 100Gi = 1\.6 TiB raw/);
+  assert.match(tenant, /1 pool \* 4 servers \* 4 volumes \* 100Gi = 1600 GiB = 1\.5625 TiB raw/);
+  assert.match(tenant, /1200 GiB = 1\.171875 TiB/);
   assert.match(tenant, /name:\s+pool-0[\s\S]*servers:\s+4[\s\S]*volumesPerServer:\s+4/);
   assert.match(tenant, /name:\s+MINIO_STORAGE_CLASS_STANDARD\s+value:\s+"EC:4"/);
   assert.doesNotMatch(tenant, /4 pools|16 pods|loss of 4 drives \(one pool\)|50 percent usable/);
   assert.match(hardware, /one 4-server pool × 4 PVCs\/server × 100 GiB with EC:4/);
+  assert.match(hardware, /1600 GiB \(1\.5625 TiB\) raw cluster baseline/);
+  assert.match(hardware, /1200 GiB \(1\.171875 TiB\)/);
   assert.match(hardware, /does not guarantee whole-node tolerance/);
   assert.match(hardware, /2× 2 TB NVMe in RAID1/);
   assert.match(hardware, /A 1 TB RAID1 data volume cannot satisfy/);

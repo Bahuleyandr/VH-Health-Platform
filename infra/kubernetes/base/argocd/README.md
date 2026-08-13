@@ -23,9 +23,11 @@ Pinned at **v7.7.5** (Argo CD app v2.13.1). See `chart-tracker.yaml`.
    scripts/bootstrap-sealed-secrets.sh --apply
    ```
 
-   The helper renders the Kustomization, validates the exact controller
-   identity (`vhhealth-security/sealed-secrets`), applies it with
-   `kubectl apply -k`, and waits for its Deployment to become available.
+   The helper renders the bootstrap-only Kustomization, validates its exact
+   Namespace, CRD, RBAC, and controller identity
+   (`vhhealth-security/sealed-secrets`), applies those validated bytes, and
+   waits for the Deployment to become available. The ServiceMonitor remains
+   in `base/monitoring` until its CRD exists.
 
 3. Apply the `repo-vhhealth-platform` sealed secret so Argo CD can
    pull the repo.

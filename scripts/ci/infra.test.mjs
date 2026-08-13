@@ -27,6 +27,7 @@ test('clean Linux --install runner propagates installed manifest tools to every 
     'scripts/check-prod-helm-image-inventory.test.mjs',
     'scripts/check-c1-1-manifest-contract.test.mjs',
     'scripts/check-c1-1-manifest-contract.mjs',
+    'scripts/sealed-secrets-bootstrap-smoke.mjs',
     'scripts/validate-kubernetes-manifests.mjs',
     'scripts/check-prod-helm-image-inventory.mjs',
     'scripts/check-prod-digests-pinned.mjs',
@@ -35,4 +36,11 @@ test('clean Linux --install runner propagates installed manifest tools to every 
     assert.ok(invocation, `${script} was not invoked`);
     assert.deepEqual(invocation.options.env, installedEnv, `${script} did not receive installed tools`);
   }
+
+  const bootstrapSmoke = calls.find(({ args }) =>
+    args.includes('scripts/sealed-secrets-bootstrap-smoke.mjs'));
+  assert.deepEqual(
+    bootstrapSmoke.args,
+    ['scripts/sealed-secrets-bootstrap-smoke.mjs', '--auto'],
+  );
 });

@@ -105,6 +105,11 @@ export function runInfraStage({
       ],
       { env: installedTools?.env },
     );
+    runCommand(
+      process.execPath,
+      ['scripts/sealed-secrets-bootstrap-smoke.mjs', '--auto'],
+      { env: installedTools?.env },
+    );
     runCommand(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
     runCommand(process.execPath, ['scripts/check-c1-1-manifest-contract.mjs'], {
       env: installedTools?.env,

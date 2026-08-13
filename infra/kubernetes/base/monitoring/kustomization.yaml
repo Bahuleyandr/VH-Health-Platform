@@ -12,6 +12,7 @@ resources:
   - device-gateway-alerts.yaml
   - continuity-edge-alerts.yaml
   - continuity-edge-service-monitor.yaml
+  - sealed-secrets-service-monitor.yaml
 
 configMapGenerator:
   - name: vhhealth-backend-dashboards
