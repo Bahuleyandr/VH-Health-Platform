@@ -109,24 +109,36 @@ describeIfDb('migration 624 C5.2 held-message release executor', () => {
        RETURNING id`,
       [tenantId, `held-system-${suffix}`],
     );
+    // http_outbound IS a runtime the platform drives (`dispatchOutboundMessages`),
+    // so this channel is genuinely activated — but in the order migration 665
+    // enforces and `activateChannelVersion` actually performs: the version goes
+    // active first, then the channel flips to active and adopts it in the SAME
+    // statement. A channel inserted `status = 'active'` with a NULL
+    // `active_version_id` is refused by `assert_interop_channel_active_runtime`
+    // ("active interface-engine channel lacks an implemented active version"),
+    // because for the instant it exists it claims a live interface with nothing
+    // behind it. An active http_outbound version also requires
+    // `connector_config.endpointUrl`, which the runtime needs to send anything
+    // at all.
     const channel = await client.query(
       `INSERT INTO interop_channels
          (tenant_id, channel_key, display_name, source_system_id, target_system_id,
           direction, connector_kind, protocol, status, auth_kind)
        VALUES ($1::uuid, $2::text, 'Held channel', $3::integer, $3::integer,
-               'outbound', 'http_outbound', 'hl7v2', 'active', 'none')
+               'outbound', 'http_outbound', 'hl7v2', 'draft', 'none')
        RETURNING id`,
       [tenantId, `held-channel-${suffix}`, system.rows[0].id],
     );
     const version = await client.query(
       `INSERT INTO interop_channel_versions
-         (tenant_id, channel_id, version_number, status)
-       VALUES ($1::uuid, $2::integer, 1, 'active') RETURNING id`,
-      [tenantId, channel.rows[0].id],
+         (tenant_id, channel_id, version_number, status, connector_config)
+       VALUES ($1::uuid, $2::integer, 1, 'active',
+               jsonb_build_object('endpointUrl', $3::text)) RETURNING id`,
+      [tenantId, channel.rows[0].id, `https://held-target-${suffix}.example.test/hl7`],
     );
     await client.query(
       `UPDATE interop_channels
-          SET active_version_id = $3::integer
+          SET status = 'active', active_version_id = $3::integer
         WHERE tenant_id = $1::uuid AND id = $2::integer`,
       [tenantId, channel.rows[0].id, version.rows[0].id],
     );

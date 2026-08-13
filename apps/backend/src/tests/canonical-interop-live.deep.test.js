@@ -14,12 +14,15 @@ import {
   processHl7InboundClinicalMessage,
 } from '../services/hl7/hl7InboundClinicalCommandService.js';
 import { __testing__ as signedRequestTesting } from '../utils/signedRequest.js';
+import { enableHl7InboundForTest } from './helpers/hl7InboundTestEnv.js';
 
 // This suite exercises the I03 inbound ingress, which is now authoritative on
 // HL7_INBOUND_ENABLED and fails closed when the flag is not exactly 'true'.
 // Declaring the interface ON is a precondition of exercising it at all; the
 // refused-while-off contract is pinned by hl7-inbound-disabled.deep.test.js.
-process.env.HL7_INBOUND_ENABLED = 'true';
+// The helper supplies HL7_INBOUND_SHARED_SECRET with the flag — validateEnv
+// requires the pair, and a test that splits them exits the worker outright.
+enableHl7InboundForTest();
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const d = databaseUrl ? describe : describe.skip;
