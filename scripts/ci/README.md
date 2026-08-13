@@ -29,10 +29,12 @@ Stages:
 - `infra`: Kubernetes manifest validation + Kyverno Enforce readiness contract
   + production image registry proof (`scripts/check-kyverno-enforce-readiness.mjs`,
   `scripts/check-prod-digests-pinned.mjs`). The image guard renders both ArgoCD
-  production roots, rejects non-immutable active references, and verifies each
-  committed digest exists at the live registry. Only the exact
-  three platform-owned all-zero application pins are reported as deliberately
-  held fail-closed; all external platform/workload images must verify.
+  production roots, inventories workload `image`, CRD `imageName`, and
+  operator/config `*Image` fields, rejects non-immutable active references,
+  and verifies each unique committed digest exists at the live registry. Only
+  the exact three platform-owned all-zero application references are reported
+  as deliberately held fail-closed; all external platform/workload images must
+  verify.
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
 
 ## GitHub pull-request merge boundary

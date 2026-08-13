@@ -106,9 +106,11 @@ export function runInfraStage({ install } = {}) {
 
     run(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
 
-    // Render both ArgoCD production roots, reject every unpinned active image,
-    // and prove each tag@digest exists at its live registry. The exact three
-    // platform-owned all-zero app pins remain an explicit fail-closed hold.
+    // Render both ArgoCD production roots, inventory workload/CRD/operator
+    // image fields, reject every unpinned active reference, and prove each
+    // unique tag@digest exists at its live registry. The exact three
+    // platform-owned all-zero app references remain an explicit fail-closed
+    // hold.
     run(process.execPath, ['scripts/check-prod-digests-pinned.mjs']);
   } finally {
     if (installedTools?.temporary && installedTools?.dir) {

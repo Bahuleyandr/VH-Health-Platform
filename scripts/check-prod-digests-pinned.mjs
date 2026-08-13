@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// Render both ArgoCD production roots, inventory the exact images Kubernetes
-// would pull, and verify every active tag@digest against its live registry.
+// Render both ArgoCD production roots, inventory every rendered image-reference
+// field used by workloads, CRDs, and operator configuration, and verify every
+// active tag@digest against its live registry.
 // The three platform-owned application placeholders are an explicit held state:
-// they are accepted only in the apps root, only for the exact repositories
-// below, and only as the all-zero fail-closed digest.
+// they are accepted only in the apps root and only as the exact full all-zero
+// fail-closed references below.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -23,10 +24,10 @@ export const ZERO_DIGEST = `sha256:${'0'.repeat(64)}`;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
-export const HELD_APP_REPOSITORIES = new Set([
-  'ghcr.io/bahuleyandr/vh-health-platform-backend',
-  'ghcr.io/bahuleyandr/vh-health-platform-adminportal',
-  'ghcr.io/bahuleyandr/vhhealth-staff-web',
+export const HELD_APP_REFERENCES = new Set([
+  `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`,
+  `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`,
+  `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`,
 ]);
 
 // These reviewed platform images must remain real multi-architecture indexes,
@@ -83,8 +84,24 @@ export function findKustomize() {
 export function extractRenderedImages(rendered, target) {
   const images = [];
   for (const [index, line] of rendered.split(/\r?\n/).entries()) {
-    const match = line.match(/^\s*(?:-\s*)?image:\s*["']?([^\s"'#]+)["']?\s*(?:#.*)?$/);
-    if (match) images.push({ ref: match[1], target, line: index + 1 });
+    // Keep this field contract aligned with extractImageRefs in
+    // check-c1-1-manifest-contract.mjs. `imageName` is used by CNPG CRDs and
+    // operator/bootstrap configuration uses keys such as `operatorImage`.
+    const match = line.match(
+      /^\s*(?:-\s*)?((?:image|imageName)|(?:[A-Za-z0-9_-]+Image)):\s*(.*?)\s*$/,
+    );
+    if (!match) continue;
+    const value = match[2].trim().replace(/\s+#.*$/, '').trim();
+    const quoted =
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")));
+    images.push({
+      field: match[1],
+      ref: quoted ? value.slice(1, -1) : value,
+      target,
+      line: index + 1,
+    });
   }
   return images;
 }
@@ -130,10 +147,10 @@ export function parseImageReference(ref) {
   const hasRegistry = first.includes('.') || first.includes(':') || first === 'localhost';
   const registry = canonicalRegistry(hasRegistry ? first.toLowerCase() : 'docker.io');
   let repositoryPath = hasRegistry ? parts.slice(1).join('/') : parts.join('/');
+  if (!repositoryPath) throw new Error(`${ref}: image repository is empty`);
   if (registry === 'docker.io' && !repositoryPath.includes('/')) {
     repositoryPath = `library/${repositoryPath}`;
   }
-  if (!repositoryPath) throw new Error(`${ref}: image repository is empty`);
   const repository = `${registry}/${repositoryPath}`;
   return { ref, registry, repositoryPath, repository, tag, digest };
 }
@@ -142,8 +159,7 @@ export function classifyImageOccurrence(occurrence, { requirePinned = false } = 
   const parsed = parseImageReference(occurrence.ref);
   const held =
     occurrence.target === 'infra/kubernetes/apps' &&
-    HELD_APP_REPOSITORIES.has(parsed.repository) &&
-    parsed.digest === ZERO_DIGEST;
+    HELD_APP_REFERENCES.has(occurrence.ref);
 
   if (held) {
     if (requirePinned) {
@@ -388,18 +404,26 @@ export async function validateProductionImages({
     else heldByRef.set(image.ref, { ...image, occurrences: 1 });
   }
   const held = [...heldByRef.values()];
+  const activeOccurrences = classified.filter((candidate) => !candidate.held);
   const activeByRef = new Map();
-  for (const image of classified.filter((candidate) => !candidate.held)) {
+  for (const image of activeOccurrences) {
     const existing = activeByRef.get(image.ref);
     if (existing) {
       existing.targets.add(image.target);
+      if (image.field) existing.fields.add(image.field);
+      existing.occurrences += 1;
     } else {
-      activeByRef.set(image.ref, { ...image, targets: new Set([image.target]) });
+      activeByRef.set(image.ref, {
+        ...image,
+        targets: new Set([image.target]),
+        fields: new Set(image.field ? [image.field] : []),
+        occurrences: 1,
+      });
     }
   }
   const active = [...activeByRef.values()];
   const verified = await mapWithConcurrency(active, concurrency, verify);
-  return { occurrences, heldOccurrences, held, active, verified };
+  return { occurrences, heldOccurrences, held, activeOccurrences, active, verified };
 }
 
 function parseArgs(argv) {
@@ -428,9 +452,13 @@ async function main() {
           `(${image.occurrences} rendered occurrence${image.occurrences === 1 ? '' : 's'})`,
       );
     }
+    const activeFields = [...new Set(
+      result.activeOccurrences.map(({ field }) => field).filter(Boolean),
+    )].sort();
     console.log(
       `[check-prod-digests] verified ${result.verified.length} active unique tag@digest pin(s) ` +
-        `from ${PRODUCTION_ROOTS.length} rendered production roots; ` +
+        `across ${result.activeOccurrences.length} rendered image-field occurrence(s) ` +
+        `(${activeFields.join(', ')}) from ${PRODUCTION_ROOTS.length} production roots; ` +
         `${result.held.length} platform-owned application pin(s) remain deliberately held ` +
         `fail-closed across ${result.heldOccurrences.length} rendered occurrence(s).`,
     );

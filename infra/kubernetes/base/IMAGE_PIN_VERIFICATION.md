@@ -14,8 +14,13 @@ Run the repository guard from the repository root:
 node scripts/check-prod-digests-pinned.mjs
 ```
 
-The guard renders both roots with Kustomize, extracts every resulting `image:`
-reference, and requires every active image to use a real `tag@sha256` reference.
+The guard renders both roots with Kustomize and inventories every scalar
+image-reference field covered by the production manifest contract: workload
+`image`, CRD `imageName`, and operator/bootstrap configuration keys ending in
+`Image` (including `operatorImage`, `barmanPluginImage`, and
+`barmanSidecarImage`). It requires every active occurrence to use a real
+`tag@sha256` reference. Repeated references are checked for policy at every
+occurrence and deduplicated only for the live registry request.
 It then requests the pinned digest through the registry's OCI Distribution API
 and fails unless that manifest exists and its `Docker-Content-Digest` exactly
 equals the rendered pin.
@@ -23,12 +28,17 @@ It supports anonymous Bearer challenges and optional Docker Hub, GHCR, or
 generic registry credentials; authentication and rate-limit failures report
 actionable status/header diagnostics without printing credentials.
 
-The following all-zero application pins are the only exception, and only in
-the rendered `infra/kubernetes/apps` root:
+The following repositories at the exact all-zero digest are the only
+exceptions, and only in the rendered `infra/kubernetes/apps` root. A tag, a
+different repository spelling, or the same reference in the platform root is
+not held:
 
 - `ghcr.io/bahuleyandr/vh-health-platform-backend`
 - `ghcr.io/bahuleyandr/vh-health-platform-adminportal`
 - `ghcr.io/bahuleyandr/vhhealth-staff-web`
+
+For each entry above, the only accepted held form is
+`<repository>@sha256:0000000000000000000000000000000000000000000000000000000000000000`.
 
 They are deliberately held fail-closed until the signed release pipeline
 writes build-emitted digests. The default guard reports them as `HELD`; pass
@@ -62,8 +72,8 @@ changed and no held resource was composed or activated.
 | `ghcr.io/kubereboot/kured:1.16.2` | `sha256:c8c19766c778ba7fe87b4321eef05ba81dcc893a366a4cb3da00bf66a6d5d4df` |
 
 This table records the tag resolution used for the committed correction. The
-CI guard remains the authoritative current availability proof: it requests
-every active rendered digest on each infrastructure gate and detects a missing
-or invalid manifest. It deliberately does not require an upstream version tag
-to remain bound forever; the digest, not the mutable tag, is Kubernetes' pull
-authority.
+CI guard remains the authoritative current availability proof: it inventories
+workload, CRD, and operator/config image fields, requests every unique active
+rendered digest on each infrastructure gate, and detects a missing or invalid
+manifest. It deliberately does not require an upstream version tag to remain
+bound forever; the digest, not the mutable tag, is Kubernetes' pull authority.

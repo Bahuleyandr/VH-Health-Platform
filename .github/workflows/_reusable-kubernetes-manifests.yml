@@ -76,9 +76,10 @@ jobs:
       - name: Check Kyverno Enforce readiness (static policy contract)
         run: node scripts/check-kyverno-enforce-readiness.mjs
 
-      # Render both ArgoCD production roots and verify every active tag@digest
-      # pull target exists at its live registry. The validator recognizes only
-      # the exact three platform-owned all-zero app pins as a deliberate hold.
+      # Render both ArgoCD production roots, inventory workload/CRD/operator
+      # image fields, and verify every unique active tag@digest pull target at
+      # its live registry. Only the exact three platform-owned all-zero app
+      # references are recognized as a deliberate hold.
       - name: Verify production image pins against registries
         run: node scripts/check-prod-digests-pinned.mjs
 

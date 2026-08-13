@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  HELD_APP_REFERENCES,
   ZERO_DIGEST,
   classifyImageOccurrence,
   extractRenderedImages,
@@ -39,18 +40,27 @@ function manifestResponse({
   });
 }
 
-test('extracts container and init-container images from rendered YAML', () => {
+test('extracts workload, CRD, and operator-config image fields from rendered YAML', () => {
   const images = extractRenderedImages([
     'containers:',
     '  - image: docker.io/example/one:1@sha256:abc',
     '    name: one',
-    "  image: 'ghcr.io/example/two:2@sha256:def'",
+    "  imageName: 'ghcr.io/example/postgres:18@sha256:def'",
+    '  operatorImage: "ghcr.io/example/operator:1@sha256:123"',
+    '  barmanPluginImage: ghcr.io/example/plugin:1@sha256:456',
+    '  barmanSidecarImage: ghcr.io/example/sidecar:1@sha256:789 # reviewed pin',
+    '  postgresImage: ghcr.io/example/postgres:18@sha256:def',
+    '  imagePullPolicy: IfNotPresent',
     'data:',
     '  note: image: is not a workload field',
   ].join('\n'), 'prod');
-  assert.deepEqual(images.map(({ ref, line }) => ({ ref, line })), [
-    { ref: 'docker.io/example/one:1@sha256:abc', line: 2 },
-    { ref: 'ghcr.io/example/two:2@sha256:def', line: 4 },
+  assert.deepEqual(images.map(({ field, ref, line }) => ({ field, ref, line })), [
+    { field: 'image', ref: 'docker.io/example/one:1@sha256:abc', line: 2 },
+    { field: 'imageName', ref: 'ghcr.io/example/postgres:18@sha256:def', line: 4 },
+    { field: 'operatorImage', ref: 'ghcr.io/example/operator:1@sha256:123', line: 5 },
+    { field: 'barmanPluginImage', ref: 'ghcr.io/example/plugin:1@sha256:456', line: 6 },
+    { field: 'barmanSidecarImage', ref: 'ghcr.io/example/sidecar:1@sha256:789', line: 7 },
+    { field: 'postgresImage', ref: 'ghcr.io/example/postgres:18@sha256:def', line: 8 },
   ]);
 });
 
@@ -92,6 +102,11 @@ test('normalizes Docker Hub shorthand and preserves explicit registries', () => 
 });
 
 test('accepts only the exact documented zero app placeholders as held', () => {
+  assert.deepEqual([...HELD_APP_REFERENCES].sort(), [
+    `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`,
+    `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`,
+    `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`,
+  ]);
   const held = classifyImageOccurrence({
     target: 'infra/kubernetes/apps',
     line: 10,
@@ -123,6 +138,25 @@ test('accepts only the exact documented zero app placeholders as held', () => {
     }, { requirePinned: true }),
     /remains at the deliberately held all-zero digest/,
   );
+  assert.throws(
+    () => classifyImageOccurrence({
+      target: 'infra/kubernetes/apps',
+      line: 10,
+      ref: `ghcr.io/bahuleyandr/vh-health-platform-backend:unexpected@${ZERO_DIGEST}`,
+    }),
+    /is not pinned to a real sha256 digest/,
+  );
+});
+
+test('retains an empty runtime image field so validation fails closed', () => {
+  const [occurrence] = extractRenderedImages('operatorImage:', 'prod');
+  assert.deepEqual(occurrence, {
+    field: 'operatorImage',
+    ref: '',
+    target: 'prod',
+    line: 1,
+  });
+  assert.throws(() => classifyImageOccurrence(occurrence), /image repository is empty/);
 });
 
 test('verifies the rendered digest exists and records platforms', async () => {
@@ -211,9 +245,15 @@ test('deduplicates active refs while retaining deliberate held occurrences', asy
   const activeRef = `example/test:1@${digestA}`;
   const result = await validateProductionImages({
     occurrences: [
-      { ref: activeRef, target: 'infra/kubernetes/overlays/prod', line: 1 },
-      { ref: activeRef, target: 'infra/kubernetes/apps', line: 2 },
       {
+        field: 'operatorImage',
+        ref: activeRef,
+        target: 'infra/kubernetes/overlays/prod',
+        line: 1,
+      },
+      { field: 'image', ref: activeRef, target: 'infra/kubernetes/apps', line: 2 },
+      {
+        field: 'image',
         ref: `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`,
         target: 'infra/kubernetes/apps',
         line: 3,
@@ -223,6 +263,9 @@ test('deduplicates active refs while retaining deliberate held occurrences', asy
   });
   assert.equal(result.active.length, 1);
   assert.equal(result.active[0].targets.size, 2);
+  assert.deepEqual([...result.active[0].fields].sort(), ['image', 'operatorImage']);
+  assert.equal(result.active[0].occurrences, 2);
+  assert.equal(result.activeOccurrences.length, 2);
   assert.equal(result.held.length, 1);
   assert.equal(result.verified.length, 1);
 });
