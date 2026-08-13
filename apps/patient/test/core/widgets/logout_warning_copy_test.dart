@@ -36,17 +36,16 @@ void main() {
     expect(LogoutButton.logoutWarningMessage(_revoked), isNull);
   });
 
-  test(
-    'the two unconfirmed branches must not say the same thing',
-    () {
-      // THE defect, stated directly: one sentence for both states means the
-      // field it is supposed to reflect changes nothing a user can see.
-      expect(
-        LogoutButton.logoutWarningMessage(_unconfirmedWithRetry),
-        isNot(equals(LogoutButton.logoutWarningMessage(_unconfirmedWithoutRetry))),
-      );
-    },
-  );
+  test('the two unconfirmed branches must not say the same thing', () {
+    // THE defect, stated directly: one sentence for both states means the
+    // field it is supposed to reflect changes nothing a user can see.
+    expect(
+      LogoutButton.logoutWarningMessage(_unconfirmedWithRetry),
+      isNot(
+        equals(LogoutButton.logoutWarningMessage(_unconfirmedWithoutRetry)),
+      ),
+    );
+  });
 
   test('a queued retry is described as AUTOMATIC, not as a user action', () {
     final message = LogoutButton.logoutWarningMessage(_unconfirmedWithRetry)!;
@@ -62,7 +61,9 @@ void main() {
   });
 
   test('no queued retry must not promise one', () {
-    final message = LogoutButton.logoutWarningMessage(_unconfirmedWithoutRetry)!;
+    final message = LogoutButton.logoutWarningMessage(
+      _unconfirmedWithoutRetry,
+    )!;
 
     expect(
       message,

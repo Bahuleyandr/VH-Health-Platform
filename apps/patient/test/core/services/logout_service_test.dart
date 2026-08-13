@@ -496,63 +496,60 @@ void main() {
     expect(outcome.serverSessionRevoked, isTrue);
   });
 
-  test(
-    'EVERY bounded step wedging in the same logout still returns, and still '
-    'wipes',
-    () async {
-      // Substantiates the worst-case ceiling documented on LogoutService: it is
-      // the SUM of the per-step bounds, with no unbounded network or socket
-      // call left in the path. If a future step is added without a bound, this
-      // test hangs.
-      LogoutService.networkStepTimeout = const Duration(milliseconds: 50);
-      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
-      PatientRealtimeLifecycle.instance.attach(
-        owner: Object(),
-        start: () async {},
-        stop: ({required unsubscribe}) => Completer<void>().future,
-      );
-      final calls = <String>[];
-      LogoutService.debugSetDependencies(
-        _dependencies(
-          calls,
-          hangOn: const {
-            'firebase-server-revoke',
-            'device-unregister',
-            'vh-server-revoke',
-            'realtime',
-            'fcm-token',
-            'firebase-signout',
-          },
-        ),
-      );
-
-      final stopwatch = Stopwatch()..start();
-      final outcome = await LogoutService.logout().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => fail('an unbounded step remains in the logout path'),
-      );
-      stopwatch.stop();
-
-      expect(outcome.serverSessionRevoked, isFalse);
-      expect(outcome.realtimeTeardownTimedOut, isTrue);
-      // The local PHI wipe is never the thing that gets skipped.
-      expect(
+  test('EVERY bounded step wedging in the same logout still returns, and still '
+      'wipes', () async {
+    // Substantiates the worst-case ceiling documented on LogoutService: it is
+    // the SUM of the per-step bounds, with no unbounded network or socket
+    // call left in the path. If a future step is added without a bound, this
+    // test hangs.
+    LogoutService.networkStepTimeout = const Duration(milliseconds: 50);
+    PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+    PatientRealtimeLifecycle.instance.attach(
+      owner: Object(),
+      start: () async {},
+      stop: ({required unsubscribe}) => Completer<void>().future,
+    );
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(
+      _dependencies(
         calls,
-        containsAll(<String>[
-          'api-cache',
-          'secure-storage',
-          'file-cache',
-          'doc-staging',
-          'cycle-tracker',
-          'dependents',
-          'user-provider',
-        ]),
-      );
-      // 7 bounded steps x 50ms, plus the degradation report. Generous margin,
-      // but orders of magnitude below "never".
-      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
-    },
-  );
+        hangOn: const {
+          'firebase-server-revoke',
+          'device-unregister',
+          'vh-server-revoke',
+          'realtime',
+          'fcm-token',
+          'firebase-signout',
+        },
+      ),
+    );
+
+    final stopwatch = Stopwatch()..start();
+    final outcome = await LogoutService.logout().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => fail('an unbounded step remains in the logout path'),
+    );
+    stopwatch.stop();
+
+    expect(outcome.serverSessionRevoked, isFalse);
+    expect(outcome.realtimeTeardownTimedOut, isTrue);
+    // The local PHI wipe is never the thing that gets skipped.
+    expect(
+      calls,
+      containsAll(<String>[
+        'api-cache',
+        'secure-storage',
+        'file-cache',
+        'doc-staging',
+        'cycle-tracker',
+        'dependents',
+        'user-provider',
+      ]),
+    );
+    // 7 bounded steps x 50ms, plus the degradation report. Generous margin,
+    // but orders of magnitude below "never".
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 3)));
+  });
 
   test('the teardown timeout is RECORDED, never swallowed', () async {
     // A silently-swallowed bound recreates exactly the quiet-degradation class

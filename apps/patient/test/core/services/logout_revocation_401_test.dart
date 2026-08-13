@@ -53,10 +53,7 @@ void main() {
       MockClient((request) async {
         paths.add(request.url.path);
         return http.Response(
-          jsonEncode({
-            'success': false,
-            'message': 'Session has been revoked',
-          }),
+          jsonEncode({'success': false, 'message': 'Session has been revoked'}),
           401,
           headers: {'content-type': 'application/json'},
         );
@@ -89,7 +86,10 @@ void main() {
       expect(await defaults.retryFirebaseRevocation('jwt-abc'), isTrue);
 
       expect(paths, hasLength(4), reason: 'all four calls were really sent');
-      expect(paths.where((path) => path.endsWith('/auth/logout')), hasLength(2));
+      expect(
+        paths.where((path) => path.endsWith('/auth/logout')),
+        hasLength(2),
+      );
       expect(
         paths.where(
           (path) => path.endsWith('/auth/firebase/revoke-my-session'),
