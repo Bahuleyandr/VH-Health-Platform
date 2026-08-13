@@ -11,7 +11,6 @@ import {
 import { generateACK, parseHL7 } from '../hl7/hl7Parser.js';
 import {
   loadTenantKekIntoProvider,
-  tenantKeyId,
 } from '../security/tenantKekProvider.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { createTask } from '../workflow/taskService.js';
@@ -57,16 +56,17 @@ const RECOVERY_KEYS = new Set([
 ]);
 
 async function requireI03TenantKek(tenantId) {
-  const expectedKeyId = tenantKeyId(tenantId);
   try {
-    await loadTenantKekIntoProvider(tenantId);
+    // The tenant's CURRENT key id — a shredded-then-re-provisioned tenant is on a
+    // later version, so this must never be assumed to be v1.
+    const { keyId } = await loadTenantKekIntoProvider(tenantId);
+    return keyId;
   } catch {
     throw AppError.internal(
       'I03 recovery tenant encryption key is unavailable',
       'HL7_I03_RECOVERY_TENANT_KEK_REQUIRED',
     );
   }
-  return expectedKeyId;
 }
 
 const CLOCK_KEYS = new Set([

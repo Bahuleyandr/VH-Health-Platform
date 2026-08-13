@@ -146,9 +146,22 @@ the patient/staff app links, and a note that all access is tenant-isolated + aud
 ## Rollback (a tenant onboarded in error)
 1. Set the tenant `status='suspended'` (admin tenants page or `PATCH /admin/tenants/:id`)
    — the middleware then rejects its requests.
-2. Crypto-shred its PHI: NULL the tenant's `wrapped_key_material` (W3 WS5) — its
-   encrypted data becomes unreadable.
+2. Crypto-shred its PHI: `cryptoShredTenant(tenantId)` (W3 WS5) clears
+   `wrapped_key_material` on **every** `t:<tenant>:v<n>` row and retires it — its
+   encrypted data becomes unreadable. Do **not** hand-edit the column: migration 672
+   makes tenant KEK material write-once (it may only be cleared), so an in-place
+   `UPDATE … SET wrapped_key_material = …` is refused with SQLSTATE 23514.
 3. (Optional) hard-delete via a tenant-scoped purge once exports are taken.
+
+### Un-shredding is impossible; re-provisioning is not
+A shred is final for the data it covered — that is the point. The tenant itself
+is **not** bricked: re-run the onboarding KEK step
+(`node scripts/onboard-tenant.mjs …`, or `provisionTenantKek(tenantId)`) and it
+allocates the **next** version, e.g. `t:<tenant>:v2` with `rotated_from` pointing
+at the shredded row. New writes are stamped with the new version and work
+immediately; anything encrypted before the shred stays unrecoverable. Re-running
+against a tenant that still has a live KEK is a no-op — it reuses the active
+version rather than rotating.
 The wildcard DNS/TLS + cloudflared/ingress changes are platform-wide — never roll those
 back to remove one tenant.
 
