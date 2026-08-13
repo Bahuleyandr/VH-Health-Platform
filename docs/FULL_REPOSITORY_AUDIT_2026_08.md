@@ -267,4 +267,3 @@ either integrated and verified or explicitly converted to an owner-approved
 HELD activation gate; every Medium/Low row has an owner, disposition, and test
 or deletion proof; the final remediation head passes the immutable `[full-ci]`
 matrix; and no deployment or merge is inferred from those green checks.
-
