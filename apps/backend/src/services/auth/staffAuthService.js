@@ -81,13 +81,18 @@ function isActiveStaffIdentity(staff) {
 
 // ✅ FIX: All methods are now correctly inside the class block.
 export class StaffAuthService {
-  static async bindStaffInstallation(staff, rawInstallationId, deviceInfo = {}) {
+  static async bindStaffInstallation(
+    staff,
+    rawInstallationId,
+    deviceInfo = {},
+    transactionClient = null,
+  ) {
     const stableDeviceId = installationId(rawInstallationId);
     if (!staff?.uid || !staff?.tenant_id) {
       throw new Error('Staff installation binding requires tenant and user identity');
     }
 
-    await setTenant(staff.tenant_id, tx => query(
+    const persist = tx => query(
       `INSERT INTO user_devices (
          tenant_id, user_uid, device_id, device_name, platform,
          app_version, os_version, last_active, created_at,
@@ -116,7 +121,12 @@ export class StaffAuthService {
         deviceInfo.os || deviceInfo.osVersion || null,
       ],
       tx,
-    ));
+    );
+    if (transactionClient) {
+      await persist(transactionClient);
+    } else {
+      await setTenant(staff.tenant_id, persist);
+    }
 
     return stableDeviceId;
   }
@@ -148,7 +158,10 @@ export class StaffAuthService {
         reason: `Staff lockout: ${MAX_LOGIN_ATTEMPTS} failed attempts across all auth methods in 15 minutes`,
       });
       trackFailedLogin(req?.ip, employeeId);
-      throw new Error('Account temporarily locked due to multiple failed attempts');
+      throw AppError.tooMany(
+        'Account temporarily locked due to multiple failed attempts',
+        'STAFF_LOGIN_RATE_LIMITED',
+      );
     }
   }
 
@@ -178,7 +191,10 @@ export class StaffAuthService {
         reason: `PIN lockout: ${MAX_LOGIN_ATTEMPTS} failed PIN attempts from this device/IP in 15 minutes`,
       });
       trackFailedLogin(req?.ip, employeeId);
-      throw new Error('Too many failed PIN attempts from this device. Try again later or use password login.');
+      throw AppError.tooMany(
+        'Too many failed PIN attempts from this device. Try again later or use password login.',
+        'STAFF_PIN_RATE_LIMITED',
+      );
     }
 
     const globalCheck = await query(`
@@ -197,13 +213,132 @@ export class StaffAuthService {
         reason: 'PIN lockout backstop: distributed failed-PIN attempts across many sources',
       });
       trackFailedLogin(req?.ip, employeeId);
-      throw new Error('Account temporarily locked due to multiple failed attempts');
+      throw AppError.tooMany(
+        'Account temporarily locked due to multiple failed attempts',
+        'STAFF_PIN_RATE_LIMITED',
+      );
     }
   }
 
   // =================================================================
   // PRIMARY AUTHENTICATION METHODS
   // =================================================================
+
+  static async _authenticateStaffPassword(
+    employeeId,
+    password,
+    req,
+    path = '/api/v1/auth/staff/login',
+  ) {
+    await this._checkStaffLockout(employeeId, req, path);
+
+    const result = await query(`
+      SELECT
+        u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
+        u.encrypted_password, u.is_active AS user_is_active,
+        u.status AS user_status, u.is_deleted, u.merged_into_uid,
+        s.employee_id, s.department, s.position,
+        s.is_active AS staff_is_active, s.shift_type
+      FROM staff s
+      JOIN users u ON s.user_id = u.uid
+      WHERE s.employee_id = $1
+    `, [employeeId]);
+
+    if (result.rows.length === 0) {
+      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid employee ID', 'password', req);
+      logSecurityEvent('LOGIN_FAILED', {
+        userName: employeeId,
+        ip: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+        path,
+        reason: 'Invalid employee ID',
+      });
+      throw AppError.invalidCredentials('Invalid employee ID or password');
+    }
+
+    const staff = result.rows[0];
+    if (!isActiveStaffIdentity(staff)) {
+      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
+      logSecurityEvent('LOGIN_FAILED', {
+        userId: String(staff.uid),
+        userName: employeeId,
+        userRole: staff.role,
+        ip: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+        path,
+        reason: 'Account deactivated',
+      });
+      throw AppError.accountDeactivated('Account deactivated');
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, staff.encrypted_password);
+    if (!isPasswordValid) {
+      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid password', 'password', req);
+      logSecurityEvent('LOGIN_FAILED', {
+        userId: String(staff.uid),
+        userName: employeeId,
+        userRole: staff.role,
+        ip: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+        path,
+        reason: 'Invalid password',
+      });
+      throw AppError.invalidCredentials('Invalid employee ID or password');
+    }
+
+    return staff;
+  }
+
+  static async _issueStaffSession(staff, stableDeviceId, deviceType, req) {
+    const {
+      accessToken,
+      tokenEpoch,
+      sessionFamilyId,
+    } = await issueAccessTokenAndClaimSession({
+      userUid: staff.uid,
+      tokenPayload: {
+        id: staff.id,
+        uid: staff.uid,
+        role: staff.role,
+        tenant_id: staff.tenant_id,
+      },
+      expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
+      deviceType,
+      stableDeviceId,
+      req,
+    });
+    const refreshToken = await this.generateRefreshToken(
+      staff,
+      stableDeviceId,
+      tokenEpoch,
+      sessionFamilyId,
+    );
+    await this.createSession(
+      staff.id,
+      staff.tenant_id,
+      stableDeviceId,
+      refreshToken,
+      req,
+    );
+    await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
+
+    return {
+      accessToken,
+      refreshToken,
+      staff: {
+        id: staff.id,
+        uid: staff.uid,
+        employeeId: staff.employee_id,
+        name: staff.name,
+        email: staff.email,
+        department: staff.department,
+        role: staff.role,
+        position: staff.position,
+        tenantId: staff.tenant_id,
+        stableDeviceId,
+      },
+    };
+  }
 
   static async authenticateStaff(
     employeeId,
@@ -212,65 +347,11 @@ export class StaffAuthService {
     { deviceType, installationId: rawInstallationId, deviceInfo = {} } = {},
   ) {
     try {
-      await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login');
-
-      // Find staff member by employee ID
-      const result = await query(`
-        SELECT
-          u.id, u.uid, u.tenant_id, u.name, u.email, u.phone, u.role,
-          u.encrypted_password, u.is_active AS user_is_active,
-          u.status AS user_status, u.is_deleted, u.merged_into_uid,
-          s.employee_id, s.department, s.position,
-          s.is_active AS staff_is_active, s.shift_type
-        FROM staff s
-        JOIN users u ON s.user_id = u.uid
-        WHERE s.employee_id = $1
-      `, [employeeId]);
-
-      if (result.rows.length === 0) {
-        await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid employee ID', 'password', req);
-        logSecurityEvent('LOGIN_FAILED', {
-          userName: employeeId,
-          ip: req?.ip,
-          userAgent: req?.headers?.['user-agent'],
-          path: '/api/v1/auth/staff/login',
-          reason: 'Invalid employee ID',
-        });
-        throw new Error('Invalid employee ID or password');
-      }
-
-      const staff = result.rows[0];
-
-      if (!isActiveStaffIdentity(staff)) {
-        await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
-        logSecurityEvent('LOGIN_FAILED', {
-          userId: String(staff.uid),
-          userName: employeeId,
-          userRole: staff.role,
-          ip: req?.ip,
-          userAgent: req?.headers?.['user-agent'],
-          path: '/api/v1/auth/staff/login',
-          reason: 'Account deactivated',
-        });
-        throw new Error('Account deactivated');
-      }
-
-      const isPasswordValid = await bcrypt.compare(password, staff.encrypted_password);
-      if (!isPasswordValid) {
-        await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid password', 'password', req);
-        logSecurityEvent('LOGIN_FAILED', {
-          userId: String(staff.uid),
-          userName: employeeId,
-          userRole: staff.role,
-          ip: req?.ip,
-          userAgent: req?.headers?.['user-agent'],
-          path: '/api/v1/auth/staff/login',
-          reason: 'Invalid password',
-        });
-        throw new Error('Invalid employee ID or password');
-      }
-
-      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', true, null, 'password', req);
+      const staff = await this._authenticateStaffPassword(
+        employeeId,
+        password,
+        req,
+      );
       const stableDeviceId = await this.bindStaffInstallation(
         staff,
         rawInstallationId,
@@ -280,56 +361,15 @@ export class StaffAuthService {
         },
       );
 
-      const {
-        accessToken,
-        tokenEpoch,
-        sessionFamilyId,
-      } = await issueAccessTokenAndClaimSession({
-        userUid: staff.uid,
-        tokenPayload: {
-          id: staff.id,
-          uid: staff.uid,
-          role: staff.role,
-          tenant_id: staff.tenant_id,
-        },
-        expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
-        deviceType,
-        stableDeviceId,
-        req,
-      });
-      const refreshToken = await this.generateRefreshToken(
+      const authResult = await this._issueStaffSession(
         staff,
         stableDeviceId,
-        tokenEpoch,
-        sessionFamilyId,
-      );
-      await this.createSession(
-        staff.id,
-        staff.tenant_id,
-        stableDeviceId,
-        refreshToken,
+        deviceType,
         req,
       );
-
-      await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
+      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', true, null, 'password', req);
       await this.logActivity(staff.uid, 'STAFF_LOGIN', 'Staff login successful', req);
-
-      return {
-        accessToken,
-        refreshToken,
-        staff: {
-          id: staff.id,
-          uid: staff.uid,
-          employeeId: staff.employee_id,
-          name: staff.name,
-          email: staff.email,
-          department: staff.department,
-          role: staff.role,
-          position: staff.position,
-          tenantId: staff.tenant_id,
-          stableDeviceId,
-        },
-      };
+      return authResult;
     } catch (error) {
       logger.error('Staff authentication error:', error);
       throw error;
@@ -470,36 +510,53 @@ export class StaffAuthService {
     { deviceType, installationId: rawInstallationId } = {},
   ) {
     try {
-      // Re-uses the result from authenticateStaff, avoiding extra DB calls.
-      // The inner call already claims the single active session.
-      const authResult = await this.authenticateStaff(employeeId, password, req, {
-        deviceType,
-        installationId: rawInstallationId,
-        deviceInfo,
-      });
-      const staff = authResult.staff;
-      const userId = staff.id;
-      const stableDeviceId = installationId(rawInstallationId);
-
-      // Check device limit
-      const deviceCountResult = await query(
-        `SELECT COUNT(*)
-           FROM staff_devices
-          WHERE tenant_id = $1::uuid
-            AND staff_id = $2
-            AND device_id <> $3
-            AND is_active = true`,
-        [staff.tenantId, userId, stableDeviceId]
+      const staff = await this._authenticateStaffPassword(
+        employeeId,
+        password,
+        req,
+        '/api/v1/auth/staff/register-device',
       );
-
-      if (parseInt(deviceCountResult.rows[0].count) >= MAX_DEVICES_PER_STAFF) {
-        throw new Error(`Maximum ${MAX_DEVICES_PER_STAFF} devices allowed`);
-      }
-
+      const normalizedDeviceInfo = deviceInfo || {};
+      const stableDeviceId = installationId(rawInstallationId);
       const deviceToken = this.generateDeviceToken();
-      const deviceId = stableDeviceId;
+      await setTenantTx(staff.tenant_id, async (tx) => {
+        await query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+          [`staff-device-registration:${staff.tenant_id}:${staff.uid}`],
+          tx,
+        );
+        const activeDevices = await query(
+          `SELECT device_id
+             FROM staff_devices
+            WHERE tenant_id = $1::uuid
+              AND staff_id = $2
+              AND user_uid = $3::uuid
+              AND is_active = true
+            FOR UPDATE`,
+          [staff.tenant_id, staff.id, staff.uid],
+          tx,
+        );
+        const otherDeviceCount = activeDevices.rows.filter(
+          row => String(row.device_id).toLowerCase() !== stableDeviceId,
+        ).length;
+        if (otherDeviceCount >= MAX_DEVICES_PER_STAFF) {
+          throw AppError.conflict(
+            `Maximum ${MAX_DEVICES_PER_STAFF} devices allowed`,
+            'STAFF_DEVICE_LIMIT_REACHED',
+            { maxDevices: MAX_DEVICES_PER_STAFF },
+          );
+        }
 
-      await setTenant(staff.tenantId, tx => query(`
+        await this.bindStaffInstallation(
+          staff,
+          stableDeviceId,
+          {
+            ...normalizedDeviceInfo,
+            platform: normalizedDeviceInfo.platform || deviceType,
+          },
+          tx,
+        );
+        await query(`
           INSERT INTO staff_devices (
             tenant_id, staff_id, user_uid, device_id, device_name, device_token,
             is_active, registered_at, registered_location, trust_expires_at
@@ -516,28 +573,36 @@ export class StaffAuthService {
             registered_location = EXCLUDED.registered_location,
             trust_expires_at = EXCLUDED.trust_expires_at
         `, [
-          staff.tenantId,
-          userId,
+          staff.tenant_id,
+          staff.id,
           staff.uid,
-          deviceId,
-          deviceInfo.deviceName || deviceInfo.name || 'Unknown Device',
+          stableDeviceId,
+          normalizedDeviceInfo.deviceName || normalizedDeviceInfo.name || 'Unknown Device',
           deviceToken,
           JSON.stringify({
-            type: deviceInfo.type || deviceType || 'mobile',
-            platform: deviceInfo.platform || null,
-            model: deviceInfo.model,
-            os: deviceInfo.os,
-            appVersion: deviceInfo.appVersion,
+            type: normalizedDeviceInfo.type || deviceType || 'mobile',
+            platform: normalizedDeviceInfo.platform || null,
+            model: normalizedDeviceInfo.model,
+            os: normalizedDeviceInfo.os,
+            appVersion: normalizedDeviceInfo.appVersion,
           }),
-        ], tx));
+        ], tx);
+      });
 
+      const authResult = await this._issueStaffSession(
+        staff,
+        stableDeviceId,
+        deviceType,
+        req,
+      );
+      await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', true, null, 'password', req);
       await this.logActivity(staff.uid, 'DEVICE_REGISTERED',
-        `Device registered: ${deviceInfo.deviceName || deviceInfo.name || 'Unknown Device'}`, req, { deviceId });
+        `Device registered: ${normalizedDeviceInfo.deviceName || normalizedDeviceInfo.name || 'Unknown Device'}`, req, { deviceId: stableDeviceId });
 
       return {
         ...authResult,
         deviceToken,
-        deviceId,
+        deviceId: stableDeviceId,
       };
     } catch (error) {
       logger.error('Device registration error:', error);

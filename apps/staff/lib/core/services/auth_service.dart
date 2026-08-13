@@ -586,6 +586,27 @@ class AuthService {
     await _storage.delete(key: 'device_token');
   }
 
+  /// Apply the server's trusted-device removal revocation locally.
+  ///
+  /// Removing any device revokes every staff session, so every successful
+  /// removal must clear this app's authenticated session. The installation's
+  /// trusted-device token is retained only when a different device was
+  /// removed; password login can then re-establish this installation without
+  /// losing its device binding.
+  static Future<bool> applyDeviceRemovalRevocation(
+    String removedDeviceId,
+  ) async {
+    final currentInstallationId = await getInstallationId();
+    final removedCurrentInstallation =
+        removedDeviceId.trim().toLowerCase() ==
+        currentInstallationId.toLowerCase();
+    if (removedCurrentInstallation) {
+      await clearDeviceToken();
+    }
+    await forceLogoutForRevocation();
+    return removedCurrentInstallation;
+  }
+
   /// Get saved device token
   static Future<String?> getDeviceToken() async {
     return await _storage.read(key: 'device_token');

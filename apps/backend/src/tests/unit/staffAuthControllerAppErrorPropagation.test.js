@@ -17,12 +17,14 @@ import { AppError } from '../../utils/AppError.js';
 const updateOwnProfileMock = jest.fn();
 const changeOwnPasswordMock = jest.fn();
 const logoutStaffMock = jest.fn();
+const registerStaffDeviceMock = jest.fn();
 
 jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
   StaffAuthService: {
     updateOwnProfile: updateOwnProfileMock,
     changeOwnPassword: changeOwnPasswordMock,
     logoutStaff: logoutStaffMock,
+    registerStaffDevice: registerStaffDeviceMock,
   },
 }));
 jest.unstable_mockModule('../../services/staff/staffService.js', () => ({
@@ -92,9 +94,79 @@ beforeEach(() => {
   updateOwnProfileMock.mockReset();
   changeOwnPasswordMock.mockReset();
   logoutStaffMock.mockReset();
+  registerStaffDeviceMock.mockReset();
 });
 
 describe('staffAuthController relays AppError code + details over HTTP', () => {
+  test.each([
+    {
+      serviceError: AppError.invalidCredentials('Invalid employee ID or password'),
+      statusCode: 401,
+      code: 'INVALID_CREDENTIALS',
+    },
+    {
+      serviceError: AppError.tooMany(
+        'Account temporarily locked due to multiple failed attempts',
+        'STAFF_LOGIN_RATE_LIMITED',
+      ),
+      statusCode: 429,
+      code: 'STAFF_LOGIN_RATE_LIMITED',
+    },
+    {
+      serviceError: AppError.conflict(
+        'Maximum 5 devices allowed',
+        'STAFF_DEVICE_LIMIT_REACHED',
+        { maxDevices: 5 },
+      ),
+      statusCode: 409,
+      code: 'STAFF_DEVICE_LIMIT_REACHED',
+    },
+  ])(
+    'register-device relays $code as HTTP $statusCode',
+    async ({ serviceError, statusCode, code }) => {
+      registerStaffDeviceMock.mockRejectedValueOnce(serviceError);
+
+      const response = await request(app)
+        .post('/api/v1/auth/staff/register-device')
+        .send({
+          employeeId: 'EMP-001',
+          password: 'password',
+          installationId: '33333333-3333-4333-8333-333333333333',
+          deviceInfo: { deviceName: 'Ward device' },
+        });
+
+      expect(response.statusCode).toBe(statusCode);
+      expect(response.body).toMatchObject({
+        success: false,
+        message: serviceError.message,
+        code,
+      });
+    },
+  );
+
+  test('register-device keeps unexpected failures behind a generic 500', async () => {
+    registerStaffDeviceMock.mockRejectedValueOnce(
+      new Error('staff_devices_unique_internal_constraint'),
+    );
+
+    const response = await request(app)
+      .post('/api/v1/auth/staff/register-device')
+      .send({
+        employeeId: 'EMP-001',
+        password: 'password',
+        installationId: '33333333-3333-4333-8333-333333333333',
+        deviceInfo: { deviceName: 'Ward device' },
+      });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toMatchObject({
+      success: false,
+      message: 'Failed to register device',
+    });
+    expect(response.body.message).not.toMatch(/constraint/);
+    expect(response.body).not.toHaveProperty('code');
+  });
+
   test('threads the stable session selectors into a device-scoped logout', async () => {
     logoutStaffMock.mockResolvedValueOnce({ success: true, allDevices: false });
 

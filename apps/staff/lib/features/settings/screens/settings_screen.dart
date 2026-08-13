@@ -772,22 +772,8 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
     if (!OnlineOnlyActionGuard.require(context)) return;
     try {
       await HrApiService.removeRegisteredDevice(deviceId);
-      if (deviceId == await AuthService.getInstallationId()) {
-        await AuthService.clearDeviceToken();
-        await AuthService.forceLogoutForRevocation();
-        if (mounted) context.go('/login');
-        return;
-      }
-      if (mounted) {
-        final s = AppStrings.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(s.settingsDeviceRemoved),
-            backgroundColor: AppTheme.successGreen,
-          ),
-        );
-        unawaited(_load());
-      }
+      await AuthService.applyDeviceRemovalRevocation(deviceId);
+      if (mounted) context.go('/login');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

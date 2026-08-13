@@ -146,6 +146,8 @@ function configurePrisma() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPersistRevokeAllUserTokens.mockReset().mockResolvedValue(1_700_000_000);
+  mockPublishRevokeAllUserTokens.mockReset().mockResolvedValue({ database: { persisted: true } });
   readRules = [];
   defaultWriteCount = 1;
   mockIssueAccess.mockResolvedValue({ accessToken: 'fresh-access-token' });
@@ -169,7 +171,10 @@ describe('_checkStaffLockout', () => {
   it('throws + logs ACCOUNT_LOCKED when count is at/above the limit', async () => {
     read(/COUNT\(\*\) as cnt FROM auth_logs/, [{ cnt: '5' }]);
     await expect(StaffAuthService._checkStaffLockout('EMP1', REQ, '/custom/path'))
-      .rejects.toThrow('Account temporarily locked');
+      .rejects.toMatchObject({
+        statusCode: 429,
+        code: 'STAFF_LOGIN_RATE_LIMITED',
+      });
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('ACCOUNT_LOCKED', expect.objectContaining({
       userName: 'EMP1',
       path: '/custom/path',
@@ -258,7 +263,7 @@ describe('authenticateStaff', () => {
     await expect(StaffAuthService.authenticateStaff('NOPE', 'pw', REQ, {
       installationId: INSTALLATION_ID,
     }))
-      .rejects.toThrow('Invalid employee ID or password');
+      .rejects.toMatchObject({ statusCode: 401, code: 'INVALID_CREDENTIALS' });
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Invalid employee ID',
     }));
@@ -297,7 +302,7 @@ describe('authenticateStaff', () => {
     await expect(StaffAuthService.authenticateStaff('EMP1', 'wrong', REQ, {
       installationId: INSTALLATION_ID,
     }))
-      .rejects.toThrow('Invalid employee ID or password');
+      .rejects.toMatchObject({ statusCode: 401, code: 'INVALID_CREDENTIALS' });
     expect(mockLogSecurityEvent).toHaveBeenCalledWith('LOGIN_FAILED', expect.objectContaining({
       reason: 'Invalid password',
     }));
@@ -433,7 +438,9 @@ describe('registerStaffDevice', () => {
 
   it('registers a device and returns device token + id', async () => {
     authOk();
-    read(/COUNT\(\*\)[\s\S]*FROM staff_devices/, [{ count: '1' }]);
+    read(/SELECT device_id\s+FROM staff_devices/, [
+      { device_id: '44444444-4444-4444-8444-444444444444' },
+    ]);
     const out = await StaffAuthService.registerStaffDevice(
       'EMP1', 'pw', { name: 'Pixel 8', type: 'mobile', model: 'P8', os: 'Android', appVersion: '1.0' },
       REQ,
@@ -446,6 +453,7 @@ describe('registerStaffDevice', () => {
     expect(out.deviceId).toEqual(expect.any(String));
     expect(out.refreshToken).toBe('mock-refresh-token');
     expect(out.staff).toMatchObject({ employeeId: 'EMP1' });
+    expect(mockBcryptCompare).toHaveBeenCalledTimes(1);
     const registeredCall = mockPrisma.$executeRawUnsafe.mock.calls.find(
       ([sql]) => /INSERT INTO staff_devices/.test(sql),
     );
@@ -457,9 +465,12 @@ describe('registerStaffDevice', () => {
     ]);
   });
 
-  it('throws when the device limit is reached', async () => {
+  it('rejects a sixth device before issuing or mutating login/registration state', async () => {
     authOk();
-    read(/COUNT\(\*\)[\s\S]*FROM staff_devices/, [{ count: '5' }]);
+    read(/SELECT device_id\s+FROM staff_devices/, Array.from(
+      { length: 5 },
+      (_, index) => ({ device_id: `device-${index + 1}` }),
+    ));
     await expect(StaffAuthService.registerStaffDevice(
       'EMP1',
       'pw',
@@ -467,12 +478,62 @@ describe('registerStaffDevice', () => {
       REQ,
       { installationId: INSTALLATION_ID },
     ))
-      .rejects.toThrow('Maximum 5 devices allowed');
+      .rejects.toMatchObject({
+        statusCode: 409,
+        code: 'STAFF_DEVICE_LIMIT_REACHED',
+      });
+
+    expect(mockBcryptCompare).toHaveBeenCalledTimes(1);
+    expect(mockIssueAccess).not.toHaveBeenCalled();
+    const preflightSql = mockPrisma.$queryRawUnsafe.mock.calls
+      .map(([sql]) => String(sql))
+      .join('\n');
+    expect(preflightSql).toMatch(/pg_advisory_xact_lock/);
+    expect(preflightSql).toMatch(/FROM staff_devices[\s\S]*FOR UPDATE/);
+    const mutationSql = mockPrisma.$executeRawUnsafe.mock.calls
+      .map(([sql]) => String(sql))
+      .join('\n');
+    expect(mutationSql).not.toMatch(/INSERT INTO user_devices/);
+    expect(mutationSql).not.toMatch(/INSERT INTO staff_devices/);
+    expect(mutationSql).not.toMatch(/INSERT INTO staff_auth_sessions/);
+    expect(mutationSql).not.toMatch(/INSERT INTO auth_logs/);
+    expect(mutationSql).not.toMatch(/INSERT INTO admin_activity_logs/);
+    expect(mutationSql).not.toMatch(/UPDATE users SET last_sign_in_at/);
+  });
+
+  it('allows same-device re-registration when four other devices are active', async () => {
+    authOk();
+    read(/SELECT device_id\s+FROM staff_devices/, [
+      { device_id: INSTALLATION_ID },
+      ...Array.from(
+        { length: 4 },
+        (_, index) => ({ device_id: `other-device-${index + 1}` }),
+      ),
+    ]);
+
+    const out = await StaffAuthService.registerStaffDevice(
+      'EMP1',
+      'pw',
+      { deviceName: 'Re-enrolled ward device', platform: 'android' },
+      REQ,
+      { deviceType: 'mobile', installationId: INSTALLATION_ID },
+    );
+
+    expect(out).toMatchObject({
+      accessToken: 'fresh-access-token',
+      refreshToken: 'mock-refresh-token',
+      deviceId: INSTALLATION_ID,
+    });
+    expect(mockBcryptCompare).toHaveBeenCalledTimes(1);
+    expect(mockIssueAccess).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.$executeRawUnsafe.mock.calls.some(
+      ([sql]) => /INSERT INTO staff_devices/.test(sql),
+    )).toBe(true);
   });
 
   it('uses defaults when deviceInfo fields are absent', async () => {
     authOk();
-    read(/COUNT\(\*\)[\s\S]*FROM staff_devices/, [{ count: '0' }]);
+    read(/SELECT device_id\s+FROM staff_devices/, []);
     const out = await StaffAuthService.registerStaffDevice(
       'EMP1',
       'pw',
@@ -493,7 +554,7 @@ describe('registerStaffDevice', () => {
       REQ,
       { installationId: INSTALLATION_ID },
     ))
-      .rejects.toThrow('Invalid employee ID or password');
+      .rejects.toMatchObject({ statusCode: 401, code: 'INVALID_CREDENTIALS' });
   });
 });
 

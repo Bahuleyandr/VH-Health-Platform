@@ -268,6 +268,50 @@ void main() {
     },
   );
 
+  test(
+    'remote device removal forces reauthentication but keeps this device token',
+    () async {
+      const currentInstallationId = '33333333-3333-4333-8333-333333333333';
+      await _seedIdentity('staff-current');
+      const storage = FlutterSecureStorage();
+      await storage.write(
+        key: 'staffInstallationId',
+        value: currentInstallationId,
+      );
+      await AuthService.saveDeviceToken('current-device-token');
+
+      final removedCurrent = await AuthService.applyDeviceRemovalRevocation(
+        '44444444-4444-4444-8444-444444444444',
+      );
+
+      expect(removedCurrent, isFalse);
+      expect(await ApiConfig.getStaffId(), isNull);
+      expect(await AuthService.getDeviceToken(), 'current-device-token');
+    },
+  );
+
+  test(
+    'current device removal clears its token and forces reauthentication',
+    () async {
+      const currentInstallationId = '33333333-3333-4333-8333-333333333333';
+      await _seedIdentity('staff-current');
+      const storage = FlutterSecureStorage();
+      await storage.write(
+        key: 'staffInstallationId',
+        value: currentInstallationId,
+      );
+      await AuthService.saveDeviceToken('current-device-token');
+
+      final removedCurrent = await AuthService.applyDeviceRemovalRevocation(
+        currentInstallationId,
+      );
+
+      expect(removedCurrent, isTrue);
+      expect(await ApiConfig.getStaffId(), isNull);
+      expect(await AuthService.getDeviceToken(), isNull);
+    },
+  );
+
   // Audit follow-up P12: logout used to swallow the backend result entirely, so
   // a failed revocation was indistinguishable from a real one.
   test('logout reports a confirmed server-side revocation', () async {
