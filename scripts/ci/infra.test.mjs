@@ -26,10 +26,12 @@ test('clean Linux --install runner propagates installed manifest tools to every 
     'scripts/check-prod-digests-pinned.test.mjs',
     'scripts/check-prod-helm-image-inventory.test.mjs',
     'scripts/check-redis-ha-contract.test.mjs',
+    'scripts/operator-lifecycle-preflight.test.mjs',
     'scripts/check-c1-1-manifest-contract.test.mjs',
     'scripts/check-c1-1-manifest-contract.mjs',
     'scripts/sealed-secrets-bootstrap-smoke.mjs',
     'scripts/validate-kubernetes-manifests.mjs',
+    'scripts/operator-lifecycle-preflight.mjs',
     'scripts/check-prod-helm-image-inventory.mjs',
     'scripts/check-prod-digests-pinned.mjs',
   ]) {

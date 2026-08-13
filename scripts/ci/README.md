@@ -27,7 +27,7 @@ Stages:
 - `admin`: admin audit/lint/type-check/test/build/Clinical AI bundle check.
 - `flutter`: workspace `dart pub get`, Melos bootstrap, format, analyze, test.
 - `infra`: Kubernetes manifest validation + Kyverno Enforce readiness contract
-  + bounded Helm source inventory + Kustomize-controlled production image
+  + held operator lifecycle source contract + bounded Helm source inventory + Kustomize-controlled production image
   registry proof (`scripts/check-kyverno-enforce-readiness.mjs`,
   `scripts/check-prod-helm-image-inventory.mjs`,
   `scripts/check-prod-digests-pinned.mjs`). The digest guard inventories
@@ -38,6 +38,10 @@ Stages:
   kube-prometheus-stack, and Loki chart-generated images are not rendered by
   this gate; a separate fail-closed check holds their exact chart repositories,
   revisions, and values sources for activation-time rendered image review.
+  The operator lifecycle contract separately hashes the four held operator
+  chart archives and verifies all nine pinned operator images. Its live mode
+  also blocks platform sync on missing or unhealthy Applications, CRDs, or
+  controllers.
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
 
 ## GitHub pull-request merge boundary

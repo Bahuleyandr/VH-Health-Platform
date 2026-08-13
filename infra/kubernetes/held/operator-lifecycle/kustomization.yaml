@@ -1,0 +1,9 @@
+# HELD: this target is intentionally absent from the Argo CD application
+# barrel and every environment overlay. An operator must render, review, and
+# apply these Application objects explicitly before syncing them individually.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-operator-lifecycle-held
+resources:
+  - applications.yaml

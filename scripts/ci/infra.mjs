@@ -92,6 +92,7 @@ export function runInfraStage({
       'scripts/update-prod-digests.test.mjs',
       'scripts/check-prod-digests-pinned.test.mjs',
       'scripts/check-prod-helm-image-inventory.test.mjs',
+      'scripts/operator-lifecycle-preflight.test.mjs',
       'scripts/infra-truthfulness.test.mjs',
       'scripts/ci/forgejo-deploy-preflight.test.mjs',
       'scripts/check-redis-ha-contract.test.mjs',
@@ -121,6 +122,12 @@ export function runInfraStage({
     });
 
     runCommand(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
+
+    // Operator Applications stay held outside active composition. This gate
+    // pins their chart archives and images without contacting a cluster.
+    runCommand(process.execPath, ['scripts/operator-lifecycle-preflight.mjs', '--contract-only'], {
+      env: installedTools?.env,
+    });
 
     // Bound the exact chart Applications outside the Kustomize image render.
     // A chart/version/values-source change fails until it is reviewed, while

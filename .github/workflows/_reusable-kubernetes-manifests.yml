@@ -78,6 +78,7 @@ jobs:
           scripts/update-prod-digests.test.mjs
           scripts/check-prod-digests-pinned.test.mjs
           scripts/check-prod-helm-image-inventory.test.mjs
+          scripts/operator-lifecycle-preflight.test.mjs
           scripts/infra-truthfulness.test.mjs
           scripts/ci/forgejo-deploy-preflight.test.mjs
           scripts/ci/infra.test.mjs
@@ -98,6 +99,9 @@ jobs:
 
       - name: Check Kyverno Enforce readiness (static policy contract)
         run: node scripts/check-kyverno-enforce-readiness.mjs
+
+      - name: Verify held operator lifecycle sources
+        run: node scripts/operator-lifecycle-preflight.mjs --contract-only
 
       # Fail closed when the upstream Helm chart surface changes. This bounds
       # the known exclusion; chart-generated images still require separately

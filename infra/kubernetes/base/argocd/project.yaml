@@ -29,6 +29,8 @@ spec:
     - "https://kubernetes.github.io/ingress-nginx"
     - "https://operator.min.io"
     - "https://charts.cloudnative-pg.io"
+    - "https://cloudnative-pg.github.io/charts"
+    - "https://charts.jetstack.io"
     # Longhorn child Application (base/longhorn/longhorn-app.yaml) pulls its
     # chart from here; without this entry the project rejects that source.
     - "https://charts.longhorn.io"
@@ -50,6 +52,8 @@ spec:
     # Bootstrapping CNPG operator writes into cnpg-system; MinIO op to
     # minio-operator. Allow those destinations.
     - namespace: "cnpg-system"
+      server: https://kubernetes.default.svc
+    - namespace: "cert-manager"
       server: https://kubernetes.default.svc
     - namespace: "minio-operator"
       server: https://kubernetes.default.svc

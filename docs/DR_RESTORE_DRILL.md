@@ -127,8 +127,9 @@ Also required:
   UID-preconditioned cleanup.
 - Kubernetes 1.34 or newer and the fully qualified CNPG 1.30 operator ladder
   before any PostgreSQL 18 exercise.
-- Barman Cloud Plugin `0.13.0` installed outside ArgoCD, with
-  `objectstores.barmancloud.cnpg.io` established.
+- The held manual-sync Barman Cloud Plugin `0.13.0` Application is explicitly
+  synced, and `node scripts/operator-lifecycle-preflight.mjs` confirms its
+  pinned controller plus Established `objectstores.barmancloud.cnpg.io` CRD.
 - The production `ObjectStore` render contains the confirmed endpoint
   `https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com`.
 - `cnpg-dr-reader-credentials` is sealed in the restore namespace. The producer

@@ -249,9 +249,10 @@ named by the repository's pre-existing controller configuration.
    guard, CIDRs, interface, prefix, peer ledger, collision state, and distinct
    VRID.
 
-Install the CNPG operator and Barman plugin through the qualified external
-sequence in §4.3. Bootstrap the remaining controllers and workloads through
-their reviewed manifests; `site.yml` does not do that work implicitly.
+Manage CNPG, the Barman plugin, cert-manager, and the MinIO Operator through the
+held manual-sync lifecycle in [`OPERATOR_LIFECYCLE.md`](OPERATOR_LIFECYCLE.md)
+and the qualified sequence in §4.3. `site.yml` does not install or activate
+those controllers implicitly.
 
 Total runtime: **20–40 minutes** on fast hardware.
 
@@ -322,8 +323,9 @@ require separate rendered image verification before activation.
 
 Install the sealed-secrets controller and ArgoCD itself through their pinned
 bootstrap instructions in `infra/kubernetes/base/sealed-secrets/README.md` and
-`infra/kubernetes/base/argocd/README.md`. Install CNPG and the Barman plugin
-through §4.3.
+`infra/kubernetes/base/argocd/README.md`. The cert-manager, CNPG, Barman, and
+MinIO operator Applications remain held outside active composition; follow
+[`OPERATOR_LIFECYCLE.md`](OPERATOR_LIFECYCLE.md) and §4.3.
 
 The Sealed Secrets helper applies a bootstrap-only Kustomization containing
 the `vhhealth-security` Namespace, the SealedSecret CRD, and the exact
@@ -352,6 +354,10 @@ This creates:
 - `Application/vhhealth-apps` — points at `infra/kubernetes/apps/`
 - `Application/vhhealth-kube-prometheus` — pinned kube-prometheus-stack chart
 - `Application/vhhealth-loki` — pinned Loki chart
+
+It deliberately does not create the four operator lifecycle Applications under
+`infra/kubernetes/held/operator-lifecycle/`. Those Applications require a
+separate reviewed apply and remain manual-sync after creation.
 
 After ~3 minutes, ArgoCD discovers desired state. All four top-level
 Applications are manual-sync: a merge or poll can make an Application
@@ -478,9 +484,11 @@ Backup custom resources or their R2 objects as part of schedule retirement.
    evidence before proceeding. Stop at the last qualified pair if any rung
    fails; never leapfrog versions. Production activation remains blocked until
    the final state is RKE2 `v1.34.9+rke2r1` with CNPG 1.30.0 qualified.
-2. Install the pinned Barman Cloud Plugin `0.13.0` outside ArgoCD, verify its
-   release-manifest and image digests, wait for its controller, and confirm
-   `objectstores.barmancloud.cnpg.io` is established.
+2. Through the held manual-sync lifecycle, sync the pinned Barman Cloud Plugin
+   `0.13.0` only after cert-manager and the qualified CNPG final state are
+   healthy. Run `node scripts/operator-lifecycle-preflight.mjs`; it must verify
+   the immutable Application, chart and image pins, controller, and Established
+   `objectstores.barmancloud.cnpg.io` CRD.
 3. Seal the bucket-scoped producer, separate bucket-scoped read-only
    verifier/DR reader, and archive-crypto Secrets from the committed examples.
    The configured destination prefix is workload routing, not token scope. In
@@ -502,7 +510,9 @@ Backup custom resources or their R2 objects as part of schedule retirement.
    config-management-plugin pass.
 
 Skipping the operator ladder can leave the existing `Cluster` rejected or
-unreconciled. Syncing `vhhealth-platform` before the Barman plugin installs its
+unreconciled. The lifecycle preflight fails closed before platform sync when an
+operator Application, required CRD, controller, or pinned image is missing or
+unhealthy. Syncing `vhhealth-platform` before the Barman plugin installs its
 CRD makes the Application unsyncable on the unknown `ObjectStore` kind.
 Missing credentials stop backup, verification, and restore-proof jobs; a
 missing or wrong endpoint stops them from reaching the production R2 target.

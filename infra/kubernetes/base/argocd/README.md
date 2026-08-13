@@ -4,7 +4,9 @@ HA Argo CD install for VH Health. Handles:
 - Sync of all `infra/kubernetes/overlays/<env>` into the cluster.
 - Sync of app-specific manifests under `infra/kubernetes/apps/`.
 - Sync of Helm-based platform charts (Harbor, kube-prometheus-stack,
-  Loki, Argo CD itself, MinIO operator, Falco) via child Applications.
+  Loki, Argo CD itself, and Falco) via child Applications. The cert-manager,
+  CNPG, Barman, and MinIO operator Applications remain held outside active
+  composition; see `docs/OPERATOR_LIFECYCLE.md`.
 
 ## Chart version
 
@@ -49,6 +51,9 @@ Pinned at **v7.7.5** (Argo CD app v2.13.1). See `chart-tracker.yaml`.
    ```
 
 6. Apply the bootstrap "app of apps" Application (next section).
+
+This bootstrap does not apply or sync the held operator lifecycle Applications
+under `infra/kubernetes/held/operator-lifecycle/`.
 
 ## App-of-apps pattern (forward-looking)
 

@@ -9,9 +9,11 @@ Baseline: `github/main` at
 ## Activation boundary
 
 C1.1 makes the intended manifests internally consistent but does not activate
-them. The four Argo CD Applications are manual-sync. The operator and Barman
-Cloud Plugin are also installed outside the platform Application. Merging this
-change therefore deploys nothing.
+them. The four active top-level Argo CD Applications are manual-sync. The CNPG
+and Barman operator Applications are separate manual-sync declarations under
+`infra/kubernetes/held/operator-lifecycle/` and are not composed into the
+active Argo barrel or platform Application. Merging this change therefore
+deploys nothing. See `OPERATOR_LIFECYCLE.md` for the fail-closed lifecycle gate.
 
 CloudNativePG 1.30 supports Kubernetes 1.34, 1.35, and 1.36. Production RKE2 is
 currently Kubernetes 1.31.4, so activation is blocked on C1.2 upgrading the

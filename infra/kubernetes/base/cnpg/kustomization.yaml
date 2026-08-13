@@ -1,8 +1,9 @@
 # cnpg/kustomization.yaml — CloudNativePG operator + VH Health cluster
 #
-# The CNPG operator and Barman plugin are installed out-of-band from the
-# digest-qualified 1.30.0 / 0.13.0 release manifests. This kustomization
-# carries only the inert marker and resources that depend on their CRDs.
+# The CNPG operator and Barman plugin have digest-qualified, manual-sync Argo
+# Applications under ../../held/operator-lifecycle. That target is not composed
+# here. This kustomization carries only the inert marker and resources that
+# depend on their CRDs.
 #
 # The URL is NOT listed in `resources:` below because:
 #   (a) Remote resources break offline builds and add ~9k lines to every
@@ -10,14 +11,8 @@
 #   (b) commonLabels at this level would try to patch immutable selectors
 #       on the upstream Deployments + CRDs.
 #
-# Instead, the platform bootstrap runbook applies the operator manifest
-# directly with `kubectl apply -f <URL>` once, and Argo CD manages the
-# `Cluster`, `Pooler`, `ScheduledBackup`, and ConfigMap resources here.
-#
-# When we migrate to Argo CD ApplicationSets, the operator itself becomes
-# its own Application ("app of apps" pattern) and syncs from the pinned
-# URL directly — keeping its lifecycle separate from the Cluster CRDs
-# we manage in this directory.
+# The platform bootstrap runbook keeps operator lifecycle separate from the
+# `Cluster`, `Pooler`, `ScheduledBackup`, and ConfigMap resources managed here.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
