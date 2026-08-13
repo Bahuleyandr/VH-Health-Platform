@@ -25,6 +25,16 @@ data:
   RATE_LIMIT_WINDOW_MS: "900000"
   RATE_LIMIT_MAX: "100"
 
+  # Redis Sentinel HA. Hosts are individual StatefulSet identities rather than
+  # the load-balanced Service so ioredis can retry discovery across all three.
+  # Passwords live in vhhealth-backend-env. REDIS_REQUIRE_SENTINEL makes a
+  # missing/malformed topology a startup failure instead of a silent downgrade.
+  REDIS_REQUIRE_SENTINEL: "true"
+  REDIS_SENTINEL_HOSTS: "redis-0.redis-headless.vhhealth-platform.svc.cluster.local:26379,redis-1.redis-headless.vhhealth-platform.svc.cluster.local:26379,redis-2.redis-headless.vhhealth-platform.svc.cluster.local:26379"
+  REDIS_SENTINEL_MASTER: "vhhealth-primary"
+  REDIS_USERNAME: "default"
+  REDIS_SENTINEL_USERNAME: "default"
+
   # Logging — Winston format (json for aggregators, pretty in dev)
   LOG_FORMAT: "json"
   LOG_LEVEL: "info"

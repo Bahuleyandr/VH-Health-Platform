@@ -115,7 +115,8 @@ export function verifySignedRequest({
  * accepted again. This makes the replay claim authoritative across all
  * processes:
  *
- *   - Redis (preferred, when REDIS_URL is wired): `SET key NX EX <window>`.
+ *   - Redis (preferred, when standalone or Sentinel Redis is wired):
+ *     `SET key NX EX <window>`.
  *     The first claim sets the key; any concurrent/subsequent claim gets a
  *     null reply (key exists) → replay.
  *   - DB fallback (when Redis is not connected — the current prod Sealed

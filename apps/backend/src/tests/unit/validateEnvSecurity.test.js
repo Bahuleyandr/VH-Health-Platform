@@ -90,6 +90,43 @@ describe('validateEnv signed integration secrets', () => {
   });
 });
 
+describe('validateEnv Redis Sentinel production contract', () => {
+  it('fails closed when Sentinel is required without explicit hosts and credentials', () => {
+    const result = runValidateEnv({ REDIS_REQUIRE_SENTINEL: 'true' });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_SENTINEL_HOSTS');
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_PASSWORD');
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_SENTINEL_PASSWORD');
+  });
+
+  it('accepts the complete three-Sentinel production contract', () => {
+    const result = runValidateEnv({
+      REDIS_REQUIRE_SENTINEL: 'true',
+      REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
+      REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_PASSWORD: 'data-password-at-least-16-chars',
+      REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
+    });
+
+    expect(result.status).toBe(0);
+  });
+
+  it('rejects a standalone URL when Sentinel is required', () => {
+    const result = runValidateEnv({
+      REDIS_REQUIRE_SENTINEL: 'true',
+      REDIS_URL: 'redis://localhost:6379',
+      REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
+      REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_PASSWORD: 'data-password-at-least-16-chars',
+      REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_URL');
+  });
+});
+
 describe('validateEnv NHCX inert feature flag', () => {
   it('defaults to off and does not require live NHCX credentials at boot', () => {
     const result = runValidateEnv();

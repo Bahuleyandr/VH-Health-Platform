@@ -33,6 +33,44 @@ export const envSchema = Joi.object({
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
 
+  // Redis is optional for local single-process development. Production uses
+  // the in-cluster three-Sentinel topology and opts into fail-closed discovery
+  // with REDIS_REQUIRE_SENTINEL=true; it must never fall back to REDIS_URL.
+  REDIS_REQUIRE_SENTINEL: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('REDIS_REQUIRE_SENTINEL'),
+  REDIS_URL: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.forbidden().messages({
+      'any.unknown': 'REDIS_URL must be unset when REDIS_REQUIRE_SENTINEL=true',
+    }),
+    otherwise: Joi.string().uri({ scheme: ['redis', 'rediss'] }).allow('').optional(),
+  }).label('REDIS_URL'),
+  REDIS_SENTINEL_HOSTS: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().trim().allow('').optional(),
+  }).label('REDIS_SENTINEL_HOSTS'),
+  REDIS_SENTINEL_MASTER: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().trim().allow('').optional(),
+  }).label('REDIS_SENTINEL_MASTER'),
+  REDIS_USERNAME: Joi.string().trim().min(1).default('default').label('REDIS_USERNAME'),
+  REDIS_SENTINEL_USERNAME: Joi.string().trim().min(1).default('default')
+    .label('REDIS_SENTINEL_USERNAME'),
+  REDIS_PASSWORD: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().min(16).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('REDIS_PASSWORD'),
+  REDIS_SENTINEL_PASSWORD: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().min(16).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('REDIS_SENTINEL_PASSWORD'),
+
   // Cap on tenant-scoped staff push fan-out (staffPushRecipientService).
   // .max(500) is the Firebase multicast ceiling: sendPushNotification THROWS
   // above 500 tokens, so an operator raising this to "stop dropping recipients"

@@ -3,7 +3,7 @@ import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
 import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
-import { initRedis } from '../lib/redis.js';
+import { initRedis, isRedisConfigured } from '../lib/redis.js';
 import { getRateLimitOverride } from '../services/tenant/tenantSettingsService.js';
 
 /**
@@ -70,12 +70,12 @@ export const tenantKeyGenerator = (req) => `${tenantPrefix(req)}${defaultKeyGene
 const ipOnlyKeyGenerator = (req) => ipKeyGenerator(req.ip);
 
 // W3: replica-safe counters via a shared Redis store. Returns undefined (the
-// express-rate-limit default per-process MemoryStore) when REDIS_URL is unset,
+// express-rate-limit default per-process MemoryStore) when Redis is unset,
 // preserving single-node correctness + the local-test path. sendCommand resolves
 // the client lazily per request, so a limiter built at import time (before
 // initRedis()) still works once Redis connects.
 export const selectStore = (prefix = 'rl:') => {
-  if (!process.env.REDIS_URL) return undefined;
+  if (!isRedisConfigured()) return undefined;
   return new RedisStore({
     prefix,
     sendCommand: async (...args) => {
@@ -194,7 +194,7 @@ export const getRateLimiter = (profileName = 'default', {
     // IMPORTANT: IPv6-safe config + W3 tenant-scoped bucket
     keyGenerator: keyGen,
 
-    // W3: replica-safe shared counter (per-profile namespace); MemoryStore when REDIS_URL unset
+    // W3: replica-safe shared counter (per-profile namespace); MemoryStore when Redis is unset
     store: selectStore(storePrefix || `rl:${profileName}:`),
 
     handler: handlerFn,

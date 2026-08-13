@@ -1,26 +1,99 @@
-// src/lib/redis.js — Redis client singleton with no-op fallback
+// src/lib/redis.js — Redis client singleton with standalone + Sentinel discovery
+import { randomUUID } from 'node:crypto';
 import logger from '../logging/logger.js';
 
 let redis = null;
 let redisInitPromise = null;
 let isConnected = false;
 
-/**
- * Create the Redis client if REDIS_URL is configured.
- * If not configured, all exports are safe no-op stubs so the app runs without Redis.
- */
-async function createClient() {
-  const url = process.env.REDIS_URL;
+const DEFAULT_SENTINEL_PORT = 26379;
+const DEFAULT_SENTINEL_MASTER = 'vhhealth-primary';
 
-  if (!url) {
-    logger.warn('REDIS_URL not set — running without Redis cache');
-    return null;
+function enabled(value) {
+  return String(value || '').trim().toLowerCase() === 'true';
+}
+
+function required(value, name) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    throw new Error(`${name} is required when Redis Sentinel mode is configured`);
+  }
+  return normalized;
+}
+
+export function parseSentinelHosts(value) {
+  if (!String(value || '').trim()) return [];
+
+  return String(value)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const match = entry.match(/^(?:\[([^\]]+)\]|([^:]+))(?::(\d+))?$/);
+      if (!match) {
+        throw new Error(`Invalid REDIS_SENTINEL_HOSTS entry: ${entry}`);
+      }
+      const host = (match[1] || match[2] || '').trim();
+      const port = Number.parseInt(match[3] || String(DEFAULT_SENTINEL_PORT), 10);
+      if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`Invalid REDIS_SENTINEL_HOSTS entry: ${entry}`);
+      }
+      return { host, port };
+    });
+}
+
+export function isRedisConfigured(env = process.env) {
+  return Boolean(String(env.REDIS_URL || '').trim() || String(env.REDIS_SENTINEL_HOSTS || '').trim());
+}
+
+export function redisIsRequired(env = process.env) {
+  return enabled(env.REDIS_REQUIRE_SENTINEL);
+}
+
+/**
+ * Resolve the constructor shape without exposing credentials to logs. Sentinel
+ * mode deliberately has no REDIS_URL fallback when required: a typo must not
+ * silently downgrade production to per-process rate limits and WebSockets.
+ */
+export function resolveRedisConnection(env = process.env) {
+  const url = String(env.REDIS_URL || '').trim();
+  const sentinels = parseSentinelHosts(env.REDIS_SENTINEL_HOSTS);
+  const sentinelRequired = redisIsRequired(env);
+
+  if (url && sentinels.length > 0) {
+    throw new Error('Configure either REDIS_URL or REDIS_SENTINEL_HOSTS, not both');
   }
 
-  // Dynamic import so ioredis is only required when REDIS_URL is present
-  const { default: Redis } = await import('ioredis');
+  if (sentinels.length > 0) {
+    const uniqueSentinels = new Set(sentinels.map(({ host, port }) => `${host}:${port}`));
+    if (sentinelRequired && uniqueSentinels.size < 3) {
+      throw new Error('At least three unique REDIS_SENTINEL_HOSTS are required in strict Sentinel mode');
+    }
+    const password = required(env.REDIS_PASSWORD, 'REDIS_PASSWORD');
+    const sentinelPassword = required(env.REDIS_SENTINEL_PASSWORD, 'REDIS_SENTINEL_PASSWORD');
+    return {
+      mode: 'sentinel',
+      options: {
+        sentinels,
+        name: required(env.REDIS_SENTINEL_MASTER || DEFAULT_SENTINEL_MASTER, 'REDIS_SENTINEL_MASTER'),
+        role: 'master',
+        username: String(env.REDIS_USERNAME || 'default').trim(),
+        password,
+        sentinelUsername: String(env.REDIS_SENTINEL_USERNAME || 'default').trim(),
+        sentinelPassword,
+      },
+    };
+  }
 
-  const client = new Redis(url, {
+  if (sentinelRequired) {
+    throw new Error('REDIS_SENTINEL_HOSTS is required when REDIS_REQUIRE_SENTINEL=true');
+  }
+
+  return url ? { mode: 'url', url } : null;
+}
+
+function commonOptions() {
+  return {
     // ioredis 6 switched the default wire protocol to RESP3 (it sends HELLO 3
     // on connect). We pin RESP2 so that the ioredis 5 -> 6 bump changes no
     // observable behaviour: a dependency upgrade should not also flip the wire
@@ -36,17 +109,43 @@ async function createClient() {
     // replyMapping to "legacy", so even on RESP3 the shapes would not move).
     protocol: 2,
     maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    lazyConnect: true,
     retryStrategy(times) {
       const delay = Math.min(times * 200, 5000);
       logger.info(`Redis reconnecting in ${delay}ms (attempt ${times})`);
       return delay;
     },
-    lazyConnect: false,
-  });
+    sentinelRetryStrategy(times) {
+      const delay = Math.min(times * 200, 5000);
+      logger.info(`Redis Sentinel discovery retry in ${delay}ms (attempt ${times})`);
+      return delay;
+    },
+  };
+}
 
-  client.on('connect', () => {
+/**
+ * Create the Redis client if standalone or Sentinel configuration is present.
+ * If neither is configured, all exports remain safe no-op stubs for local use.
+ */
+async function createClient() {
+  const connection = resolveRedisConnection();
+
+  if (!connection) {
+    logger.warn('Redis not configured — running without Redis cache');
+    return null;
+  }
+
+  // Dynamic import so ioredis is only required when Redis is configured.
+  const { default: Redis } = await import('ioredis');
+  const options = { ...commonOptions(), ...(connection.options || {}) };
+  const client = connection.mode === 'sentinel'
+    ? new Redis(options)
+    : new Redis(connection.url, options);
+
+  client.on('ready', () => {
     isConnected = true;
-    logger.info('Redis connected');
+    logger.info(`Redis ready (${connection.mode})`);
   });
 
   client.on('error', (err) => {
@@ -63,7 +162,16 @@ async function createClient() {
     logger.info('Redis connection closed');
   });
 
-  return client;
+  try {
+    await client.connect();
+    await client.ping();
+    isConnected = true;
+    return client;
+  } catch (err) {
+    isConnected = false;
+    client.disconnect?.(false);
+    throw err;
+  }
 }
 
 /**
@@ -98,6 +206,41 @@ export function getRedisClient() {
  */
 export function isRedisConnected() {
   return isConnected;
+}
+
+/**
+ * Prove the discovered primary is writable, not merely reachable. A primary
+ * fenced by min-replicas-to-write still answers PING, so strict production
+ * readiness uses an expiring, non-PHI write/read probe.
+ */
+export async function assertRedisWritable() {
+  if (!redis) {
+    throw new Error('required Redis client is unavailable');
+  }
+
+  const key = `vhhealth:health:redis-write-probe:${process.pid}:${randomUUID()}`;
+  const value = randomUUID();
+  let written = false;
+
+  try {
+    const result = await redis.set(key, value, 'PX', 10000, 'NX');
+    if (result !== 'OK') {
+      throw new Error('Redis readiness write was not accepted');
+    }
+    written = true;
+    if (await redis.get(key) !== value) {
+      throw new Error('Redis readiness read did not match its write');
+    }
+    return true;
+  } finally {
+    if (written) {
+      try {
+        await redis.del(key);
+      } catch (err) {
+        logger.warn('Redis readiness probe cleanup failed; key will expire:', err.message);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +338,7 @@ export default {
   initRedis,
   getRedisClient,
   isRedisConnected,
+  assertRedisWritable,
   cacheGet,
   cacheSet,
   cacheDelete,

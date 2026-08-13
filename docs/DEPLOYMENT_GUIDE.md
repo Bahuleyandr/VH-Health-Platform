@@ -289,6 +289,12 @@ Ansible role for missing config.
 The platform baseline (Redis, MinIO, Harbor, ArgoCD itself,
 monitoring) is committed under `infra/kubernetes/`. Two-step bootstrap:
 
+Redis is deliberately not self-activating: its committed first-cluster gate is
+closed, and existing state requires two agreeing authenticated Sentinels on
+every container start. Complete the held activation and live failure evidence
+in [`REDIS_SENTINEL_HA_RUNBOOK.md`](REDIS_SENTINEL_HA_RUNBOOK.md) before any
+production platform sync.
+
 Production image references and their registry-verification procedure are
 recorded in
 [`../infra/kubernetes/base/IMAGE_PIN_VERIFICATION.md`](../infra/kubernetes/base/IMAGE_PIN_VERIFICATION.md).

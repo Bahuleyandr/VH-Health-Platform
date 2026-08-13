@@ -148,7 +148,8 @@ spec:
               cpu: "2000m"
               memory: "2Gi"
           # `/health/live` has no DB dependency. `/health/ready` checks DB
-          # reachability plus tenant/RLS posture before admitting traffic.
+          # migration readiness and required Sentinel Redis connectivity;
+          # tenant-RLS posture remains an alert, not a traffic gate (C-7).
           # Readiness uses an exec probe so the protected monitoring endpoint
           # can receive the pod's MONITORING_TOKEN without baking the secret
           # value into this manifest.

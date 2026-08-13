@@ -1,7 +1,7 @@
 // src/tests/unit/readinessRlsPosture.test.js
 //
-// Audit C-7: the readiness probe (GET /health/ready) must gate ONLY on DB
-// reachability + schema, NOT on tenant-RLS *security posture*. A bad RLS
+// Audit C-7: the readiness probe (GET /health/ready) must gate on runtime
+// dependencies, NOT on tenant-RLS *security posture*. A bad RLS
 // posture (e.g. a bypassing role / unforced table) used to make `ready` false
 // on every replica → fleet-wide API outage from a security warning.
 //
@@ -20,6 +20,10 @@ import request from 'supertest';
 const queryRawMock = jest.fn();
 const tenantRlsRolePostureMock = jest.fn();
 const readMigrationStateMock = jest.fn();
+const redisPingMock = jest.fn();
+const assertRedisWritableMock = jest.fn();
+const getRedisClientMock = jest.fn();
+const redisIsRequiredMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   __esModule: true,
@@ -30,6 +34,22 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../utils/migrations/runMigrations.js', () => ({
   readMigrationState: readMigrationStateMock,
+}));
+
+jest.unstable_mockModule('../../lib/redis.js', () => ({
+  assertRedisWritable: assertRedisWritableMock,
+  cacheClear: jest.fn(),
+  cacheDelete: jest.fn(),
+  cacheGet: jest.fn(async () => null),
+  cacheSet: jest.fn(async () => true),
+  disconnectRedis: jest.fn(),
+  getRedisClient: getRedisClientMock,
+  initRedis: jest.fn(),
+  isRedisConfigured: jest.fn(() => false),
+  isRedisConnected: jest.fn(() => false),
+  parseSentinelHosts: jest.fn(() => []),
+  redisIsRequired: redisIsRequiredMock,
+  resolveRedisConnection: jest.fn(() => null),
 }));
 
 // The monitoring-access gate now fails CLOSED in every env (audit 2026-06-18
@@ -54,6 +74,10 @@ beforeEach(() => {
   queryRawMock.mockReset();
   tenantRlsRolePostureMock.mockReset();
   readMigrationStateMock.mockReset();
+  redisPingMock.mockReset();
+  assertRedisWritableMock.mockReset();
+  getRedisClientMock.mockReset();
+  redisIsRequiredMock.mockReset();
   queryRawMock.mockResolvedValue([{ exists: true }]);
   readMigrationStateMock.mockResolvedValue({
     requiredCurrent: true,
@@ -62,6 +86,10 @@ beforeEach(() => {
     pending: [],
     unexpected: [],
   });
+  redisPingMock.mockResolvedValue('PONG');
+  assertRedisWritableMock.mockResolvedValue(true);
+  getRedisClientMock.mockReturnValue({ ping: redisPingMock });
+  redisIsRequiredMock.mockReturnValue(false);
 });
 
 describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () => {
@@ -138,6 +166,39 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
 
     // Readiness no longer probes RLS posture at all.
     expect(tenantRlsRolePostureMock).not.toHaveBeenCalled();
+  });
+
+  it('gates on a writable Redis primary when strict Sentinel mode is required', async () => {
+    redisIsRequiredMock.mockReturnValue(true);
+
+    const res = await withToken(request(makeApp()).get('/health/ready'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.checks.redis.status).toBe('ok');
+    expect(assertRedisWritableMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 503 when the strict Sentinel primary is not writable', async () => {
+    redisIsRequiredMock.mockReturnValue(true);
+    assertRedisWritableMock.mockRejectedValueOnce(new Error('NOREPLICAS'));
+
+    const res = await withToken(request(makeApp()).get('/health/ready'));
+
+    expect(res.status).toBe(503);
+    expect(res.body.checks.redis).toEqual({
+      status: 'error',
+      message: 'Required Redis check failed',
+    });
+  });
+});
+
+describe('GET /health/deep — Redis singleton wiring', () => {
+  it('probes the initialized Redis singleton', async () => {
+    const res = await withToken(request(makeApp()).get('/health/deep'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.checks.redis.status).toBe('ok');
+    expect(redisPingMock).toHaveBeenCalledTimes(1);
   });
 });
 

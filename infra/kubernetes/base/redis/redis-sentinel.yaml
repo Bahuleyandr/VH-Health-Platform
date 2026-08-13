@@ -1,124 +1,16 @@
 # redis/redis-sentinel.yaml — Redis 7.4 + Sentinel HA (3 nodes)
 #
-# Each pod runs two containers:
-#   - `redis`   : redis-server (port 6379), AOF enabled, requirepass
-#   - `sentinel`: redis-sentinel (port 26379), quorum 2 of 3
+# Every Redis and Sentinel container start queries the three stable Sentinel
+# endpoints and requires two identical master votes. Only a transient, explicit
+# REDIS_ALLOW_FIRST_CLUSTER_BOOTSTRAP=true patch may create the first empty
+# cluster; the committed manifest is inert. A restarted former primary therefore
+# cannot promote itself from its ordinal or stale local config.
 #
-# Shared init container generates per-pod configs from the ConfigMap,
-# writing to an emptyDir so readOnlyRootFilesystem stays true on the
-# main containers.
-#
-# Primary discovery: clients connect to the headless service, ask any
-# Sentinel for the current master, and then connect to that master's
-# pod IP. Backend's ioredis client is configured with sentinel endpoints
-# in the same order as our statefulset pods (redis-0, -1, -2).
-#
-# AOF vs RDB: `appendonly yes` + `appendfsync everysec` gives at-most
-# 1 second of data loss on a full-node failure. Token blacklist (JWT
-# revocation) must survive a crash — RDB-only would be unacceptable for
-# that use case. Storage requirements go up; 10Gi per pod is plenty for
-# the blacklist + rate-limit keyspace + notification outbox cache.
-#
-# Password: from Secret `redis-credentials` (a SealedSecret — see
-# `redis-credentials.sealed-secret.yaml.example`). Sentinel authenticates
-# with the same password (requirepass + sentinel auth-pass).
-#
-# Anti-affinity: soft preference across zones so single-zone outage
-# preserves quorum. The operator would normally enforce spreading, but
-# with 3 replicas and 3 zones, soft preference is enough.
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: redis-sentinel-config
-  namespace: vhhealth-platform
-  labels:
-    app.kubernetes.io/name: redis
-    app.kubernetes.io/instance: vhhealth-redis
-    app.kubernetes.io/component: cache
-    app.kubernetes.io/part-of: vhhealth
-    app.kubernetes.io/managed-by: kustomize
-data:
-  redis-base.conf: |
-    # Redis server config, templated by init container to add bind/port/replica-of
-    protected-mode yes
-    tcp-backlog 511
-    timeout 0
-    tcp-keepalive 300
-
-    daemonize no
-    supervised no
-    loglevel notice
-    logfile ""
-
-    # Persistence: AOF primary, RDB snapshot as safety net
-    appendonly yes
-    appendfsync everysec
-    no-appendfsync-on-rewrite no
-    auto-aof-rewrite-percentage 100
-    auto-aof-rewrite-min-size 64mb
-    aof-use-rdb-preamble yes
-    save 900 1
-    save 300 10
-    save 60 10000
-
-    # Memory
-    maxmemory 768mb
-    maxmemory-policy allkeys-lru
-
-    # Replication
-    repl-diskless-sync yes
-    repl-diskless-sync-delay 5
-    repl-timeout 60
-
-    # Security
-    # `requirepass` and `masterauth` injected at runtime from env.
-
-    # Slow log
-    slowlog-log-slower-than 10000
-    slowlog-max-len 128
-
-    # Latency
-    latency-monitor-threshold 100
-
-  sentinel-base.conf: |
-    port 26379
-    dir /data/sentinel
-    loglevel notice
-    # `sentinel monitor` and `auth-pass` injected at runtime.
-    sentinel down-after-milliseconds vhhealth-primary 5000
-    sentinel parallel-syncs vhhealth-primary 1
-    sentinel failover-timeout vhhealth-primary 60000
-    sentinel deny-scripts-reconfig yes
-
-  entrypoint.sh: |
-    #!/bin/sh
-    set -eu
-    POD_INDEX="${HOSTNAME##*-}"
-    MASTER_HOST="redis-0.redis-headless.vhhealth-platform.svc.cluster.local"
-
-    # Build redis-server config
-    mkdir -p /etc/redis
-    cp /config/redis-base.conf /etc/redis/redis.conf
-    echo "bind 0.0.0.0" >> /etc/redis/redis.conf
-    echo "port 6379" >> /etc/redis/redis.conf
-    echo "dir /data" >> /etc/redis/redis.conf
-    echo "requirepass ${REDIS_PASSWORD}" >> /etc/redis/redis.conf
-    echo "masterauth ${REDIS_PASSWORD}" >> /etc/redis/redis.conf
-    if [ "${POD_INDEX}" != "0" ]; then
-      echo "replicaof ${MASTER_HOST} 6379" >> /etc/redis/redis.conf
-    fi
-
-    # Build sentinel config (written to emptyDir; sentinel rewrites it at runtime)
-    mkdir -p /data/sentinel
-    cp /config/sentinel-base.conf /etc/redis/sentinel.conf
-    echo "sentinel monitor vhhealth-primary ${MASTER_HOST} 6379 2" >> /etc/redis/sentinel.conf
-    echo "sentinel auth-pass vhhealth-primary ${REDIS_PASSWORD}" >> /etc/redis/sentinel.conf
-    echo "sentinel resolve-hostnames yes" >> /etc/redis/sentinel.conf
-    echo "sentinel announce-hostnames yes" >> /etc/redis/sentinel.conf
-
-    # Pass control to the requested binary
-    exec "$@"
+# Redis AOF persistence plus min-replicas-to-write limits both crash loss and
+# split-brain writes. The generated ConfigMap name is content-hashed by Kustomize,
+# so a script/config change truthfully changes the StatefulSet pod template.
+# Production activation and all-cluster recovery remain manual operator gates;
+# this repository does not claim an HA operator or automatic recovery authority.
 ---
 apiVersion: v1
 kind: Service
@@ -201,7 +93,9 @@ metadata:
 spec:
   serviceName: redis-headless
   replicas: 3
-  podManagementPolicy: OrderedReady
+  # All three Sentinel sidecars must be able to form the first quorum before
+  # ordinal readiness. Stateful identity and rolling-update order are retained.
+  podManagementPolicy: Parallel
   updateStrategy:
     type: RollingUpdate
   selector:
@@ -216,10 +110,6 @@ spec:
         app.kubernetes.io/component: cache
         app.kubernetes.io/part-of: vhhealth
         app.kubernetes.io/managed-by: kustomize
-      annotations:
-        # Restart pods on config change so password rotations don't
-        # require a manual kubectl rollout.
-        checksum/config: "will-be-filled-by-kustomize-generator"
     spec:
       terminationGracePeriodSeconds: 30
       serviceAccountName: redis
@@ -245,37 +135,13 @@ spec:
                 labelSelector:
                   matchLabels:
                     app.kubernetes.io/instance: vhhealth-redis
-      initContainers:
-        - name: render-config
-          image: redis:7.4.1-alpine@sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275
-          imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "/config/entrypoint.sh", "/bin/true"]
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 999
-            runAsGroup: 999
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: [ALL]
-          env:
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: redis-credentials
-                  key: password
-          volumeMounts:
-            - name: config
-              mountPath: /config
-            - name: rendered-config
-              mountPath: /etc/redis
-            - name: data
-              mountPath: /data
       containers:
         - name: redis
           image: redis:7.4.1-alpine@sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275
           imagePullPolicy: IfNotPresent
-          command: ["redis-server", "/etc/redis/redis.conf"]
+          # Discovery runs on every container start, not only at pod init. A
+          # restarted former primary therefore follows 2-of-3 Sentinel state.
+          command: ["/bin/sh", "/config/start-redis.sh"]
           ports:
             - name: redis
               containerPort: 6379
@@ -284,7 +150,33 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: redis-credentials
-                  key: password
+                  key: redis-password
+            - name: REDIS_SENTINEL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: sentinel-password
+            - name: REDIS_PASSWORD_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: redis-password-previous
+                  optional: true
+            - name: REDIS_SENTINEL_PASSWORD_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: sentinel-password-previous
+                  optional: true
+            - name: REDIS_ALLOW_FIRST_CLUSTER_BOOTSTRAP
+              # Deliberately inert. Set true only in a transient, reviewed
+              # first-install patch while every Redis PVC is proven empty;
+              # remove it immediately after readiness proves quorum.
+              value: "false"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           resources:
             requests:
               memory: "512Mi"
@@ -295,9 +187,7 @@ spec:
           readinessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+                - /config/redis-readiness.sh
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
@@ -307,7 +197,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+                - 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ping | grep -qx PONG'
             initialDelaySeconds: 15
             periodSeconds: 15
             timeoutSeconds: 5
@@ -317,7 +207,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "redis-cli -a $REDIS_PASSWORD ping | grep PONG"
+                - 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ping | grep -qx PONG'
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 30
@@ -330,6 +220,9 @@ spec:
             capabilities:
               drop: [ALL]
           volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
             - name: rendered-config
               mountPath: /etc/redis
             - name: data
@@ -339,7 +232,7 @@ spec:
         - name: sentinel
           image: redis:7.4.1-alpine@sha256:c1e88455c85225310bbea54816e9c3f4b5295815e6dbf80c34d40afc6df28275
           imagePullPolicy: IfNotPresent
-          command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+          command: ["/bin/sh", "/config/start-sentinel.sh"]
           ports:
             - name: sentinel
               containerPort: 26379
@@ -348,7 +241,30 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: redis-credentials
-                  key: password
+                  key: redis-password
+            - name: REDIS_SENTINEL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: sentinel-password
+            - name: REDIS_PASSWORD_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: redis-password-previous
+                  optional: true
+            - name: REDIS_SENTINEL_PASSWORD_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: sentinel-password-previous
+                  optional: true
+            - name: REDIS_ALLOW_FIRST_CLUSTER_BOOTSTRAP
+              value: "false"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           resources:
             requests:
               memory: "128Mi"
@@ -359,9 +275,7 @@ spec:
           readinessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - "redis-cli -p 26379 ping | grep PONG"
+                - /config/sentinel-readiness.sh
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 3
@@ -371,7 +285,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "redis-cli -p 26379 ping | grep PONG"
+                - 'REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" redis-cli --no-auth-warning -p 26379 ping | grep -qx PONG'
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
@@ -385,10 +299,15 @@ spec:
             capabilities:
               drop: [ALL]
           volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
             - name: rendered-config
               mountPath: /etc/redis
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
         - name: metrics
           image: oliver006/redis_exporter:v1.66.0@sha256:d98e6db8094f491b95791e9f776b0ba30a20aeacb90e18334935d5e51bf2e6a1
           imagePullPolicy: IfNotPresent
@@ -443,7 +362,7 @@ spec:
           secret:
             secretName: redis-credentials
             items:
-              - key: password
+              - key: redis-password
                 path: password
   volumeClaimTemplates:
     - metadata:

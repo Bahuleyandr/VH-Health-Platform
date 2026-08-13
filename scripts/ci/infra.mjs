@@ -94,6 +94,7 @@ export function runInfraStage({
       'scripts/check-prod-helm-image-inventory.test.mjs',
       'scripts/infra-truthfulness.test.mjs',
       'scripts/ci/forgejo-deploy-preflight.test.mjs',
+      'scripts/check-redis-ha-contract.test.mjs',
       'scripts/ci/infra.test.mjs',
     ], { env: installedTools?.env });
     runCommand(

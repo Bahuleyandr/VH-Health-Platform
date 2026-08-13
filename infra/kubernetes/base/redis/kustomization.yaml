@@ -5,3 +5,27 @@ metadata:
   name: vhhealth-redis
 resources:
   - redis-sentinel.yaml
+
+# Generate configuration directly from the executable/config source files.
+# Kustomize's name suffix hash is referenced from the StatefulSet pod
+# template, so any script/config byte change produces a truthful rolling-update
+# trigger without a hand-maintained checksum annotation.
+configMapGenerator:
+  - name: redis-sentinel-config
+    namespace: vhhealth-platform
+    files:
+      - redis-base.conf=config/redis-base.conf
+      - sentinel-base.conf=config/sentinel-base.conf
+      - sentinel-discovery.sh=config/sentinel-discovery.sh
+      - start-redis.sh=config/start-redis.sh
+      - start-sentinel.sh=config/start-sentinel.sh
+      - redis-readiness.sh=config/redis-readiness.sh
+      - sentinel-readiness.sh=config/sentinel-readiness.sh
+
+generatorOptions:
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: vhhealth-redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize

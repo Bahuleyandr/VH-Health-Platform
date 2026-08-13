@@ -2,6 +2,7 @@
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
 import prisma, { circuitBreakerStatus, tenantRlsRolePosture } from '../../lib/prisma.js';
+import { assertRedisWritable, getRedisClient, redisIsRequired } from '../../lib/redis.js';
 import logger from '../../logging/logger.js';
 import { requireProductionMonitoringAccess } from '../../middleware/infrastructureAccessMiddleware.js';
 import { readMigrationState } from '../../utils/migrations/runMigrations.js';
@@ -95,12 +96,24 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
     logger.warn('Readiness probe failed:', err.message);
   }
 
+  if (redisIsRequired()) {
+    try {
+      const start = Date.now();
+      await assertRedisWritable();
+      checks.redis = { status: 'ok', latency_ms: Date.now() - start };
+    } catch (err) {
+      checks.redis = { status: 'error', message: 'Required Redis check failed' };
+      logger.warn('Readiness Redis probe failed:', err.message);
+    }
+  }
+
   // NB: tenant-RLS *security posture* is deliberately NOT part of the readiness
   // gate (audit C-7). It used to be — an `ok:false` posture (e.g. an unforced
   // table after a migration, or a bypassing role) made `ready` false on EVERY
   // replica simultaneously → a full API outage triggered by a security WARNING,
-  // not by the service being unable to serve traffic. Readiness now gates only
-  // on DB reachability + the image's required migration set. A database ahead
+  // not by the service being unable to serve traffic. Readiness now gates on
+  // DB reachability + the image's required migration set, plus Redis only when
+  // the deployment explicitly opts into strict Sentinel mode. A database ahead
   // of an old pod remains ready during a rolling deploy, while a new pod with
   // pending requirements is rejected. RLS posture is still
   // surfaced loudly elsewhere: a boot-time ERROR (logTenantRlsRolePosture in
@@ -154,11 +167,12 @@ router.get('/deep', requireProductionMonitoringAccess, async (_req, res) => {
     checks.database_target = { status: 'error', message: 'DATABASE_URL parse failed' };
   }
 
-  // Redis — check if ioredis client is available
+  // Redis — check the actual singleton rather than an unwired global.
   try {
-    if (global.__redisClient && typeof global.__redisClient.ping === 'function') {
+    const client = getRedisClient();
+    if (client && typeof client.ping === 'function') {
       const start = Date.now();
-      await global.__redisClient.ping();
+      await client.ping();
       checks.redis = { status: 'ok', latency_ms: Date.now() - start };
     } else {
       checks.redis = { status: 'not_configured' };

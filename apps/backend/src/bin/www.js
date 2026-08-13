@@ -21,7 +21,7 @@ BigInt.prototype.toJSON = function bigIntToJSON() {
 import http from 'http';
 import app from '../app.js';
 import { logTenantRlsRolePosture, ensureTenantRlsRuntimeRoleGrants, tenantRlsPostureMustFailClosed } from '../lib/prisma.js';
-import { initRedis, getRedisClient, disconnectRedis } from '../lib/redis.js';
+import { initRedis, getRedisClient, disconnectRedis, redisIsRequired } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 import { runMigrations, verifyMigrationsCurrent } from '../utils/migrations/runMigrations.js';
@@ -187,6 +187,10 @@ async function prepareApplication() {
   try {
     await initRedis();
   } catch (err) {
+    if (redisIsRequired()) {
+      logger.error('Required Redis Sentinel initialization failed — refusing to start:', err.message);
+      throw err;
+    }
     logger.warn('Redis initialization failed — running without cache:', err.message);
   }
 

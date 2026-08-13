@@ -22,7 +22,10 @@ SSL `*.vhhealth.app`, **no ACM cost**). The admin portal stays single-host at
 
 1. **Backend config:** set `TENANT_BASE_HOST=vhhealth.app` in the backend configmap
    (so `parseTenantSlug` reads `<slug>-api.vhhealth.app` → `<slug>`). Confirm
-   `REDIS_URL` is wired (W3 WS2 per-tenant rate-limit quotas use it).
+   the production Redis Sentinel contract is live and proved
+   (`REDIS_REQUIRE_SENTINEL=true`, three `REDIS_SENTINEL_HOSTS`, matching data
+   and Sentinel credentials). Follow `REDIS_SENTINEL_HA_RUNBOOK.md`; a standalone
+   `REDIS_URL` is local-development only.
 2. **Cloudflare DNS:** add ONE wildcard CNAME **`*.vhhealth.app` → `<tunnel-id>.cfargotunnel.com`**
    (proxied / orange cloud). Existing specific records (`api`, `admin`, `www`, …)
    always win over the wildcard, so it only catches new `<slug>-api` hosts. No new

@@ -21,6 +21,7 @@ jest.unstable_mockModule('../../lib/redis.js', () => ({
   cacheDelete: jest.fn(async () => undefined),
   cacheClear: jest.fn(async () => undefined),
   disconnectRedis: jest.fn(async () => undefined),
+  isRedisConfigured: () => Boolean(process.env.REDIS_URL || process.env.REDIS_SENTINEL_HOSTS),
 }));
 
 const {
@@ -61,11 +62,14 @@ describe('rate limit tenant keying', () => {
       .toBe('auth:u:u2');
   });
 
-  it('selectStore returns undefined (MemoryStore) when REDIS_URL is unset', () => {
+  it('selectStore returns undefined (MemoryStore) when Redis is unset', () => {
     const prev = process.env.REDIS_URL;
+    const prevSentinels = process.env.REDIS_SENTINEL_HOSTS;
     delete process.env.REDIS_URL;
+    delete process.env.REDIS_SENTINEL_HOSTS;
     expect(selectStore()).toBeUndefined();
     if (prev) process.env.REDIS_URL = prev;
+    if (prevSentinels) process.env.REDIS_SENTINEL_HOSTS = prevSentinels;
   });
 
   it('selectStore builds a Redis store with the given namespace when REDIS_URL is set', async () => {
@@ -80,5 +84,13 @@ describe('rate limit tenant keying', () => {
     expect(redisCall).toHaveBeenCalledWith('SCRIPT', 'LOAD', 'return 1');
     if (prev) process.env.REDIS_URL = prev;
     else delete process.env.REDIS_URL;
+  });
+
+  it('selectStore uses the shared store when Sentinel discovery is configured', () => {
+    const prev = process.env.REDIS_SENTINEL_HOSTS;
+    process.env.REDIS_SENTINEL_HOSTS = 'redis-0.example:26379';
+    expect(selectStore('rl:sentinel:')).toBeInstanceOf(FakeRedisStore);
+    if (prev) process.env.REDIS_SENTINEL_HOSTS = prev;
+    else delete process.env.REDIS_SENTINEL_HOSTS;
   });
 });
