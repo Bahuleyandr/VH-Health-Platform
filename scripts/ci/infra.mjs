@@ -94,6 +94,10 @@ export function runInfraStage({
       'scripts/check-prod-helm-image-inventory.test.mjs',
       'scripts/operator-lifecycle-preflight.test.mjs',
       'scripts/infra-truthfulness.test.mjs',
+      // Runtime image ↔ manifest command contract: every command the backend
+      // workloads invoke must exist in the image the Dockerfile actually
+      // builds (the PreSync migration Job called a stripped `npm` for months).
+      'scripts/backend-image-command-contract.test.mjs',
       'scripts/ci/forgejo-deploy-preflight.test.mjs',
       'scripts/check-redis-ha-contract.test.mjs',
       'scripts/ci/infra.test.mjs',
