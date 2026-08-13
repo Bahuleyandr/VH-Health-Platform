@@ -70,6 +70,7 @@ const List<String> fullTeardown = [
   'dependents',
   'user-provider',
   'firebase-signout',
+  'realtime',
 ];
 
 void main() {
