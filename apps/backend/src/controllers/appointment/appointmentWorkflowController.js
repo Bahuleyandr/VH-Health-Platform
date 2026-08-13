@@ -737,8 +737,14 @@ export const completeAppointment = async (req, res) => {
                    AND sn.type IN ('feedback_request', 'nps_request')
                    AND COALESCE(sn.data->>'appointment_id', '') = $3::text
                    AND COALESCE(sn.data->>'survey', '') = 'nps'
-                   AND sn.status IN ('pending', 'sent')
-              )
+                   AND (
+                     sn.status IN ('pending', 'sent')
+                     OR sn.status IN (
+                       'queued', 'delivering', 'retrying', 'recipient_missing',
+                       'reconcile_required', 'rejected'
+                     )
+                   )
+               )
            RETURNING id`,
           patientId,
           JSON.stringify({ appointment_id: id, type: 'appointment_feedback', survey: 'nps' }),

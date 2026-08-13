@@ -1,236 +1,496 @@
-import prisma from '../../lib/prisma.js';
-import { runWithSuperAdmin } from '../../lib/tenantContext.js';
+import { setTenant, setTenantTx } from '../../lib/prisma.js';
+import { getCurrentTenantId, runInTenantContext } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { queueAppointmentReminderSms } from './smsOutbox.js';
-import { sendStaffNotifications } from '../../services/notification/staffNotificationService.js';
-import { sendPushNotification } from './sendPushNotification.js';
+import { notificationOutbox } from './notificationOutbox.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
+const RECIPIENT_MISSING_CODES = Object.freeze([
+  'fcm_token_missing',
+  'fcm_all_tokens_invalid',
+  'recipient_identifier_missing',
+  'recipient_not_found',
+]);
+
+function requireTenantId(value) {
+  const tenantId = String(value || '').trim().toLowerCase();
+  if (!UUID_RE.test(tenantId)) throw new Error('Reminder job requires an explicit tenantId');
+  return tenantId;
+}
+
+function requireNow(value) {
+  const now = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (Number.isNaN(now.getTime())) throw new Error('Reminder job requires a valid current time');
+  return now;
+}
+
+function reminderWindow(now, kind) {
+  const offsets = kind === '24h'
+    ? [23 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]
+    : [30 * 60 * 1000, 90 * 60 * 1000];
+  return {
+    from: new Date(now.getTime() + offsets[0]),
+    until: new Date(now.getTime() + offsets[1]),
+  };
+}
+
+async function reconcileAppointmentReminderReceipts(tenantId) {
+  return setTenantTx(tenantId, async (tx) => {
+    const reconciled24h = await tx.$queryRawUnsafe(
+      `UPDATE appointments AS appointment
+          SET reminder_24h_sent = TRUE
+        WHERE appointment.tenant_id = $1::uuid
+          AND appointment.reminder_24h_sent IS NOT TRUE
+          AND EXISTS (
+            SELECT 1
+              FROM notification_outbox AS outbox
+              JOIN notification_provider_receipts AS receipt
+                ON receipt.tenant_id = outbox.tenant_id
+               AND receipt.notification_outbox_id = outbox.id
+               AND receipt.channel = outbox.channel
+               AND receipt.outcome = 'acknowledged'
+             WHERE outbox.tenant_id = appointment.tenant_id
+               AND outbox.channel IN ('push', 'sms')
+               AND (
+                 outbox.source_event_key = 'appointment-reminder-24h:' || appointment.id::text
+                 OR outbox.source_event_key LIKE
+                    'appointment-reminder-24h:' || appointment.id::text || ':%'
+               )
+          )
+      RETURNING appointment.id`,
+      tenantId,
+    );
+    const reconciled1h = await tx.$queryRawUnsafe(
+      `UPDATE appointments AS appointment
+          SET reminder_1h_sent = TRUE
+        WHERE appointment.tenant_id = $1::uuid
+          AND appointment.reminder_1h_sent IS NOT TRUE
+          AND EXISTS (
+            SELECT 1
+              FROM notification_outbox AS outbox
+              JOIN notification_provider_receipts AS receipt
+                ON receipt.tenant_id = outbox.tenant_id
+               AND receipt.notification_outbox_id = outbox.id
+               AND receipt.channel = outbox.channel
+               AND receipt.outcome = 'acknowledged'
+             WHERE outbox.tenant_id = appointment.tenant_id
+               AND outbox.channel IN ('push', 'sms')
+               AND (
+                 outbox.source_event_key = 'appointment-reminder-1h:' || appointment.id::text
+                 OR outbox.source_event_key LIKE
+                    'appointment-reminder-1h:' || appointment.id::text || ':%'
+               )
+          )
+      RETURNING appointment.id`,
+      tenantId,
+    );
+    return { reconciled24h: reconciled24h.length, reconciled1h: reconciled1h.length };
+  });
+}
+
+async function loadDueAppointments({ tenantId, from, until, reminderKind }) {
+  const reminderPredicate = reminderKind === '24h'
+    ? 'appointment.reminder_24h_sent IS NOT TRUE'
+    : 'appointment.reminder_1h_sent IS NOT TRUE';
+  return setTenant(tenantId, tx => tx.$queryRawUnsafe(
+    `WITH tenant_clock AS MATERIALIZED (
+       SELECT tenant.id AS tenant_id,
+              COALESCE(configured_timezone.name, fallback_timezone.name, 'Asia/Kolkata')
+                AS timezone
+         FROM tenants AS tenant
+         LEFT JOIN pg_timezone_names AS configured_timezone
+           ON configured_timezone.name = NULLIF(tenant.settings ->> 'timezone', '')
+         LEFT JOIN pg_timezone_names AS fallback_timezone
+           ON fallback_timezone.name = $2::text
+        WHERE tenant.id = $1::uuid
+     ), candidates AS MATERIALIZED (
+       SELECT appointment.id, appointment.tenant_id, appointment.appointment_date,
+              appointment.appointment_time, appointment.token_number,
+              patient.id AS patient_user_id, patient.name AS patient_name,
+              patient.phone AS patient_phone, doctor.id AS doctor_user_id,
+              doctor.uid AS doctor_uid, doctor.name AS doctor_name,
+              doctor_profile.department, tenant_clock.timezone AS tenant_timezone,
+              (
+                (appointment.appointment_date + appointment.appointment_time::time)
+                AT TIME ZONE tenant_clock.timezone
+              ) AS appointment_at
+         FROM appointments AS appointment
+         JOIN tenant_clock
+           ON tenant_clock.tenant_id = appointment.tenant_id
+         JOIN users AS patient
+           ON patient.id = appointment.patient_id
+          AND patient.tenant_id = appointment.tenant_id
+         LEFT JOIN users AS doctor
+           ON doctor.id = appointment.doctor_id
+          AND doctor.tenant_id = appointment.tenant_id
+         LEFT JOIN doctors AS doctor_profile
+           ON doctor_profile.user_id = appointment.doctor_id
+          AND doctor_profile.tenant_id = appointment.tenant_id
+        WHERE appointment.tenant_id = $1::uuid
+          AND appointment.status = 'CONFIRMED'
+          AND ${reminderPredicate}
+          AND appointment.appointment_time ~ '^(0?[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$'
+     )
+     SELECT id, tenant_id, appointment_time, token_number, patient_user_id,
+            patient_name, patient_phone, doctor_user_id, doctor_uid, doctor_name,
+            department, tenant_timezone
+       FROM candidates
+      WHERE appointment_at >= $3::timestamptz
+        AND appointment_at < $4::timestamptz
+      ORDER BY appointment_date, appointment_time, id`,
+    tenantId,
+    DEFAULT_TIMEZONE,
+    from,
+    until,
+  ), { readOnly: true });
+}
+
+function reminderCopy(appointment, hoursAhead) {
+  if (hoursAhead === 24) {
+    return {
+      title: 'Appointment Tomorrow 📅',
+      body: `Reminder: Your appointment is tomorrow at ${appointment.appointment_time} with Dr. ${appointment.doctor_name}. Token #${appointment.token_number}`,
+    };
+  }
+  return {
+    title: 'Appointment in 1 Hour ⏰',
+    body: `Your appointment at ${appointment.appointment_time} with Dr. ${appointment.doctor_name} is in ~1 hour. Token #${appointment.token_number}`,
+  };
+}
+
+async function queueAppointmentReminderPush(appointment, hoursAhead) {
+  const copy = reminderCopy(appointment, hoursAhead);
+  return notificationOutbox.queue({
+    type: `appointment_reminder_${hoursAhead}h`,
+    channel: 'push',
+    tenantId: appointment.tenant_id,
+    recipientId: appointment.patient_user_id,
+    title: copy.title,
+    body: copy.body,
+    sourceEventKey: `appointment-reminder-${hoursAhead}h:${appointment.id}`,
+    templateVersion: 'push.appointment_reminder.v1',
+    data: {
+      type: `appointment_reminder_${hoursAhead}h`,
+      appointment_id: String(appointment.id),
+      hours_ahead: hoursAhead,
+    },
+  });
+}
+
+async function queuePatientReminder(appointment, hoursAhead) {
+  const smsIntent = await queueAppointmentReminderSms({
+    tenantId: appointment.tenant_id,
+    recipientId: appointment.patient_user_id,
+    phone: appointment.patient_phone,
+    patientName: appointment.patient_name,
+    doctorName: appointment.doctor_name,
+    time: appointment.appointment_time,
+    hoursAhead,
+    tokenNumber: appointment.token_number,
+    appointmentId: appointment.id,
+  });
+  const pushIntent = await queueAppointmentReminderPush(appointment, hoursAhead);
+  return {
+    smsRecorded: Boolean(smsIntent?.queued),
+    pushRecorded: Boolean(pushIntent?.id),
+  };
+}
+
+async function notifyDoctorOfDueAppointment(appointment) {
+  if (!appointment.doctor_user_id) return;
+  const { sendStaffNotifications } = await import(
+    '../../services/notification/staffNotificationService.js'
+  );
+  await sendStaffNotifications({
+    tenantId: appointment.tenant_id,
+    recipientUserIds: [appointment.doctor_user_id],
+    title: 'Appointment due soon',
+    body: `${appointment.patient_name || 'Patient'} is due at ${appointment.appointment_time}. Token #${appointment.token_number}.`,
+    type: 'APPOINTMENT_DUE',
+    priority: 'MEDIUM',
+    relatedId: appointment.id,
+    data: {
+      appointment_id: appointment.id,
+      token_number: appointment.token_number,
+      patient_name: appointment.patient_name,
+      doctor_uid: appointment.doctor_uid,
+      department: appointment.department,
+      route: '/appointments',
+    },
+    dedupe: true,
+  });
+}
+
+async function processReminderBatch(appointments, hoursAhead) {
+  let recorded = 0;
+  for (const appointment of appointments) {
+    try {
+      const result = await queuePatientReminder(appointment, hoursAhead);
+      if (result.smsRecorded || result.pushRecorded) recorded += 1;
+      else {
+        logger.warn(
+          `[Reminders] ${hoursAhead}h reminder for appointment ${appointment.id} `
+          + 'could not be recorded on any patient channel',
+        );
+      }
+      if (hoursAhead === 1) {
+        try {
+          await notifyDoctorOfDueAppointment(appointment);
+        } catch (err) {
+          logger.warn(
+            `[Reminders] doctor appointment notification failed for ${appointment.id}: ${err.message}`,
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(`[Reminders] ${hoursAhead}h reminder queue failed for ${appointment.id}: ${err.message}`);
+    }
+  }
+  return recorded;
+}
 
 /**
- * Hourly 24h/1h SMS+push reminders for upcoming appointments
- * Called every hour from scheduler
- *
- * Phase-2 RLS: cross-tenant aggregator. See src/lib/tenantContext.js.
+ * Queue hourly 24h/1h SMS+push reminders for upcoming appointments.
+ * Appointment delivery flags are reconciled only from acknowledged provider
+ * receipts; recording an outbox intent never counts as delivery.
  */
-export async function sendTimedReminders() {
-  return runWithSuperAdmin(async () => sendTimedRemindersInner());
+export async function sendTimedReminders({ tenantId = getCurrentTenantId(), now = new Date() } = {}) {
+  const tid = requireTenantId(tenantId);
+  const clock = requireNow(now);
+  return runInTenantContext(tid, async () => {
+    try {
+      const reconciled = await reconcileAppointmentReminderReceipts(tid);
+      const window24h = reminderWindow(clock, '24h');
+      const window1h = reminderWindow(clock, '1h');
+      const [due24h, due1h] = await Promise.all([
+        loadDueAppointments({ tenantId: tid, ...window24h, reminderKind: '24h' }),
+        loadDueAppointments({ tenantId: tid, ...window1h, reminderKind: '1h' }),
+      ]);
+      const queued24h = await processReminderBatch(due24h, 24);
+      const queued1h = await processReminderBatch(due1h, 1);
+      const result = {
+        due24h: due24h.length,
+        due1h: due1h.length,
+        queued24h,
+        queued1h,
+        ...reconciled,
+      };
+      logger.info('[Reminders] Tenant reminder sweep complete', { tenant_id: tid, ...result });
+      return result;
+    } catch (err) {
+      logger.error(`[Reminders] tenant ${tid} reminder sweep failed: ${err?.message || err}`);
+      throw err;
+    }
+  });
 }
 
-async function sendTimedRemindersInner() {
-  const now = new Date();
+function scheduledNotificationSourceKey(id) {
+  return `scheduled-notification:${String(id)}`;
+}
 
-  try {
-    // 24h window: appointments between now+23h and now+24h
-    const in23h = new Date(now.getTime() + 23 * 60 * 60 * 1000);
-    const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+function renderScheduledNotification(notification) {
+  if (!['feedback_request', 'nps_request'].includes(notification.type)) return null;
+  const data = notification.data && typeof notification.data === 'object'
+    ? notification.data
+    : {};
+  return {
+    title: 'How was your visit? ⭐',
+    body: 'Please take a moment to rate your experience at Venkataeswara Hospitals.',
+    data: {
+      type: 'feedback_request',
+      appointment_id: String(data.appointment_id || ''),
+      survey: String(data.survey || ''),
+      scheduled_notification_id: String(notification.id),
+    },
+    templateVersion: 'push.feedback_request.v1',
+  };
+}
 
-    // 1h window: appointments between now+30min and now+90min
-    const in30m = new Date(now.getTime() + 30 * 60 * 1000);
-    const in90m = new Date(now.getTime() + 90 * 60 * 1000);
+async function reconcileScheduledNotificationStatuses(tenantId) {
+  return setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
+    `WITH latest_delivery AS (
+       SELECT scheduled.id,
+              outbox.status AS outbox_status,
+              outbox.retry_count,
+              outbox.sent_at,
+              receipt.outcome AS receipt_outcome,
+              receipt.provider_code,
+              receipt.observed_at
+         FROM scheduled_notifications AS scheduled
+         JOIN LATERAL (
+           SELECT candidate.id, candidate.status, candidate.retry_count, candidate.sent_at
+             FROM notification_outbox AS candidate
+            WHERE candidate.tenant_id = scheduled.tenant_id
+              AND candidate.channel = 'push'
+              AND (
+                candidate.source_event_key = 'scheduled-notification:' || scheduled.id::text
+                OR candidate.source_event_key LIKE
+                   'scheduled-notification:' || scheduled.id::text || ':%'
+              )
+            ORDER BY candidate.id DESC
+            LIMIT 1
+         ) AS outbox ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT candidate.outcome, candidate.provider_code, candidate.observed_at
+             FROM notification_provider_receipts AS candidate
+            WHERE candidate.tenant_id = $1::uuid
+              AND candidate.notification_outbox_id = outbox.id
+              AND candidate.channel = 'push'
+            ORDER BY candidate.observed_at DESC, candidate.receipt_id DESC
+            LIMIT 1
+         ) AS receipt ON TRUE
+        WHERE scheduled.tenant_id = $1::uuid
+          AND scheduled.status <> 'sent'
+     ), classified AS (
+       SELECT id,
+              CASE
+                WHEN receipt_outcome = 'acknowledged' THEN 'sent'
+                WHEN receipt_outcome = 'rejected'
+                  AND provider_code = ANY($2::text[]) THEN 'recipient_missing'
+                WHEN receipt_outcome = 'uncertain'
+                  OR outbox_status = 'RECONCILIATION_REQUIRED' THEN 'reconcile_required'
+                WHEN outbox_status = 'FAILED' AND retry_count >= 3 THEN 'rejected'
+                WHEN outbox_status = 'FAILED' THEN 'retrying'
+                WHEN outbox_status = 'CLAIMED' THEN 'delivering'
+                ELSE 'queued'
+              END AS delivery_status,
+              COALESCE(observed_at, sent_at) AS delivered_at
+         FROM latest_delivery
+     )
+     UPDATE scheduled_notifications AS scheduled
+        SET status = classified.delivery_status,
+            sent_at = CASE WHEN classified.delivery_status = 'sent'
+              THEN classified.delivered_at ELSE NULL END
+       FROM classified
+      WHERE scheduled.tenant_id = $1::uuid
+        AND scheduled.id = classified.id
+        AND (
+          scheduled.status IS DISTINCT FROM classified.delivery_status
+          OR scheduled.sent_at IS DISTINCT FROM
+             CASE WHEN classified.delivery_status = 'sent'
+               THEN classified.delivered_at ELSE NULL END
+        )
+     RETURNING scheduled.id, scheduled.status, scheduled.sent_at`,
+    tenantId,
+    RECIPIENT_MISSING_CODES,
+  ));
+}
 
-    const [res24h, res1h] = await Promise.all([
-      prisma.$queryRawUnsafe(`
-        SELECT a.id, a.tenant_id, a.appointment_time, a.token_number,
-               u.id AS patient_user_id,
-               u.name AS patient_name, u.phone AS patient_phone, u.device_token,
-               d.name AS doctor_name, doc.department
-        FROM appointments a
-        JOIN users u ON a.patient_id = u.id AND a.tenant_id = u.tenant_id
-        LEFT JOIN users d ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id
-        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id AND a.tenant_id = doc.tenant_id
-        WHERE a.status = 'CONFIRMED'
-          AND a.appointment_date BETWEEN $1 AND $2
-          AND a.reminder_24h_sent IS NOT TRUE
-      `, in23h, in24h),
-      prisma.$queryRawUnsafe(`
-        SELECT a.id, a.tenant_id, a.appointment_time, a.token_number,
-               u.id AS patient_user_id,
-               u.name AS patient_name, u.phone AS patient_phone, u.device_token,
-               d.id AS doctor_user_id, d.uid AS doctor_uid, d.name AS doctor_name,
-               doc.department
-        FROM appointments a
-        JOIN users u ON a.patient_id = u.id AND a.tenant_id = u.tenant_id
-        LEFT JOIN users d ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id
-        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id AND a.tenant_id = doc.tenant_id
-        WHERE a.status = 'CONFIRMED'
-          AND a.appointment_date BETWEEN $1 AND $2
-          AND a.reminder_1h_sent IS NOT TRUE
-      `, in30m, in90m),
-    ]);
+async function loadUnqueuedScheduledNotifications(tenantId) {
+  return setTenant(tenantId, tx => tx.$queryRawUnsafe(
+    `SELECT scheduled.id, scheduled.user_id, scheduled.type, scheduled.data,
+            scheduled.send_at, scheduled.status
+       FROM scheduled_notifications AS scheduled
+      WHERE scheduled.tenant_id = $1::uuid
+        AND scheduled.status IN ('pending', 'retrying')
+        AND scheduled.send_at <= NOW()
+        AND NOT EXISTS (
+          SELECT 1
+            FROM notification_outbox AS outbox
+           WHERE outbox.tenant_id = scheduled.tenant_id
+             AND outbox.channel = 'push'
+             AND (
+               outbox.source_event_key = 'scheduled-notification:' || scheduled.id::text
+               OR outbox.source_event_key LIKE
+                  'scheduled-notification:' || scheduled.id::text || ':%'
+             )
+        )
+      ORDER BY scheduled.send_at, scheduled.id
+      LIMIT 50`,
+    tenantId,
+  ), { readOnly: true });
+}
 
-    // Queue 24h reminders. The SMS leg records a notification-outbox intent —
-    // there is no SMS gateway, so nothing here may report a delivery.
-    const sentIds24h = [];
-    for (const appt of res24h) {
-      try {
-        const smsIntent = await queueAppointmentReminderSms({
-          tenantId: appt.tenant_id || null,
-          recipientId: appt.patient_user_id || null,
-          phone: appt.patient_phone,
-          patientName: appt.patient_name,
-          doctorName: appt.doctor_name,
-          time: appt.appointment_time,
-          hoursAhead: 24,
-          tokenNumber: appt.token_number,
-          appointmentId: appt.id,
-        });
-        let patientReminderAccepted = smsIntent.queued;
-        if (appt.device_token) {
-          try {
-            const pushResult = await sendPushNotification({
-              tokens: appt.device_token,
-              title: 'Appointment Tomorrow 📅',
-              body: `Reminder: Your appointment is tomorrow at ${appt.appointment_time} with Dr. ${appt.doctor_name}. Token #${appt.token_number}`,
-              data: { type: 'appointment_reminder_24h', appointment_id: String(appt.id) },
-              userId: null,
-            });
-            patientReminderAccepted ||= Number(pushResult?.successCount) > 0;
-          } catch (e) {
-            logger.warn(`[Reminders] 24h push notification failed for appointment ${appt.id}:`, e.message);
-          }
-        }
-        if (patientReminderAccepted) {
-          sentIds24h.push(appt.id);
-        } else {
-          logger.warn(`[Reminders] 24h reminder for appointment ${appt.id} reached no patient channel; leaving it eligible for retry`);
-        }
-      } catch (e) {
-        logger.warn(`[Reminders] 24h reminder failed for ${appt.id}: ${e.message}`);
-      }
-    }
-    // Batch update all successfully sent 24h reminders
-    if (sentIds24h.length > 0) {
-      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_24h_sent = TRUE WHERE id = ANY($1)', sentIds24h);
-      logger.info(`[Reminders] Marked ${sentIds24h.length} appointments as 24h-reminder attempted`);
-    }
-
-    // Queue 1h reminders (same honesty rule as the 24h leg above).
-    const sentIds1h = [];
-    for (const appt of res1h) {
-      try {
-        const smsIntent = await queueAppointmentReminderSms({
-          tenantId: appt.tenant_id || null,
-          recipientId: appt.patient_user_id || null,
-          phone: appt.patient_phone,
-          patientName: appt.patient_name,
-          doctorName: appt.doctor_name,
-          time: appt.appointment_time,
-          hoursAhead: 1,
-          tokenNumber: appt.token_number,
-          appointmentId: appt.id,
-        });
-        let patientReminderAccepted = smsIntent.queued;
-        if (appt.device_token) {
-          try {
-            const pushResult = await sendPushNotification({
-              tokens: appt.device_token,
-              title: 'Appointment in 1 Hour ⏰',
-              body: `Your appointment at ${appt.appointment_time} with Dr. ${appt.doctor_name} is in ~1 hour. Token #${appt.token_number}`,
-              data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
-              userId: null,
-            });
-            patientReminderAccepted ||= Number(pushResult?.successCount) > 0;
-          } catch (e) {
-            logger.warn(`[Reminders] 1h push notification failed for appointment ${appt.id}:`, e.message);
-          }
-        }
-        if (appt.doctor_user_id) {
-          try {
-            await sendStaffNotifications({
-              tenantId: appt.tenant_id,
-              recipientUserIds: [appt.doctor_user_id],
-              title: 'Appointment due soon',
-              body: `${appt.patient_name || 'Patient'} is due at ${appt.appointment_time}. Token #${appt.token_number}.`,
-              type: 'APPOINTMENT_DUE',
-              priority: 'MEDIUM',
-              relatedId: appt.id,
-              data: {
-                appointment_id: appt.id,
-                token_number: appt.token_number,
-                patient_name: appt.patient_name,
-                doctor_uid: appt.doctor_uid,
-                department: appt.department,
-                route: '/appointments',
-              },
-              dedupe: true,
-            });
-          } catch (notifyErr) {
-            logger.warn(`[Reminders] doctor appointment notification failed for ${appt.id}: ${notifyErr.message}`);
-          }
-        }
-        if (patientReminderAccepted) {
-          sentIds1h.push(appt.id);
-        } else {
-          logger.warn(`[Reminders] 1h reminder for appointment ${appt.id} reached no patient channel; leaving it eligible for retry`);
-        }
-      } catch (e) {
-        logger.warn(`[Reminders] 1h reminder failed for ${appt.id}: ${e.message}`);
-      }
-    }
-    // Batch update all successfully sent 1h reminders
-    if (sentIds1h.length > 0) {
-      await prisma.$queryRawUnsafe('UPDATE appointments SET reminder_1h_sent = TRUE WHERE id = ANY($1)', sentIds1h);
-      logger.info(`[Reminders] Marked ${sentIds1h.length} appointments as 1h-reminder attempted`);
-    }
-
-    // "processed", not "sent": the SMS leg only reaches the outbox, and the
-    // push leg is best-effort per appointment.
-    logger.info(`[Reminders] Done: ${res24h.length} 24h + ${res1h.length} 1h reminders processed`);
-  } catch (err) {
-    logger.error('[Reminders] sendTimedReminders error:', err.message);
-  }
+async function setScheduledNotificationStatus(tenantId, id, status) {
+  return setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
+    `UPDATE scheduled_notifications
+        SET status = $3::text,
+            sent_at = NULL
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+        AND status <> 'sent'
+    RETURNING id, status`,
+    tenantId,
+    id,
+    status,
+  ));
 }
 
 /**
- * Process pending scheduled notifications (feedback requests, etc.)
- * Called every 5 minutes from scheduler
- *
- * Phase-2 RLS: cross-tenant aggregator. See src/lib/tenantContext.js.
+ * Move due scheduled notifications onto the canonical leased notification
+ * outbox. This job never calls a provider and never marks a row sent itself.
  */
-export async function processPendingScheduledNotifications() {
-  return runWithSuperAdmin(async () => processPendingScheduledNotificationsInner());
-}
-
-async function processPendingScheduledNotificationsInner() {
-  try {
-    const pending = await prisma.$queryRawUnsafe(`
-      SELECT sn.*, u.device_token, u.phone, u.name
-      FROM scheduled_notifications sn
-      JOIN users u ON sn.user_id = u.id
-      WHERE sn.status = 'pending' AND sn.send_at <= NOW()
-      ORDER BY sn.send_at
-      LIMIT 50
-    `);
-
-    for (const notif of pending) {
-      try {
-        if (notif.type === 'feedback_request' && notif.device_token) {
-          const data = notif.data || {};
-          await sendPushNotification({
-            tokens: notif.device_token,
-            title: 'How was your visit? ⭐',
-            body: 'Please take a moment to rate your experience at Venkataeswara Hospitals.',
-            data: {
-              type: 'feedback_request',
-              appointment_id: String(data.appointment_id || ''),
-              survey: String(data.survey || '')
-            },
-            userId: String(notif.user_id),
-          }).catch(e => logger.warn(`[ScheduledNotif] Push notification failed for notif ${notif.id}:`, e.message));
+export async function processPendingScheduledNotifications({
+  tenantId = getCurrentTenantId(),
+} = {}) {
+  const tid = requireTenantId(tenantId);
+  return runInTenantContext(tid, async () => {
+    try {
+      const before = await reconcileScheduledNotificationStatuses(tid);
+      const pending = await loadUnqueuedScheduledNotifications(tid);
+      let queued = 0;
+      let retrying = 0;
+      let rejected = 0;
+      for (const notification of pending) {
+        const rendered = renderScheduledNotification(notification);
+        if (!rendered) {
+          await setScheduledNotificationStatus(tid, notification.id, 'rejected');
+          rejected += 1;
+          logger.warn(
+            `[ScheduledNotif] Unsupported scheduled notification type ${notification.type} `
+            + `for row ${notification.id}`,
+          );
+          continue;
         }
-        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='sent', sent_at=NOW() WHERE id=$1`, notif.id);
-      } catch (e) {
-        logger.warn(`[ScheduledNotif] Failed for notif ${notif.id}: ${e.message}`);
-        await prisma.$queryRawUnsafe(`UPDATE scheduled_notifications SET status='failed' WHERE id=$1`, notif.id).catch(e => logger.warn(`[ScheduledNotif] Failed to mark notification ${notif.id} as failed:`, e.message));
+        try {
+          const outbox = await notificationOutbox.queue({
+            type: notification.type,
+            channel: 'push',
+            tenantId: tid,
+            recipientId: notification.user_id,
+            title: rendered.title,
+            body: rendered.body,
+            data: rendered.data,
+            sourceEventKey: scheduledNotificationSourceKey(notification.id),
+            templateVersion: rendered.templateVersion,
+          }, { strict: true });
+          if (!outbox?.id) throw new Error('notification outbox returned no row');
+          queued += 1;
+        } catch (err) {
+          retrying += 1;
+          await setScheduledNotificationStatus(tid, notification.id, 'retrying');
+          logger.warn(
+            `[ScheduledNotif] Failed to record outbox intent for row ${notification.id}: ${err.message}`,
+          );
+        }
       }
+      const after = await reconcileScheduledNotificationStatuses(tid);
+      const result = {
+        due: pending.length,
+        queued,
+        retrying,
+        rejected,
+        reconciled: before.length + after.length,
+      };
+      if (pending.length > 0 || result.reconciled > 0) {
+        logger.info('[ScheduledNotif] Tenant scheduled-notification sweep complete', {
+          tenant_id: tid,
+          ...result,
+        });
+      }
+      return result;
+    } catch (err) {
+      logger.error(
+        `[ScheduledNotif] tenant ${tid} scheduled-notification sweep failed: ${err?.message || err}`,
+      );
+      throw err;
     }
-
-    if (pending.length > 0) {
-      logger.info(`[ScheduledNotif] Processed ${pending.length} pending notifications`);
-    }
-  } catch (err) {
-    // Use template literal so winston doesn't swallow the message via
-    // its multi-arg meta-object handling (the second-arg form was
-    // logging just the prefix with an empty body before this fix).
-    logger.error(`[ScheduledNotif] processPendingScheduledNotifications error: ${err?.message || err}`);
-  }
+  });
 }
+
+export const __testing__ = Object.freeze({
+  reminderWindow,
+  scheduledNotificationSourceKey,
+  renderScheduledNotification,
+});

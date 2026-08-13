@@ -708,10 +708,16 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // ⏰ Every hour - Send 24h and 1h SMS+push appointment reminders
-  registerCron('0 * * * *', withJobLock('timed-reminders', () => runForEachTenant('timed-reminders', () => sendTimedReminders())));
+  registerCron('0 * * * *', withJobLock('timed-reminders', () => (
+    runForEachTenant('timed-reminders', tenantId => sendTimedReminders({ tenantId }))
+  )));
 
   // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
-  registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => runForEachTenant('process-scheduled-notifications', () => processPendingScheduledNotifications())));
+  registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => (
+    runForEachTenant('process-scheduled-notifications', tenantId => (
+      processPendingScheduledNotifications({ tenantId })
+    ))
+  )));
 
   // 💊 Every 5 minutes - Alert if an active ward/ICU admission still has no drug chart after 1 hour.
   registerCron('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
@@ -1244,8 +1250,14 @@ export async function runAllScheduledTasksNow() {
 
     // Heavy MUTATING / fan-out jobs — each fleet-wide single-runner via the
     // advisory lock so a boot stampede can't multiply patient SMS / escalations.
-    await withDbAdvisoryLock('timed-reminders', () => runWithSuperAdmin(sendTimedReminders));
-    await withDbAdvisoryLock('process-scheduled-notifications', () => runWithSuperAdmin(processPendingScheduledNotifications));
+    await withDbAdvisoryLock('timed-reminders', () => (
+      runForEachTenant('timed-reminders', tenantId => sendTimedReminders({ tenantId }))
+    ));
+    await withDbAdvisoryLock('process-scheduled-notifications', () => (
+      runForEachTenant('process-scheduled-notifications', tenantId => (
+        processPendingScheduledNotifications({ tenantId })
+      ))
+    ));
     await withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep));
     await withDbAdvisoryLock('unread-critical-notification-escalation', () => runWithSuperAdmin(runUnreadCriticalEscalation));
     await withDbAdvisoryLock('purge-staff-messages', () => runWithSuperAdmin(purgeExpiredStaffMessages));
