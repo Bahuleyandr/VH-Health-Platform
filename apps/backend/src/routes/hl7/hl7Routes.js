@@ -28,6 +28,10 @@ import {
   submitHl7InboundRecovery,
 } from '../../services/integrations/externalHl7InboundRecoveryService.js';
 import { processHl7InboundClinicalMessage } from '../../services/hl7/hl7InboundClinicalCommandService.js';
+import {
+  assertHl7InboundIngressEnabled,
+  hl7InboundIngressGate,
+} from './hl7InboundIngressGate.js';
 
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
@@ -92,6 +96,14 @@ const rawHl7RecoveryResponses = middleware => (req, res, next) => {
 // wire-format rejection is converted to an HL7 ACK.
 router.use(rawHl7RecoveryResponses(genericLimiter));
 
+// HL7_INBOUND_ENABLED gate, second layer. The first layer sits at the app.js
+// mount; this one keeps the router itself fail-closed if it is ever mounted
+// somewhere else. It is registered AFTER the limiter on purpose, so a disabled
+// interface is still rate limited rather than becoming a free request sink,
+// and BEFORE every /receive handler, so no credential is resolved and no
+// database read is issued while the interface is off.
+router.use('/receive', hl7InboundIngressGate);
+
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
 // ---------------------------------------------------------------------------
@@ -105,6 +117,13 @@ async function assertHl7InboundAuthentic(req, {
   receivingFacility,
   recoveryAuthentication = null,
 }) {
+  // HL7_INBOUND_ENABLED gate, third and innermost layer. Placed ahead of every
+  // credential lookup so the answer to "can this credential authenticate an
+  // inbound message?" is NO while the interface is declared off — for the
+  // DB-backed tenant_interop_secrets row and the legacy shared secret alike,
+  // and for the live and recovery paths alike. Routing can be changed; this
+  // cannot be routed around.
+  assertHl7InboundIngressEnabled();
   const explicitRecoveryRequestId = String(req.headers['x-hl7-message-id'] || '').trim();
   if (recoveryAuthentication && !explicitRecoveryRequestId) {
     throw AppError.unauthorized(

@@ -200,6 +200,7 @@ import documentRoutes from './routes/documents/documentRoutes.js';
 
 // HL7v2 messaging
 import hl7Routes from './routes/hl7/hl7Routes.js';
+import { hl7InboundIngressGate } from './routes/hl7/hl7InboundIngressGate.js';
 import { generateACK } from './services/hl7/hl7Parser.js';
 
 // Admin (centralized under /api/v1/admin)
@@ -823,6 +824,16 @@ app.use('/api/v1/config', configRoutes);
 
 // HL7v2 messaging — mounted before global JWT auth so /receive works with API key only.
 // JWT is enforced on /generate within the route file itself.
+//
+// The INBOUND half is gated on HL7_INBOUND_ENABLED and fails closed. This
+// mount used to be unconditional, which made the flag a comment: a deployment
+// declaring HL7 ingress off (configmap.yaml sets it "false") still accepted
+// signed messages against an active tenant_interop_secrets row or a retained
+// legacy HL7_INBOUND_SHARED_SECRET. The gate is repeated inside the router and
+// again at the credential boundary — see routes/hl7/hl7InboundIngressGate.js.
+// Only /receive is gated: /generate is outbound export and /capability is
+// static metadata, neither of which is ingress.
+app.use('/api/v1/hl7/receive', hl7InboundIngressGate);
 app.use('/api/v1/hl7', hl7Routes);
 app.use('/api/v1/ingest/cold-chain', coldChainIngestRoutes);
 

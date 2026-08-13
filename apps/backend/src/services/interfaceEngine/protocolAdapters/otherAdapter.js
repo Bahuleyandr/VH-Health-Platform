@@ -228,6 +228,10 @@ export default Object.freeze({
   protocol: 'other',
   adapterVersion: OTHER_ADAPTER_VERSION,
   backendAdapterKeys: Object.freeze([OTHER_BACKEND_ADAPTER_KEY]),
+  // This backend adapter records `receipt_status = 'accepted'` — a real
+  // canonical delivery — so it may back an active inbound version. Keep in
+  // sync with interop_canonical_backend_adapters() in migration 670.
+  canonicalBackendAdapterKeys: Object.freeze([OTHER_BACKEND_ADAPTER_KEY]),
   externalAdapterKey: OTHER_EXTERNAL_ADAPTER_KEY,
   assertMessageParity: assertOtherMessageParity,
   deliverBackendTx: deliverOtherBackendTx,

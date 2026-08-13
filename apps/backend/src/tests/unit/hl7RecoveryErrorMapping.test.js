@@ -4,6 +4,12 @@ import request from 'supertest';
 
 import { AppError } from '../../utils/AppError.js';
 
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON so the recovery
+// error-mapping paths are reachable. The refused-while-off contract lives in
+// hl7-inbound-disabled.deep.test.js.
+process.env.HL7_INBOUND_ENABLED = 'true';
+
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const RECOVERY = Object.freeze({ generation: 1 });
 let mode = null;
