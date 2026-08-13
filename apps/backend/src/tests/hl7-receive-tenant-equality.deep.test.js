@@ -21,6 +21,11 @@ import {
   upsertInteropSecret,
 } from '../services/interop/tenantInteropSecretService.js';
 
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON to exercise it. The
+// refused-while-off contract lives in hl7-inbound-disabled.deep.test.js.
+process.env.HL7_INBOUND_ENABLED = 'true';
+
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 

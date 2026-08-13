@@ -9,7 +9,11 @@ import { AppError } from '../../utils/AppError.js';
 import { encryptField, decryptField } from '../../utils/fieldEncryption.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 import { assertSafeFeedUrl, safeFetch } from '../../utils/ssrfGuard.js';
-import { IMPLEMENTED_I05_PROTOCOLS, requireI05ProtocolAdapter } from './protocolAdapters/index.js';
+import {
+  IMPLEMENTED_I05_PROTOCOLS,
+  assertActivatableBackendAdapter,
+  requireI05ProtocolAdapter,
+} from './protocolAdapters/index.js';
 import { runTransformDsl, transformMatchesExpected, validateTransformDsl } from './transformDsl.js';
 import {
   assertConnectorCanActivate,
@@ -198,6 +202,22 @@ async function assertVersionRuntimeReady(channel, version) {
         'INTEROP_PREVIEW_ACTIVATION_FORBIDDEN',
       );
     }
+    // Fail closed on the adapter itself, not just on the preview key. Refusing
+    // ONLY `backend.interop.preview` left two ways to activate an inbound
+    // channel that cannot deliver anything: name an adapter key no adapter
+    // implements (every message then dies at `deliver_backend`), or name no
+    // adapter at all (ingestion stops at `transformed` and the ingress answers
+    // 409 forever) — in both cases the channel row claims `active` while the
+    // interface is incapable of a clinical effect. hl7v2 is the only protocol
+    // http_inbound may carry and its sole registered backend adapter is the
+    // forbidden preview one, so today this makes inbound activation
+    // unavailable. That is the honest state; it re-opens by itself the moment a
+    // canonical hl7v2 backend adapter is registered. The database enforces the
+    // same rule independently — migration 670.
+    assertActivatableBackendAdapter({
+      protocol: channel.protocol,
+      adapterKey: backendAdapterFor(version),
+    });
     if (!channel.source_system_id || channel.source_system_status !== 'active') {
       throw AppError.badRequest(
         'http_inbound channels require an active source system',

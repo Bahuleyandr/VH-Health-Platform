@@ -1,5 +1,11 @@
 import request from 'supertest';
 
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON so the raised parser
+// ceiling is exercised against a live ingress. The refused-while-off contract
+// lives in hl7-inbound-disabled.deep.test.js.
+process.env.HL7_INBOUND_ENABLED = 'true';
+
 const previousBodyLimit = process.env.HTTP_BODY_LIMIT;
 process.env.HTTP_BODY_LIMIT = '13mb';
 

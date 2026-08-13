@@ -7,7 +7,6 @@ import logger from '../../logging/logger.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
-import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireAnyRole } from '../../middleware/rbacMiddleware.js';
 import { parseHL7, generateACK } from '../../services/hl7/hl7Parser.js';
 import {
@@ -28,6 +27,11 @@ import {
   submitHl7InboundRecovery,
 } from '../../services/integrations/externalHl7InboundRecoveryService.js';
 import { processHl7InboundClinicalMessage } from '../../services/hl7/hl7InboundClinicalCommandService.js';
+import {
+  assertHl7InboundIngressEnabled,
+  hl7InboundIngressGate,
+} from './hl7InboundIngressGate.js';
+import { hl7IngressLimiter } from './hl7IngressRateLimit.js';
 
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
@@ -64,33 +68,26 @@ function assertLocalInvestigationExportContract(investigation, { requireResults 
   }
 }
 
-const rawHl7RecoveryResponses = middleware => (req, res, next) => {
-  if (req.hl7InboundRecoveryRequest !== true) return middleware(req, res, next);
-  const originalJson = res.json;
-  const restoreAndNext = (err) => {
-    res.json = originalJson;
-    return next(err);
-  };
-  res.json = function sendRawHl7RecoveryRejection() {
-    res.json = originalJson;
-    const status = Number(res.statusCode) || 500;
-    const ackCode = status >= 500 || status === 429 ? 'AE' : 'AR';
-    res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-    return res.send(generateACK('UNKNOWN', ackCode, 'HL7 receive request rejected'));
-  };
-  try {
-    const pending = middleware(req, res, restoreAndNext);
-    if (pending && typeof pending.catch === 'function') pending.catch(restoreAndNext);
-    return pending;
-  } catch (err) {
-    return restoreAndNext(err);
-  }
-};
-
 // Preserve the legacy router-level generic limiter and its authenticated
 // tenant/API-key bucket. Recovery requests keep that same limiter; only their
 // wire-format rejection is converted to an HL7 ACK.
-router.use(rawHl7RecoveryResponses(genericLimiter));
+//
+// hl7IngressLimiter enforces it AT MOST ONCE per request. Under the production
+// composition (mountHl7Interface) every HL7 request has already met this exact
+// limiter one mount earlier — at the same relative path, in the same chain
+// position, on the same bucket — because it has to run AHEAD of the ingress
+// gate, which short-circuits before this router. So this is a pass-through
+// there, and the enforcing layer for any other mount of this router.
+router.use(hl7IngressLimiter);
+
+// HL7_INBOUND_ENABLED gate, second layer. The first layer sits at the app.js
+// mount, behind that same limiter; this one keeps the router itself fail-closed
+// if it is ever mounted somewhere else. It is registered AFTER the limiter
+// above on purpose, so a disabled interface is still rate limited on such a
+// mount rather than becoming a free request sink, and BEFORE every /receive
+// handler, so no credential is resolved and no database read is issued while
+// the interface is off.
+router.use('/receive', hl7InboundIngressGate);
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -105,6 +102,13 @@ async function assertHl7InboundAuthentic(req, {
   receivingFacility,
   recoveryAuthentication = null,
 }) {
+  // HL7_INBOUND_ENABLED gate, third and innermost layer. Placed ahead of every
+  // credential lookup so the answer to "can this credential authenticate an
+  // inbound message?" is NO while the interface is declared off — for the
+  // DB-backed tenant_interop_secrets row and the legacy shared secret alike,
+  // and for the live and recovery paths alike. Routing can be changed; this
+  // cannot be routed around.
+  assertHl7InboundIngressEnabled();
   const explicitRecoveryRequestId = String(req.headers['x-hl7-message-id'] || '').trim();
   if (recoveryAuthentication && !explicitRecoveryRequestId) {
     throw AppError.unauthorized(

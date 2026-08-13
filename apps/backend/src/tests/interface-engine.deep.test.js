@@ -72,7 +72,14 @@ async function ensureTenant(id, slug) {
   );
 }
 
-async function createActiveInboundChannel() {
+// Audit 2026-08-13: this fixture used to ACTIVATE this channel. It no longer
+// can, and that is the fix. `http_inbound` may only carry hl7v2, and hl7v2's
+// only registered backend adapter is the forbidden preview adapter, so no
+// inbound version can name a canonical backend adapter — activation is
+// refused at the service boundary and by both database triggers. The channel
+// and version are still built here (draft) because several tests assert what
+// is refused and what the ingress does with a channel that cannot go active.
+async function createInboundChannelCandidate() {
   const sourceSystem = await createSystem({
     tenantId: TENANT_A,
     systemKey: `his-source-${SFX}`,
@@ -125,12 +132,14 @@ async function createActiveInboundChannel() {
   });
   const run = await runTransformTest({ tenantId: TENANT_A, testId: fixture.id });
   expect(run.last_run_status).toBe('passed');
-  await activateChannelVersion({
+  // Transform validation still works end to end — the refusal below is about
+  // DELIVERY capability, not about the version being malformed.
+  await expect(activateChannelVersion({
     tenantId: TENANT_A,
     channelVersionId: version.id,
     actorUid: null,
-  });
-  return { ...channel, status: 'active', active_version_id: version.id };
+  })).rejects.toMatchObject({ code: 'INTEROP_CANONICAL_BACKEND_ADAPTER_UNAVAILABLE' });
+  return { ...channel, version_id: version.id };
 }
 
 async function createActiveOutboundChannel() {
@@ -193,7 +202,7 @@ describe('NL11-S11 interface engine runtime', () => {
       senderIdentifier: RECEIVER_B,
       secret: SECRET_B,
     });
-    inboundChannel = await createActiveInboundChannel();
+    inboundChannel = await createInboundChannelCandidate();
     outboundChannel = await createActiveOutboundChannel();
   }, 30000);
 
@@ -207,116 +216,170 @@ describe('NL11-S11 interface engine runtime', () => {
     }
   }, 30000);
 
-  it('validates a signed HL7 message without claiming clinical delivery and rejects replay', async () => {
-    const headers = sign(SECRET_A, HL7_A, `req-in-${SFX}`);
+  // Audit 2026-08-13 — what these four tests used to assert.
+  //
+  // They exercised an ACTIVE `http_inbound` channel that carried no backend
+  // adapter: signed ingest, replay rejection, source-IP policy, and
+  // cross-tenant receiver binding, all terminating truthfully at
+  // `status = 'transformed'` with no receipt and a 409 at the ingress.
+  //
+  // That state is exactly the defect. `http_inbound` may only carry hl7v2, and
+  // hl7v2's only registered backend adapter is `backend.interop.preview`,
+  // which the activation guards already forbid. So an inbound channel could be
+  // approved as `active` in three configurations, none of which can deliver:
+  // naming the preview adapter (already refused), naming an adapter key no
+  // adapter implements (every message dies at `deliver_backend`), or naming no
+  // adapter at all (the case below — silently inert, 409 forever). Activation
+  // now requires a CANONICAL backend adapter at the service boundary and at
+  // both database triggers, which makes inbound activation unavailable until
+  // such an adapter is registered.
+  //
+  // Consequence to be explicit about: with no channel able to reach `active`,
+  // the guards INSIDE receiveHttpHl7Message that those four tests reached
+  // through an active channel (replay, source-IP allowlist, proxy trust,
+  // receiver/tenant binding) sit behind `loadChannel({ activeOnly: true })` and
+  // are no longer reachable from an integration test. Their primitives keep
+  // unit coverage in src/tests/unit/interfaceEngineRuntimePolicy.test.js
+  // (isSourceIpAllowed, normalizeAllowedSourceRanges) and the equivalent
+  // signed-request / replay guards stay covered end to end on the I03 path
+  // (hl7-receive-tenant-equality.deep.test.js, hl7-inbound-recovery.deep.test.js).
 
-    const accepted = await receiveHttpHl7Message({
-      channelKey: inboundChannel.channel_key,
-      message: HL7_A,
-      headers,
-      sourceIp: '127.0.0.1',
-    });
+  it('refuses inbound activation with no canonical backend adapter at the service and both database boundaries', async () => {
+    // Service boundary: proven by createInboundChannelCandidate() in beforeAll,
+    // re-asserted here so the refusal is visible in this test's own output.
+    await expect(activateChannelVersion({
+      tenantId: TENANT_A,
+      channelVersionId: inboundChannel.version_id,
+      actorUid: null,
+    })).rejects.toMatchObject({ code: 'INTEROP_CANONICAL_BACKEND_ADAPTER_UNAVAILABLE' });
 
-    expect(accepted.status).toBe('transformed');
-    expect(accepted.message_type).toBe('ADT^A01');
-    expect(accepted.redacted_preview).toContain(`CTRL-${SFX}`);
-    expect(accepted.redacted_preview).not.toContain('Asha');
-
-    const detail = await getMessage({ tenantId: TENANT_A, id: accepted.id });
-    expect(detail).not.toHaveProperty('raw_payload_ciphertext');
-    expect(detail.attempts.map((attempt) => attempt.phase)).toEqual(
-      expect.arrayContaining(['receive', 'parse', 'transform']),
-    );
-    expect(detail.attempts.map((attempt) => attempt.phase)).not.toContain('deliver_backend');
-    expect(detail.receipts).toEqual([]);
-
+    // Database boundary 1 — the version trigger, reached by bypassing the
+    // service entirely.
     await expect(prisma.$executeRawUnsafe(
-      `UPDATE interop_messages
-          SET status = 'delivered'
+      `UPDATE interop_channel_versions
+          SET status = 'active'
         WHERE tenant_id = $1::uuid AND id = $2::integer`,
       TENANT_A,
-      accepted.id,
-    )).rejects.toThrow(/interface delivery requires an accepted same-message receipt/);
+      inboundChannel.version_id,
+    )).rejects.toThrow(/no canonical backend adapter is registered for this protocol/);
+
+    // Database boundary 2 — the channel trigger. Note what this actually
+    // proves: the channel cannot go active either. It stops on the trigger's
+    // EARLIER requirement (its active version is not active, because the
+    // version trigger above refused it), so the channel trigger's own
+    // canonical-adapter branch is not the clause that fires here. That branch
+    // is unreachable for hl7v2 by construction — reaching it needs an active
+    // hl7v2 inbound version, which cannot exist — and it is carried so the
+    // channel boundary opens together with the version boundary the day a
+    // canonical hl7v2 adapter is registered. Do not read this assertion as
+    // coverage of that branch.
     await expect(prisma.$executeRawUnsafe(
-      `INSERT INTO interop_messages
-         (tenant_id, channel_id, channel_version_id, direction, protocol,
-          external_control_id, payload_hash, status)
-       VALUES ($1::uuid, $2::integer, $3::integer, 'inbound', 'hl7v2',
-               $4, $5, 'delivered')`,
+      `UPDATE interop_channels
+          SET status = 'active', active_version_id = $2::integer
+        WHERE tenant_id = $1::uuid AND id = $3::integer`,
+      TENANT_A,
+      inboundChannel.version_id,
+      inboundChannel.id,
+    )).rejects.toThrow(/active interface-engine channel must reference its active version/);
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT channel.status AS channel_status, version.status AS version_status
+         FROM interop_channels AS channel
+         JOIN interop_channel_versions AS version
+           ON version.tenant_id = channel.tenant_id AND version.channel_id = channel.id
+        WHERE channel.tenant_id = $1::uuid AND channel.id = $2::integer`,
       TENANT_A,
       inboundChannel.id,
-      inboundChannel.active_version_id,
-      `INBOUND-INSERT-${SFX}`,
-      'c'.repeat(64),
-    )).rejects.toThrow(/interface delivery requires an accepted same-message receipt/);
+    );
+    expect(rows[0]).toMatchObject({ channel_status: 'draft' });
+    expect(rows[0].version_status).not.toBe('active');
+  }, 30000);
 
+  it('refuses inbound activation that names a backend adapter no adapter implements', async () => {
+    const channel = await createChannel({
+      tenantId: TENANT_A,
+      channelKey: `unregistered-adapter-${SFX}`,
+      displayName: 'Unregistered backend adapter candidate',
+      sourceSystemId: inboundChannel.source_system_id,
+      direction: 'inbound',
+      connectorKind: 'http_inbound',
+      protocol: 'hl7v2',
+      messageTypes: ['ADT^A01'],
+      authKind: 'tenant_interop_secret',
+      authSenderIdentifier: `UNREG_${SFX}`,
+    });
+    const version = await createChannelVersion({
+      tenantId: TENANT_A,
+      channelId: channel.id,
+      transformDsl: {
+        kind: 'hl7v2-to-backend-adapter',
+        output: {
+          patientUid: { select: 'PID.3' },
+          controlId: { select: 'MSH.10' },
+        },
+        // Plausible, spelled like a real key, implemented by nothing. Before
+        // the fix this activated and then failed on every single message with
+        // INTEROP_BACKEND_ADAPTER_UNREGISTERED at deliver_backend.
+        emit: { adapter: 'backend.interop.hl7v2' },
+      },
+      routingPolicy: { adapter: 'backend.interop.hl7v2' },
+    });
+    const fixture = await createTransformTest({
+      tenantId: TENANT_A,
+      channelVersionId: version.id,
+      name: `Unregistered fixture ${SFX}`,
+      messageType: 'ADT^A01',
+      inputPayload: HL7_A,
+      expectedOutput: {
+        patientUid: PATIENT_UID,
+        controlId: `CTRL-${SFX}`,
+      },
+    });
+    await expect(runTransformTest({ tenantId: TENANT_A, testId: fixture.id }))
+      .resolves.toMatchObject({ last_run_status: 'passed' });
+
+    await expect(activateChannelVersion({
+      tenantId: TENANT_A,
+      channelVersionId: version.id,
+      actorUid: null,
+    })).rejects.toMatchObject({ code: 'INTEROP_CANONICAL_BACKEND_ADAPTER_UNAVAILABLE' });
+
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE interop_channel_versions
+          SET status = 'active'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      TENANT_A,
+      version.id,
+    )).rejects.toThrow(/canonical backend adapter/);
+  }, 30000);
+
+  it('accepts no HL7 ingress at all while no inbound channel can be active', async () => {
+    // A correctly signed message from an allowlisted source against a real
+    // tenant credential. Before the fix this was ingested, stored (encrypted
+    // PHI) and answered 409 forever; now there is no active channel to receive
+    // it and nothing is persisted.
+    const headers = sign(SECRET_A, HL7_A, `req-in-${SFX}`);
     await expect(receiveHttpHl7Message({
       channelKey: inboundChannel.channel_key,
       message: HL7_A,
       headers,
       sourceIp: '127.0.0.1',
-    })).rejects.toMatchObject({ code: 'INTEROP_HL7_REPLAY' });
-  }, 30000);
+    })).rejects.toMatchObject({ statusCode: 404 });
 
-  it('rejects spoofed proxy identity at the public ingress and returns no acceptance for validation-only processing', async () => {
-    const message = HL7_A.replace(`CTRL-${SFX}`, `ROUTE-${SFX}`);
-    const headers = sign(SECRET_A, message, `req-route-${SFX}`);
-    const spoofed = await request(ingressApp())
+    const overHttp = await request(ingressApp())
       .post(`/api/v1/interface-engine/channels/${inboundChannel.channel_key}/hl7`)
       .set(headers)
-      .set('X-Forwarded-For', '127.0.0.1')
-      .send({ message });
-    expect(spoofed.status).toBe(403);
-    expect(spoofed.text).toContain('MSA|AE');
-    expect(spoofed.text).toContain('INGRESS_PROXY_UNTRUSTED');
-
-    const validated = await request(ingressApp())
-      .post(`/api/v1/interface-engine/channels/${inboundChannel.channel_key}/hl7`)
-      .set(headers)
-      .send({ message });
-    expect(validated.status).toBe(409);
-    expect(validated.text).toContain('MSA|AE');
-    expect(validated.text).toContain('INTEROP_HL7_NOT_DELIVERED');
-    expect(validated.text).not.toContain('MSA|AA');
+      .send({ message: HL7_A });
+    expect(overHttp.status).toBe(404);
+    expect(overHttp.text).not.toContain('MSA|AA');
 
     const stored = await listMessages({
       tenantId: TENANT_A,
       channelId: inboundChannel.id,
     });
-    expect(stored.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        external_control_id: `ROUTE-${SFX}`,
-        status: 'transformed',
-      }),
-    ]));
+    expect(stored.messages).toEqual([]);
   }, 30000);
 
-  it('enforces the source IP policy before consuming signed request replay state', async () => {
-    const requestId = `req-source-${SFX}`;
-    const headers = sign(SECRET_A, HL7_A, requestId);
-    await expect(receiveHttpHl7Message({
-      channelKey: inboundChannel.channel_key,
-      message: HL7_A,
-      headers,
-      sourceIp: '10.0.0.8',
-    })).rejects.toMatchObject({ code: 'INTEROP_SOURCE_IP_NOT_ALLOWED' });
-    await expect(receiveHttpHl7Message({
-      channelKey: inboundChannel.channel_key,
-      message: HL7_A,
-      headers,
-      sourceIp: null,
-    })).rejects.toMatchObject({ code: 'INTEROP_SOURCE_IP_REQUIRED' });
-  }, 30000);
-
-  it('fails closed when the signed receiver maps to another tenant', async () => {
-    const wrongTenantMessage = HL7_A.replace(RECEIVER_A, RECEIVER_B);
-    await expect(receiveHttpHl7Message({
-      channelKey: `his-adt-${SFX}`,
-      message: wrongTenantMessage,
-      headers: sign(SECRET_B, wrongTenantMessage, `req-x-${SFX}`),
-      sourceIp: '127.0.0.1',
-    })).rejects.toMatchObject({ statusCode: 404 });
-  }, 30000);
 
   it('keeps the preview adapter available for validation tests but rejects service, database, and delivery activation', async () => {
     const channel = await createChannel({
@@ -390,8 +453,10 @@ describe('NL11-S11 interface engine runtime', () => {
   }, 30000);
 
   it('activates only implemented direction and authentication contracts', async () => {
+    // The inbound candidate is deliberately NOT active — no canonical hl7v2
+    // backend adapter exists, so http_inbound activation is unavailable.
     expect(inboundChannel).toMatchObject({
-      status: 'active',
+      status: 'draft',
       auth_kind: 'tenant_interop_secret',
     });
     expect(outboundChannel).toMatchObject({

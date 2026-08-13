@@ -2,6 +2,12 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { jest } from '@jest/globals';
 
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON so these parser and
+// limiter boundaries are exercised against a live ingress. The
+// refused-while-off contract lives in hl7-inbound-disabled.deep.test.js.
+process.env.HL7_INBOUND_ENABLED = 'true';
+
 const previousBodyLimit = process.env.HTTP_BODY_LIMIT;
 const previousPatientApiKey = process.env.API_KEY_PATIENT;
 const previousStaffApiKey = process.env.API_KEY_STAFF;
