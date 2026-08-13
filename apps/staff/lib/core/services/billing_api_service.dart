@@ -100,16 +100,25 @@ class BillingApiService {
     return _dataFrom(response);
   }
 
+  /// POST /billing/v2/payments.
+  ///
+  /// Mounted with `requireIdempotencyKey({ required: true, scope:
+  /// 'billing_payment' })`, so [idempotencyKey] is required — without it the
+  /// call is a hard 400. Mint it with `IdempotencyAttempt` and hold it for the
+  /// life of one collection attempt so a retry replays rather than posting the
+  /// payment twice.
   static Future<Map<String, dynamic>> collectPayment({
     required int invoiceId,
     required num amount,
     required String mode,
+    required String idempotencyKey,
     String? reference,
     String? shift,
     String? notes,
   }) async {
     final response = await ApiClient.post(
       '/billing/v2/payments',
+      idempotencyKey: idempotencyKey,
       body: {
         'invoice_id': invoiceId,
         'amount': amount,

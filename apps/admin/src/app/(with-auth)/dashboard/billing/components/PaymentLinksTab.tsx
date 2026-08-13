@@ -2,11 +2,13 @@
 
 // Sprint 4 — UPI payment links list, send + mark-paid + cancel actions.
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminAPI } from "@/lib/api";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
+import { fetchAdminAPI } from "@/lib/api";
+import { payloadIdentity } from "@/lib/idempotencyKey";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 interface PaymentLink {
   id: number;
@@ -87,17 +89,32 @@ export function PaymentLinksTab() {
       qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
   });
 
+  // `/mark-paid` is mounted with requireIdempotencyKey({ required: true,
+  // scope: 'billing_payment_link_mark_paid' }) — without the header the button
+  // 400s outright, and with a per-click random key a double-submit would settle
+  // the same link twice. One key per (link, UTR) attempt; rotated on success.
+  const markPaidKey = useIdempotencyKey("billing-payment-link-mark-paid");
+
   const paidMut = useMutation({
-    mutationFn: async (vars: { link: PaymentLink; ref: string }) =>
-      fetchAdminAPI(
+    mutationFn: async (vars: { link: PaymentLink; ref: string }) => {
+      const body = { paid_via: "upi", paid_reference: vars.ref };
+      return fetchAdminAPI(
         `/billing/v2/payment-links/${vars.link.link_token}/mark-paid`,
         {
           method: "POST",
-          body: { paid_via: "upi", paid_reference: vars.ref },
+          body,
+          headers: {
+            "Idempotency-Key": markPaidKey.keyFor(
+              payloadIdentity({ token: vars.link.link_token, ...body }),
+            ),
+          },
         },
-      ),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
+      );
+    },
+    onSuccess: () => {
+      markPaidKey.reset();
+      qc.invalidateQueries({ queryKey: ["billing", "payment-links"] });
+    },
   });
 
   const cancelMut = useMutation({

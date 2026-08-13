@@ -32664,6 +32664,67 @@
             "type": "integer",
             "nullable": true
           },
+          "generation_attempt_token": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "document_revision": {
+            "type": "integer",
+            "nullable": true
+          },
+          "total_working_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_present": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_absent": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_leave": {
+            "type": "integer",
+            "nullable": true
+          },
+          "overtime_hours": {
+            "type": "string",
+            "nullable": true
+          },
+          "overtime_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "bonus_this_month": {
+            "type": "string",
+            "nullable": true
+          },
+          "arrears_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "advance_deduction": {
+            "type": "string",
+            "nullable": true
+          },
+          "lop_days": {
+            "type": "string",
+            "nullable": true
+          },
+          "lop_deduction": {
+            "type": "string",
+            "nullable": true
+          },
+          "revision_note": {
+            "type": "string",
+            "nullable": true
+          },
           "basic_earned": {
             "type": "string",
             "nullable": true

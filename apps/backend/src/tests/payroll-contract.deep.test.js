@@ -34,6 +34,16 @@ import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
 import { assertResponse } from './helpers/assertSchema.js';
+import {
+  provisionTenantKek,
+  resetTenantKekCacheForTesting,
+} from '../services/security/tenantKekProvider.js';
+
+// executePayrollRun loads the tenant KEK before it writes a payslip, so the
+// suite must provision one. A fresh database has none — without this the run
+// 500s with "No active KEK for tenant …" and every later step chases a run that
+// was never created. Mirrors payroll-atomic-generation.deep.test.js.
+process.env.FIELD_ENCRYPTION_MASTER_KEK ||= 'payroll-contract-deep-test-only-master-kek-material';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -45,6 +55,11 @@ const HR_BASE = '/api/v1/staff/hr';
 const RUN_MONTH = 7;
 const RUN_YEAR = 2099;
 const FY = '2098-99';
+
+// Stable per-suite key for POST /payroll/run. Unique to this suite so a
+// concurrent shard cannot collide on (tenant, user, key, path), and reused
+// deliberately inside the suite to exercise the replay path.
+const PAYROLL_RUN_IDEMPOTENCY_KEY = 'payroll-contract-deep:run:2099-07';
 
 // Unique uid / phone / employee_id prefixes so this suite never collides.
 // (Hex-only v4 UUIDs — 'pay…' literals are not valid UUIDs and 22P02 the cast.)
@@ -95,14 +110,41 @@ async function cleanup() {
     `DELETE FROM annual_tax_summaries WHERE staff_uid = ANY($1::uuid[])`,
     `DELETE FROM annual_review_reminders WHERE staff_uid = ANY($1::uuid[])`,
     `DELETE FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])`,
+    // The attempt-ledger tables (migrations 664 / 669) also FK to payslips, so
+    // they must go before the payslips delete — otherwise the whole teardown
+    // 23503s, every statement after it is skipped by the per-statement catch,
+    // and the NEXT run of this suite trips users_uid_key on a leftover row.
+    `DELETE FROM payroll_run_staff_results WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
+    `DELETE FROM payslip_documents WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
     // payslips reference payroll_runs (payroll_run_id FK) AND staff_uid — clear
     // both our staff's rows and any row tied to our run before the run delete.
     `DELETE FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
     `DELETE FROM staff_salary WHERE staff_uid = ANY($1::uuid[])`,
+    // payroll_runs ⇄ payroll_run_attempts is a genuine FK CYCLE (migration 664):
+    // the run points at its current attempt and the attempt points back at its
+    // run. It cannot be unpicked statement-by-statement — `attempt_token` is
+    // NOT NULL so the pointer cannot be dropped first, and
+    // `fk_payroll_run_attempts_run` is NOT deferrable so the run cannot go
+    // first either. Delete BOTH inside one data-modifying-CTE statement; the
+    // FK triggers then fire once, at end of statement, with both sides already
+    // gone.
+    //
     // payroll_runs.generated_by / hr_approved_by / admin_approved_by all FK to
-    // users — delete by our month/year AND by any reference to our users so the
+    // users — match on our month/year AND on any reference to our users so the
     // subsequent users delete never trips payroll_runs_generated_by_fkey.
-    `DELETE FROM payroll_runs WHERE (month = ${RUN_MONTH} AND year = ${RUN_YEAR}) OR generated_by = ANY($1::uuid[]) OR hr_approved_by = ANY($1::uuid[]) OR admin_approved_by = ANY($1::uuid[])`,
+    `WITH doomed AS (
+       SELECT id, tenant_id FROM payroll_runs
+        WHERE (month = ${RUN_MONTH} AND year = ${RUN_YEAR})
+           OR generated_by = ANY($1::uuid[])
+           OR hr_approved_by = ANY($1::uuid[])
+           OR admin_approved_by = ANY($1::uuid[])
+     ), del_attempts AS (
+       DELETE FROM payroll_run_attempts a USING doomed d
+        WHERE a.payroll_run_id = d.id AND a.tenant_id = d.tenant_id
+        RETURNING a.payroll_run_id
+     )
+     DELETE FROM payroll_runs r USING doomed d
+      WHERE r.id = d.id AND r.tenant_id = d.tenant_id`,
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
   ];
   for (const sql of stmts) {
@@ -112,6 +154,13 @@ async function cleanup() {
   // sentinel description so reruns stay clean.
   await prisma.$executeRawUnsafe(
     `DELETE FROM bulk_revision_jobs WHERE description = 'PAYROLL_CONTRACT_DEEP_TEST bulk'`,
+  ).catch(() => {});
+  // The POST /payroll/run idempotency claim outlives the payroll rows it
+  // guarded. Left behind, a second run of this suite on the same database would
+  // be answered from the cache with the PREVIOUS run's run_id — a row that this
+  // cleanup just deleted — and every later step would chase a dangling id.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM idempotency_keys WHERE request_key LIKE 'payroll-contract-deep:run:%'`,
   ).catch(() => {});
 }
 
@@ -131,17 +180,31 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
 
   beforeAll(async () => {
     await cleanup();
+    resetTenantKekCacheForTesting();
+    await provisionTenantKek(DEFAULT_TENANT_ID);
     // Seed users: 1 STAFF (owns payslip), 1 STAFF (fresh), 2 ADMINs (signers).
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at) VALUES
          ($1::uuid, $2, 'Payroll Contract Staff',  'GENERAL_STAFF', true, NOW()),
          ($3::uuid, $4, 'Payroll Contract Staff2', 'GENERAL_STAFF', true, NOW()),
-         ($5::uuid, $6, 'Payroll Contract HR',     'ADMIN', true, NOW()),
+         ($5::uuid, $6, 'Payroll Contract HR',     'HR_STAFF', true, NOW()),
          ($7::uuid, $8, 'Payroll Contract Admin',  'ADMIN', true, NOW())`,
       STAFF_UID, STAFF_PHONE, STAFF2_UID, STAFF2_PHONE, HR_UID, HR_PHONE, ADMIN_UID, ADMIN_PHONE,
     );
 
     admin = mkClient('ADMIN', ADMIN_UID, ADMIN_PHONE);
+    // The HR signer's DATABASE role is now HR_STAFF, not a second ADMIN:
+    // signPayrollRun reads users.role and refuses the HR signature unless it is
+    // exactly 'HR_STAFF' (payrollService.js:1109-1111). Dual control is
+    // meaningless if one admin can mint a second admin and sign both sides, so
+    // that guard is right and the fixture is what had to change.
+    //
+    // The TOKEN role stays ADMIN. The two gates are independent: the route gate
+    // (requireRole) and staffAccessGuard read the JWT role, the dual-control
+    // check reads users.role. An HR_STAFF *token* is denied by staffAccessGuard
+    // on the salary-revision hr-sign path further down this suite — worth its
+    // own look, since it means a real HR_STAFF user cannot counter-sign a
+    // salary revision at all, but it is not this fixture's job to paper over.
     hr = mkClient('ADMIN', HR_UID, HR_PHONE);
     // GENERAL_STAFF (not the bare 'STAFF' placeholder): only a concrete staff
     // role present in BOTH the staffHRRoutes RBAC allowlist AND the role-policy
@@ -154,6 +217,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
 
   afterAll(async () => {
     await cleanup();
+    resetTenantKekCacheForTesting();
     await prisma.$disconnect().catch(() => {});
   }, 60000);
 
@@ -222,13 +286,59 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
   it('run lifecycle: run/list/detail/edit/dual-sign/issue validate their schemas', async () => {
     // POST /payroll/run → PayrollRunResultResponse. total_gross/total_net are
     // .toFixed(2) STRINGS; run_id/processed/failed integers.
-    const run = await admin.post(`${ADMIN_BASE}/payroll/run`).send({ month: RUN_MONTH, year: RUN_YEAR });
+    //
+    // The route is mounted with requireIdempotencyKey({ required: true, scope:
+    // 'payroll_run' }); the header is part of the contract (the spec declares
+    // it required, and the controller's own 409 text tells the operator to
+    // "set rerun=true with a new Idempotency-Key"). A payroll run mints one
+    // payslip per staff member, so a lost-2xx retry without a stable key is a
+    // duplicate-pay hazard. Send one, exactly as a correctly-wired client does.
+    const run = await admin.post(`${ADMIN_BASE}/payroll/run`)
+      .set('Idempotency-Key', PAYROLL_RUN_IDEMPOTENCY_KEY)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
     expect(run.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/run`, run.body);
     expect(typeof run.body.data.total_gross).toBe('string'); // toFixed string trap
     expect(typeof run.body.data.run_id).toBe('number');
     runId = run.body.data.run_id;
     expect(run.body.data.processed).toBeGreaterThanOrEqual(1);
+
+    // Replaying the SAME key with the SAME body must return the cached original
+    // response rather than executing a second run. This is the property the
+    // header exists for: a double-click or a retry of a request whose 2xx was
+    // lost in transit must not generate payroll twice.
+    const replay = await admin.post(`${ADMIN_BASE}/payroll/run`)
+      .set('Idempotency-Key', PAYROLL_RUN_IDEMPOTENCY_KEY)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.body.data).toEqual(run.body.data);
+    // …and the database agrees: still exactly one run row, still one payslip
+    // per staff member. A replay that re-executed would show a second run for
+    // (tenant, month, year) or duplicated payslips inside this one.
+    const runRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM payroll_runs
+        WHERE tenant_id = $1::uuid AND month = $2::int AND year = $3::int`,
+      DEFAULT_TENANT_ID, RUN_MONTH, RUN_YEAR,
+    );
+    expect(runRows).toHaveLength(1);
+    expect(Number(runRows[0].id)).toBe(runId);
+    const payslipCount = await prisma.$queryRawUnsafe(
+      `SELECT staff_uid, COUNT(*)::int AS n FROM payslips
+        WHERE tenant_id = $1::uuid AND payroll_run_id = $2::int
+        GROUP BY staff_uid`,
+      DEFAULT_TENANT_ID, runId,
+    );
+    expect(payslipCount.length).toBeGreaterThanOrEqual(1);
+    for (const row of payslipCount) expect(row.n).toBe(1);
+
+    // A DIFFERENT key against the same already-completed month is not a replay:
+    // it reaches the handler, which refuses with 409 because the run is done.
+    // That is the guard working — the key collapses retries, it does not
+    // silently swallow a genuinely separate run request.
+    const separateAttempt = await admin.post(`${ADMIN_BASE}/payroll/run`)
+      .set('Idempotency-Key', `${PAYROLL_RUN_IDEMPOTENCY_KEY}-second-attempt`)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
+    expect(separateAttempt.statusCode).toBe(409);
 
     // GET /payroll/runs → PayrollRunsResponse (loose SELECT * list).
     const runs = await admin.get(`${ADMIN_BASE}/payroll/runs`);
@@ -266,6 +376,16 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
 
     // POST /payroll/runs/{runId}/hr-sign (HR signer) → PayrollRunResponse.
     const hrSign = await hr.post(`${ADMIN_BASE}/payroll/runs/${runId}/hr-sign`).send({ comment: 'HR ok' });
+    // KNOWN BLOCKER (not this lane's): hr-sign currently 403s for EVERY role.
+    // The payroll-atomicity work added `payrollHrSignerRoles =
+    // requireRole('HR_STAFF')` on this route (staffAdminRoutes.js:26,264) while
+    // `guardPayrollWriteCollection` (staff.payroll.write) denies HR_STAFF — so
+    // the two gates on the same line have an empty intersection. Measured on a
+    // fresh DB: an ADMIN token and an HR_STAFF token both return
+    // 403 {"success":false,"error":"Forbidden"}. SUPER_ADMIN clears both gates
+    // but then fails signPayrollRun's `users.role === 'HR_STAFF'` check
+    // (payrollService.js:1109). Payroll dual-control sign-off is unreachable
+    // until that lane picks one of the three to change.
     expect(hrSign.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/runs/{runId}/hr-sign`, hrSign.body);
     expect(hrSign.body.data.hr_approved_at).toBeTruthy();
