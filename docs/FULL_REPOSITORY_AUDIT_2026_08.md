@@ -1,7 +1,12 @@
 # VH Health Full-Repository Audit — 2026-08-13
 
-**Status:** OPEN — validated remediation is in progress.  This document is a
-finding and evidence ledger, not deployment authority.
+**Status:** HISTORICAL BASELINE — most findings have since been remediated on the
+consolidated audit branch, while a smaller set of release blockers remains. This
+document is a finding and evidence ledger, not deployment authority. Use
+`docs/FABLE_5_FULL_AUDIT_HANDOFF_2026_08_13.md` for the exact current pause head,
+verified gates, remaining findings, and resumption order. The 4.8 rating below is
+the original audited-snapshot rating and must not be presented as the rating of
+the current remediation branch.
 
 **Pause/restart receipt:**
 `docs/FULL_REPOSITORY_AUDIT_REMEDIATION_CHECKPOINT_2026_08_13.md` records the
