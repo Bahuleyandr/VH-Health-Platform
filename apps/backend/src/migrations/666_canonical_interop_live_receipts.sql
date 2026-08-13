@@ -1,12 +1,45 @@
 -- Durable canonical-effect receipts for the live HL7 ADT/ORM and FHIR
 -- AllergyIntolerance ingress paths.
-
-SET LOCAL lock_timeout = '10s';
-SET LOCAL statement_timeout = '180s';
+--
+-- @no-transaction
+-- @statement_timeout: 0
+--
+-- Why @no-transaction (audit 2026-08-13, H-1 class sweep). The FK anchor this
+-- file needs on `patient_allergies` (tenant_id, id) was originally built as a
+-- plain, non-concurrent unique index inside this file's wrapping transaction.
+-- A non-concurrent index build holds ACCESS EXCLUSIVE on the table for the
+-- whole build, and inside a wrapping transaction that lock is then held until
+-- COMMIT — i.e. across the two CREATE TABLEs and the RLS loop below as well.
+-- `patient_allergies` grows with the patient population and sits on the
+-- prescription-safety read path (`validatePrescriptionSafety` in
+-- src/utils/clinical/prescriptionSafetyCheck.js reads it before every
+-- prescription write), so blocking it blocks prescribing. The runner's
+-- @no-transaction mode applies each statement on the session, which makes
+-- CONCURRENTLY legal — the build then takes SHARE UPDATE EXCLUSIVE and lets
+-- concurrent reads and writes through.
+--
+-- `patient_allergies.id` is the primary key, so (tenant_id, id) is unique by
+-- construction and this build cannot encounter a duplicate. A plain unique
+-- index is a valid FK target in Postgres — no pg_constraint row is required —
+-- which is how every other composite anchor in this repo is spelled (598, 580,
+-- 605, 668, 669).
+--
+-- @statement_timeout: 0 is for that CONCURRENTLY build, which is legitimately
+-- unbounded on a large table (same reasoning as 647 and 668). The two
+-- transaction-local timeout statements this file used to carry are gone --
+-- transaction-local settings are a no-op that only emits a WARNING when there
+-- is no surrounding transaction block, and the runner sets session
+-- lock_timeout and statement_timeout itself before the first statement.
+--
+-- RE-RUNNABILITY CONTRACT. @no-transaction gives up atomic rollback — a
+-- mid-file failure leaves the file partially applied and UNRECORDED, so the
+-- runner replays it from the top. Every statement below is a no-op on re-run
+-- (IF NOT EXISTS / DROP-then-CREATE / CONCURRENTLY / already-guarded DO block).
+-- Keep it that way when editing this file.
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
-CREATE TABLE public.hl7_inbound_clinical_receipts (
+CREATE TABLE IF NOT EXISTS public.hl7_inbound_clinical_receipts (
   id BIGSERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL,
   sender_identity VARCHAR(255) NOT NULL,
@@ -59,14 +92,34 @@ CREATE TABLE public.hl7_inbound_clinical_receipts (
     CHECK (acknowledgement_code = 'AA')
 );
 
-CREATE INDEX idx_hl7_inbound_clinical_receipts_patient
+CREATE INDEX IF NOT EXISTS idx_hl7_inbound_clinical_receipts_patient
   ON public.hl7_inbound_clinical_receipts
     (tenant_id, patient_uid, recorded_at DESC);
 
-CREATE UNIQUE INDEX ux_patient_allergies_tenant_id_for_fhir_receipt
+-- (tenant_id, id) anchor on patient_allergies, built CONCURRENTLY so the
+-- prescription-safety read path is never blocked. An interrupted concurrent
+-- build leaves an INVALID same-name index behind, and @no-transaction means
+-- this file can be replayed after a partial failure, so move only that
+-- unusable remnant aside and drop it concurrently first — a replay must not
+-- mistake it for an enforced anchor, and must not trip over the name.
+DROP INDEX CONCURRENTLY IF EXISTS public.ux_patient_allergies_tenant_id_for_fhir_receipt_invalid_rebuild;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+     WHERE indexrelid = to_regclass('public.ux_patient_allergies_tenant_id_for_fhir_receipt')
+       AND NOT indisvalid
+  ) THEN
+    ALTER INDEX public.ux_patient_allergies_tenant_id_for_fhir_receipt
+      RENAME TO ux_patient_allergies_tenant_id_for_fhir_receipt_invalid_rebuild;
+  END IF;
+END $$;
+DROP INDEX CONCURRENTLY IF EXISTS public.ux_patient_allergies_tenant_id_for_fhir_receipt_invalid_rebuild;
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_patient_allergies_tenant_id_for_fhir_receipt
   ON public.patient_allergies (tenant_id, id);
 
-CREATE TABLE public.fhir_allergy_intolerance_receipts (
+CREATE TABLE IF NOT EXISTS public.fhir_allergy_intolerance_receipts (
   tenant_id UUID NOT NULL,
   resource_fingerprint CHAR(64) NOT NULL,
   payload_sha256 CHAR(64) NOT NULL,
@@ -109,14 +162,18 @@ CREATE TABLE public.fhir_allergy_intolerance_receipts (
     )
 );
 
-CREATE INDEX idx_fhir_allergy_intolerance_receipts_patient
+CREATE INDEX IF NOT EXISTS idx_fhir_allergy_intolerance_receipts_patient
   ON public.fhir_allergy_intolerance_receipts
     (tenant_id, patient_uid, recorded_at DESC);
 
+DROP TRIGGER IF EXISTS hl7_inbound_clinical_receipt_append_only
+  ON public.hl7_inbound_clinical_receipts;
 CREATE TRIGGER hl7_inbound_clinical_receipt_append_only
 BEFORE UPDATE OR DELETE ON public.hl7_inbound_clinical_receipts
 FOR EACH ROW EXECUTE FUNCTION public.audit_append_only_guard();
 
+DROP TRIGGER IF EXISTS fhir_allergy_intolerance_receipt_append_only
+  ON public.fhir_allergy_intolerance_receipts;
 CREATE TRIGGER fhir_allergy_intolerance_receipt_append_only
 BEFORE UPDATE OR DELETE ON public.fhir_allergy_intolerance_receipts
 FOR EACH ROW EXECUTE FUNCTION public.audit_append_only_guard();

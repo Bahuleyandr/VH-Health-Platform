@@ -12,9 +12,12 @@ describe('migration 668 scheduler and notification integrity', () => {
   const sql = fs.readFileSync(migrationPath, 'utf8');
 
   it('creates durable aggregate and tenant outcome receipts with explicit-context RLS', () => {
-    expect(sql).toMatch(/CREATE TABLE public\.scheduled_job_runs/i);
+    // 668 is @no-transaction (see the deploy-safety contract in
+    // audit3MigrationSafety.test.js), so every statement is written to be a
+    // no-op on replay — hence IF NOT EXISTS on the table creates.
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS public\.scheduled_job_runs/i);
     expect(sql).toMatch(/lock_key VARCHAR\(160\) NOT NULL/i);
-    expect(sql).toMatch(/CREATE TABLE public\.scheduled_job_tenant_runs/i);
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS public\.scheduled_job_tenant_runs/i);
     expect(sql).toMatch(/FOREIGN KEY \(run_id\)[\s\S]*REFERENCES public\.scheduled_job_runs\(id\)/i);
     expect(sql).toMatch(/ALTER TABLE public\.scheduled_job_tenant_runs FORCE ROW LEVEL SECURITY/i);
     expect(sql).toMatch(/CREATE POLICY tenant_isolation/i);
@@ -46,15 +49,49 @@ describe('migration 668 scheduler and notification integrity', () => {
   });
 
   it('backfills before validating the scheduled-notification composite tenant owner', () => {
+    const anchorAt = sql.indexOf(
+      'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_users_tenant_id_id',
+    );
     const backfillAt = sql.indexOf('UPDATE public.scheduled_notifications AS scheduled');
     const addFkAt = sql.indexOf('ADD CONSTRAINT scheduled_notifications_tenant_user_fk');
     const validateAt = sql.indexOf('VALIDATE CONSTRAINT scheduled_notifications_tenant_user_fk');
+    const dropLegacyAt = sql.indexOf(
+      'DROP CONSTRAINT IF EXISTS scheduled_notifications_user_fk',
+    );
 
+    // The load-bearing invariant is unchanged: the tenant drift repair must
+    // land BEFORE the constraint is validated, or VALIDATE fails on drifted
+    // rows.
     expect(backfillAt).toBeGreaterThan(0);
-    expect(addFkAt).toBeGreaterThan(backfillAt);
-    expect(validateAt).toBeGreaterThan(addFkAt);
-    expect(sql).toMatch(/ADD CONSTRAINT ux_users_tenant_id_id UNIQUE \(tenant_id, id\)/i);
+    expect(validateAt).toBeGreaterThan(backfillAt);
+
+    // The FK is now added NOT VALID *before* the repair rather than after it.
+    // NOT VALID performs no scan, so it cannot fail on the drifted rows it
+    // precedes, and from the moment it commits every NEW write is
+    // tenant-checked. That matters here specifically because @no-transaction
+    // makes the repair commit in chunks over time, so without this ordering the
+    // application could keep writing fresh drift for the whole repair window.
+    // Same rationale as migration 598.
+    expect(anchorAt).toBeGreaterThan(0);
+    expect(addFkAt).toBeGreaterThan(anchorAt);
+    expect(backfillAt).toBeGreaterThan(addFkAt);
+
+    // The superseded single-column FK is dropped last, so a failure anywhere
+    // above leaves the table still guarded by the original constraint.
+    expect(dropLegacyAt).toBeGreaterThan(validateAt);
+
     expect(sql).toMatch(/FOREIGN KEY \(tenant_id, user_id\)[\s\S]*REFERENCES public\.users \(tenant_id, id\)/i);
     expect(sql).toMatch(/ADD CONSTRAINT scheduled_notifications_tenant_user_fk[\s\S]*NOT VALID/i);
+  });
+
+  it('bounds the scheduled-notification tenant repair instead of one unbounded UPDATE', () => {
+    // @statement_timeout: 0 removes the backstop a single large UPDATE would
+    // otherwise have had, so the repair chunks itself and commits per batch.
+    expect(sql).toMatch(/LIMIT batch_size/);
+    expect(sql).toMatch(/GET DIAGNOSTICS moved = ROW_COUNT/);
+    expect(sql).toMatch(/EXIT WHEN moved = 0/);
+    expect(sql).toMatch(/COMMIT;/);
+    // The iteration cap is a safety stop, not the termination condition.
+    expect(sql).toMatch(/did not converge after % batches/);
   });
 });
