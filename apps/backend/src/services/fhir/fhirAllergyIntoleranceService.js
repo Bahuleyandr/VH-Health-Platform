@@ -202,6 +202,152 @@ function mergeReadableAllergyRows(rows) {
   });
 }
 
+// One SQL surface over both allergy stores. `source_rows` is the union the
+// reader used to materialize wholesale into Node; `resolved_rows` adds the
+// identity/allergen derivations that `readablePatientUid` / `readableAllergen`
+// compute in JS, so grouping and pagination can happen in the database
+// against exactly the values the JS merge would have used.
+const ALLERGY_SOURCE_ROWS_CTE = `
+  source_rows AS (
+    SELECT 'patient_allergies'::text AS source,
+           allergy.id, allergy.allergy_name, allergy.severity,
+           allergy.reaction, allergy.created_at, NULL::timestamptz AS recorded_at,
+           (receipt.allergy_id IS NOT NULL) AS has_fhir_receipt,
+           allergy.patient_uid::text AS patient_uid_raw,
+           allergy.patient_id::text AS patient_id_raw,
+           uid_patient.uid::text AS patient_uid_match,
+           uid_patient.role::text AS patient_uid_role,
+           uid_patient.is_active AS patient_uid_active,
+           id_patient.uid::text AS patient_id_match,
+           id_patient.role::text AS patient_id_role,
+           id_patient.is_active AS patient_id_active
+      FROM patient_allergies allergy
+      LEFT JOIN users uid_patient
+        ON uid_patient.tenant_id = allergy.tenant_id
+       AND uid_patient.uid = allergy.patient_uid
+      LEFT JOIN users id_patient
+        ON id_patient.tenant_id = allergy.tenant_id
+       AND id_patient.id = allergy.patient_id
+      LEFT JOIN fhir_allergy_intolerance_receipts receipt
+        ON receipt.tenant_id = allergy.tenant_id
+       AND receipt.allergy_id = allergy.id
+     WHERE allergy.tenant_id = $1::uuid
+       AND COALESCE(allergy.is_active, TRUE) = TRUE
+       AND (
+         $2::uuid IS NULL
+         OR allergy.patient_uid = $2::uuid
+         OR id_patient.uid = $2::uuid
+       )
+    UNION ALL
+    SELECT 'allergies'::text AS source,
+           allergy.id,
+           COALESCE(NULLIF(allergy.allergen, ''), allergy.name) AS allergy_name,
+           allergy.severity, allergy.reaction, allergy.created_at,
+           allergy.recorded_at, FALSE AS has_fhir_receipt,
+           allergy.patient_uid::text AS patient_uid_raw,
+           NULL::text AS patient_id_raw,
+           patient.uid::text AS patient_uid_match,
+           patient.role::text AS patient_uid_role,
+           patient.is_active AS patient_uid_active,
+           NULL::text AS patient_id_match,
+           NULL::text AS patient_id_role,
+           NULL::boolean AS patient_id_active
+      FROM allergies allergy
+      LEFT JOIN users patient
+        ON patient.tenant_id = allergy.tenant_id
+       AND patient.uid = allergy.patient_uid
+     WHERE allergy.tenant_id = $1::uuid
+       AND LOWER(BTRIM(COALESCE(allergy.status, 'active'))) NOT IN (
+         'inactive', 'resolved', 'entered-in-error'
+       )
+       AND ($2::uuid IS NULL OR allergy.patient_uid = $2::uuid)
+  ),
+  resolved_rows AS (
+    SELECT source_rows.*,
+           LOWER(NULLIF(BTRIM(COALESCE(patient_uid_match, '')), '')) AS uid_resolved,
+           LOWER(NULLIF(BTRIM(COALESCE(patient_id_match, '')), '')) AS id_resolved,
+           (NULLIF(BTRIM(COALESCE(patient_uid_raw, '')), '') IS NOT NULL) AS uid_present,
+           (NULLIF(BTRIM(COALESCE(patient_id_raw, '')), '') IS NOT NULL) AS id_present,
+           NULLIF(REGEXP_REPLACE(BTRIM(COALESCE(allergy_name, '')), '\\s+', ' ', 'g'), '') AS allergen
+      FROM source_rows
+  )`;
+
+const SQL_UUID_RE = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
+
+// Same failures, same codes and messages, as the per-row JS readers below.
+// Paginating in the database means the JS readers only ever see the rows on
+// the requested page, so this probe keeps the fail-closed guarantee over the
+// whole matching set: one unreadable identity anywhere still refuses the read
+// instead of quietly serving a page that happens to exclude it.
+const ALLERGY_INTEGRITY_DEFECTS = {
+  identity_unresolved: [
+    'FHIR AllergyIntolerance source row has an unresolved patient identity',
+    'FHIR_ALLERGY_PATIENT_UNRESOLVED',
+  ],
+  identity_invalid: [
+    'FHIR AllergyIntolerance source row does not belong to an active patient',
+    'FHIR_ALLERGY_PATIENT_INVALID',
+  ],
+  identity_conflict: [
+    'FHIR AllergyIntolerance source row has conflicting patient identities',
+    'FHIR_ALLERGY_PATIENT_IDENTITY_CONFLICT',
+  ],
+  patient_unresolved: [
+    'FHIR AllergyIntolerance source row has no resolvable patient',
+    'FHIR_ALLERGY_PATIENT_UNRESOLVED',
+  ],
+  allergen_missing: [
+    'FHIR AllergyIntolerance source row has no allergen',
+    'FHIR_ALLERGY_CONTENT_UNRESOLVED',
+  ],
+};
+
+async function assertReadableAllergySources(tx, { tenantId, patientUid }) {
+  const rows = await tx.$queryRawUnsafe(
+    `WITH ${ALLERGY_SOURCE_ROWS_CTE},
+     classified AS (
+       SELECT source, id,
+              CASE
+                WHEN uid_present
+                 AND (uid_resolved IS NULL OR uid_resolved !~ '${SQL_UUID_RE}')
+                  THEN 'identity_unresolved'
+                WHEN uid_present
+                 AND (UPPER(BTRIM(COALESCE(patient_uid_role, ''))) <> 'PATIENT'
+                   OR patient_uid_active IS DISTINCT FROM TRUE)
+                  THEN 'identity_invalid'
+                WHEN id_present
+                 AND (id_resolved IS NULL OR id_resolved !~ '${SQL_UUID_RE}')
+                  THEN 'identity_unresolved'
+                WHEN id_present
+                 AND (UPPER(BTRIM(COALESCE(patient_id_role, ''))) <> 'PATIENT'
+                   OR patient_id_active IS DISTINCT FROM TRUE)
+                  THEN 'identity_invalid'
+                WHEN uid_present AND id_present
+                 AND uid_resolved IS DISTINCT FROM id_resolved
+                  THEN 'identity_conflict'
+                WHEN COALESCE(uid_resolved, id_resolved) IS NULL
+                  THEN 'patient_unresolved'
+                WHEN allergen IS NULL
+                  THEN 'allergen_missing'
+                ELSE NULL
+              END AS defect
+         FROM resolved_rows
+     )
+     SELECT defect
+       FROM classified
+      WHERE defect IS NOT NULL
+      ORDER BY CASE WHEN source = 'patient_allergies' THEN 0 ELSE 1 END, id
+      LIMIT 1`,
+    tenantId,
+    patientUid,
+  );
+  const defect = rows[0]?.defect;
+  if (!defect) return;
+  const [message, code] = ALLERGY_INTEGRITY_DEFECTS[defect]
+    || ALLERGY_INTEGRITY_DEFECTS.patient_unresolved;
+  throw AppError.internal(message, code);
+}
+
 async function findReceipt(tx, { tenantId, resourceFingerprint }) {
   const rows = await tx.$queryRawUnsafe(
     `SELECT receipt.tenant_id::text, receipt.resource_fingerprint,
@@ -413,72 +559,66 @@ export async function listFhirAllergyIntolerances(input = {}) {
   const boundedLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 1000) : 200;
   const boundedOffset = Number.isInteger(offset) ? Math.max(offset, 0) : 0;
 
+  // The union, the duplicate collapse, and the page boundary are all resolved
+  // by the database: only the rows backing the requested page cross the wire.
+  // Reading every active row from both stores and slicing in Node made an
+  // unfiltered tenant read grow without bound.
   const rows = await setTenantTx(tenantId, async (tx) => {
-    const structured = await tx.$queryRawUnsafe(
-      `SELECT 'patient_allergies'::text AS source,
-              allergy.id, allergy.allergy_name, allergy.severity,
-              allergy.reaction, allergy.created_at, NULL::timestamptz AS recorded_at,
-              (receipt.allergy_id IS NOT NULL) AS has_fhir_receipt,
-              allergy.patient_uid::text AS patient_uid_raw,
-              allergy.patient_id::text AS patient_id_raw,
-              uid_patient.uid::text AS patient_uid_match,
-              uid_patient.role::text AS patient_uid_role,
-              uid_patient.is_active AS patient_uid_active,
-              id_patient.uid::text AS patient_id_match,
-              id_patient.role::text AS patient_id_role,
-              id_patient.is_active AS patient_id_active
-         FROM patient_allergies allergy
-         LEFT JOIN users uid_patient
-           ON uid_patient.tenant_id = allergy.tenant_id
-          AND uid_patient.uid = allergy.patient_uid
-         LEFT JOIN users id_patient
-           ON id_patient.tenant_id = allergy.tenant_id
-          AND id_patient.id = allergy.patient_id
-         LEFT JOIN fhir_allergy_intolerance_receipts receipt
-           ON receipt.tenant_id = allergy.tenant_id
-          AND receipt.allergy_id = allergy.id
-        WHERE allergy.tenant_id = $1::uuid
-          AND COALESCE(allergy.is_active, TRUE) = TRUE
-          AND (
-            $2::uuid IS NULL
-            OR allergy.patient_uid = $2::uuid
-            OR id_patient.uid = $2::uuid
-          )`,
+    await assertReadableAllergySources(tx, { tenantId, patientUid });
+    return tx.$queryRawUnsafe(
+      `WITH ${ALLERGY_SOURCE_ROWS_CTE},
+       ranked AS (
+         SELECT resolved_rows.*,
+                CASE
+                  WHEN source = 'patient_allergies' AND has_fhir_receipt THEN 0
+                  WHEN source = 'patient_allergies' THEN 1
+                  ELSE 2
+                END AS precedence,
+                COALESCE(uid_resolved, id_resolved) AS group_patient_uid,
+                LOWER(allergen) AS group_allergen
+           FROM resolved_rows
+          WHERE COALESCE(uid_resolved, id_resolved) IS NOT NULL
+            AND allergen IS NOT NULL
+       ),
+       primaries AS (
+         SELECT DISTINCT ON (group_patient_uid, group_allergen)
+                group_patient_uid, group_allergen,
+                CASE
+                  WHEN source = 'patient_allergies' THEN 'pa-' || id::text
+                  ELSE id::text
+                END AS fhir_id,
+                COALESCE(recorded_at, created_at) AS sort_at
+           FROM ranked
+          ORDER BY group_patient_uid, group_allergen, precedence, id
+       ),
+       page AS (
+         SELECT group_patient_uid, group_allergen
+           FROM primaries
+          ORDER BY sort_at DESC NULLS LAST, fhir_id COLLATE "C" ASC
+          LIMIT $3::integer OFFSET $4::integer
+       )
+       SELECT ranked.source, ranked.id, ranked.allergy_name, ranked.severity,
+              ranked.reaction, ranked.created_at, ranked.recorded_at,
+              ranked.has_fhir_receipt, ranked.patient_uid_raw,
+              ranked.patient_id_raw, ranked.patient_uid_match,
+              ranked.patient_uid_role, ranked.patient_uid_active,
+              ranked.patient_id_match, ranked.patient_id_role,
+              ranked.patient_id_active
+         FROM ranked
+         JOIN page
+           ON page.group_patient_uid = ranked.group_patient_uid
+          AND page.group_allergen = ranked.group_allergen
+        ORDER BY ranked.precedence, ranked.id`,
       tenantId,
       patientUid,
+      boundedLimit,
+      boundedOffset,
     );
-    const legacy = await tx.$queryRawUnsafe(
-      `SELECT 'allergies'::text AS source,
-              allergy.id,
-              COALESCE(NULLIF(allergy.allergen, ''), allergy.name) AS allergy_name,
-              allergy.severity, allergy.reaction, allergy.created_at,
-              allergy.recorded_at, FALSE AS has_fhir_receipt,
-              allergy.patient_uid::text AS patient_uid_raw,
-              NULL::text AS patient_id_raw,
-              patient.uid::text AS patient_uid_match,
-              patient.role::text AS patient_uid_role,
-              patient.is_active AS patient_uid_active,
-              NULL::text AS patient_id_match,
-              NULL::text AS patient_id_role,
-              NULL::boolean AS patient_id_active
-         FROM allergies allergy
-         LEFT JOIN users patient
-           ON patient.tenant_id = allergy.tenant_id
-          AND patient.uid = allergy.patient_uid
-        WHERE allergy.tenant_id = $1::uuid
-          AND LOWER(BTRIM(COALESCE(allergy.status, 'active'))) NOT IN (
-            'inactive', 'resolved', 'entered-in-error'
-          )
-          AND ($2::uuid IS NULL OR allergy.patient_uid = $2::uuid)`,
-      tenantId,
-      patientUid,
-    );
-    return [...structured, ...legacy];
   });
 
-  return mergeReadableAllergyRows(rows)
-    .slice(boundedOffset, boundedOffset + boundedLimit)
-    .map(publicAllergy);
+  // The page's rows still go through the same merge, so severity ranking,
+  // reaction selection, identifiers, and the response shape are unchanged.
+  return mergeReadableAllergyRows(rows).map(publicAllergy);
 }
 
 export const __testing__ = {
