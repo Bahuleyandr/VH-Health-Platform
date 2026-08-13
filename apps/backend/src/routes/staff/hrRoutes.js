@@ -136,6 +136,8 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
   ],
   
   post: [
+    ['/payslips/:id/password', guardPayslipView, payrollController.revealPayslipPassword],
+    ['/payroll/my-payslips/:id/password', guardPayslipView, payrollController.revealPayslipPassword],
     // Create Performance Review
     ['/performance-review', performanceReviewValidation, guardPerformanceReviewWrite, hrController.createPerformanceReview],
     

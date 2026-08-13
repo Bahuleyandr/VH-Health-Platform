@@ -1,58 +1,21 @@
 // src/controllers/staff/payrollController.js
-import crypto from 'crypto';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import {
-  calculatePayslip,
-  savePayslip,
+  executePayrollRun,
+  editPayslipAndRegenerate,
+  issuePayrollRun,
+  revealPayslipCredential,
+  signPayrollRun,
   generateAnnualTaxSummary,
   calculateArrears,
-  recordPayrollFailure,
-  summarizePayrollRunOutcome,
 } from '../../services/staff/payrollService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { escapeCsvField } from '../../utils/csv.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
-import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
+import { getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
-
-// Try to import PDF generator — graceful fallback
-let generatePayslipPDF = null;
-try {
-  const m = await import('../../utils/payslipPDF.js');
-  generatePayslipPDF = m.generatePayslipPDF;
-} catch (e) {
-  logger.warn('payslipPDF not loaded (PDF generation disabled):', e.message);
-}
-
-// Shared select shapes for Prisma ORM returns — keeps the HR/Admin signature
-// endpoints returning the same payload shape regardless of which action
-// produced the row, and avoids each caller re-listing ~15 columns.
-const PAYROLL_RUN_SELECT = {
-  id: true,
-  month: true,
-  year: true,
-  status: true,
-  total_staff: true,
-  total_gross: true,
-  total_net: true,
-  total_deductions: true,
-  generated_by: true,
-  generated_at: true,
-  employee_count: true,
-  hr_approved_by: true,
-  hr_approved_at: true,
-  hr_comment: true,
-  admin_approved_by: true,
-  admin_approved_at: true,
-  admin_comment: true,
-  approval_hash: true,
-  notes: true,
-  created_at: true,
-  updated_at: true,
-};
 
 // Shared return shape for full_final_settlements across create/approve/paid.
 const FNF_DETAIL_SELECT = {
@@ -116,40 +79,11 @@ const DECLARATION_SELECT = {
   updated_at: true,
 };
 
-const PAYSLIP_DETAIL_SELECT = {
-  id: true,
-  staff_uid: true,
-  month: true,
-  year: true,
-  payroll_run_id: true,
-  basic_earned: true,
-  hra_earned: true,
-  da_earned: true,
-  special_allowance_earned: true,
-  transport_allowance_earned: true,
-  medical_allowance_earned: true,
-  overtime_pay: true,
-  gross_salary: true,
-  pf_employee: true,
-  esi_employee: true,
-  professional_tax: true,
-  tds: true,
-  total_deductions: true,
-  net_salary: true,
-  status: true,
-  pdf_key: true,
-  manually_edited: true,
-  edit_reason: true,
-  edited_by: true,
-  edited_at: true,
-  created_at: true,
-  updated_at: true,
-};
-
 // ─── Staff: Get my payslips (last N months) ───────────────────────────────────
 export const getMyPayslips = async (req, res) => {
   try {
     const staffUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
     const { months = 3 } = req.query;
 
     // Cast to ::uuid so Prisma's text binding of a JS string param matches
@@ -160,10 +94,11 @@ export const getMyPayslips = async (req, res) => {
              p.status, p.issued_at, p.pdf_key,
              p.basic_earned, p.overtime_pay, p.pf_employee
       FROM payslips p
-      WHERE p.staff_uid = $1::uuid AND p.status IN ('issued','viewed','downloaded')
+      WHERE p.tenant_id = $3::uuid AND p.staff_uid = $1::uuid
+        AND p.status IN ('issued','viewed','downloaded')
       ORDER BY p.year DESC, p.month DESC
       LIMIT $2
-    `, staffUid, Math.min(parseInt(months), 24));
+    `, staffUid, Math.min(parseInt(months), 24), tenantId);
 
     success(res, payslips, 'Payslips fetched');
   } catch (err) {
@@ -178,6 +113,7 @@ export const getPayslipDetail = async (req, res) => {
     const { id } = req.params;
     const payslipId = Number.parseInt(id, 10);
     const staffUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
 
     if (!Number.isInteger(payslipId) || payslipId <= 0) {
       return error(res, 'Invalid payslip id', HTTP_STATUS.BAD_REQUEST);
@@ -187,11 +123,31 @@ export const getPayslipDetail = async (req, res) => {
       SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_earned, p.hra_earned,
         p.da_earned, p.special_allowance_earned, p.transport_allowance_earned, p.medical_allowance_earned,
         p.overtime_pay, p.gross_salary, p.pf_employee, p.esi_employee,
-        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_key,
+        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status,
+        COALESCE(document.object_key, p.pdf_key) AS pdf_key,
         p.created_at, p.updated_at
       FROM payslips p
-      WHERE p.id = $1::int AND p.staff_uid = $2::uuid AND p.status IN ('issued','viewed','downloaded')
-    `, payslipId, staffUid);
+      LEFT JOIN payroll_runs AS run
+        ON run.tenant_id = p.tenant_id AND run.id = p.payroll_run_id
+      LEFT JOIN payroll_run_staff_results AS result
+        ON result.tenant_id = run.tenant_id
+       AND result.payroll_run_id = run.id
+       AND result.attempt_token = run.attempt_token
+       AND result.staff_uid = p.staff_uid
+       AND result.payslip_id = p.id
+       AND result.payslip_document_revision = p.document_revision
+       AND result.outcome = 'succeeded' AND result.superseded_at IS NULL
+      LEFT JOIN payslip_documents AS document
+        ON document.tenant_id = result.tenant_id
+       AND document.payroll_run_id = result.payroll_run_id
+       AND document.attempt_token = result.attempt_token
+       AND document.staff_uid = result.staff_uid
+       AND document.payslip_id = result.payslip_id
+       AND document.payslip_revision = result.payslip_document_revision
+       AND document.status = 'notification_accepted'
+      WHERE p.tenant_id = $3::uuid AND p.id = $1::int
+        AND p.staff_uid = $2::uuid AND p.status IN ('issued','viewed','downloaded')
+    `, payslipId, staffUid, tenantId);
 
     if (payslip.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
 
@@ -199,11 +155,12 @@ export const getPayslipDetail = async (req, res) => {
 
     // Mark as viewed
     if (p.status === 'issued') {
-      await prisma.payslips.update({
-        where: { id: Number(id) },
-        data: { status: 'viewed', viewed_at: new Date() },
-        select: { id: true },
-      });
+      await prisma.$executeRawUnsafe(
+        `UPDATE payslips SET status = 'viewed', viewed_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND id = $2 AND staff_uid = $3::uuid
+            AND status = 'issued'`,
+        tenantId, payslipId, staffUid,
+      );
     }
 
     // Generate signed URL if PDF exists
@@ -228,10 +185,34 @@ export const downloadPayslip = async (req, res) => {
   try {
     const { id } = req.params;
     const staffUid = req.user?.uid;
+    const tenantId = resolveTenantOrThrow(req);
 
     const rows = await prisma.$queryRawUnsafe(
-      'SELECT id, pdf_key, status FROM payslips WHERE id=$1 AND staff_uid=$2::uuid',
-      id, staffUid,
+      `SELECT payslip.id, COALESCE(document.object_key, payslip.pdf_key) AS pdf_key,
+              payslip.status
+         FROM payslips AS payslip
+         LEFT JOIN payroll_runs AS run
+           ON run.tenant_id = payslip.tenant_id AND run.id = payslip.payroll_run_id
+         LEFT JOIN payroll_run_staff_results AS result
+           ON result.tenant_id = run.tenant_id
+          AND result.payroll_run_id = run.id
+          AND result.attempt_token = run.attempt_token
+          AND result.staff_uid = payslip.staff_uid
+          AND result.payslip_id = payslip.id
+          AND result.payslip_document_revision = payslip.document_revision
+          AND result.outcome = 'succeeded' AND result.superseded_at IS NULL
+         LEFT JOIN payslip_documents AS document
+           ON document.tenant_id = result.tenant_id
+          AND document.payroll_run_id = result.payroll_run_id
+          AND document.attempt_token = result.attempt_token
+          AND document.staff_uid = result.staff_uid
+          AND document.payslip_id = result.payslip_id
+          AND document.payslip_revision = result.payslip_document_revision
+          AND document.status = 'notification_accepted'
+        WHERE payslip.tenant_id = $1::uuid AND payslip.id = $2
+          AND payslip.staff_uid = $3::uuid
+          AND payslip.status IN ('issued', 'viewed', 'downloaded')`,
+      tenantId, Number(id), staffUid,
     );
     if (rows.length === 0) {
       return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
@@ -252,11 +233,12 @@ export const downloadPayslip = async (req, res) => {
     // Mark downloaded on first successful fetch — mirrors getPayslipDetail's
     // issued→viewed bump, advancing one step further.
     if (p.status === 'issued' || p.status === 'viewed') {
-      await prisma.payslips.update({
-        where: { id: Number(id) },
-        data: { status: 'downloaded', downloaded_at: new Date() },
-        select: { id: true },
-      });
+      await prisma.$executeRawUnsafe(
+        `UPDATE payslips SET status = 'downloaded', downloaded_at = clock_timestamp()
+          WHERE tenant_id = $1::uuid AND id = $2 AND staff_uid = $3::uuid
+            AND status IN ('issued', 'viewed')`,
+        tenantId, Number(id), staffUid,
+      );
     }
 
     return res.redirect(302, pdfUrl);
@@ -266,205 +248,82 @@ export const downloadPayslip = async (req, res) => {
   }
 };
 
+export const revealPayslipPassword = async (req, res) => {
+  try {
+    const payslipId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(payslipId) || payslipId <= 0) {
+      return error(res, 'Invalid payslip id', HTTP_STATUS.BAD_REQUEST);
+    }
+    const revealed = await revealPayslipCredential({
+      tenantId: resolveTenantOrThrow(req),
+      payslipId,
+      staffUid: req.user?.uid,
+    });
+    if (!revealed) return error(res, 'Payslip password not available', HTTP_STATUS.NOT_FOUND);
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    await logAudit(req, 'payslip-password-revealed', {
+      payslip_id: payslipId,
+      document_id: revealed.document_id,
+    }, { resource: 'payslip', resourceId: payslipId });
+    return success(res, { password: revealed.credential }, 'Payslip password revealed');
+  } catch (err) {
+    logger.error('Reveal Payslip Password Error:', err);
+    return error(res, 'Failed to reveal payslip password', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // ─── Admin: Run payroll for a month ──────────────────────────────────────────
 export const runPayroll = async (req, res) => {
   try {
     const adminUid = req.user?.uid;
-    const { month, year } = req.body;
+    const { month, year, rerun = false } = req.body;
+    const tenantId = resolveTenantOrThrow(req);
 
     if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
     if (month < 1 || month > 12) return error(res, 'month must be 1-12', HTTP_STATUS.BAD_REQUEST);
 
-    // Create or get payroll run. Uses the (month, year) unique upsert —
-    // collapses the prior SELECT+INSERT-or-UPDATE dance into one atomic
-    // call, which also closes a tiny race where two admins hitting
-    // runPayroll simultaneously could have both inserted.
-    // (month, year) is unique per-tenant now (mig 330: @@unique([tenant_id,
-    // month, year])), so findUnique/upsert keyed on (month, year) alone are
-    // invalid. findFirst to locate, then update-by-id or create. The DB's
-    // per-tenant unique still guards against a concurrent double-insert.
-    const existing = await prisma.payroll_runs.findFirst({
-      where: { month, year },
-      select: { id: true, status: true },
+    const run = await executePayrollRun({
+      tenantId,
+      month,
+      year,
+      generatedBy: adminUid,
+      rerunCompleted: rerun === true,
     });
-    if (existing?.status === 'locked') {
-      return error(res, 'Payroll for this month is locked and cannot be rerun', HTTP_STATUS.FORBIDDEN);
-    }
-    const run = existing
-      ? await prisma.payroll_runs.update({
-          where: { id: existing.id },
-          data: {
-            status: 'processing',
-            generated_by: adminUid,
-            generated_at: new Date(),
-            // Clear the previous attempt's failure tally, so a run that dies
-            // before finalizing cannot leave a stale count on display.
-            failed_staff_count: 0,
-            failed_staff: [],
-          },
-          select: { id: true },
-        })
-      : await prisma.payroll_runs.create({
-          data: {
-            month,
-            year,
-            status: 'processing',
-            generated_by: adminUid,
-            generated_at: new Date(),
-          },
-          select: { id: true },
-        });
-    const runId = run.id;
-
-    // Get all staff with salary config. CAN-016: scope the enumeration to the
-    // caller's tenant so a payroll run never generates payslips for another
-    // tenant's staff (defense-in-depth alongside RLS).
-    const staffList = await prisma.$queryRawUnsafe(`
-      SELECT ss.staff_uid, u.name, u.role, u.email,
-             COALESCE(s.department, ss.department) as department
-      FROM staff_salary ss
-      JOIN users u ON ss.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.uid
-      WHERE ss.is_active = true
-        AND ss.tenant_id = $1::uuid
-    `, resolveTenantOrThrow(req));
-
-    let processed = 0;
-    const failures = [];
-    let totalGross = 0, totalNet = 0, totalDeductions = 0;
-
-    for (const staff of staffList) {
-      try {
-        const calc = await calculatePayslip(staff.staff_uid, month, year);
-        const saved = await savePayslip(runId, calc, resolveTenantOrThrow(req));
-
-        // ─── FEATURE 3: Process advance deductions after saving ──────────
-        if (calc._advances_to_process?.length > 0) {
-          for (const adv of calc._advances_to_process) {
-            // The old raw UPDATE used CASE expressions to flip status/
-            // fully_cleared_at when `total_deducted + delta >= amount`.
-            // Prisma has no ORM-side CASE, but the server has already
-            // computed `adv.balanceAfter` (remaining after this deduction)
-            // so the fully-cleared check is a simple JS comparison.
-            const fullyCleared = Number(adv.balanceAfter) <= 0;
-            await prisma.salary_advances.update({
-              where: { id: adv.id },
-              data: {
-                total_deducted: { increment: Number(adv.amount) },
-                months_remaining: { decrement: 1 },
-                ...(fullyCleared
-                  ? { status: 'cleared', fully_cleared_at: new Date() }
-                  : {}),
-                updated_at: new Date(),
-              },
-              select: { id: true },
-            });
-            // months_remaining can go negative with {decrement: 1}; the old
-            // SQL used GREATEST(0, ...). Follow-up update to clamp.
-            await prisma.salary_advances.updateMany({
-              where: { id: adv.id, months_remaining: { lt: 0 } },
-              data: { months_remaining: 0 },
-            });
-
-            await prisma.advance_deductions.create({
-              data: {
-                advance_id: adv.id,
-                payslip_id: saved.id,
-                staff_uid: calc.staff_uid,
-                month: calc.month,
-                year: calc.year,
-                amount_deducted: adv.amount,
-                balance_after: adv.balanceAfter,
-              },
-              select: { id: true },
-            });
-          }
-        }
-
-        // ─── FEATURE 4: Mark arrears as paid after saving ────────────────
-        if (calc.arrears_amount > 0) {
-          await prisma.salary_arrears.updateMany({
-            where: { staff_uid: calc.staff_uid, status: 'pending' },
-            data: {
-              status: 'paid',
-              paid_in_month: calc.month,
-              paid_in_year: calc.year,
-              payslip_id: saved.id,
-            },
-          });
-        }
-
-        // Generate and upload PDF. The PDF is locked with a RANDOM
-        // per-document password (audit finding M6 — previously DOB-derived
-        // and brute-forceable) delivered out-of-band via the staff member's
-        // in-app notification channel; it is never stored beside the PDF.
-        if (generatePayslipPDF) {
-          try {
-            const { buffer: pdfBuf, userPassword } = await generatePayslipPDF(calc, staff);
-            const pdfKey = `payroll/${year}/${String(month).padStart(2, '0')}/payslip_${staff.staff_uid}_${year}_${String(month).padStart(2, '0')}.pdf`;
-            await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
-            await prisma.payslips.update({
-              where: { id: saved.id },
-              data: { pdf_key: pdfKey, pdf_generated_at: new Date() },
-              select: { id: true },
-            });
-            await dispatch({
-              userId: staff.staff_uid,
-              title: `Payslip ${String(month).padStart(2, '0')}/${year} ready`,
-              body: `Your payslip PDF is ready. Open it with this one-time password: ${userPassword}`,
-              channels: ['inapp'],
-              type: 'payslip_password',
-            });
-          } catch (pdfErr) {
-            logger.warn(`PDF generation failed for staff ${staff.staff_uid}: ${pdfErr.message}`);
-          }
-        }
-
-        totalGross += parseFloat(calc.gross_salary) || 0;
-        totalNet += parseFloat(calc.net_salary) || 0;
-        totalDeductions += parseFloat(calc.total_deductions) || 0;
-        processed++;
-      } catch (e) {
-        // One staff member's failure must not abort the others, but it must
-        // survive into the run record — an unpaid person is not a zero-paid one.
-        logger.error(`Payroll calc failed for staff ${staff.staff_uid}: ${e.message}`);
-        recordPayrollFailure(failures, staff.staff_uid, e);
+    if (run.skipped) {
+      if (run.reason === 'already_processing') {
+        return error(
+          res,
+          'Payroll for this month is already processing',
+          HTTP_STATUS.CONFLICT,
+        );
       }
+      if (run.reason === 'completed') {
+        return error(
+          res,
+          'Payroll for this month is already complete; set rerun=true with a new Idempotency-Key to rerun it',
+          HTTP_STATUS.CONFLICT,
+        );
+      }
+      return error(res, 'Payroll for this month is signed or locked and cannot be rerun', HTTP_STATUS.FORBIDDEN);
     }
-
-    // Update run summary. The failed count used to live only in the HTTP
-    // response below, so the persisted row said 'completed' no matter how many
-    // staff were missed; summarizePayrollRunOutcome is shared with the monthly
-    // cron so both paths record the same truth.
-    const outcome = summarizePayrollRunOutcome({
-      processed, failures, totalGross, totalNet, totalDeductions,
-    });
-    await prisma.payroll_runs.update({
-      where: { id: runId },
-      data: {
-        status: outcome.status,
-        total_staff: outcome.total_staff,
-        total_gross: outcome.total_gross,
-        total_net: outcome.total_net,
-        total_deductions: outcome.total_deductions,
-        failed_staff_count: outcome.failed_staff_count,
-        failed_staff: outcome.failed_staff,
-      },
-      select: { id: true },
-    });
-
-    const failed = outcome.failed_staff_count;
+    const failed = run.failures;
     success(res, {
-      run_id: runId, processed, failed,
-      status: outcome.status,
-      total_gross: outcome.total_gross,
-      total_net: outcome.total_net,
+      run_id: run.run_id,
+      processed: run.processed,
+      failed,
+      status: run.status,
+      total_gross: run.total_gross,
+      total_net: run.total_net,
     }, failed > 0
-      ? `Payroll run completed with errors: ${processed} staff processed, ${failed} failed`
-      : `Payroll run complete: ${processed} staff processed`);
+      ? `Payroll run completed with errors: ${run.processed} staff processed, ${failed} failed`
+      : `Payroll run complete: ${run.processed} staff processed`);
   } catch (err) {
     logger.error('Run Payroll Error:', err);
-    error(res, 'Failed to run payroll', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    const status = err?.code === 'PAYSLIP_DOCUMENT_RECONCILIATION_REQUIRED'
+      ? HTTP_STATUS.CONFLICT
+      : HTTP_STATUS.INTERNAL_SERVER_ERROR;
+    error(res, 'Failed to run payroll', status);
   }
 };
 
@@ -473,116 +332,48 @@ export const issuePayslips = async (req, res) => {
   try {
     const { month, year } = req.body;
     if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
-
-    // Require both HR and Admin signatures before issuing
-    const run = await prisma.$queryRawUnsafe(
-      `SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, failed_staff_count, failed_staff, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2`, month, year);
-
-    if (run.length === 0) {
+    const issued = await issuePayrollRun({
+      tenantId: resolveTenantOrThrow(req),
+      month,
+      year,
+      acknowledgeFailedPayslips: hasFailedPayslipAck(req),
+    });
+    if (issued.reason === 'not_found') {
       return error(res, 'No payroll run found for this month. Run payroll first.', HTTP_STATUS.BAD_REQUEST);
     }
-
-    const r = run[0];
-    if (!r.hr_approved_at) {
+    if (issued.reason === 'hr_required') {
       return error(res, 'HR must sign the payroll run before payslips can be issued', HTTP_STATUS.FORBIDDEN);
     }
-    if (!r.admin_approved_at) {
+    if (issued.reason === 'admin_required') {
       return error(res, 'Admin must countersign the payroll run before payslips can be issued', HTTP_STATUS.FORBIDDEN);
     }
-    // By issue time the run status is 'approved', so failed_staff_count is the
-    // marker that staff are missing payslips — issuing is the last chance to
-    // stop and re-run instead of paying an incomplete month.
-    const ackRequired = runHasFailedPayslips(r);
-    if (ackRequired && !hasFailedPayslipAck(req)) {
-      return rejectUnacknowledgedFailedPayslips(res, r, 'issue');
+    if (issued.reason === 'invalid_status') {
+      return error(res, 'Payroll run must be approved before payslips can be issued', HTTP_STATUS.CONFLICT);
     }
-
-    // Regenerate PDFs for any manually-edited payslips
-    const editedPayslips = await prisma.$queryRawUnsafe(
-      `SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_earned, p.hra_earned,
-        p.da_earned, p.special_allowance_earned, p.transport_allowance_earned, p.medical_allowance_earned,
-        p.overtime_pay, p.gross_salary, p.pf_employee, p.esi_employee,
-        p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_key,
-        p.created_at, p.updated_at,
-        ss.id as salary_id, ss.basic_salary as ss_basic, ss.hra_pct as ss_hra_pct,
-        ss.special_allowance as ss_special, ss.is_active, ss.effective_from
-       FROM payslips p
-       JOIN staff_salary ss ON ss.staff_uid = p.staff_uid
-       WHERE p.month=$1 AND p.year=$2 AND p.manually_edited=true AND p.pdf_key IS NULL`, month, year);
-
-    if (generatePayslipPDF && editedPayslips.length > 0) {
-      for (const p of editedPayslips) {
-        try {
-          const staffRes = await prisma.$queryRawUnsafe('SELECT uid, name, email, phone, role, department, employee_id FROM users WHERE uid=$1', p.staff_uid);
-          // Random per-document password, delivered out-of-band (M6).
-          const { buffer: pdfBuf, userPassword } = await generatePayslipPDF(p, staffRes[0] || {});
-          const pdfKey = `payroll/${year}/${String(month).padStart(2,'0')}/payslip_${p.staff_uid}_${year}_${String(month).padStart(2,'0')}.pdf`;
-          await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
-          await prisma.payslips.update({
-            where: { id: p.id },
-            data: { pdf_key: pdfKey, pdf_generated_at: new Date() },
-            select: { id: true },
-          });
-          await dispatch({
-            userId: p.staff_uid,
-            title: `Payslip ${String(month).padStart(2, '0')}/${year} ready`,
-            body: `Your payslip PDF is ready. Open it with this one-time password: ${userPassword}`,
-            channels: ['inapp'],
-            type: 'payslip_password',
-          });
-        } catch (pdfErr) {
-          logger.warn(`PDF regen failed for payslip ${p.id}: ${pdfErr.message}`);
-        }
-      }
+    if (issued.reason === 'manifest_changed') {
+      return error(res, 'Payroll results changed after approval; issuance is blocked', HTTP_STATUS.CONFLICT);
     }
-
-    const { count: issued } = await prisma.payslips.updateMany({
-      where: { month, year, status: 'draft' },
-      data: { status: 'issued', issued_at: new Date() },
-    });
-
-    // Lock the run. (month, year) is unique per-tenant now (mig 330), so the
-    // singular update keyed on (month, year) is invalid; updateMany accepts the
-    // non-unique filter and is naturally tenant-scoped under RLS. The returned
-    // row isn't used here.
-    await prisma.payroll_runs.updateMany({
-      where: { month, year },
-      data: { status: 'locked' },
-    });
-
-    // ─── FEATURE 8: Send notifications to staff ──────────────────────────
-    const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];
-    setImmediate(async () => {
-      try {
-        const issuedStaff = await prisma.$queryRawUnsafe(`
-          SELECT p.staff_uid, u.name, p.net_salary
-          FROM payslips p JOIN users u ON p.staff_uid = u.uid
-          WHERE p.month=$1 AND p.year=$2 AND p.status='issued'
-        `, month, year);
-
-        for (const staff of issuedStaff) {
-          try {
-            await dispatch({
-              userId: staff.staff_uid,
-              title: `Payslip Ready — ${monthName} ${year}`,
-              body: `Your payslip for ${monthName} ${year} is available. Net Pay: ₹${Math.round(staff.net_salary).toLocaleString('en-IN')}`,
-              channels: ['push', 'inapp'],
-              data: { type: 'payslip', month: String(month), year: String(year) },
-              type: 'payslip',
-            });
-          } catch (e) {
-            logger.warn(`Payslip notification failed for ${staff.staff_uid}: ${e.message}`);
-          }
-        }
-      } catch (e) {
-        logger.warn('Payslip notification batch failed:', e.message);
-      }
-    });
-
-    if (ackRequired) await auditFailedPayslipAck(req, r, 'issue');
-    success(res, { issued }, ackRequired
-      ? `${issued} payslips issued to staff — ${r.failed_staff_count} failed payslip(s) acknowledged as not issued`
-      : `${issued} payslips issued to staff`);
+    if (issued.reason === 'ack_required') {
+      return rejectUnacknowledgedFailedPayslips(res, issued.run, 'issue');
+    }
+    if (issued.reason === 'delivery_pending') {
+      return error(
+        res,
+        'Payslip documents or their in-app delivery receipts are still pending',
+        HTTP_STATUS.CONFLICT,
+        {
+          topLevel: { code: 'PAYSLIP_DELIVERY_PENDING' },
+          pending_staff: issued.pendingDelivery.map(row => ({
+            staff_uid: row.staff_uid,
+            state: row.delivery_state,
+          })),
+        },
+      );
+    }
+    if (issued.ackRequired) await auditFailedPayslipAck(req, issued.run, 'issue');
+    success(res, { issued: issued.issued }, issued.ackRequired
+      ? `${issued.issued} payslips issued to staff — ${issued.run.failed_staff_count} failed payslip(s) acknowledged as not issued`
+      : `${issued.issued} payslips issued to staff`);
   } catch (err) {
     logger.error('Issue Payslips Error:', err);
     error(res, 'Failed to issue payslips', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -592,6 +383,7 @@ export const issuePayslips = async (req, res) => {
 // ─── Admin: Get payroll runs list ─────────────────────────────────────────────
 export const getPayrollRuns = async (req, res) => {
   try {
+    const tenantId = resolveTenantOrThrow(req);
     // Explicit columns (house rule: no SELECT *). `failed_staff_count` is
     // operator-facing and rendered in the admin runs list; `failed_staff` is
     // deliberately NOT selected raw — it holds internal error text, which
@@ -608,7 +400,9 @@ export const getPayrollRuns = async (req, res) => {
                         'staff_uid', fs->>'staff_uid',
                         'name', fu.name))
                  FROM jsonb_array_elements(pr.failed_staff) fs
-                 LEFT JOIN users fu ON fu.uid = (fs->>'staff_uid')::uuid
+                 LEFT JOIN users fu
+                   ON fu.tenant_id = pr.tenant_id
+                  AND fu.uid = (fs->>'staff_uid')::uuid
              ), '[]'::jsonb) AS failed_staff_summary,
              pr.total_gross, pr.total_net, pr.total_deductions,
              pr.generated_by, pr.generated_at, pr.locked_by, pr.locked_at,
@@ -618,10 +412,12 @@ export const getPayrollRuns = async (req, res) => {
              pr.approval_hash, pr.tenant_id,
              u.name as generated_by_name
       FROM payroll_runs pr
-      LEFT JOIN users u ON pr.generated_by = u.uid
+      LEFT JOIN users u
+        ON u.tenant_id = pr.tenant_id AND pr.generated_by = u.uid
+      WHERE pr.tenant_id = $1::uuid
       ORDER BY pr.year DESC, pr.month DESC
       LIMIT 24
-    `);
+    `, tenantId);
     success(res, runs, 'Payroll runs fetched');
   } catch (err) {
     logger.error('Get Payroll Runs Error:', err);
@@ -634,22 +430,35 @@ export const getPayrollRunDetail = async (req, res) => {
   try {
     const { runId } = req.params;
     const runIdNumber = Number.parseInt(runId, 10);
+    const tenantId = resolveTenantOrThrow(req);
 
     if (!Number.isInteger(runIdNumber) || runIdNumber <= 0) {
       return error(res, 'Invalid payroll run id', HTTP_STATUS.BAD_REQUEST);
     }
 
     const payslips = await prisma.$queryRawUnsafe(`
-      SELECT p.*, u.name as staff_name, u.email,
+      SELECT p.id, p.payroll_run_id, p.staff_uid, p.month, p.year,
+             p.total_working_days, p.days_present, p.days_absent, p.days_leave,
+             p.days_half, p.overtime_hours, p.overtime_rate, p.basic_earned,
+             p.hra_earned, p.da_earned, p.special_allowance_earned,
+             p.transport_allowance_earned, p.medical_allowance_earned,
+             p.overtime_pay, p.bonus_this_month, p.gross_salary, p.pf_employee,
+             p.esi_employee, p.professional_tax, p.tds, p.other_deductions,
+             p.total_deductions, p.net_salary, p.status, p.issued_at,
+             p.lop_days, p.lop_deduction, p.arrears_amount,
+             p.advance_deduction, p.revision_note, p.manually_edited,
+             p.edit_reason, p.edited_by, p.edited_at,
+             u.name as staff_name, u.email,
              COALESCE(s.department, ss.department) as department,
              u.role
       FROM payslips p
-      JOIN users u ON p.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.uid
-      LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
-      WHERE p.payroll_run_id = $1::int
+      JOIN users u ON u.tenant_id = p.tenant_id AND p.staff_uid = u.uid
+      LEFT JOIN staff s ON s.tenant_id = u.tenant_id AND s.user_id = u.uid
+      LEFT JOIN staff_salary ss ON ss.tenant_id = u.tenant_id AND ss.staff_uid = u.uid
+      WHERE p.tenant_id = $2::uuid AND p.payroll_run_id = $1::int
+        AND p.status <> 'superseded'
       ORDER BY u.name
-    `, runIdNumber);
+    `, runIdNumber, tenantId);
 
     const run = await prisma.$queryRawUnsafe(
       `SELECT id, month, year, status, generated_by, generated_at,
@@ -657,8 +466,8 @@ export const getPayrollRunDetail = async (req, res) => {
               total_gross, total_deductions, total_net, employee_count,
               notes, created_at, updated_at
        FROM payroll_runs
-       WHERE id=$1::int`,
-      runIdNumber,
+       WHERE tenant_id = $2::uuid AND id=$1::int`,
+      runIdNumber, tenantId,
     );
     if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
 
@@ -872,103 +681,23 @@ export const manualEditPayslip = async (req, res) => {
     const { edit_reason, ...edits } = req.body;
 
     if (!edit_reason) return error(res, 'edit_reason is required for manual edits', HTTP_STATUS.BAD_REQUEST);
-
-    const payslip = await prisma.$queryRawUnsafe(`
-      SELECT p.*, pr.hr_approved_at, pr.admin_approved_at
-      FROM payslips p
-      JOIN payroll_runs pr ON p.payroll_run_id = pr.id
-      WHERE p.id = $1
-    `, id);
-
-    if (payslip.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
-    if (payslip[0].hr_approved_at || payslip[0].admin_approved_at) {
-      return error(res, 'Cannot edit a payslip after HR or Admin has signed the payroll run', HTTP_STATUS.FORBIDDEN);
-    }
-    if (payslip[0].status === 'issued') {
-      return error(res, 'Cannot edit an already-issued payslip', HTTP_STATUS.FORBIDDEN);
-    }
-
-    const allowed = [
-      'basic_earned', 'hra_earned', 'da_earned', 'special_allowance_earned',
-      'transport_allowance_earned', 'medical_allowance_earned', 'overtime_pay',
-      'bonus_this_month', 'pf_employee', 'esi_employee', 'professional_tax',
-      'tds', 'other_deductions', 'days_present', 'days_absent', 'days_leave',
-      'overtime_hours',
-    ];
-
-    const fields = Object.keys(edits).filter(k => allowed.includes(k));
-    if (fields.length === 0) return error(res, 'No valid editable fields provided', HTTP_STATUS.BAD_REQUEST);
-
-    // Validate all payroll values are finite numbers (prevents NaN/Infinity injection)
-    const editData = {};
-    for (const f of fields) {
-      const v = Number(edits[f]);
-      if (!Number.isFinite(v)) throw new Error(`Invalid numeric value for field: ${f}`);
-      editData[f] = v;
-    }
-
-    // First update: apply the user-supplied edits. Field keys were already
-    // filtered against the allowlist so Prisma's validation will accept them
-    // (and reject anything else with PrismaClientValidationError).
-    await prisma.payslips.update({
-      where: { id: Number(id) },
-      data: editData,
-      select: { id: true },
+    const updated = await editPayslipAndRegenerate({
+      tenantId: resolveTenantOrThrow(req),
+      payslipId: id,
+      editorUid,
+      editReason: edit_reason,
+      edits,
     });
-
-    // Second update: recompute derived totals from the just-updated row.
-    // We read the row back rather than using a SQL expression-in-UPDATE,
-    // which trades one extra SELECT for column-name drift safety.
-    const row = await prisma.payslips.findUnique({
-      where: { id: Number(id) },
-      select: {
-        basic_earned: true,
-        hra_earned: true,
-        da_earned: true,
-        special_allowance_earned: true,
-        transport_allowance_earned: true,
-        medical_allowance_earned: true,
-        overtime_pay: true,
-        bonus_this_month: true,
-        arrears_amount: true,
-        pf_employee: true,
-        esi_employee: true,
-        professional_tax: true,
-        tds: true,
-        other_deductions: true,
-        advance_deduction: true,
-      },
-    });
-    const num = (v) => Number(v || 0);
-    const gross =
-      num(row.basic_earned) + num(row.hra_earned) + num(row.da_earned)
-      + num(row.special_allowance_earned) + num(row.transport_allowance_earned)
-      + num(row.medical_allowance_earned) + num(row.overtime_pay)
-      + num(row.bonus_this_month) + num(row.arrears_amount);
-    const totalDeductions =
-      num(row.pf_employee) + num(row.esi_employee) + num(row.professional_tax)
-      + num(row.tds) + num(row.other_deductions);
-    const net = gross - (totalDeductions + num(row.advance_deduction));
-
-    const updated = await prisma.payslips.update({
-      where: { id: Number(id) },
-      data: {
-        gross_salary: Math.round(gross * 100) / 100,
-        total_deductions: Math.round(totalDeductions * 100) / 100,
-        net_salary: Math.round(net * 100) / 100,
-        manually_edited: true,
-        edit_reason,
-        edited_by: editorUid,
-        edited_at: new Date(),
-        updated_at: new Date(),
-        pdf_key: null,
-        pdf_generated_at: null,
-      },
-      select: PAYSLIP_DETAIL_SELECT,
-    });
-    success(res, updated, 'Payslip updated — PDF will regenerate on issue');
+    if (!updated) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    success(res, updated, 'Payslip updated and its immutable PDF delivery was regenerated');
   } catch (err) {
     logger.error('Manual Edit Payslip Error:', err);
+    if (err?.code === 'PAYSLIP_NOT_EDITABLE') {
+      return error(res, err.message, HTTP_STATUS.FORBIDDEN);
+    }
+    if (err?.code === 'PAYSLIP_DOCUMENT_RECONCILIATION_REQUIRED') {
+      return error(res, 'Payslip document delivery requires reconciliation before editing', HTTP_STATUS.CONFLICT);
+    }
     error(res, 'Failed to edit payslip', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -986,10 +715,6 @@ export const manualEditPayslip = async (req, res) => {
 // moves the run to 'approved' and issue moves it to 'locked' — the count is the
 // durable marker that payslips are missing at every later stage.
 export const FAILED_PAYSLIP_ACK_FIELD = 'acknowledge_failed_payslips';
-
-function runHasFailedPayslips(run) {
-  return run.status === 'completed_with_errors' || Number(run.failed_staff_count || 0) > 0;
-}
 
 // Only the identity of the unpaid staff is surfaced — failed_staff also holds
 // internal error text (mig 644), which stays in the DB and the logs.
@@ -1035,31 +760,36 @@ export const hrSignPayrollRun = async (req, res) => {
     const hrUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, failed_staff_count, failed_staff, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
-    if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
-    if (run[0].status !== 'completed' && run[0].status !== 'completed_with_errors') {
+    const signed = await signPayrollRun({
+      tenantId: resolveTenantOrThrow(req),
+      payrollRunId: runId,
+      signature: 'hr',
+      signerUid: hrUid,
+      comment,
+      acknowledgeFailedPayslips: hasFailedPayslipAck(req),
+    });
+    if (signed.reason === 'not_found') {
+      return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
+    }
+    if (signed.reason === 'role_required') {
+      return error(res, 'Only HR_STAFF may apply the HR payroll signature', HTTP_STATUS.FORBIDDEN);
+    }
+    if (signed.reason === 'invalid_status' || signed.reason === 'state_changed') {
       return error(res, 'Payroll run must be in completed state before signing', HTTP_STATUS.BAD_REQUEST);
     }
-    if (run[0].hr_approved_at) {
+    if (signed.reason === 'manifest_changed') {
+      return error(res, 'Payroll results or documents changed after finalization; regenerate the run', HTTP_STATUS.CONFLICT);
+    }
+    if (signed.reason === 'already_signed') {
       return error(res, 'HR has already signed this payroll run', HTTP_STATUS.BAD_REQUEST);
     }
-    const ackRequired = runHasFailedPayslips(run[0]);
-    if (ackRequired && !hasFailedPayslipAck(req)) {
-      return rejectUnacknowledgedFailedPayslips(res, run[0], 'sign');
+    if (signed.reason === 'ack_required') {
+      return rejectUnacknowledgedFailedPayslips(res, signed.run, 'sign');
     }
 
-    const updated = await prisma.payroll_runs.update({
-      where: { id: Number(runId) },
-      data: {
-        hr_approved_by: hrUid,
-        hr_approved_at: new Date(),
-        hr_comment: comment || null,
-      },
-      select: PAYROLL_RUN_SELECT,
-    });
-    if (ackRequired) await auditFailedPayslipAck(req, run[0], 'hr-sign');
-    success(res, updated, ackRequired
-      ? `HR signature applied with ${run[0].failed_staff_count} failed payslip(s) acknowledged — awaiting Admin countersign`
+    if (signed.ackRequired) await auditFailedPayslipAck(req, signed.ackRun, 'hr-sign');
+    success(res, signed.run, signed.ackRequired
+      ? `HR signature applied with ${signed.ackRun.failed_staff_count} failed payslip(s) acknowledged — awaiting Admin countersign`
       : 'HR signature applied — awaiting Admin countersign before payslips can be issued');
   } catch (err) {
     logger.error('HR Sign Payroll Run Error:', err);
@@ -1074,43 +804,42 @@ export const adminSignPayrollRun = async (req, res) => {
     const adminUid = req.user?.uid;
     const { comment } = req.body;
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, total_gross, total_deductions, total_net, employee_count, failed_staff_count, failed_staff, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
-    if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
-    if (!run[0].hr_approved_at) {
+    const signed = await signPayrollRun({
+      tenantId: resolveTenantOrThrow(req),
+      payrollRunId: runId,
+      signature: 'admin',
+      signerUid: adminUid,
+      comment,
+      acknowledgeFailedPayslips: hasFailedPayslipAck(req),
+    });
+    if (signed.reason === 'not_found') {
+      return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
+    }
+    if (signed.reason === 'role_required') {
+      return error(res, 'Only ADMIN or SUPER_ADMIN may countersign payroll', HTTP_STATUS.FORBIDDEN);
+    }
+    if (signed.reason === 'invalid_status' || signed.reason === 'state_changed') {
+      return error(res, 'Payroll run must be in completed state before countersign', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (signed.reason === 'manifest_changed') {
+      return error(res, 'Payroll results or documents changed after finalization; regenerate the run', HTTP_STATUS.CONFLICT);
+    }
+    if (signed.reason === 'hr_required') {
       return error(res, 'HR must sign before Admin countersign', HTTP_STATUS.BAD_REQUEST);
     }
-    if (run[0].admin_approved_at) {
+    if (signed.reason === 'already_signed') {
       return error(res, 'Admin has already countersigned this payroll run', HTTP_STATUS.BAD_REQUEST);
     }
-    if (run[0].hr_approved_by === adminUid) {
+    if (signed.reason === 'same_signer') {
       return error(res, 'HR signer and Admin countersigner cannot be the same person', HTTP_STATUS.FORBIDDEN);
     }
-    // Countersigning a run with failed payslips needs its own acknowledgement —
-    // the Admin countersigner may not be the person who acknowledged at HR sign.
-    const ackRequired = runHasFailedPayslips(run[0]);
-    if (ackRequired && !hasFailedPayslipAck(req)) {
-      return rejectUnacknowledgedFailedPayslips(res, run[0], 'countersign');
+    if (signed.reason === 'ack_required') {
+      return rejectUnacknowledgedFailedPayslips(res, signed.run, 'countersign');
     }
 
-    const hash = crypto
-      .createHash('sha256')
-      .update(`${runId}:${run[0].month}:${run[0].year}:${run[0].total_gross}:${run[0].hr_approved_by}:${adminUid}`)
-      .digest('hex');
-
-    const updated = await prisma.payroll_runs.update({
-      where: { id: Number(runId) },
-      data: {
-        admin_approved_by: adminUid,
-        admin_approved_at: new Date(),
-        admin_comment: comment || null,
-        approval_hash: hash,
-        status: 'approved',
-      },
-      select: PAYROLL_RUN_SELECT,
-    });
-    if (ackRequired) await auditFailedPayslipAck(req, run[0], 'admin-sign');
-    success(res, updated, ackRequired
-      ? `Admin countersign complete with ${run[0].failed_staff_count} failed payslip(s) acknowledged — payslips can now be issued`
+    if (signed.ackRequired) await auditFailedPayslipAck(req, signed.ackRun, 'admin-sign');
+    success(res, signed.run, signed.ackRequired
+      ? `Admin countersign complete with ${signed.ackRun.failed_staff_count} failed payslip(s) acknowledged — payslips can now be issued`
       : 'Admin countersign complete — payslips can now be issued to staff');
   } catch (err) {
     logger.error('Admin Sign Payroll Run Error:', err);

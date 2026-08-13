@@ -5,6 +5,12 @@ import { listObjectsV2, deleteObject } from './r2Storage.js';
 
 // Configuration: Cleanup files older than 2 years (730 days)
 const MAX_FILE_AGE_DAYS = 730;
+const RETENTION_MANAGED_PREFIXES = Object.freeze(['payroll/']);
+
+export function isGenericCleanupEligible(key) {
+  const normalized = String(key || '').replace(/^\/+/, '');
+  return !RETENTION_MANAGED_PREFIXES.some(prefix => normalized.startsWith(prefix));
+}
 
 /**
  * Converts ISO timestamp to number of days difference from today.
@@ -42,7 +48,7 @@ export async function executeCleanup() {
         totalFilesChecked++;
         const ageDays = getFileAgeInDays(file.LastModified);
 
-        if (ageDays > MAX_FILE_AGE_DAYS) {
+        if (ageDays > MAX_FILE_AGE_DAYS && isGenericCleanupEligible(file.Key)) {
           try {
             await deleteObject(file.Key);
             totalFilesDeleted++;

@@ -17,11 +17,14 @@ import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
 import { PEOPLE_OPERATIONS_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { staffAccessGuard } from '../../middleware/staffAccessMiddleware.js';
 import { STAFF_ACCESS_POLICY_CODES } from '../../services/security/staffAccessDecisionService.js';
 
 const router = express.Router();
 const reportReviewRoles = requireRole(...PEOPLE_OPERATIONS_ROUTE_ROLES);
+const payrollHrSignerRoles = requireRole('HR_STAFF');
+const payrollAdminSignerRoles = requireRole('ADMIN', 'SUPER_ADMIN');
 const guardStaffReportView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_REPORT_VIEW, {
   allowNoTarget: true,
 });
@@ -244,7 +247,12 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/housekeeping/requests/create', housekeepingController.adminCreateRequest],
 
     // Payroll (admin actions)
-    ['/payroll/run', guardPayrollWriteCollection, payrollController.runPayroll],
+    [
+      '/payroll/run',
+      requireIdempotencyKey({ required: true, scope: 'payroll_run' }),
+      guardPayrollWriteCollection,
+      payrollController.runPayroll,
+    ],
     ['/payroll/issue', guardPayrollWriteCollection, payrollController.issuePayslips],
     ['/payroll/salary/:staffUid', guardPayrollWriteByStaffUid, payrollController.upsertStaffSalaryConfig],
     // New payroll features — POST
@@ -253,8 +261,8 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/payroll/revisions/:revisionId/arrears', guardPayrollWriteBySalaryRevisionId, payrollController.calculateRevisionArrears],
     // Manual edit + dual sign
     ['/payroll/payslips/:id/edit', guardPayrollWriteByPayslipId, payrollController.manualEditPayslip],
-    ['/payroll/runs/:runId/hr-sign', guardPayrollWriteCollection, payrollController.hrSignPayrollRun],
-    ['/payroll/runs/:runId/admin-sign', guardPayrollWriteCollection, payrollController.adminSignPayrollRun],
+    ['/payroll/runs/:runId/hr-sign', payrollHrSignerRoles, guardPayrollWriteCollection, payrollController.hrSignPayrollRun],
+    ['/payroll/runs/:runId/admin-sign', payrollAdminSignerRoles, guardPayrollWriteCollection, payrollController.adminSignPayrollRun],
     ['/payroll/revisions/propose', guardPayrollWriteByBodyStaffUid, salaryRevisionController.proposeRevision],
     ['/payroll/revisions/:id/hr-sign', guardPayrollWriteBySalaryRevisionId, salaryRevisionController.hrSignRevision],
     ['/payroll/revisions/:id/admin-sign', guardPayrollWriteBySalaryRevisionId, salaryRevisionController.adminSignRevision],

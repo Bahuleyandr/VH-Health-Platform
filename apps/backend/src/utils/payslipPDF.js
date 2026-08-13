@@ -63,6 +63,7 @@ export async function generatePayslipPDF(payslipData, staffDetails) {
 
   const buffer = await new Promise((resolve, reject) => {
     const doc = new PDFDocument({
+      pdfVersion: '1.7ext3',
       userPassword: pdfPassword,
       ownerPassword,
       permissions: { printing: 'highResolution', modifying: false, copying: false, annotating: false },
@@ -262,7 +263,7 @@ export async function generatePayslipPDF(payslipData, staffDetails) {
       .text('This is a computer-generated payslip and does not require a signature.', leftX, footerY + 6, { align: 'center', width: pageWidth })
       .text(`Generated on: ${new Date().toLocaleDateString('en-IN')} | ${getMonthName(payslipData.month)} ${payslipData.year} | Venkataeswara Hospitals`, leftX, footerY + 16, { align: 'center', width: pageWidth });
     doc.fillColor('#007A64').fontSize(7).font('Helvetica-Bold')
-      .text('This payslip is password-protected. Your one-time password was sent to you in the VH Health staff app.', leftX, footerY + 26, { align: 'center', width: pageWidth });
+      .text('This payslip is password-protected. Reveal its password from your authenticated VH Health staff account.', leftX, footerY + 26, { align: 'center', width: pageWidth });
 
     doc.end();
   });

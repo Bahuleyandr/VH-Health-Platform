@@ -69,26 +69,41 @@ function unwrapUnderMaster(wrapped) {
 }
 
 /**
- * Provision a fresh random KEK for a tenant: store it wrapped under the master
- * KEK and register it for immediate use. Idempotent on (tenant_id, key_id) —
- * re-running re-provisions (rotates) the KEK. Returns { tenantId, keyId }.
+ * Provision the first random v1 KEK for a tenant and register it for immediate
+ * use. Re-running is idempotent: replacing material under the same key id would
+ * make ciphertext created by another process permanently undecryptable. Key
+ * rotation must allocate a new versioned key id and re-wrap retained fields.
  */
 export async function provisionTenantKek(tenantId) {
   const kek = crypto.randomBytes(KEK_LENGTH);
   const wrapped = wrapUnderMaster(kek);
   const kid = tenantKeyId(tenantId);
-  await prisma.$executeRawUnsafe(
+  const inserted = await prisma.$queryRawUnsafe(
     `INSERT INTO encryption_keys
        (tenant_id, key_id, provider, algorithm, status, wrapped_key_material, activated_at, created_at, updated_at)
      VALUES ($1::uuid, $2, 'local-tenant', 'aes-256-gcm', 'active', $3, NOW(), NOW(), NOW())
-     ON CONFLICT (tenant_id, key_id) DO UPDATE SET
-       wrapped_key_material = EXCLUDED.wrapped_key_material,
-       status = 'active',
-       updated_at = NOW()`,
+     ON CONFLICT (tenant_id, key_id) DO NOTHING
+     RETURNING wrapped_key_material`,
     tenantId, kid, wrapped,
   );
-  _tenantKekCache.set(tenantId, kek);
-  getKekProvider().registerTenantKek(kid, kek);
+  let activeKek = kek;
+  if (inserted.length === 0) {
+    kek.fill(0);
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT wrapped_key_material
+         FROM encryption_keys
+        WHERE tenant_id = $1::uuid AND key_id = $2
+          AND status = 'active' AND wrapped_key_material IS NOT NULL
+        LIMIT 1`,
+      tenantId, kid,
+    );
+    if (!existing[0]?.wrapped_key_material) {
+      throw new Error(`Tenant ${tenantId} has no reusable active v1 KEK`);
+    }
+    activeKek = unwrapUnderMaster(existing[0].wrapped_key_material);
+  }
+  _tenantKekCache.set(tenantId, activeKek);
+  getKekProvider().registerTenantKek(kid, activeKek);
   return { tenantId, keyId: kid };
 }
 

@@ -7,6 +7,15 @@
 // `schemas` map + an `operations` map). Pass B adds the remaining 3 sub-domains.
 import { envelope, listEnvelope } from './_helpers.mjs';
 
+const idempotencyKeyParameter = {
+  name: 'Idempotency-Key',
+  in: 'header',
+  required: true,
+  schema: {
+    type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9_\\-:.]+$',
+  },
+};
+
 // Money JSON type. Every payroll amount column is NUMERIC(p,s) (rupees, no
 // *_minor/*_paise integer-money columns exist in this cluster). A NUMERIC column
 // read back via Prisma select / SELECT * serializes to a JSON STRING.
@@ -127,12 +136,11 @@ export const schemas = {
   },
   PayrollRunResponse: envelope('PayrollRun'),
 
-  // ---- payslips array item inside run detail: SELECT p.* + 4 joins. SELECT *
-  // → leaks tenant_id + all payslips columns → LOOSE. Every amount column is
-  // Decimal-from-column → string; overtime_hours/overtime_rate/lop_days are
-  // NUMERIC quantity columns → also string. ----
+  // ---- payslips array item inside run detail: curated tenant-scoped SELECT.
+  // Every amount column is Decimal-from-column → string;
+  // overtime_hours/overtime_rate/lop_days are NUMERIC quantity columns too. ----
   PayslipListItem: {
-    type: 'object', additionalProperties: true,
+    type: 'object', additionalProperties: false,
     required: ['id', 'month', 'year', 'status'],
     properties: {
       id: { type: 'integer' },
@@ -163,14 +171,8 @@ export const schemas = {
       other_deductions: { type: MT, nullable: true },
       total_deductions: { type: MT, nullable: true },
       net_salary: { type: MT, nullable: true },
-      pdf_key: { type: 'string', nullable: true },
-      pdf_generated_at: { type: 'string', format: 'date-time', nullable: true },
       status: { type: 'string', nullable: true, enum: PAYSLIP_STATUS },
-      viewed_at: { type: 'string', format: 'date-time', nullable: true },
-      downloaded_at: { type: 'string', format: 'date-time', nullable: true },
       issued_at: { type: 'string', format: 'date-time', nullable: true },
-      created_at: { type: 'string', format: 'date-time' },
-      updated_at: { type: 'string', format: 'date-time', nullable: true },
       lop_days: { type: MT, nullable: true },
       lop_deduction: { type: MT, nullable: true },
       arrears_amount: { type: MT, nullable: true },
@@ -180,7 +182,6 @@ export const schemas = {
       edit_reason: { type: 'string', nullable: true },
       edited_by: { type: 'string', format: 'uuid', nullable: true },
       edited_at: { type: 'string', format: 'date-time', nullable: true },
-      tenant_id: { type: 'string', format: 'uuid' },
       staff_name: { type: 'string', nullable: true },
       email: { type: 'string', nullable: true },
       department: { type: 'string', nullable: true },
@@ -189,11 +190,10 @@ export const schemas = {
   },
 
   // ---- getPayrollRunDetail GET /payroll/runs/{runId}: { run: curated header,
-  // payslips: [PayslipListItem] }. LIST != detail — nests a single run header +
-  // payslip array. run is a curated explicit-column SELECT (no tenant_id), but
-  // payslips leak via p.* → keep the wrapper LOOSE. ----
+  // payslips: [PayslipListItem] }. Both queries use curated explicit columns
+  // and mandatory tenant predicates. ----
   PayrollRunDetailHeader: {
-    type: 'object', additionalProperties: true,
+    type: 'object', additionalProperties: false,
     required: ['id', 'month', 'year', 'status'],
     properties: {
       id: { type: 'integer' },
@@ -216,7 +216,7 @@ export const schemas = {
     },
   },
   PayrollRunDetail: {
-    type: 'object', additionalProperties: true,
+    type: 'object', additionalProperties: false,
     required: ['run', 'payslips'],
     properties: {
       run: { $ref: '#/components/schemas/PayrollRunDetailHeader' },
@@ -293,7 +293,15 @@ export const schemas = {
   RunPayrollRequest: {
     type: 'object', additionalProperties: true,
     description: 'Reverse-engineered from payrollController.runPayroll; not validator-backed.',
-    properties: { month: { type: 'integer' }, year: { type: 'integer' } },
+    properties: {
+      month: { type: 'integer' },
+      year: { type: 'integer' },
+      rerun: {
+        type: 'boolean',
+        default: false,
+        description: 'Explicitly supersede and regenerate an unsigned completed run. Use a new Idempotency-Key.',
+      },
+    },
   },
   IssuePayslipsRequest: {
     type: 'object', additionalProperties: true,
@@ -1416,6 +1424,18 @@ export const schemas = {
     },
   },
   MyPayslipDetailResponse: envelope('MyPayslipDetail'),
+  PayslipPassword: {
+    type: 'object', additionalProperties: false,
+    required: ['password'],
+    properties: {
+      password: {
+        type: 'string',
+        minLength: 1,
+        description: 'Owner-only credential for the current issued payslip document.',
+      },
+    },
+  },
+  PayslipPasswordResponse: envelope('PayslipPassword'),
 
   // ---- getMyAdvances GET /payroll/advances item: SELECT sa.* + approved_by_name
   // + computed balance_remaining. SELECT * → leaks tenant_id → LOOSE. TRAP:
@@ -1679,7 +1699,11 @@ export const operations = {
   // ---- payroll-runs ----
   'GET /api/v1/staff/admin/payroll/runs': { response: 'PayrollRunsResponse' },
   'GET /api/v1/staff/admin/payroll/runs/{runId}': { response: 'PayrollRunDetailResponse' },
-  'POST /api/v1/staff/admin/payroll/run': { request: 'RunPayrollRequest', response: 'PayrollRunResultResponse' },
+  'POST /api/v1/staff/admin/payroll/run': {
+    parameters: [idempotencyKeyParameter],
+    request: 'RunPayrollRequest',
+    response: 'PayrollRunResultResponse',
+  },
   'POST /api/v1/staff/admin/payroll/issue': { request: 'IssuePayslipsRequest', response: 'IssuePayslipsResponse' },
   'POST /api/v1/staff/admin/payroll/payslips/{id}/edit': { request: 'EditPayslipRequest', response: 'PayslipDetailResponse' },
   'POST /api/v1/staff/admin/payroll/runs/{runId}/hr-sign': { request: 'SignPayrollRunRequest', response: 'PayrollRunResponse' },
@@ -1732,6 +1756,16 @@ export const operations = {
   // ---- hr-self-service (/api/v1/staff/hr/payroll/*) ----
   'GET /api/v1/staff/hr/payroll/my-payslips': { response: 'MyPayslipListResponse' },
   'GET /api/v1/staff/hr/payroll/my-payslips/{id}': { response: 'MyPayslipDetailResponse' },
+  'POST /api/v1/staff/hr/payroll/my-payslips/{id}/password': {
+    summary: 'Reveal my current issued payslip password',
+    description: 'Returns the authenticated staff owner credential for the current issued document. The response must not be cached.',
+    response: 'PayslipPasswordResponse',
+  },
+  'POST /api/v1/staff/hr/payslips/{id}/password': {
+    summary: 'Reveal my current issued payslip password',
+    description: 'Returns the authenticated staff owner credential for the current issued document. The response must not be cached.',
+    response: 'PayslipPasswordResponse',
+  },
   'GET /api/v1/staff/hr/payroll/advances': { response: 'OwnAdvancesResponse' },
   'GET /api/v1/staff/hr/payroll/declarations': { response: 'MyDeclarationsResponse' },
   'GET /api/v1/staff/hr/payroll/queries': { response: 'MyPayslipQueriesResponse' },
