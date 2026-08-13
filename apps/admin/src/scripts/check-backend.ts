@@ -84,7 +84,7 @@ async function call(
   const headers: HeadersMap = {
     "Content-Type": "application/json",
     // many routes require these:
-    Origin: "http://localhost:3000",
+    Origin: "http://localhost:3001",
   };
   if (API_KEY) headers["x-api-key"] = API_KEY;
   if (token) headers["Authorization"] = `Bearer ${token}`;

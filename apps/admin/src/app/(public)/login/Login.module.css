@@ -322,18 +322,6 @@
   align-items: center;
 }
 
-.forgotLink {
-  font-size: 14px;
-  color: #007A64; /* VHHealth brand primary */
-  text-decoration: none;
-  font-weight: 500;
-  transition: color 0.2s;
-}
-
-.forgotLink:hover {
-  color: #005a4a; /* darker shade of brand primary */
-}
-
 .submitButton {
   width: 100%;
   padding: 14px 24px;

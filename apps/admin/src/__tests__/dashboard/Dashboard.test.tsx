@@ -57,7 +57,7 @@ const dashboardData = {
     appointmentsToday: 18,
   },
   activity: [],
-  health: null,
+  health: { status: "unknown" as const },
   charts: { labels: [], users: [], appts: [] },
   lastUpdated: new Date("2026-07-02T08:00:00.000Z"),
   secondsAgo: 0,

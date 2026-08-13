@@ -26,7 +26,7 @@ const nextConfig: NextConfig = {
   },
 
   async headers() {
-    const allowedOrigin = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
+    const allowedOrigin = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3001';
     // Audit finding M9: the Content-Security-Policy is now emitted by
     // src/middleware.ts with a per-request nonce + 'strict-dynamic' and NO
     // 'unsafe-inline'. Keeping a second static CSP here would make browsers

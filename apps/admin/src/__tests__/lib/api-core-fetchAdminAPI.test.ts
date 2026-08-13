@@ -1,11 +1,16 @@
 import { fetchAdminAPI, APIError } from "@/lib/api/core";
 import { apiFetch } from "@/lib/api-fetch";
+import { navigateToLogin } from "@/lib/browserNavigation";
 
 jest.mock("@/lib/api-fetch", () => ({
   apiFetch: jest.fn(),
 }));
+jest.mock("@/lib/browserNavigation", () => ({
+  navigateToLogin: jest.fn(),
+}));
 
 const mockedApiFetch = apiFetch as jest.MockedFunction<typeof apiFetch>;
+const mockedNavigateToLogin = navigateToLogin as jest.MockedFunction<typeof navigateToLogin>;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -189,5 +194,106 @@ describe("fetchAdminAPI response/error behavior", () => {
       );
       expect((err as APIError).status).toBe(502);
     }
+  });
+});
+
+describe("fetchAdminAPI shared refresh and mutation replay", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    localStorage.setItem("adminUser", JSON.stringify({ role: "ADMIN" }));
+    window.history.replaceState({}, "", "/dashboard");
+  });
+
+  it("uses the same single-flight refresh for concurrent 401s", async () => {
+    const calls: Record<string, number> = {};
+    mockedApiFetch.mockImplementation(async (endpoint) => {
+      const key = String(endpoint);
+      calls[key] = (calls[key] ?? 0) + 1;
+      return calls[key] === 1
+        ? jsonResponse({ message: "Unauthorized" }, 401)
+        : jsonResponse({ data: { endpoint: key } });
+    });
+    const refreshFetch = jest.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ ok: true } as Response), 10)),
+    );
+
+    const [first, second] = await Promise.all([
+      fetchAdminAPI<{ endpoint: string }>("/admin/a"),
+      fetchAdminAPI<{ endpoint: string }>("/admin/b"),
+    ]);
+
+    expect(first.endpoint).toBe("/api/v1/admin/a");
+    expect(second.endpoint).toBe("/api/v1/admin/b");
+    expect(refreshFetch).toHaveBeenCalledTimes(1);
+    expect(mockedApiFetch).toHaveBeenCalledTimes(4);
+    refreshFetch.mockRestore();
+  });
+
+  it("retries GET once with the original request", async () => {
+    mockedApiFetch
+      .mockResolvedValueOnce(jsonResponse({ message: "Unauthorized" }, 401))
+      .mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+    const refreshFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+
+    await expect(fetchAdminAPI("/users", { headers: { "X-Test": "same" } })).resolves.toEqual({ ok: true });
+
+    expect(mockedApiFetch).toHaveBeenCalledTimes(2);
+    const first = mockedApiFetch.mock.calls[0][1] as RequestInit;
+    const second = mockedApiFetch.mock.calls[1][1] as RequestInit;
+    expect(new Headers(first.headers).get("X-Test")).toBe("same");
+    expect(new Headers(second.headers).get("X-Test")).toBe("same");
+    refreshFetch.mockRestore();
+  });
+
+  it.each(["POST", "PUT", "PATCH", "DELETE"])(
+    "does not replay an unsafe %s mutation without an Idempotency-Key",
+    async (method) => {
+      mockedApiFetch.mockResolvedValueOnce(
+        jsonResponse({ message: "Unauthorized" }, 401),
+      );
+      const refreshFetch = jest
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue({ ok: true } as Response);
+
+      await expect(
+        fetchAdminAPI("/users", { method, body: { name: "once" } }),
+      ).rejects.toThrow(/not replayed.*Idempotency-Key/i);
+
+      expect(mockedApiFetch).toHaveBeenCalledTimes(1);
+      expect(refreshFetch).toHaveBeenCalledTimes(1);
+      refreshFetch.mockRestore();
+    },
+  );
+
+  it("replays an idempotency-protected mutation once and preserves its body", async () => {
+    mockedApiFetch
+      .mockResolvedValueOnce(jsonResponse({ message: "Unauthorized" }, 401))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 8 } }));
+    const refreshFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+
+    await expect(
+      fetchAdminAPI("/users", {
+        method: "POST",
+        body: { name: "once" },
+        headers: { "Idempotency-Key": "request-8" },
+      }),
+    ).resolves.toEqual({ id: 8 });
+
+    expect(mockedApiFetch).toHaveBeenCalledTimes(2);
+    for (const call of mockedApiFetch.mock.calls) {
+      expect((call[1] as RequestInit).body).toBe('{"name":"once"}');
+      expect(new Headers((call[1] as RequestInit).headers).get("Idempotency-Key")).toBe("request-8");
+    }
+    refreshFetch.mockRestore();
+  });
+
+  it("clears the profile and redirects to login when refresh fails", async () => {
+    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ message: "Unauthorized" }, 401));
+    const refreshFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue({ ok: false } as Response);
+    await expect(fetchAdminAPI("/users")).rejects.toThrow(APIError);
+
+    expect(localStorage.getItem("adminUser")).toBeNull();
+    expect(mockedNavigateToLogin).toHaveBeenCalledWith("/login?reason=session_expired");
+    refreshFetch.mockRestore();
   });
 });

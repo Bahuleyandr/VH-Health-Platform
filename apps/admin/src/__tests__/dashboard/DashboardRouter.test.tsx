@@ -99,4 +99,13 @@ describe("DashboardRouter", () => {
     expect(screen.getByText("Upload Documents")).toBeInTheDocument();
     expect(screen.queryByText("Leave Approvals")).not.toBeInTheDocument();
   });
+
+  it("does not grant an admin dashboard when the role is unknown", () => {
+    mockPermissions({ rawRole: null, role: null });
+
+    render(<DashboardRouter />);
+
+    expect(screen.getByRole("heading", { name: "Dashboard access unavailable" })).toBeInTheDocument();
+    expect(screen.queryByText("Admin command center")).not.toBeInTheDocument();
+  });
 });

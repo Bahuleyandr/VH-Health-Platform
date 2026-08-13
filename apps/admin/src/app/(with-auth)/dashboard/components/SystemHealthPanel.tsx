@@ -14,8 +14,23 @@ import type { SystemHealth, InfraHealthData, HealthStatus } from '../hooks/useDa
 // ── Helpers ────────────────────────────────────────────────────────────
 
 function statusDotColor(s: HealthStatus) {
-  return s === 'healthy' ? '#22c55e' : s === 'warning' ? '#eab308' : '#ef4444';
+  return s === 'healthy'
+    ? '#22c55e'
+    : s === 'warning' || s === 'stale'
+      ? '#eab308'
+      : s === 'critical'
+        ? '#ef4444'
+        : '#6b7280';
 }
+
+const STATUS_PRESENTATION: Record<HealthStatus, { icon: string; label: string; classes: string }> = {
+  healthy: { icon: '✅', label: 'Healthy', classes: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  warning: { icon: '⚠️', label: 'Warning', classes: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  critical: { icon: '⛔', label: 'Critical', classes: 'bg-destructive/10 text-destructive dark:bg-destructive/40 dark:text-destructive/70' },
+  stale: { icon: '⌛', label: 'Stale', classes: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' },
+  unavailable: { icon: '❓', label: 'Unavailable', classes: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' },
+  unknown: { icon: '❓', label: 'Unknown', classes: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' },
+};
 
 function healthBarColor(value: number, thresholds: [number, number]) {
   return value <= thresholds[0] ? '#22c55e' : value <= thresholds[1] ? '#eab308' : '#ef4444';
@@ -72,25 +87,27 @@ interface SystemHealthProps {
 }
 
 export function SystemHealthSection({ health, lastUpdated }: SystemHealthProps) {
+  const status = health?.status ?? 'unknown';
+  const presentation = STATUS_PRESENTATION[status];
+  const observedAt = health?.observedAt ? new Date(health.observedAt) : null;
+  const observedTime = observedAt && !Number.isNaN(observedAt.getTime())
+    ? observedAt.toLocaleTimeString()
+    : null;
   return (
     <section className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">System Health</h2>
         <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-            health?.status === 'healthy'
-              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-              : health?.status === 'warning'
-              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-              : 'bg-destructive/10 text-destructive dark:bg-destructive/40 dark:text-destructive/70'
-          }`}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${presentation.classes}`}
         >
-          <span className="text-base" aria-hidden>
-            {health?.status === 'healthy' ? '✅' : health?.status === 'warning' ? '⚠️' : '⛔'}
-          </span>
-          {health?.status ?? 'healthy'}
+          <span className="text-base" aria-hidden>{presentation.icon}</span>
+          {presentation.label}
         </span>
       </div>
+
+      {health?.detail && (
+        <p className="mb-4 text-sm text-muted-foreground" role="status">{health.detail}</p>
+      )}
 
       {/* Gauge bars — only render real metrics. No fake fallbacks. */}
       {health?.uptime != null || health?.responseTime != null || health?.errorRate != null ? (
@@ -153,7 +170,10 @@ export function SystemHealthSection({ health, lastUpdated }: SystemHealthProps) 
       )}
 
       <div className="mt-3 text-xs text-muted-foreground">
-        Last refresh: {lastUpdated.toLocaleTimeString()} · Auto-refresh every 30s
+        {observedTime
+          ? `Health observed: ${observedTime}`
+          : `Dashboard refreshed: ${lastUpdated.toLocaleTimeString()}`}{' '}
+        · Auto-refresh every 30s
       </div>
     </section>
   );
@@ -206,7 +226,9 @@ export function InfrastructureMonitor({ infraHealth }: InfraProps) {
           <InfraCard
             label="Notification Backlog"
             status={
-              (infraHealth.checks.notification_backlog.pending ?? 0) > 10
+              infraHealth.checks.notification_backlog.pending == null
+                ? undefined
+                : infraHealth.checks.notification_backlog.pending > 10
                 ? 'warning'
                 : 'healthy'
             }
@@ -217,7 +239,11 @@ export function InfrastructureMonitor({ infraHealth }: InfraProps) {
           <InfraCard
             label="Stuck Orders"
             status={
-              ((infraHealth.checks.stuck_orders.appointments ?? 0) +
+              infraHealth.checks.stuck_orders.appointments == null &&
+              infraHealth.checks.stuck_orders.pharmacy == null &&
+              infraHealth.checks.stuck_orders.investigations == null
+                ? undefined
+                : ((infraHealth.checks.stuck_orders.appointments ?? 0) +
                 (infraHealth.checks.stuck_orders.pharmacy ?? 0) +
                 (infraHealth.checks.stuck_orders.investigations ?? 0)) > 0
                 ? 'warning'
@@ -229,7 +255,7 @@ export function InfrastructureMonitor({ infraHealth }: InfraProps) {
         {infraHealth.checks.server && (
           <InfraCard
             label="Server"
-            status="healthy"
+            status={infraHealth.checks.server.status}
             detail={`${infraHealth.checks.server.uptime_hours}h uptime · ${infraHealth.checks.server.memory_mb}MB`}
           />
         )}

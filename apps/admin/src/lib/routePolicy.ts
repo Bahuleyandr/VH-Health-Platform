@@ -25,84 +25,15 @@
 // sub-routes wrapped with ADMIN], /api/v1/records [RECORD_ROUTE_ROLES +
 // patientAccessGuard]). Keep both in sync.
 
-export const ROLE_RANK: Record<string, number> = {
-  // Rank 0 — operational staff (portal self-service + clinical boards)
-  STAFF: 0,
-  GENERAL_STAFF: 0,
-  NURSING_STAFF: 0,
-  NURSING_INCHARGE: 0,
-  OP_STAFF_NURSE: 0,
-  OP_INCHARGE: 0,
-  IP_STAFF_NURSE: 0,
-  IP_INCHARGE: 0,
-  ICU_NURSE: 0,
-  ICU_INCHARGE: 0,
-  ICU_STAFF: 0,
-  ER_STAFF: 0,
-  OT_NURSE: 0,
-  OT_INCHARGE: 0,
-  OT_STAFF: 0,
-  CATH_LAB_STAFF: 0,
-  CATH_LAB_INCHARGE: 0,
-  PHARMACY_STAFF: 0,
-  PHARMACY_INCHARGE: 0,
-  PHARMACIST: 0,
-  STORES_PURCHASE_INCHARGE: 0,
-  LAB_STAFF: 0,
-  LAB_INCHARGE: 0,
-  LAB_TECHNICIAN: 0,
-  TECHNICIAN: 0,
-  PATHOLOGIST: 0,
-  RADIOLOGIST: 0,
-  RADIOLOGY_STAFF: 0,
-  BLOOD_BANK_STAFF: 0,
-  BLOOD_BANK_TECHNICIAN: 0,
-  DIALYSIS_TECHNICIAN: 0,
-  DIETITIAN: 0,
-  DIETARY_STAFF: 0,
-  HOUSEKEEPING_STAFF: 0,
-  HOUSEKEEPING_INCHARGE: 0,
-  RECEPTIONIST: 0,
-  RECEPTION_INCHARGE: 0,
-  ADMISSION_OFFICER: 0,
-  IPD_COUNSELLOR: 0,
-  BILLING_STAFF: 0,
-  BILLING_INCHARGE: 0,
-  FINANCE_INCHARGE: 0,
-  INSURANCE_COORDINATOR: 0,
-  CLAIMS_MANAGER: 0,
-  MEDICAL_RECORDS: 0,
-  DELIVERY_STAFF: 0,
-  DRIVER: 0,
-  SECURITY: 0,
-  MAINTENANCE: 0,
-  EMERGENCY_RESPONDER: 0,
-  NURSE: 0,
-  QUALITY_OFFICER: 0,
-  INFECTION_CONTROL_OFFICER: 0,
-  COMPLIANCE_OFFICER: 0,
-  // Rank 1 — doctors + clinical leadership
-  DOCTOR: 1,
-  ANAESTHETIST: 1,
-  ANESTHETIST: 1,
-  DUTY_DOCTOR: 1,
-  CONSULTANT: 1,
-  SENIOR_DOCTOR: 1,
-  JUNIOR_DOCTOR: 1,
-  RESIDENT: 1,
-  MEDICAL_SUPERINTENDENT: 1,
-  CMO: 1,
-  CNO: 1,
-  // Rank 2 — HR
-  HR: 2,
-  HR_STAFF: 2,
-  // Rank 3/4 — platform administration
-  ADMIN: 3,
-  SUPER_ADMIN: 4,
-};
+import {
+  normalizePortalRole,
+  PORTAL_ROLE_RANK,
+} from "./roles";
+
+export const ROLE_RANK: Readonly<Record<string, number>> = PORTAL_ROLE_RANK;
 
 // Named rank levels (use these, not bare numbers, in the policy map).
-export const ANY_AUTHENTICATED = -1; // any valid token, even unknown role
+export const ANY_AUTHENTICATED = -1; // any valid, recognized human portal role
 export const STAFF = 0;
 export const CLINICAL_LEAD = 1;
 export const HR_PLUS = 2;
@@ -282,13 +213,14 @@ export function roleSatisfiesPolicy(
   role: string | null,
   policy: RoutePolicy,
 ): boolean {
-  const normalized = (role ?? "").trim().toUpperCase();
+  const normalized = normalizePortalRole(role);
+  if (!normalized) return false;
   if (normalized === "SUPER_ADMIN") return true;
 
   if (policy.roles) return policy.roles.includes(normalized);
 
   const minRank = policy.minRank ?? ADMIN_ONLY; // missing rank ⇒ strictest sane default
   if (minRank === ANY_AUTHENTICATED) return true;
-  const rank = normalized in ROLE_RANK ? ROLE_RANK[normalized] : -1;
+  const rank = ROLE_RANK[normalized] ?? -1;
   return rank >= minRank;
 }

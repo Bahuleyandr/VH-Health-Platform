@@ -11,12 +11,12 @@ import React, {
 } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { APIError } from "@/lib/api";
 import {
   adminLogin,
   staffLogin,
   adminLogout,
   getAdminProfile,
-  isAuthenticated,
   getAdminUser,
   clearAuthData,
   verifyAdminMfa,
@@ -91,31 +91,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       setError(null);
 
-      if (!isAuthenticated()) {
-        setUser(null);
-        return;
-      }
-
-      // Use cached user first for instant UI
+      // The profile cache is an optional rendering optimisation, never proof
+      // of authentication. Always probe the cookie-backed profile endpoint so
+      // a valid httpOnly session can recover after storage is cleared.
       const cached = getAdminUser();
       if (cached) setUser(cached);
 
-      // Then refresh from API (will redirect on 401 via api layer)
+      // Refresh from the API without global 401 navigation; this provider owns
+      // the signed-out state for the initial session probe.
       try {
         const fresh = await getAdminProfile();
         if (fresh) {
           setUser(fresh);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("adminUser", JSON.stringify(fresh));
-          }
         }
-      } catch {
+      } catch (profileError) {
         // If profile fails and no cached user, treat as unauthenticated
-        if (!cached) {
+        if (
+          !cached ||
+          (profileError instanceof APIError &&
+            (profileError.status === 401 || profileError.status === 403))
+        ) {
           clearAuthData();
           setUser(null);
         }
-        // keep going; api layer may already have redirected on 401
       }
     } catch (e) {
       console.error("Auth check failed:", e);

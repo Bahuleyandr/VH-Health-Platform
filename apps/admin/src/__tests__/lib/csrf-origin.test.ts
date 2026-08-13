@@ -121,7 +121,7 @@ describe("resolveAllowedOrigins", () => {
     delete process.env.NEXT_PUBLIC_ALLOWED_ORIGIN;
     // NODE_ENV is "test" under jest — not production — so the dev default applies.
     try {
-      expect(resolveAllowedOrigins()).toEqual(["http://localhost:3000"]);
+      expect(resolveAllowedOrigins()).toEqual(["http://localhost:3001"]);
     } finally {
       process.env.NEXT_PUBLIC_ALLOWED_ORIGIN = prevOrigin;
       (process.env as { NODE_ENV?: string }).NODE_ENV = prevEnv;

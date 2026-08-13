@@ -7,7 +7,7 @@
 import { API_ENDPOINTS } from "./api-config";
 import {
   getJSON,
-  postJSON,
+  fetchAdminAPI,
   APIError,
 } from "./api";
 import { StoredAdminUserSchema } from "./schemas";
@@ -19,6 +19,7 @@ import type { AdminUser } from "./types";
 
 const USER_KEY = "adminUser";
 const CACHE_MAX_AGE_MS = 4 * 60 * 60 * 1000; // 4 hours — matches JWT expiry
+export const IDLE_SIGN_OUT_WARNING_KEY = "vh:idle-sign-out-warning";
 
 interface CachedUser extends AdminUser {
   _cachedAt?: number;
@@ -31,9 +32,9 @@ interface CachedUser extends AdminUser {
  */
 export function getAdminUser(): AdminUser | null {
   if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(USER_KEY);
-  if (!raw) return null;
   try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     const result = StoredAdminUserSchema.safeParse(parsed);
     if (!result.success) {
@@ -56,6 +57,11 @@ export function getAdminUser(): AdminUser | null {
 
     return result.data as AdminUser;
   } catch {
+    try {
+      localStorage.removeItem(USER_KEY);
+    } catch {
+      /* storage may be unavailable */
+    }
     return null;
   }
 }
@@ -70,14 +76,35 @@ export function isAuthenticated(): boolean {
 
 export function clearAuthData() {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(USER_KEY);
+  try {
+    localStorage.removeItem(USER_KEY);
+  } catch {
+    /* storage may be unavailable */
+  }
 }
 
-/** Save admin user with cache timestamp */
-function cacheAdminUser(admin: AdminUser) {
-  if (typeof window === "undefined") return;
+function parseAdminUser(candidate: unknown): AdminUser {
+  const parsed = StoredAdminUserSchema.safeParse(candidate);
+  if (!parsed.success) {
+    clearAuthData();
+    throw new APIError("Admin profile has an unsupported or invalid role", 403, {
+      issues: parsed.error.issues,
+    });
+  }
+  return parsed.data as AdminUser;
+}
+
+/** Validate and save an admin user with a cache timestamp. */
+function cacheAdminUser(candidate: unknown): AdminUser {
+  const admin = parseAdminUser(candidate);
+  if (typeof window === "undefined") return admin;
   const cached: CachedUser = { ...admin, _cachedAt: Date.now() };
-  localStorage.setItem(USER_KEY, JSON.stringify(cached));
+  try {
+    localStorage.setItem(USER_KEY, JSON.stringify(cached));
+  } catch {
+    /* a valid cookie session must not fail because storage is unavailable */
+  }
+  return admin;
 }
 
 /* =========================
@@ -124,11 +151,8 @@ export async function staffLogin(
   const raw = (await res.json()) as { data?: LoginResponse } & LoginResponse;
   const payload: LoginResponse = raw.data ?? raw;
 
-  const staffUser = payload.staff ?? (payload.admin as AdminUser | undefined);
-
-  // Cache user profile (non-sensitive) with timestamp for UI
-  if (staffUser) cacheAdminUser(staffUser);
-
+  const staffCandidate = payload.staff ?? payload.admin;
+  const staffUser = staffCandidate ? cacheAdminUser(staffCandidate) : undefined;
   return { user: staffUser, success: true };
 }
 
@@ -206,9 +230,7 @@ export async function adminLogin(
   // Cookie-only contract: /api/login sets the httpOnly auth_token cookie and
   // strips the token from the body. A 200 here IS success — gate on the
   // (non-sensitive) admin profile, never on a body token.
-  const admin = payload?.admin as AdminUser | undefined;
-
-  if (admin) cacheAdminUser(admin);
+  const admin = payload?.admin ? cacheAdminUser(payload.admin) : undefined;
 
   return {
     success: true,
@@ -271,8 +293,7 @@ export async function adminMfaSetupConfirm(params: {
   // Cookie-only: setup-confirm sets the httpOnly cookie and strips the body
   // token. Success = 200 + the admin profile.
   const payload = (json?.data ?? json) as Record<string, unknown>;
-  const admin = payload?.admin as AdminUser | undefined;
-  if (admin) cacheAdminUser(admin);
+  const admin = payload?.admin ? cacheAdminUser(payload.admin) : undefined;
   return { success: true, admin };
 }
 
@@ -299,8 +320,7 @@ export async function verifyAdminMfa(params: {
   // Cookie-only: the /api/login/mfa route sets the httpOnly cookie and strips
   // the body token. Success = 200 + the admin profile.
   const payload = (json?.data ?? json) as Record<string, unknown>;
-  const admin = payload?.admin as AdminUser | undefined;
-  if (admin) cacheAdminUser(admin);
+  const admin = payload?.admin ? cacheAdminUser(payload.admin) : undefined;
   return { success: true, admin };
 }
 
@@ -311,12 +331,16 @@ export async function getAdminProfile(): Promise<AdminUser> {
   // this endpoint returns the wrapper as-is. Unwrap here so the cache and
   // every downstream consumer (AuthContext.user, usePermissions) sees a flat
   // AdminUser with a top-level `role`.
-  const data = await getJSON<{ admin?: AdminUser } | AdminUser>(API_ENDPOINTS.auth.admin.profile);
-  const admin: AdminUser = (data && typeof data === 'object' && 'admin' in data && data.admin)
+  const data = await getJSON<{ admin?: AdminUser } | AdminUser>(
+    API_ENDPOINTS.auth.admin.profile,
+    undefined,
+    true,
+    false,
+  );
+  const candidate: unknown = (data && typeof data === 'object' && 'admin' in data && data.admin)
     ? data.admin
-    : (data as AdminUser);
-  if (admin) cacheAdminUser(admin);
-  return admin;
+    : data;
+  return cacheAdminUser(candidate);
 }
 
 /**
@@ -333,11 +357,21 @@ export interface AdminLogoutResult {
   serverSignOutError?: string;
 }
 
+function createLogoutIdempotencyKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return `admin-logout:${globalThis.crypto.randomUUID()}`;
+  }
+  return `admin-logout:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
 export async function adminLogout(): Promise<AdminLogoutResult> {
   let serverSignOutOk = true;
   let serverSignOutError: string | undefined;
   try {
-    await postJSON(API_ENDPOINTS.auth.admin.logout);
+    await fetchAdminAPI(API_ENDPOINTS.auth.admin.logout, {
+      method: "POST",
+      headers: { "Idempotency-Key": createLogoutIdempotencyKey() },
+    });
   } catch (err) {
     // Do NOT swallow this into an unconditional "signed out" — the backend
     // fails logout closed when its durable revocation store is unavailable,

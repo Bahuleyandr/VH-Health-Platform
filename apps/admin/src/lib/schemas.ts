@@ -1,5 +1,6 @@
 // src/lib/schemas.ts
 import { z } from "zod";
+import { PORTAL_ROLE_VALUES } from "./roles";
 
 /* =========================
  * User / Admin Schemas
@@ -15,40 +16,7 @@ export const UserSchema = z.object({
   date_of_birth: z.string().optional(),
 });
 
-export const AdminRoleEnum = z.enum([
-  "SUPER_ADMIN",
-  "ADMIN",
-  "HR",
-  "HR_STAFF",
-  "STAFF",
-  "DOCTOR",
-  "ANAESTHETIST",
-  "DUTY_DOCTOR",
-  "MEDICAL_SUPERINTENDENT",
-  "CNO",
-  "NURSING_STAFF",
-  "NURSING_INCHARGE",
-  "OP_STAFF_NURSE",
-  "OP_INCHARGE",
-  "PHARMACY_STAFF",
-  "PHARMACY_INCHARGE",
-  "STORES_PURCHASE_INCHARGE",
-  "LAB_STAFF",
-  "RADIOLOGY_STAFF",
-  "GENERAL_STAFF",
-  "HOUSEKEEPING_STAFF",
-  "HOUSEKEEPING_INCHARGE",
-  "RECEPTIONIST",
-  "RECEPTION_INCHARGE",
-  "DRIVER",
-  "SECURITY",
-  "MAINTENANCE",
-  "EMERGENCY_RESPONDER",
-  "IT",
-  "IT_ADMIN",
-  "IT_STAFF",
-  "SYSTEM_ADMIN",
-]);
+export const AdminRoleEnum = z.enum(PORTAL_ROLE_VALUES);
 
 export const AdminUserSchema = UserSchema.extend({
   username: z.string().optional(),
@@ -74,51 +42,14 @@ export const StoredAdminUserSchema = z
   .object({
     id: z.union([z.string(), z.number()]).optional(),
     uid: z.string().optional(),
-    role: z.enum([
-      "SUPER_ADMIN",
-      "ADMIN",
-      "HR",
-      "HR_STAFF",
-      "STAFF",
-      "DOCTOR",
-      "ANAESTHETIST",
-      "DUTY_DOCTOR",
-      "MEDICAL_SUPERINTENDENT",
-      "CNO",
-      "NURSING_STAFF",
-      "NURSING_INCHARGE",
-      "OP_STAFF_NURSE",
-      "OP_INCHARGE",
-      "PHARMACY_STAFF",
-      "PHARMACY_INCHARGE",
-      "STORES_PURCHASE_INCHARGE",
-      "LAB_STAFF",
-      "RADIOLOGY_STAFF",
-      "GENERAL_STAFF",
-      "HOUSEKEEPING_STAFF",
-      "HOUSEKEEPING_INCHARGE",
-      "RECEPTION_INCHARGE",
-      "DRIVER",
-      "SECURITY",
-      "MAINTENANCE",
-      "EMERGENCY_RESPONDER",
-      "IT",
-      "IT_ADMIN",
-      "IT_STAFF",
-      "SYSTEM_ADMIN",
-      "NURSE",
-      "PHARMACIST",
-      "TECHNICIAN",
-      "LAB_TECHNICIAN",
-      "RECEPTIONIST",
-      "PATIENT",
-    ]),
+    role: AdminRoleEnum,
     permissions: z.array(z.string()).optional().default([]),
     name: z.string().optional(),
     email: z.string().optional(),
     employee_id: z.string().optional(),
     department: z.string().optional(),
     position: z.string().optional(),
+    _cachedAt: z.number().finite().positive().optional(),
   })
   .passthrough();
 

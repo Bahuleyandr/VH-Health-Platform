@@ -39,6 +39,35 @@ function unwrapData<T>(payload: MaybeDataEnvelope<T> | null | undefined): T | un
   return payload as T;
 }
 
+function normalizeHealthStatus(status: unknown): HealthStatus {
+  const value = String(status ?? '').trim().toLowerCase();
+  if (value === 'healthy' || value === 'ok' || value === 'up') return 'healthy';
+  if (value === 'warning' || value === 'degraded') return 'warning';
+  if (['critical', 'unhealthy', 'down', 'error', 'failed'].includes(value)) return 'critical';
+  return 'unknown';
+}
+
+function observedHealth(
+  value: SystemHealth,
+  modules?: Array<{ name: string; status: HealthStatus }>,
+): SystemHealth {
+  return {
+    ...value,
+    status: normalizeHealthStatus(value.status),
+    ...(modules ? { modules } : {}),
+    observedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeModuleHealth(
+  modules: Array<{ name: string; status: unknown }> | undefined,
+): Array<{ name: string; status: HealthStatus }> | undefined {
+  return modules?.map((module) => ({
+    name: module.name,
+    status: normalizeHealthStatus(module.status),
+  }));
+}
+
 export function useDashboardData() {
   // ---- Local state ----
   const initialQueue: AppointmentQueue = { waiting: 0, inProgress: 0, completed: 0 };
@@ -47,7 +76,7 @@ export function useDashboardData() {
   const [quick, setQuick] = useState<Quick>({});
   const [prevQuick, setPrevQuick] = useState<Quick>({});
   const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [health, setHealth] = useState<SystemHealth>({ status: 'unknown' });
   const [charts, setCharts] = useState<ChartsState>({ labels: [], users: [], appts: [] });
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [secondsAgo, setSecondsAgo] = useState(0);
@@ -61,6 +90,7 @@ export function useDashboardData() {
   const headersRef = useRef(headers);
   const quickRef = useRef<Quick>({});
   const queueRef = useRef<AppointmentQueue>(initialQueue);
+  const healthRef = useRef<SystemHealth>({ status: 'unknown' });
   headersRef.current = headers;
 
   const get = useCallback(async function get<T>(path: string): Promise<T> {
@@ -91,22 +121,29 @@ export function useDashboardData() {
   const loadAll = useCallback(async function loadAll() {
     setLoading(true);
     try {
-      const dashboardPayload = await get<MaybeDataEnvelope<DashboardResponse>>(API_ENDPOINTS.admin.dashboard);
-      const quickStatsPayload = await get<MaybeDataEnvelope<Quick>>(API_ENDPOINTS.admin.stats.quick).catch(() => null);
-      const recentPayload = await get<{ data?: ActivityItem[]; items?: ActivityItem[] }>(
-        API_ENDPOINTS.admin.activity.recent + `?limit=${ACTIVITY_FEED_LIMIT}&offset=0`
-      ).catch(() => null);
-      const systemHealthPayload = await get<MaybeDataEnvelope<SystemHealth>>(API_ENDPOINTS.admin.health.system).catch(() => null);
-
-      // Appointment stats for queue
-      const appointmentStatsPayload = await get<MaybeDataEnvelope<{ waiting?: number; in_progress?: number; completed?: number; inProgress?: number }>>(
-        API_ENDPOINTS.admin.stats.appointments
-      ).catch(() => null);
-
-      // Module health
-      const moduleHealthPayload = await get<MaybeDataEnvelope<Array<{ name: string; status: HealthStatus }>>>(
-        API_ENDPOINTS.admin.health.modules
-      ).catch(() => null);
+      const [
+        dashboardPayload,
+        quickStatsPayload,
+        recentPayload,
+        systemHealthResult,
+        appointmentStatsPayload,
+        moduleHealthPayload,
+      ] = await Promise.all([
+        get<MaybeDataEnvelope<DashboardResponse>>(API_ENDPOINTS.admin.dashboard).catch(() => null),
+        get<MaybeDataEnvelope<Quick>>(API_ENDPOINTS.admin.stats.quick).catch(() => null),
+        get<{ data?: ActivityItem[]; items?: ActivityItem[] }>(
+          API_ENDPOINTS.admin.activity.recent + `?limit=${ACTIVITY_FEED_LIMIT}&offset=0`
+        ).catch(() => null),
+        get<MaybeDataEnvelope<SystemHealth>>(API_ENDPOINTS.admin.health.system)
+          .then((payload) => ({ ok: true as const, payload }))
+          .catch(() => ({ ok: false as const, payload: null })),
+        get<MaybeDataEnvelope<{ waiting?: number; in_progress?: number; completed?: number; inProgress?: number }>>(
+          API_ENDPOINTS.admin.stats.appointments
+        ).catch(() => null),
+        get<MaybeDataEnvelope<Array<{ name: string; status: unknown }>>>(
+          API_ENDPOINTS.admin.health.modules
+        ).catch(() => null),
+      ]);
 
       // Infrastructure health (deep system check)
       // Disabled for now: the separate system health endpoint uses different
@@ -118,9 +155,9 @@ export function useDashboardData() {
       const dash = unwrapData(dashboardPayload) ?? {};
       const quickStats = unwrapData(quickStatsPayload);
       const recent = recentPayload?.data ?? recentPayload?.items ?? dash.recentActivity ?? [];
-      const systemHealth = unwrapData(systemHealthPayload);
+      const systemHealth = unwrapData(systemHealthResult.payload);
       const appointmentStats = unwrapData(appointmentStatsPayload);
-      const moduleHealth = unwrapData(moduleHealthPayload);
+      const moduleHealth = normalizeModuleHealth(unwrapData(moduleHealthPayload));
       const overview = dash?.overview ?? {};
       const newQuick: Quick = {
         totalUsers: quickStats?.totalUsers ?? overview.totalUsers ?? 0,
@@ -163,13 +200,36 @@ export function useDashboardData() {
 
       // Use real health data from the backend; do NOT fall back to a fake
       // 99.99%/45ms/0.1% literal — that masked broken endpoints for ages.
-      // null health means the panel renders "—" / unknown.
-      const healthData = systemHealth ?? dash.systemHealth ?? null;
-      if (healthData && moduleHealth) {
-        healthData.modules = moduleHealth;
+      // Missing or failed observations remain explicit unknown/unavailable/stale states.
+      const healthData = systemHealth ?? dash.systemHealth;
+      let nextHealth: SystemHealth;
+      if (healthData) {
+        nextHealth = observedHealth(healthData, moduleHealth);
+      } else if (!systemHealthResult.ok) {
+        const previous = healthRef.current;
+        const lastKnownStatus = ['healthy', 'warning', 'critical'].includes(previous.status)
+          ? previous.status as 'healthy' | 'warning' | 'critical'
+          : previous.lastKnownStatus;
+        nextHealth = lastKnownStatus
+          ? {
+              ...previous,
+              status: 'stale',
+              lastKnownStatus,
+              detail: 'Health endpoint is unavailable; showing the last observation.',
+            }
+          : {
+              status: 'unavailable',
+              detail: 'Health endpoint is unavailable and no prior observation exists.',
+            };
+      } else {
+        nextHealth = {
+          status: 'unknown',
+          observedAt: new Date().toISOString(),
+          detail: 'Health endpoint returned no status.',
+        };
       }
-
-      setHealth(healthData);
+      healthRef.current = nextHealth;
+      setHealth(nextHealth);
       setLastUpdated(new Date());
       setSecondsAgo(0);
     } finally {

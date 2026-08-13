@@ -284,5 +284,14 @@ export default function DashboardRouter() {
   if (isHR) return <HRHome />;
   if (isStaff) return <StaffHome />;
 
-  return <AdminDashboard />;
+  return (
+    <div className="mx-auto max-w-xl rounded-lg border border-amber-500/40 bg-amber-500/10 p-6 text-center">
+      <AlertTriangle className="mx-auto text-amber-300" size={28} />
+      <h1 className="mt-3 text-lg font-semibold text-white">Dashboard access unavailable</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Your account role is not recognized by this portal. No administrative
+        dashboard has been granted. Contact an administrator to correct the role.
+      </p>
+    </div>
+  );
 }

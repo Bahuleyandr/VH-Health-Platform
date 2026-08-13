@@ -9,16 +9,22 @@ export function getNotificationTemplates<T = unknown>() {
 export function sendAnnouncement<T = unknown>(data: {
   title: string;
   message: string;
-  priority?: string;
+  priority?: "HIGH" | "MEDIUM" | "LOW";
+  target_roles?: string[];
+  target_departments?: string[];
+  scheduled_for?: string;
 }) {
   return postJSON<T>(API_ENDPOINTS.notifications.announcement, data);
 }
 
 export function sendTargetedNotification<T = unknown>(data: {
-  recipients: string[];
   title: string;
   message: string;
-  type?: string;
+  type?: "APPOINTMENT" | "MEDICATION" | "EMERGENCY" | "SYSTEM" | "REMINDER" | "ALERT" | "INFO" | "ANNOUNCEMENT";
+  priority?: "HIGH" | "MEDIUM" | "LOW";
+  user_ids?: number[];
+  criteria?: Record<string, unknown>;
+  scheduled_for?: string;
 }) {
   return postJSON<T>(API_ENDPOINTS.notifications.targeted, data);
 }
