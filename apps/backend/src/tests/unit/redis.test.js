@@ -142,6 +142,17 @@ describe('Redis initialization', () => {
     })).toThrow('three unique REDIS_SENTINEL_HOSTS');
   });
 
+  it('rejects default superuser identities in strict Sentinel mode', () => {
+    expect(() => resolveRedisConnection({
+      REDIS_REQUIRE_SENTINEL: 'true',
+      REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
+      REDIS_PASSWORD: 'data-password-for-test',
+      REDIS_SENTINEL_PASSWORD: 'sentinel-password-for-test',
+      REDIS_USERNAME: 'default',
+      REDIS_SENTINEL_USERNAME: 'default',
+    })).toThrow('named least-privilege');
+  });
+
   it('rejects ambiguous standalone and Sentinel configuration', () => {
     expect(() => resolveRedisConnection({
       REDIS_URL: 'redis://localhost:6379',

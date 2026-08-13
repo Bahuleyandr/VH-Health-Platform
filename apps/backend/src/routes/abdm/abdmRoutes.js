@@ -42,8 +42,8 @@ const ABDM_CALLBACK_ENVIRONMENT = process.env.ABDM_ENVIRONMENT === 'production'
  *
  * Replay protection is two-layered, mirroring HL7 /receive:
  *   - verifySignedRequest: sync HMAC + freshness + same-PROCESS replay (Map).
- *   - assertSharedReplayOnce: cross-REPLICA replay guard (Redis SET NX EX → DB
- *     interop_replay_guard, fail-closed). The per-process Map is defeated by the
+ *   - assertSharedReplayOnce: durable cross-REPLICA DB replay guard, followed
+ *     by a best-effort Redis marker. The per-process Map is defeated by the
  *     3-replica cluster / a restart, so a captured (still-fresh) signed callback
  *     replayed against a different replica would otherwise be accepted again.
  */

@@ -13,6 +13,7 @@ test('Redis source contract keeps quorum discovery and activation fail closed', 
   const redisConfig = read('infra/kubernetes/base/redis/config/redis-base.conf');
   const redisStart = read('infra/kubernetes/base/redis/config/start-redis.sh');
   const sentinelStart = read('infra/kubernetes/base/redis/config/start-sentinel.sh');
+  const discovery = read('infra/kubernetes/base/redis/config/sentinel-discovery.sh');
   const credentialSchema = read('infra/kubernetes/base/redis/redis-credentials.sealed-secret.yaml.example');
   const backendConfig = read('infra/kubernetes/apps/backend/configmap.yaml');
 
@@ -28,9 +29,28 @@ test('Redis source contract keeps quorum discovery and activation fail closed', 
   assert.match(sentinelStart, /wait_for_sentinel_consensus/);
   assert.match(sentinelStart, /sentinel sentinel-pass/);
   assert.match(credentialSchema, /redis-password: PLACEHOLDER/);
+  assert.match(credentialSchema, /redis-control-password: PLACEHOLDER/);
+  assert.match(credentialSchema, /redis-metrics-password: PLACEHOLDER/);
   assert.match(credentialSchema, /sentinel-password: PLACEHOLDER/);
+  assert.match(credentialSchema, /sentinel-control-password: PLACEHOLDER/);
+  assert.match(discovery, /printf 'user default off/);
+  assert.match(discovery, /user %s on'[\s\S]*REDIS_APP_USERNAME[\s\S]*&ws:\*[\s\S]*\+evalsha/);
+  assert.match(discovery, /user %s on'[\s\S]*REDIS_CONTROL_USERNAME[\s\S]*\+psync \+replconf/);
+  assert.match(discovery, /user %s on'[\s\S]*REDIS_SENTINEL_USERNAME[\s\S]*\+sentinel\|get-master-addr-by-name/);
+  const appAcl = discovery.match(/printf 'user %s on' "\$REDIS_APP_USERNAME"[\s\S]*?printf '([^']+)'/);
+  const sentinelClientAcl = discovery.match(/printf 'user %s on' "\$REDIS_SENTINEL_USERNAME"[\s\S]*?printf '([^']+)'/);
+  assert.ok(appAcl);
+  assert.ok(sentinelClientAcl);
+  assert.doesNotMatch(appAcl[1], /\+@all|\+config|\+replicaof|\+slaveof/);
+  assert.doesNotMatch(sentinelClientAcl[1], /\+@all|\+sentinel\|failover|\+sentinel\|set/);
+  assert.match(manifest, /--redis\.user=vhhealth-metrics/);
+  assert.doesNotMatch(manifest, /--redis\.password-file|name: redis-password/);
+  assert.match(manifest, /name: REDIS_PASSWORD\n\s+valueFrom:[\s\S]*?key: redis-metrics-password/);
   assert.doesNotMatch(manifest, /key: password$/m);
   assert.match(backendConfig, /REDIS_REQUIRE_SENTINEL: "true"/);
+  assert.match(backendConfig, /REDIS_USERNAME: "vhhealth-backend"/);
+  assert.match(backendConfig, /REDIS_SENTINEL_USERNAME: "vhhealth-discovery"/);
+  assert.doesNotMatch(backendConfig, /REDIS_(?:SENTINEL_)?USERNAME: "default"/);
   assert.equal((backendConfig.match(/redis-[012]\.redis-headless/g) || []).length, 3);
 });
 

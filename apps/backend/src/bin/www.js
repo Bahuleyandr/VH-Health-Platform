@@ -201,11 +201,18 @@ async function prepareApplication() {
   try {
     const redisClient = getRedisClient();
     if (redisClient) {
-      initWsFanout({ pub: redisClient });
+      const initialized = await initWsFanout({ pub: redisClient });
+      if (!initialized) {
+        throw new Error('Redis WebSocket subscriber did not initialize');
+      }
     } else {
       logger.warn('WS Redis fan-out not wired — Redis unavailable; broadcasts are single-process only');
     }
   } catch (err) {
+    if (redisIsRequired()) {
+      logger.error('Required WS Redis fan-out initialization failed — refusing to start:', err.message);
+      throw err;
+    }
     logger.warn('WS Redis fan-out init failed — single-process broadcasts only:', err.message);
   }
 

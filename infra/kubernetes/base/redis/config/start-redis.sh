@@ -6,6 +6,8 @@ REDIS_CONFIG_RUNTIME_DIR="${REDIS_CONFIG_RUNTIME_DIR:-/etc/redis}"
 . "$REDIS_CONFIG_SOURCE_DIR/sentinel-discovery.sh"
 
 require_secret REDIS_PASSWORD
+require_secret REDIS_CONTROL_PASSWORD
+require_secret REDIS_METRICS_PASSWORD
 require_secret REDIS_SENTINEL_PASSWORD
 
 pod_index="${HOSTNAME##*-}"
@@ -34,17 +36,21 @@ fi
 mkdir -p "$REDIS_CONFIG_RUNTIME_DIR"
 config_tmp="$REDIS_CONFIG_RUNTIME_DIR/redis.conf.$$"
 cp "$REDIS_CONFIG_SOURCE_DIR/redis-base.conf" "$config_tmp"
-write_default_user_acl \
+write_redis_acl \
   "$REDIS_CONFIG_RUNTIME_DIR/users.acl" \
   "$REDIS_PASSWORD" \
-  "${REDIS_PASSWORD_PREVIOUS:-}"
+  "${REDIS_PASSWORD_PREVIOUS:-}" \
+  "$REDIS_CONTROL_PASSWORD" \
+  "${REDIS_CONTROL_PASSWORD_PREVIOUS:-}" \
+  "$REDIS_METRICS_PASSWORD" \
+  "${REDIS_METRICS_PASSWORD_PREVIOUS:-}"
 {
   echo "bind 0.0.0.0"
   echo "port 6379"
   echo "dir $REDIS_DATA_DIR"
   echo "aclfile $REDIS_CONFIG_RUNTIME_DIR/users.acl"
-  echo "masteruser default"
-  echo "masterauth $REDIS_PASSWORD"
+  echo "masteruser $REDIS_CONTROL_USERNAME"
+  echo "masterauth $REDIS_CONTROL_PASSWORD"
   echo "replica-announce-ip $local_host"
   echo "replica-announce-port 6379"
   if [ "$master_host" != "$local_host" ]; then

@@ -194,7 +194,7 @@ async function startProcess(bus) {
   // Wire this realm's fan-out to the SHARED bus. pub = a bus client; sub = a
   // duplicate (its own subscriber connection), mirroring redis.duplicate().
   const pub = bus;
-  wsMod.initWsFanout({ pub, sub: pub.duplicate() });
+  await wsMod.initWsFanout({ pub, sub: pub.duplicate() });
   const port = await new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve(server.address().port));
   });

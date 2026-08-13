@@ -105,6 +105,8 @@ describe('validateEnv Redis Sentinel production contract', () => {
       REDIS_REQUIRE_SENTINEL: 'true',
       REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
       REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_USERNAME: 'vhhealth-backend',
+      REDIS_SENTINEL_USERNAME: 'vhhealth-discovery',
       REDIS_PASSWORD: 'data-password-at-least-16-chars',
       REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
     });
@@ -118,12 +120,29 @@ describe('validateEnv Redis Sentinel production contract', () => {
       REDIS_URL: 'redis://localhost:6379',
       REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
       REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_USERNAME: 'vhhealth-backend',
+      REDIS_SENTINEL_USERNAME: 'vhhealth-discovery',
       REDIS_PASSWORD: 'data-password-at-least-16-chars',
       REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
     });
 
     expect(result.status).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain('REDIS_URL');
+  });
+
+  it('rejects default Redis and Sentinel superusers in strict mode', () => {
+    const result = runValidateEnv({
+      REDIS_REQUIRE_SENTINEL: 'true',
+      REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
+      REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_USERNAME: 'default',
+      REDIS_SENTINEL_USERNAME: 'default',
+      REDIS_PASSWORD: 'data-password-at-least-16-chars',
+      REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toMatch(/REDIS_USERNAME|REDIS_SENTINEL_USERNAME/);
   });
 });
 

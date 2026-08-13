@@ -73,8 +73,9 @@ export function createWsFanout() {
   let pub = null;
   let sub = null;
   let enabled = false;
-  let subscriptionReady = false;
-  let subscriptionReadyPromise = Promise.resolve(false);
+  let subscribed = false;
+  let initialized = false;
+  let subscriptionPromise = null;
   let subscriptionGeneration = 0;
 
   // The local in-process delivery loops, registered by wsServer.
@@ -114,7 +115,7 @@ export function createWsFanout() {
    * @param {object} opts.pub  - a client able to PUBLISH (ioredis singleton)
    * @param {object} [opts.sub] - dedicated subscriber; defaults to pub.duplicate()
    */
-  function init({ pub: pubClient, sub: subClient } = {}) {
+  async function init({ pub: pubClient, sub: subClient } = {}) {
     if (!pubClient) {
       enabled = false;
       logger.warn('WS Redis fan-out disabled — no Redis client; broadcasts are single-process only');
@@ -139,79 +140,111 @@ export function createWsFanout() {
     };
 
     const activeSub = sub;
-    const doSubscribe = () => {
-      const generation = ++subscriptionGeneration;
-      subscriptionReady = false;
-      try {
-        const r = activeSub.psubscribe(PATTERN);
-        return Promise.resolve(r)
-          .then(() => {
-            if (generation !== subscriptionGeneration || sub !== activeSub || !enabled) {
-              return false;
-            }
-            subscriptionReady = true;
-            return true;
-          })
-          .catch((err) => {
-            if (generation === subscriptionGeneration && sub === activeSub) {
-              subscriptionReady = false;
-              logger.error('WS fan-out psubscribe failed:', err?.message || err);
-            }
-            return false;
-          });
-      } catch (err) {
-        if (generation === subscriptionGeneration && sub === activeSub) {
-          subscriptionReady = false;
-          logger.error('WS fan-out psubscribe threw:', err?.message || err);
-        }
-        return Promise.resolve(false);
+    const markSubscriberUnavailable = (reason, err) => {
+      if (sub !== activeSub) return;
+      subscriptionGeneration += 1;
+      subscriptionPromise = null;
+      subscribed = false;
+      enabled = false;
+      if (err) {
+        recordWsFanoutSubscriberError();
+        logger.error(reason, err?.message || err);
       }
+    };
+
+    const subscribe = ({ failInitialization = false } = {}) => {
+      if (subscriptionPromise) return subscriptionPromise;
+      const generation = ++subscriptionGeneration;
+      subscribed = false;
+      enabled = false;
+      subscriptionPromise = (async () => {
+        try {
+          const count = await activeSub.psubscribe(PATTERN);
+          if (generation !== subscriptionGeneration || sub !== activeSub) {
+            return false;
+          }
+          if (typeof count === 'number' && count < 1) {
+            throw new Error('Redis acknowledged zero WebSocket subscriptions');
+          }
+          subscribed = true;
+          enabled = true;
+          return true;
+        } catch (err) {
+          if (generation === subscriptionGeneration && sub === activeSub) {
+            markSubscriberUnavailable('WS fan-out psubscribe failed:', err);
+          }
+          if (failInitialization) throw err;
+          return false;
+        } finally {
+          if (generation === subscriptionGeneration) {
+            subscriptionPromise = null;
+          }
+        }
+      })();
+      return subscriptionPromise;
     };
 
     activeSub.on?.('pmessage', onMessageHandler);
     // Re-assert the pattern subscription after any reconnect (Sentinel failover,
     // transient drop). ioredis emits 'ready' on (re)connect.
     activeSub.on?.('ready', () => {
-      if (sub !== activeSub) return;
-      subscriptionReadyPromise = doSubscribe();
+      if (initialized && sub === activeSub) void subscribe();
     });
-    const markSubscriptionUnavailable = () => {
-      if (sub !== activeSub) return;
-      subscriptionGeneration += 1;
-      subscriptionReady = false;
-      subscriptionReadyPromise = Promise.resolve(false);
-    };
-    activeSub.on?.('close', markSubscriptionUnavailable);
-    activeSub.on?.('reconnecting', markSubscriptionUnavailable);
+    activeSub.on?.('close', () => {
+      markSubscriberUnavailable('WS fan-out subscriber closed');
+    });
+    activeSub.on?.('reconnecting', () => {
+      markSubscriberUnavailable('WS fan-out subscriber reconnecting');
+    });
     activeSub.on?.('error', (err) => {
-      markSubscriptionUnavailable();
-      recordWsFanoutSubscriberError();
-      logger.error('WS fan-out subscriber error:', err?.message || err);
+      markSubscriberUnavailable('WS fan-out subscriber error:', err);
     });
 
-    enabled = true;
-    subscriptionReadyPromise = doSubscribe();
+    const ready = await subscribe({ failInitialization: true });
+    if (!ready) {
+      const err = new Error('WebSocket fan-out subscription is not ready');
+      err.code = 'WS_FANOUT_SUBSCRIPTION_NOT_READY';
+      throw err;
+    }
+    initialized = true;
     logger.info('🔁 WS Redis fan-out enabled (cross-process broadcast via pub/sub)');
     return true;
   }
 
   function isEnabled() {
-    return enabled && !!pub;
+    return enabled && subscribed && !!pub;
   }
 
-  function publishBroadcast(channel, event, data, tenantId) {
-    if (!enabled || !pub) return false;
+  function observePublish(pending, label, localFallback) {
+    if (!pending || typeof pending.then !== 'function') {
+      return pending !== 0;
+    }
+    pending.then((subscriberCount) => {
+      if (subscriberCount === 0) {
+        logger.error(`${label} reached zero subscribers — falling back to local delivery`);
+        localFallback?.();
+      }
+    }).catch((err) => {
+      logger.error(`${label} failed after dispatch — falling back to local:`, err?.message || err);
+      localFallback?.();
+    });
+    return true;
+  }
+
+  function publishBroadcast(channel, event, data, tenantId, { fallbackOnReject = true } = {}) {
+    if (!isEnabled()) return false;
     try {
       const pending = pub.publish(
         BROADCAST_PREFIX + channel,
         JSON.stringify({ event, data, tenantId }),
       );
-      if (pending && typeof pending.catch === 'function') {
-        pending.catch((err) => {
-          logger.error('WS fan-out publishBroadcast failed after dispatch:', err?.message || err);
-        });
-      }
-      return true;
+      return observePublish(
+        pending,
+        'WS fan-out publishBroadcast',
+        fallbackOnReject && deliverBroadcast
+          ? () => deliverBroadcast(channel, event, data, tenantId)
+          : null,
+      );
     } catch (err) {
       logger.error('WS fan-out publishBroadcast failed — falling back to local:', err?.message || err);
       return false;
@@ -219,9 +252,9 @@ export function createWsFanout() {
   }
 
   async function publishBroadcastConfirmed(channel, event, data, tenantId) {
-    if (!enabled || !pub) return false;
+    if (!pub) return false;
     try {
-      if (!subscriptionReady && !await subscriptionReadyPromise) {
+      if (!isEnabled()) {
         const err = new Error('WebSocket fan-out subscription is not ready');
         err.code = 'WS_FANOUT_SUBSCRIPTION_NOT_READY';
         throw err;
@@ -242,16 +275,17 @@ export function createWsFanout() {
     }
   }
 
-  function publishUser(userId, event, data, tenantId) {
-    if (!enabled || !pub) return false;
+  function publishUser(userId, event, data, tenantId, { fallbackOnReject = true } = {}) {
+    if (!isEnabled()) return false;
     try {
       const pending = pub.publish(USER_PREFIX + String(userId), JSON.stringify({ event, data, tenantId }));
-      if (pending && typeof pending.catch === 'function') {
-        pending.catch((err) => {
-          logger.error('WS fan-out publishUser failed after dispatch:', err?.message || err);
-        });
-      }
-      return true;
+      return observePublish(
+        pending,
+        'WS fan-out publishUser',
+        fallbackOnReject && deliverUser
+          ? () => deliverUser(String(userId), event, data, tenantId)
+          : null,
+      );
     } catch (err) {
       logger.error('WS fan-out publishUser failed — falling back to local:', err?.message || err);
       return false;
@@ -266,8 +300,9 @@ export function createWsFanout() {
   async function close() {
     enabled = false;
     subscriptionGeneration += 1;
-    subscriptionReady = false;
-    subscriptionReadyPromise = Promise.resolve(false);
+    subscriptionPromise = null;
+    subscribed = false;
+    initialized = false;
     if (sub) {
       try {
         if (onMessageHandler) sub.off?.('pmessage', onMessageHandler);
@@ -280,6 +315,7 @@ export function createWsFanout() {
     sub = null;
     pub = null;
     onMessageHandler = null;
+    subscriptionPromise = null;
     deliverBroadcast = null;
     deliverUser = null;
   }

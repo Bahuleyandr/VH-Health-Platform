@@ -62,6 +62,59 @@ describe('rate limit tenant keying', () => {
       .toBe('auth:u:u2');
   });
 
+  it.each([
+    ['username', { body: { username: 'Dr.RawUser' } }, 'Dr.RawUser'],
+    ['email', { body: { email: 'doctor@example.test' } }, 'doctor@example.test'],
+    ['employee ID', { body: { employeeId: 'EMP-1007' } }, 'EMP-1007'],
+    ['API key', { headers: { 'x-api-key': 'raw-api-key-secret' } }, 'raw-api-key-secret'],
+  ])('does not persist a raw %s in the default Redis bucket key', (_label, request, raw) => {
+    const key = tenantKeyGenerator(mkReq({ tenantId: 'tA', ip: '198.51.100.20', ...request }));
+    expect(key).not.toContain(raw);
+    expect(key).toMatch(/^t:tA:(?:acct:198\.51\.100\.20:|k:)[0-9a-f]{64}$/);
+  });
+
+  it('preserves case-insensitive login equivalence while hashing the account', () => {
+    const lower = __testing__.authKeyGenerator(mkReq({
+      ip: '198.51.100.21',
+      body: { email: 'doctor@example.test' },
+    }));
+    const upper = __testing__.authKeyGenerator(mkReq({
+      ip: '198.51.100.21',
+      body: { email: 'DOCTOR@EXAMPLE.TEST' },
+    }));
+    expect(lower).toBe(upper);
+    expect(lower).not.toContain('doctor@example.test');
+  });
+
+  it.each([
+    ['username', { username: 'Dr.RawUser' }, 'Dr.RawUser'],
+    ['email', { email: 'doctor@example.test' }, 'doctor@example.test'],
+    ['employee ID', { employeeId: 'EMP-1007' }, 'EMP-1007'],
+    ['phone', { phone: '+919876543210' }, '+919876543210'],
+  ])('does not persist a raw %s in the auth Redis bucket key', (_label, body, raw) => {
+    const key = __testing__.authKeyGenerator(mkReq({ ip: '198.51.100.23', body }));
+    expect(key).toMatch(/^auth:198\.51\.100\.23:acct:[0-9a-f]{64}$/);
+    expect(key).not.toContain(raw);
+  });
+
+  it('keeps hashed pre-auth identities separated by tenant prefix', () => {
+    const request = { ip: '198.51.100.24', body: { employeeId: 'EMP-1007' } };
+    const tenantA = tenantKeyGenerator(mkReq({ ...request, tenantId: 'tA' }));
+    const tenantB = tenantKeyGenerator(mkReq({ ...request, tenantId: 'tB' }));
+    expect(tenantA).not.toBe(tenantB);
+    expect(tenantA).toMatch(/^t:tA:acct:/);
+    expect(tenantB).toMatch(/^t:tB:acct:/);
+  });
+
+  it('hashes phone numbers in persistent OTP keys and preserves equivalence', () => {
+    const phone = '+919876543210';
+    const first = __testing__.otpKeyGenerator(mkReq({ ip: '198.51.100.22', body: { phone } }));
+    const second = __testing__.otpKeyGenerator(mkReq({ ip: '203.0.113.22', body: { phoneNumber: phone } }));
+    expect(first).toBe(second);
+    expect(first).toMatch(/^otp:phone:[0-9a-f]{64}$/);
+    expect(first).not.toContain(phone);
+  });
+
   it('selectStore returns undefined (MemoryStore) when Redis is unset', () => {
     const prev = process.env.REDIS_URL;
     const prevSentinels = process.env.REDIS_SENTINEL_HOSTS;

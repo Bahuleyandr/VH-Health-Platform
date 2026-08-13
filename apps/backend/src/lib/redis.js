@@ -71,15 +71,23 @@ export function resolveRedisConnection(env = process.env) {
     }
     const password = required(env.REDIS_PASSWORD, 'REDIS_PASSWORD');
     const sentinelPassword = required(env.REDIS_SENTINEL_PASSWORD, 'REDIS_SENTINEL_PASSWORD');
+    const username = required(env.REDIS_USERNAME || 'default', 'REDIS_USERNAME');
+    const sentinelUsername = required(
+      env.REDIS_SENTINEL_USERNAME || 'default',
+      'REDIS_SENTINEL_USERNAME',
+    );
+    if (sentinelRequired && (username === 'default' || sentinelUsername === 'default')) {
+      throw new Error('Strict Sentinel mode requires named least-privilege Redis and Sentinel users');
+    }
     return {
       mode: 'sentinel',
       options: {
         sentinels,
         name: required(env.REDIS_SENTINEL_MASTER || DEFAULT_SENTINEL_MASTER, 'REDIS_SENTINEL_MASTER'),
         role: 'master',
-        username: String(env.REDIS_USERNAME || 'default').trim(),
+        username,
         password,
-        sentinelUsername: String(env.REDIS_SENTINEL_USERNAME || 'default').trim(),
+        sentinelUsername,
         sentinelPassword,
       },
     };

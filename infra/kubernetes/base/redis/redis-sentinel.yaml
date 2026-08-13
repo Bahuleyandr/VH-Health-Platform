@@ -151,6 +151,16 @@ spec:
                 secretKeyRef:
                   name: redis-credentials
                   key: redis-password
+            - name: REDIS_CONTROL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: redis-control-password
+            - name: REDIS_METRICS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: redis-metrics-password
             - name: REDIS_SENTINEL_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -161,6 +171,18 @@ spec:
                 secretKeyRef:
                   name: redis-credentials
                   key: redis-password-previous
+                  optional: true
+            - name: REDIS_CONTROL_PASSWORD_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: redis-control-password-previous
+                  optional: true
+            - name: REDIS_METRICS_PASSWORD_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: redis-metrics-password-previous
                   optional: true
             - name: REDIS_SENTINEL_PASSWORD_PREVIOUS
               valueFrom:
@@ -197,7 +219,7 @@ spec:
               command:
                 - sh
                 - -c
-                - 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ping | grep -qx PONG'
+                - 'REDISCLI_AUTH="$REDIS_CONTROL_PASSWORD" redis-cli --no-auth-warning --user vhhealth-control ping | grep -qx PONG'
             initialDelaySeconds: 15
             periodSeconds: 15
             timeoutSeconds: 5
@@ -207,7 +229,7 @@ spec:
               command:
                 - sh
                 - -c
-                - 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ping | grep -qx PONG'
+                - 'REDISCLI_AUTH="$REDIS_CONTROL_PASSWORD" redis-cli --no-auth-warning --user vhhealth-control ping | grep -qx PONG'
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 30
@@ -237,27 +259,32 @@ spec:
             - name: sentinel
               containerPort: 26379
           env:
-            - name: REDIS_PASSWORD
+            - name: REDIS_CONTROL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: redis-credentials
-                  key: redis-password
+                  key: redis-control-password
             - name: REDIS_SENTINEL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: redis-credentials
                   key: sentinel-password
-            - name: REDIS_PASSWORD_PREVIOUS
+            - name: REDIS_SENTINEL_CONTROL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: redis-credentials
-                  key: redis-password-previous
-                  optional: true
+                  key: sentinel-control-password
             - name: REDIS_SENTINEL_PASSWORD_PREVIOUS
               valueFrom:
                 secretKeyRef:
                   name: redis-credentials
                   key: sentinel-password-previous
+                  optional: true
+            - name: REDIS_SENTINEL_CONTROL_PASSWORD_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: sentinel-control-password-previous
                   optional: true
             - name: REDIS_ALLOW_FIRST_CLUSTER_BOOTSTRAP
               value: "false"
@@ -285,7 +312,7 @@ spec:
               command:
                 - sh
                 - -c
-                - 'REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" redis-cli --no-auth-warning -p 26379 ping | grep -qx PONG'
+                - 'REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" redis-cli --no-auth-warning --user vhhealth-discovery -p 26379 ping | grep -qx PONG'
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
@@ -313,8 +340,14 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --redis.addr=redis://localhost:6379
-            - --redis.password-file=/secret/password
+            - --redis.user=vhhealth-metrics
             - --web.listen-address=0.0.0.0:9121
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-credentials
+                  key: redis-metrics-password
           ports:
             - name: http-metrics
               containerPort: 9121
@@ -345,10 +378,6 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
-          volumeMounts:
-            - name: redis-password
-              mountPath: /secret
-              readOnly: true
       volumes:
         - name: config
           configMap:
@@ -358,12 +387,6 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        - name: redis-password
-          secret:
-            secretName: redis-credentials
-            items:
-              - key: redis-password
-                path: password
   volumeClaimTemplates:
     - metadata:
         name: data

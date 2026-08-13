@@ -6,7 +6,8 @@ REDIS_CONFIG_RUNTIME_DIR="${REDIS_CONFIG_RUNTIME_DIR:-/etc/redis}"
 . "$REDIS_CONFIG_SOURCE_DIR/sentinel-discovery.sh"
 
 require_secret REDIS_SENTINEL_PASSWORD
-require_secret REDIS_PASSWORD
+require_secret REDIS_SENTINEL_CONTROL_PASSWORD
+require_secret REDIS_CONTROL_PASSWORD
 local_host="$(self_host)"
 master_host=""
 master_port="6379"
@@ -26,18 +27,20 @@ fi
 mkdir -p "$REDIS_DATA_DIR/sentinel" "$REDIS_CONFIG_RUNTIME_DIR"
 config_tmp="$REDIS_CONFIG_RUNTIME_DIR/sentinel.conf.$$"
 cp "$REDIS_CONFIG_SOURCE_DIR/sentinel-base.conf" "$config_tmp"
-write_default_user_acl \
+write_sentinel_acl \
   "$REDIS_CONFIG_RUNTIME_DIR/sentinel-users.acl" \
   "$REDIS_SENTINEL_PASSWORD" \
-  "${REDIS_SENTINEL_PASSWORD_PREVIOUS:-}"
+  "${REDIS_SENTINEL_PASSWORD_PREVIOUS:-}" \
+  "$REDIS_SENTINEL_CONTROL_PASSWORD" \
+  "${REDIS_SENTINEL_CONTROL_PASSWORD_PREVIOUS:-}"
 {
   echo "aclfile $REDIS_CONFIG_RUNTIME_DIR/sentinel-users.acl"
   echo "dir $REDIS_DATA_DIR/sentinel"
-  echo "sentinel sentinel-user default"
-  echo "sentinel sentinel-pass $REDIS_SENTINEL_PASSWORD"
+  echo "sentinel sentinel-user $REDIS_SENTINEL_CONTROL_USERNAME"
+  echo "sentinel sentinel-pass $REDIS_SENTINEL_CONTROL_PASSWORD"
   echo "sentinel monitor $REDIS_MASTER_NAME $master_host $master_port 2"
-  echo "sentinel auth-user $REDIS_MASTER_NAME default"
-  echo "sentinel auth-pass $REDIS_MASTER_NAME $REDIS_PASSWORD"
+  echo "sentinel auth-user $REDIS_MASTER_NAME $REDIS_CONTROL_USERNAME"
+  echo "sentinel auth-pass $REDIS_MASTER_NAME $REDIS_CONTROL_PASSWORD"
   echo "sentinel announce-ip $local_host"
   echo "sentinel announce-port 26379"
 } >> "$config_tmp"

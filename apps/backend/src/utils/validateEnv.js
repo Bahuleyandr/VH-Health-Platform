@@ -57,9 +57,16 @@ export const envSchema = Joi.object({
     then: Joi.string().trim().min(1).required(),
     otherwise: Joi.string().trim().allow('').optional(),
   }).label('REDIS_SENTINEL_MASTER'),
-  REDIS_USERNAME: Joi.string().trim().min(1).default('default').label('REDIS_USERNAME'),
-  REDIS_SENTINEL_USERNAME: Joi.string().trim().min(1).default('default')
-    .label('REDIS_SENTINEL_USERNAME'),
+  REDIS_USERNAME: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).invalid('default').required(),
+    otherwise: Joi.string().trim().min(1).default('default'),
+  }).label('REDIS_USERNAME'),
+  REDIS_SENTINEL_USERNAME: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).invalid('default').required(),
+    otherwise: Joi.string().trim().min(1).default('default'),
+  }).label('REDIS_SENTINEL_USERNAME'),
   REDIS_PASSWORD: Joi.when('REDIS_REQUIRE_SENTINEL', {
     is: 'true',
     then: Joi.string().min(16).required(),

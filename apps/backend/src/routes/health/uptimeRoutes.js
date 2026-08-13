@@ -6,6 +6,7 @@ import { assertRedisWritable, getRedisClient, redisIsRequired } from '../../lib/
 import logger from '../../logging/logger.js';
 import { requireProductionMonitoringAccess } from '../../middleware/infrastructureAccessMiddleware.js';
 import { readMigrationState } from '../../utils/migrations/runMigrations.js';
+import { isWsFanoutReady } from '../../utils/websocket/wsServer.js';
 
 const router = express.Router();
 
@@ -101,6 +102,9 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
       const start = Date.now();
       await assertRedisWritable();
       checks.redis = { status: 'ok', latency_ms: Date.now() - start };
+      checks.redis_websocket_subscriber = isWsFanoutReady()
+        ? { status: 'ok' }
+        : { status: 'error', message: 'Required Redis WebSocket subscriber is unavailable' };
     } catch (err) {
       checks.redis = { status: 'error', message: 'Required Redis check failed' };
       logger.warn('Readiness Redis probe failed:', err.message);

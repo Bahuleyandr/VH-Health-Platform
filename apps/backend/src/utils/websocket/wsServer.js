@@ -25,6 +25,11 @@ export function initWsFanout(opts) {
   return fanout.init(opts);
 }
 
+/** Strict production readiness must prove the dedicated PSUBSCRIBE is live. */
+export function isWsFanoutReady() {
+  return fanout.isEnabled();
+}
+
 /** Tear down this process's fan-out subscriber (graceful shutdown / tests). */
 export function closeWsFanout() {
   return fanout.close();
@@ -756,7 +761,10 @@ export function pushSessionRevoked(userId, data = {}) {
   // is asynchronous, so its immediate boolean cannot prove remote delivery or
   // safely decide whether local fallback is necessary.
   deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
-  fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
+  fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null, {
+    // This path already delivered locally before publishing.
+    fallbackOnReject: false,
+  });
 }
 
 /** Close only sockets for one authenticated guardian-dependent delegation. */

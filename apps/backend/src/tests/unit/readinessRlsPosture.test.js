@@ -24,6 +24,7 @@ const redisPingMock = jest.fn();
 const assertRedisWritableMock = jest.fn();
 const getRedisClientMock = jest.fn();
 const redisIsRequiredMock = jest.fn();
+const isWsFanoutReadyMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   __esModule: true,
@@ -52,6 +53,10 @@ jest.unstable_mockModule('../../lib/redis.js', () => ({
   resolveRedisConnection: jest.fn(() => null),
 }));
 
+jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
+  isWsFanoutReady: isWsFanoutReadyMock,
+}));
+
 // The monitoring-access gate now fails CLOSED in every env (audit 2026-06-18
 // §4): /health/ready + /health/metrics require a valid monitoring token even
 // off-prod. Set a test token and send the matching x-monitoring-token header
@@ -78,6 +83,7 @@ beforeEach(() => {
   assertRedisWritableMock.mockReset();
   getRedisClientMock.mockReset();
   redisIsRequiredMock.mockReset();
+  isWsFanoutReadyMock.mockReset();
   queryRawMock.mockResolvedValue([{ exists: true }]);
   readMigrationStateMock.mockResolvedValue({
     requiredCurrent: true,
@@ -90,6 +96,7 @@ beforeEach(() => {
   assertRedisWritableMock.mockResolvedValue(true);
   getRedisClientMock.mockReturnValue({ ping: redisPingMock });
   redisIsRequiredMock.mockReturnValue(false);
+  isWsFanoutReadyMock.mockReturnValue(true);
 });
 
 describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () => {
@@ -175,7 +182,19 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
 
     expect(res.status).toBe(200);
     expect(res.body.checks.redis.status).toBe('ok');
+    expect(res.body.checks.redis_websocket_subscriber.status).toBe('ok');
     expect(assertRedisWritableMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 503 when strict Redis is writable but its WS subscriber is unavailable', async () => {
+    redisIsRequiredMock.mockReturnValue(true);
+    isWsFanoutReadyMock.mockReturnValue(false);
+
+    const res = await withToken(request(makeApp()).get('/health/ready'));
+
+    expect(res.status).toBe(503);
+    expect(res.body.checks.redis.status).toBe('ok');
+    expect(res.body.checks.redis_websocket_subscriber.status).toBe('error');
   });
 
   it('returns 503 when the strict Sentinel primary is not writable', async () => {

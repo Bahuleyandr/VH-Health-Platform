@@ -6,8 +6,8 @@
  * the 3-replica cluster / a restart, so a captured (still-fresh) signed callback
  * replayed against a DIFFERENT replica is accepted again. HL7 /receive already
  * closes this with the shared cross-replica store assertSharedReplayOnce
- * (Redis SET NX EX → DB interop_replay_guard, fail-closed). The ABDM callback
- * must mirror that.
+ * (DB interop_replay_guard authority plus a best-effort Redis marker). The
+ * ABDM callback must mirror that.
  *
  * Two behaviours under test (no real DB/HMAC — signedRequest + abdmConfig are
  * mocked, the service handler is spied):

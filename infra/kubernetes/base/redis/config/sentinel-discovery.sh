@@ -10,6 +10,11 @@ REDIS_DATA_DIR="${REDIS_DATA_DIR:-/data}"
 REDIS_CLI_BIN="${REDIS_CLI_BIN:-redis-cli}"
 REDIS_CLUSTER_MARKER="$REDIS_DATA_DIR/.vhhealth-cluster-initialized"
 REDIS_BOOTSTRAP_MARKER="$REDIS_DATA_DIR/.vhhealth-first-bootstrap"
+REDIS_APP_USERNAME="vhhealth-backend"
+REDIS_CONTROL_USERNAME="vhhealth-control"
+REDIS_METRICS_USERNAME="vhhealth-metrics"
+REDIS_SENTINEL_USERNAME="vhhealth-discovery"
+REDIS_SENTINEL_CONTROL_USERNAME="vhhealth-sentinel-peer"
 
 fail() {
   echo "redis-ha: $*" >&2
@@ -31,19 +36,72 @@ validate_acl_secret() {
   esac
 }
 
-write_default_user_acl() {
-  acl_path="$1"
-  acl_current="$2"
-  acl_previous="${3:-}"
+write_acl_passwords() {
+  acl_current="$1"
+  acl_previous="${2:-}"
   validate_acl_secret "$acl_current" current_credential || return 1
   if [ -n "$acl_previous" ]; then
     validate_acl_secret "$acl_previous" previous_credential || return 1
   fi
+  printf ' >%s' "$acl_current"
+  if [ -n "$acl_previous" ] && [ "$acl_previous" != "$acl_current" ]; then
+    printf ' >%s' "$acl_previous"
+  fi
+}
+
+write_redis_acl() {
+  acl_path="$1"
+  app_current="$2"
+  app_previous="${3:-}"
+  control_current="$4"
+  control_previous="${5:-}"
+  metrics_current="$6"
+  metrics_previous="${7:-}"
   {
-    printf 'user default on >%s' "$acl_current"
-    if [ -n "$acl_previous" ] && [ "$acl_previous" != "$acl_current" ]; then
-      printf ' >%s' "$acl_previous"
-    fi
+    printf 'user default off\n'
+
+    # Backend commands are an explicit inventory: cache/replay keys, the
+    # rate-limit Lua scripts, and WebSocket pattern pub/sub. It cannot run
+    # CONFIG, ACL, REPLICAOF, FLUSH*, MODULE, or other server-control commands.
+    printf 'user %s on' "$REDIS_APP_USERNAME"
+    write_acl_passwords "$app_current" "$app_previous"
+    printf ' ~* &ws:* +ping +info +get +set +del +scan +pttl +incr +decr +script|load +evalsha +publish +psubscribe +punsubscribe +client|setname +client|setinfo +quit\n'
+
+    # Redis documents these as the minimal Sentinel control commands. The same
+    # internal-only identity also carries the three replication handshake
+    # commands because replicas use masteruser/masterauth.
+    printf 'user %s on' "$REDIS_CONTROL_USERNAME"
+    write_acl_passwords "$control_current" "$control_previous"
+    printf ' resetkeys allchannels +multi +slaveof +ping +exec +subscribe +config|rewrite +config|get +role +publish +info +client|setname +client|kill +script|kill +psync +replconf\n'
+
+    # redis_exporter's documented read-only command inventory. The exporter
+    # has no write commands and no application credential.
+    printf 'user %s on' "$REDIS_METRICS_USERNAME"
+    write_acl_passwords "$metrics_current" "$metrics_previous"
+    printf ' ~* &* -@all +@connection -command +client -hello +info -auth +memory -readonly +strlen +config|get +xinfo +pfcount -quit +zcard +type +xlen -readwrite -wait +scard +llen +hlen +arcount +get +eval +slowlog +cluster|info +cluster|slots +cluster|nodes +latency +scan -reset -asking\n'
+  } > "$acl_path"
+}
+
+write_sentinel_acl() {
+  acl_path="$1"
+  discovery_current="$2"
+  discovery_previous="${3:-}"
+  control_current="$4"
+  control_previous="${5:-}"
+  {
+    printf 'user default off\n'
+
+    # ioredis resolves/updates Sentinel addresses and subscribes to the
+    # +switch-master notification. Readiness additionally needs CKQUORUM.
+    printf 'user %s on' "$REDIS_SENTINEL_USERNAME"
+    write_acl_passwords "$discovery_current" "$discovery_previous"
+    printf ' resetkeys &+switch-master -@all +auth +client|getname +client|id +client|setname +client|setinfo +command +hello +ping +role +subscribe +sentinel|get-master-addr-by-name +sentinel|sentinels +sentinel|ckquorum\n'
+
+    # Redis Sentinel requires its outgoing peer identity to be a Sentinel
+    # superuser. It is a separate internal credential, never mounted into the
+    # backend or exporter, while incoming application discovery stays read-only.
+    printf 'user %s on' "$REDIS_SENTINEL_CONTROL_USERNAME"
+    write_acl_passwords "$control_current" "$control_previous"
     printf ' ~* &* +@all\n'
   } > "$acl_path"
 }
@@ -87,6 +145,7 @@ sentinel_master_consensus() {
     sentinel_port="${endpoint##*:}"
     quorum_state="$(
       REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" "$REDIS_CLI_BIN" --no-auth-warning --raw \
+        --user "$REDIS_SENTINEL_USERNAME" \
         -h "$sentinel_host" -p "$sentinel_port" \
         SENTINEL ckquorum "$REDIS_MASTER_NAME" 2>/dev/null || true
     )"
@@ -96,6 +155,7 @@ sentinel_master_consensus() {
     esac
     response="$(
       REDISCLI_AUTH="$REDIS_SENTINEL_PASSWORD" "$REDIS_CLI_BIN" --no-auth-warning --raw \
+        --user "$REDIS_SENTINEL_USERNAME" \
         -h "$sentinel_host" -p "$sentinel_port" \
         SENTINEL get-master-addr-by-name "$REDIS_MASTER_NAME" 2>/dev/null || true
     )"

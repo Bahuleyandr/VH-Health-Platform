@@ -190,7 +190,7 @@ describe('session revocation WebSocket closure', () => {
       punsubscribe: jest.fn().mockResolvedValue(1),
       quit: jest.fn().mockResolvedValue(undefined),
     };
-    initWsFanout({ pub, sub });
+    await initWsFanout({ pub, sub });
 
     pushSessionRevoked('user-1', { reason: 'force_logout' });
 
