@@ -43,6 +43,7 @@ import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
+import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
@@ -79,10 +80,18 @@ void main() {
   setUp(() {
     _installSecureStorageFake();
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    // LogoutService's final realtime fence runs through the process-wide
+    // PatientRealtimeLifecycle singleton, which serializes work on a stored
+    // future. That future belongs to the async zone that created it, and each
+    // testWidgets body gets a fresh FakeAsync zone — so without this reset the
+    // second and later widget tests queue their teardown behind a future from
+    // an already-dead zone and logout() never completes.
+    PatientRealtimeLifecycle.instance.debugReset();
   });
 
   tearDown(() {
     LogoutService.debugResetDependencies();
+    PatientRealtimeLifecycle.instance.debugReset();
     UserProvider.instance = null;
   });
 
