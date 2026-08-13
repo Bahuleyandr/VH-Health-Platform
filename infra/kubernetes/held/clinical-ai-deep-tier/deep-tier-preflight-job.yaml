@@ -1,21 +1,30 @@
-# Deep-tier AI readiness preflight Job (WS5 B5.4 / EPIC G1)
+# HELD: deep-tier AI readiness preflight (WS5 B5.4 / EPIC G1)
+#
+# This manifest lives under `infra/kubernetes/held/clinical-ai-deep-tier/` and
+# is not composed by the app barrel or any overlay. It runs only when an
+# operator explicitly applies that held directory.
 #
 # Purpose: verifies that the Ollama endpoint is reachable and that at least one
 # model is loaded before the clinical-AI deep tier is enabled for patient care.
-# This is a one-shot Job (not a CronJob) intended to be run:
-#   a) Manually by the operator after first deploying Ollama + pulling a model:
-#        kubectl create job --from=cronjob/... -n vhhealth deep-tier-preflight-$(date +%s)
-#      Or simply apply this Job manifest directly once the model is loaded.
-#   b) As an ArgoCD sync-wave 3 hook in the ward-pilot rollout (Phase 4 of
-#      docs/CLINICAL_AI_ROLLOUT_PLAN.md). Set the hook annotation when wiring
-#      the ward pilot ArgoCD Application.
+#
+# FAIL-CLOSED ACTIVATION GATE (audit 2026-08-13, P1). This is an ArgoCD
+# `PreSync` hook, not an ordinary sync-wave Job. The difference is the whole
+# point of the gate:
+#   - As a plain wave-3 Job (its previous shape) the workload was applied
+#     first and the Job merely reported failure afterwards, leaving the
+#     Application Degraded with a half-activated deep tier.
+#   - As a PreSync hook the sync does not proceed at all unless the preflight
+#     succeeds, so an unready or model-less Ollama cannot be activated.
+# `hook-delete-policy: BeforeHookCreation` matches the backend migration Job
+# (infra/kubernetes/apps/backend/migration-job.yaml) so each activation attempt
+# re-runs the probe rather than reusing a stale success.
 #
 # Acceptance criteria (PENDING hardware):
-#   - Job completes successfully   → Ollama Service is reachable from within the
+#   - Hook completes successfully  → Ollama Service is reachable from within the
 #     cluster, the /api/tags endpoint responds with ≥1 model listed.
-#   - Job fails / BackoffLimit hit → Ollama is not ready; deep tier must not be
-#     enabled (backend env CLINICAL_AI_DEEP_PROVIDER should remain unset or
-#     point at a stub).
+#   - Hook fails / BackoffLimit hit → the sync is refused; the deep tier stays
+#     off (backend env CLINICAL_AI_DEEP_PROVIDER remains unset or points at a
+#     stub).
 #
 # [flagged: GPU hardware] This Job can run on any node — it only tests the
 # Service endpoint, not GPU inference. The Ollama StatefulSet itself
@@ -39,11 +48,12 @@ kind: Job
 metadata:
   name: deep-tier-preflight
   annotations:
-    # Sync-wave 3 so it runs after Ollama StatefulSet (wave 0 default) is
-    # applied. Operators running the ward-pilot ArgoCD Application should add:
-    #   argocd.argoproj.io/hook: PostSync
-    #   argocd.argoproj.io/hook-delete-policy: HookSucceeded
-    argocd.argoproj.io/sync-wave: "3"
+    vhhealth.app/deploy-state: "held"
+    # PreSync so an unready deep tier refuses the activation sync outright.
+    # Negative wave keeps it ahead of every other resource in the held set.
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
   labels:
     app.kubernetes.io/name: deep-tier-preflight
     app.kubernetes.io/component: deep-tier-llm

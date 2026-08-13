@@ -4,10 +4,12 @@ import test from 'node:test';
 
 import {
   ALLOWED_ZERO_DIGEST_IMAGES,
+  EXPECTED_ACTIVE_PG_IMAGE,
   EXPECTED_ALPINE_OPENSSL_IMAGE,
   EXPECTED_AWS_CLI_IMAGE,
   EXPECTED_CURL_IMAGE,
   EXPECTED_PG_IMAGE,
+  HELD_OLLAMA_IMAGE,
   assertLiteralAndImageContract,
   extractImageRefs,
   findDeclarativeTemplateTokens,
@@ -20,27 +22,26 @@ import { assertNoIngressClassParameters } from './validate-kubernetes-manifests.
 
 const minio =
   'quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332';
-const ollama =
-  'docker.io/ollama/ollama:0.5.4@sha256:18bfb1d605604fd53dcad20d0556df4c781e560ebebcd923454d627c994a0e37';
-const busybox =
-  'docker.io/library/busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662';
 
 function validLiteralFixture() {
   return {
     platform: [
-      `imageName: ${EXPECTED_PG_IMAGE}`,
+      // The live database runs the declared, fail-closed PostgreSQL 17 pin.
+      // The PostgreSQL 18.4 target appears only as the inert provenance marker.
+      `imageName: ${EXPECTED_ACTIVE_PG_IMAGE}`,
+      `postgresImage: ${EXPECTED_PG_IMAGE}`,
       `image: ${minio}`,
       'script.sh: |',
       '  echo "${RUNTIME_ONLY}"',
       '',
     ].join('\n'),
     apps: [
-      `- image: ${ollama}`,
-      `image: ${busybox}`,
       `image: ${EXPECTED_CURL_IMAGE}`,
       `image: ${EXPECTED_AWS_CLI_IMAGE}`,
       `image: ${EXPECTED_ALPINE_OPENSSL_IMAGE}`,
-      ...[...ALLOWED_ZERO_DIGEST_IMAGES].map((ref) => `image: ${ref}`),
+      ...[...ALLOWED_ZERO_DIGEST_IMAGES]
+        .filter((ref) => ref !== EXPECTED_ACTIVE_PG_IMAGE)
+        .map((ref) => `image: ${ref}`),
       '',
     ].join('\n'),
   };
@@ -130,7 +131,7 @@ test('extracts scalar, imageName, marker, and sequence-style image references', 
     `image: ${minio}`,
     `  imageName: "${EXPECTED_PG_IMAGE}"`,
     `  postgresImage: '${EXPECTED_PG_IMAGE}'`,
-    `  - image: ${ollama}`,
+    `  - image: ${HELD_OLLAMA_IMAGE}`,
     '  imagePullPolicy: IfNotPresent',
   ].join('\n'));
 
@@ -140,7 +141,7 @@ test('extracts scalar, imageName, marker, and sequence-style image references', 
       { key: 'image', ref: minio },
       { key: 'imageName', ref: EXPECTED_PG_IMAGE },
       { key: 'postgresImage', ref: EXPECTED_PG_IMAGE },
-      { key: 'image', ref: ollama },
+      { key: 'image', ref: HELD_OLLAMA_IMAGE },
     ],
   );
 });
@@ -206,7 +207,7 @@ test('load-bearing C1.1 docs trigger the manifest workflow and infra stage', () 
   assert.match(workflow, /full_infra:[\s\S]*uses: \.\/\.github\/workflows\/_reusable-kubernetes-manifests\.yml/);
 });
 
-test('accepts only digest-pinned images and the three documented zero-digest repositories', () => {
+test('accepts only digest-pinned images and the four documented zero-digest repositories', () => {
   const { platform, apps } = validLiteralFixture();
   assert.doesNotThrow(() => assertLiteralAndImageContract(platform, apps));
 
@@ -222,6 +223,73 @@ test('accepts only digest-pinned images and the three documented zero-digest rep
       ),
     /unauthorized all-zero digest/,
   );
+});
+
+// Audit 2026-08-13 (P1). Both capabilities are held outside the active graph;
+// re-composing either is an unreviewed activation, so the contract must reject
+// it rather than merely document it.
+test('rejects a HELD capability re-entering an active production render', () => {
+  const { platform, apps } = validLiteralFixture();
+
+  assert.throws(
+    () => assertLiteralAndImageContract(`${platform}\nimageName: ${EXPECTED_PG_IMAGE}\n`, apps),
+    /composes a HELD image into the active production graph[\s\S]*declared PostgreSQL 17 generation/,
+  );
+  assert.throws(
+    () => assertLiteralAndImageContract(platform, `${apps}\nimage: ${HELD_OLLAMA_IMAGE}\n`),
+    /composes a HELD image into the active production graph[\s\S]*clinical-ai-deep-tier/,
+  );
+
+  // The inert provenance marker is a different role and stays legal — otherwise
+  // the guard would force the qualified ladder target to be deleted, not held.
+  assert.doesNotThrow(() =>
+    assertLiteralAndImageContract(`${platform}\npostgresImage: ${EXPECTED_PG_IMAGE}\n`, apps),
+  );
+});
+
+test('the active database generation is declared, fail-closed, and not the PG18 target', () => {
+  const cluster = readFileSync(
+    new URL('../infra/kubernetes/base/cnpg/cluster.yaml', import.meta.url),
+    'utf8',
+  );
+  assert.ok(cluster.includes(`imageName: ${EXPECTED_ACTIVE_PG_IMAGE}`));
+  assert.doesNotMatch(cluster, /^\s*imageName:\s*ghcr\.io\/cloudnative-pg\/postgresql:18\./m);
+  assert.match(EXPECTED_ACTIVE_PG_IMAGE, /@sha256:0{64}$/);
+
+  // Held, not deleted: the exact PG18 pin still exists, in exactly one governed
+  // production place.
+  const cutover = readFileSync(
+    new URL('../infra/kubernetes/held/c1-1-pg18-cutover/pg18-cutover-target.yaml', import.meta.url),
+    'utf8',
+  );
+  assert.ok(cutover.includes(EXPECTED_PG_IMAGE));
+  assert.ok(cutover.includes('vhhealth.app/deploy-state: "held"'));
+});
+
+test('the held deep tier is uncomposed and its preflight gates activation', () => {
+  const barrel = readFileSync(
+    new URL('../infra/kubernetes/apps/kustomization.yaml', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(barrel, /^\s*-\s*ollama\/?\s*$/m);
+
+  const preflight = readFileSync(
+    new URL(
+      '../infra/kubernetes/held/clinical-ai-deep-tier/deep-tier-preflight-job.yaml',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  // A PreSync hook refuses the sync; a plain sync-wave Job only reports failure
+  // after the workload has already been applied.
+  assert.ok(preflight.includes('argocd.argoproj.io/hook: PreSync'));
+  assert.ok(preflight.includes('argocd.argoproj.io/hook-delete-policy: BeforeHookCreation'));
+
+  const statefulSet = readFileSync(
+    new URL('../infra/kubernetes/held/clinical-ai-deep-tier/statefulset.yaml', import.meta.url),
+    'utf8',
+  );
+  assert.ok(statefulSet.includes(HELD_OLLAMA_IMAGE));
 });
 
 test('rejects FILL_ME and placeholder ciphertext in rendered manifests', () => {

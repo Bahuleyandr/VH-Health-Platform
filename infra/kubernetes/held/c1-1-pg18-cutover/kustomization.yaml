@@ -1,0 +1,26 @@
+# HELD: this target is intentionally absent from `base/cnpg/kustomization.yaml`,
+# from `base/kustomization.yaml`, and from every environment overlay. Nothing in
+# the active production graph references this directory, so a repository merge
+# and an ArgoCD sync of the active platform Application perform no major
+# version change.
+#
+# It carries the ONE thing that must never ride along with an ordinary platform
+# sync: the exact digest-pinned PostgreSQL 18.4 target for the live
+# `Cluster/vhhealth-pg`. Applying it converts the production database. An
+# operator must render, review, and apply it explicitly, and only after the
+# qualification gates in docs/CNPG_POSTGRES_18_QUALIFICATION.md have cleared.
+#
+# The rendered ConfigMap is inert on purpose — it is an evidence/marker object,
+# not the conversion itself. The conversion is the atomic `kubectl patch`
+# recorded inside it and in README.md, mirroring the exact patch that
+# ../../base/cnpg/pg18-upgrade-rehearsal.sh proves against synthetic data.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-c1-1-pg18-cutover-held
+
+commonAnnotations:
+  vhhealth.app/deploy-state: "held"
+
+resources:
+  - pg18-cutover-target.yaml

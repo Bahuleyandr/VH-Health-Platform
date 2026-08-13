@@ -3,9 +3,10 @@
 // rendered image-reference field plus the JSON runtime manifests synthesized
 // by the scheduled restore proof, and verify every active tag@digest against
 // its registry.
-// The three platform-owned application placeholders are an explicit held state:
-// they are accepted only in the apps root and only as the exact full all-zero
-// fail-closed references below.
+// Four placeholders are an explicit held state, accepted only as the exact full
+// all-zero fail-closed references below: the three platform-owned application
+// images in the apps root, and the active PostgreSQL 17 database pin in the prod
+// root (audit 2026-08-13, P1).
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -28,6 +29,15 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const heldBackend = `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`;
 const heldAdmin = `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`;
 const heldStaffWeb = `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`;
+// Audit 2026-08-13 (P1). The live database's declared generation is
+// PostgreSQL 17, but its exact qualified minor + digest are operator evidence
+// this repository does not hold (docs/CNPG_POSTGRES_18_QUALIFICATION.md §1
+// requires capturing it off the running cluster). It therefore carries the same
+// fail-closed all-zero hold as the application images: unpullable, so the
+// platform overlay cannot be synced until an operator pins the real digest —
+// and, critically, cannot carry the PostgreSQL 18.4 cutover target, which would
+// have made an ordinary sync perform an irreversible pg_upgrade.
+const heldActivePostgres = `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@${ZERO_DIGEST}`;
 
 export const HELD_APP_OCCURRENCES = Object.freeze([
   {
@@ -83,6 +93,15 @@ export const HELD_APP_OCCURRENCES = Object.freeze([
     container: 'wait-owner-bypassrls',
     field: 'image',
     ref: heldBackend,
+  },
+  {
+    target: 'infra/kubernetes/overlays/prod',
+    resourceKind: 'Cluster',
+    resourceNamespace: 'vhhealth-platform',
+    resourceName: 'vhhealth-pg',
+    container: null,
+    field: 'imageName',
+    ref: heldActivePostgres,
   },
 ]);
 
@@ -387,7 +406,8 @@ export function assertHeldOccurrenceInventory(heldOccurrences) {
   );
   if (actualKeys.length !== HELD_APP_OCCURRENCES.length || missing.length > 0 || extras.length > 0) {
     throw new Error(
-      `held all-zero occurrence inventory must be the exact expected six` +
+      'held all-zero occurrence inventory must be the exact expected ' +
+        `${HELD_APP_OCCURRENCES.length}` +
         `${missing.length > 0 ? `; missing: ${missing.join(', ')}` : ''}` +
         `${extras.length > 0 ? `; extra: ${extras.join(', ')}` : ''}`,
     );
@@ -724,7 +744,7 @@ async function main() {
         `across ${result.activeOccurrences.length} Kustomize-controlled or scheduled-proof-synthesized ` +
         `image-field occurrence(s) (${activeFields.join(', ')}) from ${PRODUCTION_ROOTS.length} ` +
         `production roots; ` +
-        `${result.held.length} platform-owned application pin(s) remain deliberately held ` +
+        `${result.held.length} platform-owned application/database pin(s) remain deliberately held ` +
         `fail-closed across the exact ${result.heldOccurrences.length} rendered workload occurrence(s). ` +
         `Helm chart-generated workloads are outside this proof.`,
     );

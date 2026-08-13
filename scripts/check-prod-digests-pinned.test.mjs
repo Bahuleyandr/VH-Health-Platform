@@ -110,8 +110,11 @@ test('accepts only the exact documented zero app placeholders as held', () => {
     `ghcr.io/bahuleyandr/vh-health-platform-adminportal@${ZERO_DIGEST}`,
     `ghcr.io/bahuleyandr/vh-health-platform-backend@${ZERO_DIGEST}`,
     `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`,
+    // Audit 2026-08-13 (P1): the active database generation is held fail-closed
+    // in the prod root, so the PG18 cutover target cannot ride an ordinary sync.
+    `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@${ZERO_DIGEST}`,
   ]);
-  assert.equal(HELD_APP_OCCURRENCES.length, 6);
+  assert.equal(HELD_APP_OCCURRENCES.length, 7);
   const heldOccurrence = { ...HELD_APP_OCCURRENCES[1], line: 10 };
   const held = classifyImageOccurrence(heldOccurrence);
   assert.equal(held.held, true);
@@ -451,8 +454,8 @@ test('deduplicates active refs while retaining deliberate held occurrences', asy
   assert.deepEqual([...result.active[0].fields].sort(), ['image', 'operatorImage']);
   assert.equal(result.active[0].occurrences, 2);
   assert.equal(result.activeOccurrences.length, 2);
-  assert.equal(result.held.length, 3);
-  assert.equal(result.heldOccurrences.length, 6);
+  assert.equal(result.held.length, 4);
+  assert.equal(result.heldOccurrences.length, 7);
   assert.equal(result.verified.length, 1);
 });
 
@@ -465,7 +468,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       })),
       verify: async (image) => image,
     }),
-    /exact expected six.*missing/,
+    /exact expected 7.*missing/,
   );
   await assert.rejects(
     validateProductionImages({
@@ -474,7 +477,7 @@ test('rejects a missing or duplicated held workload occurrence', async () => {
       ),
       verify: async (image) => image,
     }),
-    /exact expected six.*extra/,
+    /exact expected 7.*extra/,
   );
 });
 

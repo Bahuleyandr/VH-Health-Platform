@@ -1,6 +1,15 @@
 # Inert C6.2 restore-only proof. It cannot create resources until an operator
 # deliberately replaces every OWNER_INPUT value, seals three separated
 # credentials, records the approved target time, and unsuspends it.
+#
+# NOTE (audit 2026-08-13, P1): `PG18_IMAGE` and `BARMAN_SERVER_NAME` below
+# describe the POST-CUTOVER PostgreSQL 18 generation, while the live cluster is
+# held on PostgreSQL 17 (see cluster.yaml and
+# infra/kubernetes/held/c1-1-pg18-cutover/). That mismatch is contained rather
+# than dangerous: this CronJob is `suspend: true` AND every operator input is
+# still a literal OWNER_INPUT placeholder that the proof script rejects, so it
+# synthesizes nothing. Reconcile both values with the live cluster in the same
+# reviewed change that pins the real PostgreSQL 17 digest — before unsuspending.
 ---
 apiVersion: v1
 kind: ServiceAccount

@@ -40,24 +40,40 @@ token authority, and the exact `repository:<path>:pull` scope; authentication
 and rate-limit failures report actionable diagnostics without printing
 credentials.
 
-The following repositories at the exact all-zero digest are the only
-exceptions, and only in the rendered `infra/kubernetes/apps` root. A tag, a
-different repository spelling, or the same reference in the platform root is
-not held:
+The following references at the exact all-zero digest are the only exceptions,
+and each is bound to one specific render root. A tag, a different repository
+spelling, or the same reference in the wrong root is not held.
+
+Application images, only in the rendered `infra/kubernetes/apps` root:
 
 - `ghcr.io/bahuleyandr/vh-health-platform-backend`
 - `ghcr.io/bahuleyandr/vh-health-platform-adminportal`
 - `ghcr.io/bahuleyandr/vhhealth-staff-web`
 
-For each entry above, the only accepted held form is
-`<repository>@sha256:0000000000000000000000000000000000000000000000000000000000000000`.
-The exception is also bound to the exact six rendered workload occurrences:
-the admin, backend, and staff-web Deployments; the ward-downtime-packs CronJob;
-and both containers in the backend migration Job. A missing, duplicated, or
-additional all-zero occurrence fails the guard.
+Database image, only in the rendered `infra/kubernetes/overlays/prod` root
+(audit 2026-08-13, P1):
 
-They are deliberately held fail-closed until the signed release pipeline
-writes build-emitted digests. The default guard reports them as `HELD`; pass
+- `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm`
+
+The application entries take the form
+`<repository>@sha256:0000000000000000000000000000000000000000000000000000000000000000`;
+the database entry keeps its tag, because the tag names the declared
+generation while the digest is what the operator must supply. The exception is
+also bound to the exact seven rendered workload occurrences: the admin,
+backend, and staff-web Deployments; the ward-downtime-packs CronJob; both
+containers in the backend migration Job; and `Cluster/vhhealth-pg`'s
+`imageName`. A missing, duplicated, or additional all-zero occurrence fails the
+guard.
+
+The application pins are deliberately held fail-closed until the signed release
+pipeline writes build-emitted digests. The database pin is held because the
+exact qualified PostgreSQL 17 minor and digest are operator evidence this
+repository does not hold — see
+[`CNPG_POSTGRES_18_QUALIFICATION.md`](../../../docs/CNPG_POSTGRES_18_QUALIFICATION.md)
+§1 and `infra/kubernetes/held/c1-1-pg18-cutover/README.md`. Holding it
+fail-closed is what keeps the PostgreSQL 18.4 cutover target out of the active
+graph, where an ordinary platform sync would have run an irreversible
+`pg_upgrade`. The default guard reports all four as `HELD`; pass
 `--require-pinned` during activation to reject them.
 
 ## Helm chart boundary

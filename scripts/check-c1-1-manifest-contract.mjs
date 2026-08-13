@@ -32,24 +32,64 @@ export const EXPECTED_AWS_CLI_IMAGE =
 export const EXPECTED_ALPINE_OPENSSL_IMAGE =
   'docker.io/alpine/openssl:3.5.7@sha256:045a40a53b8e283cff95052e0c39f256b7467d48c7445260d4f180fc0e767999';
 
+// The generation the LIVE cluster is declared to run (docs/DEPLOYMENT_GUIDE.md
+// §6, docs/PRODUCTION_DB_HARDENING.md, docs/GO_LIVE_ACTIVATION_CHECKLIST.md A4).
+// The exact secure PG17 minor and its digest are operator evidence this
+// repository does not hold — docs/CNPG_POSTGRES_18_QUALIFICATION.md §1 requires
+// the operator to capture the digest off the running cluster — so the digest is
+// the documented all-zero FAIL-CLOSED placeholder. Audit 2026-08-13, P1: before
+// this, the production Cluster carried EXPECTED_PG_IMAGE, so one ordinary sync
+// of the platform Application would have run a declarative offline pg_upgrade
+// on the live clinical database.
+export const EXPECTED_ACTIVE_PG_IMAGE = `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@sha256:${'0'.repeat(64)}`;
+
+// Pending-GPU clinical-AI deep tier. Held, composed by nothing.
+export const HELD_OLLAMA_IMAGE =
+  'docker.io/ollama/ollama:0.5.4@sha256:18bfb1d605604fd53dcad20d0556df4c781e560ebebcd923454d627c994a0e37';
+
+export const PG18_CUTOVER_HELD_SOURCE =
+  'infra/kubernetes/held/c1-1-pg18-cutover/pg18-cutover-target.yaml';
+export const DEEP_TIER_HELD_SOURCES = [
+  'infra/kubernetes/held/clinical-ai-deep-tier/kustomization.yaml',
+  'infra/kubernetes/held/clinical-ai-deep-tier/statefulset.yaml',
+  'infra/kubernetes/held/clinical-ai-deep-tier/deep-tier-preflight-job.yaml',
+];
+
 export const ALLOWED_ZERO_DIGEST_IMAGES = new Set([
   `ghcr.io/bahuleyandr/vh-health-platform-backend@sha256:${'0'.repeat(64)}`,
   `ghcr.io/bahuleyandr/vh-health-platform-adminportal@sha256:${'0'.repeat(64)}`,
   `ghcr.io/bahuleyandr/vhhealth-staff-web@sha256:${'0'.repeat(64)}`,
+  EXPECTED_ACTIVE_PG_IMAGE,
 ]);
 
 const expectedRenderedPins = [
-  EXPECTED_PG_IMAGE,
+  EXPECTED_ACTIVE_PG_IMAGE,
   'quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332',
-  'docker.io/ollama/ollama:0.5.4@sha256:18bfb1d605604fd53dcad20d0556df4c781e560ebebcd923454d627c994a0e37',
-  'docker.io/library/busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662',
   EXPECTED_CURL_IMAGE,
   EXPECTED_AWS_CLI_IMAGE,
   EXPECTED_ALPINE_OPENSSL_IMAGE,
 ];
 
+// Images that must NEVER appear as a rendered workload image field in either
+// active production root. Each names a capability that is deliberately held
+// outside the active graph; a reappearance here is an unreviewed activation.
+const forbiddenActiveWorkloadImages = [
+  {
+    ref: EXPECTED_PG_IMAGE,
+    why:
+      'PostgreSQL 18.4 is the HELD cutover target; the active graph must stay on its ' +
+      `declared PostgreSQL 17 generation (see ${PG18_CUTOVER_HELD_SOURCE})`,
+  },
+  {
+    ref: HELD_OLLAMA_IMAGE,
+    why:
+      'the pending-GPU clinical-AI deep tier is HELD at ' +
+      'infra/kubernetes/held/clinical-ai-deep-tier/ and must not be composed',
+  },
+];
+
 const pgImageSourceFiles = [
-  'infra/kubernetes/base/cnpg/cluster.yaml',
+  PG18_CUTOVER_HELD_SOURCE,
   'infra/kubernetes/base/cnpg/operator.yaml',
   'infra/kubernetes/base/cnpg/dr-restore-drill.yaml',
   'infra/kubernetes/base/cnpg/pg18-upgrade-rehearsal.yaml',
@@ -336,12 +376,28 @@ export function assertLiteralAndImageContract(platformRender, appsRender) {
   requireCondition(
     zeroDigestRefs.size === ALLOWED_ZERO_DIGEST_IMAGES.size &&
       [...ALLOWED_ZERO_DIGEST_IMAGES].every((ref) => zeroDigestRefs.has(ref)),
-    `rendered all-zero image exceptions must be exactly the three documented app repositories`,
+    'rendered all-zero image exceptions must be exactly the three documented app ' +
+      'repositories plus the fail-closed active PostgreSQL 17 database pin',
   );
 
   const renderedRefSet = new Set(imageRefs.map(({ ref }) => ref));
   for (const expected of expectedRenderedPins) {
     requireCondition(renderedRefSet.has(expected), `required pinned image is absent from production renders: ${expected}`);
+  }
+
+  // Held capabilities must not reappear as rendered workload images. The
+  // version markers scanned above deliberately still carry the PostgreSQL 18.4
+  // provenance pin, so this check is scoped to fields that actually schedule a
+  // container: `image` and `imageName`.
+  for (const { ref, why } of forbiddenActiveWorkloadImages) {
+    const offender = imageRefs.find(
+      (entry) => entry.ref === ref && (entry.key === 'image' || entry.key === 'imageName'),
+    );
+    requireCondition(
+      !offender,
+      `${offender?.target}:${offender?.line} composes a HELD image into the active ` +
+        `production graph (${ref}) — ${why}`,
+    );
   }
 
   return imageRefs;
@@ -355,6 +411,22 @@ function assertVersionAndImageSources(imageRefs) {
       `${path} must use the exact PostgreSQL 18.4 Bookworm image pin`,
     );
   }
+
+  // The live cluster definition is composed into the production overlay, so it
+  // must carry the declared PostgreSQL 17 generation and must not name the
+  // PostgreSQL 18 target at all.
+  const activeCluster = read('infra/kubernetes/base/cnpg/cluster.yaml');
+  requireCondition(
+    activeCluster.includes(`imageName: ${EXPECTED_ACTIVE_PG_IMAGE}`),
+    'base/cnpg/cluster.yaml must pin the fail-closed active PostgreSQL 17 image ' +
+      `(${EXPECTED_ACTIVE_PG_IMAGE})`,
+  );
+  rejectText(
+    activeCluster,
+    new RegExp(`^\\s*imageName:\\s*${escapeRegExp(EXPECTED_PG_IMAGE)}\\s*$`, 'm'),
+    'base/cnpg/cluster.yaml pins the HELD PostgreSQL 18.4 target on the live cluster; ' +
+      `the cutover belongs in ${PG18_CUTOVER_HELD_SOURCE}`,
+  );
 
   const operator = read('infra/kubernetes/base/cnpg/operator.yaml');
   for (const required of [
@@ -406,12 +478,100 @@ function assertVersionAndImageSources(imageRefs) {
     );
   }
 
-  const cnpgPostgresRefs = imageRefs
-    .map(({ ref }) => ref)
-    .filter((ref) => ref.startsWith('ghcr.io/cloudnative-pg/postgresql:'));
+  // Two distinct roles, asserted separately so neither can drift into the other:
+  //   - workload fields (`image` / `imageName`) actually schedule a database
+  //     container and must be the declared, fail-closed PostgreSQL 17 pin;
+  //   - the inert `postgresImage` provenance marker in the operator version
+  //     ConfigMap records the qualified PostgreSQL 18.4 ladder target.
+  const cnpgPostgresRefs = imageRefs.filter(({ ref }) =>
+    ref.startsWith('ghcr.io/cloudnative-pg/postgresql:'),
+  );
   requireCondition(cnpgPostgresRefs.length > 0, 'production render contains no CNPG PostgreSQL image');
-  for (const ref of cnpgPostgresRefs) {
-    requireCondition(ref === EXPECTED_PG_IMAGE, `inconsistent CNPG PostgreSQL image: ${ref}`);
+
+  const workloadRefs = cnpgPostgresRefs.filter(
+    ({ key }) => key === 'image' || key === 'imageName',
+  );
+  requireCondition(
+    workloadRefs.length > 0,
+    'production render schedules no CNPG PostgreSQL container',
+  );
+  for (const { ref, target, line } of workloadRefs) {
+    requireCondition(
+      ref === EXPECTED_ACTIVE_PG_IMAGE,
+      `${target}:${line} runs a CNPG PostgreSQL image that is not the declared, ` +
+        `fail-closed active generation: ${ref}`,
+    );
+  }
+
+  const markerRefs = cnpgPostgresRefs.filter(({ key }) => key === 'postgresImage');
+  requireCondition(
+    markerRefs.length === 1 && markerRefs[0].ref === EXPECTED_PG_IMAGE,
+    'the inert CNPG version marker must record exactly one PostgreSQL 18.4 ladder target',
+  );
+}
+
+// Audit 2026-08-13 (P1): both pending capabilities must stay outside the active
+// graph, be genuinely composed by nothing, and fail closed on activation.
+function assertHeldActivationBoundary(appsDocs) {
+  const appsBarrel = read('infra/kubernetes/apps/kustomization.yaml');
+  rejectText(
+    appsBarrel,
+    /^\s*-\s*ollama\/?\s*$/m,
+    'the app barrel composes ollama/ again; the deep tier is HELD at ' +
+      'infra/kubernetes/held/clinical-ai-deep-tier/',
+  );
+  for (const doc of appsDocs) {
+    rejectText(
+      doc.raw,
+      /^\s{2}name:\s*ollama(-internal)?\s*$/m,
+      'the apps render contains an Ollama workload; the deep tier is HELD',
+    );
+  }
+
+  const cnpgBarrel = read('infra/kubernetes/base/cnpg/kustomization.yaml');
+  for (const excluded of ['dr-restore-drill.yaml', 'pg18-upgrade-rehearsal.yaml']) {
+    rejectText(
+      cnpgBarrel,
+      new RegExp(`^\\s*-\\s*${escapeRegExp(excluded)}\\s*$`, 'm'),
+      `base/cnpg/kustomization.yaml composes the operator-owned template ${excluded}`,
+    );
+  }
+
+  // Each held path must exist, be self-describing, and still carry its exact pin
+  // so "held" never degrades into "quietly deleted".
+  const cutover = read(PG18_CUTOVER_HELD_SOURCE);
+  for (const required of [EXPECTED_PG_IMAGE, 'vhhealth.app/deploy-state: "held"']) {
+    requireCondition(
+      cutover.includes(required),
+      `${PG18_CUTOVER_HELD_SOURCE} lacks required held-cutover value: ${required}`,
+    );
+  }
+  requireCondition(
+    read('infra/kubernetes/held/c1-1-pg18-cutover/kustomization.yaml').includes(
+      'vhhealth-c1-1-pg18-cutover-held',
+    ),
+    'the PG18 cutover kustomization lacks its -held identity',
+  );
+
+  const [deepTierBarrel, deepTierWorkload, deepTierPreflight] =
+    DEEP_TIER_HELD_SOURCES.map(read);
+  requireCondition(
+    deepTierBarrel.includes('vhhealth-clinical-ai-deep-tier-held'),
+    'the deep-tier kustomization lacks its -held identity',
+  );
+  requireCondition(
+    deepTierWorkload.includes(HELD_OLLAMA_IMAGE),
+    'the held deep tier lost its exact pinned Ollama image',
+  );
+  // The preflight must gate activation, not report failure after the fact.
+  for (const required of [
+    'argocd.argoproj.io/hook: PreSync',
+    'argocd.argoproj.io/hook-delete-policy: BeforeHookCreation',
+  ]) {
+    requireCondition(
+      deepTierPreflight.includes(required),
+      `the deep-tier preflight is not a fail-closed activation hook: missing ${required}`,
+    );
   }
 }
 
@@ -1258,6 +1418,7 @@ export function runManifestContract({ kustomize } = {}) {
   assertScheduleObjectStoreAndEndpoint(platformDocs, appsDocs);
   assertBackendArchiveContracts(appsDocs);
   assertCnpgProofContracts(platformDocs, platformRender);
+  assertHeldActivationBoundary(appsDocs);
 
   console.log(
     `[c1.1-contract] OK: ${platformDocs.length} platform + ${appsDocs.length} app resources; ` +
