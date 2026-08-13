@@ -54,6 +54,7 @@ import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache } from './middleware/cacheControlMiddleware.js';
 import { success, error } from './utils/responseHelper.js';
+import { isTrustedIngressProxy } from './utils/trustedProxy.js';
 import { isHl7ReceiveEndpoint } from './utils/urlRedaction.js';
 import { PATIENT_LOOKUP_ROLES } from './config/patientAccessRoles.js';
 import {
@@ -406,7 +407,7 @@ publicSmartFhirResourceRouter.use(
   phiAccessLogger('FHIR_RESOURCE'),
   fhirRoutes,
 );
-app.set('trust proxy', 1); // Required for Render or Cloudflare
+app.set('trust proxy', isTrustedIngressProxy);
 
 function getCanonicalHttpsOrigin() {
   const configuredOrigin =

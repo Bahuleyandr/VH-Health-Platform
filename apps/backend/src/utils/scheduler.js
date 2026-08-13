@@ -915,7 +915,7 @@ if (process.env.NODE_ENV !== 'test') {
   registerCron('* * * * *', withJobLock('interface-engine-outbound-dispatch', async () => {
     await runForEachTenant('interface-engine-outbound-dispatch', tenantId => (
       dispatchOutboundMessages({ tenantId, batchSize: 25, maxInFlight: 100 })
-    ));
+    ), { strict: true });
   }));
 
   // 📅 Every 10 minutes — waitlist auto-fill sweep (roadmap D2): freed

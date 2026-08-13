@@ -145,6 +145,13 @@ function endpointUrlFor(connectorConfig) {
   return safeText(connectorConfig?.endpointUrl || connectorConfig?.endpoint_url);
 }
 
+function backendAdapterFor(version) {
+  return safeText(
+    version?.transform_dsl?.emit?.adapter
+      || version?.routing_policy?.adapter,
+  );
+}
+
 async function assertVersionRuntimeReady(channel, version) {
   assertConnectorCanActivate({
     connectorKind: channel.connector_kind,
@@ -155,6 +162,12 @@ async function assertVersionRuntimeReady(channel, version) {
       throw AppError.badRequest(
         'http_outbound channels require an outbound or bidirectional direction',
         'INTEROP_OUTBOUND_DIRECTION_REQUIRED',
+      );
+    }
+    if (channel.auth_kind !== 'none') {
+      throw AppError.badRequest(
+        'http_outbound runtime supports auth_kind none only',
+        'INTEROP_OUTBOUND_AUTH_UNSUPPORTED',
       );
     }
     const endpointUrl = endpointUrlFor(version.connector_config);
@@ -171,6 +184,18 @@ async function assertVersionRuntimeReady(channel, version) {
       throw AppError.badRequest(
         'http_inbound channels require an inbound or bidirectional direction',
         'INTEROP_INBOUND_DIRECTION_REQUIRED',
+      );
+    }
+    if (channel.auth_kind !== 'tenant_interop_secret' || !channel.auth_sender_identifier) {
+      throw AppError.badRequest(
+        'http_inbound runtime requires tenant_interop_secret authentication and a sender identifier',
+        'INTEROP_INBOUND_AUTH_UNSUPPORTED',
+      );
+    }
+    if (backendAdapterFor(version) === PREVIEW_BACKEND_ADAPTER) {
+      throw AppError.badRequest(
+        'preview-only inbound versions cannot be activated',
+        'INTEROP_PREVIEW_ACTIVATION_FORBIDDEN',
       );
     }
     if (!channel.source_system_id || channel.source_system_status !== 'active') {
@@ -983,7 +1008,13 @@ export async function receiveHttpHl7Message({
   if (!channel || channel.connector_kind !== 'http_inbound' || channel.protocol !== 'hl7v2') {
     throw AppError.notFound('Active HL7 inbound channel not found');
   }
-  if (channel.auth_sender_identifier && channel.auth_sender_identifier !== receiver) {
+  if (channel.auth_kind !== 'tenant_interop_secret' || !channel.auth_sender_identifier) {
+    throw AppError.forbidden(
+      'Active HL7 inbound channel does not have a supported authentication contract',
+      'INTEROP_INBOUND_AUTH_UNSUPPORTED',
+    );
+  }
+  if (channel.auth_sender_identifier !== receiver) {
     throw AppError.forbidden('HL7 receiver does not match channel tenant binding', 'INTEROP_CHANNEL_TENANT_MISMATCH');
   }
   if (channel.source_system_status !== 'active') {
@@ -1040,7 +1071,7 @@ export async function receiveHttpHl7Message({
     context: 'Interface engine HL7 inbound message',
     codePrefix: 'INTEROP_HL7',
   });
-  logger.info('Interface engine HL7 message accepted', {
+  logger.info('Interface engine HL7 message verified', {
     channel_id: channel.id,
     message_type: parsed.msh.messageType,
     control_id: parsed.msh.messageControlId,
@@ -1070,6 +1101,12 @@ export async function enqueueOutboundMessage({
   if (!channel) throw AppError.notFound('Active outbound channel not found');
   if (channel.connector_kind !== 'http_outbound') {
     throw AppError.badRequest('Only http_outbound channels can enqueue outbound deliveries', 'INTEROP_OUTBOUND_CONNECTOR_REQUIRED');
+  }
+  if (channel.auth_kind !== 'none') {
+    throw AppError.badRequest(
+      'Active http_outbound channel does not have a supported authentication contract',
+      'INTEROP_OUTBOUND_AUTH_UNSUPPORTED',
+    );
   }
   if (protocol && protocol !== channel.protocol) {
     throw AppError.badRequest(
@@ -1176,7 +1213,10 @@ export async function dispatchOutboundMessages({
          JOIN interop_channels c
            ON c.tenant_id = m.tenant_id AND c.id = m.channel_id
          JOIN interop_channel_versions v
-           ON v.tenant_id = m.tenant_id AND v.id = m.channel_version_id
+           ON v.tenant_id = m.tenant_id
+          AND v.channel_id = c.id
+          AND v.id = c.active_version_id
+          AND v.id = m.channel_version_id
         WHERE m.tenant_id = $1::uuid
           AND m.direction IN ('outbound', 'bidirectional')
           AND (m.status = 'queued'
@@ -1184,6 +1224,7 @@ export async function dispatchOutboundMessages({
               AND m.last_delivery_outcome = 'definitive_retryable'
               AND m.retry_at <= NOW()))
           AND c.connector_kind = 'http_outbound'
+          AND c.auth_kind = 'none'
           AND c.status = 'active'
           AND v.status = 'active'`,
       tid,
@@ -1208,7 +1249,10 @@ export async function dispatchOutboundMessages({
        JOIN interop_channels c
          ON c.tenant_id = m.tenant_id AND c.id = m.channel_id
        JOIN interop_channel_versions v
-         ON v.tenant_id = m.tenant_id AND v.id = m.channel_version_id
+         ON v.tenant_id = m.tenant_id
+        AND v.channel_id = c.id
+        AND v.id = c.active_version_id
+        AND v.id = m.channel_version_id
        CROSS JOIN LATERAL (
          SELECT COUNT(*)::int AS attempt_count
            FROM interop_message_attempts attempt
@@ -1266,6 +1310,7 @@ export async function dispatchOutboundMessages({
           )
         )
         AND c.connector_kind = 'http_outbound'
+        AND c.auth_kind = 'none'
         AND c.status = 'active'
         AND v.status = 'active'
       ORDER BY COALESCE(m.retry_at, m.updated_at) ASC, m.id ASC
@@ -1281,82 +1326,106 @@ export async function dispatchOutboundMessages({
   for (const message of due) {
     const claimToken = crypto.randomUUID();
     const claimedRows = await runTenantWrite(tid, tx => tx.$queryRawUnsafe(
-      `UPDATE interop_messages
+      `UPDATE interop_messages AS claimed_message
           SET status = 'delivering',
               retry_at = NULL,
               delivery_claim_token = $3::uuid,
-              delivery_claim_generation = delivery_claim_generation + 1,
+              delivery_claim_generation = claimed_message.delivery_claim_generation + 1,
               delivery_claimed_at = NOW(),
               delivery_lease_expires_at = NOW() + ($4::integer * INTERVAL '1 second'),
               updated_at = NOW()
-        WHERE tenant_id = $1::uuid AND id = $2::integer
+         FROM interop_channels AS current_channel,
+              interop_channel_versions AS current_version
+        WHERE claimed_message.tenant_id = $1::uuid
+          AND claimed_message.id = $2::integer
+          AND current_channel.tenant_id = claimed_message.tenant_id
+          AND current_channel.id = claimed_message.channel_id
+          AND current_channel.status = 'active'
+          AND current_channel.connector_kind = 'http_outbound'
+          AND current_channel.direction IN ('outbound', 'bidirectional')
+          AND current_channel.auth_kind = 'none'
+          AND current_channel.protocol = claimed_message.protocol
+          AND current_version.tenant_id = current_channel.tenant_id
+          AND current_version.channel_id = current_channel.id
+          AND current_version.id = current_channel.active_version_id
+          AND current_version.id = claimed_message.channel_version_id
+          AND current_version.status = 'active'
+          AND NULLIF(BTRIM(COALESCE(
+                current_version.connector_config ->> 'endpointUrl',
+                current_version.connector_config ->> 'endpoint_url'
+              )), '') IS NOT NULL
+          AND claimed_message.protocol = ANY($5::text[])
           AND (
-            status = 'queued'
+            claimed_message.status = 'queued'
             OR (
-              status = 'failed'
-              AND last_delivery_outcome = 'definitive_retryable'
-              AND retry_at <= NOW()
+              claimed_message.status = 'failed'
+              AND claimed_message.last_delivery_outcome = 'definitive_retryable'
+              AND claimed_message.retry_at <= NOW()
             )
           )
           AND (
             (
-              arrival_class = 'live'
-              AND effect_disposition = 'live'
-              AND send_authority = 'live_authorized'
-              AND owner_reconciliation_required = false
-              AND owner_release_client_event_id IS NULL
+              claimed_message.arrival_class = 'live'
+              AND claimed_message.effect_disposition = 'live'
+              AND claimed_message.send_authority = 'live_authorized'
+              AND claimed_message.owner_reconciliation_required = false
+              AND claimed_message.owner_release_client_event_id IS NULL
             )
             OR
             (
-              recovery_ledger_version = 1
-              AND arrival_class = 'recovery_backlog'
-              AND effect_disposition = 'late_pending_only'
-              AND send_authority = 'owner_authorized'
-              AND owner_reconciliation_required = false
-              AND owner_release_client_event_id IS NOT NULL
+              claimed_message.recovery_ledger_version = 1
+              AND claimed_message.arrival_class = 'recovery_backlog'
+              AND claimed_message.effect_disposition = 'late_pending_only'
+              AND claimed_message.send_authority = 'owner_authorized'
+              AND claimed_message.owner_reconciliation_required = false
+              AND claimed_message.owner_release_client_event_id IS NOT NULL
               AND EXISTS (
                 SELECT 1
                   FROM clinical_continuity_replay_receipts AS receipt
                   JOIN clinical_continuity_replay_effect_evidence AS effect
                     ON effect.tenant_id = receipt.tenant_id
                    AND effect.client_event_id = receipt.client_event_id
-                 WHERE receipt.tenant_id = interop_messages.tenant_id
-                   AND receipt.client_event_id = interop_messages.owner_release_client_event_id
+                 WHERE receipt.tenant_id = claimed_message.tenant_id
+                   AND receipt.client_event_id = claimed_message.owner_release_client_event_id
                    AND receipt.source_kind = 'held_message_release'
                    AND receipt.interface_family = 'I05'
-                   AND receipt.interop_message_id = interop_messages.id
+                   AND receipt.interop_message_id = claimed_message.id
                    AND receipt.disposition = 'applied'
                    AND receipt.outcome_code = 'held_message_send_authority_rearmed'
                    AND effect.interface_family = 'I05'
-                   AND effect.interop_message_id = interop_messages.id
+                   AND effect.interop_message_id = claimed_message.id
                    AND effect.network_send_performed = false
                    AND effect.command_fingerprint = receipt.client_command_fingerprint
                    AND effect.source_state_fingerprint = receipt.source_state_fingerprint
               )
             )
           )
-          AND delivery_claim_token IS NULL
+          AND claimed_message.delivery_claim_token IS NULL
           AND (
             SELECT COUNT(*)
               FROM interop_message_attempts attempt
-             WHERE attempt.tenant_id = interop_messages.tenant_id
-               AND attempt.message_id = interop_messages.id
+             WHERE attempt.tenant_id = claimed_message.tenant_id
+               AND attempt.message_id = claimed_message.id
                AND attempt.phase = 'deliver_external'
-          ) < $5::integer
-        RETURNING delivery_claim_token::text, delivery_claim_generation,
-                  delivery_lease_expires_at`,
+          ) < current_channel.max_attempts
+        RETURNING claimed_message.delivery_claim_token::text,
+                  claimed_message.delivery_claim_generation,
+                  claimed_message.delivery_lease_expires_at,
+                  current_channel.max_attempts,
+                  current_channel.retry_policy,
+                  current_version.connector_config`,
       tid,
       message.id,
       claimToken,
       OUTBOUND_LEASE_SECONDS,
-      message.max_attempts,
+      IMPLEMENTED_I05_PROTOCOLS,
     ));
     const claim = claimedRows[0];
     if (!claim) continue;
     stats.picked += 1;
     recordInterfaceOutboundClaims('leased');
     const claimedMessage = { ...message, ...claim };
-    const endpointUrl = endpointUrlFor(message.connector_config);
+    const endpointUrl = endpointUrlFor(claimedMessage.connector_config);
     const attemptNumber = Number(message.attempt_count || 0) + 1;
     const idempotencyKey = stableOutboundIdempotencyKey({
       tenantId: tid,
@@ -1382,7 +1451,7 @@ export async function dispatchOutboundMessages({
         response = await safeFetch(endpointUrl, {
           method: 'POST',
           headers: {
-            'Content-Type': message.connector_config?.contentType || 'application/octet-stream',
+            'Content-Type': claimedMessage.connector_config?.contentType || 'application/octet-stream',
             'Idempotency-Key': idempotencyKey,
             'X-VH-Interop-Message-Id': String(message.id),
           },
@@ -1523,10 +1592,10 @@ export async function dispatchOutboundMessages({
     } catch (err) {
       const safe = safeError(err);
       const outcome = err?.deliveryOutcome || (networkAttempted ? 'ambiguous' : 'definitive_permanent');
-      const retryScheduled = outcome === 'definitive_retryable' && attemptNumber < Number(message.max_attempts);
+      const retryScheduled = outcome === 'definitive_retryable' && attemptNumber < Number(claimedMessage.max_attempts);
       const retryAt = retryScheduled
         ? retryAtFor({
-          retryPolicy: message.retry_policy,
+          retryPolicy: claimedMessage.retry_policy,
           attemptNumber,
           jitterKey: `${tid}:${message.id}`,
         })
@@ -1550,7 +1619,7 @@ export async function dispatchOutboundMessages({
             outcome,
             retry_scheduled: retryScheduled,
             retry_at: retryAt?.toISOString() || null,
-            max_attempts: Number(message.max_attempts),
+            max_attempts: Number(claimedMessage.max_attempts),
             claim_token: claimToken,
             claim_generation: claim.delivery_claim_generation,
             owner_reconciliation_required: !retryScheduled,
@@ -1802,6 +1871,7 @@ export async function createReplayBatch({
                AND m.delivery_claim_token IS NULL
                AND attempts.attempt_count < c.max_attempts
                AND c.connector_kind = 'http_outbound'
+               AND c.auth_kind = 'none'
                AND c.status = 'active'
                AND v.status = 'active'
                AND c.active_version_id = v.id

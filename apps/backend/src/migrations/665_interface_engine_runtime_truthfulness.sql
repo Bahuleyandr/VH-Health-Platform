@@ -206,7 +206,7 @@ UPDATE public.interop_messages AS message
    AND message.status = 'delivered'
    AND message.direction IN ('inbound', 'bidirectional')
    AND COALESCE(
-     version.transform_dsl -> 'emit' ->> 'adapter',
+     NULLIF(version.transform_dsl -> 'emit' ->> 'adapter', ''),
      version.routing_policy ->> 'adapter'
    ) = 'backend.interop.preview'
    AND EXISTS (
@@ -299,9 +299,11 @@ DECLARE
   source_record RECORD;
   source_range TEXT;
   endpoint_url TEXT;
+  configured_adapter TEXT;
 BEGIN
   SELECT channel.id, channel.tenant_id, channel.direction,
-         channel.connector_kind, channel.protocol, channel.source_system_id
+         channel.connector_kind, channel.protocol, channel.source_system_id,
+         channel.auth_kind, channel.auth_sender_identifier
     INTO channel_record
     FROM public.interop_channels AS channel
    WHERE channel.tenant_id = NEW.tenant_id
@@ -331,6 +333,12 @@ BEGIN
   END IF;
 
   IF channel_record.connector_kind = 'http_outbound' THEN
+    IF channel_record.auth_kind <> 'none' THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        CONSTRAINT = 'chk_interop_runtime_outbound_auth',
+        MESSAGE = 'http_outbound runtime supports auth_kind none only';
+    END IF;
     endpoint_url := NULLIF(BTRIM(COALESCE(
       NEW.connector_config ->> 'endpointUrl',
       NEW.connector_config ->> 'endpoint_url'
@@ -342,6 +350,23 @@ BEGIN
         MESSAGE = 'active http_outbound versions require an endpoint URL';
     END IF;
   ELSE
+    IF channel_record.auth_kind <> 'tenant_interop_secret'
+       OR NULLIF(BTRIM(channel_record.auth_sender_identifier), '') IS NULL THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        CONSTRAINT = 'chk_interop_runtime_inbound_auth',
+        MESSAGE = 'http_inbound runtime requires tenant_interop_secret authentication and a sender identifier';
+    END IF;
+    configured_adapter := COALESCE(
+      NULLIF(NEW.transform_dsl -> 'emit' ->> 'adapter', ''),
+      NEW.routing_policy ->> 'adapter'
+    );
+    IF configured_adapter = 'backend.interop.preview' THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        CONSTRAINT = 'chk_interop_runtime_preview_activation',
+        MESSAGE = 'preview-only inbound versions cannot be activated';
+    END IF;
     SELECT system.status, system.allowed_source_ips
       INTO source_record
       FROM public.interop_systems AS system
@@ -371,7 +396,8 @@ END;
 $$;
 
 CREATE TRIGGER assert_interop_runtime_activation
-BEFORE INSERT OR UPDATE OF status, connector_config, channel_id
+BEFORE INSERT OR UPDATE OF status, connector_config, transform_dsl,
+  routing_policy, channel_id
 ON public.interop_channel_versions
 FOR EACH ROW EXECUTE FUNCTION public.assert_interop_runtime_activation();
 
@@ -385,6 +411,7 @@ DECLARE
   source_record RECORD;
   source_range TEXT;
   endpoint_url TEXT;
+  configured_adapter TEXT;
 BEGIN
   IF NEW.status <> 'active' THEN
     RETURN NEW;
@@ -401,7 +428,8 @@ BEGIN
       CONSTRAINT = 'chk_interop_channel_active_runtime',
       MESSAGE = 'active interface-engine channel lacks an implemented active version';
   END IF;
-  SELECT version.id, version.status, version.connector_config
+  SELECT version.id, version.status, version.connector_config,
+         version.transform_dsl, version.routing_policy
     INTO active_version
     FROM public.interop_channel_versions AS version
    WHERE version.tenant_id = NEW.tenant_id
@@ -414,6 +442,12 @@ BEGIN
       MESSAGE = 'active interface-engine channel must reference its active version';
   END IF;
   IF NEW.connector_kind = 'http_outbound' THEN
+    IF NEW.auth_kind <> 'none' THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        CONSTRAINT = 'chk_interop_channel_active_runtime',
+        MESSAGE = 'http_outbound runtime supports auth_kind none only';
+    END IF;
     endpoint_url := NULLIF(BTRIM(COALESCE(
       active_version.connector_config ->> 'endpointUrl',
       active_version.connector_config ->> 'endpoint_url'
@@ -425,6 +459,23 @@ BEGIN
         MESSAGE = 'active http_outbound channels require an endpoint URL';
     END IF;
   ELSE
+    IF NEW.auth_kind <> 'tenant_interop_secret'
+       OR NULLIF(BTRIM(NEW.auth_sender_identifier), '') IS NULL THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        CONSTRAINT = 'chk_interop_channel_active_runtime',
+        MESSAGE = 'http_inbound runtime requires tenant_interop_secret authentication and a sender identifier';
+    END IF;
+    configured_adapter := COALESCE(
+      NULLIF(active_version.transform_dsl -> 'emit' ->> 'adapter', ''),
+      active_version.routing_policy ->> 'adapter'
+    );
+    IF configured_adapter = 'backend.interop.preview' THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        CONSTRAINT = 'chk_interop_channel_active_runtime',
+        MESSAGE = 'preview-only inbound versions cannot be activated';
+    END IF;
     SELECT system.status, system.allowed_source_ips
       INTO source_record
       FROM public.interop_systems AS system
@@ -455,7 +506,7 @@ $$;
 
 CREATE TRIGGER assert_interop_channel_active_runtime
 BEFORE INSERT OR UPDATE OF status, active_version_id, direction, connector_kind,
-  protocol, source_system_id
+  protocol, source_system_id, auth_kind, auth_sender_identifier
 ON public.interop_channels
 FOR EACH ROW EXECUTE FUNCTION public.assert_interop_channel_active_runtime();
 
@@ -468,10 +519,13 @@ DECLARE
   configured_adapter TEXT;
   accepted_receipt_exists BOOLEAN;
 BEGIN
-  IF NEW.status <> 'delivered' OR OLD.status = 'delivered' THEN
+  IF NEW.status <> 'delivered' THEN
     RETURN NEW;
   END IF;
-  SELECT COALESCE(version.transform_dsl -> 'emit' ->> 'adapter',
+  IF TG_OP = 'UPDATE' AND OLD.status = 'delivered' THEN
+    RETURN NEW;
+  END IF;
+  SELECT COALESCE(NULLIF(version.transform_dsl -> 'emit' ->> 'adapter', ''),
                   version.routing_policy ->> 'adapter')
     INTO configured_adapter
     FROM public.interop_channel_versions AS version
@@ -483,16 +537,24 @@ BEGIN
       CONSTRAINT = 'chk_interop_preview_not_delivered',
       MESSAGE = 'preview-only interface messages cannot be marked delivered';
   END IF;
-  IF NEW.direction IN ('outbound', 'bidirectional') THEN
-    SELECT EXISTS (
-      SELECT 1
-        FROM public.interop_backend_delivery_receipts AS receipt
-       WHERE receipt.tenant_id = NEW.tenant_id
-         AND receipt.message_id = NEW.id
-         AND receipt.direction = 'outbound'
-         AND receipt.receipt_status = 'accepted'
-    ) INTO accepted_receipt_exists;
-    IF NOT accepted_receipt_exists THEN
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.interop_backend_delivery_receipts AS receipt
+     WHERE receipt.tenant_id = NEW.tenant_id
+       AND receipt.message_id = NEW.id
+       AND receipt.direction = CASE
+             WHEN NEW.direction = 'inbound' THEN 'inbound'
+             ELSE 'outbound'
+           END
+       AND receipt.receipt_status = 'accepted'
+  ) INTO accepted_receipt_exists;
+  IF NOT accepted_receipt_exists THEN
+    IF NEW.direction = 'inbound' THEN
+      RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        CONSTRAINT = 'chk_interop_delivery_acceptance_evidence',
+        MESSAGE = 'inbound interface delivery requires an accepted same-message receipt';
+    ELSE
       RAISE EXCEPTION USING
         ERRCODE = '23514',
         CONSTRAINT = 'chk_interop_delivery_acceptance_evidence',
@@ -504,7 +566,7 @@ END;
 $$;
 
 CREATE TRIGGER assert_interop_message_delivery_evidence
-BEFORE UPDATE OF status ON public.interop_messages
+BEFORE INSERT OR UPDATE OF status ON public.interop_messages
 FOR EACH ROW EXECUTE FUNCTION public.assert_interop_message_delivery_evidence();
 
 REVOKE ALL PRIVILEGES ON FUNCTION public.assert_interop_runtime_activation() FROM PUBLIC;

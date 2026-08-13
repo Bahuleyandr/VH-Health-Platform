@@ -2,6 +2,8 @@ import express from 'express';
 
 import { receiveHttpHl7Message } from '../../services/interfaceEngine/interfaceEngineService.js';
 import { generateACK, parseHL7 } from '../../services/hl7/hl7Parser.js';
+import { AppError } from '../../utils/AppError.js';
+import { resolveIngressClientIp } from '../../utils/trustedProxy.js';
 
 const router = express.Router();
 
@@ -30,8 +32,14 @@ router.post('/channels/:channelKey/hl7', async (req, res, next) => {
       channelKey: req.params.channelKey,
       message,
       headers: req.headers,
-      sourceIp: req.ip,
+      sourceIp: resolveIngressClientIp(req),
     });
+    if (row.status !== 'delivered') {
+      throw AppError.conflict(
+        'HL7 message was validated but not delivered to a clinical backend',
+        'INTEROP_HL7_NOT_DELIVERED',
+      );
+    }
     res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
     return res.status(200).send(generateACK(row.external_control_id || controlId, 'AA', 'Message accepted'));
   } catch (err) {

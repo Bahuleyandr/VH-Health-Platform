@@ -17,11 +17,16 @@ describe('interface-engine runtime migration', () => {
   test('guards activation and database delivery truthfulness', () => {
     expect(migration).toContain('assert_interop_runtime_activation');
     expect(migration).toContain('active http_outbound versions require an endpoint URL');
+    expect(migration).toContain('http_outbound runtime supports auth_kind none only');
+    expect(migration).toContain('http_inbound runtime requires tenant_interop_secret authentication');
+    expect(migration).toContain('preview-only inbound versions cannot be activated');
     expect(migration).toContain('non-empty IP allowlist');
     expect(migration).toContain("channel_record.direction NOT IN ('outbound', 'bidirectional')");
     expect(migration).toContain('preview-only interface messages cannot be marked delivered');
+    expect(migration).toContain('BEFORE INSERT OR UPDATE OF status ON public.interop_messages');
     expect(migration).toContain("SET status = 'transformed'");
     expect(migration).toContain("receipt.evidence ->> 'network_call_performed' = 'false'");
+    expect(migration).toContain('inbound interface delivery requires an accepted same-message receipt');
     expect(migration).toContain('outbound interface delivery requires an accepted same-message receipt');
   });
 
