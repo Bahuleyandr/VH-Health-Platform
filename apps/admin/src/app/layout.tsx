@@ -1,8 +1,8 @@
 // app/layout.tsx  (Server Component: no "use client")
-import './globals.css';
-import { Providers } from './providers';
-import { Toaster } from 'sonner';
-import { ServiceWorkerCleanup } from '@/components/ServiceWorkerCleanup';
+import "./globals.css";
+import { Providers } from "./providers";
+import { Toaster } from "sonner";
+import { LegacyPwaRetirement } from "@/components/LegacyPwaRetirement";
 
 // Force dynamic (per-request) rendering for every route (audit finding M9 /
 // #19). The nonce CSP emitted by src/middleware.ts is per-request; Next can
@@ -14,13 +14,17 @@ import { ServiceWorkerCleanup } from '@/components/ServiceWorkerCleanup';
 // fallback. The admin portal is a low-traffic, auth-gated internal tool whose
 // data is already client-fetched (TanStack Query), so losing the static shell
 // cache is immaterial.
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
       <body>
-        <ServiceWorkerCleanup />
+        <LegacyPwaRetirement />
         <Providers>{children}</Providers>
         <Toaster richColors position="top-right" />
       </body>

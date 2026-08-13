@@ -78,6 +78,17 @@ const eslintConfig = [
           ],
         ),
       ),
+      // These rules protect assistive-technology semantics and currently have
+      // no legacy violations. Keep them blocking while the noisier label and
+      // interaction findings are reduced under the warning ratchet.
+      "jsx-a11y/alt-text": "error",
+      "jsx-a11y/aria-props": "error",
+      "jsx-a11y/aria-proptypes": "error",
+      "jsx-a11y/aria-role": "error",
+      "jsx-a11y/aria-unsupported-elements": "error",
+      "jsx-a11y/role-has-required-aria-props": "error",
+      "jsx-a11y/role-supports-aria-props": "error",
+      "jsx-a11y/tabindex-no-positive": "error",
     },
   },
   {

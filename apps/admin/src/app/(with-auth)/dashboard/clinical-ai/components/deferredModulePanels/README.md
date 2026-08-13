@@ -11,7 +11,6 @@ apps/admin/src/app/(with-auth)/dashboard/clinical-ai/components/
   ClinicalAIReviewQueue.tsx      # shared review queue (simple panels)
   deferredModulePanels/
     README.md                    # this file
-    index.ts                     # barrel — one re-export per panel
     CybersecurityAnomalyPanel.tsx   # SAMPLE — simple list+decide
     PharmacogenomicsPanel.tsx       # SAMPLE — two-tier (genotypes + advisories)
     <YourModule>Panel.tsx
@@ -44,7 +43,7 @@ default export.
 
 Use when the module has more than one table / an upsert form / registry
 plus records (e.g. `pharmacogenomics_support` has a genotype registry
-*and* an advisory queue). Wrap both halves in a single top-level panel
+_and_ an advisory queue). Wrap both halves in a single top-level panel
 component named after the module. The "records" half can still use
 `ClinicalAIReviewQueue` via its `evaluateForm` slot; the bespoke half
 talks directly to `listClinicalAi` / `evaluateClinicalAi` inside a
@@ -64,8 +63,10 @@ talks directly to `listClinicalAi` / `evaluateClinicalAi` inside a
    Also note the relevant routes in
    `apps/backend/src/routes/admin/clinicalAiRoutes.js` and the service
    file (e.g. `apps/backend/src/services/ai/<module>Service.js`).
-5. Add a re-export to `deferredModulePanels/index.ts`. Do **not** edit
-   `clinical-ai/page.tsx` — wiring is Phase 3.
+5. Add a direct dynamic import to `ClinicalAiExpansionPanels.tsx` using
+   `deferredPanel(() => import("./deferredModulePanels/<Name>Panel"))`. Do
+   **not** add a barrel: it would make the heavy panel graph statically
+   reachable and defeat route-level chunking.
 
 ### Naming conventions
 
@@ -91,7 +92,7 @@ hard-coding. The generic helpers accept the path prefix without the
 - TypeScript strict — no `any`. If unavoidable, leave a
   `// TODO: tighten type` comment.
 - Tailwind class conventions follow
-  `apps/admin/src/app/(with-auth)/dashboard/clinical-ai/components/AIExpansionPanels.tsx`.
+  `apps/admin/src/app/(with-auth)/dashboard/clinical-ai/components/ClinicalAiExpansionPanels.tsx`.
 
 ## The `ClinicalAIReviewQueue` prop signature
 
@@ -100,27 +101,23 @@ Import and call as
 
 ```ts
 export type DecideActionVariant =
-  | "primary"
-  | "success"
-  | "danger"
-  | "warning"
-  | "muted";
+  "primary" | "success" | "danger" | "warning" | "muted";
 
 export type DecideAction<TDecision extends string> = {
   value: TDecision;
   label: string;
   variant?: DecideActionVariant;
-  promptForNote?: boolean;        // window.prompt before firing
+  promptForNote?: boolean; // window.prompt before firing
 };
 
 export type FilterOption = { value: string; label: string };
 
 export type FilterSpec = {
-  key: string;                    // becomes listFn param key
+  key: string; // becomes listFn param key
   label: string;
   kind: "select" | "text";
-  options?: FilterOption[];       // for select
-  placeholder?: string;           // for text
+  options?: FilterOption[]; // for select
+  placeholder?: string; // for text
 };
 
 export type ColumnSpec<TRow> = {
@@ -141,11 +138,11 @@ export type ListResult = { count: number } & Record<string, unknown>;
 
 export type ClinicalAIReviewQueueProps<TRow, TDecision extends string> = {
   title: string;
-  moduleKey: string;              // e.g. "pharmacogenomics_support"
+  moduleKey: string; // e.g. "pharmacogenomics_support"
   icon?: React.ReactNode;
   description?: string;
   listFn: (params: Record<string, unknown>) => Promise<ListResult>;
-  rowsKey: string;                // e.g. "advisories"
+  rowsKey: string; // e.g. "advisories"
   decideFn: (
     id: number | string,
     decision: TDecision,
@@ -155,12 +152,12 @@ export type ClinicalAIReviewQueueProps<TRow, TDecision extends string> = {
   filters?: FilterSpec[];
   defaultFilters?: Record<string, string>;
   columns: ColumnSpec<TRow>[];
-  decideActions?: DecideAction<TDecision>[];   // omit → no decide column
+  decideActions?: DecideAction<TDecision>[]; // omit → no decide column
   kpis?: KpiSpec<TRow>[];
-  evaluateForm?: React.ReactNode;              // rendered above the table
+  evaluateForm?: React.ReactNode; // rendered above the table
   emptyState?: string;
   rowKey?: (row: TRow) => string | number;
-  defaultLimit?: number;                       // default 50
+  defaultLimit?: number; // default 50
 };
 ```
 
@@ -173,7 +170,7 @@ Behaviour:
   Buttons with `promptForNote: true` prompt via `window.prompt` and
   pass the note through to `decideFn`.
 - Empty / loading / error states follow the existing
-  `AIExpansionPanels.tsx` visual language (`text-sm text-slate-500`,
+  `ClinicalAiExpansionPanels.tsx` visual language (`text-sm text-slate-500`,
   red-50 border for errors).
 
 ## Worked example — simple panel
@@ -352,20 +349,12 @@ Key points the two-tier pattern illustrates:
   `evaluateForm={<PgxEvaluateForm />}` rather than duplicating
   the filter/table/decide plumbing.
 
-## Phase-3 wiring
+## Runtime wiring
 
-Wiring these panels into the clinical-AI page is Phase 3. When the time
-comes, import from the barrel:
-
-```tsx
-import {
-  CybersecurityAnomalyPanel,
-  PharmacogenomicsPanel,
-} from "./components/deferredModulePanels";
-```
-
-and drop `<CybersecurityAnomalyPanel />` alongside the existing panels
-in `apps/admin/src/app/(with-auth)/dashboard/clinical-ai/page.tsx`.
+`ClinicalAiExpansionPanels.tsx` is the runtime registry. Every panel is a
+direct `next/dynamic` import so Turbopack can emit it independently. The page
+must continue to import only that registry, never individual panel modules or
+a directory barrel.
 
 ## Verification
 
