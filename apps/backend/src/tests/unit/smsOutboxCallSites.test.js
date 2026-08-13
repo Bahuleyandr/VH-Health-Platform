@@ -232,10 +232,10 @@ describe('appointment reminder job', () => {
       expect(String(sql)).not.toContain('BETWEEN');
       expect(tenantId).toBe(TENANT_ID);
       expect(fallbackTimezone).toBeTruthy();
-      expect(from).toBeInstanceOf(Date);
-      expect(until).toBeInstanceOf(Date);
+      expect(from).toMatch(/Z$/);
+      expect(until).toMatch(/Z$/);
     }
-    expect(selectCalls.map(([, , , from, until]) => until.getTime() - from.getTime()))
+    expect(selectCalls.map(([, , , from, until]) => Date.parse(until) - Date.parse(from)))
       .toEqual([60 * 60 * 1000, 60 * 60 * 1000]);
   });
 
@@ -260,7 +260,7 @@ describe('appointment reminder job', () => {
     expect(flagWrites[0]).not.toContain('ANY($1)');
   });
 
-  it('leaves the reminder eligible when neither patient intent can be recorded', async () => {
+  it('rejects after attempting every due reminder when patient intents cannot be recorded', async () => {
     queueAppointmentReminderSmsMock.mockResolvedValue({
       queued: false, outboxId: null, duplicate: false, reason: 'queue_failed',
     });
@@ -271,14 +271,24 @@ describe('appointment reminder job', () => {
         patient_user_id: 80, patient_name: 'Devi', patient_phone: '9000000004',
         doctor_name: 'Rao', department: 'Cardiology',
       }],
+      due1h: [{
+        id: 35, tenant_id: TENANT_ID, appointment_time: '11:30', token_number: 8,
+        patient_user_id: 81, patient_name: 'Esha', patient_phone: '9000000005',
+        doctor_user_id: null, doctor_uid: null,
+        doctor_name: 'Rao', department: 'Cardiology',
+      }],
     });
 
-    const result = await sendTimedReminders({
+    await expect(sendTimedReminders({
       tenantId: TENANT_ID,
       now: new Date('2030-01-01T04:00:00Z'),
+    })).rejects.toMatchObject({
+      code: 'REMINDER_BATCH_RECORD_FAILED',
+      result: { due24h: 1, due1h: 1, queued24h: 0, queued1h: 0 },
     });
 
-    expect(result).toMatchObject({ due24h: 1, queued24h: 0 });
+    expect(queueAppointmentReminderSmsMock).toHaveBeenCalledTimes(2);
+    expect(notificationOutboxQueueMock).toHaveBeenCalledTimes(2);
     expect(loggerMock.warn.mock.calls.some(
       ([line]) => String(line).includes('could not be recorded on any patient channel'),
     )).toBe(true);

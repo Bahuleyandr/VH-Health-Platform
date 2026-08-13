@@ -101,12 +101,14 @@ describe('NL9-P2 NPS service and scheduled request rail', () => {
 
   it('gates post-appointment NPS requests on consent and dedupes the appointment survey', () => {
     const workflow = read(appointmentWorkflowPath);
-    expect(workflow).toMatch(/INSERT INTO scheduled_notifications \(user_id, type, data, send_at, status\)/);
+    expect(workflow).toMatch(/INSERT INTO scheduled_notifications[\s\S]*\(tenant_id, user_id, type, data, send_at, status\)/);
+    expect(workflow).toMatch(/SELECT \$4::uuid, \$1::int, 'feedback_request'/);
     expect(workflow).toMatch(/pc\.consent_type IN \('nps_survey', 'feedback', 'patient_feedback', 'care_reminder_push', 'care_reminder_whatsapp'\)/);
     expect(workflow).toMatch(/pc\.granted IS TRUE/);
     expect(workflow).toMatch(/pc\.revoked_at IS NULL/);
     expect(workflow).toMatch(/COALESCE\(sn\.data->>'appointment_id', ''\) = \$3::text/);
     expect(workflow).toMatch(/COALESCE\(sn\.data->>'survey', ''\) = 'nps'/);
+    expect(workflow).toMatch(/WHERE sn\.tenant_id = \$4::uuid/);
     expect(workflow).toMatch(/sn\.status IN \('pending', 'sent'\)/);
     expect(workflow).toMatch(/survey: 'nps'/);
   });

@@ -313,6 +313,11 @@ export function emitDailyOps(snapshot, { tenantId } = {}) {
   }
 }
 
+export async function emitDailyOpsConfirmed(snapshot, { tenantId } = {}) {
+  const { broadcastConfirmed } = await import('./wsServer.js');
+  return broadcastConfirmed('admin:daily-ops', snapshot, { tenantId });
+}
+
 /** Teleconsult operations snapshot push (per-tenant cron). Payload is non-PHI telemetry. */
 export function emitTeleconsultOps(snapshot, { tenantId } = {}) {
   try {
@@ -320,6 +325,11 @@ export function emitTeleconsultOps(snapshot, { tenantId } = {}) {
   } catch (err) {
     logger.warn('emitTeleconsultOps failed:', err.message);
   }
+}
+
+export async function emitTeleconsultOpsConfirmed(snapshot, { tenantId } = {}) {
+  const { broadcastConfirmed } = await import('./wsServer.js');
+  return broadcastConfirmed('admin:teleconsult-ops', snapshot, { tenantId });
 }
 
 /** OR board change (case scheduled / status changed / cancelled). */

@@ -80,7 +80,6 @@ const rbacConfig = {
   userRoutes: [GENERAL_STAFF, ADMIN],
   userSelfRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
   authenticationModule: [ADMIN],
-  firebaseAdminRoutes: [ADMIN],
   // Bell-icon endpoints — every authenticated user (patient + every staff
   // role) needs `GET /notifications/my`. Pharmacy/Lab/HR previously got
   // 403 because they weren't listed; the staff app shows a perpetual

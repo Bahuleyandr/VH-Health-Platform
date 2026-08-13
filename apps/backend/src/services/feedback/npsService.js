@@ -410,8 +410,11 @@ export async function getNpsDashboard({
      ), requests AS (
        SELECT COUNT(*)::int AS request_count
          FROM scheduled_notifications sn
-         JOIN users u ON u.id = sn.user_id
-        WHERE u.tenant_id = $1::uuid
+         JOIN users u
+           ON u.tenant_id = sn.tenant_id
+          AND u.id = sn.user_id
+        WHERE sn.tenant_id = $1::uuid
+          AND u.tenant_id = $1::uuid
           AND sn.type IN ('feedback_request', 'nps_request')
           AND sn.created_at >= NOW() - $2::int * INTERVAL '1 day'
      )
@@ -449,8 +452,11 @@ export async function getNpsDashboard({
      ), requests AS (
        SELECT sn.created_at::date AS day, COUNT(*)::int AS request_count
          FROM scheduled_notifications sn
-         JOIN users u ON u.id = sn.user_id
-        WHERE u.tenant_id = $1::uuid
+         JOIN users u
+           ON u.tenant_id = sn.tenant_id
+          AND u.id = sn.user_id
+        WHERE sn.tenant_id = $1::uuid
+          AND u.tenant_id = $1::uuid
           AND sn.type IN ('feedback_request', 'nps_request')
           AND sn.created_at >= NOW() - $2::int * INTERVAL '1 day'
         GROUP BY sn.created_at::date

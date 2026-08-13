@@ -8,6 +8,7 @@ import {
   recordProviderReceipt,
 } from '../services/notification/notificationDeliveryLedgerService.js';
 import {
+  __testing__ as reminderTesting,
   processPendingScheduledNotifications,
   sendTimedReminders,
 } from '../utils/notifications/appointmentReminderJob.js';
@@ -140,6 +141,47 @@ describeIfDb('appointment and scheduled notification delivery durability', () =>
     ]);
     expect(intents.some(row => row.source_event_key.endsWith(`:${upper1h.id}`))).toBe(false);
     expect(intents.some(row => row.source_event_key.endsWith(`:${upper24h.id}`))).toBe(false);
+  }, 30000);
+
+  test('due selection is identical in UTC and non-UTC database sessions', async () => {
+    const fixture = await createRecipientFixture('session-timezone');
+    const [appointment] = await prisma.$queryRawUnsafe(
+      `INSERT INTO appointments
+         (tenant_id, phone, patient_id, patient_name, doctor_name,
+          appointment_date, appointment_time, status, token_number,
+          created_at, updated_at)
+       VALUES
+         ($1::uuid, $2::text, $3::integer, 'Timezone patient', 'Rao',
+          '2031-03-15'::date, '09:30', 'CONFIRMED', 'TZ1', NOW(), NOW())
+       RETURNING id`,
+      fixture.tenantId,
+      uniquePhone(),
+      fixture.userId,
+    );
+    const window = reminderTesting.reminderWindow(
+      new Date('2031-03-15T03:30:00.000Z'),
+      '1h',
+    );
+
+    async function selectInSession(timeZone) {
+      return setTenantTx(fixture.tenantId, async (tx) => {
+        const [posture] = await tx.$queryRawUnsafe(
+          `SELECT set_config('TimeZone', $1::text, true) AS timezone`,
+          timeZone,
+        );
+        const due = await reminderTesting.loadDueAppointmentsWithClient(tx, {
+          tenantId: fixture.tenantId,
+          ...window,
+          reminderKind: '1h',
+        });
+        return { timeZone: posture.timezone, ids: due.map(row => row.id) };
+      });
+    }
+
+    const utc = await selectInSession('UTC');
+    const kolkata = await selectInSession('Asia/Kolkata');
+    expect(utc).toEqual({ timeZone: 'UTC', ids: [appointment.id] });
+    expect(kolkata).toEqual({ timeZone: 'Asia/Kolkata', ids: utc.ids });
   }, 30000);
 
   test('two same-day appointments are filtered by their tenant-local time and queued SMS is not delivery', async () => {

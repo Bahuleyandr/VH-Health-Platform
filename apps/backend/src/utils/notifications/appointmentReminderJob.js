@@ -89,11 +89,16 @@ async function reconcileAppointmentReminderReceipts(tenantId) {
   });
 }
 
-async function loadDueAppointments({ tenantId, from, until, reminderKind }) {
+async function loadDueAppointmentsWithClient(tx, {
+  tenantId,
+  from,
+  until,
+  reminderKind,
+}) {
   const reminderPredicate = reminderKind === '24h'
     ? 'appointment.reminder_24h_sent IS NOT TRUE'
     : 'appointment.reminder_1h_sent IS NOT TRUE';
-  return setTenant(tenantId, tx => tx.$queryRawUnsafe(
+  return tx.$queryRawUnsafe(
     `WITH tenant_clock AS MATERIALIZED (
        SELECT tenant.id AS tenant_id,
               COALESCE(configured_timezone.name, fallback_timezone.name, 'Asia/Kolkata')
@@ -141,9 +146,18 @@ async function loadDueAppointments({ tenantId, from, until, reminderKind }) {
       ORDER BY appointment_date, appointment_time, id`,
     tenantId,
     DEFAULT_TIMEZONE,
+    from.toISOString(),
+    until.toISOString(),
+  );
+}
+
+async function loadDueAppointments({ tenantId, from, until, reminderKind }) {
+  return setTenant(tenantId, tx => loadDueAppointmentsWithClient(tx, {
+    tenantId,
     from,
     until,
-  ), { readOnly: true });
+    reminderKind,
+  }), { readOnly: true });
 }
 
 function reminderCopy(appointment, hoursAhead) {
@@ -179,22 +193,34 @@ async function queueAppointmentReminderPush(appointment, hoursAhead) {
 }
 
 async function queuePatientReminder(appointment, hoursAhead) {
-  const smsIntent = await queueAppointmentReminderSms({
-    tenantId: appointment.tenant_id,
-    recipientId: appointment.patient_user_id,
-    phone: appointment.patient_phone,
-    patientName: appointment.patient_name,
-    doctorName: appointment.doctor_name,
-    time: appointment.appointment_time,
-    hoursAhead,
-    tokenNumber: appointment.token_number,
-    appointmentId: appointment.id,
-  });
-  const pushIntent = await queueAppointmentReminderPush(appointment, hoursAhead);
-  return {
-    smsRecorded: Boolean(smsIntent?.queued),
-    pushRecorded: Boolean(pushIntent?.id),
+  const [sms, push] = await Promise.allSettled([
+    queueAppointmentReminderSms({
+      tenantId: appointment.tenant_id,
+      recipientId: appointment.patient_user_id,
+      phone: appointment.patient_phone,
+      patientName: appointment.patient_name,
+      doctorName: appointment.doctor_name,
+      time: appointment.appointment_time,
+      hoursAhead,
+      tokenNumber: appointment.token_number,
+      appointmentId: appointment.id,
+    }),
+    queueAppointmentReminderPush(appointment, hoursAhead),
+  ]);
+  const recorded = {
+    smsRecorded: sms.status === 'fulfilled' && Boolean(sms.value?.queued),
+    pushRecorded: push.status === 'fulfilled' && Boolean(push.value?.id),
   };
+  const failures = [sms, push]
+    .filter(outcome => outcome.status === 'rejected')
+    .map(outcome => outcome.reason);
+  if (failures.length > 0) {
+    const error = new AggregateError(failures, 'One or more patient reminder channels failed');
+    error.code = 'REMINDER_CHANNEL_RECORD_FAILED';
+    error.recorded = recorded;
+    throw error;
+  }
+  return recorded;
 }
 
 async function notifyDoctorOfDueAppointment(appointment) {
@@ -224,30 +250,40 @@ async function notifyDoctorOfDueAppointment(appointment) {
 
 async function processReminderBatch(appointments, hoursAhead) {
   let recorded = 0;
+  const failures = [];
   for (const appointment of appointments) {
     try {
       const result = await queuePatientReminder(appointment, hoursAhead);
       if (result.smsRecorded || result.pushRecorded) recorded += 1;
       else {
+        const err = new Error(
+          `${hoursAhead}h reminder for appointment ${appointment.id} `
+          + 'could not be recorded on any patient channel',
+        );
+        err.code = 'REMINDER_RECIPIENT_CHANNEL_MISSING';
+        failures.push(err);
         logger.warn(
           `[Reminders] ${hoursAhead}h reminder for appointment ${appointment.id} `
           + 'could not be recorded on any patient channel',
         );
       }
-      if (hoursAhead === 1) {
-        try {
-          await notifyDoctorOfDueAppointment(appointment);
-        } catch (err) {
-          logger.warn(
-            `[Reminders] doctor appointment notification failed for ${appointment.id}: ${err.message}`,
-          );
-        }
-      }
     } catch (err) {
+      if (err?.recorded?.smsRecorded || err?.recorded?.pushRecorded) recorded += 1;
+      failures.push(err);
       logger.warn(`[Reminders] ${hoursAhead}h reminder queue failed for ${appointment.id}: ${err.message}`);
     }
+    if (hoursAhead === 1) {
+      try {
+        await notifyDoctorOfDueAppointment(appointment);
+      } catch (err) {
+        failures.push(err);
+        logger.warn(
+          `[Reminders] doctor appointment notification failed for ${appointment.id}: ${err.message}`,
+        );
+      }
+    }
   }
-  return recorded;
+  return { recorded, failures };
 }
 
 /**
@@ -267,16 +303,23 @@ export async function sendTimedReminders({ tenantId = getCurrentTenantId(), now 
         loadDueAppointments({ tenantId: tid, ...window24h, reminderKind: '24h' }),
         loadDueAppointments({ tenantId: tid, ...window1h, reminderKind: '1h' }),
       ]);
-      const queued24h = await processReminderBatch(due24h, 24);
-      const queued1h = await processReminderBatch(due1h, 1);
+      const batch24h = await processReminderBatch(due24h, 24);
+      const batch1h = await processReminderBatch(due1h, 1);
       const result = {
         due24h: due24h.length,
         due1h: due1h.length,
-        queued24h,
-        queued1h,
+        queued24h: batch24h.recorded,
+        queued1h: batch1h.recorded,
         ...reconciled,
       };
       logger.info('[Reminders] Tenant reminder sweep complete', { tenant_id: tid, ...result });
+      const failures = [...batch24h.failures, ...batch1h.failures];
+      if (failures.length > 0) {
+        const error = new AggregateError(failures, 'One or more appointment reminders were not recorded');
+        error.code = 'REMINDER_BATCH_RECORD_FAILED';
+        error.result = result;
+        throw error;
+      }
       return result;
     } catch (err) {
       logger.error(`[Reminders] tenant ${tid} reminder sweep failed: ${err?.message || err}`);
@@ -491,6 +534,7 @@ export async function processPendingScheduledNotifications({
 
 export const __testing__ = Object.freeze({
   reminderWindow,
+  loadDueAppointmentsWithClient,
   scheduledNotificationSourceKey,
   renderScheduledNotification,
 });

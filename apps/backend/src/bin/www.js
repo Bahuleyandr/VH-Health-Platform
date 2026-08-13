@@ -225,6 +225,7 @@ function onListening() {
   logger.info(`VH Health Backend running on ${bind}`);
 
   initWebSocket(server);
+  void schedulerModule?.primeOperationalRealtimeChannels?.();
 }
 
 // Timer handle for the reliability metrics collector (set after server.listen).

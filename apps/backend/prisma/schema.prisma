@@ -9301,11 +9301,12 @@ model scheduled_notifications {
   created_at DateTime  @default(now()) @db.Timestamptz(6)
   tenant_id  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   tenants    tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_scheduled_notifications_tenant")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_notifications_user_fk")
+  users      users     @relation(fields: [tenant_id, user_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_notifications_tenant_user_fk")
 
   @@index([user_id, status], map: "idx_scheduled_notifications_user")
   @@index([send_at], map: "idx_scheduled_notifications_pending_due", where: raw("((status)::text = 'pending'::text)"))
   @@index([tenant_id], map: "idx_scheduled_notifications_tenant_id")
+  @@index([tenant_id, user_id, status], map: "idx_scheduled_notifications_tenant_user_status")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -10940,6 +10941,7 @@ model tenants {
   salary_advances                                      salary_advances[]
   salary_arrears                                       salary_arrears[]
   salary_revisions                                     salary_revisions[]
+  scheduled_job_tenant_runs                            scheduled_job_tenant_runs[]
   scheduled_notifications                              scheduled_notifications[]
   scheduling_overbook_audit_events                     scheduling_overbook_audit_events[]
   scheduling_overbook_policies                         scheduling_overbook_policies[]
@@ -11860,6 +11862,7 @@ model users {
   @@unique([tenant_id, phone], map: "uniq_users_tenant_phone")
   @@unique([tenant_id, uid], map: "ux_users_tenant_uid_for_pathways")
   @@unique([tenant_id, id, uid], map: "ux_users_tenant_id_id_uid_for_cc_replay")
+  @@unique([tenant_id, id], map: "ux_users_tenant_id_id")
   @@index([tenant_id, scim_provider_id, scim_external_id], map: "idx_users_scim_provider_external", where: raw("((scim_provider_id IS NOT NULL) AND (scim_external_id IS NOT NULL))"))
   @@index([tenant_id, is_break_glass_account], map: "idx_users_break_glass_accounts", where: raw("(is_break_glass_account = true)"))
   @@index([preferred_language], map: "idx_users_preferred_language")
@@ -27589,6 +27592,42 @@ model hl7_inbound_clinical_receipts {
   @@unique([tenant_id, sender_identity, message_control_id], map: "ux_hl7_inbound_clinical_receipt_identity")
   @@unique([tenant_id, timeline_event_id], map: "ux_hl7_inbound_clinical_receipt_timeline")
   @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_hl7_inbound_clinical_receipts_patient")
+}
+
+model scheduled_job_runs {
+  id                        BigInt                      @id @default(autoincrement())
+  job_label                 String                      @db.VarChar(160)
+  lock_key                  String                      @db.VarChar(160)
+  discovery_status          String                      @default("pending") @db.VarChar(24)
+  aggregate_status          String                      @default("running") @db.VarChar(24)
+  tenants_discovered        Int                         @default(0)
+  tenants_succeeded         Int                         @default(0)
+  tenants_failed            Int                         @default(0)
+  tenants_unresolved        Int                         @default(0)
+  failure_code              String?                     @db.VarChar(80)
+  started_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  finished_at               DateTime?                   @db.Timestamptz(6)
+  scheduled_job_tenant_runs scheduled_job_tenant_runs[]
+
+  @@index([finished_at, id], map: "idx_scheduled_job_runs_finished_retention", where: raw("((aggregate_status)::text <> 'running'::text)"))
+  @@index([job_label, started_at(sort: Desc)], map: "idx_scheduled_job_runs_label_started")
+  @@index([started_at, id], map: "idx_scheduled_job_runs_running_started", where: raw("((aggregate_status)::text = 'running'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model scheduled_job_tenant_runs {
+  run_id             BigInt
+  tenant_id          String             @db.Uuid
+  status             String             @default("running") @db.VarChar(16)
+  failure_code       String?            @db.VarChar(80)
+  started_at         DateTime           @default(now()) @db.Timestamptz(6)
+  finished_at        DateTime?          @db.Timestamptz(6)
+  scheduled_job_runs scheduled_job_runs @relation(fields: [run_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_job_tenant_runs_run_fk")
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "scheduled_job_tenant_runs_tenant_fk")
+
+  @@id([run_id, tenant_id])
+  @@index([tenant_id, started_at(sort: Desc)], map: "idx_scheduled_job_tenant_runs_tenant_started")
 }
 
 enum transplant_organ_type {

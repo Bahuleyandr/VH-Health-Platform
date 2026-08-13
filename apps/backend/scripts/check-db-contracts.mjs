@@ -26,12 +26,15 @@ try {
     );
     if (report.seeded) {
       console.log(
-        `Seed coverage: ${report.seeded.nonEmptyAppTables}/${report.seeded.totalAppTables} app tables non-empty.`
+        `Seed inventory (advisory): ${report.seeded.nonEmptyAppTables}/${report.seeded.totalAppTables} app tables non-empty.`
       );
       if (report.seeded.intentionallyEmptyAppTables.length > 0) {
         console.log(
           `Intentionally empty: ${report.seeded.intentionallyEmptyAppTables.join(', ')}.`
         );
+      }
+      for (const invariant of report.seeded.invariants) {
+        console.log(`${invariant.ok ? 'ok' : 'x'} ${invariant.id}: ${invariant.label}`);
       }
     }
     for (const failure of report.failures) {

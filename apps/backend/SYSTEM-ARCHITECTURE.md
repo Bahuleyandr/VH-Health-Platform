@@ -378,10 +378,6 @@ Base URL: `http://localhost:5000/api/v1`
 | POST | `/firebase/link-account` | Link existing account |
 | POST | `/firebase/update-fcm-token` | Update FCM token |
 | POST | `/firebase/revoke-session` | Revoke session |
-| POST | `/firebase/admin/users` | Admin: list users |
-| POST | `/firebase/admin/devices` | Admin: list devices |
-| POST | `/firebase/admin/revoke-user-tokens` | Admin: revoke tokens |
-| POST | `/firebase/admin/cleanup-devices` | Admin: cleanup devices |
 
 #### Admin Auth (`/auth/admin`)
 | Method | Path | Description |

@@ -729,14 +729,16 @@ export const completeAppointment = async (req, res) => {
     setImmediate(async () => {
       try {
         const scheduled = await prisma.$queryRawUnsafe(
-          `INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
-           SELECT $1::int, 'feedback_request', $2::jsonb, NOW() + INTERVAL '2 hours', 'pending'
-            WHERE EXISTS (
+          `INSERT INTO scheduled_notifications
+             (tenant_id, user_id, type, data, send_at, status)
+           SELECT $4::uuid, $1::int, 'feedback_request', $2::jsonb,
+                  NOW() + INTERVAL '2 hours', 'pending'
+             WHERE EXISTS (
               SELECT 1
                 FROM users u
                 JOIN patient_consents pc
                   ON pc.patient_uid = u.uid
-                 AND pc.tenant_id = $4::uuid
+                 AND pc.tenant_id = u.tenant_id
                WHERE u.id = $1::int
                  AND u.tenant_id = $4::uuid
                  AND pc.consent_type IN ('nps_survey', 'feedback', 'patient_feedback', 'care_reminder_push', 'care_reminder_whatsapp')
@@ -748,7 +750,8 @@ export const completeAppointment = async (req, res) => {
               AND NOT EXISTS (
                 SELECT 1
                   FROM scheduled_notifications sn
-                 WHERE sn.user_id = $1::int
+                 WHERE sn.tenant_id = $4::uuid
+                   AND sn.user_id = $1::int
                    AND sn.type IN ('feedback_request', 'nps_request')
                    AND COALESCE(sn.data->>'appointment_id', '') = $3::text
                    AND COALESCE(sn.data->>'survey', '') = 'nps'

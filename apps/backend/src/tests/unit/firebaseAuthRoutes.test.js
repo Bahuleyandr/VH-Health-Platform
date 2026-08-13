@@ -237,58 +237,21 @@ describe('firebase auth route protections', () => {
     expect(res.body.uid).toBe('550e8400-e29b-41d4-a716-446655440001');
   });
 
-  describe('firebaseAdminRoutes admin block', () => {
-    const adminRoutes = [
+  describe('retired Firebase admin surface', () => {
+    const retiredAdminRoutes = [
       ['get', '/firebase/admin/users'],
       ['get', '/firebase/admin/devices'],
       ['post', '/firebase/admin/revoke-user-tokens'],
       ['post', '/firebase/admin/cleanup-devices'],
     ];
 
-    it.each(adminRoutes)('rejects %s %s without a JWT (401, not silently open)', async (method, path) => {
-      const res = await request(buildApp())[method](path);
-      expect(res.statusCode).toBe(401);
-    });
-
-    it.each(adminRoutes)('rejects %s %s for a non-admin JWT (403, not 401 from a missing req.user)', async (method, path) => {
-      const res = await request(buildApp())[method](path).set('Authorization', 'Bearer patient-token');
-      expect(res.statusCode).toBe(403);
-    });
-
-    it('GET /admin/users honestly reports Not Implemented for a valid admin JWT', async () => {
-      const res = await request(buildApp())
-        .get('/firebase/admin/users')
+    it.each(retiredAdminRoutes)('does not publish %s %s', async (method, path) => {
+      const anonymous = await request(buildApp())[method](path);
+      const admin = await request(buildApp())[method](path)
         .set('Authorization', 'Bearer admin-token');
 
-      expect(res.statusCode).toBe(501);
-      expect(res.body.success).toBe(false);
-      expect(res.body.data).toBeUndefined();
-    });
-
-    it('GET /admin/devices reaches the handler for a valid admin JWT (501 honest-not-implemented, not 401/200-fake)', async () => {
-      const res = await request(buildApp())
-        .get('/firebase/admin/devices')
-        .set('Authorization', 'Bearer admin-token');
-
-      expect(res.statusCode).toBe(501);
-      expect(res.body.success).toBe(false);
-      expect(res.body.data).toBeUndefined();
-    });
-
-    it('POST /admin/revoke-user-tokens reaches the handler for a valid admin JWT (501, not 401)', async () => {
-      const res = await request(buildApp())
-        .post('/firebase/admin/revoke-user-tokens')
-        .set('Authorization', 'Bearer admin-token');
-
-      expect(res.statusCode).toBe(501);
-    });
-
-    it('POST /admin/cleanup-devices reaches the handler for a valid admin JWT (501, not 401)', async () => {
-      const res = await request(buildApp())
-        .post('/firebase/admin/cleanup-devices')
-        .set('Authorization', 'Bearer admin-token');
-
-      expect(res.statusCode).toBe(501);
+      expect(anonymous.statusCode).toBe(404);
+      expect(admin.statusCode).toBe(404);
     });
   });
 });

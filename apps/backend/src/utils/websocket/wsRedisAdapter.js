@@ -73,6 +73,9 @@ export function createWsFanout() {
   let pub = null;
   let sub = null;
   let enabled = false;
+  let subscriptionReady = false;
+  let subscriptionReadyPromise = Promise.resolve(false);
+  let subscriptionGeneration = 0;
 
   // The local in-process delivery loops, registered by wsServer.
   //   deliverBroadcast(channel, event, data, tenantId)
@@ -135,28 +138,59 @@ export function createWsFanout() {
       }
     };
 
+    const activeSub = sub;
     const doSubscribe = () => {
+      const generation = ++subscriptionGeneration;
+      subscriptionReady = false;
       try {
-        const r = sub.psubscribe(PATTERN);
-        if (r && typeof r.catch === 'function') {
-          r.catch((err) => logger.error('WS fan-out psubscribe failed:', err?.message || err));
-        }
+        const r = activeSub.psubscribe(PATTERN);
+        return Promise.resolve(r)
+          .then(() => {
+            if (generation !== subscriptionGeneration || sub !== activeSub || !enabled) {
+              return false;
+            }
+            subscriptionReady = true;
+            return true;
+          })
+          .catch((err) => {
+            if (generation === subscriptionGeneration && sub === activeSub) {
+              subscriptionReady = false;
+              logger.error('WS fan-out psubscribe failed:', err?.message || err);
+            }
+            return false;
+          });
       } catch (err) {
-        logger.error('WS fan-out psubscribe threw:', err?.message || err);
+        if (generation === subscriptionGeneration && sub === activeSub) {
+          subscriptionReady = false;
+          logger.error('WS fan-out psubscribe threw:', err?.message || err);
+        }
+        return Promise.resolve(false);
       }
     };
 
-    sub.on?.('pmessage', onMessageHandler);
+    activeSub.on?.('pmessage', onMessageHandler);
     // Re-assert the pattern subscription after any reconnect (Sentinel failover,
     // transient drop). ioredis emits 'ready' on (re)connect.
-    sub.on?.('ready', doSubscribe);
-    sub.on?.('error', (err) => {
+    activeSub.on?.('ready', () => {
+      if (sub !== activeSub) return;
+      subscriptionReadyPromise = doSubscribe();
+    });
+    const markSubscriptionUnavailable = () => {
+      if (sub !== activeSub) return;
+      subscriptionGeneration += 1;
+      subscriptionReady = false;
+      subscriptionReadyPromise = Promise.resolve(false);
+    };
+    activeSub.on?.('close', markSubscriptionUnavailable);
+    activeSub.on?.('reconnecting', markSubscriptionUnavailable);
+    activeSub.on?.('error', (err) => {
+      markSubscriptionUnavailable();
       recordWsFanoutSubscriberError();
       logger.error('WS fan-out subscriber error:', err?.message || err);
     });
 
-    doSubscribe();
     enabled = true;
+    subscriptionReadyPromise = doSubscribe();
     logger.info('🔁 WS Redis fan-out enabled (cross-process broadcast via pub/sub)');
     return true;
   }
@@ -168,11 +202,43 @@ export function createWsFanout() {
   function publishBroadcast(channel, event, data, tenantId) {
     if (!enabled || !pub) return false;
     try {
-      pub.publish(BROADCAST_PREFIX + channel, JSON.stringify({ event, data, tenantId }));
+      const pending = pub.publish(
+        BROADCAST_PREFIX + channel,
+        JSON.stringify({ event, data, tenantId }),
+      );
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch((err) => {
+          logger.error('WS fan-out publishBroadcast failed after dispatch:', err?.message || err);
+        });
+      }
       return true;
     } catch (err) {
       logger.error('WS fan-out publishBroadcast failed — falling back to local:', err?.message || err);
       return false;
+    }
+  }
+
+  async function publishBroadcastConfirmed(channel, event, data, tenantId) {
+    if (!enabled || !pub) return false;
+    try {
+      if (!subscriptionReady && !await subscriptionReadyPromise) {
+        const err = new Error('WebSocket fan-out subscription is not ready');
+        err.code = 'WS_FANOUT_SUBSCRIPTION_NOT_READY';
+        throw err;
+      }
+      const subscribers = await pub.publish(
+        BROADCAST_PREFIX + channel,
+        JSON.stringify({ event, data, tenantId }),
+      );
+      if (!Number.isInteger(subscribers) || subscribers < 1) {
+        const err = new Error('WebSocket fleet broadcast had no subscribers');
+        err.code = 'WS_FANOUT_NO_SUBSCRIBERS';
+        throw err;
+      }
+      return true;
+    } catch (err) {
+      logger.error('WS fan-out confirmed broadcast failed:', err?.message || err);
+      throw err;
     }
   }
 
@@ -199,6 +265,9 @@ export function createWsFanout() {
    */
   async function close() {
     enabled = false;
+    subscriptionGeneration += 1;
+    subscriptionReady = false;
+    subscriptionReadyPromise = Promise.resolve(false);
     if (sub) {
       try {
         if (onMessageHandler) sub.off?.('pmessage', onMessageHandler);
@@ -219,6 +288,7 @@ export function createWsFanout() {
     init,
     registerLocalDelivery,
     publishBroadcast,
+    publishBroadcastConfirmed,
     publishUser,
     isEnabled,
     close,

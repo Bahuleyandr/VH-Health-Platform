@@ -1,12 +1,14 @@
 import { jest } from '@jest/globals';
 
 const broadcast = jest.fn();
+const broadcastConfirmed = jest.fn();
 jest.unstable_mockModule('../../utils/websocket/wsServer.js', () => ({
   broadcast,
+  broadcastConfirmed,
   sendToUser: jest.fn(),
 }));
 
-const { emitTeleconsultOps } = await import('../../utils/websocket/realtimeEmitter.js');
+const { emitTeleconsultOps, emitTeleconsultOpsConfirmed } = await import('../../utils/websocket/realtimeEmitter.js');
 
 describe('emitTeleconsultOps', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -21,5 +23,11 @@ describe('emitTeleconsultOps', () => {
   test('never throws when broadcast fails', () => {
     broadcast.mockImplementationOnce(() => { throw new Error('redis down'); });
     expect(() => emitTeleconsultOps({ active_count: 0 }, {})).not.toThrow();
+  });
+
+  test('exposes confirmed broadcast failure to the scheduler', async () => {
+    broadcastConfirmed.mockRejectedValueOnce(new Error('redis down'));
+    await expect(emitTeleconsultOpsConfirmed({ active_count: 0 }, { tenantId: 't-1' }))
+      .rejects.toThrow('redis down');
   });
 });

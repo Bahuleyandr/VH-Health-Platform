@@ -685,6 +685,34 @@ export function broadcast(channel, data, opts = {}) {
 }
 
 /**
+ * Broadcast with an awaited Redis acknowledgement for scheduler accounting.
+ * A Redis publish rejection still delivers locally, then rejects so the
+ * scheduler records degraded fleet fan-out instead of durable success.
+ */
+export async function broadcastConfirmed(channel, data, opts = {}) {
+  if (!wss) throw new Error('WebSocket server is not initialized');
+  const tenantId = resolveTenantId(opts.tenantId);
+  try {
+    const published = await fanout.publishBroadcastConfirmed(
+      channel,
+      channel,
+      data,
+      tenantId,
+    );
+    if (published) return { scope: 'fleet' };
+  } catch (err) {
+    recordWsBroadcastDropped('fanout_local_fallback');
+    deliverBroadcastLocal(channel, channel, data, tenantId);
+    throw err;
+  }
+  recordWsBroadcastDropped('fanout_local_fallback');
+  deliverBroadcastLocal(channel, channel, data, tenantId);
+  const err = new Error('WebSocket fleet fan-out unavailable; delivered locally only');
+  err.code = 'WS_FLEET_FANOUT_UNAVAILABLE';
+  throw err;
+}
+
+/**
  * Send a message to a specific user (all their connected sockets) across EVERY
  * process. Publishes onto the bus; falls back to local delivery when the bus is
  * unavailable.
