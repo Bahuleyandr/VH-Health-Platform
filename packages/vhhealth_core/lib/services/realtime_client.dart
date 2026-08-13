@@ -157,6 +157,17 @@ class RealtimeClient {
     _wsUrlOverrideForTesting = url;
   }
 
+  /// Test-only socket factory. Null in production, where [_openSocket] always
+  /// uses [WebSocketChannel.connect].
+  ///
+  /// Exists for one property that a loopback server cannot express: a
+  /// `sink.close()` that never returns. That is the black-holed socket
+  /// [disconnect] must survive without tearing down a session a LATER
+  /// [connect] established, and a real `WebSocket.close()` always eventually
+  /// resolves.
+  @visibleForTesting
+  static WebSocketChannel Function(Uri url)? channelFactoryForTesting;
+
   /// Backoff for the [attempt]-th reconnect (1-based), before jitter:
   /// initial → x2 per attempt → capped, then flat forever (never gives up).
   @visibleForTesting
@@ -224,9 +235,13 @@ class RealtimeClient {
       // handshake (wsServer.js: no URL token -> await an `auth` first frame)
       // keeps the token off the URL. Connect to the bare /ws endpoint, then
       // send `{action:'auth', token}` before any subscribe frame.
-      final channel = WebSocketChannel.connect(
-        Uri.parse(_wsUrlOverrideForTesting ?? buildWsUrl(ApiConfig.baseUrl)),
+      final url = Uri.parse(
+        _wsUrlOverrideForTesting ?? buildWsUrl(ApiConfig.baseUrl),
       );
+      final factory = channelFactoryForTesting;
+      final channel = factory == null
+          ? WebSocketChannel.connect(url)
+          : factory(url);
       openingChannel = channel;
       _channel = channel;
       await channel.ready;
@@ -463,6 +478,28 @@ class RealtimeClient {
   }
 
   /// Close the socket and stop reconnecting. Streams are closed.
+  /// Retire this client's session.
+  ///
+  /// THE ORDER BELOW IS LOAD-BEARING: every piece of client state is retired
+  /// SYNCHRONOUSLY first, and only then is the socket I/O awaited.
+  ///
+  /// The socket close is unbounded by nature — on a dead or black-holed socket
+  /// it parks inside `sink.close()` indefinitely — and the patient app
+  /// deliberately stops waiting for it (`PatientRealtimeLifecycle.stopTimeout`
+  /// bounds the logout teardown), so a LATER login can bind this singleton
+  /// while a previous close is still in flight. When the state teardown lived
+  /// after that await, two things went wrong at once and both were silent:
+  ///
+  ///  * `_channel` stayed non-null for the whole park, so `connect()`'s
+  ///    `isConnected` short-circuit made the NEW login a no-op — it never
+  ///    opened a socket at all;
+  ///  * the straggler then resumed and nulled `_channel`, cleared the server
+  ///    subscriptions and CLOSED EVERY EVENT CONTROLLER — belonging, by then,
+  ///    to a session it had nothing to do with.
+  ///
+  /// Retiring state first makes the parked close inert: it can no longer block
+  /// the next connect, and there is nothing left after it that could touch a
+  /// newer session.
   Future<void> disconnect() async {
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
@@ -473,17 +510,24 @@ class RealtimeClient {
       _emitDenied();
     }
     _setConnectionState(RealtimeConnectionState.disconnected);
-    await _wsSub?.cancel();
-    _wsSub = null;
-    try {
-      await _channel?.sink.close(ws_status.normalClosure);
-    } catch (_) {}
+
+    final closingChannel = _channel;
+    final closingSubscription = _wsSub;
+    final closingControllers = List.of(_controllers.values);
     _channel = null;
+    _wsSub = null;
     _clearServerSubscriptions();
-    for (final c in _controllers.values) {
-      await c.close();
-    }
     _controllers.clear();
     _desiredChannels.clear();
+
+    // Pure-Dart teardown first: it cannot park on the socket, so listeners
+    // always get their onDone even when the close below never returns.
+    for (final controller in closingControllers) {
+      await controller.close();
+    }
+    await closingSubscription?.cancel();
+    try {
+      await closingChannel?.sink.close(ws_status.normalClosure);
+    } catch (_) {}
   }
 }

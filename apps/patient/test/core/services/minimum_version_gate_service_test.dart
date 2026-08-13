@@ -317,6 +317,239 @@ void main() {
     });
   });
 
+  // ── The CRIT: an operator who sets MIN_PATIENT_VERSION_CODE without also
+  // provisioning PATIENT_MINIMUM_VERSION_POLICY_JSON used to hard-block EVERY
+  // install 24h later, including installs already above that code, and
+  // including their SOS path. `/config` answers cleanly with the bare legacy
+  // projection and no `minimum_version_policy` key, which the gate refused to
+  // read as anything but "policy unavailable".
+  group('MinimumVersionGateService unsigned legacy contract', () {
+    Future<MinimumVersionGateResult> checkLegacy({
+      required String currentBuildNumber,
+      required Object? minimum,
+      Map<String, PublicKey> trustedKeys = const {},
+    }) => MinimumVersionGateService.check(
+      request: (_) async => ApiResponse(
+        statusCode: 200,
+        isSuccess: true,
+        data: {'min_patient_version_code': minimum},
+      ),
+      currentBuildNumber: currentBuildNumber,
+      platform: TargetPlatform.android,
+      clock: () => now,
+      stateStore: stateStore,
+      trustedKeys: trustedKeys.isEmpty ? {'test-key': publicKey} : trustedKeys,
+    );
+
+    test('a non-zero unsigned minimum clears a build at or above it, and never '
+        'turns into a block once the bootstrap grace expires', () async {
+      final first = await checkLegacy(currentBuildNumber: '50', minimum: 42);
+      expect(first.updateRequired, isFalse);
+      expect(first.reason, MinimumVersionGateReason.legacyCurrent);
+      expect(first.minPatientVersionCode, 42);
+
+      // The defect was a DELAYED brick: the first 24h looked healthy
+      // (bootstrapGrace) and every install died afterwards. Walk past the
+      // grace twice over and prove the answer does not change.
+      now = now.add(MinimumVersionGateService.bootstrapGraceDuration * 2);
+      final afterGrace = await checkLegacy(
+        currentBuildNumber: '50',
+        minimum: 42,
+      );
+      expect(afterGrace.updateRequired, isFalse);
+      expect(afterGrace.reason, MinimumVersionGateReason.legacyCurrent);
+
+      // Exactly at the minimum is "current", not "below".
+      final atFloor = await checkLegacy(currentBuildNumber: '42', minimum: 42);
+      expect(atFloor.updateRequired, isFalse);
+    });
+
+    test('the same unsigned minimum still blocks a build below it', () async {
+      final result = await checkLegacy(currentBuildNumber: '1', minimum: 42);
+
+      expect(result.updateRequired, isTrue);
+      expect(result.reason, MinimumVersionGateReason.legacyUpdateRequired);
+      expect(result.minPatientVersionCode, 42);
+      expect(result.storeUrl, StoreUrls.androidStoreUrl);
+    });
+
+    test('a malformed unsigned projection reads as no minimum', () async {
+      final result = await checkLegacy(
+        currentBuildNumber: '1',
+        minimum: 'forty-two',
+      );
+
+      expect(result.updateRequired, isFalse);
+      expect(result.reason, MinimumVersionGateReason.disabled);
+    });
+
+    test(
+      'an unsigned response never becomes a persisted local floor',
+      () async {
+        await checkLegacy(currentBuildNumber: '50', minimum: 42);
+
+        // Nothing about an unsigned value may outlive the response that
+        // carried it: only a VERIFIED policy reaches savePolicy.
+        expect(
+          storage.keys.where((key) => key.contains('minimum_version_policy')),
+          isEmpty,
+        );
+      },
+    );
+
+    test('a build with no trust anchor cannot verify anything, so an unusable '
+        'config never closes the gate', () async {
+      Future<MinimumVersionGateResult> check() =>
+          MinimumVersionGateService.check(
+            request: (_) async => throw Exception('offline'),
+            currentBuildNumber: '1',
+            platform: TargetPlatform.android,
+            clock: () => now,
+            stateStore: stateStore,
+            trustedKeys: const {},
+          );
+
+      final first = await check();
+      expect(first.reason, MinimumVersionGateReason.bootstrapGrace);
+      expect(first.updateRequired, isFalse);
+
+      now = now.add(MinimumVersionGateService.bootstrapGraceDuration);
+      final expired = await check();
+      expect(
+        expired.updateRequired,
+        isFalse,
+        reason:
+            'MinimumVersionPolicyTrust.fromBuild() returns an empty map for '
+            'this artifact, so no envelope can ever verify — closing would '
+            'enforce nothing and brick every install',
+      );
+      expect(expired.reason, MinimumVersionGateReason.policyUnenforceable);
+    });
+  });
+
+  // ── The related HIGH: a stored snapshot that no longer re-verifies used to
+  // return _closed(policyUnavailable) before /config was even consulted.
+  group('MinimumVersionGateService stored-policy re-verification', () {
+    test(
+      'a snapshot stored under a different ApiConfig.baseUrl falls back to the '
+      'legacy comparison instead of hard-blocking',
+      () async {
+        final policy = await _signedPolicy(
+          signingKey: signingKey,
+          revision: 1,
+          minimum: 3,
+          issuedAt: now,
+          graceUntil: now.add(const Duration(days: 1)),
+        );
+        // The ordinary QA-build-then-production-build case on one device.
+        storage['patient.minimum_version_policy.v1.'
+            '${TenantConfig.cacheNamespace}'] = jsonEncode({
+          'source': 'https://another-flavour.example/api/v1',
+          'envelope': policy,
+        });
+
+        final result = await MinimumVersionGateService.check(
+          request: (_) async => const ApiResponse(
+            statusCode: 200,
+            isSuccess: true,
+            data: {'min_patient_version_code': 0},
+          ),
+          currentBuildNumber: '1',
+          platform: TargetPlatform.android,
+          clock: () => now,
+          stateStore: stateStore,
+          trustedKeys: {'test-key': publicKey},
+        );
+
+        expect(result.updateRequired, isFalse);
+        expect(result.reason, MinimumVersionGateReason.disabled);
+      },
+    );
+
+    test('a snapshot this build has no key for falls back to the legacy '
+        'comparison instead of hard-blocking', () async {
+      final otherKey = await Ed25519().newKeyPair();
+      final otherPublicKey = await otherKey.extractPublicKey();
+      final policy = await _signedPolicy(
+        signingKey: signingKey,
+        revision: 1,
+        minimum: 3,
+        issuedAt: now,
+        graceUntil: now.add(const Duration(days: 1)),
+      );
+      await _check(
+        stateStore: stateStore,
+        publicKey: publicKey,
+        now: now,
+        currentBuildNumber: '9',
+        response: _success(policy, minimum: 3),
+      );
+      expect(
+        storage.keys.where((key) => key.contains('minimum_version_policy')),
+        isNotEmpty,
+      );
+
+      // A rotated / differently-stamped artifact reading the same device.
+      final result = await MinimumVersionGateService.check(
+        request: (_) async => const ApiResponse(
+          statusCode: 200,
+          isSuccess: true,
+          data: {'min_patient_version_code': 5},
+        ),
+        currentBuildNumber: '9',
+        platform: TargetPlatform.android,
+        clock: () => now,
+        stateStore: stateStore,
+        trustedKeys: {'rotated-key': otherPublicKey},
+      );
+
+      expect(result.updateRequired, isFalse);
+      expect(result.reason, MinimumVersionGateReason.legacyCurrent);
+      expect(result.minPatientVersionCode, 5);
+    });
+
+    test(
+      'a re-verifiable stored policy still blocks a build genuinely below its '
+      'minimum',
+      () async {
+        final policy = await _signedPolicy(
+          signingKey: signingKey,
+          revision: 3,
+          minimum: 11,
+          issuedAt: now.subtract(const Duration(days: 1)),
+          graceUntil: now.subtract(const Duration(minutes: 1)),
+        );
+        await _check(
+          stateStore: stateStore,
+          publicKey: publicKey,
+          now: now,
+          currentBuildNumber: '12',
+          response: _success(policy, minimum: 11),
+        );
+
+        // The unsigned fallback must NOT be reachable while a verified policy
+        // is in force — a stripped envelope cannot downgrade a device that has
+        // already seen the signed one.
+        final result = await MinimumVersionGateService.check(
+          request: (_) async => const ApiResponse(
+            statusCode: 200,
+            isSuccess: true,
+            data: {'min_patient_version_code': 0},
+          ),
+          currentBuildNumber: '4',
+          platform: TargetPlatform.android,
+          clock: () => now,
+          stateStore: stateStore,
+          trustedKeys: {'test-key': publicKey},
+        );
+
+        expect(result.updateRequired, isTrue);
+        expect(result.reason, MinimumVersionGateReason.updateRequired);
+        expect(result.minPatientVersionCode, 11);
+      },
+    );
+  });
+
   test('uses canonical unauthenticated VHHttpClient transport', () async {
     late http.Request captured;
     final policy = await _signedPolicy(

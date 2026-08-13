@@ -19,6 +19,10 @@
 //      (lib/features/auth/widgets/otp_widget.dart)
 //   6. Account deletion — SettingsController.deleteAccount
 //      (lib/features/settings/controllers/settings_controller.dart)
+//   7. Realtime 4001 auth close after a failed refresh —
+//      RealtimeClient.onSessionExpired → handlePatientSessionExpired,
+//      wired onto RealtimeProvider in main.dart
+//      (lib/core/services/patient_session_expiry.dart)
 //
 // Each test drives the REAL trigger for its path with LogoutService's
 // dependencies swapped for recorders, then asserts the COMPLETE ordered
@@ -27,14 +31,20 @@
 // they all funnel through the one service.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vhhealth_core/services/auth_service.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_core/services/realtime_provider.dart';
 
@@ -44,6 +54,7 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
+import 'package:vhhealth/core/services/patient_session_expiry.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
@@ -139,6 +150,76 @@ void main() {
       expect(calls, fullTeardown);
     },
   );
+
+  test('path 7: a realtime 4001 close whose refresh fails runs the full shared '
+      'teardown and redirects', () async {
+    // THE regression test for the server-side-revocation gap. The backend
+    // closes the identity's live sockets with 4001 on "signed out
+    // everywhere", admin revocation, password change and account deletion.
+    // RealtimeClient then attempts one refresh; when that is rejected it
+    // clears both tokens and fires onSessionExpired. main.dart used to build
+    // `RealtimeProvider()` with NO callback, so that fired into a null and
+    // every byte of local PHI — encrypted API cache, downloaded documents,
+    // staged plaintext, cycle data, dependents roster, Firebase session, FCM
+    // registration — survived on the device.
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(_recordingDependencies(calls));
+
+    final harness = await _RevokingWsHarness.start();
+    addTearDown(harness.close);
+    RealtimeClient.setWsUrlForTesting(harness.wsUrl);
+    RealtimeClient.setReconnectBackoffForTesting(initialMs: 20, maxMs: 40);
+    addTearDown(() async {
+      await RealtimeClient.instance.disconnect();
+      RealtimeClient.instance.onSessionExpired = null;
+      RealtimeClient.setWsUrlForTesting(null);
+      RealtimeClient.setReconnectBackoffForTesting();
+      VHHttpClient.resetClientForTesting();
+      await AuthService.clearSessionIdentity();
+    });
+
+    await AuthService.setJwt('revoked-access');
+    await AuthService.setRefreshToken('revoked-refresh');
+    final user = UserProvider();
+    await user.setUser('9876543210', 'Test Patient');
+
+    // The refresh the client tries before giving up — rejected, because the
+    // whole identity was revoked server-side.
+    var refreshCalls = 0;
+    VHHttpClient.setClientForTesting(
+      MockClient((_) async {
+        refreshCalls++;
+        return http.Response(
+          jsonEncode({'success': false, 'message': 'Revoked'}),
+          HttpStatus.unauthorized,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    var redirected = false;
+    // Exactly the wiring main.dart installs, with only the navigation
+    // injected so this test's assertion does not depend on AppRouter.
+    final realtime = RealtimeProvider(
+      onSessionExpired: () =>
+          handlePatientSessionExpired(redirectToLogin: () => redirected = true),
+    );
+    addTearDown(realtime.dispose);
+
+    await realtime.ensureConnected();
+    await _waitFor(
+      () => redirected,
+      reason: 'the 4001 close to drive the patient logout',
+    );
+
+    expect(refreshCalls, 1);
+    expect(calls, fullTeardown);
+    // The client's own token drop is NOT the wipe — it is what used to be
+    // mistaken for one.
+    expect(await AuthService.getJwt(), isNull);
+    expect(await AuthService.getRefreshToken(), isNull);
+    expect(RealtimeClient.instance.isConnected, isFalse);
+  });
 
   test('path 3: 401 expiry is a no-op for guest sessions', () async {
     final calls = <String>[];
@@ -439,6 +520,50 @@ void main() {
       expect(find.text('login-screen'), findsOneWidget);
     },
   );
+}
+
+/// A loopback WebSocket endpoint that answers every `auth` frame with a real
+/// 4001 close — the server-side revocation the backend performs in
+/// `wsServer.pushSessionRevoked` / `deliverUserLocal`'s `isRevocation` branch.
+class _RevokingWsHarness {
+  _RevokingWsHarness._(this._server);
+
+  final HttpServer _server;
+
+  String get wsUrl => 'ws://127.0.0.1:${_server.port}/ws';
+
+  static Future<_RevokingWsHarness> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      if (request.uri.path != '/ws') {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+        return;
+      }
+      final socket = await WebSocketTransformer.upgrade(request);
+      socket.listen((raw) {
+        final message = jsonDecode(raw as String) as Map<String, dynamic>;
+        if (message['action'] == 'auth') {
+          unawaited(socket.close(4001, 'revoked'));
+        }
+      });
+    });
+    return _RevokingWsHarness._(server);
+  }
+
+  Future<void> close() => _server.close(force: true);
+}
+
+Future<void> _waitFor(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 10),
+  String reason = 'condition',
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) fail('timed out waiting for $reason');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
 }
 
 GoRouter _testRouter({required Widget home}) {

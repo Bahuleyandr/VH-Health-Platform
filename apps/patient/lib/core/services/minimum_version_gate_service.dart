@@ -20,6 +20,25 @@ enum MinimumVersionGateReason {
   bootstrapGrace,
   policyUnavailable,
   clockUncertain,
+
+  /// The backend answered cleanly, offered NO signed envelope at all, and the
+  /// unsigned `min_patient_version_code` projection cleared this build.
+  ///
+  /// Distinct from [current] so telemetry can tell "a signed policy says you
+  /// are current" apart from "the legacy contract says you are current".
+  legacyCurrent,
+
+  /// Same clean unsigned response, but the build is below the legacy minimum.
+  /// This is the pre-signing hard-upgrade contract doing exactly what
+  /// `MIN_PATIENT_VERSION_CODE` has always meant.
+  legacyUpdateRequired,
+
+  /// The `/config` response is unusable AND closing the gate could not enforce
+  /// anything: this artifact carries no `VH_PATIENT_MIN_VERSION_*` trust
+  /// anchor, so it can never verify a signed policy envelope no matter how
+  /// long it waits. Closing such a build is not a safety measure, it is a
+  /// brick — see [MinimumVersionGateService._unavailableDecision].
+  policyUnenforceable,
 }
 
 class MinimumVersionGateResult {
@@ -67,14 +86,18 @@ class MinimumVersionGateService {
     final verifier = MinimumVersionPolicyVerifier(
       trustedKeys: trustedKeys ?? MinimumVersionPolicyTrust.fromBuild(),
     );
+    // A stored snapshot that no longer re-verifies is NOT a close.
+    //
+    // It used to be: `stored.corrupted` returned `_closed(policyUnavailable)`
+    // here, before `/config` had even been consulted. That hard-blocked the
+    // app on the two ORDINARY causes of a failed re-verification —
+    // `ApiConfig.baseUrl` differing between builds/flavours, and a build whose
+    // `VH_PATIENT_MIN_VERSION_*` trust anchors differ from the build that
+    // wrote the snapshot — neither of which is evidence that the install is
+    // below any minimum. An unverifiable blob proves nothing in EITHER
+    // direction, so it is carried forward as "no verified policy" and the
+    // decision is made from the freshest authority actually available below.
     final stored = await store.loadPolicy(verifier);
-    if (stored.corrupted) {
-      return _closed(
-        currentCode: currentCode,
-        storeUrl: storeUrl,
-        reason: MinimumVersionGateReason.policyUnavailable,
-      );
-    }
 
     Map<String, dynamic>? data;
     try {
@@ -141,16 +164,28 @@ class MinimumVersionGateService {
       );
     }
 
-    // A clean response with an absent signed envelope and an explicit zero
-    // legacy projection is the only unsigned disabled state. Non-zero legacy
-    // values and malformed/present-but-invalid envelopes never become local
-    // update authority.
-    if (data != null && !hasPolicy && legacyMinimum == 0) {
+    // No signed policy governs this install.
+    //
+    // A CLEAN `/config` response that offers no signed envelope AT ALL is the
+    // legacy contract, and must be evaluated as the legacy contract — it is
+    // what `MIN_PATIENT_VERSION_CODE` has always meant. The previous revision
+    // admitted only `legacyMinimum == 0` here and sent every other clean
+    // response down the fail-closed path below, which meant an operator who
+    // set `MIN_PATIENT_VERSION_CODE` to any non-zero value WITHOUT also
+    // provisioning `PATIENT_MINIMUM_VERSION_POLICY_JSON` hard-blocked every
+    // install 24h later — including installs already far above that code, and
+    // including their SOS path. See _legacyDecision.
+    //
+    // A present-but-unverifiable envelope is deliberately NOT routed here: it
+    // means the backend IS running the signed scheme and this client cannot
+    // verify what it was handed, which is a genuine trust failure and keeps
+    // the fail-closed treatment it already had.
+    if (data != null && !hasPolicy) {
       await store.clearUnavailable();
-      return _allow(
+      return _legacyDecision(
         currentCode: currentCode,
+        legacyMinimum: legacyMinimum,
         storeUrl: storeUrl,
-        reason: MinimumVersionGateReason.disabled,
       );
     }
 
@@ -159,6 +194,55 @@ class MinimumVersionGateService {
       currentCode: currentCode,
       storeUrl: storeUrl,
       now: now,
+      // Closing the gate is only a safety measure for an artifact that could
+      // ever verify a signed policy. A build stamped with no
+      // `VH_PATIENT_MIN_VERSION_*` trust anchor can never turn any envelope
+      // into authority — `MinimumVersionPolicyTrust.fromBuild()` returns an
+      // empty map and `verify` fails at the key lookup — so waiting out the
+      // bootstrap grace and then closing enforces nothing whatsoever and only
+      // bricks the install. Every artifact for which this gate can do its job
+      // keeps the unchanged fail-closed behaviour.
+      canClose: verifier.trustedKeys.isNotEmpty,
+    );
+  }
+
+  /// The pre-signing hard-upgrade contract, for the case it always covered: a
+  /// clean `/config` response that carries no signed envelope.
+  ///
+  /// The unsigned projection is authority over THIS comparison only. It is
+  /// still never persisted and never becomes a local floor — only a verified
+  /// policy reaches [MinimumVersionPolicyStateStore.savePolicy] — so an
+  /// unsigned value cannot outlive the response that carried it.
+  static MinimumVersionGateResult _legacyDecision({
+    required int currentCode,
+    required int? legacyMinimum,
+    required String storeUrl,
+  }) {
+    // An absent or malformed projection is not a minimum. The backend coerces
+    // the same way (`minPatientVersionCodeFromEnv` maps anything unusable to
+    // 0), so reading it as "gate disabled" is the faithful interpretation
+    // rather than a relaxation.
+    final minimum = legacyMinimum ?? 0;
+    if (minimum == 0) {
+      return _allow(
+        currentCode: currentCode,
+        storeUrl: storeUrl,
+        reason: MinimumVersionGateReason.disabled,
+      );
+    }
+    if (currentCode >= minimum) {
+      return _allow(
+        currentCode: currentCode,
+        minPatientVersionCode: minimum,
+        storeUrl: storeUrl,
+        reason: MinimumVersionGateReason.legacyCurrent,
+      );
+    }
+    return _closed(
+      currentCode: currentCode,
+      minPatientVersionCode: minimum,
+      storeUrl: storeUrl,
+      reason: MinimumVersionGateReason.legacyUpdateRequired,
     );
   }
 
@@ -167,18 +251,21 @@ class MinimumVersionGateService {
     required int currentCode,
     required String storeUrl,
     required DateTime now,
+    required bool canClose,
   }) async {
     final unavailable = await store.markUnavailable(now);
     final first = unavailable.firstUnavailableAt;
     if (unavailable.corrupted || first == null) {
-      return _closed(
+      return _unavailableOutcome(
+        canClose: canClose,
         currentCode: currentCode,
         storeUrl: storeUrl,
         reason: MinimumVersionGateReason.policyUnavailable,
       );
     }
     if (now.isBefore(first.subtract(_maxClockSkew))) {
-      return _closed(
+      return _unavailableOutcome(
+        canClose: canClose,
         currentCode: currentCode,
         storeUrl: storeUrl,
         reason: MinimumVersionGateReason.clockUncertain,
@@ -194,12 +281,26 @@ class MinimumVersionGateService {
         graceEndsAt: graceEndsAt,
       );
     }
-    return _closed(
+    return _unavailableOutcome(
+      canClose: canClose,
       currentCode: currentCode,
       storeUrl: storeUrl,
       reason: MinimumVersionGateReason.policyUnavailable,
     );
   }
+
+  static MinimumVersionGateResult _unavailableOutcome({
+    required bool canClose,
+    required int currentCode,
+    required String storeUrl,
+    required MinimumVersionGateReason reason,
+  }) => canClose
+      ? _closed(currentCode: currentCode, storeUrl: storeUrl, reason: reason)
+      : _allow(
+          currentCode: currentCode,
+          storeUrl: storeUrl,
+          reason: MinimumVersionGateReason.policyUnenforceable,
+        );
 
   static MinimumVersionGateResult _evaluatePolicy({
     required MinimumVersionPolicy policy,
