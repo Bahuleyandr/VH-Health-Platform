@@ -66,6 +66,25 @@ describe('validateEnv PATIENT_OUTAGE_COMMUNICATION_JSON', () => {
   });
 });
 
+describe('validateEnv PATIENT_MINIMUM_VERSION_POLICY_JSON', () => {
+  it('is optional and accepts a bounded pre-signed JSON string', () => {
+    expect(validate().error).toBeUndefined();
+    expect(
+      validate({ PATIENT_MINIMUM_VERSION_POLICY_JSON: '{"format":"signed"}' }).error
+    ).toBeUndefined();
+  });
+
+  it('rejects an oversized operator value before route parsing', () => {
+    const result = validate({
+      PATIENT_MINIMUM_VERSION_POLICY_JSON: 'x'.repeat(16 * 1024 + 1)
+    });
+
+    expect(result.error?.details[0].message).toContain(
+      'PATIENT_MINIMUM_VERSION_POLICY_JSON'
+    );
+  });
+});
+
 describe('validateEnv Firebase App Check report mode', () => {
   it('keeps App Check off without requiring app-ID lists', () => {
     const { error, value } = validate();

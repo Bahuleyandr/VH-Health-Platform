@@ -6,11 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/navigation/go_router_refresh_stream.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
+import 'package:vhhealth/core/services/deep_link_service.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 
 // Import all your screens
@@ -71,17 +72,6 @@ class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
   static final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
-  /// Shape-check a JWT: header.payload.signature, each part non-empty.
-  /// Cheaper than verification, but rules out garbage values that an
-  /// attacker (or a corrupted storage write) could leave in
-  /// `flutter_secure_storage` to bypass the "do we have a session?"
-  /// gate. Matches the staff-app hardening.
-  static bool _hasValidJwtShape(String? jwt) {
-    if (jwt == null || jwt.isEmpty) return false;
-    final parts = jwt.split('.');
-    return parts.length == 3 && parts.every((part) => part.isNotEmpty);
-  }
-
   /// The realtime fabric is connected at cold start (main.dart) and torn down
   /// by every logout path, but an in-process re-login never re-ran connect —
   /// so the `session:revoked` "logged in elsewhere" kick was dead after the
@@ -107,9 +97,13 @@ class AppRouter {
   }
 
   static String? _safeReturnTo(String? raw) {
-    final value = raw?.trim();
+    var value = raw?.trim();
     if (value == null || value.isEmpty) return null;
-    if (!value.startsWith('/')) return null;
+    if (!value.startsWith('/')) {
+      value = DeepLinkService.parseExternalRoute(value);
+      if (value == null) return null;
+    }
+    if (value.startsWith('//')) return null;
     if (value == '/' ||
         value.startsWith('/login') ||
         value.startsWith('/terms') ||
@@ -117,6 +111,12 @@ class AppRouter {
       return null;
     }
     return value;
+  }
+
+  @visibleForTesting
+  static String? customSchemeRedirect(Uri uri) {
+    if (uri.scheme != DeepLinkService.customScheme) return null;
+    return DeepLinkService.parseExternalRoute(uri.toString()) ?? '/';
   }
 
   /// Wraps a page in a [CustomTransitionPage] with a short cross-fade.
@@ -174,6 +174,13 @@ class AppRouter {
       final isGuestSession = providerPhone == 'guest';
       final location = state.matchedLocation;
 
+      // Flutter preserves the incoming custom URI for the first routing pass.
+      // Normalize only our exact allowlisted scheme/host contract to an
+      // internal path. Malformed custom links go to the inert splash route;
+      // HTTPS universal/app links remain unconfigured pending domain proof.
+      final externalRedirect = customSchemeRedirect(state.uri);
+      if (externalRedirect != null) return externalRedirect;
+
       // Skip redirect on splash screen to let it handle navigation
       if (location == '/') {
         return null;
@@ -185,8 +192,8 @@ class AppRouter {
       bool hasBackendSession = false;
       if (!isGuestSession) {
         try {
-          final jwt = await VHSecureStorage.instance.read(key: 'jwt');
-          hasBackendSession = _hasValidJwtShape(jwt);
+          hasBackendSession = await PatientSessionAuthority.instance
+              .currentSessionAllowsProtectedAccess();
         } catch (_) {
           // Storage failure is fail-closed for protected navigation.
         }

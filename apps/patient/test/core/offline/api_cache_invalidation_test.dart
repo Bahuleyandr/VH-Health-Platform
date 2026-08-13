@@ -4,7 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/offline/patient_cache_invalidation.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
 import 'package:vhhealth_core/services/http_client.dart';
+
+import '../../support/patient_session_test_authority.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,10 +20,12 @@ void main() {
     _installSecureStorageFake();
     VHHttpClient.actingAsUidProvider = null;
     await ApiCacheManager.clearAll();
+    installCurrentPatientSessionAuthority();
   });
 
   tearDown(() async {
     VHHttpClient.actingAsUidProvider = null;
+    PatientSessionAuthority.resetAfterTesting();
     await ApiCacheManager.clearAll();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);

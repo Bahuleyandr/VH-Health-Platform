@@ -56,6 +56,22 @@ For release builds, use the same `VH_BASE_URL` and `VH_API_KEY` names through
 GitHub Actions variables/secrets or local `--dart-define` values. Do not
 hardcode secrets in Dart source.
 
+The hard-upgrade policy has no built-in signing key. Production release builds
+may trust an operator-owned Ed25519 current/next pair through these public
+build variables:
+
+- `VH_PATIENT_MIN_VERSION_CURRENT_KEY_ID`
+- `VH_PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64`
+- `VH_PATIENT_MIN_VERSION_NEXT_KEY_ID` (optional rotation overlap)
+- `VH_PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64` (optional rotation overlap)
+
+Leave all four absent until the signing authority and the matching pre-signed
+`PATIENT_MINIMUM_VERSION_POLICY_JSON` backend value are approved. The backend
+forwards that envelope but never mints it from a JWT or application secret.
+An authorized operator can create the envelope with the backend's existing
+RFC 8785/Ed25519 primitive via `npm run patient:min-version:sign -- ...`; the
+command requires an external private-key PEM and never generates a default.
+
 ## Localization
 
 Supported app locales:

@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_core/utils/log_sanitizer.dart';
@@ -164,6 +165,10 @@ class ApiCacheManager {
   /// Decrypt bytes produced by [encryptBytes]. Throws if the payload is
   /// truncated or the GCM tag fails to authenticate (tampered / wrong key).
   static Future<Uint8List> decryptBytes(List<int> storedBytes) async {
+    if (!await PatientSessionAuthority.instance
+        .currentSessionAllowsProtectedAccess()) {
+      throw StateError('Protected cache access requires a current session');
+    }
     if (storedBytes.length <= 12) {
       throw const FormatException('Invalid encrypted file');
     }
@@ -303,6 +308,10 @@ class ApiCacheManager {
     CacheProfileScope? profile,
   }) async {
     try {
+      if (!await PatientSessionAuthority.instance
+          .currentSessionAllowsProtectedAccess()) {
+        return null;
+      }
       if (profile != null && !profile.isCurrent) return null;
       final dir = await _getCacheDir();
       if (profile != null && !profile.isCurrent) return null;

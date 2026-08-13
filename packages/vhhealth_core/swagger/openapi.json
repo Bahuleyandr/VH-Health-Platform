@@ -30313,7 +30313,86 @@
             "type": "integer",
             "minimum": 0,
             "example": 0,
-            "description": "Minimum accepted patient app build number. 0 disables the hard upgrade gate."
+            "description": "Legacy projection of the signed minimum-version policy for older clients. 0 disables the hard upgrade gate when no signed policy is present."
+          },
+          "minimum_version_policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "algorithm",
+              "format",
+              "key_id",
+              "policy",
+              "signature"
+            ],
+            "description": "Operator-provided Ed25519 envelope. The backend validates and forwards this value but never signs or rewrites it.",
+            "properties": {
+              "algorithm": {
+                "type": "string",
+                "enum": [
+                  "Ed25519"
+                ]
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "vhhealth_patient_minimum_version/v1"
+                ]
+              },
+              "key_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "policy": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "audience",
+                  "tenant_id",
+                  "revision",
+                  "min_patient_version_code",
+                  "issued_at",
+                  "grace_until"
+                ],
+                "properties": {
+                  "audience": {
+                    "type": "string",
+                    "enum": [
+                      "vhhealth-patient-minimum-version"
+                    ]
+                  },
+                  "tenant_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "min_patient_version_code": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "issued_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "grace_until": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Signed grace deadline, bounded by the route to no more than seven days after issued_at."
+                  }
+                }
+              },
+              "signature": {
+                "type": "string",
+                "minLength": 88,
+                "maxLength": 88,
+                "description": "Canonical base64 Ed25519 signature over the RFC 8785 canonical envelope without this field."
+              }
+            }
           },
           "outage_communication": {
             "type": "object",
@@ -67647,46 +67726,6 @@
         }
       }
     },
-    "/api/v1/auth/staff/check-in": {
-      "post": {
-        "operationId": "post_api_v1_auth_staff_check_in",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/auth/staff/check-out": {
-      "post": {
-        "operationId": "post_api_v1_auth_staff_check_out",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/auth/staff/device/{deviceId}": {
       "delete": {
         "operationId": "delete_api_v1_auth_staff_device_by_deviceId",
@@ -68106,26 +68145,6 @@
     "/api/v1/auth/staff/toggle-biometric": {
       "post": {
         "operationId": "post_api_v1_auth_staff_toggle_biometric",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/auth/staff/verify-device": {
-      "post": {
-        "operationId": "post_api_v1_auth_staff_verify_device",
         "tags": [
           "auth"
         ],

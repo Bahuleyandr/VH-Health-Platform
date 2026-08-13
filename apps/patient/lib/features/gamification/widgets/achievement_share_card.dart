@@ -1,9 +1,8 @@
 // lib/features/gamification/widgets/achievement_share_card.dart
 //
-// Bottom-sheet preview of a badge the patient has earned. Follows the same
-// pattern as StepShareCard: a gradient card with the badge icon, title,
-// date earned, and a "Share" button that rasterises the card via
-// RepaintBoundary and hands it to share_plus.
+// Bottom-sheet preview of a badge the patient has earned: a gradient card
+// with the badge icon, title, date earned, and a "Share" button that
+// rasterises the card via RepaintBoundary and hands it to share_plus.
 
 import 'dart:ui' as ui;
 

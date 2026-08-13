@@ -70,6 +70,11 @@ export const envSchema = Joi.object({
     .min(0)
     .default(0)
     .label('MIN_PATIENT_VERSION_CODE'),
+  PATIENT_MINIMUM_VERSION_POLICY_JSON: Joi.string()
+    .max(16 * 1024)
+    .allow('')
+    .optional()
+    .label('PATIENT_MINIMUM_VERSION_POLICY_JSON'),
   PATIENT_OUTAGE_COMMUNICATION_JSON: Joi.string()
     .max(16 * 1024)
     .allow('')

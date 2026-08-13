@@ -99,18 +99,25 @@
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="true" />
             
-            <intent-filter android:autoVerify="true">
+            <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             
-            <!-- Deep linking support (if needed) -->
-            <intent-filter android:autoVerify="true">
+            <!-- Local custom-scheme links only. HTTPS App Links remain held
+                 until an owned domain and assetlinks.json are approved. -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="vhhealth" />
+                <data
+                    android:scheme="vhhealth"
+                    android:host="app"
+                    android:pathPrefix="/" />
             </intent-filter>
         </activity>
 

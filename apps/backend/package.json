@@ -59,6 +59,7 @@
     "openapi:sync-core": "node scripts/sync-openapi-to-core.mjs",
     "openapi:check-core": "node scripts/check-core-spec-sync.mjs",
     "openapi:lint-budget": "node scripts/check-openapi-lint-budget.mjs",
+    "patient:min-version:sign": "node scripts/sign-patient-minimum-version-policy.mjs",
     "nhcx:mock": "node scripts/test/nhcx-mock-exchange.mjs",
     "smoke:nhcx:mock": "node scripts/test/smoke-nhcx-mock-exchange.mjs",
     "logs:cleanup": "node src/scripts/cleanup-logs.js",

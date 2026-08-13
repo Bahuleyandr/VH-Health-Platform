@@ -12,6 +12,9 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
+
+import '../../support/patient_session_test_authority.dart';
 
 class _SecureStorageFake {
   final Map<String, String> store = {};
@@ -70,16 +73,33 @@ void main() {
     _installPathProviderFake(tempDir.path);
     _installSecureStorageFake(storage);
     await ApiCacheManager.clearAll();
+    installCurrentPatientSessionAuthority();
     storage.keyReads = 0;
     storage.keyWrites = 0;
   });
 
   tearDown(() async {
+    PatientSessionAuthority.resetAfterTesting();
     await ApiCacheManager.clearAll();
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
   group('ApiCacheManager byte encryption', () {
+    test('refuses to decrypt PHI without local session authority', () async {
+      final encrypted = await ApiCacheManager.encryptBytes([1, 2, 3]);
+      PatientSessionAuthority.setForTesting(
+        PatientSessionAuthority.forTesting(
+          read: (_) async => null,
+          write: (_, _) async {},
+        ),
+      );
+
+      expect(
+        () => ApiCacheManager.decryptBytes(encrypted),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('round-trips arbitrary PHI bytes', () async {
       final plain = Uint8List.fromList(
         List<int>.generate(5000, (i) => (i * 7 + 13) % 256),
