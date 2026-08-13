@@ -197,15 +197,44 @@ class MinimumVersionPolicyTrust {
 
 @immutable
 class MinimumVersionPolicyLoad {
-  const MinimumVersionPolicyLoad._({this.policy, this.corrupted = false});
+  const MinimumVersionPolicyLoad._({
+    this.policy,
+    this.unverifiable = false,
+    this.sourceMatches = false,
+  });
 
   const MinimumVersionPolicyLoad.absent() : this._();
-  const MinimumVersionPolicyLoad.corrupted() : this._(corrupted: true);
+
+  /// A snapshot is present but this build cannot turn it back into a verified
+  /// policy.
+  ///
+  /// This is NOT the same thing as tampering, and treating it as such was a
+  /// hard-block defect: the ORDINARY causes are benign and expected.
+  ///  * `ApiConfig.baseUrl` changed between builds or flavours, so the stored
+  ///    `source` no longer matches ([sourceMatches] is then false) — a QA
+  ///    build and a production build on the same device do this to each other.
+  ///  * The build carries different (or no) `VH_PATIENT_MIN_VERSION_*` trust
+  ///    anchors than the build that stored the snapshot, so
+  ///    [MinimumVersionPolicyVerifier.verify] cannot find the key id.
+  ///
+  /// The caller must therefore treat this as "no verified policy is in force",
+  /// never as "block the patient". An unverifiable blob proves nothing, and in
+  /// particular it cannot prove the install is below any minimum — the whole
+  /// premise of [MinimumVersionPolicyTrust] is that an unverifiable value never
+  /// becomes local authority, and that cuts in the closing direction too.
+  const MinimumVersionPolicyLoad.unverifiable({bool sourceMatches = false})
+    : this._(unverifiable: true, sourceMatches: sourceMatches);
+
   const MinimumVersionPolicyLoad.found(MinimumVersionPolicy policy)
-    : this._(policy: policy);
+    : this._(policy: policy, sourceMatches: true);
 
   final MinimumVersionPolicy? policy;
-  final bool corrupted;
+
+  /// A snapshot exists on disk but did not re-verify in this build.
+  final bool unverifiable;
+
+  /// The stored snapshot was written against the backend this build talks to.
+  final bool sourceMatches;
 }
 
 @immutable
@@ -264,18 +293,20 @@ class MinimumVersionPolicyStateStore {
       final decoded = ClinicalContinuityCanonicalJson.parse(
         Uint8List.fromList(utf8.encode(raw)),
       );
-      if (decoded is! Map) return const MinimumVersionPolicyLoad.corrupted();
+      if (decoded is! Map) {
+        return const MinimumVersionPolicyLoad.unverifiable();
+      }
       final snapshot = Map<String, Object?>.from(decoded);
       if (!setEquals(snapshot.keys.toSet(), _snapshotKeys) ||
           snapshot['source'] != ApiConfig.baseUrl) {
-        return const MinimumVersionPolicyLoad.corrupted();
+        return const MinimumVersionPolicyLoad.unverifiable();
       }
       final policy = await verifier.verify(snapshot['envelope']);
       return policy == null
-          ? const MinimumVersionPolicyLoad.corrupted()
+          ? const MinimumVersionPolicyLoad.unverifiable(sourceMatches: true)
           : MinimumVersionPolicyLoad.found(policy);
     } catch (_) {
-      return const MinimumVersionPolicyLoad.corrupted();
+      return const MinimumVersionPolicyLoad.unverifiable();
     }
   }
 

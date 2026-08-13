@@ -1,11 +1,37 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
+
+class _RecordingCrashReporter implements CrashReporter {
+  final List<Map<String, Object?>> errors = [];
+
+  @override
+  Future<void> recordError(
+    Object error,
+    StackTrace? stack, {
+    String? context,
+    Map<String, Object?> extra = const {},
+    bool fatal = false,
+  }) async {
+    errors.add({'error': error, 'context': context, ...extra});
+  }
+
+  @override
+  Future<void> log(String message) async {}
+
+  @override
+  Future<void> setUserId(String? userId) async {}
+
+  @override
+  Future<void> setCustomKey(String key, Object value) async {}
+}
 
 void main() {
   tearDown(() {
     PatientRealtimeLifecycle.stopTimeout = const Duration(seconds: 4);
+    CrashReporter.reset();
   });
 
   test('the teardown bound defaults to the documented 4 seconds', () {
@@ -156,7 +182,7 @@ void main() {
   );
 
   test(
-    'the abandoned teardown KEEPS the queue tail, so a relogin cannot start '
+    'the abandoned teardown KEEPS the queue tail, so a relogin does not start '
     'realtime alongside a stop that is still in flight',
     () async {
       // INVERTED from an earlier revision, which asserted the tail was DROPPED
@@ -169,9 +195,11 @@ void main() {
       // (`_retirePatientState`, channel unsubscribes,
       // `RealtimeClient.disconnect`) silently tear that new session down.
       //
-      // Serialization is the stronger guarantee: a relogin gets its realtime
-      // as soon as the straggler settles, and never before.
-      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+      // Serialization within the bound is still the stronger guarantee, and it
+      // is what this test pins. The companion test below pins the other half:
+      // the wait is bounded, so a straggler that never settles cannot make the
+      // guarantee permanent.
+      PatientRealtimeLifecycle.stopTimeout = const Duration(seconds: 4);
       final lifecycle = PatientRealtimeLifecycle();
       final wedgedStop = Completer<void>();
       var starts = 0;
@@ -183,15 +211,19 @@ void main() {
       );
 
       lifecycle.beginTeardown();
+      // Bound only the teardown for this phase, so the queue-wait ceiling
+      // (also stopTimeout) cannot expire during the window asserted below.
+      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
       expect(
         await lifecycle.completeTeardown(() async {}),
         PatientRealtimeTeardownResult.timedOut,
       );
+      PatientRealtimeLifecycle.stopTimeout = const Duration(seconds: 4);
 
       // The user signs back in while the old stop is still parked in the
       // socket.
       final relogin = lifecycle.queueStart();
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
       expect(
         starts,
         0,
@@ -203,6 +235,143 @@ void main() {
       wedgedStop.complete();
       await relogin.timeout(const Duration(seconds: 5));
       expect(starts, 1);
+    },
+  );
+
+  test(
+    'a relogin behind a teardown that NEVER settles still gets realtime once '
+    'the queue-wait ceiling expires',
+    () async {
+      // THE regression test for the silently-dead-realtime defect. The tail
+      // kept by the branch above resolves to the same black-holed socket the
+      // teardown bound was escaping, so it may never settle. `queueStart()` is
+      // the only way this app connects and every call site discards its future
+      // (`main.dart`, `app_router.dart` both `unawaited`), so a permanently
+      // parked tail meant the next patient on the device got no queue
+      // positions, no appointment events, no notifications and no
+      // `session:revoked` kick — for the life of the process, announced by a
+      // single kDebugMode debugPrint.
+      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+      final lifecycle = PatientRealtimeLifecycle();
+      final neverSettles = Completer<void>();
+      var starts = 0;
+
+      lifecycle.attach(
+        owner: Object(),
+        start: () async => starts += 1,
+        stop: ({required unsubscribe}) => neverSettles.future,
+      );
+
+      lifecycle.beginTeardown();
+      expect(
+        await lifecycle.completeTeardown(() => neverSettles.future),
+        PatientRealtimeTeardownResult.timedOut,
+      );
+
+      final relogin = lifecycle.queueStart();
+      await relogin.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'the relogin start never ran: the queue is still chained to a '
+          'wedged teardown with no ceiling',
+        ),
+      );
+
+      expect(starts, 1);
+      expect(
+        neverSettles.isCompleted,
+        isFalse,
+        reason:
+            'the point is that the straggler is STILL parked — the chain moved '
+            'on without it rather than waiting for it to come back',
+      );
+    },
+  );
+
+  test(
+    'a wedged predecessor that the chain steps over is reported, not silent',
+    () async {
+      PatientRealtimeLifecycle.stopTimeout = const Duration(milliseconds: 50);
+      final reporter = _RecordingCrashReporter();
+      CrashReporter.install(reporter);
+      addTearDown(CrashReporter.reset);
+
+      final lifecycle = PatientRealtimeLifecycle();
+      final wedged = Completer<void>();
+      lifecycle.attach(
+        owner: Object(),
+        start: () async {},
+        stop: ({required unsubscribe}) => wedged.future,
+      );
+
+      unawaited(lifecycle.queueStop());
+      await Future<void>.delayed(Duration.zero);
+      await lifecycle.queueStart().timeout(const Duration(seconds: 5));
+
+      expect(
+        reporter.errors.map((e) => e['context']),
+        contains('PatientRealtimeLifecycle._enqueue'),
+      );
+      expect(reporter.errors.first['bound_ms'], 50);
+    },
+  );
+
+  test(
+    'a start dropped because a teardown owns the era is reported, not silent',
+    () async {
+      final reporter = _RecordingCrashReporter();
+      CrashReporter.install(reporter);
+      addTearDown(CrashReporter.reset);
+
+      final lifecycle = PatientRealtimeLifecycle();
+      var starts = 0;
+      lifecycle.attach(
+        owner: Object(),
+        start: () async => starts += 1,
+        stop: ({required unsubscribe}) async {},
+      );
+
+      lifecycle.beginTeardown();
+      await lifecycle.queueStart();
+
+      expect(starts, 0);
+      expect(
+        reporter.errors.map((e) => e['context']),
+        contains('PatientRealtimeLifecycle.queueStart'),
+      );
+    },
+  );
+
+  test(
+    'a start superseded by a LATER era is not reported as a fault',
+    () async {
+      // The generation fence doing its job is normal, and reporting every
+      // logout-superseded start would drown the signal above in noise.
+      final reporter = _RecordingCrashReporter();
+      CrashReporter.install(reporter);
+      addTearDown(CrashReporter.reset);
+
+      final lifecycle = PatientRealtimeLifecycle();
+      final releaseStop = Completer<void>();
+      var starts = 0;
+      lifecycle.attach(
+        owner: Object(),
+        start: () async => starts += 1,
+        stop: ({required unsubscribe}) async {
+          if (!unsubscribe) await releaseStop.future;
+        },
+      );
+
+      final blockingStop = lifecycle.queueStop();
+      await Future<void>.delayed(Duration.zero);
+      final staleStart = lifecycle.queueStart();
+      lifecycle.beginTeardown();
+      releaseStop.complete();
+      await blockingStop;
+      await staleStart;
+
+      expect(starts, 0);
+      expect(reporter.errors, isEmpty);
     },
   );
 
@@ -251,7 +420,8 @@ void main() {
     lifecycle.attach(
       owner: Object(),
       start: () async {},
-      stop: ({required unsubscribe}) async => throw StateError('socket blew up'),
+      stop: ({required unsubscribe}) async =>
+          throw StateError('socket blew up'),
     );
 
     lifecycle.beginTeardown();

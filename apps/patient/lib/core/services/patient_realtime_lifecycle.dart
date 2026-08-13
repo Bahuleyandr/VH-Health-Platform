@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
 
 typedef PatientRealtimeStart = Future<void> Function();
 typedef PatientRealtimeStop =
@@ -130,9 +131,46 @@ class PatientRealtimeLifecycle {
   Future<void> queueStart() {
     final requestedGeneration = _generation;
     return _enqueue(() async {
-      if (_tearingDown || requestedGeneration != _generation) return;
-      await _start?.call();
+      // A start superseded by a LATER generation is the fence doing its job:
+      // a logout happened after this was queued, and whatever era owns the
+      // fabric now has its own start. That case is normal and deliberately
+      // not reported.
+      if (requestedGeneration != _generation) return;
+      // These two are not normal. Both mean the patient asked for realtime and
+      // the app never even attempted it, in the CURRENT era, with nothing left
+      // to re-trigger it: the user silently gets no queue positions, no
+      // appointment events, no notifications and — worst — no `session:revoked`
+      // kick. A kDebugMode debugPrint in the caller is not telemetry.
+      if (_tearingDown) {
+        _reportUnstartedRealtime('queued during an in-flight logout teardown');
+        return;
+      }
+      final start = _start;
+      if (start == null) {
+        _reportUnstartedRealtime('no realtime owner is attached');
+        return;
+      }
+      await start();
     });
+  }
+
+  static void _reportUnstartedRealtime(String reason) {
+    debugPrint('PatientRealtimeLifecycle: realtime start dropped — $reason');
+    unawaited(
+      Future<void>.sync(
+        () => CrashReporter.instance.recordError(
+          StateError('Patient realtime start never reached _start: $reason'),
+          StackTrace.current,
+          context: 'PatientRealtimeLifecycle.queueStart',
+          extra: {'reason': reason},
+        ),
+      ).catchError((Object error, StackTrace _) {
+        // Reporting a degradation must never become one.
+        debugPrint(
+          'PatientRealtimeLifecycle: reporting a dropped start failed: $error',
+        );
+      }),
+    );
   }
 
   Future<void> queueStop({bool unsubscribe = false}) {
@@ -181,7 +219,7 @@ class PatientRealtimeLifecycle {
     var timedOut = false;
     var failed = false;
     try {
-      final drain = _enqueue(() async {
+      final drain = _enqueue(boundWait: false, () async {
         // GENERATION FENCE ON THE DRAIN, mirroring [queueStart].
         //
         // Without it this closure is the one path that reaches `_stop` with no
@@ -223,15 +261,23 @@ class PatientRealtimeLifecycle {
               );
             }),
           );
-          // The queue tail is deliberately KEPT. An earlier cut nulled
-          // `_operations` here so the next login would not wait behind the
-          // dead socket — but nothing on any login path awaits [queueStart]
-          // (every call site in `main.dart` and `app_router.dart` wraps it in
-          // `unawaited`), so that bought nothing, and it restored concurrency:
-          // a new login's start would run alongside a still-in-flight `_stop`
-          // whose late effects tear the new session down. Keeping the tail
-          // keeps the queue serialized — a start after an abandoned teardown
-          // runs as soon as the straggler settles, and never before it.
+          // The queue tail is deliberately KEPT, and that decision stands. An
+          // earlier cut nulled `_operations` here so the next login would not
+          // wait behind the dead socket — but nothing on any login path awaits
+          // [queueStart] (every call site in `main.dart` and `app_router.dart`
+          // wraps it in `unawaited`), so that bought nothing, and it restored
+          // concurrency: a new login's start would run alongside a
+          // still-in-flight `_stop` whose late effects tear the new session
+          // down. Keeping the tail keeps the queue serialized — a start after
+          // an abandoned teardown runs as soon as the straggler settles.
+          //
+          // What was missing is that "as soon as the straggler settles" was
+          // NOT a bound: the straggler here is the same black-holed socket
+          // this branch is escaping, so it may never settle and the next
+          // login's realtime would be silently dead for the life of the
+          // process. [_enqueue] now bounds the WAIT on a predecessor by
+          // [stopTimeout], which keeps the serialization in every case that
+          // can still resolve and steps over the one that cannot.
         },
       );
     } catch (error) {
@@ -267,9 +313,90 @@ class PatientRealtimeLifecycle {
     stopTimeout = const Duration(seconds: 4);
   }
 
-  Future<void> _enqueue(PatientRealtimeStart operation) {
-    final next = (_operations ?? Future<void>.value()).then((_) => operation());
+  /// Serializes [operation] behind everything already queued — but NEVER
+  /// forever.
+  ///
+  /// THE CHAIN NEEDS ITS OWN BOUND, not just the teardown.
+  ///
+  /// [completeTeardown] bounds how long LOGOUT waits, and deliberately keeps
+  /// the wedged drain as the queue tail so a straggler `_stop` cannot run
+  /// alongside a new session's `_start`. That reasoning is sound and is kept.
+  /// What it missed is that the tail resolves to the same black-holed
+  /// `RealtimeClient.disconnect()` the bound was escaping, so it may never
+  /// settle — and `queueStart()` is the ONLY way this app connects. Every call
+  /// site discards its future (`main.dart`, `app_router.dart` both wrap it in
+  /// `unawaited`), so a permanently-parked tail produced a completely silent
+  /// failure: the next patient to sign in on that device got no queue
+  /// positions, no appointment events, no notifications and no revocation
+  /// kick, for the lifetime of the process.
+  ///
+  /// So the WAIT is bounded rather than the operation: a predecessor is waited
+  /// on for at most [stopTimeout] — the same socket-shaped ceiling, one knob —
+  /// and then the chain moves on without it. In every healthy case a
+  /// predecessor settles in milliseconds and serialization is untouched; only
+  /// a predecessor that is wedged past the ceiling is stepped over, and by
+  /// then it is by construction a socket that is never coming back.
+  ///
+  /// Releasing the chain is safe because the straggler is now HARMLESS, not
+  /// merely late: `RealtimeClient.disconnect()` re-checks that the socket it
+  /// awaited is still the live one before nulling `_channel` and closing the
+  /// event controllers, so a late unwedge cannot tear down the session a newer
+  /// login established. `_stopRealtime` in `main.dart` re-checks [generation]
+  /// for the same reason, and [completeTeardown]'s one-shot claim still
+  /// prevents a second final disconnect.
+  ///
+  /// [boundWait] is false for exactly one caller: [completeTeardown], which
+  /// applies [stopTimeout] to the WHOLE drain itself. Bounding the wait a
+  /// second time inside would put two timers of the same length in a race and
+  /// make the teardown's own result non-deterministic — it could report
+  /// `completed` on a drain that only reached the front because a straggler
+  /// was stepped over. One bound per operation, owned by whoever declares it.
+  Future<void> _enqueue(
+    PatientRealtimeStart operation, {
+    bool boundWait = true,
+  }) {
+    final previous = _operations;
+    final Future<void> gate;
+    if (previous == null) {
+      gate = Future<void>.value();
+    } else if (boundWait) {
+      // Never silent — this is the degraded path, and its whole point is that
+      // somebody learns patient devices are wedging here.
+      gate = previous.timeout(
+        stopTimeout,
+        onTimeout: _reportAbandonedPredecessor,
+      );
+    } else {
+      gate = previous;
+    }
+    final next = gate.then((_) => operation());
     _operations = next.catchError((Object _, StackTrace _) {});
     return next;
+  }
+
+  static void _reportAbandonedPredecessor() {
+    final bound = stopTimeout.inMilliseconds;
+    debugPrint(
+      'PatientRealtimeLifecycle: a queued realtime operation did not settle '
+      'within ${bound}ms; releasing the queue so the next start is not lost',
+    );
+    unawaited(
+      Future<void>.sync(
+        () => CrashReporter.instance.recordError(
+          StateError(
+            'Patient realtime queue abandoned a wedged predecessor after '
+            '${bound}ms',
+          ),
+          StackTrace.current,
+          context: 'PatientRealtimeLifecycle._enqueue',
+          extra: {'bound_ms': bound},
+        ),
+      ).catchError((Object error, StackTrace _) {
+        debugPrint(
+          'PatientRealtimeLifecycle: reporting a wedged predecessor failed: '
+          '$error',
+        );
+      }),
+    );
   }
 }

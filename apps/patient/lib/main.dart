@@ -40,6 +40,7 @@ import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
+import 'package:vhhealth/core/services/patient_session_expiry.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
@@ -188,14 +189,12 @@ Future<void> main() async {
         FlutterError.onError = _recordFlutterFrameworkError;
       }
 
-      // Wire 401 handler: when any API call returns Unauthorized, redirect to
-      // login. The teardown lives in LogoutService.handleSessionExpired so the
-      // 401 logout path is testable alongside the other five.
-      ApiClient.onSessionExpired = (message) {
-        LogoutService.handleSessionExpired(
-          redirectToLogin: () => AppRouter.router.go('/login'),
-        );
-      };
+      // Wire the 401 handler: when any API call returns Unauthorized and the
+      // single-flight refresh fails, run the full teardown and redirect to
+      // login. Shares ONE entry point with the realtime 4001 leg wired on
+      // _realtimeProvider below, so the two transports cannot drift into
+      // different definitions of a dead session.
+      ApiClient.onSessionExpired = (_) => handlePatientSessionExpired();
 
       // Local notifications: initialize the scheduler, then sync medication
       // reminders from the backend. Both run off the critical path — neither is
@@ -288,7 +287,15 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    _realtimeProvider = RealtimeProvider();
+    // onSessionExpired is NOT optional here. RealtimeClient fires it after a
+    // 4001 auth close whose refresh failed — the server-side revocation path
+    // ("signed out everywhere", admin revocation, password change, account
+    // deletion) — and without it the client only dropped its two tokens while
+    // every byte of local PHI stayed on the device. See
+    // handlePatientSessionExpired.
+    _realtimeProvider = RealtimeProvider(
+      onSessionExpired: handlePatientSessionExpired,
+    );
     _webSocketProvider = WebSocketProvider(realtimeProvider: _realtimeProvider);
     _realtimeLifecycle = PatientRealtimeLifecycle.instance;
     _realtimeLifecycle.attach(

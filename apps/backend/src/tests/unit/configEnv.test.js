@@ -36,11 +36,32 @@ describe('validateEnv MIN_PATIENT_VERSION_CODE', () => {
     expect(value.MIN_PATIENT_VERSION_CODE).toBe(0);
   });
 
-  it('accepts a non-negative integer build code', () => {
-    const { error, value } = validate({ MIN_PATIENT_VERSION_CODE: '7' });
+  // CHANGED with the patient version-gate CRIT fix. This previously asserted
+  // that a bare `MIN_PATIENT_VERSION_CODE: '7'` validated on its own. It does
+  // not any more, and the test — not the guard — is what had to change:
+  // patient builds in the field fail closed on a minimum they cannot verify,
+  // so a non-zero code with no signed envelope is a configuration that NO
+  // deployed client can honour. It burns the 24h bootstrap grace and then
+  // blocks every install, including installs already above the code and
+  // including the SOS path. The intent of this case (a valid non-negative
+  // build code is accepted) is preserved by supplying the envelope the gate
+  // now requires alongside it.
+  it('accepts a non-negative integer build code with its signed policy', () => {
+    const { error, value } = validate({
+      MIN_PATIENT_VERSION_CODE: '7',
+      PATIENT_MINIMUM_VERSION_POLICY_JSON: '{"format":"signed"}'
+    });
 
     expect(error).toBeUndefined();
     expect(value.MIN_PATIENT_VERSION_CODE).toBe(7);
+  });
+
+  it('refuses a non-zero build code with no signed policy envelope', () => {
+    const { error } = validate({ MIN_PATIENT_VERSION_CODE: '7' });
+
+    expect(error?.details[0].message).toContain(
+      'PATIENT_MINIMUM_VERSION_POLICY_JSON'
+    );
   });
 
   it('rejects negative or fractional build codes', () => {

@@ -11,6 +11,79 @@ import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_core/services/realtime_provider.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+
+/// A [WebSocketChannel] whose `sink.close()` can be held open indefinitely.
+///
+/// That is the one property a loopback WebSocket server cannot express: a real
+/// `WebSocket.close()` always eventually resolves, so the black-holed socket
+/// the patient logout bound exists for is unreachable through the harness.
+class _ControllableChannel implements WebSocketChannel {
+  _ControllableChannel({Future<void>? closeGate})
+    : _sink = _ControllableSink(closeGate);
+
+  final StreamController<dynamic> _incoming = StreamController<dynamic>();
+  final _ControllableSink _sink;
+
+  void emitConnected() => _incoming.add(jsonEncode({'event': 'connected'}));
+
+  void emitEvent(String channel, Map<String, Object?> data) =>
+      _incoming.add(jsonEncode({'event': channel, 'data': data}));
+
+  void dispose() {
+    if (!_incoming.isClosed) unawaited(_incoming.close());
+  }
+
+  @override
+  Stream<dynamic> get stream => _incoming.stream;
+
+  @override
+  WebSocketSink get sink => _sink;
+
+  @override
+  Future<void> get ready => Future<void>.value();
+
+  @override
+  int? get closeCode => null;
+
+  @override
+  String? get closeReason => null;
+
+  @override
+  String? get protocol => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _ControllableSink implements WebSocketSink {
+  _ControllableSink(this._closeGate);
+
+  final Future<void>? _closeGate;
+  final Completer<void> _done = Completer<void>();
+
+  @override
+  void add(dynamic data) {}
+
+  @override
+  void addError(Object error, [StackTrace? stackTrace]) {}
+
+  @override
+  Future<void> addStream(Stream<dynamic> stream) async {}
+
+  @override
+  Future<void> get done => _done.future;
+
+  @override
+  Future<void> close([int? closeCode, String? closeReason]) async {
+    final gate = _closeGate;
+    if (gate != null) await gate;
+    if (!_done.isCompleted) _done.complete();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 class _RecordingCrashReporter implements CrashReporter {
   final List<Map<String, Object?>> errors = [];
@@ -349,6 +422,90 @@ void main() {
     expect(await AuthService.getRefreshToken(), isNull);
     expect(harness.authTokens, ['expired-access']);
     expect(RealtimeClient.instance.isConnected, isFalse);
+  });
+
+  test('a disconnect parked on a black-holed socket neither blocks the next '
+      'login nor tears it down', () async {
+    // The patient app BOUNDS its logout realtime teardown, so a disconnect
+    // parked inside `sink.close()` is abandoned while still in flight and a
+    // new login can bind this same singleton. Two silent failures used to
+    // follow, and this test pins both closed.
+    final wedgedClose = Completer<void>();
+    final channels = <_ControllableChannel>[];
+    RealtimeClient.channelFactoryForTesting = (_) {
+      final channel = _ControllableChannel(
+        closeGate: channels.isEmpty ? wedgedClose.future : null,
+      );
+      channels.add(channel);
+      return channel;
+    };
+    addTearDown(() {
+      RealtimeClient.channelFactoryForTesting = null;
+      if (!wedgedClose.isCompleted) wedgedClose.complete();
+      for (final channel in channels) {
+        channel.dispose();
+      }
+    });
+    await AuthService.setJwt('fresh-access');
+
+    final firstSessionEvents = <RealtimeEvent>[];
+    final firstSub = RealtimeClient.instance
+        .events('patient:1:queue')
+        .listen(firstSessionEvents.add);
+    addTearDown(firstSub.cancel);
+
+    await RealtimeClient.instance.connect();
+    channels.first.emitConnected();
+    await _waitFor(
+      () =>
+          RealtimeClient.instance.connectionState ==
+          RealtimeConnectionState.connected,
+      reason: 'first socket connected',
+    );
+
+    // Logout's teardown: started, then abandoned by its bound. The close
+    // never returns, exactly as a black-holed socket behaves.
+    final abandoned = RealtimeClient.instance.disconnect();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(
+      abandoned,
+      isA<Future<void>>(),
+      reason: 'sanity: the teardown is still in flight',
+    );
+
+    // FAILURE 1: `_channel` stayed set for the whole park, so connect()'s
+    // isConnected short-circuit made the next login a silent no-op.
+    final newSessionEvents = <RealtimeEvent>[];
+    final newSub = RealtimeClient.instance
+        .events('patient:2:queue')
+        .listen(newSessionEvents.add);
+    addTearDown(newSub.cancel);
+    await RealtimeClient.instance.connect();
+    await _waitFor(
+      () => channels.length == 2,
+      reason: 'the next login to actually open a socket',
+    );
+    channels[1].emitConnected();
+    await _waitFor(
+      () =>
+          RealtimeClient.instance.connectionState ==
+          RealtimeConnectionState.connected,
+      reason: 'second socket connected',
+    );
+
+    // FAILURE 2: the straggler resumed and cleared the state of whatever
+    // session was live by then.
+    wedgedClose.complete();
+    await abandoned.timeout(const Duration(seconds: 5));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(RealtimeClient.instance.isConnected, isTrue);
+    channels[1].emitEvent('patient:2:queue', {'position': 3});
+    await _waitFor(
+      () => newSessionEvents.isNotEmpty,
+      reason: 'an event on the new session after the straggler unwedged',
+    );
+    expect(newSessionEvents.single.data, containsPair('position', 3));
   });
 
   test('reconnectDelayMs grows exponentially and stays flat at the cap', () {
