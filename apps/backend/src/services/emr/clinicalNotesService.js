@@ -365,6 +365,7 @@ export async function createNote(data) {
 
     if (!resolvedEncounterId) {
       const encounter = await ensureEncounterForAppointment({
+        tenantId: requireTenantId(data.tenant_id || data.tenantId),
         appointmentId: appointmentIdNum,
         patientUid: patient_uid,
         doctorUid: assignedDoctorUid,

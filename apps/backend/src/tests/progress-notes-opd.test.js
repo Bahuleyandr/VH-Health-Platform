@@ -12,11 +12,12 @@
 
 import request from 'supertest';
 import app from '../app.js';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 
 const PATIENT_UID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90901';
 const DOCTOR_UID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90902';
+const TENANT_ID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90903';
 const TODAY_HOSPITAL_DATE = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Kolkata',
   year: 'numeric',
@@ -28,35 +29,82 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
   let patientId;
   let appointmentId;
   let createdNoteId;
-  const doctorToken = generateTestToken('DOCTOR', { uid: DOCTOR_UID, id: 990902 });
+  const priorAllowDefaultTenant = process.env.ALLOW_DEFAULT_TENANT;
+  const doctorToken = generateTestToken('DOCTOR', {
+    uid: DOCTOR_UID,
+    id: 990902,
+    tenant_id: TENANT_ID,
+  });
 
   beforeAll(async () => {
+    process.env.ALLOW_DEFAULT_TENANT = 'false';
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name)
+       VALUES ($1::uuid, 'progress-note-non-default', 'Progress Note Non-Default')
+       ON CONFLICT (id) DO NOTHING`,
+      TENANT_ID,
+    );
     const u = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9009090901', 'Progress Note Patient', 'PATIENT', true, NOW())
-       ON CONFLICT (uid) DO UPDATE SET updated_at = NOW()
-       RETURNING id`, PATIENT_UID);
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, '9009090901', 'Progress Note Patient', 'PATIENT', true, NOW())
+       ON CONFLICT (uid) DO UPDATE SET tenant_id = EXCLUDED.tenant_id, updated_at = NOW()
+       RETURNING id`, PATIENT_UID, TENANT_ID);
     patientId = u[0].id;
 
     const a = await prisma.$queryRawUnsafe(
       `INSERT INTO appointments
-         (patient_id, doctor_id, appointment_date, appointment_time, phone, reason,
-          status, department, updated_at)
-       VALUES ($1, NULL, $2::date, '11:00', '9009090901', 'OPD follow-up',
-               'CONFIRMED', 'General Medicine', NOW())
-       RETURNING id`, patientId, TODAY_HOSPITAL_DATE);
+          (tenant_id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason,
+           status, department, updated_at)
+       VALUES ($1::uuid, $2, NULL, $3::date, '11:00', '9009090901', 'OPD follow-up',
+                'CONFIRMED', 'General Medicine', NOW())
+       RETURNING id`, TENANT_ID, patientId, TODAY_HOSPITAL_DATE);
     appointmentId = a[0].id;
   });
 
   afterAll(async () => {
-    if (createdNoteId) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_notes WHERE id = $1::int`, createdNoteId).catch(() => {});
-    }
-    await prisma.$executeRawUnsafe(`DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    if (appointmentId) {
-      await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE id = $1::int`, appointmentId).catch(() => {});
-    }
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await setTenantTx(TENANT_ID, async (tx) => {
+      await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_audit_events
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND resource_table = 'clinical_notes'`,
+        TENANT_ID,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_timeline_events
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND source_table = 'clinical_notes'`,
+        TENANT_ID,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM patient_encounters
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid`,
+        TENANT_ID,
+        PATIENT_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM appointments
+          WHERE tenant_id = $1::uuid`,
+        TENANT_ID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM hipaa_access_log WHERE tenant_id = $1::uuid`,
+        TENANT_ID,
+      );
+      await tx.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID);
+      await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_ID);
+    });
+    if (priorAllowDefaultTenant === undefined) delete process.env.ALLOW_DEFAULT_TENANT;
+    else process.env.ALLOW_DEFAULT_TENANT = priorAllowDefaultTenant;
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -82,11 +130,33 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
     // encounters also stamp the UUID encounter_id so note/timeline/signature
     // lifecycle state can be audited per visit.
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT appointment_id, encounter_id FROM clinical_notes WHERE id = $1::int`,
+      `SELECT tenant_id::text, appointment_id, encounter_id
+         FROM clinical_notes
+        WHERE id = $1::int`,
       createdNoteId,
     );
+    expect(rows[0].tenant_id).toBe(TENANT_ID);
     expect(Number(rows[0].appointment_id)).toBe(appointmentId);
     expect(rows[0].encounter_id).toMatch(/^[0-9a-f-]{36}$/i);
+
+    const [timelineRows, auditRows] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT tenant_id::text
+           FROM clinical_timeline_events
+          WHERE source_table = 'clinical_notes' AND source_id = $1::text`,
+        String(createdNoteId),
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT tenant_id::text
+           FROM clinical_audit_events
+          WHERE resource_table = 'clinical_notes' AND resource_id = $1::text`,
+        String(createdNoteId),
+      ),
+    ]);
+    expect(timelineRows).toHaveLength(1);
+    expect(timelineRows[0].tenant_id).toBe(TENANT_ID);
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0].tenant_id).toBe(TENANT_ID);
   });
 
   it('rejects an unknown appointment_id with 404 (not 500)', async () => {

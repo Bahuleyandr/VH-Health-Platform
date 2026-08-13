@@ -567,44 +567,15 @@ export const verifyTokenStatus = async idToken => {
 
 // Get health status
 export const getHealthStatus = async () => {
-  // Test Firebase Admin connection
+  // Public liveness must stay constant-shape. This route is mounted before the
+  // API-key/JWT boundary, so fleet adoption, tenant counts, and device totals
+  // do not belong in its response (and must not turn one probe into O(tenants)
+  // database work).
   await admin.auth().listUsers(1);
-
-  // Get Firebase auth statistics
-  const stats = await query(`
-    SELECT 
-      COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL) as firebase_users,
-      COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL AND last_sign_in_at > NOW() - INTERVAL '24 hours') as active_firebase_users_24h,
-      COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL AND profile_completed_at IS NOT NULL) as completed_profiles,
-      COUNT(*) as total_users
-    FROM users
-  `);
-
-  const tenantRows = await query('SELECT id::text FROM tenants ORDER BY id');
-  const deviceStats = (
-    await Promise.all(tenantRows.map(({ id }) => setTenant(
-      id,
-      tx => query(
-        `SELECT platform,
-                COUNT(*) AS device_count,
-                COUNT(*) FILTER (
-                  WHERE last_active > NOW() - INTERVAL '24 hours'
-                ) AS active_24h
-           FROM user_devices
-          WHERE tenant_id = $1::uuid
-          GROUP BY platform`,
-        [id],
-        tx
-      ),
-      { readOnly: true }
-    )))
-  ).flat();
 
   return {
     status: 'healthy',
     firebaseConnection: 'connected',
-    statistics: stats[0],
-    deviceStatistics: deviceStats,
     timestamp: new Date().toISOString()
   };
 };
