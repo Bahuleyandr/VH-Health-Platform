@@ -202,12 +202,19 @@ function mergeReadableAllergyRows(rows) {
   });
 }
 
-// One SQL surface over both allergy stores. `source_rows` is the union the
-// reader used to materialize wholesale into Node; `resolved_rows` adds the
-// identity/allergen derivations that `readablePatientUid` / `readableAllergen`
-// compute in JS, so grouping and pagination can happen in the database
-// against exactly the values the JS merge would have used.
-const ALLERGY_SOURCE_ROWS_CTE = `
+const SQL_UUID_RE = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
+
+// One SQL surface over both allergy stores, evaluated exactly ONCE per read.
+// `source_rows` is the union the reader used to materialize wholesale into
+// Node; `resolved_rows` adds the identity/allergen derivations that
+// `readablePatientUid` / `readableAllergen` compute in JS; `classified_rows`
+// adds the defect verdict those JS readers would have thrown on, plus the
+// grouping and precedence keys the merge uses. The page and the fail-closed
+// integrity probe both read `classified_rows`, so Postgres materializes the
+// union once and answers both from it. Splitting them into two statements —
+// as the first cut of this change did — scanned the union twice and roughly
+// doubled the database work relative to the unpaginated original.
+const ALLERGY_CLASSIFIED_ROWS_CTE = `
   source_rows AS (
     SELECT 'patient_allergies'::text AS source,
            allergy.id, allergy.allergy_name, allergy.severity,
@@ -270,15 +277,49 @@ const ALLERGY_SOURCE_ROWS_CTE = `
            (NULLIF(BTRIM(COALESCE(patient_id_raw, '')), '') IS NOT NULL) AS id_present,
            NULLIF(REGEXP_REPLACE(BTRIM(COALESCE(allergy_name, '')), '\\s+', ' ', 'g'), '') AS allergen
       FROM source_rows
+  ),
+  classified_rows AS (
+    SELECT resolved_rows.*,
+           CASE
+             WHEN uid_present
+              AND (uid_resolved IS NULL OR uid_resolved !~ '${SQL_UUID_RE}')
+               THEN 'identity_unresolved'
+             WHEN uid_present
+              AND (UPPER(BTRIM(COALESCE(patient_uid_role, ''))) <> 'PATIENT'
+                OR patient_uid_active IS DISTINCT FROM TRUE)
+               THEN 'identity_invalid'
+             WHEN id_present
+              AND (id_resolved IS NULL OR id_resolved !~ '${SQL_UUID_RE}')
+               THEN 'identity_unresolved'
+             WHEN id_present
+              AND (UPPER(BTRIM(COALESCE(patient_id_role, ''))) <> 'PATIENT'
+                OR patient_id_active IS DISTINCT FROM TRUE)
+               THEN 'identity_invalid'
+             WHEN uid_present AND id_present
+              AND uid_resolved IS DISTINCT FROM id_resolved
+               THEN 'identity_conflict'
+             WHEN COALESCE(uid_resolved, id_resolved) IS NULL
+               THEN 'patient_unresolved'
+             WHEN allergen IS NULL
+               THEN 'allergen_missing'
+             ELSE NULL
+           END AS defect,
+           CASE
+             WHEN source = 'patient_allergies' AND has_fhir_receipt THEN 0
+             WHEN source = 'patient_allergies' THEN 1
+             ELSE 2
+           END AS precedence,
+           COALESCE(uid_resolved, id_resolved) AS group_patient_uid,
+           LOWER(allergen) AS group_allergen
+      FROM resolved_rows
   )`;
-
-const SQL_UUID_RE = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
 
 // Same failures, same codes and messages, as the per-row JS readers below.
 // Paginating in the database means the JS readers only ever see the rows on
-// the requested page, so this probe keeps the fail-closed guarantee over the
-// whole matching set: one unreadable identity anywhere still refuses the read
-// instead of quietly serving a page that happens to exclude it.
+// the requested page, so the integrity verdict is computed over the WHOLE
+// matching set in `classified_rows` and returned alongside the page: one
+// unreadable identity anywhere still refuses the read instead of quietly
+// serving a page that happens to exclude it.
 const ALLERGY_INTEGRITY_DEFECTS = {
   identity_unresolved: [
     'FHIR AllergyIntolerance source row has an unresolved patient identity',
@@ -302,51 +343,73 @@ const ALLERGY_INTEGRITY_DEFECTS = {
   ],
 };
 
-async function assertReadableAllergySources(tx, { tenantId, patientUid }) {
-  const rows = await tx.$queryRawUnsafe(
-    `WITH ${ALLERGY_SOURCE_ROWS_CTE},
-     classified AS (
-       SELECT source, id,
-              CASE
-                WHEN uid_present
-                 AND (uid_resolved IS NULL OR uid_resolved !~ '${SQL_UUID_RE}')
-                  THEN 'identity_unresolved'
-                WHEN uid_present
-                 AND (UPPER(BTRIM(COALESCE(patient_uid_role, ''))) <> 'PATIENT'
-                   OR patient_uid_active IS DISTINCT FROM TRUE)
-                  THEN 'identity_invalid'
-                WHEN id_present
-                 AND (id_resolved IS NULL OR id_resolved !~ '${SQL_UUID_RE}')
-                  THEN 'identity_unresolved'
-                WHEN id_present
-                 AND (UPPER(BTRIM(COALESCE(patient_id_role, ''))) <> 'PATIENT'
-                   OR patient_id_active IS DISTINCT FROM TRUE)
-                  THEN 'identity_invalid'
-                WHEN uid_present AND id_present
-                 AND uid_resolved IS DISTINCT FROM id_resolved
-                  THEN 'identity_conflict'
-                WHEN COALESCE(uid_resolved, id_resolved) IS NULL
-                  THEN 'patient_unresolved'
-                WHEN allergen IS NULL
-                  THEN 'allergen_missing'
-                ELSE NULL
-              END AS defect
-         FROM resolved_rows
-     )
-     SELECT defect
-       FROM classified
-      WHERE defect IS NOT NULL
-      ORDER BY CASE WHEN source = 'patient_allergies' THEN 0 ELSE 1 END, id
-      LIMIT 1`,
-    tenantId,
-    patientUid,
-  );
-  const defect = rows[0]?.defect;
-  if (!defect) return;
-  const [message, code] = ALLERGY_INTEGRITY_DEFECTS[defect]
-    || ALLERGY_INTEGRITY_DEFECTS.patient_unresolved;
-  throw AppError.internal(message, code);
-}
+// The page and the integrity verdict in one statement over one materialization
+// of the union.
+//
+// `integrity_defect` keeps its ORDER BY so the reported defect stays
+// deterministic, but that sort is no longer what forces the union to be
+// evaluated: `classified_rows` is materialized for the page regardless, and the
+// sort's input is only the rows that already failed `defect IS NOT NULL` —
+// zero of them on every healthy read.
+//
+// The `defect IS NULL` filter is repeated rather than hoisted into its own CTE
+// on purpose: a second CTE is a second materialization of the same wide rows,
+// which costs more than re-applying a cheap predicate to the tuplestore.
+//
+// The page filters on `defect IS NULL` where the previous cut filtered on
+// `COALESCE(uid_resolved, id_resolved) IS NOT NULL AND allergen IS NOT NULL`.
+// The two agree wherever the page is actually served: a non-null defect
+// anywhere refuses the whole read, so a page is only ever built from a set in
+// which every row is readable and both predicates pass everything.
+const ALLERGY_PAGE_SQL = `WITH ${ALLERGY_CLASSIFIED_ROWS_CTE},
+  integrity_defect AS (
+    SELECT defect
+      FROM classified_rows
+     WHERE defect IS NOT NULL
+     ORDER BY CASE WHEN source = 'patient_allergies' THEN 0 ELSE 1 END, id
+     LIMIT 1
+  ),
+  primaries AS (
+    SELECT DISTINCT ON (group_patient_uid, group_allergen)
+           group_patient_uid, group_allergen,
+           CASE
+             WHEN source = 'patient_allergies' THEN 'pa-' || id::text
+             ELSE id::text
+           END AS fhir_id,
+           COALESCE(recorded_at, created_at) AS sort_at
+      FROM classified_rows
+     WHERE defect IS NULL
+     ORDER BY group_patient_uid, group_allergen, precedence, id
+  ),
+  page AS (
+    SELECT group_patient_uid, group_allergen
+      FROM primaries
+     ORDER BY sort_at DESC NULLS LAST, fhir_id COLLATE "C" ASC
+     LIMIT $3::integer OFFSET $4::integer
+  )
+  SELECT NULL::text AS integrity_defect,
+         classified_rows.source, classified_rows.id, classified_rows.allergy_name,
+         classified_rows.severity, classified_rows.reaction, classified_rows.created_at,
+         classified_rows.recorded_at, classified_rows.has_fhir_receipt,
+         classified_rows.patient_uid_raw, classified_rows.patient_id_raw,
+         classified_rows.patient_uid_match, classified_rows.patient_uid_role,
+         classified_rows.patient_uid_active, classified_rows.patient_id_match,
+         classified_rows.patient_id_role, classified_rows.patient_id_active
+    FROM classified_rows
+    JOIN page
+      ON page.group_patient_uid = classified_rows.group_patient_uid
+     AND page.group_allergen = classified_rows.group_allergen
+   WHERE classified_rows.defect IS NULL
+  UNION ALL
+  SELECT integrity_defect.defect,
+         NULL::text, NULL::integer, NULL::varchar,
+         NULL::varchar, NULL::text, NULL::timestamptz,
+         NULL::timestamptz, NULL::boolean,
+         NULL::text, NULL::text,
+         NULL::text, NULL::text,
+         NULL::boolean, NULL::text,
+         NULL::text, NULL::boolean
+    FROM integrity_defect`;
 
 async function findReceipt(tx, { tenantId, resourceFingerprint }) {
   const rows = await tx.$queryRawUnsafe(
@@ -559,69 +622,39 @@ export async function listFhirAllergyIntolerances(input = {}) {
   const boundedLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 1000) : 200;
   const boundedOffset = Number.isInteger(offset) ? Math.max(offset, 0) : 0;
 
-  // The union, the duplicate collapse, and the page boundary are all resolved
-  // by the database: only the rows backing the requested page cross the wire.
-  // Reading every active row from both stores and slicing in Node made an
-  // unfiltered tenant read grow without bound.
-  const rows = await setTenantTx(tenantId, async (tx) => {
-    await assertReadableAllergySources(tx, { tenantId, patientUid });
-    return tx.$queryRawUnsafe(
-      `WITH ${ALLERGY_SOURCE_ROWS_CTE},
-       ranked AS (
-         SELECT resolved_rows.*,
-                CASE
-                  WHEN source = 'patient_allergies' AND has_fhir_receipt THEN 0
-                  WHEN source = 'patient_allergies' THEN 1
-                  ELSE 2
-                END AS precedence,
-                COALESCE(uid_resolved, id_resolved) AS group_patient_uid,
-                LOWER(allergen) AS group_allergen
-           FROM resolved_rows
-          WHERE COALESCE(uid_resolved, id_resolved) IS NOT NULL
-            AND allergen IS NOT NULL
-       ),
-       primaries AS (
-         SELECT DISTINCT ON (group_patient_uid, group_allergen)
-                group_patient_uid, group_allergen,
-                CASE
-                  WHEN source = 'patient_allergies' THEN 'pa-' || id::text
-                  ELSE id::text
-                END AS fhir_id,
-                COALESCE(recorded_at, created_at) AS sort_at
-           FROM ranked
-          ORDER BY group_patient_uid, group_allergen, precedence, id
-       ),
-       page AS (
-         SELECT group_patient_uid, group_allergen
-           FROM primaries
-          ORDER BY sort_at DESC NULLS LAST, fhir_id COLLATE "C" ASC
-          LIMIT $3::integer OFFSET $4::integer
-       )
-       SELECT ranked.source, ranked.id, ranked.allergy_name, ranked.severity,
-              ranked.reaction, ranked.created_at, ranked.recorded_at,
-              ranked.has_fhir_receipt, ranked.patient_uid_raw,
-              ranked.patient_id_raw, ranked.patient_uid_match,
-              ranked.patient_uid_role, ranked.patient_uid_active,
-              ranked.patient_id_match, ranked.patient_id_role,
-              ranked.patient_id_active
-         FROM ranked
-         JOIN page
-           ON page.group_patient_uid = ranked.group_patient_uid
-          AND page.group_allergen = ranked.group_allergen
-        ORDER BY ranked.precedence, ranked.id`,
-      tenantId,
-      patientUid,
-      boundedLimit,
-      boundedOffset,
-    );
-  });
+  // The union, the duplicate collapse, the page boundary AND the fail-closed
+  // integrity verdict are all resolved by one statement over one materialization
+  // of the union, so only the rows backing the requested page cross the wire and
+  // the union is read once per request rather than once per concern. Folding the
+  // probe in also closes the window in which a row could turn unreadable between
+  // a separate probe statement and the page statement.
+  const rows = await setTenantTx(tenantId, async (tx) => tx.$queryRawUnsafe(
+    ALLERGY_PAGE_SQL,
+    tenantId,
+    patientUid,
+    boundedLimit,
+    boundedOffset,
+  ));
+
+  // Refuse the whole read before building anything, exactly as the standalone
+  // probe did: one unreadable identity anywhere in the matching set still fails
+  // closed rather than serving a page that happens to exclude it.
+  const defect = rows.find(row => row.integrity_defect)?.integrity_defect;
+  if (defect) {
+    const [message, code] = ALLERGY_INTEGRITY_DEFECTS[defect]
+      || ALLERGY_INTEGRITY_DEFECTS.patient_unresolved;
+    throw AppError.internal(message, code);
+  }
 
   // The page's rows still go through the same merge, so severity ranking,
-  // reaction selection, identifiers, and the response shape are unchanged.
-  return mergeReadableAllergyRows(rows).map(publicAllergy);
+  // reaction selection, identifiers, and the response shape are unchanged. The
+  // verdict column is stripped here so it can never reach a response body.
+  const pageRows = rows.map(({ integrity_defect: _verdict, ...row }) => row);
+  return mergeReadableAllergyRows(pageRows).map(publicAllergy);
 }
 
 export const __testing__ = {
+  ALLERGY_PAGE_SQL,
   allergyIdentityFingerprint,
   allergyPayloadFingerprint,
   mergeReadableAllergyRows,
