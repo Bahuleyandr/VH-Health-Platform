@@ -4,8 +4,17 @@ import { jest } from '@jest/globals';
 // stores and slice the merged array in Node. These tests pin the replacement
 // contract: the union, the duplicate collapse, the page window AND the
 // whole-set integrity verdict are one statement over one evaluation of the
-// union, and an unreadable row anywhere still refuses the read before any page
-// is built.
+// union, and a MIS-ATTRIBUTED row anywhere still refuses the read before any
+// page is built.
+//
+// The two row classes that do NOT refuse are the ones that carry nothing a
+// reader could be missing: a source row stating no patient key at all (belongs
+// to nobody) and one naming no substance (no clinical content — the
+// prescription-safety gate already drops those, see
+// allergySourceService.mergeAllergyRows). Refusing on either hid every
+// patient's allergy list behind a 500 (`fhir-server.deep.test.js` — tenant-wide
+// read). They are excluded from the page and reported instead; the
+// `quarantines …` tests below are the pins for that.
 //
 // The single-statement property is load-bearing, not cosmetic. The first cut of
 // this change ran a separate probe query ahead of the page query; both rebuilt
@@ -28,6 +37,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: jest.fn(),
 }));
+const warn = jest.fn();
+jest.unstable_mockModule('../../logging/logger.js', () => ({
+  default: { warn, info: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
 
 const { listFhirAllergyIntolerances, __testing__ } = await import(
   '../../services/fhir/fhirAllergyIntoleranceService.js'
@@ -39,6 +52,8 @@ const PATIENT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
 function sourceRow(overrides = {}) {
   return {
     integrity_defect: null,
+    quarantined_rows: null,
+    quarantined_sample: null,
     source: 'patient_allergies',
     id: 1,
     allergy_name: 'Penicillin',
@@ -59,12 +74,22 @@ function sourceRow(overrides = {}) {
   };
 }
 
-const defectRow = defect => ({ ...sourceRow(), integrity_defect: defect, source: null, id: null });
+// The verdict row the statement appends: every source column is NULL on it.
+const verdictRow = ({ defect = null, quarantined = 0, sample = null } = {}) => ({
+  ...sourceRow(),
+  integrity_defect: defect,
+  quarantined_rows: quarantined,
+  quarantined_sample: sample,
+  source: null,
+  id: null,
+});
+const defectRow = defect => verdictRow({ defect });
 
 describe('FHIR AllergyIntolerance pagination', () => {
   beforeEach(() => {
     calls.length = 0;
     nextRows = [];
+    warn.mockClear();
   });
 
   test('issues exactly one statement, which carries both the page and the verdict', async () => {
@@ -141,18 +166,18 @@ describe('FHIR AllergyIntolerance pagination', () => {
     ]);
   });
 
-  test('never leaks the verdict column into a served row', async () => {
+  test('never leaks a verdict column into a served row', async () => {
     nextRows = [sourceRow()];
     const [row] = await listFhirAllergyIntolerances({ tenantId: TENANT });
     expect(row).not.toHaveProperty('integrity_defect');
+    expect(row).not.toHaveProperty('quarantined_rows');
+    expect(row).not.toHaveProperty('quarantined_sample');
   });
 
   test.each([
     ['identity_unresolved', 'FHIR_ALLERGY_PATIENT_UNRESOLVED'],
     ['identity_invalid', 'FHIR_ALLERGY_PATIENT_INVALID'],
     ['identity_conflict', 'FHIR_ALLERGY_PATIENT_IDENTITY_CONFLICT'],
-    ['patient_unresolved', 'FHIR_ALLERGY_PATIENT_UNRESOLVED'],
-    ['allergen_missing', 'FHIR_ALLERGY_CONTENT_UNRESOLVED'],
   ])('refuses the whole read when a source row is %s', async (defect, code) => {
     // The verdict row rides alongside a perfectly servable page: the defect sits
     // outside the requested window, and the read must still fail closed.
@@ -169,6 +194,58 @@ describe('FHIR AllergyIntolerance pagination', () => {
     nextRows = [sourceRow(), defectRow('something_new')];
     await expect(listFhirAllergyIntolerances({ tenantId: TENANT }))
       .rejects.toMatchObject({ code: 'FHIR_ALLERGY_PATIENT_UNRESOLVED' });
+  });
+
+  test('quarantines unrenderable source rows instead of refusing', async () => {
+    // `patient_unresolved` — a `patient_allergies` row with neither patient_uid
+    // nor patient_id belongs to nobody: it can never appear on any patient's
+    // list, and every patient-scoped read already filters it out.
+    // `allergen_missing` — a row naming no substance carries no clinical
+    // content; the prescription-safety gate drops the same shape.
+    // Refusing on either took the tenant-wide read — every patient's allergy
+    // list — down with a 500.
+    const sample = 'allergen_missing:allergies:44,patient_unresolved:patient_allergies:31';
+    nextRows = [sourceRow({ id: 7 }), verdictRow({ quarantined: 2, sample })];
+
+    const rows = await listFhirAllergyIntolerances({ tenantId: TENANT });
+
+    expect(rows.map(row => row.id)).toEqual(['pa-7']);
+    // Excluding them silently would be its own failure: the read reports them.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      code: 'FHIR_ALLERGY_SOURCE_QUARANTINED',
+      tenantId: TENANT,
+      excludedRows: 2,
+      sample,
+    }));
+  });
+
+  test('a mis-attributed row still refuses even when quarantined rows are also present', async () => {
+    nextRows = [sourceRow(), verdictRow({ defect: 'identity_conflict', quarantined: 5 })];
+    await expect(listFhirAllergyIntolerances({ tenantId: TENANT }))
+      .rejects.toMatchObject({ code: 'FHIR_ALLERGY_PATIENT_IDENTITY_CONFLICT' });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test('a clean read reports nothing', async () => {
+    nextRows = [sourceRow()];
+    await listFhirAllergyIntolerances({ tenantId: TENANT });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test('the merge drops the same two classes the page query does', () => {
+    const unattributable = { ...sourceRow({ id: 3 }), patient_uid_raw: null, patient_uid_match: null };
+    const nameless = { ...sourceRow({ id: 4, allergy_name: '   ' }) };
+    expect(__testing__.mergeReadableAllergyRows([unattributable, nameless, sourceRow({ id: 5 })]))
+      .toHaveLength(1);
+  });
+
+  test('the quarantine classes are excluded from the refusal verdict in SQL', () => {
+    const sql = __testing__.ALLERGY_PAGE_SQL;
+    const refusal = sql.slice(sql.indexOf('integrity_defect AS ('), sql.indexOf('quarantined_rows AS ('));
+    expect(refusal).toContain("defect NOT IN ('patient_unresolved', 'allergen_missing')");
+    // ...and they are counted rather than dropped on the floor.
+    expect(sql).toContain("WHERE defect IN ('patient_unresolved', 'allergen_missing')");
   });
 
   test('the verdict is computed over the whole set, not the page', () => {
