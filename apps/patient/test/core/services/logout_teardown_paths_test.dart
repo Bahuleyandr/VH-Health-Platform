@@ -45,6 +45,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/http_client.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_core/services/realtime_provider.dart';
 
@@ -219,6 +220,56 @@ void main() {
     expect(await AuthService.getJwt(), isNull);
     expect(await AuthService.getRefreshToken(), isNull);
     expect(RealtimeClient.instance.isConnected, isFalse);
+  });
+
+  test('path 3: a pre-hydration 401 with a persisted session runs the full '
+      'shared teardown (a dead session must not read as guest)', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(_recordingDependencies(calls));
+
+    // The token was revoked while the app was closed: on the next cold start
+    // main.dart fires an authenticated GET BEFORE the splash hydrates
+    // UserProvider, so the in-memory provider still looks like a guest
+    // (phone empty) when the 401 lands — but a real session is persisted.
+    final user = UserProvider();
+    expect(user.isGuest, isTrue, reason: 'not yet hydrated');
+    await VHSecureStorage.instance.write(
+      key: 'user_phone',
+      value: '9876543210',
+    );
+    await VHSecureStorage.instance.write(key: 'jwt', value: 'revoked-jwt');
+
+    var redirected = false;
+    LogoutService.handleSessionExpired(
+      redirectToLogin: () => redirected = true,
+    );
+    await _waitFor(
+      () => redirected,
+      reason: 'the pre-hydration expiry to run the full teardown',
+    );
+
+    expect(calls, fullTeardown);
+  });
+
+  test('path 3: a fresh install with no persisted session trace skips the '
+      'teardown', () async {
+    final calls = <String>[];
+    LogoutService.debugSetDependencies(_recordingDependencies(calls));
+
+    // Unhydrated provider AND nothing persisted: this device never held a
+    // patient credential, so there is no PHI to tear down and the user must
+    // not be bounced to /login.
+    final user = UserProvider();
+    expect(user.isGuest, isTrue);
+
+    var redirected = false;
+    LogoutService.handleSessionExpired(
+      redirectToLogin: () => redirected = true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(redirected, isFalse);
+    expect(calls, isEmpty);
   });
 
   test('path 3: 401 expiry is a no-op for guest sessions', () async {

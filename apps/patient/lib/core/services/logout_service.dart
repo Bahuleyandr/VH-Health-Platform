@@ -661,18 +661,60 @@ class LogoutService {
   /// Shared handler for definitive session death (the 401-after-failed-refresh
   /// logout path). Wired to [ApiClient.onSessionExpired] in main();
   /// [redirectToLogin] is injected so this service stays router-free.
+  ///
+  /// Guest classification is decided from PERSISTED session markers, not the
+  /// in-memory [UserProvider]: `UserProvider.isGuest` is phone-empty, which is
+  /// also the not-yet-hydrated state. main.dart fires authenticated requests
+  /// before the splash hydrates the provider, so a token revoked while the app
+  /// was closed 401s pre-hydration — classifying that on the in-memory phone
+  /// read a real dead session as a guest and skipped the entire PHI teardown
+  /// even though the transport had already dropped the tokens. Only a session
+  /// that provably never carried a patient credential (the explicit `guest`
+  /// marker, or a fresh install with no persisted identity and no JWT) skips
+  /// the teardown; every other classification — including a failed probe —
+  /// fails closed into the full single-flight [logout].
   static void handleSessionExpired({required VoidCallback redirectToLogin}) {
-    if (UserProvider.instance?.isGuest ?? false) {
-      return;
-    }
-    // Full teardown on definitive session death (fired only after a refresh
-    // attempt fails): disconnect the realtime + WebSocket PHI channels and
-    // wipe caches, then redirect. Previously only UserProvider was cleared,
-    // leaving the realtime channels live for the prior user.
     unawaited(() async {
+      if (await _isTrueGuestSession()) {
+        // A guest session has no server credential to revoke and must not be
+        // bounced to /login.
+        return;
+      }
+      // Full teardown on definitive session death (fired only after a refresh
+      // attempt fails): disconnect the realtime + WebSocket PHI channels and
+      // wipe caches, then redirect. Previously only UserProvider was cleared,
+      // leaving the realtime channels live for the prior user. logout() is
+      // single-flight, so the 401 and 4001 legs racing each other collapse
+      // into one wipe.
       await logout();
       redirectToLogin();
     }());
+  }
+
+  /// True only for a session that never held a patient credential.
+  static Future<bool> _isTrueGuestSession() async {
+    // A hydrated real identity is definitive — no storage probe needed.
+    final provider = UserProvider.instance;
+    if (provider != null && !provider.isGuest) return false;
+
+    try {
+      final phone = await _storage.read(key: 'user_phone');
+      // Explicit guest marker (UserProvider.setGuest persists it and deletes
+      // the JWT alongside).
+      if (phone == 'guest') return true;
+      // A persisted real identity means a session existed on this device —
+      // pre-hydration death must still run the full teardown.
+      if (phone != null && phone.isNotEmpty) return false;
+      // No identity marker: only the absence of a credential too proves this
+      // device never had a session to tear down.
+      final token = await _dependencies.readVhToken();
+      return token == null || token.isEmpty;
+    } catch (e) {
+      debugPrint('LogoutService: guest-session probe failed: $e');
+      // Fail closed: run the teardown. Wiping an actually-guest device clears
+      // nothing of value; skipping the wipe on a real dead session leaves PHI.
+      return false;
+    }
   }
 
   /// Ends the VH session server-side. Returns false — never throws — when the
