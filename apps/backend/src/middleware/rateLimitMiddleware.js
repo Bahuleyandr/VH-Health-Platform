@@ -5,6 +5,7 @@ import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 import { initRedis, isRedisConfigured } from '../lib/redis.js';
 import { getRateLimitOverride } from '../services/tenant/tenantSettingsService.js';
+import { normalizePhone } from '../utils/phoneUtils.js';
 
 function hashRateLimitIdentity(value, { lowercase = false } = {}) {
   const normalized = lowercase ? String(value).toLowerCase() : String(value);
@@ -17,11 +18,12 @@ function hashRateLimitIdentity(value, { lowercase = false } = {}) {
  *
  * Mobile and admin clients share app-level API keys; once JWT auth has run,
  * the user identity is the right bucket to avoid cross-user throttling.
- * For pre-auth login-shaped requests (which carry employeeId/email/username
- * in the body), key by IP+account so one staff member's failed attempts do
- * not throttle a different staff member from the same API key — the bug
- * surfaced during the ER reassessment role-switch in finding
- * 2026-05-10-emergency-walk-in-doctor-staff-login-global-rate-limit.
+ * For pre-auth login-shaped requests (which carry employeeId/email/username,
+ * a patient phone, or a Firebase idToken in the body), key by IP+account so
+ * one user's failed attempts do not throttle a different user from the same
+ * API key — the bug surfaced during the ER reassessment role-switch in
+ * finding 2026-05-10-emergency-walk-in-doctor-staff-login-global-rate-limit,
+ * and again fleet-wide for patients in finding 2026-08-14 P1.
  *
  * Uses ipKeyGenerator(req.ip) to satisfy express-rate-limit's IPv6 validation.
  */
@@ -44,6 +46,30 @@ const defaultKeyGenerator = (req) => {
     req.body?.email;
   if (account) {
     return `acct:${ipKeyGenerator(req.ip)}:${hashRateLimitIdentity(account, { lowercase: true })}`;
+  }
+
+  // Patient pre-auth flows (/api/v1/auth request-otp / verify-otp / legacy
+  // DB-OTP login, /api/v1/otp) identify the account by phone, not
+  // employeeId/email. Without this branch every logged-out patient fell
+  // through to the shared app API key below — one global bucket for the
+  // whole fleet (same bug class as the staff-login fix above, finding
+  // 2026-08-14 P1). Normalize first so "98765 43210" and "+919876543210"
+  // share one bucket; hash so the store never holds the raw phone.
+  const rawPhone = req.body?.phone || req.body?.phoneNumber;
+  if (rawPhone) {
+    const phone = normalizePhone(String(rawPhone)) || String(rawPhone);
+    return `acct:${ipKeyGenerator(req.ip)}:${hashRateLimitIdentity(phone)}`;
+  }
+
+  // Firebase exchange (/auth/firebase/firebase-login) carries only
+  // { idToken } — no phone, no account field. The idToken maps 1:1 to a
+  // single Firebase identity, so IP + a hash of the token gives each
+  // logging-in patient their own bucket (mirrors the challengeToken
+  // pattern in authKeyGenerator). Hash so the limiter store never holds
+  // the raw credential.
+  const idToken = req.body?.idToken;
+  if (typeof idToken === 'string' && idToken.length > 0) {
+    return `acct:${ipKeyGenerator(req.ip)}:idt:${hashRateLimitIdentity(idToken)}`;
   }
 
   const authorization =
