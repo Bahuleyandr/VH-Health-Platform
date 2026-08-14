@@ -10,6 +10,9 @@ const repoRoot = resolve(dirname(thisFile), '..');
 
 const targets = [
   'infra/kubernetes/apps',
+  // Held bedside-device ingress tree — composed by no overlay yet, but its
+  // manifests must stay valid so activation does not start from rot.
+  'infra/kubernetes/base/device-gateway',
   'infra/kubernetes/optional/tenant-network-boundary',
   'infra/kubernetes/overlays/staging/apps',
   'infra/kubernetes/overlays/dev',

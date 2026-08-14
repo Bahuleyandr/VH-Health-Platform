@@ -52,6 +52,18 @@ spec:
       ports:
         - protocol: TCP
           port: 5000
+    # 4. device-gateway → backend intra-cluster (held bedside-device MLLP
+    # ingress at base/device-gateway — resolves devices and drains its durable
+    # spool through the REST API). Same namespace, mirrors the admin rule;
+    # while the held tree is composed by nothing this selector matches no pod,
+    # so activation does not require editing this active policy.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: device-gateway
+      ports:
+        - protocol: TCP
+          port: 5000
   egress:
     # ---- In-cluster platform services (Agent B's namespace) ----
 

@@ -36,8 +36,11 @@ spec:
             - configMapRef:
                 name: device-gateway-config
           env:
+            # Matches the real backend Service (infra/kubernetes/apps/backend/
+            # service.yaml): name vhhealth-backend, port 80 → targetPort http
+            # (5000). Same portless form the admin ConfigMap uses.
             - name: BACKEND_BASE_URL
-              value: http://backend.vhhealth.svc.cluster.local:3000
+              value: http://vhhealth-backend.vhhealth.svc.cluster.local
             - name: DEVICE_GATEWAY_BACKEND_TOKEN
               valueFrom:
                 secretKeyRef:
