@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { setTenantTx } from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { rankSeverity } from '../clinical/allergySourceService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
@@ -76,6 +77,23 @@ function publicAllergy(row) {
   };
 }
 
+// Returns the patient this source row belongs to, or `null` when the row states
+// no patient key at all.
+//
+// The two outcomes are deliberately different. A row that NAMES a patient we
+// cannot honour (unknown uid, staff/inactive user, uid and id disagreeing) is a
+// MIS-ATTRIBUTED row: it claims to be somebody's allergy and we cannot tell
+// whose, so serving the rest of the list could omit a real allergy from the
+// patient actually being read — that still refuses the whole read.
+//
+// A row with neither `patient_uid` nor `patient_id` (both columns are NULLABLE
+// on `patient_allergies`, and legacy imports predate the uid key — see
+// services/clinical/allergySourceService.js) makes no claim at all. It cannot
+// belong to any patient, it can never be part of any patient's allergy list,
+// and it is already invisible to every patient-scoped read because the patient
+// filter drops it. Refusing on it took the whole tenant-wide read down — every
+// patient's allergy list — over a row that belongs to nobody. Those are
+// quarantined and reported instead, never served.
 function readablePatientUid(row) {
   const resolveIdentity = ({ raw, match, role, isActive }) => {
     if (raw == null || String(raw).trim() === '') return null;
@@ -116,24 +134,28 @@ function readablePatientUid(row) {
     );
   }
   const resolved = uidMatch || idMatch;
-  if (!resolved || !UUID_RE.test(resolved)) {
+  if (!resolved) return null;
+  if (!UUID_RE.test(resolved)) {
     throw AppError.internal(
-      'FHIR AllergyIntolerance source row has no resolvable patient',
+      'FHIR AllergyIntolerance source row has an unresolved patient identity',
       'FHIR_ALLERGY_PATIENT_UNRESOLVED',
     );
   }
   return resolved;
 }
 
+// Returns the substance this row names, or `null` when it names none.
+//
+// A row with no substance carries no clinical content: it cannot be matched
+// against a drug, and the platform's own source of truth for "what is this
+// patient allergic to?" already drops it — `mergeAllergyRows` in
+// services/clinical/allergySourceService.js skips blank allergens before the
+// prescription-safety gate ever sees them. Nothing is hidden by leaving it out
+// of a bundle, so it is quarantined and reported, not refused. Both columns
+// behind it are nullable on the legacy `allergies` table, so this shape reaches
+// production through imports.
 function readableAllergen(row) {
-  const allergen = String(row.allergy_name || '').trim().replace(/\s+/gu, ' ');
-  if (!allergen) {
-    throw AppError.internal(
-      'FHIR AllergyIntolerance source row has no allergen',
-      'FHIR_ALLERGY_CONTENT_UNRESOLVED',
-    );
-  }
-  return allergen;
+  return String(row.allergy_name || '').trim().replace(/\s+/gu, ' ') || null;
 }
 
 function readableRowPrecedence(row) {
@@ -147,6 +169,11 @@ function mergeReadableAllergyRows(rows) {
   for (const row of rows || []) {
     const patientUid = readablePatientUid(row);
     const allergen = readableAllergen(row);
+    // Quarantined: with no patient there is nothing to build the 1..1
+    // `AllergyIntolerance.patient` from, and with no substance there is no
+    // clinical content to carry. Dropped here for the same reason the page query
+    // filters them out — neither can be rendered as a resource.
+    if (!patientUid || !allergen) continue;
     const key = `${patientUid}\n${allergen.toLocaleLowerCase('en-US')}`;
     const candidate = {
       ...row,
@@ -314,12 +341,29 @@ const ALLERGY_CLASSIFIED_ROWS_CTE = `
       FROM resolved_rows
   )`;
 
-// Same failures, same codes and messages, as the per-row JS readers below.
-// Paginating in the database means the JS readers only ever see the rows on
-// the requested page, so the integrity verdict is computed over the WHOLE
-// matching set in `classified_rows` and returned alongside the page: one
-// unreadable identity anywhere still refuses the read instead of quietly
-// serving a page that happens to exclude it.
+// Two dispositions, split on ONE question: does the row carry clinical content
+// that a reader could be missing?
+//
+// REFUSE — the row names a substance and a severity but we cannot tell whose
+// allergy it is (unknown uid, a staff/inactive user, uid and id disagreeing).
+// Serving the rest could omit a real, named allergy from the very patient being
+// read. That is the case fail-closed exists for, and it still refuses the whole
+// read rather than serving a page that happens to exclude it. The verdict is
+// computed over the WHOLE matching set in `classified_rows`, not just the page.
+//
+// QUARANTINE — the row cannot be rendered as an AllergyIntolerance at all, and
+// no reader is missing anything as a result:
+//   * `patient_unresolved` — states no patient key, so it belongs to nobody,
+//     can never appear on any patient's list, and is already invisible to every
+//     patient-scoped read (the patient filter drops it).
+//   * `allergen_missing` — names no substance, so it carries no clinical
+//     content; the platform's own allergy source of truth already drops these
+//     before the prescription-safety gate (allergySourceService.mergeAllergyRows).
+// Both shapes are reachable with real data — `patient_allergies.patient_id` and
+// `.patient_uid` are both nullable, as are `allergies.allergen` and `.name` —
+// and refusing on them took every patient's allergy list in the tenant down
+// with a 500 over a row that told nobody anything. They are excluded from the
+// page, counted, and reported. Never served, never silent.
 const ALLERGY_INTEGRITY_DEFECTS = {
   identity_unresolved: [
     'FHIR AllergyIntolerance source row has an unresolved patient identity',
@@ -333,18 +377,27 @@ const ALLERGY_INTEGRITY_DEFECTS = {
     'FHIR AllergyIntolerance source row has conflicting patient identities',
     'FHIR_ALLERGY_PATIENT_IDENTITY_CONFLICT',
   ],
-  patient_unresolved: [
-    'FHIR AllergyIntolerance source row has no resolvable patient',
-    'FHIR_ALLERGY_PATIENT_UNRESOLVED',
-  ],
-  allergen_missing: [
-    'FHIR AllergyIntolerance source row has no allergen',
-    'FHIR_ALLERGY_CONTENT_UNRESOLVED',
-  ],
 };
 
-// The page and the integrity verdict in one statement over one materialization
-// of the union.
+// Anything NOT named here refuses, so a classification added to the SQL without
+// a deliberate decision fails safe rather than being served.
+const ALLERGY_QUARANTINED_DEFECTS = ['patient_unresolved', 'allergen_missing'];
+const ALLERGY_QUARANTINED_DEFECTS_SQL = ALLERGY_QUARANTINED_DEFECTS
+  .map(defect => `'${defect}'`)
+  .join(', ');
+
+// The verdict an unrecognised classification falls back to. It refuses, and it
+// describes the actual situation: the read produced an identity verdict this
+// build does not know how to interpret.
+const ALLERGY_UNKNOWN_DEFECT = ALLERGY_INTEGRITY_DEFECTS.identity_unresolved;
+
+// How many quarantined row identities are named in the ops log. The count is
+// always exact; the sample is bounded so one badly-imported tenant cannot write
+// an unbounded log line.
+const ALLERGY_QUARANTINE_SAMPLE_LIMIT = 20;
+
+// The page, the refusal verdict AND the quarantine report in one statement over
+// one materialization of the union.
 //
 // `integrity_defect` keeps its ORDER BY so the reported defect stays
 // deterministic, but that sort is no longer what forces the union to be
@@ -352,22 +405,56 @@ const ALLERGY_INTEGRITY_DEFECTS = {
 // sort's input is only the rows that already failed `defect IS NOT NULL` —
 // zero of them on every healthy read.
 //
+// `quarantined_rows` re-scans `classified_rows` for the quarantine classes,
+// which is NOT the "second materialization of the same wide rows" the comment
+// below warns about: it projects three narrow columns of a subset that is empty
+// on every healthy read, and it is what lets the read survive a row that tells
+// nobody anything instead of 500-ing every patient's allergy list.
+//
 // The `defect IS NULL` filter is repeated rather than hoisted into its own CTE
 // on purpose: a second CTE is a second materialization of the same wide rows,
 // which costs more than re-applying a cheap predicate to the tuplestore.
 //
 // The page filters on `defect IS NULL` where the previous cut filtered on
 // `COALESCE(uid_resolved, id_resolved) IS NOT NULL AND allergen IS NOT NULL`.
-// The two agree wherever the page is actually served: a non-null defect
-// anywhere refuses the whole read, so a page is only ever built from a set in
-// which every row is readable and both predicates pass everything.
+// The two still agree exactly: those are the two quarantine classes, and the
+// refusing classes never reach a served page at all.
+//
+// `verdict` yields at most ONE row and only when there is something to say, so
+// a clean read returns exactly the page rows it always did.
 const ALLERGY_PAGE_SQL = `WITH ${ALLERGY_CLASSIFIED_ROWS_CTE},
   integrity_defect AS (
     SELECT defect
       FROM classified_rows
      WHERE defect IS NOT NULL
+       AND defect NOT IN (${ALLERGY_QUARANTINED_DEFECTS_SQL})
      ORDER BY CASE WHEN source = 'patient_allergies' THEN 0 ELSE 1 END, id
      LIMIT 1
+  ),
+  quarantined_rows AS (
+    SELECT defect, source, id
+      FROM classified_rows
+     WHERE defect IN (${ALLERGY_QUARANTINED_DEFECTS_SQL})
+  ),
+  verdict AS (
+    SELECT integrity_defect.defect AS defect,
+           counted.row_count AS quarantined_rows,
+           counted.sample AS quarantined_sample
+      FROM (
+        SELECT (SELECT COUNT(*)::int FROM quarantined_rows) AS row_count,
+               (SELECT STRING_AGG(
+                         capped.defect || ':' || capped.source || ':' || capped.id::text, ','
+                         ORDER BY capped.defect, capped.source, capped.id)
+                  FROM (
+                    SELECT defect, source, id
+                      FROM quarantined_rows
+                     ORDER BY defect, source, id
+                     LIMIT ${ALLERGY_QUARANTINE_SAMPLE_LIMIT}
+                  ) capped) AS sample
+      ) counted
+      LEFT JOIN integrity_defect ON TRUE
+     WHERE integrity_defect.defect IS NOT NULL
+        OR counted.row_count > 0
   ),
   primaries AS (
     SELECT DISTINCT ON (group_patient_uid, group_allergen)
@@ -388,6 +475,8 @@ const ALLERGY_PAGE_SQL = `WITH ${ALLERGY_CLASSIFIED_ROWS_CTE},
      LIMIT $3::integer OFFSET $4::integer
   )
   SELECT NULL::text AS integrity_defect,
+         NULL::int AS quarantined_rows,
+         NULL::text AS quarantined_sample,
          classified_rows.source, classified_rows.id, classified_rows.allergy_name,
          classified_rows.severity, classified_rows.reaction, classified_rows.created_at,
          classified_rows.recorded_at, classified_rows.has_fhir_receipt,
@@ -401,7 +490,9 @@ const ALLERGY_PAGE_SQL = `WITH ${ALLERGY_CLASSIFIED_ROWS_CTE},
      AND page.group_allergen = classified_rows.group_allergen
    WHERE classified_rows.defect IS NULL
   UNION ALL
-  SELECT integrity_defect.defect,
+  SELECT verdict.defect,
+         verdict.quarantined_rows,
+         verdict.quarantined_sample,
          NULL::text, NULL::integer, NULL::varchar,
          NULL::varchar, NULL::text, NULL::timestamptz,
          NULL::timestamptz, NULL::boolean,
@@ -409,7 +500,7 @@ const ALLERGY_PAGE_SQL = `WITH ${ALLERGY_CLASSIFIED_ROWS_CTE},
          NULL::text, NULL::text,
          NULL::boolean, NULL::text,
          NULL::text, NULL::boolean
-    FROM integrity_defect`;
+    FROM verdict`;
 
 async function findReceipt(tx, { tenantId, resourceFingerprint }) {
   const rows = await tx.$queryRawUnsafe(
@@ -622,12 +713,13 @@ export async function listFhirAllergyIntolerances(input = {}) {
   const boundedLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 1000) : 200;
   const boundedOffset = Number.isInteger(offset) ? Math.max(offset, 0) : 0;
 
-  // The union, the duplicate collapse, the page boundary AND the fail-closed
-  // integrity verdict are all resolved by one statement over one materialization
-  // of the union, so only the rows backing the requested page cross the wire and
-  // the union is read once per request rather than once per concern. Folding the
-  // probe in also closes the window in which a row could turn unreadable between
-  // a separate probe statement and the page statement.
+  // The union, the duplicate collapse, the page boundary, the fail-closed
+  // integrity verdict AND the quarantine report are all resolved by one
+  // statement over one materialization of the union, so only the rows backing
+  // the requested page cross the wire and the union is read once per request
+  // rather than once per concern. Folding the probe in also closes the window in
+  // which a row could turn unreadable between a separate probe statement and the
+  // page statement.
   const rows = await setTenantTx(tenantId, async (tx) => tx.$queryRawUnsafe(
     ALLERGY_PAGE_SQL,
     tenantId,
@@ -636,20 +728,51 @@ export async function listFhirAllergyIntolerances(input = {}) {
     boundedOffset,
   ));
 
+  // At most one verdict row rides alongside the page, and only when the read
+  // has something to report.
+  const isVerdictRow = row => row.integrity_defect != null || row.quarantined_rows != null;
+  const verdict = rows.find(isVerdictRow);
+
   // Refuse the whole read before building anything, exactly as the standalone
-  // probe did: one unreadable identity anywhere in the matching set still fails
+  // probe did: one MIS-ATTRIBUTED row anywhere in the matching set still fails
   // closed rather than serving a page that happens to exclude it.
-  const defect = rows.find(row => row.integrity_defect)?.integrity_defect;
-  if (defect) {
-    const [message, code] = ALLERGY_INTEGRITY_DEFECTS[defect]
-      || ALLERGY_INTEGRITY_DEFECTS.patient_unresolved;
+  if (verdict?.integrity_defect) {
+    const [message, code] = ALLERGY_INTEGRITY_DEFECTS[verdict.integrity_defect]
+      || ALLERGY_UNKNOWN_DEFECT;
     throw AppError.internal(message, code);
+  }
+
+  // Quarantined rows are the other half of that decision: they carry nothing a
+  // reader could be missing, so they are excluded from the page rather than
+  // allowed to hide every patient's allergy list behind a 500. Excluding them
+  // silently would be its own failure, so the read reports them — count exact,
+  // identities bounded, and no PHI (the sample is a defect class, a table name
+  // and a row id; neither class names a patient or a substance).
+  const quarantined = Number(verdict?.quarantined_rows || 0);
+  if (quarantined > 0) {
+    logger.warn(
+      'FHIR AllergyIntolerance read excluded unrenderable source rows',
+      {
+        code: 'FHIR_ALLERGY_SOURCE_QUARANTINED',
+        tenantId,
+        patientScoped: patientUid != null,
+        excludedRows: quarantined,
+        sample: verdict.quarantined_sample,
+      },
+    );
   }
 
   // The page's rows still go through the same merge, so severity ranking,
   // reaction selection, identifiers, and the response shape are unchanged. The
-  // verdict column is stripped here so it can never reach a response body.
-  const pageRows = rows.map(({ integrity_defect: _verdict, ...row }) => row);
+  // verdict columns are stripped here so they can never reach a response body.
+  const pageRows = rows
+    .filter(row => !isVerdictRow(row))
+    .map(({
+      integrity_defect: _verdict,
+      quarantined_rows: _excluded,
+      quarantined_sample: _sample,
+      ...row
+    }) => row);
   return mergeReadableAllergyRows(pageRows).map(publicAllergy);
 }
 

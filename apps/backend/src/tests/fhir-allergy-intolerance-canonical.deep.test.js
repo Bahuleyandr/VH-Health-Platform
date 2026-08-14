@@ -277,7 +277,7 @@ d('FHIR AllergyIntolerance canonical tenant contract', () => {
     expect(counts.count).toBe(0);
   });
 
-  it('fails closed when stored allergy identities are staff, unresolved, or conflicting', async () => {
+  it('fails closed on mis-attributed allergy identities and quarantines unattributable ones', async () => {
     const insertStructured = async (patientUid, patientId, name) => setTenantTx(
       TENANT_A,
       async (tx) => {
@@ -322,6 +322,46 @@ d('FHIR AllergyIntolerance canonical tenant contract', () => {
       code: 'FHIR_ALLERGY_PATIENT_IDENTITY_CONFLICT',
     });
     await removeStructured(invalidId);
+
+    // ...and a row that states NO patient is a different case entirely: it
+    // claims nobody, so there is no mis-attribution to fail closed on. Both
+    // `patient_allergies` key columns are nullable and legacy rows predate the
+    // uid key, so this shape is reachable with real data — refusing on it hid
+    // every patient's allergy list in the tenant behind a 500.
+    const unattributableId = await insertStructured(null, null, 'Unattributable Read Marker');
+    const neighbourId = await insertStructured(PATIENT_A, null, 'Unattributable Neighbour Marker');
+    const served = await listFhirAllergyIntolerances({ tenantId: TENANT_A, limit: 1000 });
+    expect(served.some(row => row.allergen === 'Unattributable Read Marker')).toBe(false);
+    // The rest of the tenant is still served, and every served row still
+    // carries a patient.
+    expect(served.some(row => row.allergen === 'Unattributable Neighbour Marker')).toBe(true);
+    for (const row of served) {
+      expect(row.patient_uid).toMatch(/^[0-9a-f-]{36}$/i);
+    }
+    await removeStructured(neighbourId);
+    await removeStructured(unattributableId);
+
+    // Same disposition for the other unrenderable shape: a legacy row that
+    // names no substance. `allergies.allergen` and `.name` are both nullable, so
+    // an import can land one, and it carries nothing the prescription-safety
+    // gate would have used either (allergySourceService drops blank allergens).
+    const [nameless] = await setTenantTx(TENANT_A, (tx) => tx.$queryRawUnsafe(
+      `INSERT INTO allergies (tenant_id, patient_uid, allergen, name, status)
+       VALUES ($1::uuid, $2::uuid, NULL, NULL, 'active')
+       RETURNING id`,
+      TENANT_A,
+      PATIENT_A,
+    ));
+    const stillServed = await listFhirAllergyIntolerances({ tenantId: TENANT_A, limit: 1000 });
+    expect(stillServed.length).toBeGreaterThan(0);
+    for (const row of stillServed) {
+      expect(String(row.allergen || '').trim()).not.toBe('');
+    }
+    await setTenantTx(TENANT_A, (tx) => tx.$executeRawUnsafe(
+      `DELETE FROM allergies WHERE tenant_id = $1::uuid AND id = $2`,
+      TENANT_A,
+      nameless.id,
+    ));
   });
 
   it('normalizes legacy status variants and preserves numeric legacy identities', async () => {
