@@ -101,11 +101,22 @@ jobs:
           POSTGRES_DB: vhhealth
         ports:
           - 5432:5432
+        # --log-driver local + max-size 100k: the runner prints the WHOLE
+        # service-container log at job teardown, and on a long shard the
+        # Postgres expected-error dump alone exceeds the ~5000-line window the
+        # job-log API serves — burying the jest output that precedes it (the
+        # 2026-08-14 shard failures were undiagnosable for exactly this
+        # reason). Capping the container log to its last ~100KB keeps the
+        # teardown dump to a few hundred lines so the step output — including
+        # the tee'd jest tail — stays inside the served window.
         options: >-
           --health-cmd "pg_isready -U vhhealth"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --log-driver local
+          --log-opt max-size=100k
+          --log-opt max-file=1
 
     env:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
@@ -248,11 +259,22 @@ jobs:
           POSTGRES_DB: vhhealth
         ports:
           - 5432:5432
+        # --log-driver local + max-size 100k: the runner prints the WHOLE
+        # service-container log at job teardown, and on a long shard the
+        # Postgres expected-error dump alone exceeds the ~5000-line window the
+        # job-log API serves — burying the jest output that precedes it (the
+        # 2026-08-14 shard failures were undiagnosable for exactly this
+        # reason). Capping the container log to its last ~100KB keeps the
+        # teardown dump to a few hundred lines so the step output — including
+        # the tee'd jest tail — stays inside the served window.
         options: >-
           --health-cmd "pg_isready -U vhhealth"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --log-driver local
+          --log-opt max-size=100k
+          --log-opt max-file=1
 
     env:
       DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@localhost:5432/vhhealth
