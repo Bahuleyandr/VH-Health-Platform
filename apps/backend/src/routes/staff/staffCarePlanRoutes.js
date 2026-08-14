@@ -63,7 +63,26 @@ const activityResourceWrite = patientAccessGuardForResource('CARE_PLAN', {
   careTeamModeGoverned: true,
 });
 
-router.use(requireRole(...CLINICAL_STAFF_ROUTE_ROLES));
+// This router is mounted at `/` (routes/staff/index.js) so that its paths keep
+// their canonical `/api/v1/staff/care-plans/*` and
+// `/api/v1/staff/patients/:patientUid/care-plans` shapes. A path-less
+// `router.use(requireRole(...))` therefore does NOT gate "this file's routes" —
+// express runs it before route matching, for every request that reaches the
+// mount, and a denial short-circuits the chain rather than falling through. It
+// consequently gated every sibling mounted at or after this one in
+// routes/staff/index.js: the whole `/api/v1/staff/admin/*` surface,
+// `/staff/replacements/*`, the staff prescription router, and
+// `/staff/medical/consultations`. Because CLINICAL_STAFF_ROUTE_ROLES excludes
+// HR_STAFF and GENERAL_STAFF, that silently locked HR out of staff
+// administration — most visibly payroll dual control, whose HR signature is
+// gated on exactly the HR_STAFF role that this leak denied.
+//
+// Scope the gate to the two prefixes this router actually serves. Anything else
+// now falls through to the routers mounted after it, which enforce their own
+// (narrower) guards.
+const clinicalStaffOnly = requireRole(...CLINICAL_STAFF_ROUTE_ROLES);
+router.use('/care-plans', clinicalStaffOnly);
+router.use('/patients/:patientUid/care-plans', clinicalStaffOnly);
 
 router.get(
   '/patients/:patientUid/care-plans',

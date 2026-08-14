@@ -58,6 +58,21 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
   generatePayslipPDF: null,
 }));
 
+// Migration 669 made issuance the moment a payslip becomes COLLECTABLE, so
+// issuePayrollRun now queues one in-app "your payslip is available" intent per
+// issued payslip (payrollService.js:2395) before returning. The outbox is a
+// durable send-permission ledger, not a fire-and-forget call: `queue` opens its
+// own RLS tenant-context probe against prisma, which this suite's SQL router
+// cannot answer, so leaving it real made the controller throw and answer 500 —
+// the reason the two issue-success cases below were red. Mock it at the module
+// seam (as notificationDispatcher already is) and assert the intents instead,
+// which pins strictly more of the new contract than was pinned before.
+const outboxQueue = jest.fn().mockResolvedValue({ id: 1, status: 'PENDING' });
+jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
+  notificationOutbox: { queue: outboxQueue },
+  default: { queue: outboxQueue },
+}));
+
 // The acknowledgement's audit trail — asserted on, so mocked at the seam.
 const logAudit = jest.fn().mockResolvedValue(undefined);
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({ logAudit }));
@@ -392,6 +407,18 @@ describe('issuePayslips failed-payslip acknowledgement', () => {
     expect(body.data.issued).toBe(3);
     expect(logAudit).toHaveBeenCalledTimes(1);
     expect(logAudit.mock.calls[0][1]).toBe('payroll-issue-failed-payslips-acknowledged');
+    // Issuance is what makes a payslip collectable, so every issued payslip
+    // gets its own in-app intent — enqueued on the same transaction, strictly.
+    expect(outboxQueue).toHaveBeenCalledTimes(3);
+    for (const [intent, opts] of outboxQueue.mock.calls) {
+      expect(intent).toMatchObject({
+        channel: 'inapp',
+        type: 'payslip_ready',
+        data: expect.objectContaining({ collectable: 'true', stage: 'issued' }),
+      });
+      expect(opts).toMatchObject({ strict: true });
+      expect(opts.tx).toBeDefined();
+    }
   });
 
   it('issues a clean run without any ack (unchanged behaviour)', async () => {
@@ -406,5 +433,42 @@ describe('issuePayslips failed-payslip acknowledgement', () => {
       .toBe(true);
     expect(res.json.mock.calls[0][0].success).toBe(true);
     expect(logAudit).not.toHaveBeenCalled();
+    expect(outboxQueue).toHaveBeenCalledTimes(3);
+  });
+
+  // Migration 669's other half. A payslip is only collectable once its document
+  // exists AND the in-app notification telling the staff member about it has an
+  // acknowledged provider receipt; until then issue refuses with 409 and names
+  // who is still waiting. Without this case the suite's SQL router answers the
+  // delivery probe with an empty set on every path, so the gate is satisfied by
+  // construction and never exercised.
+  it('refuses to issue while a payslip document delivery is still pending', async () => {
+    installQueryRouter({ runRow: approvedWithFailures({ failed_staff_count: 0, failed_staff: [] }) });
+    // Re-point ONLY the delivery probe at a pending row; every other route stays.
+    const routed = queryRawUnsafe.getMockImplementation();
+    queryRawUnsafe.mockImplementation(async (sql, ...params) => {
+      if (sql.includes('FROM payroll_run_staff_results AS result')
+          && sql.includes('LEFT JOIN payslip_documents')) {
+        return [{ staff_uid: STAFF_A, delivery_state: 'notification_pending' }];
+      }
+      return routed(sql, ...params);
+    });
+    const res = makeRes();
+
+    await issuePayslips(issueReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    const body = res.json.mock.calls[0][0];
+    expect(body.success).toBe(false);
+    expect(body.code).toBe('PAYSLIP_DELIVERY_PENDING');
+    expect(body.details.pending_staff).toEqual([
+      { staff_uid: STAFF_A, state: 'notification_pending' },
+    ]);
+    // Nothing was issued, locked, or announced.
+    expect(queryRawUnsafe.mock.calls.some(([sql]) => sql.includes('UPDATE payslips AS payslip')))
+      .toBe(false);
+    expect(executeRawUnsafe.mock.calls.some(([sql]) => sql.includes("SET status = 'locked'")))
+      .toBe(false);
+    expect(outboxQueue).not.toHaveBeenCalled();
   });
 });

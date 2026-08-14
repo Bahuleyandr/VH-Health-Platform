@@ -753,6 +753,35 @@ async function auditFailedPayslipAck(req, run, action) {
   }, { resource: 'payroll_run', resourceId: run.id });
 }
 
+// The published sign-off payload. `signPayrollRun` deliberately reads three
+// extra columns — `attempt_token`, `result_manifest_hash`,
+// `document_manifest_hash` — because it needs them INSIDE the transaction to
+// prove the run's results and documents have not changed since finalization
+// (migrations 664 / 669). They are internal integrity and attempt-claim
+// artifacts with no consumer: the operator-facing integrity value is
+// `approval_hash`, which stays. Returning the service row verbatim would
+// publish them, which is exactly the leakage the `PayrollRun` schema forbids
+// (`additionalProperties: false`, scripts/openapi/schemas/payroll.mjs:111) and
+// the opposite of the direction the rest of this surface was tightened in
+// (PayslipListItem / PayrollRunDetailHeader dropped tenant_id, pdf_key and
+// friends for the same reason). Project to the typed contract instead.
+const PUBLIC_PAYROLL_RUN_FIELDS = Object.freeze([
+  'id', 'month', 'year', 'status', 'total_staff', 'total_gross', 'total_net',
+  'total_deductions', 'generated_by', 'generated_at', 'employee_count',
+  'hr_approved_by', 'hr_approved_at', 'hr_comment', 'admin_approved_by',
+  'admin_approved_at', 'admin_comment', 'approval_hash', 'notes', 'created_at',
+  'updated_at',
+]);
+
+function publicPayrollRun(run) {
+  if (!run || typeof run !== 'object') return run;
+  const projected = {};
+  for (const field of PUBLIC_PAYROLL_RUN_FIELDS) {
+    if (field in run) projected[field] = run[field];
+  }
+  return projected;
+}
+
 // ─── HR: Sign payroll run (first approval) ────────────────────────────────────
 export const hrSignPayrollRun = async (req, res) => {
   try {
@@ -788,7 +817,7 @@ export const hrSignPayrollRun = async (req, res) => {
     }
 
     if (signed.ackRequired) await auditFailedPayslipAck(req, signed.ackRun, 'hr-sign');
-    success(res, signed.run, signed.ackRequired
+    success(res, publicPayrollRun(signed.run), signed.ackRequired
       ? `HR signature applied with ${signed.ackRun.failed_staff_count} failed payslip(s) acknowledged — awaiting Admin countersign`
       : 'HR signature applied — awaiting Admin countersign before payslips can be issued');
   } catch (err) {
@@ -838,7 +867,7 @@ export const adminSignPayrollRun = async (req, res) => {
     }
 
     if (signed.ackRequired) await auditFailedPayslipAck(req, signed.ackRun, 'admin-sign');
-    success(res, signed.run, signed.ackRequired
+    success(res, publicPayrollRun(signed.run), signed.ackRequired
       ? `Admin countersign complete with ${signed.ackRun.failed_staff_count} failed payslip(s) acknowledged — payslips can now be issued`
       : 'Admin countersign complete — payslips can now be issued to staff');
   } catch (err) {
