@@ -77,6 +77,53 @@ export function isPayrollRunAttemptLostError(err) {
   return err?.code === PAYROLL_RUN_ATTEMPT_LOST;
 }
 
+// The unique index that makes one tenant+period payroll claim exclusive
+// (migration 330_payroll_salary_tenant_rls.sql:161).
+const PAYROLL_RUN_PERIOD_CONSTRAINT = 'uniq_payroll_runs_tenant_month_year';
+
+// Retry budget for the period claim. See claimPayrollRunPeriodTx for why a
+// SERIALIZABLE claim needs one at all. Mirrors SERIALIZABLE_ATTEMPTS /
+// runSerializableCommand in services/downtime/externalRecoveryOperabilityService.js,
+// which is the house pattern for a serializable command that can lose a race.
+const PAYROLL_CLAIM_ATTEMPTS = 3;
+
+// Prisma reports a raw-SQL failure as P2010 and carries the real SQLSTATE on
+// `meta.code`; model-delegate failures carry their own P-code. Probe the same
+// chain the other serializable services use.
+function payrollSqlState(error) {
+  return (
+    error?.meta?.code
+    || error?.meta?.driverAdapterError?.cause?.originalCode
+    || error?.cause?.code
+    || error?.code
+  );
+}
+
+/**
+ * Is `error` a transient claim conflict that beginning a NEW transaction — and
+ * therefore taking a FRESH snapshot — can actually resolve?
+ *
+ * Deliberately narrow on the unique-violation side. 23505 is matched only when
+ * it names the tenant+period index, because that is the only duplicate key a
+ * retry can turn into a correct answer. Any other unique violation raised
+ * inside this transaction (a duplicate staff identity, a duplicate attempt row)
+ * is a real defect that must surface to the caller, not be retried and then
+ * re-raised three transactions later.
+ *
+ * 40001 (serialization_failure), 40P01 (deadlock_detected) and Prisma's P2034
+ * are the generic transient classes every SERIALIZABLE caller is required to be
+ * ready for; the period SELECT can legitimately produce them under load even
+ * when the INSERT itself would have succeeded.
+ */
+function isRetryablePayrollClaimConflict(error) {
+  const state = String(payrollSqlState(error) || '');
+  if (['40001', '40P01', 'P2034'].includes(state)) return true;
+  if (state !== '23505' && state !== 'P2002') return false;
+  const detail = `${error?.message || ''} ${error?.meta?.message || ''} `
+    + `${Array.isArray(error?.meta?.target) ? error.meta.target.join(',') : error?.meta?.target || ''}`;
+  return detail.includes(PAYROLL_RUN_PERIOD_CONSTRAINT);
+}
+
 // Overtime rate: (basic / 26 working days / 8 hours) * 2 (double rate)
 function calcOvertimeRate(basicMonthly) {
   return (basicMonthly / 26 / 8) * 2;
@@ -503,6 +550,16 @@ async function reversePayrollFinanceEffectsTx(tx, tenantId, payrollRunId, attemp
   );
 }
 
+/**
+ * Claim the payroll run for one tenant+period.
+ *
+ * Returns either the owning attempt (`skipped: false`, carrying the attempt
+ * token and frozen staff cohort) or a controlled no-op describing who owns the
+ * period (`skipped: true` with reason `already_processing` / `completed` /
+ * `signed_or_locked`). A caller that loses a concurrent claim gets the no-op —
+ * never a raw driver error. See claimPayrollRunPeriodTx for why the retry is
+ * load-bearing rather than defensive.
+ */
 export async function beginPayrollRun({
   tenantId,
   month,
@@ -511,6 +568,60 @@ export async function beginPayrollRun({
   skipCompleted = true,
 }) {
   const tid = requireTenantId(tenantId);
+  let lastError;
+  for (let attempt = 1; attempt <= PAYROLL_CLAIM_ATTEMPTS; attempt += 1) {
+    try {
+      return await claimPayrollRunPeriodTx({ tid, month, year, generatedBy, skipCompleted });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= PAYROLL_CLAIM_ATTEMPTS || !isRetryablePayrollClaimConflict(error)) throw error;
+      logger.warn('Payroll period claim lost a concurrent race; retrying with a fresh snapshot', {
+        tenant_id: tid,
+        month,
+        year,
+        attempt,
+        sql_state: String(payrollSqlState(error) || ''),
+      });
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * ONE attempt at claiming the tenant+period payroll run.
+ *
+ * ★ This runs at SERIALIZABLE, and that is what makes a retry mandatory rather
+ * than defensive. Postgres fixes a SERIALIZABLE transaction's snapshot at its
+ * FIRST snapshot-taking statement, and here that statement is setTenantTx's own
+ * `SELECT set_config('app.current_tenant_id', …)` preamble — issued before the
+ * period advisory lock below is even requested. A second claimant therefore
+ * parks on that lock holding a snapshot taken BEFORE the winner committed, and
+ * when it finally enters the critical section its `SELECT … FROM payroll_runs`
+ * still cannot see the period row the winner just inserted. `existing` comes
+ * back null, the INSERT branch is taken, and the unique index raises 23505.
+ *
+ * The advisory lock is not the bug and is not redundant: it is what lets the
+ * whole supersession ledger (outbox suppression, finance reversal, payslip and
+ * attempt supersession) change atomically instead of being decided by an index
+ * race. What a lock cannot do is refresh a snapshot. Acquiring it before the
+ * snapshot is impossible — the tenant GUC preamble always runs first — so the
+ * missing half is the retry that SERIALIZABLE requires by contract.
+ *
+ * Termination is provable, not hopeful: the conflicting INSERT can only run
+ * after this transaction acquired the advisory lock, which can only happen
+ * after the winner released it by COMMITting. The next attempt's snapshot is
+ * therefore taken strictly after the winner's commit, so it observes the period
+ * row and returns through the `existing` branch. Attempt 2 always settles.
+ */
+async function claimPayrollRunPeriodTx({
+  tid,
+  month,
+  year,
+  generatedBy,
+  skipCompleted,
+}) {
+  // Fresh per attempt: a rolled-back attempt persisted nothing, so reusing its
+  // identity would record a claim time that never happened.
   const attemptStartedAt = new Date();
   const attemptToken = crypto.randomUUID();
   return setTenantTx(tid, async (tx) => {
