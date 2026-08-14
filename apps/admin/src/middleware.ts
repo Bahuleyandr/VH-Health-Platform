@@ -197,9 +197,40 @@ function isIpAllowed(request: NextRequest): boolean {
 // workbox do not eval at browser runtime; no app code uses eval/Function), so it
 // is DROPPED from the prod CSP (M-ADM-2, staged step 2 of audit M9). Both
 // 'unsafe-inline' (injection-relevant) and prod 'unsafe-eval' are GONE.
+/**
+ * ws(s) origin of the `NEXT_PUBLIC_WS_URL` override, or null when the
+ * override is unset/unparseable. Mirrors the URL resolution in
+ * src/hooks/useRealtimeChannel.ts `resolveWsUrl` — when the realtime fabric
+ * lives on a different host than the API, its origin must be present in
+ * connect-src or the browser blocks the socket.
+ */
+function wsOverrideOrigin(): string | null {
+  const override = process.env.NEXT_PUBLIC_WS_URL;
+  if (!override) return null;
+  try {
+    const u = new URL(override);
+    const scheme =
+      u.protocol === "https:" || u.protocol === "wss:" ? "wss:" : "ws:";
+    return `${scheme}//${u.host}`;
+  } catch {
+    return null;
+  }
+}
+
 function buildCsp(nonce: string): string {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
   const wsOrigin = apiUrl.replace(/^http/, "ws");
+  const wsOverride = wsOverrideOrigin();
+  const connectSrc = [
+    "'self'",
+    apiUrl,
+    wsOrigin,
+    // NEXT_PUBLIC_WS_URL override origin (skip when it duplicates the
+    // API-derived ws origin).
+    ...(wsOverride && wsOverride !== wsOrigin ? [wsOverride] : []),
+    "https://*.sentry.io",
+    "https://*.ingest.sentry.io",
+  ].join(" ");
   // Keep 'unsafe-eval' in dev for HMR; remove it from production.
   const isDev = process.env.NODE_ENV !== "production";
   const scriptSrc = isDev
@@ -209,7 +240,7 @@ function buildCsp(nonce: string): string {
     "default-src 'self'",
     scriptSrc,
     "style-src 'self' 'unsafe-inline'",
-    `connect-src 'self' ${apiUrl} ${wsOrigin} https://*.sentry.io https://*.ingest.sentry.io`,
+    `connect-src ${connectSrc}`,
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "worker-src 'self' blob:",
