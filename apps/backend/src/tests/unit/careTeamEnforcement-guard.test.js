@@ -353,4 +353,54 @@ describe('patientAccessGuard — legacy (non-care-team-governed) sites are uncha
     expect(res.status).toHaveBeenCalledWith(403);
     expect(modeMock).not.toHaveBeenCalled();
   });
+
+  it('FAILS CLOSED (500, never next()) when the engine throws on a legacy site', async () => {
+    // Legacy sites are the shape that serves most PHI routes today — including
+    // GET /api/v1/emr/timeline/:patientUid. They never see shadow, so the
+    // fail-open branch removed in d192410dc was never reachable from them and
+    // an erroring engine here has always had to deny. Pin it: a broken
+    // authorization engine must not become an open door on the busiest shape.
+    modeMock.mockResolvedValue('shadow');
+    prismaMock.$queryRawUnsafe.mockRejectedValueOnce(new Error('connection reset'));
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuard('EMR_TIMELINE', { policyCode: 'patient.timeline.view' })(
+      unrelatedDoctorReq(), res, next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PATIENT_ACCESS_CHECK_FAILED',
+    }));
+  });
+
+  it('distinguishes a computed DENIAL (403) from a broken engine (500)', async () => {
+    // The whole diagnosis of the emr-chart-read regression turned on this
+    // distinction: a 403 carrying PATIENT_ACCESS_DENIED is the engine working
+    // and saying no, so the cause is the relationship data, not an exception.
+    // A guard that collapsed both into one status would have sent the
+    // investigation after a non-existent thrown error.
+    mockUnrelatedDoctorDenied();
+    const denyRes = resStub();
+    await patientAccessGuard('EMR_TIMELINE', { policyCode: 'patient.timeline.view' })(
+      unrelatedDoctorReq(), denyRes, jest.fn(),
+    );
+    expect(denyRes.status).toHaveBeenCalledWith(403);
+    expect(denyRes.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PATIENT_ACCESS_DENIED',
+    }));
+
+    prismaMock.$queryRawUnsafe.mockReset();
+    prismaMock.$queryRawUnsafe.mockRejectedValueOnce(new Error('connection reset'));
+    const errorRes = resStub();
+    await patientAccessGuard('EMR_TIMELINE', { policyCode: 'patient.timeline.view' })(
+      unrelatedDoctorReq(), errorRes, jest.fn(),
+    );
+    expect(errorRes.status).toHaveBeenCalledWith(500);
+    expect(errorRes.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PATIENT_ACCESS_CHECK_FAILED',
+    }));
+  });
 });
