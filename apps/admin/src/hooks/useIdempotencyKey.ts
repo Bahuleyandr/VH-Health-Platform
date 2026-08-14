@@ -24,7 +24,6 @@ import {
 } from "@/lib/idempotencyKey";
 import { useRef } from "react";
 
-
 export function useIdempotencyKey(scope: string): AttemptKeyStore {
   const ref = useRef<AttemptKeyStore | null>(null);
   if (ref.current === null) {
