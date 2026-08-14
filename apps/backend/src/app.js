@@ -679,8 +679,23 @@ if (!isProduction) {
 } else {
   app.use('/api-docs', (req, res) => error(res, 'Not found', 404));
 }
-// Rate-limit public endpoints to prevent abuse/recon
-app.use('/metrics', genericLimiter, requireProductionMonitoringAccess, metricsRoutes);
+// Rate-limit public endpoints to prevent abuse/recon.
+//
+// TRAP (finding 2026-08-14, backend-HTTP P2): `genericLimiter` here and on the
+// root probes below was a provable NO-OP. Express strips the mount prefix, so
+// the limiter guarding `/metrics` (whose router serves GET '/') and the root
+// `GET /` handler both observe `req.path === '/'` — which the default
+// profile's built-in skip() exempts alongside /health and /api-docs. Same trap
+// mountHl7Interface.js / hl7IngressRateLimit.js document for the HL7 bridge;
+// same escape hatch: `enforceOnMatchedPath` disables the path-based skip for a
+// limiter that is only ever mounted on the exact paths it must guard. A
+// dedicated store prefix keeps probe traffic out of the shared default bucket
+// namespace.
+const probeLimiter = getRateLimiter('default', {
+  enforceOnMatchedPath: true,
+  storePrefix: 'rl:probe:',
+});
+app.use('/metrics', probeLimiter, requireProductionMonitoringAccess, metricsRoutes);
 
 // Local-disk storage stream — mounted BEFORE both validateApiKey and jwtAuth
 // so the patient client can download files via a plain HTTP GET. The HMAC
@@ -704,7 +719,7 @@ async function probeDb() {
     return false;
   }
 }
-app.get('/', genericLimiter, async (req, res, next) => {
+app.get('/', probeLimiter, async (req, res, next) => {
   try {
     if (!(await probeDb())) {
       return error(res, 'Database unavailable', 503, { safe: true, status: 'degraded' });
@@ -717,7 +732,9 @@ app.get('/', genericLimiter, async (req, res, next) => {
     next(err);
   }
 });
-app.head('/', async (req, res, next) => {
+// HEAD / previously had NO limiter at all — same DB probe cost as GET /
+// (probeDb runs a real query), so it shares the enforced probe bucket.
+app.head('/', probeLimiter, async (req, res, next) => {
   try {
     res.status((await probeDb()) ? 200 : 503).end();
   } catch (err) {
