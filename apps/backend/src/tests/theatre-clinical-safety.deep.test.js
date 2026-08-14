@@ -54,6 +54,7 @@ async function cleanupSchedules() {
     `DELETE FROM clinical_timeline_events
       WHERE tenant_id = $1::uuid AND source_table IN
         ('ot_schedules','intraop_notes','postop_notes','anesthesia_records',
+         'anesthesia_chart_entries',
          'surgical_safety_checklists','surgical_implants','postop_complication_alerts')
         AND patient_uid = $2::uuid`,
     TENANT_ID, PATIENT_UID).catch(() => {});
@@ -370,5 +371,27 @@ describe('Fix #5 — anaesthesia totals are atomic (match SUM under concurrent e
     expect(rec[0].blood_loss_ml).toBe(expectedBlood);
     expect(rec[0].urine_output_ml).toBe(expectedUrine);
     expect(rec[0].status).toBe('draft');
+
+    // Canonical clinical timeline invariant: every chart entry committed one
+    // clinical_timeline_events + one clinical_audit_events row in the SAME
+    // tx as its detail INSERT — exactly one pair per entry, keyed to the
+    // entry (source) and the case (resource), attributed to the patient and
+    // the recording anaesthetist.
+    const timeline = await timelineRowsFor(s.id, 'anesthesia_chart_entries', 'anesthesia.chart_entry.recorded');
+    expect(timeline.length).toBe(entries.length);
+    expect(timeline.every((row) => row.actor_uid === ANESTHETIST_UID)).toBe(true);
+    const audit = await auditRowsFor(s.id, 'anesthesia.chart_entry.recorded');
+    expect(audit.length).toBe(entries.length);
+    // Each pair is keyed by the entry id, so per-entry idempotency keys never
+    // collide across the concurrent inserts.
+    const chartRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM anesthesia_chart_entries WHERE tenant_id = $1::uuid AND ot_schedule_id = $2`,
+      TENANT_ID, s.id);
+    const entryIds = new Set(chartRows.map((row) => String(row.id)));
+    const sourceIds = await prisma.$queryRawUnsafe(
+      `SELECT source_id FROM clinical_timeline_events
+        WHERE tenant_id = $1::uuid AND source_table = 'anesthesia_chart_entries' AND resource_id = $2`,
+      TENANT_ID, String(s.id));
+    expect(new Set(sourceIds.map((row) => String(row.source_id)))).toEqual(entryIds);
   });
 });
