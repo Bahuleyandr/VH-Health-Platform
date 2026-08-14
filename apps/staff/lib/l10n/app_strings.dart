@@ -3714,6 +3714,17 @@ class AppStrings {
       'resus.entry.death_declaration': 'Death declaration',
       'resus.entry.note': 'Note',
       'resus.entry.correction_note': 'Correction note',
+      'resus.trigger_button': 'Code blue',
+      'resus.trigger_title': 'Trigger code blue / rapid response',
+      'resus.trigger_kind': 'Event type',
+      'resus.trigger_patient_hint': 'Search name / hospital no. / phone',
+      'resus.trigger_no_results': 'No matching patients',
+      'resus.trigger_confirm_title': 'Confirm activation',
+      'resus.trigger_confirm_body':
+          'This immediately alerts the resuscitation team and creates a '
+          'permanent clinical record.',
+      'resus.trigger_confirm_action': 'Trigger now',
+      'resus.trigger_created': 'Resuscitation event created',
       'action.close': 'Close',
       'continuity.online_only.title': 'Online connection required',
       'continuity.online_only.message':
@@ -10218,6 +10229,17 @@ class AppStrings {
       'resus.entry.death_declaration': 'मृत्यु घोषणा',
       'resus.entry.note': 'नोट',
       'resus.entry.correction_note': 'सुधार नोट',
+      'resus.trigger_button': 'कोड ब्लू',
+      'resus.trigger_title': 'कोड ब्लू / रैपिड रिस्पॉन्स शुरू करें',
+      'resus.trigger_kind': 'इवेंट प्रकार',
+      'resus.trigger_patient_hint': 'नाम / अस्पताल नंबर / फोन खोजें',
+      'resus.trigger_no_results': 'कोई मिलान वाला रोगी नहीं मिला',
+      'resus.trigger_confirm_title': 'सक्रियण की पुष्टि करें',
+      'resus.trigger_confirm_body':
+          'यह तुरंत पुनर्जीवन टीम को सतर्क करेगा और एक स्थायी क्लिनिकल '
+          'रिकॉर्ड बनाएगा।',
+      'resus.trigger_confirm_action': 'अभी ट्रिगर करें',
+      'resus.trigger_created': 'पुनर्जीवन इवेंट बनाया गया',
       'action.close': 'बंद करें',
       'continuity.online_only.title': 'ऑनलाइन कनेक्शन आवश्यक है',
       'continuity.online_only.message':
@@ -16581,6 +16603,18 @@ class AppStrings {
       'resus.entry.death_declaration': 'இறப்பு அறிவிப்பு',
       'resus.entry.note': 'குறிப்பு',
       'resus.entry.correction_note': 'திருத்தக் குறிப்பு',
+      'resus.trigger_button': 'கோட் ப்ளூ',
+      'resus.trigger_title': 'கோட் ப்ளூ / விரைவு பதிலளிப்பைத் தொடங்கவும்',
+      'resus.trigger_kind': 'நிகழ்வு வகை',
+      'resus.trigger_patient_hint':
+          'பெயர் / மருத்துவமனை எண் / தொலைபேசி தேடவும்',
+      'resus.trigger_no_results': 'பொருந்தும் நோயாளிகள் இல்லை',
+      'resus.trigger_confirm_title': 'செயல்படுத்தலை உறுதிப்படுத்தவும்',
+      'resus.trigger_confirm_body':
+          'இது உடனடியாக மீளுயிர்ப்பு குழுவை எச்சரித்து நிரந்தர மருத்துவப் '
+          'பதிவை உருவாக்கும்.',
+      'resus.trigger_confirm_action': 'இப்போது தொடங்கவும்',
+      'resus.trigger_created': 'மீளுயிர்ப்பு நிகழ்வு உருவாக்கப்பட்டது',
       'action.close': 'மூடு',
       'continuity.online_only.title': 'ஆன்லைன் இணைப்பு தேவை',
       'continuity.online_only.message':
@@ -23648,6 +23682,18 @@ class AppStrings {
       'resus.entry.death_declaration': 'మరణ ప్రకటన',
       'resus.entry.note': 'గమనిక',
       'resus.entry.correction_note': 'సవరణ గమనిక',
+      'resus.trigger_button': 'కోడ్ బ్లూ',
+      'resus.trigger_title': 'కోడ్ బ్లూ / రాపిడ్ రెస్పాన్స్ ప్రారంభించండి',
+      'resus.trigger_kind': 'ఈవెంట్ రకం',
+      'resus.trigger_patient_hint':
+          'పేరు / ఆసుపత్రి నంబర్ / ఫోన్ శోధించండి',
+      'resus.trigger_no_results': 'సరిపోలే రోగులు లేరు',
+      'resus.trigger_confirm_title': 'యాక్టివేషన్‌ను నిర్ధారించండి',
+      'resus.trigger_confirm_body':
+          'ఇది వెంటనే రిససిటేషన్ బృందాన్ని అప్రమత్తం చేసి శాశ్వత క్లినికల్ '
+          'రికార్డును సృష్టిస్తుంది.',
+      'resus.trigger_confirm_action': 'ఇప్పుడు ట్రిగ్గర్ చేయండి',
+      'resus.trigger_created': 'రిససిటేషన్ ఈవెంట్ సృష్టించబడింది',
       'action.close': 'మూసివేయి',
       'continuity.online_only.title': 'ఆన్‌లైన్ కనెక్షన్ అవసరం',
       'continuity.online_only.message':
@@ -30601,6 +30647,18 @@ class AppStrings {
       'resus.entry.death_declaration': 'മരണ പ്രഖ്യാപനം',
       'resus.entry.note': 'കുറിപ്പ്',
       'resus.entry.correction_note': 'തിരുത്തൽ കുറിപ്പ്',
+      'resus.trigger_button': 'കോഡ് ബ്ലൂ',
+      'resus.trigger_title': 'കോഡ് ബ്ലൂ / റാപ്പിഡ് റെസ്പോൺസ് ആരംഭിക്കുക',
+      'resus.trigger_kind': 'ഇവന്റ് തരം',
+      'resus.trigger_patient_hint':
+          'പേര് / ആശുപത്രി നമ്പർ / ഫോൺ തിരയുക',
+      'resus.trigger_no_results': 'പൊരുത്തപ്പെടുന്ന രോഗികളില്ല',
+      'resus.trigger_confirm_title': 'സജീവമാക്കൽ സ്ഥിരീകരിക്കുക',
+      'resus.trigger_confirm_body':
+          'ഇത് ഉടൻ പുനരുജ്ജീവന ടീമിനെ അറിയിക്കുകയും സ്ഥിരമായ ക്ലിനിക്കൽ '
+          'രേഖ സൃഷ്ടിക്കുകയും ചെയ്യും.',
+      'resus.trigger_confirm_action': 'ഇപ്പോൾ ട്രിഗർ ചെയ്യുക',
+      'resus.trigger_created': 'പുനരുജ്ജീവന ഇവന്റ് സൃഷ്ടിച്ചു',
       'action.close': 'അടയ്ക്കുക',
       'continuity.online_only.title': 'ഓൺലൈൻ കണക്ഷൻ ആവശ്യമാണ്',
       'continuity.online_only.message':
