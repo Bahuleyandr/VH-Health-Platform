@@ -22,19 +22,37 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
-
 const PING_INTERVAL_MS = 15_000;
 const PONG_TIMEOUT_MS = 10_000;
 
 // Build the bare /ws URL. The auth ticket is intentionally NOT in the query
 // string — it is sent as the first WS frame instead (see connect() below) so
 // it never leaks into access logs or browser history.
-function wsUrlFromBase(httpBase: string): string {
-  const u = new URL(httpBase);
-  const scheme = u.protocol === "https:" ? "wss:" : "ws:";
+function wsUrlFromBase(base: string): string {
+  const u = new URL(base);
+  const scheme = u.protocol === "https:" || u.protocol === "wss:" ? "wss:" : "ws:";
   return `${scheme}//${u.host}/ws`;
+}
+
+/**
+ * Resolve the realtime socket URL. Prefers the `NEXT_PUBLIC_WS_URL` override
+ * (same precedence as `WS_BASE_URL` in src/lib/api-config.ts — accepts
+ * ws(s):// or http(s):// forms) so deployments can point the realtime fabric
+ * at a different host; otherwise derives it from `NEXT_PUBLIC_API_URL`
+ * exactly as before. Exported for tests.
+ */
+export function resolveWsUrl(): string {
+  const override = process.env.NEXT_PUBLIC_WS_URL;
+  if (override) {
+    try {
+      return wsUrlFromBase(override);
+    } catch {
+      // Unparseable override — fall through to the API-derived URL.
+    }
+  }
+  return wsUrlFromBase(
+    process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app",
+  );
 }
 
 export type RealtimeMessage<T = unknown> = {
@@ -138,7 +156,7 @@ export function useRealtimeChannel<T = unknown>(
         return;
       }
 
-      const ws = new WebSocket(wsUrlFromBase(API_BASE_URL));
+      const ws = new WebSocket(resolveWsUrl());
       wsRef.current = ws;
 
       ws.addEventListener("open", () => {
