@@ -518,10 +518,13 @@ function CriticalAlerts({ subscribed }: { subscribed: boolean }) {
 
 export default function LabPage() {
   const [tab, setTab] = useState<Tab>("worklist");
-  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(LAB_CHANNEL, [
-    ["lab", "pathologist"],
-    ["lab", "alerts"],
-  ]);
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(
+    LAB_CHANNEL,
+    [
+      ["lab", "pathologist"],
+      ["lab", "alerts"],
+    ],
+  );
 
   const liveLabel = subscribed ? "● Live" : "○ Polling";
   const liveTitle = subscribed
@@ -545,7 +548,11 @@ export default function LabPage() {
               : "Polling — real-time updates unavailable"
           }
           title={liveTitle}
-          className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+          className={
+            subscribed
+              ? "text-xs font-medium text-green-600"
+              : "text-xs font-medium text-gray-400"
+          }
         >
           {liveLabel}
         </span>

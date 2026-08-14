@@ -114,7 +114,9 @@ describe("PayrollRunsTab — Idempotency-Key wiring", () => {
     await openRunModal();
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       await waitForRunButtonIdle();
-      fireEvent.click(screen.getByRole("button", { name: /^Run Payroll for / }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /^Run Payroll for / }),
+      );
       await waitFor(() => expect(runCalls()).toHaveLength(attempt));
     }
 
@@ -147,9 +149,7 @@ describe("PayrollRunsTab — Idempotency-Key wiring", () => {
     await openRunModal();
     // Month is the first <select> in the run modal (the label is not
     // htmlFor-linked, so query by role and take the month one).
-    const monthSelect = screen.getAllByRole(
-      "combobox",
-    )[0] as HTMLSelectElement;
+    const monthSelect = screen.getAllByRole("combobox")[0] as HTMLSelectElement;
     fireEvent.change(monthSelect, {
       target: { value: monthSelect.value === "1" ? "2" : "1" },
     });
