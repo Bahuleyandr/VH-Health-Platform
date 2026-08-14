@@ -4,7 +4,6 @@
 // against a disposable database.
 
 import { jest } from '@jest/globals';
-import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
 import prisma, { setTenant } from '../lib/prisma.js';
@@ -148,18 +147,16 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
       TENANT_ID,
     );
     staffId = staffRows[0].id;
-    const pinHash = await bcrypt.hash(PIN, 10);
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO staff
-         (user_id, employee_id, name, department, position, is_active, pin_hash,
+         (user_id, employee_id, name, department, position, is_active,
           tenant_id, skills, certifications, identity_overrides, updated_at)
        VALUES
-         ($1::uuid, $2, 'OTP 27 Staff', 'Nursing', 'Nurse', true, $3,
-          $4::uuid, '{}'::text[], '{}'::text[], '{}'::jsonb, NOW())`,
+         ($1::uuid, $2, 'OTP 27 Staff', 'Nursing', 'Nurse', true,
+          $3::uuid, '{}'::text[], '{}'::text[], '{}'::jsonb, NOW())`,
       STAFF_UID,
       EMPLOYEE_ID,
-      pinHash,
       TENANT_ID,
     );
 
@@ -194,6 +191,18 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
       TENANT_ID,
       pinHash,
     );
+
+    // Enrol the PIN through the product's own enrolment path rather than
+    // hand-writing a hash into a column. A staff PIN is device-bound: it is
+    // stored on the staff_devices row that setupPin() resolves from the device
+    // token, and authenticateStaffWithPin() reads it back from that same row.
+    // Seeding the credential directly is what let this fixture drift out of
+    // sync with the service (it used to write staff.pin_hash, which no
+    // reachable code path has ever written or read since the device-bound
+    // contract landed). Going through setupPin keeps the fixture honest: if
+    // enrolment and login ever disagree about where the PIN lives again, this
+    // suite fails instead of certifying a broken login.
+    await StaffAuthService.setupPin(STAFF_UID, DEVICE_TOKEN, PIN);
   }, 30000);
 
   afterAll(async () => {
@@ -211,6 +220,11 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
     await prisma.$executeRawUnsafe('DELETE FROM otp_sessions WHERE phone = $1', PATIENT_PHONE).catch(() => {});
     await prisma.$executeRawUnsafe('DELETE FROM auth_logs WHERE phone = $1', EMPLOYEE_ID).catch(() => {});
     await prisma.$executeRawUnsafe('DELETE FROM admin_activity_logs WHERE admin_uid = $1::uuid', STAFF_UID).catch(() => {});
+    // A successful PIN login persists the staff refresh session, and
+    // staff_auth_sessions.tenant_id is a real FK to tenants — leaving the row
+    // behind makes the tenants DELETE below fail and strands this suite's
+    // tenant in the shared test database.
+    await prisma.$executeRawUnsafe('DELETE FROM staff_auth_sessions WHERE tenant_id = $1::uuid', TENANT_ID).catch(() => {});
     await prisma.$executeRawUnsafe('DELETE FROM staff_devices WHERE staff_id = $1', staffId).catch(() => {});
     await setTenant(TENANT_ID, tx => tx.$executeRawUnsafe(
         `DELETE FROM user_devices
