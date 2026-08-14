@@ -41,6 +41,7 @@ test('[full-ci] runs one exhaustive matrix and publishes both required contexts'
     'quick_admin',
     'quick_flutter',
     'quick_contracts',
+    'quick_gateway',
     'quick_infra',
   ];
   const fullJobs = [
@@ -49,6 +50,7 @@ test('[full-ci] runs one exhaustive matrix and publishes both required contexts'
     'full_admin',
     'full_flutter',
     'full_contracts',
+    'full_gateway',
     'full_infra',
   ];
 
