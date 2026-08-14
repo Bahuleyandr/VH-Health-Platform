@@ -29,18 +29,15 @@ test('all live external recovery callers use fenced enqueue-and-process takeover
   }
 });
 
-test('financial crons are disabled by default and use strict tenant fanout', () => {
+test('financial crons are disabled by default and fan out fail-closed per tenant', () => {
   const scheduler = read('utils', 'scheduler.js');
   const jobs = read('utils', 'payrollSchedulerJobs.js');
   const fanout = read('utils', 'tenantFanout.js');
   expect(scheduler).toContain("process.env.ENABLE_AUTOMATED_PAYROLL_CRONS === 'true'");
 
-  // Scope the fanout assertions to the ENABLE-gated financial block. A
-  // file-wide `{ strict: true }` count was only an accidental proxy for "both
-  // payroll fanouts are strict": it silently also pinned "no OTHER cron in this
-  // file may use strict fanout", which is not this test's subject and is not a
-  // property anyone wants. Adding the unrelated interface-engine-outbound-
-  // dispatch cron therefore broke a payroll contract it has nothing to do with.
+  // Scope the fanout assertions to the ENABLE-gated financial block, so an
+  // unrelated cron elsewhere in this file can never break a payroll contract it
+  // has nothing to do with — which is exactly what a file-wide count used to do.
   const blockStart = scheduler.indexOf("if (process.env.ENABLE_AUTOMATED_PAYROLL_CRONS === 'true') {");
   const blockEnd = scheduler.indexOf("logger.info('Automated payroll and salary-review crons are disabled')");
   expect(blockStart).toBeGreaterThanOrEqual(0);
@@ -49,14 +46,22 @@ test('financial crons are disabled by default and use strict tenant fanout', () 
   expect(financialCrons).toContain("withJobLock('monthly-payroll'");
   expect(financialCrons).toContain("withJobLock('annual-salary-review'");
   expect(financialCrons.match(/runForEachTenant\(/g)).toHaveLength(2);
-  expect(financialCrons.match(/\{ strict: true \}/g)).toHaveLength(2);
 
-  // …and pin the guarantee those call sites are asking for against the helper's
-  // actual control flow, not just the call-site decoration. Since the fleet
-  // receipt rewrite `runForEachTenant` no longer takes a `strict` option — it
-  // rejects the aggregate run unconditionally — so a mutation that made a
-  // failed tenant degrade back to a best-effort sweep would pass a call-site
-  // text check while silently un-doing what this test is named for.
+  // There is deliberately no `{ strict: true }` assertion. `runForEachTenant`
+  // took a real `strict` option until the fleet-receipt rewrite, which removed
+  // it by making the behaviour UNCONDITIONAL — so the literal survived at the
+  // call sites as decoration the helper destructures away. Pinning its count
+  // asserted a no-op under a security-flavoured name, and would have failed the
+  // cleanup that deletes it, for zero behavioural reason. Assert what is real:
+  // the options bag takes only a lock key, the payroll call sites pass none,
+  // and the helper rejects the aggregate run itself — for every caller, not
+  // just the ones that used to opt in. A mutation that let a failed tenant
+  // degrade back to a best-effort sweep fails here.
+  expect(fanout).toContain(
+    'export async function runForEachTenant(label, perTenantFn, { lockKey = label } = {}) {',
+  );
+  expect(financialCrons).not.toContain('{ strict: true }');
+  expect(fanout).toContain("err.code = 'TENANT_DISCOVERY_EMPTY';");
   expect(fanout).toContain('if (failed > 0 || unresolved > 0) {');
   expect(fanout).toContain('throw fanoutError(');
 
