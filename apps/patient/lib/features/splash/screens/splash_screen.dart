@@ -9,6 +9,7 @@ import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/minimum_version_gate_service.dart';
 import 'package:vhhealth/core/services/patient_session_authority.dart';
+import 'package:vhhealth/core/services/startup_gate_service.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth_core/config/api_config.dart';
@@ -249,21 +250,24 @@ class _SplashScreenState extends State<SplashScreen>
     _navigating = true;
     _autoAdvanceTimer?.cancel();
 
-    // Device integrity gate — run first so a compromised device never
-    // reaches any auth code path.
-    final integrity = await DeviceIntegrityService.check();
-    if (integrity.shouldBlock) {
-      await _showIntegrityBlocker(integrity);
+    // Cold-start gates — integrity first so a compromised device never
+    // reaches any auth code path, then the minimum-version policy. Shared
+    // (single-flight, pass-cached) with the router-level guard that holds the
+    // same gates on deep-link cold starts which never render this splash.
+    final gate = await StartupGateService.ensureEvaluated();
+    final integrityBlock = gate.integrityBlock;
+    if (integrityBlock != null) {
+      await _showIntegrityBlocker(integrityBlock);
       // User is stuck on splash with the blocker dismissed — release the
       // navigation guard so a subsequent tap can re-trigger the check.
       _navigating = false;
       return;
     }
 
-    final versionGate = await MinimumVersionGateService.check();
-    if (versionGate.updateRequired) {
+    final versionBlock = gate.versionBlock;
+    if (versionBlock != null) {
       if (mounted) {
-        setState(() => _minimumVersionBlock = versionGate);
+        setState(() => _minimumVersionBlock = versionBlock);
       }
       _navigating = false;
       return;
