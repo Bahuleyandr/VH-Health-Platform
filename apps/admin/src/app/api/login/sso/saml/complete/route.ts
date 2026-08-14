@@ -45,7 +45,9 @@ export async function GET(request: Request) {
     const token = payload?.token;
     const refreshToken = payload?.refreshToken;
     if (!upstream.ok || !token || !refreshToken) {
-      const response = NextResponse.redirect(new URL("/login?sso=failed", request.url));
+      const response = NextResponse.redirect(
+        new URL("/login?sso=failed", request.url),
+      );
       clearHandoff(response, request);
       return response;
     }
@@ -72,7 +74,9 @@ export async function GET(request: Request) {
     clearHandoff(response, request);
     return response;
   } catch {
-    const response = NextResponse.redirect(new URL("/login?sso=unavailable", request.url));
+    const response = NextResponse.redirect(
+      new URL("/login?sso=unavailable", request.url),
+    );
     clearHandoff(response, request);
     return response;
   }

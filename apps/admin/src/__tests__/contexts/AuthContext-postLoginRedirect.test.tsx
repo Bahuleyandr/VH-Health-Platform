@@ -156,14 +156,17 @@ describe("post-login redirect consumption — hostile values fall back", () => {
     ["/\\evil.com", "%2F%5Cevil.com"],
     ["%2F%2Fevil.com (double-encoded)", "%252F%252Fevil.com"],
     ["/login", "%2Flogin"],
-  ])("password login with redirect=%s pushes /dashboard", async (_label, encoded) => {
-    setLoginUrl(`?redirect=${encoded}`);
-    const auth = await mountAuth();
-    await act(async () => {
-      await auth().login("root", "secret");
-    });
-    expect(push).toHaveBeenCalledWith("/dashboard");
-  });
+  ])(
+    "password login with redirect=%s pushes /dashboard",
+    async (_label, encoded) => {
+      setLoginUrl(`?redirect=${encoded}`);
+      const auth = await mountAuth();
+      await act(async () => {
+        await auth().login("root", "secret");
+      });
+      expect(push).toHaveBeenCalledWith("/dashboard");
+    },
+  );
 
   it("password login without ?redirect= keeps the /dashboard default", async () => {
     setLoginUrl("");

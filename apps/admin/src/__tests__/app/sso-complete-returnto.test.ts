@@ -43,7 +43,10 @@ function upstreamSuccess(returnTo: unknown) {
 
 function completeRequest() {
   return new Request("https://admin.vhhealth.app/api/login/sso/oidc/complete", {
-    headers: { cookie: "vh_admin_sso_handoff=handoff", host: "admin.vhhealth.app" },
+    headers: {
+      cookie: "vh_admin_sso_handoff=handoff",
+      host: "admin.vhhealth.app",
+    },
   });
 }
 

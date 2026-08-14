@@ -51,9 +51,15 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose/jwt/verify";
 
 // Grab references to the mock functions for assertions
-const mockRedirect = NextResponse.redirect as jest.MockedFunction<typeof NextResponse.redirect>;
-const mockNext = NextResponse.next as jest.MockedFunction<typeof NextResponse.next>;
-const mockJson = NextResponse.json as jest.MockedFunction<typeof NextResponse.json>;
+const mockRedirect = NextResponse.redirect as jest.MockedFunction<
+  typeof NextResponse.redirect
+>;
+const mockNext = NextResponse.next as jest.MockedFunction<
+  typeof NextResponse.next
+>;
+const mockJson = NextResponse.json as jest.MockedFunction<
+  typeof NextResponse.json
+>;
 const mockJwtVerify = jwtVerify as jest.MockedFunction<typeof jwtVerify>;
 
 // ---------------------------------------------------------------------------
@@ -330,36 +336,30 @@ describe("ADMIN_ONLY_PATHS", () => {
     "/dashboard/clinical-governance",
   ];
 
-  it.each(adminOnlyPaths)(
-    "blocks STAFF from %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "STAFF",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(adminOnlyPaths)("blocks STAFF from %s", async (path) => {
+    const token = fakeJwt({
+      role: "STAFF",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockRedirect).toHaveBeenCalledTimes(1);
-      const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
-      expect(redirectUrl.pathname).toBe("/dashboard");
-    },
-  );
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
 
-  it.each(adminOnlyPaths)(
-    "allows ADMIN to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "ADMIN",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(adminOnlyPaths)("allows ADMIN to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -417,82 +417,67 @@ describe("HR_PLUS_PATHS", () => {
     "/dashboard/reporting",
   ];
 
-  it.each(hrPlusPaths)(
-    "blocks STAFF from %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "STAFF",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("blocks STAFF from %s", async (path) => {
+    const token = fakeJwt({
+      role: "STAFF",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockRedirect).toHaveBeenCalledTimes(1);
-      const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
-      expect(redirectUrl.pathname).toBe("/dashboard");
-    },
-  );
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
 
-  it.each(hrPlusPaths)(
-    "blocks DOCTOR from %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "DOCTOR",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("blocks DOCTOR from %s", async (path) => {
+    const token = fakeJwt({
+      role: "DOCTOR",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockRedirect).toHaveBeenCalledTimes(1);
-      const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
-      expect(redirectUrl.pathname).toBe("/dashboard");
-    },
-  );
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
 
-  it.each(hrPlusPaths)(
-    "allows HR to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "HR",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("allows HR to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "HR",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 
-  it.each(hrPlusPaths)(
-    "allows HR_STAFF to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "HR_STAFF",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("allows HR_STAFF to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "HR_STAFF",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 
-  it.each(hrPlusPaths)(
-    "allows ADMIN to access %s",
-    async (path) => {
-      const token = fakeJwt({
-        role: "ADMIN",
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
-      const req = makeRequest(path, token);
-      await middleware(req);
+  it.each(hrPlusPaths)("allows ADMIN to access %s", async (path) => {
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest(path, token);
+    await middleware(req);
 
-      expect(mockNext).toHaveBeenCalledTimes(1);
-      expect(mockRedirect).not.toHaveBeenCalled();
-    },
-  );
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

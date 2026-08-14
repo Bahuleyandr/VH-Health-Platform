@@ -30,7 +30,8 @@ const PONG_TIMEOUT_MS = 10_000;
 // it never leaks into access logs or browser history.
 function wsUrlFromBase(base: string): string {
   const u = new URL(base);
-  const scheme = u.protocol === "https:" || u.protocol === "wss:" ? "wss:" : "ws:";
+  const scheme =
+    u.protocol === "https:" || u.protocol === "wss:" ? "wss:" : "ws:";
   return `${scheme}//${u.host}/ws`;
 }
 
@@ -86,7 +87,9 @@ export function useRealtimeChannel<T = unknown>(
   channel: string,
   { enabled = true, onEvent }: Options = {},
 ) {
-  const [lastMessage, setLastMessage] = useState<RealtimeMessage<T> | null>(null);
+  const [lastMessage, setLastMessage] = useState<RealtimeMessage<T> | null>(
+    null,
+  );
   const [connected, setConnected] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [denied, setDenied] = useState<string | null>(null);
@@ -105,8 +108,14 @@ export function useRealtimeChannel<T = unknown>(
     let backoffMs = 1000;
 
     const clearKeepAlive = () => {
-      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-      if (pongTimeoutTimer) { clearTimeout(pongTimeoutTimer); pongTimeoutTimer = null; }
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+      if (pongTimeoutTimer) {
+        clearTimeout(pongTimeoutTimer);
+        pongTimeoutTimer = null;
+      }
     };
 
     const scheduleReconnect = () => {
@@ -209,7 +218,10 @@ export function useRealtimeChannel<T = unknown>(
 
         // Keep-alive: compute RTT and reset the pong-timeout timer.
         if (parsed.event === "pong") {
-          if (pongTimeoutTimer) { clearTimeout(pongTimeoutTimer); pongTimeoutTimer = null; }
+          if (pongTimeoutTimer) {
+            clearTimeout(pongTimeoutTimer);
+            pongTimeoutTimer = null;
+          }
           if (typeof parsed.ts === "number") {
             setLatencyMs(Math.max(0, Date.now() - parsed.ts));
           }

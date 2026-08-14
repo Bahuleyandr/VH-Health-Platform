@@ -23685,8 +23685,7 @@ class AppStrings {
       'resus.trigger_button': 'కోడ్ బ్లూ',
       'resus.trigger_title': 'కోడ్ బ్లూ / రాపిడ్ రెస్పాన్స్ ప్రారంభించండి',
       'resus.trigger_kind': 'ఈవెంట్ రకం',
-      'resus.trigger_patient_hint':
-          'పేరు / ఆసుపత్రి నంబర్ / ఫోన్ శోధించండి',
+      'resus.trigger_patient_hint': 'పేరు / ఆసుపత్రి నంబర్ / ఫోన్ శోధించండి',
       'resus.trigger_no_results': 'సరిపోలే రోగులు లేరు',
       'resus.trigger_confirm_title': 'యాక్టివేషన్‌ను నిర్ధారించండి',
       'resus.trigger_confirm_body':
@@ -30650,8 +30649,7 @@ class AppStrings {
       'resus.trigger_button': 'കോഡ് ബ്ലൂ',
       'resus.trigger_title': 'കോഡ് ബ്ലൂ / റാപ്പിഡ് റെസ്പോൺസ് ആരംഭിക്കുക',
       'resus.trigger_kind': 'ഇവന്റ് തരം',
-      'resus.trigger_patient_hint':
-          'പേര് / ആശുപത്രി നമ്പർ / ഫോൺ തിരയുക',
+      'resus.trigger_patient_hint': 'പേര് / ആശുപത്രി നമ്പർ / ഫോൺ തിരയുക',
       'resus.trigger_no_results': 'പൊരുത്തപ്പെടുന്ന രോഗികളില്ല',
       'resus.trigger_confirm_title': 'സജീവമാക്കൽ സ്ഥിരീകരിക്കുക',
       'resus.trigger_confirm_body':
