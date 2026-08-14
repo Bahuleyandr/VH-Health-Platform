@@ -175,18 +175,24 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
         DEVICE_ID,
     ));
 
+    // The PIN hash must live on the DEVICE row, not only on `staff`.
+    // authenticateStaffWithPin reads `staff_devices.pin_hash` under M5 device
+    // binding, so a per-device PIN dies with the device it was set on; a
+    // staff-level hash alone would let an unregistered device authenticate.
+    // `staff.pin_hash` above is left in place — other paths still read it.
     await prisma.$executeRawUnsafe(
       `INSERT INTO staff_devices
          (staff_id, user_uid, device_id, device_name, device_token, is_active,
-          tenant_id, registered_at, trust_expires_at, created_at)
+          tenant_id, registered_at, trust_expires_at, created_at, pin_hash)
        VALUES
          ($1, $2::uuid, $3, 'OTP 27 Device', $4, true, $5::uuid,
-          NOW(), NOW() + INTERVAL '1 day', NOW())`,
+          NOW(), NOW() + INTERVAL '1 day', NOW(), $6)`,
       staffId,
       STAFF_UID,
       DEVICE_ID,
       DEVICE_TOKEN,
       TENANT_ID,
+      pinHash,
     );
   }, 30000);
 

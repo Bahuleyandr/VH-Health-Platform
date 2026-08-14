@@ -836,6 +836,27 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     facility_id: null,
     recovery_inbox_id: null,
   },
+  // The FHIR AllergyIntolerance reader is deliberately fail-closed: a
+  // tenant-wide read refuses outright if ANY active row cannot be attributed to
+  // a patient, so an unattributable allergy is never silently dropped from a
+  // clinical allergy feed. patient_allergies.patient_id and .patient_uid are
+  // both NULLABLE and carry no FK, so the generic walk skipped both (it only
+  // fills NOT NULL columns, FK columns, and overrides) and left a patientless
+  // seed row that poisoned every tenant-wide read. Seed a real patient on both
+  // columns and keep them consistent — the reader rejects a uid/id pair that
+  // disagrees just as hard as it rejects a missing one.
+  patient_allergies: {
+    patient_id: (ctx) => ctx.patient.id,
+    patient_uid: (ctx) => ctx.patient.uid,
+  },
+  // Same reader, second source, same reason: an active allergy whose substance
+  // is unknown is unusable clinically, so the reader refuses rather than serve
+  // a nameless entry. `allergen` and its legacy alias `name` are both NULLABLE,
+  // so the generic walk left the seed row with no substance at all. patient_uid
+  // is NOT NULL here and is already filled by the generic walk.
+  allergies: {
+    allergen: 'Seed allergen (synthetic)',
+  },
 };
 
 function seedOverrideFor(table, columnName) {

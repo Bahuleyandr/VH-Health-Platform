@@ -64,9 +64,17 @@ CREATE TABLE IF NOT EXISTS public.hl7_inbound_clinical_receipts (
   CONSTRAINT fk_hl7_inbound_clinical_receipt_tenant
     FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
     ON UPDATE NO ACTION ON DELETE NO ACTION,
+  -- Migration 634 rule: a composite FK carrying patient_uid MUST be
+  -- DEFERRABLE INITIALLY IMMEDIATE. The patient-merge sweep re-points parent
+  -- and child rows onto the survivor in separate statements inside one
+  -- transaction, which a non-deferrable composite FK makes impossible — the
+  -- merge aborts. INITIALLY IMMEDIATE keeps per-statement checking for every
+  -- other code path. Pinned by the migration-634 guard in
+  -- src/tests/patient-merge-execution.deep.test.js.
   CONSTRAINT fk_hl7_inbound_clinical_receipt_patient
     FOREIGN KEY (tenant_id, patient_uid) REFERENCES public.users(tenant_id, uid)
-    ON UPDATE NO ACTION ON DELETE NO ACTION,
+    ON UPDATE NO ACTION ON DELETE NO ACTION
+    DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_hl7_inbound_clinical_receipt_timeline
     FOREIGN KEY (tenant_id, timeline_event_id)
     REFERENCES public.clinical_timeline_events(tenant_id, id)
@@ -140,9 +148,12 @@ CREATE TABLE IF NOT EXISTS public.fhir_allergy_intolerance_receipts (
   CONSTRAINT fk_fhir_allergy_intolerance_receipt_tenant
     FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
     ON UPDATE NO ACTION ON DELETE NO ACTION,
+  -- Migration 634 rule — see the identical note on
+  -- fk_hl7_inbound_clinical_receipt_patient above.
   CONSTRAINT fk_fhir_allergy_intolerance_receipt_patient
     FOREIGN KEY (tenant_id, patient_uid) REFERENCES public.users(tenant_id, uid)
-    ON UPDATE NO ACTION ON DELETE NO ACTION,
+    ON UPDATE NO ACTION ON DELETE NO ACTION
+    DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_fhir_allergy_intolerance_receipt_allergy
     FOREIGN KEY (tenant_id, allergy_id)
     REFERENCES public.patient_allergies(tenant_id, id)
