@@ -221,10 +221,16 @@ export function buildStaffRoleContract() {
   const rosterManagers = Object.values(ROSTER_DEPARTMENT_POLICIES)
     .flatMap((policy) => policy.managerRoles);
   const phoneStaffRoutes = STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES;
-  const staffAttendanceRoles = intersectRoles(
-    rbacConfig.staffAttendanceRoutes,
-    phoneStaffRoutes,
-  );
+  // HR self-service (profile, attendance, leave, payroll, directory,
+  // reports/grievances) is allowSelf for EVERY staff role on the backend
+  // (services/security/staffAccessPolicyRegistry.js), and the Safety Center's
+  // resuscitation surface accepts any staff or admin role
+  // (routes/clinical/resuscitationRoutes.js requireStaffOrAdmin). Gate those
+  // features on the full staff roster — NOT the narrower phone_self_service
+  // capability group, which excludes emergency/critical-care roles such as
+  // ER_STAFF, EMERGENCY_RESPONDER, ICU_*, SENIOR_DOCTOR, and PHARMACIST
+  // while including DRIVER and SECURITY.
+  const selfServiceStaffRoles = staffRoleCodes;
   const staffRosterRoles = intersectRoles(
     rbacConfig.staffRosterBoardRoutes,
     phoneStaffRoutes,
@@ -265,7 +271,7 @@ export function buildStaffRoleContract() {
   const featureRoleSources = {
     admissions: ADMISSION_SURFACE_ROUTE_ROLES,
     appointments: APPOINTMENT_STAFF_ROUTE_ROLES,
-    attendance: staffAttendanceRoles,
+    attendance: selfServiceStaffRoles,
     audit_logs: ADMIN_ROUTE_ROLES,
     bed_board: BED_PARENT_ROUTE_ROLES,
     billing_desk: BILLING_V2_ROUTE_ROLES,
@@ -293,7 +299,7 @@ export function buildStaffRoleContract() {
       rbacConfig.investigationRoutes,
     ),
     lab_bookings: LAB_ROUTE_ROLES,
-    leave: phoneStaffRoutes,
+    leave: selfServiceStaffRoles,
     leave_approvals: mergeRoles(PEOPLE_OPERATIONS_ROUTE_ROLES, rosterManagers),
     maintenance_roster: ROSTER_DEPARTMENT_POLICIES.maintenance.managerRoles,
     messaging: ALL_STAFF_MESSAGING_ROUTE_ROLES,
@@ -307,24 +313,24 @@ export function buildStaffRoleContract() {
     organization_hierarchy: STAFF_GOVERNANCE_ROUTE_ROLES,
     patient_command_board: ADMISSION_SURFACE_ROUTE_ROLES,
     patient_records: RECORD_ROUTE_ROLES,
-    payroll: phoneStaffRoutes,
+    payroll: selfServiceStaffRoles,
     performance: mergeRoles(PEOPLE_OPERATIONS_ROUTE_ROLES, rosterManagers),
     pharmacy_orders: PHARMACY_ORDER_ROUTE_ROLES,
     pharmacy_roster: ROSTER_DEPARTMENT_POLICIES.pharmacy.managerRoles,
     physiotherapy: PHYSIO_ROUTE_ROLES,
     prescriptions: PHARMACY_ORDER_ROUTE_ROLES,
-    profile: phoneStaffRoutes,
+    profile: selfServiceStaffRoles,
     queue: APPOINTMENT_STAFF_ROUTE_ROLES,
     radiation_oncology: CLINICAL_STAFF_ROUTE_ROLES,
     radiology: RADIOLOGY_ROUTE_ROLES,
     reception_roster: ROSTER_DEPARTMENT_POLICIES.reception.managerRoles,
     referrals: CARE_PATHWAY_ROUTE_ROLES,
-    reports_grievances: phoneStaffRoutes,
-    safety_center: phoneStaffRoutes,
+    reports_grievances: selfServiceStaffRoles,
+    safety_center: selfServiceStaffRoles,
     schedule: staffRosterRoles,
     settings: staffRoleCodes,
     staff_diagnostics: ADMIN_ROUTE_ROLES,
-    staff_directory: phoneStaffRoutes,
+    staff_directory: selfServiceStaffRoles,
     staff_management: PEOPLE_OPERATIONS_ROUTE_ROLES,
     staff_roster: rosterManagers,
     stroke_pathway: STROKE_ROUTE_ROLES,

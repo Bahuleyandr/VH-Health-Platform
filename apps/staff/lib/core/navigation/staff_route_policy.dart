@@ -254,7 +254,14 @@ class StaffRoutePolicy {
       anyFeatureIds: {'safety_center'},
       externalEntry: true,
     ),
-    StaffRouteMetadata('/safety/resus/:eventId', anyGates: _clinical),
+    // Resus documentation mirrors the backend requireStaffOrAdmin gate on
+    // /resuscitation/events/* — any staff role may open the record, so the
+    // all-staff safety_center feature grants entry alongside clinical entry.
+    StaffRouteMetadata(
+      '/safety/resus/:eventId',
+      anyFeatureIds: {'safety_center'},
+      anyGates: _clinical,
+    ),
     StaffRouteMetadata('/audit-logs', anyFeatureIds: {'audit_logs'}),
     StaffRouteMetadata(
       '/staff-diagnostics',
