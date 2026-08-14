@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { jest } from '@jest/globals';
 import { GatewayRuntime } from '../src/gateway.js';
+import { setLogSink } from '../src/logger.js';
 
 const PATIENT_UID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -218,6 +219,113 @@ describe('legacy backend-outage buffering (GW-2)', () => {
       await restarted.drainAllLegacy();
       expect(restartedBackend.ingest).toHaveBeenCalledTimes(2);
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('quarantines a torn trailing line instead of wedging reads or corrupting the next append', async () => {
+    const backend = okBackend();
+    const { dir, runtime } = await tempRuntime(backend);
+    try {
+      const spool = runtime.legacySpool('MON-ICU-01');
+      await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-TT1') });
+
+      // Simulate a crash mid-append: a partial JSON line with no terminating
+      // newline. Before the fix, entries() threw on this forever and the next
+      // append concatenated onto the torn bytes, corrupting both messages.
+      const tornBytes = '{"id":"torn-partial","message":"MSH|trunc';
+      await writeFile(spool.file, tornBytes, { flag: 'a' });
+
+      // Reads tolerate the torn tail and still return every complete entry.
+      const surviving = await spool.entries();
+      expect(surviving).toHaveLength(1);
+      expect(surviving[0].control_id).toBe('CTRL-TT1');
+
+      // The next accept quarantines the torn bytes as evidence, then appends
+      // a clean line — never a concatenation.
+      const next = await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-TT2') });
+      expect(next).toMatchObject({ ackCode: 'AA', duplicate: false });
+      const entries = await spool.entries();
+      expect(entries.map((entry) => entry.control_id)).toEqual(['CTRL-TT1', 'CTRL-TT2']);
+      const raw = await readFile(spool.file, 'utf8');
+      expect(raw.endsWith('\n')).toBe(true);
+      for (const line of raw.split('\n').filter(Boolean)) {
+        expect(() => JSON.parse(line)).not.toThrow();
+      }
+
+      // The torn bytes were preserved verbatim, not silently dropped —
+      // evidence file, exactly like the I09 journal's torn-tail handling.
+      const evidenceNames = (await readdir(join(dir, 'legacy')))
+        .filter((name) => name.includes('.torn-tail.') && name.endsWith('.evidence'));
+      expect(evidenceNames).toHaveLength(1);
+      expect(evidenceNames[0].startsWith(spool.source)).toBe(true);
+      expect(await readFile(join(dir, 'legacy', evidenceNames[0]), 'utf8')).toBe(tornBytes);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('drains a spool whose tail was torn by a crash, quarantining the tail at removal', async () => {
+    const ingested = [];
+    const backend = okBackend({
+      ingest: jest.fn(async (payload) => {
+        ingested.push(payload.message.match(/CTRL-TD[0-9]/)[0]);
+        return { ok: true };
+      }),
+    });
+    const { dir, runtime } = await tempRuntime(backend);
+    try {
+      const spool = runtime.legacySpool('MON-ICU-01');
+      await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-TD1') });
+      await writeFile(spool.file, '{"id":"torn-tail-drain"', { flag: 'a' });
+
+      // Before the fix this pass threw and the entry stayed spooled forever.
+      await runtime.drainAllLegacy();
+      expect(ingested).toEqual(['CTRL-TD1']);
+      expect(await spool.entries()).toHaveLength(0);
+      const evidenceNames = (await readdir(join(dir, 'legacy')))
+        .filter((name) => name.includes('.torn-tail.') && name.endsWith('.evidence'));
+      expect(evidenceNames).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('one unreadable spool does not block later spools in a supervised pass', async () => {
+    const logged = [];
+    const previousSink = setLogSink((entry) => logged.push(entry));
+    const ingested = [];
+    const backend = okBackend({
+      ingest: jest.fn(async (payload) => {
+        ingested.push(payload.message.match(/CTRL-I[0-9]/)[0]);
+        return { ok: true };
+      }),
+    });
+    const { dir, runtime } = await tempRuntime(backend);
+    try {
+      // Two sources; the first (by map insertion order) has a complete-but-
+      // corrupt line that entries() cannot parse.
+      const corrupt = runtime.legacySpool('MON-ICU-01');
+      await runtime.acceptFrame({ listener: 'icu', sourceIp: '10.1.1.5', message: message('CTRL-I1') });
+      const healthy = runtime.legacySpool('MON-ICU-02');
+      await healthy.append({
+        message: message('CTRL-I2'), device_code: 'MON-ICU-02', patient_uid: null, channel: '', control_id: 'CTRL-I2',
+      });
+      await writeFile(corrupt.file, 'not-json\n', { flag: 'a' });
+
+      // Before the fix the corrupt spool's throw aborted the whole pass, so
+      // the healthy spool behind it was never drained again.
+      await runtime.drainAllLegacy();
+      expect(ingested).toContain('CTRL-I2');
+      expect(await healthy.entries()).toHaveLength(0);
+      const failure = logged.find((entry) => entry.event === 'legacy_drain_spool_failed');
+      expect(failure).toMatchObject({ level: 'error', source_ref: corrupt.source });
+
+      // Subsequent passes stay healthy too (the wedge was permanent before).
+      await runtime.drainAllLegacy();
+      expect(ingested.filter((id) => id === 'CTRL-I2')).toHaveLength(1);
+    } finally {
+      setLogSink(previousSink);
       await rm(dir, { recursive: true, force: true });
     }
   });
