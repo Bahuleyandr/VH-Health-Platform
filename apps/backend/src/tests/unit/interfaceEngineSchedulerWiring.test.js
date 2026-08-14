@@ -52,12 +52,15 @@ describe('interface-engine scheduler wiring', () => {
     expect(scheduler).toContain(
       'dispatchOutboundMessages({ tenantId, batchSize: 25, maxInFlight: 100 })',
     );
-    expect(scheduler).toContain(
-      "), { strict: true });",
+    // The call closes right after the callback — no options bag. `runForEachTenant`
+    // destructures only `lockKey` and is fail-closed for every caller, so a
+    // `{ strict: true }` here would be silently swallowed decoration.
+    expect(scheduler).toMatch(
+      /dispatchOutboundMessages\(\{ tenantId, batchSize: 25, maxInFlight: 100 \}\)\s*\)\);/,
     );
   });
 
-  test('strict fanout rejects discovery fallback instead of reporting default-only success', async () => {
+  test('fanout rejects discovery fallback instead of reporting default-only success', async () => {
     const discoveryFailureReceipts = [];
     queryRawUnsafe.mockImplementation(async (sql, ...params) => {
       const text = String(sql);
@@ -76,7 +79,7 @@ describe('interface-engine scheduler wiring', () => {
 
     let aggregate;
     try {
-      await runForEachTenant('interface-engine-outbound-dispatch', dispatch, { strict: true });
+      await runForEachTenant('interface-engine-outbound-dispatch', dispatch);
     } catch (err) {
       aggregate = err;
     }
@@ -99,7 +102,7 @@ describe('interface-engine scheduler wiring', () => {
     expect(discoveryFailureReceipts).toEqual([[41n, 'TENANT_DISCOVERY_FAILED']]);
   });
 
-  test('strict fanout visits healthy tenants but rejects the aggregate on a tenant failure', async () => {
+  test('fanout visits healthy tenants but rejects the aggregate on a tenant failure', async () => {
     const aggregateReceipts = [];
     queryRawUnsafe.mockImplementation(async (sql, ...params) => {
       const text = String(sql);
@@ -130,7 +133,6 @@ describe('interface-engine scheduler wiring', () => {
     await expect(runForEachTenant(
       'interface-engine-outbound-dispatch',
       dispatch,
-      { strict: true },
     )).rejects.toThrow('1 tenant run(s) failed');
     expect(dispatch).toHaveBeenCalledWith('tenant-b');
     expect(logger.error).toHaveBeenCalledWith(
