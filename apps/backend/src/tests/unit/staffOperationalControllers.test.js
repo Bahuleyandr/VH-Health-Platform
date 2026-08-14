@@ -59,12 +59,20 @@ jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
 // The factory must mirror every named export payrollController imports, or the
 // controller's import fails to link. Run-accounting behaviour is covered in
 // src/tests/unit/payrollFailLoud.test.js; nothing here exercises runPayroll.
+// ESM linking reports only the FIRST missing binding, so when this list drifts
+// behind the controller, fix it against the controller's whole import block
+// (payrollController.js lines 5-13) rather than adding one name per red run.
 jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   calculateArrears: jest.fn(),
   calculatePayslip: jest.fn(),
+  editPayslipAndRegenerate: jest.fn(),
+  executePayrollRun: jest.fn(),
   generateAnnualTaxSummary,
-  savePayslip: jest.fn(),
+  issuePayrollRun: jest.fn(),
   recordPayrollFailure: jest.fn(),
+  revealPayslipCredential: jest.fn(),
+  savePayslip: jest.fn(),
+  signPayrollRun: jest.fn(),
   summarizePayrollRunOutcome: jest.fn(),
 }));
 
@@ -81,6 +89,10 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
   generatePayslipPDF: jest.fn(),
 }));
 
+// tenantService is deliberately NOT mocked: these controllers resolve their own
+// tenant, and the payslip-detail guard below asserts the resolved value reaches
+// the query. Import the constant rather than inlining the UUID literal.
+const { DEFAULT_TENANT_ID } = await import('../../services/tenant/tenantService.js');
 const { getGeofenceBreaches, getTodayBreaks, requestRegularization } = await import('../../controllers/staff/attendanceController.js');
 const { getHealthStatus } = await import('../../controllers/auth/staffAuthController.js');
 const {
@@ -489,19 +501,33 @@ describe('staff operational endpoint drift guards', () => {
     await getReportAuditTrail({ params: { type: 'incident', id: '1' } }, makeRes());
     await getLeaveAuditTrail({ params: { id: '1' } }, makeRes());
 
+    // getPayslipDetail gained an explicit tenant predicate — a payslip is now
+    // reachable only inside its own tenant, not by id + staff_uid alone. Assert
+    // the predicate itself, not just the extra bound value, so dropping the
+    // scoping while leaving the parameter in place still fails this guard.
     expect(queryRawUnsafe.mock.calls[0]).toEqual([
       expect.stringContaining('p.id = $1::int'),
       1,
       staffUid,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[0][0]).toContain('p.tenant_id = $3::uuid');
+    // Both getPayrollRunDetail queries gained the same tenant predicate: a run
+    // and its payslips are reachable only from inside the owning tenant, not by
+    // run id alone. Only payrollController.js moved — calls[3]..[7] below come
+    // from controllers unchanged since 9cc8b8903 and keep their old shapes.
     expect(queryRawUnsafe.mock.calls[1]).toEqual([
       expect.stringContaining('p.payroll_run_id = $1::int'),
       1,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[1][0]).toContain('p.tenant_id = $2::uuid');
     expect(queryRawUnsafe.mock.calls[2]).toEqual([
       expect.stringContaining('FROM payroll_runs'),
       1,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[2][0]).toContain('tenant_id = $2::uuid');
     expect(queryRawUnsafe.mock.calls[3]).toEqual([
       expect.stringContaining('ss.staff_uid = $1::uuid'),
       staffUid,

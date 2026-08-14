@@ -64,9 +64,23 @@ describe('Rate Limiting', () => {
       body: { employeeId: 'EMP-1007' },
     });
 
-    expect(emp1004).toContain('emp-1004');
-    expect(emp1007).toContain('emp-1007');
+    // The account identifier is now HASHED into the key. A rate-limit key is
+    // persisted in Redis and shows up in ops tooling, so it must not carry a
+    // raw employee id / email / phone. Assert the properties that actually
+    // matter rather than the hash function itself, so this stays true if the
+    // digest is ever changed: structure, no plaintext, one bucket per account,
+    // and the case-folding that keeps 'emp-1004' and 'EMP-1004' in one bucket.
+    const empMixedCase = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { employeeId: 'emp-1004' },
+    });
+
+    expect(emp1004).toMatch(/^acct:127\.0\.0\.1:[0-9a-f]{64}$/);
+    expect(emp1007).toMatch(/^acct:127\.0\.0\.1:[0-9a-f]{64}$/);
+    expect(emp1004.toLowerCase()).not.toContain('emp-1004');
+    expect(emp1007.toLowerCase()).not.toContain('emp-1007');
     expect(emp1004).not.toBe(emp1007);
+    expect(empMixedCase).toBe(emp1004);
   });
 
   it('keys bearer-token requests separately before falling back to shared API key', () => {
@@ -96,7 +110,12 @@ describe('Rate Limiting', () => {
     expect(firstToken).toMatch(/^jwt:/);
     expect(secondToken).toMatch(/^jwt:/);
     expect(firstToken).not.toBe(secondToken);
-    expect(apiKeyOnly).toBe(`k:${API_KEY}`);
+    // Same hardening as above: the shared API key is hashed into the bucket, so
+    // a Redis key dump never leaks a live credential. One key still means one
+    // bucket, which is what the fallback is for.
+    expect(apiKeyOnly).toMatch(/^k:[0-9a-f]{64}$/);
+    expect(apiKeyOnly).not.toContain(API_KEY);
+    expect(rateLimitTesting.defaultKeyGenerator(baseReq)).toBe(apiKeyOnly);
   });
 
   it('keys auth limiter by IP plus account and ignores successful logins', () => {
@@ -116,8 +135,13 @@ describe('Rate Limiting', () => {
       body: { employeeId: 'EMP-1006' },
     });
 
-    expect(emp1003).toContain('emp-1003');
-    expect(emp1006).toContain('emp-1006');
+    // Same hardening; the auth limiter additionally tags the hashed segment
+    // `acct:` so an account bucket can never collide with the `challenge:`
+    // bucket the MFA test below covers.
+    expect(emp1003).toMatch(/^auth:127\.0\.0\.1:acct:[0-9a-f]{64}$/);
+    expect(emp1006).toMatch(/^auth:127\.0\.0\.1:acct:[0-9a-f]{64}$/);
+    expect(emp1003.toLowerCase()).not.toContain('emp-1003');
+    expect(emp1006.toLowerCase()).not.toContain('emp-1006');
     expect(emp1003).not.toBe(emp1006);
     expect(rateLimitTesting.authRateLimiterConfig.skipSuccessfulRequests).toBe(true);
   });

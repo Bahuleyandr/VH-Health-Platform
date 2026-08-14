@@ -44,6 +44,15 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name LIKE 'W2RLS %'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM departments WHERE name LIKE 'W2RLS-%'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM leave_types WHERE leave_type LIKE 'W2RLS-%'`).catch(() => {});
+  // migration 669 gave every payroll_runs row a mandatory attempt row
+  // (fk_payroll_runs_current_attempt), and fk_payroll_run_attempts_run has no
+  // ON DELETE action — so the attempts must go first or the delete is refused.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM payroll_run_attempts a
+      USING payroll_runs r
+      WHERE r.tenant_id = a.tenant_id AND r.id = a.payroll_run_id
+        AND r.year >= 4000 AND r.year < 4100`,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM payroll_runs WHERE year >= 4000 AND year < 4100`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM admins WHERE username LIKE 'W2RLS-%'`).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -127,13 +136,33 @@ describe('W2 schema multi-tenancy (migrations 328-336)', () => {
 
     it('payroll_runs (month,year) (330): same period in two tenants OK; dup within a tenant rejected', async () => {
       const yr = 4001;
-      await prisma.$executeRawUnsafe(`INSERT INTO payroll_runs (month, year, tenant_id) VALUES (3, $1, $2::uuid)`, yr, TENANT_A);
-      await expect(
-        prisma.$executeRawUnsafe(`INSERT INTO payroll_runs (month, year, tenant_id) VALUES (3, $1, $2::uuid)`, yr, TENANT_B),
-      ).resolves.toBeDefined();
-      await expect(
-        prisma.$executeRawUnsafe(`INSERT INTO payroll_runs (month, year, tenant_id) VALUES (3, $1, $2::uuid)`, yr, TENANT_A),
-      ).rejects.toThrow();
+      // migration 669: payroll_runs.attempt_token is NOT NULL DEFAULT
+      // gen_random_uuid() and fk_payroll_runs_current_attempt requires the
+      // matching payroll_run_attempts row, so a bare INSERT can no longer
+      // produce a valid run — a run without an attempt is exactly the state
+      // 669 exists to forbid. The FK is DEFERRABLE INITIALLY DEFERRED, so the
+      // pair is legal when both land in ONE transaction. What this test is
+      // about is untouched: the (tenant_id, month, year) uniqueness is an
+      // immediate index, so the third insert still fails on the duplicate.
+      const insertRun = (tenantId) => prisma.$transaction(async (tx) => {
+        const [run] = await tx.$queryRawUnsafe(
+          `INSERT INTO payroll_runs (month, year, tenant_id)
+           VALUES (3, $1, $2::uuid)
+           RETURNING id, attempt_token`,
+          yr, tenantId,
+        );
+        await tx.$executeRawUnsafe(
+          `INSERT INTO payroll_run_attempts
+             (tenant_id, payroll_run_id, attempt_token, started_at, status)
+           VALUES ($1::uuid, $2, $3::uuid, NOW(), 'processing')`,
+          tenantId, Number(run.id), run.attempt_token,
+        );
+        return run;
+      });
+
+      await insertRun(TENANT_A);
+      await expect(insertRun(TENANT_B)).resolves.toBeDefined();
+      await expect(insertRun(TENANT_A)).rejects.toThrow();
     });
 
     it('users.phone (333 §8.1): same phone in two tenants = two patients; dup within a tenant rejected', async () => {
