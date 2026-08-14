@@ -83,6 +83,85 @@ describe('Rate Limiting', () => {
     expect(empMixedCase).toBe(emp1004);
   });
 
+  // Finding 2026-08-14 P1: the pre-auth account fallback read only the staff
+  // identifiers (employeeId/username/email), so every logged-out patient at
+  // /api/v1/auth + /api/v1/otp shared ONE bucket keyed on the hashed app API
+  // key — a fleet-wide login DoS at 100 requests / 15 min.
+  it('keys pre-auth patient phone requests by phone identity, not the shared API key', () => {
+    const baseReq = {
+      headers: { 'x-api-key': API_KEY },
+      get: (name) => (name === 'x-api-key' ? API_KEY : undefined),
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+
+    const phoneA = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { phone: '+919876543210' },
+    });
+    const phoneB = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { phone: '+919876500000' },
+    });
+    // Same phone in a different client formatting must share the bucket —
+    // normalizePhone folds "98765 43210" into "+919876543210".
+    const phoneAFormatted = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { phone: '98765 43210' },
+    });
+    // Some clients send `phoneNumber` (the otpRateLimiter already accepts
+    // both spellings) — same identity, same bucket.
+    const phoneAAlias = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { phoneNumber: '+919876543210' },
+    });
+
+    expect(phoneA).toMatch(/^acct:127\.0\.0\.1:[0-9a-f]{64}$/);
+    expect(phoneB).toMatch(/^acct:127\.0\.0\.1:[0-9a-f]{64}$/);
+    // Two different patients never share a bucket.
+    expect(phoneA).not.toBe(phoneB);
+    // One patient always lands in one bucket, however the number is spelled.
+    expect(phoneAFormatted).toBe(phoneA);
+    expect(phoneAAlias).toBe(phoneA);
+    // The raw phone never appears in a persisted limiter key.
+    expect(phoneA).not.toContain('9876543210');
+  });
+
+  it('keys firebase-login {idToken}-only payloads per token, with API-key fallback intact', () => {
+    const baseReq = {
+      headers: { 'x-api-key': API_KEY },
+      get: (name) => (name === 'x-api-key' ? API_KEY : undefined),
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+
+    const tokenA = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { idToken: 'firebase-id-token-patient-a' },
+    });
+    const tokenB = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { idToken: 'firebase-id-token-patient-b' },
+    });
+    const tokenARetry = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      body: { idToken: 'firebase-id-token-patient-a', deviceType: 'android' },
+    });
+
+    expect(tokenA).toMatch(/^acct:127\.0\.0\.1:idt:[0-9a-f]{64}$/);
+    // Two patients exchanging different idTokens get distinct buckets…
+    expect(tokenA).not.toBe(tokenB);
+    // …while retries of the same exchange share one.
+    expect(tokenARetry).toBe(tokenA);
+    // The raw credential never appears in a persisted limiter key.
+    expect(tokenA).not.toContain('firebase-id-token-patient-a');
+
+    // And a request with NO identifier at all still falls back to the hashed
+    // shared API key — the fallback chain below the new branches is intact.
+    const apiKeyOnly = rateLimitTesting.defaultKeyGenerator({ ...baseReq, body: {} });
+    expect(apiKeyOnly).toMatch(/^k:[0-9a-f]{64}$/);
+  });
+
   it('keys bearer-token requests separately before falling back to shared API key', () => {
     const baseReq = {
       headers: { 'x-api-key': API_KEY },
