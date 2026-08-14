@@ -1139,7 +1139,9 @@ if (process.env.NODE_ENV !== 'test') {
   // invokes.
 
   // Every 30 seconds — admin:kpi aggregator tick. Short cadence is safe because
-  // tickAdminKpi runs two indexed count queries and emits over WebSocket only.
+  // tickAdminKpi runs two indexed count queries per active tenant and emits
+  // over WebSocket only. The tick fans out per tenant (tenantFanout) so every
+  // tenant's admins see only their own counts — never a fleet-wide aggregate.
   // withJobLock guarantees no overlap if a tick ever backs up.
   registerCron('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
   // Every 60s — daily-ops snapshot push (per-tenant). withJobLock = one runner across processes.
@@ -1201,7 +1203,9 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 export async function primeOperationalRealtimeChannels() {
-  try { await tickAdminKpi(); } catch (e) { logger.warn('Initial admin:kpi tick failed:', e.message); }
+  try {
+    await withDbAdvisoryLock('admin-kpi-tick', () => runWithSuperAdmin(tickAdminKpi));
+  } catch (e) { logger.warn('Initial admin:kpi tick failed:', e.message); }
   try {
     await withDbAdvisoryLock('daily-ops-tick', () => runWithSuperAdmin(tickDailyOps));
   } catch (e) { logger.warn('Initial daily-ops tick failed:', e.message); }
