@@ -172,36 +172,35 @@ d('OTP/PIN active-session tracking and revoke-all (#27)', () => {
         DEVICE_ID,
     ));
 
-    // The PIN hash must live on the DEVICE row, not only on `staff`.
-    // authenticateStaffWithPin reads `staff_devices.pin_hash` under M5 device
-    // binding, so a per-device PIN dies with the device it was set on; a
-    // staff-level hash alone would let an unregistered device authenticate.
-    // `staff.pin_hash` above is left in place — other paths still read it.
     await prisma.$executeRawUnsafe(
       `INSERT INTO staff_devices
          (staff_id, user_uid, device_id, device_name, device_token, is_active,
-          tenant_id, registered_at, trust_expires_at, created_at, pin_hash)
+          tenant_id, registered_at, trust_expires_at, created_at)
        VALUES
          ($1, $2::uuid, $3, 'OTP 27 Device', $4, true, $5::uuid,
-          NOW(), NOW() + INTERVAL '1 day', NOW(), $6)`,
+          NOW(), NOW() + INTERVAL '1 day', NOW())`,
       staffId,
       STAFF_UID,
       DEVICE_ID,
       DEVICE_TOKEN,
       TENANT_ID,
-      pinHash,
     );
 
     // Enrol the PIN through the product's own enrolment path rather than
-    // hand-writing a hash into a column. A staff PIN is device-bound: it is
-    // stored on the staff_devices row that setupPin() resolves from the device
-    // token, and authenticateStaffWithPin() reads it back from that same row.
-    // Seeding the credential directly is what let this fixture drift out of
-    // sync with the service (it used to write staff.pin_hash, which no
-    // reachable code path has ever written or read since the device-bound
-    // contract landed). Going through setupPin keeps the fixture honest: if
-    // enrolment and login ever disagree about where the PIN lives again, this
-    // suite fails instead of certifying a broken login.
+    // hand-writing a hash into a column. The PIN this suite exercises is
+    // device-bound: setupPin() resolves the staff_devices row from the device
+    // token and writes staff_devices.pin_hash, and authenticateStaffWithPin()
+    // reads it back from that same row. Seeding the credential directly is what
+    // let this fixture drift out of sync with the service — it used to write
+    // staff.pin_hash, which authenticateStaffWithPin has never read. Going
+    // through setupPin keeps the fixture honest: if enrolment and login ever
+    // disagree about where the PIN lives again, this suite fails instead of
+    // certifying a broken login.
+    //
+    // NB staff.pin_hash is NOT dead — authService.js:659-744 still reads it for
+    // bcrypt.compare and writes it on PIN change. That is a SEPARATE,
+    // staff-level PIN path from this device-bound one. It is simply not what
+    // this suite covers, which is why nothing seeds it here any more.
     await StaffAuthService.setupPin(STAFF_UID, DEVICE_TOKEN, PIN);
   }, 30000);
 
