@@ -4,6 +4,15 @@ import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 import 'api_client.dart';
 import 'staff_notification_session.dart';
 
+class PayslipPasswordRevealException implements Exception {
+  final int statusCode;
+
+  const PayslipPasswordRevealException(this.statusCode);
+
+  @override
+  String toString() => 'Unable to retrieve payslip password';
+}
+
 /// HR-related API calls: dashboard, staff management, performance,
 /// incidents, grievances, housekeeping, payroll.
 class HrApiService {
@@ -725,6 +734,28 @@ class HrApiService {
     return (result['data'] as Map<String, dynamic>?) ?? result;
   }
 
+  /// POST /staff/hr/payroll/my-payslips/:id/password
+  ///
+  /// Credential reveal is deliberately not retried or replayed after session
+  /// refresh. A new authenticated user gesture must initiate every request.
+  static Future<String> revealPayslipPassword(String id) async {
+    final response = await ApiClient.post(
+      '/staff/hr/payroll/my-payslips/${Uri.encodeComponent(id)}/password',
+      body: const {},
+      retryTransientFailures: false,
+      refreshOnUnauthorized: false,
+    );
+    if (!response.isSuccess) {
+      throw PayslipPasswordRevealException(response.statusCode);
+    }
+    final data = response.dataAsMap();
+    final password = data['password'];
+    if (password is! String || password.isEmpty) {
+      throw PayslipPasswordRevealException(response.statusCode);
+    }
+    return password;
+  }
+
   /// GET /staff/hr/payroll/tax-summary?fy=2025-26
   static Future<Map<String, dynamic>> getMyTaxSummary({String? fy}) async {
     final query = fy != null ? {'fy': fy} : null;
@@ -863,12 +894,12 @@ class HrApiService {
 
   /// POST /auth/staff/setup-pin — set up quick-access PIN
   static Future<Map<String, dynamic>> setupPin({
-    required String employeeId,
     required String pin,
+    required String deviceToken,
   }) async {
     return _post('/auth/staff/setup-pin', {
-      'employeeId': employeeId,
       'pin': pin,
+      'deviceToken': deviceToken,
     });
   }
 
@@ -881,47 +912,6 @@ class HrApiService {
       'enabled': enabled,
       'deviceToken': deviceToken,
     });
-  }
-
-  /// POST /auth/staff/quick-login — PIN or biometric quick login
-  static Future<Map<String, dynamic>> quickLogin({
-    required String employeeId,
-    String? pin,
-    String? biometricToken,
-    String? deviceToken,
-  }) async {
-    final installationId =
-        await core_auth.AuthService.getOrCreateInstallationId();
-    return _post('/auth/staff/quick-login', {
-      'employeeId': employeeId,
-      'pin': ?pin,
-      'biometricToken': ?biometricToken,
-      'deviceToken': ?deviceToken,
-      'installationId': installationId,
-    });
-  }
-
-  /// POST /auth/staff/register-device — register a trusted device
-  static Future<Map<String, dynamic>> registerTrustedDevice({
-    required String deviceToken,
-    required String deviceName,
-    required String platform,
-  }) async {
-    final installationId =
-        await core_auth.AuthService.getOrCreateInstallationId();
-    return _post('/auth/staff/register-device', {
-      'deviceToken': deviceToken,
-      'deviceName': deviceName,
-      'platform': platform,
-      'installationId': installationId,
-    });
-  }
-
-  /// POST /auth/staff/verify-device — verify a device token
-  static Future<Map<String, dynamic>> verifyDevice({
-    required String deviceToken,
-  }) async {
-    return _post('/auth/staff/verify-device', {'deviceToken': deviceToken});
   }
 
   /// GET /auth/staff/devices — list registered devices

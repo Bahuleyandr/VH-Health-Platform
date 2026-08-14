@@ -11,12 +11,12 @@ import React, {
 } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { APIError } from "@/lib/api";
 import {
   adminLogin,
   staffLogin,
   adminLogout,
   getAdminProfile,
-  isAuthenticated,
   getAdminUser,
   clearAuthData,
   verifyAdminMfa,
@@ -58,7 +58,11 @@ interface AuthContextType {
    *  render a TOTP prompt when the backend asks for a second factor. */
   login: (username: string, password: string) => Promise<LoginOutcome>;
   /** Completes the 2FA step after a `login()` that returned `{ kind: "mfa" }`. */
-  verifyMfa: (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => Promise<void>;
+  verifyMfa: (args: {
+    challengeToken: string;
+    code: string;
+    useBackupCode?: boolean;
+  }) => Promise<void>;
   /** First leg of first-time MFA enrollment — returns QR + backup codes + encryptedSecret. */
   mfaSetupEnroll: (args: { setupToken: string }) => Promise<{
     qrCodeDataUrl: string;
@@ -91,31 +95,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       setError(null);
 
-      if (!isAuthenticated()) {
-        setUser(null);
-        return;
-      }
-
-      // Use cached user first for instant UI
+      // The profile cache is an optional rendering optimisation, never proof
+      // of authentication. Always probe the cookie-backed profile endpoint so
+      // a valid httpOnly session can recover after storage is cleared.
       const cached = getAdminUser();
       if (cached) setUser(cached);
 
-      // Then refresh from API (will redirect on 401 via api layer)
+      // Refresh from the API without global 401 navigation; this provider owns
+      // the signed-out state for the initial session probe.
       try {
         const fresh = await getAdminProfile();
         if (fresh) {
           setUser(fresh);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("adminUser", JSON.stringify(fresh));
-          }
         }
-      } catch {
+      } catch (profileError) {
         // If profile fails and no cached user, treat as unauthenticated
-        if (!cached) {
+        if (
+          !cached ||
+          (profileError instanceof APIError &&
+            (profileError.status === 401 || profileError.status === 403))
+        ) {
           clearAuthData();
           setUser(null);
         }
-        // keep going; api layer may already have redirected on 401
       }
     } catch (e) {
       console.error("Auth check failed:", e);
@@ -146,7 +148,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             challenge: {
               challengeToken: result.challengeToken,
               expiresAt: result.expiresAt,
-              adminHint: result.admin?.username ? { username: result.admin.username } : undefined,
+              adminHint: result.admin?.username
+                ? { username: result.admin.username }
+                : undefined,
             },
           };
         }
@@ -158,7 +162,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             challenge: {
               setupToken: result.setupToken,
               expiresIn: result.expiresIn,
-              adminHint: result.admin?.username ? { username: result.admin.username } : undefined,
+              adminHint: result.admin?.username
+                ? { username: result.admin.username }
+                : undefined,
             },
           };
         }
@@ -181,7 +187,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const verifyMfa = useCallback(
-    async (args: { challengeToken: string; code: string; useBackupCode?: boolean }) => {
+    async (args: {
+      challengeToken: string;
+      code: string;
+      useBackupCode?: boolean;
+    }) => {
       try {
         setLoading(true);
         setError(null);
@@ -199,13 +209,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [router],
   );
 
-  const mfaSetupEnroll = useCallback(
-    async (args: { setupToken: string }) => {
-      setError(null);
-      return adminMfaSetupEnroll(args);
-    },
-    [],
-  );
+  const mfaSetupEnroll = useCallback(async (args: { setupToken: string }) => {
+    setError(null);
+    return adminMfaSetupEnroll(args);
+  }, []);
 
   const mfaSetupConfirm = useCallback(
     async (args: {

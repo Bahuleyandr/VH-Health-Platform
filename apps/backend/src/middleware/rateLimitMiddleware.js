@@ -3,8 +3,13 @@ import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'crypto';
 import { RedisStore } from 'rate-limit-redis';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
-import { initRedis } from '../lib/redis.js';
+import { initRedis, isRedisConfigured } from '../lib/redis.js';
 import { getRateLimitOverride } from '../services/tenant/tenantSettingsService.js';
+
+function hashRateLimitIdentity(value, { lowercase = false } = {}) {
+  const normalized = lowercase ? String(value).toLowerCase() : String(value);
+  return crypto.createHash('sha256').update(normalized).digest('hex');
+}
 
 /**
  * Prefer keying by authenticated UID, then per-account identity for login-
@@ -37,7 +42,9 @@ const defaultKeyGenerator = (req) => {
     req.body?.employee_id ||
     req.body?.username ||
     req.body?.email;
-  if (account) return `acct:${ipKeyGenerator(req.ip)}:${String(account).toLowerCase()}`;
+  if (account) {
+    return `acct:${ipKeyGenerator(req.ip)}:${hashRateLimitIdentity(account, { lowercase: true })}`;
+  }
 
   const authorization =
     req.headers?.authorization ||
@@ -55,7 +62,7 @@ const defaultKeyGenerator = (req) => {
     return `jwt:${tokenHash}`;
   }
 
-  if (apiKey) return `k:${String(apiKey)}`;
+  if (apiKey) return `k:${hashRateLimitIdentity(apiKey)}`;
 
   // Fallback MUST use ipKeyGenerator for IPv6 safety
   return ipKeyGenerator(req.ip);
@@ -70,12 +77,12 @@ export const tenantKeyGenerator = (req) => `${tenantPrefix(req)}${defaultKeyGene
 const ipOnlyKeyGenerator = (req) => ipKeyGenerator(req.ip);
 
 // W3: replica-safe counters via a shared Redis store. Returns undefined (the
-// express-rate-limit default per-process MemoryStore) when REDIS_URL is unset,
+// express-rate-limit default per-process MemoryStore) when Redis is unset,
 // preserving single-node correctness + the local-test path. sendCommand resolves
 // the client lazily per request, so a limiter built at import time (before
 // initRedis()) still works once Redis connects.
 export const selectStore = (prefix = 'rl:') => {
-  if (!process.env.REDIS_URL) return undefined;
+  if (!isRedisConfigured()) return undefined;
   return new RedisStore({
     prefix,
     sendCommand: async (...args) => {
@@ -93,7 +100,7 @@ const authKeyGenerator = (req) => {
   const ip = ipKeyGenerator(req.ip);
   // Extract account identifier from request body (login endpoints).
   const account = req.body?.username || req.body?.email || req.body?.employeeId || req.body?.phone || '';
-  if (account) return `auth:${ip}:${String(account).toLowerCase()}`;
+  if (account) return `auth:${ip}:acct:${hashRateLimitIdentity(account, { lowercase: true })}`;
 
   // MFA challenge verify (/auth/admin/mfa/challenge/verify) carries no
   // username/email — only an opaque `challengeToken` that maps 1:1 to a single
@@ -194,7 +201,7 @@ export const getRateLimiter = (profileName = 'default', {
     // IMPORTANT: IPv6-safe config + W3 tenant-scoped bucket
     keyGenerator: keyGen,
 
-    // W3: replica-safe shared counter (per-profile namespace); MemoryStore when REDIS_URL unset
+    // W3: replica-safe shared counter (per-profile namespace); MemoryStore when Redis is unset
     store: selectStore(storePrefix || `rl:${profileName}:`),
 
     handler: handlerFn,
@@ -230,14 +237,15 @@ const authRateLimiterConfig = {
   skip: isRateLimitingDisabled
 };
 
-export const __testing__ = {
-  defaultKeyGenerator,
-  ipOnlyKeyGenerator,
-  authKeyGenerator,
-  authRateLimiterConfig,
-};
-
 export const authRateLimiter = expressRateLimit(authRateLimiterConfig);
+
+const otpKeyGenerator = (req) => {
+  // Hash the contact identifier so a persistent Redis key never exposes the
+  // raw phone number while equivalent requests still share one bucket.
+  const phone = req.body?.phone || req.body?.phoneNumber || '';
+  if (phone) return `otp:phone:${hashRateLimitIdentity(phone)}`;
+  return `otp:${ipKeyGenerator(req.ip)}`;
+};
 
 /**
  * ✅ OTP rate limiter — keys by phone number extracted from request body.
@@ -249,14 +257,7 @@ export const otpRateLimiter = expressRateLimit({
   message: RATE_LIMIT_PROFILES.otp.message,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Key by phone number from request body (Firebase login sends idToken,
-    // but we also want to catch repeated requests from the same IP)
-    const phone = req.body?.phone || req.body?.phoneNumber || '';
-    if (phone) return `otp:phone:${String(phone)}`;
-    // Fallback to IP if no phone
-    return `otp:${ipKeyGenerator(req.ip)}`;
-  },
+  keyGenerator: otpKeyGenerator,
   store: selectStore('rl:otp:'), // W3: replica-safe OTP counter
   handler: defaultHandler,
   skip: isRateLimitingDisabled
@@ -281,6 +282,15 @@ export const sosRateLimiter = expressRateLimit({
   handler: defaultHandler,
   skip: isRateLimitingDisabled
 });
+
+export const __testing__ = {
+  defaultKeyGenerator,
+  ipOnlyKeyGenerator,
+  authKeyGenerator,
+  authRateLimiterConfig,
+  hashRateLimitIdentity,
+  otpKeyGenerator,
+};
 
 /** ✅ Data export rate limiter — strict: 5 requests per hour */
 export const dataExportRateLimiter = getRateLimiter('dataExport');

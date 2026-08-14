@@ -2,10 +2,12 @@
 #
 # The CNPG operator is installed via the upstream release manifest rather
 # than an inline fork, so we stay on the supported distribution channel.
-# This file is only an Argo-rendered version marker. The operator and Barman
-# Cloud Plugin are deliberately not Argo-managed: an operator must advance the
-# sequential qualification ladder and install both release manifests before the
-# next manual platform sync.
+# This file is only a rendered version marker. The operator and Barman Cloud
+# Plugin each have an immutable manual-sync Application in the held operator
+# lifecycle target. They are deliberately absent from active composition: an
+# operator must advance the sequential qualification ladder, explicitly apply
+# and sync the Applications, then pass the lifecycle preflight before the next
+# manual platform sync.
 #
 # Target: CNPG 1.30.0 and Barman Cloud Plugin 0.13.0.
 # Upgrade path: https://cloudnative-pg.io/documentation/current/installation_upgrade/
@@ -51,13 +53,23 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 data:
-  managedByArgoCD: "false"
+  managedByArgoCD: "held-manual-application"
   operatorVersion: "1.30.0"
+  operatorChartRepository: "https://cloudnative-pg.github.io/charts"
+  operatorChartVersion: "0.29.0"
+  operatorChartSha256: "668e065ff53508d58238788fd35b355a925060843629a951df0e6a9362e6d32f"
   operatorManifestUrl: "https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.0/cnpg-1.30.0.yaml"
   operatorManifestSha256: "f8bede43fe4ee0d478c2355b204a36876b2ae4faac60f2a9452280b293da3b88"
   operatorImage: "ghcr.io/cloudnative-pg/cloudnative-pg:1.30.0@sha256:a2701eb97cdd2a34b1fdb2cb51987f544b706e40bec72ae7146cd8580efefebb"
+  # Provenance marker only — this ConfigMap deploys nothing. `postgresImage`
+  # records the QUALIFIED PostgreSQL 18.4 ladder target, not the generation the
+  # live cluster runs. The running generation is PostgreSQL 17 (cluster.yaml);
+  # the cutover that would make this target real is held at
+  # infra/kubernetes/held/c1-1-pg18-cutover/ (audit 2026-08-13, P1).
   postgresImage: "ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8"
   barmanPluginVersion: "0.13.0"
+  barmanPluginChartVersion: "0.7.0"
+  barmanPluginChartSha256: "683494c04cc94f7d33c4ac5f3d8d64c209634b48bd0e84da31d7d1fad22cdcdb"
   barmanPluginName: "barman-cloud.cloudnative-pg.io"
   barmanPluginManifestUrl: "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.13.0/manifest.yaml"
   barmanPluginManifestSha256: "d2e71e7b06822448f1a421f05781846cfdb9cc621e7ef32eef5e20c5133213b0"

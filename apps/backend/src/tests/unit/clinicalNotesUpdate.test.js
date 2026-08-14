@@ -52,10 +52,11 @@ const recordCanonicalClinicalEventMock = jest.fn(async () => ({
   timeline: { id: 'timeline-test-event' },
   audit: { id: 'audit-test-event' },
 }));
+const ensureEncounterForAppointmentMock = jest.fn(async () => null);
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   currentCanonicalTransactionRevision: jest.fn().mockResolvedValue(1),
-  ensureEncounterForAppointment: jest.fn(async () => null),
+  ensureEncounterForAppointment: ensureEncounterForAppointmentMock,
   recordClinicalAuditEvent: jest.fn(),
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   readCanonicalPatientTimeline: jest.fn(async () => []),
@@ -82,6 +83,7 @@ beforeEach(() => {
   userFindUniqueMock.mockReset();
   usersFindManyMock.mockReset();
   recordCanonicalClinicalEventMock.mockClear();
+  ensureEncounterForAppointmentMock.mockClear();
 });
 
 describe('updateNote — edit gate', () => {
@@ -472,6 +474,7 @@ describe('createNote — OP appointment session guard', () => {
     ]);
 
     const result = await createNote({
+      tenant_id: 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90903',
       patient_uid: 'patient-uid',
       author_uid: ORIGINAL_AUTHOR_UID,
       author_role: 'DOCTOR',
@@ -489,6 +492,10 @@ describe('createNote — OP appointment session guard', () => {
       version: 1,
       is_signed: false
     });
+    expect(ensureEncounterForAppointmentMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90903',
+      appointmentId: 101,
+    }));
     expect(result.id).toBe(56);
     expect(result.author_name).toBe('Original Doctor');
   });

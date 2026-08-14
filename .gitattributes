@@ -1,3 +1,12 @@
 .gitattributes text eol=lf
 *.sh text eol=lf
+
+# Generated Dart contracts that a CI gate byte-compares against a freshly
+# rendered string (scripts/generate-*.mjs --check, wired into
+# scripts/ci/flutter.mjs and .github/workflows/_reusable-flutter-workspace.yml).
+# The generators emit '\n'; without an LF pin, core.autocrlf=true checks these
+# out as CRLF on Windows and the byte-compare fails on every Windows host even
+# though the committed blob has not drifted at all. Any future generated file
+# guarded by a `--check` byte-compare needs a line here too.
 packages/vhhealth_core/lib/clinical/vital_plausibility_bounds.g.dart text eol=lf
+apps/staff/lib/core/config/staff_role_contract.g.dart text eol=lf

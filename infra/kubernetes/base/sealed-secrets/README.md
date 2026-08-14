@@ -10,6 +10,25 @@ at sync time, and only the controller holds the private key.
 Pinned at **v0.27.3** (released 2024-10). Bump in `sealed-secrets.yaml`
 and `crd.yaml` together.
 
+## Fresh-cluster bootstrap
+
+Run the tested helper before installing Argo CD or the monitoring stack:
+
+```bash
+scripts/bootstrap-sealed-secrets.sh --check
+scripts/bootstrap-sealed-secrets.sh --apply
+```
+
+The bootstrap Kustomization is intentionally self-contained: it owns the
+`vhhealth-security` Namespace, the SealedSecret CRD, and only the controller's
+ServiceAccount, RBAC, Service, and Deployment. The validator rejects any
+different controller identity or extra resource before `kubectl` runs.
+
+The controller ServiceMonitor lives in
+`infra/kubernetes/base/monitoring/sealed-secrets-service-monitor.yaml`. Apply
+that monitoring Kustomization only after the Prometheus Operator has installed
+the `monitoring.coreos.com` CRDs; it is deliberately absent from bootstrap.
+
 ## Creating a new sealed secret
 
 1. Install `kubeseal` on your workstation:

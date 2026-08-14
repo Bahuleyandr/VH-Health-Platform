@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import '../config/api_config.dart';
+import '../navigation/staff_route_policy.dart';
 import '../platform_info.dart';
 import '../services/code_blue_notifier.dart';
 import '../services/hr_api_service.dart';
@@ -141,9 +142,11 @@ class NotificationItem {
   String? get actionRoute {
     final explicit = data['route']?.toString().trim();
     if (explicit != null && explicit.isNotEmpty) {
-      return _normalizeStaffRoute(explicit);
+      return StaffRoutePolicy.sanitizeExternalRoute(explicit);
     }
-    return _defaultRouteForType(normalizedType);
+    return StaffRoutePolicy.sanitizeExternalRoute(
+      _defaultRouteForType(normalizedType),
+    );
   }
 
   String get actionLabel {
@@ -265,6 +268,7 @@ class NotificationProvider extends ChangeNotifier {
 
   Future<void> beginAuthenticatedSession() {
     _acceptsInitialization = true;
+    StaffLocalNotifications.instance.beginAuthenticatedSession();
     return initialize();
   }
 
@@ -438,13 +442,24 @@ class NotificationProvider extends ChangeNotifier {
   Future<void> endAuthenticatedSession({bool unregisterBackend = true}) async {
     _acceptsInitialization = false;
     _sessionGeneration += 1;
-    var sessionMarkedInactive = false;
+    StaffLocalNotifications.instance.endAuthenticatedSession();
+    final deliveredNotificationsCleanup = _clearDeliveredNotifications();
+    final inactiveSessionWrite = _sessionStore.markInactive().then(
+      (_) => true,
+      onError: (Object error, StackTrace stack) {
+        debugPrint('❌ Notification session marker cleanup error: $error');
+        return false;
+      },
+    );
+
+    var deliveredNotificationsCleared = false;
     try {
-      await _sessionStore.markInactive();
-      sessionMarkedInactive = true;
+      await deliveredNotificationsCleanup;
+      deliveredNotificationsCleared = true;
     } catch (e) {
-      debugPrint('❌ Notification session marker cleanup error: $e');
+      debugPrint('❌ Delivered notification cleanup error: $e');
     }
+    var sessionMarkedInactive = await inactiveSessionWrite;
     final pendingInitialization = _initializationFuture;
     if (pendingInitialization != null) {
       try {
@@ -489,14 +504,6 @@ class NotificationProvider extends ChangeNotifier {
       sessionMarkedInactive = true;
     } catch (e) {
       debugPrint('❌ Notification session marker cleanup error: $e');
-    }
-
-    var deliveredNotificationsCleared = false;
-    try {
-      await _clearDeliveredNotifications();
-      deliveredNotificationsCleared = true;
-    } catch (e) {
-      debugPrint('❌ Delivered notification cleanup error: $e');
     }
 
     var backendUnregistered = false;
@@ -667,13 +674,4 @@ String? _defaultRouteForType(String type) {
   if (t.contains('ATTENDANCE')) return '/attendance';
   if (t.contains('LEAVE')) return '/leave';
   return null;
-}
-
-String _normalizeStaffRoute(String route) {
-  if (route == '/admissions') return '/emr/admissions';
-  if (route.startsWith('/admissions?')) {
-    return route.replaceFirst('/admissions', '/emr/admissions');
-  }
-  if (route == '/housekeeping') return '/housekeeping-tasks';
-  return route;
 }

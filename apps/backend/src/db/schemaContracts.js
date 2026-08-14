@@ -269,6 +269,52 @@ export const SCHEMA_CONTRACTS = [
              LIMIT 1`,
     },
   },
+  {
+    id: 'scheduler.tenant.truth',
+    label: 'Tenant scheduler outcome receipts',
+    tables: [
+      {
+        name: 'scheduled_job_runs',
+        columns: [
+          'id', 'job_label', 'lock_key', 'scope', 'discovery_status', 'aggregate_status',
+          'tenants_discovered', 'tenants_succeeded', 'tenants_failed',
+          'tenants_unresolved', 'failure_code', 'started_at', 'finished_at',
+        ],
+      },
+      {
+        name: 'scheduled_job_tenant_runs',
+        columns: ['run_id', 'tenant_id', 'status', 'failure_code', 'started_at', 'finished_at'],
+      },
+    ],
+    probe: {
+      sql: `SELECT r.id, r.job_label, r.lock_key, r.aggregate_status, r.tenants_unresolved
+              FROM scheduled_job_runs r
+              LEFT JOIN scheduled_job_tenant_runs t ON t.run_id = r.id
+             LIMIT 1`,
+    },
+  },
+  {
+    id: 'notifications.scheduled.tenant-owner',
+    label: 'Scheduled notification tenant ownership',
+    tables: [
+      {
+        name: 'scheduled_notifications',
+        columns: ['id', 'tenant_id', 'user_id', 'type', 'send_at', 'status'],
+      },
+      {
+        name: 'users',
+        columns: ['id', 'tenant_id'],
+      },
+    ],
+    probe: {
+      sql: `SELECT sn.id, sn.tenant_id, sn.user_id
+              FROM scheduled_notifications sn
+              JOIN users u
+                ON u.tenant_id = sn.tenant_id
+               AND u.id = sn.user_id
+             LIMIT 1`,
+    },
+  },
 ];
 
 export function quoteIdentifier(identifier) {
@@ -321,6 +367,176 @@ async function tableHasRows(client, tableName) {
     `SELECT EXISTS (SELECT 1 FROM ${quoteIdentifier(tableName)} LIMIT 1) AS has_rows`
   );
   return Boolean(result.rows[0]?.has_rows);
+}
+
+function uniqueProbeToken() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+async function expectStatementRejected(
+  client,
+  { contract, label, sql, params = [], expectedCode, expectedConstraint },
+  failures,
+) {
+  const savepoint = `schema_contract_${uniqueProbeToken()}`.replace(/[^a-z0-9_]/gi, '_');
+  await runQuery(client, `SAVEPOINT ${quoteIdentifier(savepoint)}`);
+  try {
+    await runQuery(client, sql, params);
+    failures.push({ contract, message: `Invalid fixture unexpectedly accepted: ${label}` });
+  } catch (err) {
+    if (expectedCode && err?.code !== expectedCode) {
+      failures.push({
+        contract,
+        message: `${label} rejected with SQLSTATE ${err?.code || 'unknown'}, expected ${expectedCode}`,
+      });
+    }
+    if (expectedConstraint && err?.constraint !== expectedConstraint) {
+      failures.push({
+        contract,
+        message: `${label} rejected by ${err?.constraint || 'an unknown constraint'}, expected ${expectedConstraint}`,
+      });
+    }
+  } finally {
+    await runQuery(client, `ROLLBACK TO SAVEPOINT ${quoteIdentifier(savepoint)}`);
+    await runQuery(client, `RELEASE SAVEPOINT ${quoteIdentifier(savepoint)}`);
+  }
+}
+
+async function runIntegrityRejectionProbes(client, failures) {
+  await runQuery(client, 'BEGIN');
+  try {
+    const posture = await runQuery(client, `
+      SELECT current_setting('session_replication_role') = 'origin' AS triggers_enabled
+    `);
+    if (!posture.rows[0]?.triggers_enabled) {
+      failures.push({
+        contract: 'integrity.trigger-posture',
+        message: 'Constraint rejection probes require session_replication_role=origin',
+      });
+      return;
+    }
+
+    const fixtures = await runQuery(client, `
+      SELECT u.id AS user_id,
+             u.tenant_id AS owner_tenant_id,
+             other.id AS other_tenant_id
+        FROM users u
+        JOIN LATERAL (
+          SELECT t.id
+            FROM tenants t
+           WHERE t.id <> u.tenant_id
+           ORDER BY t.id
+           LIMIT 1
+        ) other ON TRUE
+       ORDER BY u.id
+       LIMIT 1
+    `);
+    if (!fixtures.rows[0]) {
+      failures.push({
+        contract: 'integrity.fixture',
+        message: 'Constraint rejection probes require a user plus a second tenant',
+      });
+      return;
+    }
+    const fixture = fixtures.rows[0];
+
+    await expectStatementRejected(client, {
+      contract: 'notifications.scheduled.tenant-owner',
+      label: 'scheduled notification owned by a user in another tenant',
+      sql: `INSERT INTO scheduled_notifications
+              (tenant_id, user_id, type, data, send_at, status)
+            VALUES ($1::uuid, $2::integer, 'feedback_request', '{}'::jsonb, NOW(), 'pending')`,
+      params: [fixture.other_tenant_id, fixture.user_id],
+      expectedCode: '23503',
+      expectedConstraint: 'scheduled_notifications_tenant_user_fk',
+    }, failures);
+
+    await runQuery(
+      client,
+      `SELECT set_config('app.current_tenant_id', $1::text, true)`,
+      [fixture.owner_tenant_id],
+    );
+
+    await expectStatementRejected(client, {
+      contract: 'scheduler.tenant.truth',
+      label: 'tenant scheduler outcome without a parent run',
+      sql: `INSERT INTO scheduled_job_tenant_runs
+              (run_id, tenant_id, status, failure_code, finished_at)
+            VALUES (-1, $1::uuid, 'failed', 'TEST_ORPHAN', NOW())`,
+      params: [fixture.owner_tenant_id],
+      expectedCode: '23514',
+      expectedConstraint: 'scheduled_job_tenant_run_parent_running',
+    }, failures);
+  } finally {
+    await runQuery(client, 'ROLLBACK');
+  }
+}
+
+async function runSeedInvariantProbes(client, failures) {
+  const probes = [
+    {
+      contract: 'seed.identity.graph',
+      label: 'seeded patient, staff, appointment, and admission relationships are coherent',
+      sql: `SELECT
+        EXISTS (
+          SELECT 1
+            FROM users u
+           WHERE u.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+             AND u.role = 'PATIENT'
+        )
+        AND EXISTS (
+          SELECT 1
+            FROM staff s
+            JOIN users u ON u.uid = s.user_id
+           WHERE s.tenant_id = u.tenant_id
+        )
+        AND EXISTS (
+          SELECT 1
+            FROM appointments a
+            JOIN users u
+              ON u.tenant_id = a.tenant_id
+             AND u.id = a.patient_id
+        )
+        AND EXISTS (
+          SELECT 1
+            FROM admissions a
+            JOIN users u
+              ON u.tenant_id = a.tenant_id
+             AND u.uid = a.patient_uid
+        ) AS ok`,
+    },
+    {
+      contract: 'seed.notification.graph',
+      label: 'seeded scheduled notification has an exact tenant-owned recipient',
+      sql: `SELECT
+        EXISTS (
+          SELECT 1
+            FROM scheduled_notifications sn
+            JOIN users u
+              ON u.tenant_id = sn.tenant_id
+             AND u.id = sn.user_id
+           WHERE sn.data->>'appointment_id' = 'seed'
+             AND sn.data->>'survey' = 'nps'
+        )
+        AND NOT EXISTS (
+          SELECT 1
+            FROM scheduled_notifications sn
+            LEFT JOIN users u
+              ON u.tenant_id = sn.tenant_id
+             AND u.id = sn.user_id
+           WHERE u.id IS NULL
+        ) AS ok`,
+    },
+  ];
+
+  const results = [];
+  for (const probe of probes) {
+    const result = await runQuery(client, probe.sql);
+    const ok = result.rows[0]?.ok === true;
+    results.push({ id: probe.contract, label: probe.label, ok });
+    if (!ok) failures.push({ contract: probe.contract, message: probe.label });
+  }
+  return results;
 }
 
 export async function runSchemaContractCheck(client, options = {}) {
@@ -386,11 +602,11 @@ export async function runSchemaContractCheck(client, options = {}) {
       emptyTables,
       intentionallyEmptyAppTables,
       unexpectedEmptyAppTables,
-      ok: unexpectedEmptyAppTables.length === 0,
+      coverageOnly: true,
+      invariants: [],
     };
-    for (const table of unexpectedEmptyAppTables) {
-      failures.push({ contract: 'seeded.table.coverage', message: `Empty table after seed: ${table}` });
-    }
+    seeded.invariants = await runSeedInvariantProbes(client, failures);
+    await runIntegrityRejectionProbes(client, failures);
   }
 
   return {

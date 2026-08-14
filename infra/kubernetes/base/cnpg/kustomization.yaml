@@ -1,8 +1,9 @@
 # cnpg/kustomization.yaml — CloudNativePG operator + VH Health cluster
 #
-# The CNPG operator and Barman plugin are installed out-of-band from the
-# digest-qualified 1.30.0 / 0.13.0 release manifests. This kustomization
-# carries only the inert marker and resources that depend on their CRDs.
+# The CNPG operator and Barman plugin have digest-qualified, manual-sync Argo
+# Applications under ../../held/operator-lifecycle. That target is not composed
+# here. This kustomization carries only the inert marker and resources that
+# depend on their CRDs.
 #
 # The URL is NOT listed in `resources:` below because:
 #   (a) Remote resources break offline builds and add ~9k lines to every
@@ -10,14 +11,8 @@
 #   (b) commonLabels at this level would try to patch immutable selectors
 #       on the upstream Deployments + CRDs.
 #
-# Instead, the platform bootstrap runbook applies the operator manifest
-# directly with `kubectl apply -f <URL>` once, and Argo CD manages the
-# `Cluster`, `Pooler`, `ScheduledBackup`, and ConfigMap resources here.
-#
-# When we migrate to Argo CD ApplicationSets, the operator itself becomes
-# its own Application ("app of apps" pattern) and syncs from the pinned
-# URL directly — keeping its lifecycle separate from the Cluster CRDs
-# we manage in this directory.
+# The platform bootstrap runbook keeps operator lifecycle separate from the
+# `Cluster`, `Pooler`, `ScheduledBackup`, and ConfigMap resources managed here.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
@@ -34,7 +29,21 @@ resources:
   - backup-network-policy.yaml
 
 # DR drill and PG18 upgrade rehearsal manifests remain operator-owned,
-# synthetic templates and are intentionally excluded from this render.
+# synthetic templates and are intentionally excluded from this render. That
+# exclusion is real: neither `dr-restore-drill.yaml` nor
+# `pg18-upgrade-rehearsal.yaml` appears in `resources:` above or in any
+# configMapGenerator, and `kustomize build infra/kubernetes/overlays/prod`
+# renders neither `Cluster/vhhealth-pg18-upgrade-rehearsal` nor
+# `ObjectStore/vhhealth-pg18-rehearsal-producer` (only NetworkPolicy selectors
+# name them, which grants nothing while those objects do not exist).
+#
+# What that exclusion did NOT cover, until the audit of 2026-08-13 (P1): the
+# PostgreSQL 18.4 image was pinned on the LIVE `Cluster/vhhealth-pg` in
+# cluster.yaml, which IS composed here. So PG18 entered the active production
+# graph through the production cluster itself, not through the rehearsal
+# templates. cluster.yaml now declares the PostgreSQL 17 generation with a
+# fail-closed digest, and the PG18 cutover target is held, composed by nothing,
+# at `infra/kubernetes/held/c1-1-pg18-cutover/`.
 generatorOptions:
   disableNameSuffixHash: true
 configMapGenerator:

@@ -225,9 +225,17 @@ class MessagingApiService {
     );
   }
 
+  /// POST /messaging/send.
+  ///
+  /// The route is mounted with `requireIdempotencyKey({ required: true, scope:
+  /// 'staff_message_send' })`, so [idempotencyKey] is required — omitting the
+  /// header is a hard 400, not a degraded send. Mint it with
+  /// [IdempotencyAttempt] so a double-tap or a transport retry replays instead
+  /// of posting the message twice.
   static Future<Map<String, dynamic>> sendDirect({
     required String recipientUid,
     required String body,
+    required String idempotencyKey,
     String? subject,
     String priority = 'normal',
     String? threadId,
@@ -251,13 +259,24 @@ class MessagingApiService {
     if (subject != null && subject.trim().isNotEmpty) {
       payload['subject'] = subject.trim();
     }
-    final resp = await ApiClient.post('/messaging/send', body: payload);
+    final resp = await ApiClient.post(
+      '/messaging/send',
+      body: payload,
+      idempotencyKey: _requireKey(idempotencyKey),
+    );
     return _map(resp);
   }
 
+  /// POST /messaging/broadcast.
+  ///
+  /// Mounted with `requireIdempotencyKey({ required: true, scope:
+  /// 'staff_message_broadcast' })`. A broadcast writes one row per recipient,
+  /// so a re-sent request without a stable key duplicates the message across
+  /// the whole target set — see [sendDirect] for how to mint [idempotencyKey].
   static Future<Map<String, dynamic>> sendBroadcast({
     required String scope,
     required String body,
+    required String idempotencyKey,
     String? subject,
     String priority = 'normal',
     String? department,
@@ -275,8 +294,23 @@ class MessagingApiService {
           'department': department.trim(),
         if (recipientUids.isNotEmpty) 'recipient_uids': recipientUids,
       },
+      idempotencyKey: _requireKey(idempotencyKey),
     );
     return _map(resp);
+  }
+
+  /// Fail in the app rather than let the backend answer 400 — a server-side
+  /// rejection is indistinguishable from "the header was never wired up".
+  static String _requireKey(String value) {
+    final key = value.trim();
+    if (key.isEmpty || key.length > 200) {
+      throw ArgumentError.value(
+        value,
+        'idempotencyKey',
+        'must contain between 1 and 200 characters',
+      );
+    }
+    return key;
   }
 
   static Uint8List _bytesFrom(http.Response response, String fallback) {

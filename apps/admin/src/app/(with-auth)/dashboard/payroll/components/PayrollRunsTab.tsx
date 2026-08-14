@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "react-hot-toast";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import {
   getPayrollRunDetail,
   getPayrollRuns,
@@ -11,9 +9,14 @@ import {
   type Payslip,
   type PayrollRun,
 } from "@/lib/api/payroll";
+import { payloadIdentity } from "@/lib/idempotencyKey";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { toast } from "react-hot-toast";
+
+import { fmtCurrency, fmtMonth, MONTHS, statusBadge, unwrap } from "./helpers";
 import { Modal } from "./Modal";
 import { RunActions } from "./RunActions";
-import { fmtCurrency, fmtMonth, MONTHS, statusBadge, unwrap } from "./helpers";
 
 export function PayrollRunsTab() {
   const qc = useQueryClient();
@@ -35,9 +38,17 @@ export function PayrollRunsTab() {
   });
   const detail = unwrap<{ run: PayrollRun; payslips: Payslip[] }>(detailRaw);
 
+  // One attempt = one key. Held across a double-click and any transport retry
+  // of the same {month, year} so the backend replays instead of running payroll
+  // twice; rotated on success and whenever the operator picks a different
+  // month/year, so a deliberate re-run is a genuinely separate run.
+  const runKey = useIdempotencyKey("payroll-run");
+
   const runMut = useMutation({
-    mutationFn: (data: { month: number; year: number }) => runPayroll(data),
+    mutationFn: (data: { month: number; year: number }) =>
+      runPayroll(data, runKey.keyFor(payloadIdentity(data))),
     onSuccess: () => {
+      runKey.reset();
       toast.success("Payroll run complete");
       qc.invalidateQueries({ queryKey: ["payroll-runs"] });
       setShowRunModal(false);
@@ -46,8 +57,11 @@ export function PayrollRunsTab() {
   });
 
   const issueMut = useMutation({
-    mutationFn: (data: { month: number; year: number; acknowledge_failed_payslips?: boolean }) =>
-      issuePayslips(data),
+    mutationFn: (data: {
+      month: number;
+      year: number;
+      acknowledge_failed_payslips?: boolean;
+    }) => issuePayslips(data),
     onSuccess: (r) => {
       const count = unwrap<{ issued: number }>(r)?.issued ?? 0;
       toast.success(`${count} payslips issued to staff`);

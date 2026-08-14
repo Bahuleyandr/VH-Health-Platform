@@ -19,6 +19,7 @@ const TYPE_TO_PREFERENCE_KEY = new Map([
   ['diagnostic_result_ready', 'results_ready'],
   ['result_ready', 'results_ready'],
   ['results_ready', 'results_ready'],
+  ['payslip_ready', 'payslip_ready'],
 ]);
 
 function normalizeChannelList(value) {
@@ -59,6 +60,10 @@ export function resolveChannelsForOutboxRow(row = {}, settings = {}) {
 
   if (preferenceKey === 'engagement_campaign' && payloadChannels.length > 0) {
     return { channels: payloadChannels, preferenceKey: preferenceKey || 'engagement_campaign', source: 'tenant' };
+  }
+
+  if (preferenceKey === 'payslip_ready') {
+    return { channels: ['inapp'], preferenceKey, source: 'tenant' };
   }
 
   if (!preferenceKey) {

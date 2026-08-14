@@ -4,7 +4,9 @@ HA Argo CD install for VH Health. Handles:
 - Sync of all `infra/kubernetes/overlays/<env>` into the cluster.
 - Sync of app-specific manifests under `infra/kubernetes/apps/`.
 - Sync of Helm-based platform charts (Harbor, kube-prometheus-stack,
-  Loki, Argo CD itself, MinIO operator, Falco) via child Applications.
+  Loki, Argo CD itself, and Falco) via child Applications. The cert-manager,
+  CNPG, Barman, and MinIO operator Applications remain held outside active
+  composition; see `docs/OPERATOR_LIFECYCLE.md`.
 
 ## Chart version
 
@@ -15,12 +17,19 @@ Pinned at **v7.7.5** (Argo CD app v2.13.1). See `chart-tracker.yaml`.
 1. Apply `base/argocd/namespace.yaml` manually (before Argo CD exists,
    there is no one to sync it).
 
-2. Apply the SealedSecret controller and its public key bundle (so
-   that the next step's sealed secrets decrypt):
+2. Validate and apply the Sealed Secrets controller with the repository helper
+   (so that the next step's sealed secrets decrypt):
 
    ```bash
-   kubectl apply -f infra/kubernetes/base/sealed-secrets/
+   scripts/bootstrap-sealed-secrets.sh --check
+   scripts/bootstrap-sealed-secrets.sh --apply
    ```
+
+   The helper renders the bootstrap-only Kustomization, validates its exact
+   Namespace, CRD, RBAC, and controller identity
+   (`vhhealth-security/sealed-secrets`), applies those validated bytes, and
+   waits for the Deployment to become available. The ServiceMonitor remains
+   in `base/monitoring` until its CRD exists.
 
 3. Apply the `repo-vhhealth-platform` sealed secret so Argo CD can
    pull the repo.
@@ -42,6 +51,9 @@ Pinned at **v7.7.5** (Argo CD app v2.13.1). See `chart-tracker.yaml`.
    ```
 
 6. Apply the bootstrap "app of apps" Application (next section).
+
+This bootstrap does not apply or sync the held operator lifecycle Applications
+under `infra/kubernetes/held/operator-lifecycle/`.
 
 ## App-of-apps pattern (forward-looking)
 

@@ -9,9 +9,22 @@
 #   - Failure aborts the sync. Fix the migration, re-sync.
 #
 # The job does:
-#   1. `npm run db:ensure-pgvector` — runs `CREATE EXTENSION IF NOT EXISTS
-#      vector` (000_baseline.sql declares columns of type `public.vector`, so
-#      vector must exist before ci-setup-db on a fresh DB). On a fresh prod
+#   1. `node scripts/ensure-pgvector-extension.mjs` — runs `CREATE EXTENSION
+#      IF NOT EXISTS vector` (000_baseline.sql declares columns of type
+#      `public.vector`, so vector must exist before ci-setup-db on a fresh DB).
+#      This is the exact entrypoint behind the `db:ensure-pgvector` npm alias in
+#      apps/backend/package.json. The ALIAS is unusable here: the production
+#      stage of apps/backend/Dockerfile deletes npm and npx from the runtime
+#      image (`rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm
+#      /usr/local/bin/npx`), so invoking the alias would abort this PreSync
+#      hook at step 1 with `npm: not found` and block the sync. Every step
+#      below invokes `node` directly, exactly as the initContainer does.
+#      scripts/backend-image-command-contract.test.mjs pins that contract:
+#      it derives the runtime image's binaries and file tree from the
+#      Dockerfile and fails if any command in this file is not actually in the
+#      image.
+#
+#      On a fresh prod
 #      cluster this is now an IDEMPOTENT NO-OP: vector is UNTRUSTED and the Job
 #      connects as the NOSUPERUSER owner `vhhealth` (DATABASE_SUPERUSER_URL),
 #      which can NEVER `CREATE EXTENSION vector` (bypassrls ≠ extension-creation
@@ -212,9 +225,11 @@ spec:
             - |
               set -euo pipefail
               echo ">> db:ensure-pgvector (CREATE EXTENSION IF NOT EXISTS vector)"
-              npm run db:ensure-pgvector
+              node scripts/ensure-pgvector-extension.mjs
               echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql, tracker-driven)"
               node scripts/ci-setup-db.mjs --skip-seeds
+              echo ">> ensure runtime-role grants (owner-only bootstrap)"
+              node scripts/ensure-runtime-role-grants.mjs
               echo ">> migrations complete"
           env:
             - name: NODE_ENV

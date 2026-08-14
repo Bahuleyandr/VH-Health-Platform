@@ -21,18 +21,17 @@ BigInt.prototype.toJSON = function bigIntToJSON() {
 import http from 'http';
 import app from '../app.js';
 import { logTenantRlsRolePosture, ensureTenantRlsRuntimeRoleGrants, tenantRlsPostureMustFailClosed } from '../lib/prisma.js';
-import { initRedis, getRedisClient, disconnectRedis } from '../lib/redis.js';
+import { initRedis, getRedisClient, disconnectRedis, redisIsRequired } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
-import { runMigrations } from '../utils/migrations/runMigrations.js';
-import { runAllScheduledTasksNow, stopAllScheduledTasks } from '../utils/scheduler.js';
+import { runMigrations, verifyMigrationsCurrent } from '../utils/migrations/runMigrations.js';
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
 import { initWebSocket, initWsFanout, closeWsFanout } from '../utils/websocket/wsServer.js';
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
 import { logPrivilegeGateStates } from '../config/privilegeGates.js';
 
-
+let schedulerModule = null;
 
 // Normalize port
 function normalizePort(val) {
@@ -105,57 +104,65 @@ function onError(error) {
   }
 }
 
-// On server listening
-async function onListening() {
-  const addr = server.address();
-  const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
-  logger.info(`VH Health Backend running on ${bind}`);
-
+async function prepareApplication() {
   // Boot summary of credential-gate enforcement state, so a mistyped gate flag
   // can't silently leave a clinical privilege gate disabled unnoticed.
   logPrivilegeGateStates(logger);
 
-  // Initialize WebSocket server
-  initWebSocket(server);
-
   // Run dependency health check
   await checkDependencyHealth();
 
-  // Run database migrations. Migration failure is FATAL by design — a
-  // half-applied schema produces silent runtime errors that are much harder
-  // to diagnose than a startup crash. The runner re-throws on any per-
-  // statement failure; we surface a clear startup error and exit non-zero
-  // so the orchestrator (k8s / systemd / nodemon) can flag it.
+  // Production DDL is owned solely by Argo's owner-credential PreSync Job.
+  // API workers connect as a least-privilege role and only verify that the
+  // image's immutable migration directory exactly matches the tracker. Local
+  // development keeps the convenient tracker-driven writer unless explicitly
+  // disabled with RUN_MIGRATIONS=false.
   try {
-    await runMigrations();
-    logger.info('Migrations completed successfully');
+    if (String(process.env.NODE_ENV || '').toLowerCase() === 'production'
+      || String(process.env.RUN_MIGRATIONS || '').toLowerCase() === 'false') {
+      const state = await verifyMigrationsCurrent();
+      logger.info('Migration tracker matches application image', {
+        expectedTip: state.expectedTip,
+        migrationCount: state.expectedCount,
+      });
+    } else {
+      await runMigrations();
+      logger.info('Migrations completed successfully');
+    }
   } catch (err) {
-    logger.error('Migration runner failed — refusing to start with a broken schema.', {
+    logger.error('Migration readiness failed — refusing to start with a broken schema.', {
       error: err?.message,
       code: err?.code,
+      migrationState: err?.migrationState,
     });
     process.stderr.write(
-      `\n❌ Database migrations failed (${err?.code || 'unknown'}): ${err?.message}\n` +
-        `Inspect apps/backend/src/migrations/ + the _migrations tracker table; ` +
-        `fix the failing file and restart. The previous behavior of swallowing ` +
-        `migration errors masked real schema drift (see runMigrations.js).\n`,
+      `\n❌ Database migration readiness failed (${err?.code || 'unknown'}): ${err?.message}\n` +
+        'The owner-credential PreSync migration Job must apply the exact image migration set before API workers start.\n',
     );
-    process.exit(1);
+    throw err;
   }
 
   // Verify schema health after migrations
-  await checkSchemaHealth();
+  const schemaHealth = await checkSchemaHealth();
+  if (!schemaHealth?.healthy) {
+    const err = new Error('Critical database schema health checks failed');
+    err.code = 'SCHEMA_HEALTH_UNSAFE';
+    err.schemaHealth = schemaHealth;
+    throw err;
+  }
 
-  // Tenant-RLS runtime role (roadmap A2): ensure the SET LOCAL ROLE target's
-  // privileges exist before probing posture. Idempotent; covers the CNPG
-  // managed-role ordering gap on fresh clusters. Best-effort.
-  await ensureTenantRlsRuntimeRoleGrants();
+  // Local/QA owner connections may provision the runtime role. Production API
+  // workers are deliberately non-DDL: the PreSync owner Job and migrations own
+  // grants, while workers verify posture only.
+  if (String(process.env.NODE_ENV || '').toLowerCase() !== 'production') {
+    await ensureTenantRlsRuntimeRoleGrants();
+  }
 
   // Tenant-RLS posture guard: when AUTH_ENFORCE_TENANT_RLS=true, log a loud
   // ERROR if the effective DB role bypasses RLS (superuser/BYPASSRLS) or owns
   // unforced tenant_isolation tables, so a deployment can't silently ship
   // inert tenant isolation. Best-effort.
-  const rlsPosture = await logTenantRlsRolePosture();
+  const rlsPosture = await logTenantRlsRolePosture({ attempts: 3, delayMs: 250 });
   // CAN-040: fail closed in production when the posture is unsafe (RLS off or
   // inert) unless an audited single-tenant override is set — don't serve PHI
   // with tenant isolation silently disabled.
@@ -166,7 +173,9 @@ async function onListening() {
       + 'or set AUTH_TENANT_RLS_FAIL_OPEN=true to override for a confirmed single-tenant maintenance window.',
       { enforced: rlsPosture?.enforced, ok: rlsPosture?.ok, reason: rlsPosture?.reason },
     );
-    process.exit(1);
+    const err = new Error('Tenant RLS posture is unsafe in production');
+    err.code = 'TENANT_RLS_POSTURE_UNSAFE';
+    throw err;
   }
 
   // NB: database pool health monitor was removed with the DatabaseManager
@@ -178,6 +187,10 @@ async function onListening() {
   try {
     await initRedis();
   } catch (err) {
+    if (redisIsRequired()) {
+      logger.error('Required Redis Sentinel initialization failed — refusing to start:', err.message);
+      throw err;
+    }
     logger.warn('Redis initialization failed — running without cache:', err.message);
   }
 
@@ -188,11 +201,18 @@ async function onListening() {
   try {
     const redisClient = getRedisClient();
     if (redisClient) {
-      initWsFanout({ pub: redisClient });
+      const initialized = await initWsFanout({ pub: redisClient });
+      if (!initialized) {
+        throw new Error('Redis WebSocket subscriber did not initialize');
+      }
     } else {
       logger.warn('WS Redis fan-out not wired — Redis unavailable; broadcasts are single-process only');
     }
   } catch (err) {
+    if (redisIsRequired()) {
+      logger.error('Required WS Redis fan-out initialization failed — refusing to start:', err.message);
+      throw err;
+    }
     logger.warn('WS Redis fan-out init failed — single-process broadcasts only:', err.message);
   }
 
@@ -201,10 +221,22 @@ async function onListening() {
   // mutating jobs inside are advisory-locked + gated behind RUN_STARTUP_TASKS
   // (see scheduler.js) so this does NOT stampede across the worker fleet.
   try {
-    await runAllScheduledTasksNow();
+    // Importing scheduler.js registers its cron handles and immediate probes.
+    // Keep that side effect behind the completed migration/schema/RLS gates.
+    schedulerModule = await import('../utils/scheduler.js');
+    await schedulerModule.runAllScheduledTasksNow();
   } catch (err) {
     logger.error('Boot-time runAllScheduledTasksNow failed:', err.message || err);
   }
+}
+
+function onListening() {
+  const addr = server.address();
+  const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
+  logger.info(`VH Health Backend running on ${bind}`);
+
+  initWebSocket(server);
+  void schedulerModule?.primeOperationalRealtimeChannels?.();
 }
 
 // Timer handle for the reliability metrics collector (set after server.listen).
@@ -228,7 +260,7 @@ function gracefulShutdown(signal) {
     // in-flight tick finishes against the still-open pool below.
     try {
       clearInterval(reliabilityMetricsBox.timer);
-      stopAllScheduledTasks();
+      schedulerModule?.stopAllScheduledTasks();
     } catch (err) {
       logger.error('Error stopping scheduled tasks:', err.message);
     }
@@ -282,14 +314,24 @@ process.on('unhandledRejection', (reason, promise) => {
 
 server.on('error', onError);
 server.on('listening', onListening);
-server.listen(PORT);
-
-// Reliability metrics collector — refresh DB-derived gauges every 20s. unref()
-// so it never holds the event loop open during graceful shutdown. Runs per-pod
-// (each reports its own view of the global gauges; alerts collapse with max()).
 const RELIABILITY_METRICS_INTERVAL_MS = 20_000;
-collectRuntimeMetrics(); // prime immediately so the first scrape isn't empty
-reliabilityMetricsBox.timer = setInterval(collectRuntimeMetrics, RELIABILITY_METRICS_INTERVAL_MS);
-reliabilityMetricsBox.timer.unref();
+prepareApplication()
+  .then(() => {
+    server.listen(PORT);
+
+    // Reliability metrics collector — refresh DB-derived gauges every 20s.
+    // It starts only after the application passed every boot/readiness gate.
+    collectRuntimeMetrics();
+    reliabilityMetricsBox.timer = setInterval(collectRuntimeMetrics, RELIABILITY_METRICS_INTERVAL_MS);
+    reliabilityMetricsBox.timer.unref();
+  })
+  .catch((err) => {
+    logger.error('Application startup failed before listen', {
+      error: err?.message,
+      code: err?.code,
+    });
+    schedulerModule?.stopAllScheduledTasks();
+    process.exit(1);
+  });
 
 export default server;

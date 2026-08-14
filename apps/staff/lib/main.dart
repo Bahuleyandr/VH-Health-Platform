@@ -32,6 +32,7 @@ import 'core/services/composite_crash_reporter.dart';
 import 'core/services/api_client.dart';
 import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
+import 'core/services/local_auth_biometric_service.dart';
 import 'core/services/phi_scrubber.dart';
 import 'core/services/staff_local_notifications.dart';
 import 'core/services/staff_notification_session.dart';
@@ -40,6 +41,7 @@ import 'core/services/staff_action_policy_repository.dart';
 import 'core/services/staff_action_policy_source.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/windows_screen_capture.dart';
+import 'core/widgets/code_blue_listener.dart';
 import 'core/widgets/patient_search_sheet.dart';
 import 'core/widgets/logout_flow.dart';
 import 'core/widgets/session_timeout_warning_layer.dart';
@@ -47,6 +49,7 @@ import 'features/emr/widgets/patient_summary_sheet.dart';
 import 'features/clinical_continuity/services/staff_continuity_repository.dart';
 import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
+import 'package:vhhealth_core/services/biometric_auth_service.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/models/clinical_continuity.dart';
 import 'package:vhhealth_core/config/client_readiness_config.dart';
@@ -156,6 +159,7 @@ Future<void> main() async {
       // runApp — splitting them across zones trips BindingBase.debugCheckZone
       // and surfaced as "Early crashes" in Crashlytics.
       WidgetsFlutterBinding.ensureInitialized();
+      BiometricAuthService.install(LocalAuthBiometricService());
       if (kIsWeb) {
         runApp(const StaffWebActivationHeldApp());
         return;
@@ -839,10 +843,16 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                         data: mq.copyWith(
                           textScaler: TextScaler.linear(factor),
                         ),
-                        child: StaffMessageAlertListener(
-                          child: SessionRevocationListener(
-                            child: SessionTimeoutWarningLayer(
-                              child: child ?? const SizedBox.shrink(),
+                        child: CodeBlueListener(
+                          navigatorKey: rootNavigatorKey,
+                          notificationPresenter: StaffLocalNotifications
+                              .instance
+                              .showCodeBlueFromData,
+                          child: StaffMessageAlertListener(
+                            child: SessionRevocationListener(
+                              child: SessionTimeoutWarningLayer(
+                                child: child ?? const SizedBox.shrink(),
+                              ),
                             ),
                           ),
                         ),

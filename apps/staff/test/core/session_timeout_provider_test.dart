@@ -139,6 +139,45 @@ void main() {
     );
 
     test(
+      'stops authenticated presentation before awaiting offline queue count',
+      () async {
+        final events = <String>[];
+        final counterStarted = Completer<void>();
+        final releaseCounter = Completer<void>();
+        final cleanupCompleted = Completer<void>();
+        final provider = SessionTimeoutProvider(
+          timeoutDuration: const Duration(milliseconds: 10),
+          beforeTimeoutCleanup: () async {
+            events.add('providers');
+          },
+          pendingOfflineWriteCount: () async {
+            events.add('queue count');
+            counterStarted.complete();
+            await releaseCounter.future;
+            return 2;
+          },
+          onTimeoutCleanup: () async {
+            events.add('credentials');
+            cleanupCompleted.complete();
+          },
+        );
+        addTearDown(provider.dispose);
+
+        provider.startTracking();
+        await counterStarted.future.timeout(const Duration(seconds: 2));
+
+        expect(provider.isSessionLocked, isTrue);
+        expect(events, <String>['providers', 'queue count']);
+        expect(provider.isTimeoutCleanupInProgress, isTrue);
+
+        releaseCounter.complete();
+        await cleanupCompleted.future.timeout(const Duration(seconds: 2));
+        expect(events, <String>['providers', 'queue count', 'credentials']);
+        expect(provider.preservedOfflineWriteCount, 2);
+      },
+    );
+
+    test(
       'clears credentials when authenticated provider cleanup throws',
       () async {
         final events = <String>[];

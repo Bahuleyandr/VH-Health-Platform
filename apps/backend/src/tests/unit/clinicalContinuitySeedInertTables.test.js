@@ -27,10 +27,19 @@ describe('clinical continuity comprehensive seed boundary', () => {
     expect(source).toContain(
       'const INTENTIONALLY_EMPTY_TABLES = new Set(INTENTIONALLY_EMPTY_SEED_TABLES);',
     );
+    expect(source).not.toContain('session_replication_role');
+    expect(source).not.toContain('relaxed_');
     expect(source).toContain('!INTENTIONALLY_EMPTY_TABLES.has(table)');
     expect(source).toContain('intentionallyEmptyAppTables: intentionallyEmpty');
+    expect(source.indexOf('const finalSweep = await seedRemainingTables();'))
+      .toBeGreaterThan(source.indexOf('await seedClinicalContinuityTables();'));
+    expect(source).toContain('seeded.push(...finalSweep.seeded);');
+    expect(source).toContain('const failed = finalSweep.failed;');
     expect(contractsSource).toContain('partitionSeedCoverageEmptyTables(emptyTables)');
-    expect(contractsSource).toContain('ok: unexpectedEmptyAppTables.length === 0');
+    expect(contractsSource).toContain('coverageOnly: true');
+    expect(contractsSource).not.toContain('Empty table after seed:');
+    expect(contractsSource).toContain('runSeedInvariantProbes(client, failures)');
+    expect(contractsSource).toContain("current_setting('session_replication_role') = 'origin'");
   });
 
   test('allows only the explicit gated tables and still reports any other empty table', () => {

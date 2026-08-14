@@ -25,6 +25,10 @@ const RESERVED_SETTINGS = [
   ['null value', { care_pathways: null }],
   ['array value', { care_pathways: [] }],
   ['scalar value', { care_pathways: 'active' }],
+  ['care-team enforcement off', { care_team_enforcement_mode: 'off' }],
+  ['care-team enforcement shadow', { care_team_enforcement_mode: 'shadow' }],
+  ['care-team enforcement enforce', { care_team_enforcement_mode: 'enforce' }],
+  ['care-team enforcement null', { care_team_enforcement_mode: null }],
 ];
 const INVALID_SETTINGS_ROOTS = [
   ['null', null],
@@ -134,10 +138,33 @@ describe('tenant care-pathway settings mutation boundary', () => {
       {
         branding: { name: 'Before' },
         care_pathways: { [PATHWAY_KEY]: 'active' },
+        care_team_enforcement_mode: 'enforce',
       },
       { branding: { name: 'After' } },
     )).toEqual({
       branding: { name: 'After' },
+    });
+  });
+
+  it('creates every new tenant with an explicit shadow posture', async () => {
+    queryRawMock.mockResolvedValueOnce([{
+      id: TENANT_ID,
+      settings: {
+        branding: { name: 'Hospital' },
+        care_team_enforcement_mode: 'shadow',
+      },
+    }]);
+
+    await createTenant({
+      slug: 'explicit-shadow',
+      name: 'Explicit Shadow',
+      settings: { branding: { name: 'Hospital' } },
+    });
+
+    const [, , , , , serializedSettings] = queryRawMock.mock.calls[0];
+    expect(JSON.parse(serializedSettings)).toEqual({
+      branding: { name: 'Hospital' },
+      care_team_enforcement_mode: 'shadow',
     });
   });
 
@@ -159,6 +186,8 @@ describe('tenant care-pathway settings mutation boundary', () => {
     expect(sql).toContain("jsonb_typeof(settings) = 'object'");
     expect(sql).toContain("settings ? 'care_pathways'");
     expect(sql).toContain("settings -> 'care_pathways'");
+    expect(sql).toContain("settings ? 'care_team_enforcement_mode'");
+    expect(sql).toContain("settings -> 'care_team_enforcement_mode'");
     expect(JSON.parse(serializedSettings)).toEqual({
       branding: { name: 'Updated Hospital' },
     });

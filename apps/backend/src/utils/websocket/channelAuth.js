@@ -12,7 +12,7 @@ import { hasRole, SUPER_ADMIN, normalizeRole } from '../roles.js';
  *   staff:<topic>           — any staff role (clinical, ops, leadership) + admin
  *   staff:clinical:<topic>  — clinical-only (doctors, nurses, allied health)
  *   admin:<topic>           — admin only
- *   patient:<userId>:<top>  — the patient themselves, or clinical staff caring for them
+ *   patient:<patientUid>:<topic> — governed per-patient access
  *
  * Legacy channels are listed in LEGACY_CHANNELS to keep existing clients working.
  */
@@ -21,6 +21,18 @@ const LEGACY_CHANNELS = new Set([
   'appointment-updates',
   'queue-updates',
 ]);
+
+const PATIENT_CHANNEL_TOPICS = new Set(['appointments', 'queue']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function parsePatientChannel(channel) {
+  if (typeof channel !== 'string' || !channel.startsWith('patient:')) return null;
+  const parts = channel.split(':');
+  if (parts.length !== 3 || !UUID_RE.test(parts[1]) || !PATIENT_CHANNEL_TOPICS.has(parts[2])) {
+    return null;
+  }
+  return { patientUid: parts[1], topic: parts[2] };
+}
 
 /**
  * Authorize a subscribe request.
@@ -33,10 +45,26 @@ export function authorizeChannel(channel, user) {
     return { allowed: false, reason: 'Invalid channel name' };
   }
 
+  // Personal channels carry patient-specific appointment/queue metadata and
+  // intentionally precede the SUPER_ADMIN board bypass. This synchronous layer
+  // permits only the subject; wsServer additionally runs the tenant-resolved
+  // governed relationship decision before acknowledging any subscription.
+  if (channel.startsWith('patient:')) {
+    const parts = channel.split(':');
+    if (parts.length !== 3 || !UUID_RE.test(parts[1] || '')) {
+      return { allowed: false, reason: 'Malformed patient channel' };
+    }
+    if (!PATIENT_CHANNEL_TOPICS.has(parts[2])) {
+      return { allowed: false, reason: 'Unknown patient channel' };
+    }
+    return String(parts[1]) === String(user?.userId)
+      ? { allowed: true }
+      : { allowed: false, reason: 'Not your channel' };
+  }
+
   // SUPER_ADMIN is the platform master role. The REST RBAC (rbacMiddleware) grants it an un-scoped
-  // bypass of every requireRole gate; WS channel auth must match so a super-admin can subscribe to any
-  // board they can already read. Without this, isStaff('SUPER_ADMIN') is false → super-admin is denied
-  // every staff:* channel.
+  // bypass of every requireRole gate; WS board-channel auth must match so a super-admin can subscribe
+  // to boards they can already read. Personal patient channels above remain governed.
   if (normalizeRole(user?.role) === SUPER_ADMIN) {
     return { allowed: true };
   }
@@ -71,17 +99,6 @@ export function authorizeChannel(channel, user) {
       : { allowed: false, reason: 'Staff-only channel' };
   }
 
-  if (channel.startsWith('patient:')) {
-    const parts = channel.split(':');
-    if (parts.length < 3 || !parts[1]) {
-      return { allowed: false, reason: 'Malformed patient channel' };
-    }
-    const targetUserId = parts[1];
-    if (String(targetUserId) === String(user.userId)) return { allowed: true };
-    if (isClinical(user.role) || isAdmin(user.role)) return { allowed: true };
-    return { allowed: false, reason: 'Not your channel' };
-  }
-
   return { allowed: false, reason: 'Unknown channel namespace' };
 }
 
@@ -112,6 +129,6 @@ export const CHANNEL_CATALOG = Object.freeze({
   'admin:teleconsult-ops':     { description: 'Teleconsult operations snapshot — join failures, TURN usage, modality mix, consent, active/waiting counts', roles: 'admin' },
   'staff:ed-board':           { description: 'ED tracking board — visit arrivals, transitions, triage priority', roles: 'staff' },
   'admin:audit':              { description: 'Security-audit events (logins, lockouts, role changes)', roles: 'admin' },
-  'patient:<userId>:queue':   { description: 'Queue position for the patient\'s active appointment', roles: 'owner-or-clinical' },
-  'patient:<userId>:appointments': { description: 'Status changes on the patient\'s own appointments', roles: 'owner-or-clinical' },
+  'patient:<patientUid>:queue':   { description: 'Queue position for the patient\'s active appointment', roles: 'governed-patient-access' },
+  'patient:<patientUid>:appointments': { description: 'Status changes on the patient\'s own appointments', roles: 'governed-patient-access' },
 });

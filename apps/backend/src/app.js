@@ -54,6 +54,7 @@ import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache } from './middleware/cacheControlMiddleware.js';
 import { success, error } from './utils/responseHelper.js';
+import { isTrustedIngressProxy } from './utils/trustedProxy.js';
 import { isHl7ReceiveEndpoint } from './utils/urlRedaction.js';
 import { PATIENT_LOOKUP_ROLES } from './config/patientAccessRoles.js';
 import {
@@ -197,8 +198,9 @@ import encounterRoutes from './routes/clinical/encounterRoutes.js';
 // Clinical Document Export & Import
 import documentRoutes from './routes/documents/documentRoutes.js';
 
-// HL7v2 messaging
-import hl7Routes from './routes/hl7/hl7Routes.js';
+// HL7v2 messaging — the ingress gate, its rate limiter and the router are
+// mounted together by mountHl7Interface(); their ORDER is load-bearing.
+import { mountHl7Interface } from './routes/hl7/mountHl7Interface.js';
 import { generateACK } from './services/hl7/hl7Parser.js';
 
 // Admin (centralized under /api/v1/admin)
@@ -406,7 +408,7 @@ publicSmartFhirResourceRouter.use(
   phiAccessLogger('FHIR_RESOURCE'),
   fhirRoutes,
 );
-app.set('trust proxy', 1); // Required for Render or Cloudflare
+app.set('trust proxy', isTrustedIngressProxy);
 
 function getCanonicalHttpsOrigin() {
   const configuredOrigin =
@@ -822,7 +824,24 @@ app.use('/api/v1/config', configRoutes);
 
 // HL7v2 messaging — mounted before global JWT auth so /receive works with API key only.
 // JWT is enforced on /generate within the route file itself.
-app.use('/api/v1/hl7', hl7Routes);
+//
+// The INBOUND half is gated on HL7_INBOUND_ENABLED and fails closed. This
+// mount used to be unconditional, which made the flag a comment: a deployment
+// declaring HL7 ingress off (configmap.yaml sets it "false") still accepted
+// signed messages against an active tenant_interop_secrets row or a retained
+// legacy HL7_INBOUND_SHARED_SECRET. The gate is repeated inside the router and
+// again at the credential boundary — see routes/hl7/hl7InboundIngressGate.js.
+// Only /receive is gated: /generate is outbound export and /capability is
+// static metadata, neither of which is ingress.
+//
+// The rate limiter MUST precede the gate: the gate answers before hl7Routes is
+// reached, so the router's own limiter never ran on a refused request and a
+// disabled /receive was an un-rate-limited 403 sink that also emitted a warn
+// line per request. All three statements therefore live together in
+// mountHl7Interface() — the mount ORDER is the security property (including
+// WHICH path the limiter is mounted at), and a test drives that function
+// directly rather than a hand-copied approximation of these lines.
+mountHl7Interface(app);
 app.use('/api/v1/ingest/cold-chain', coldChainIngestRoutes);
 
 // Guest patient directory: the login/dashboard UI exposes Departments before a

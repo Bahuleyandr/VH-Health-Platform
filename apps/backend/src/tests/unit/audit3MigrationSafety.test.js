@@ -19,6 +19,22 @@ function productionJavaScriptFiles(directory) {
   });
 }
 
+// Index builds on a table the same migration creates are uncontended — the
+// table is empty and no other session can even see it — so only builds against
+// PRE-EXISTING tables need CONCURRENTLY. This asserts that for the named
+// already-live tables, which is the H-1 property.
+function expectNoBlockingIndexBuildOn(sql, preExistingTables) {
+  for (const table of preExistingTables) {
+    const onTable = new RegExp(`\\bON\\s+(?:public\\.)?${table}\\b`, 'i');
+    const offenders = splitStatements(sql)
+      .map((statement) => statement.replace(/^\s*--[^\n]*$/gm, ''))
+      .filter((statement) => /\bCREATE\s+(UNIQUE\s+)?INDEX\b/i.test(statement)
+        && onTable.test(statement)
+        && !/\bCONCURRENTLY\b/i.test(statement));
+    expect(offenders).toEqual([]);
+  }
+}
+
 function expectInvalidConcurrentIndexRecovery(sql, indexName, temporaryName) {
   const statements = splitStatements(sql);
   const temporaryDrops = statements
@@ -163,12 +179,58 @@ describe('Audit 3 migration deploy-safety contracts', () => {
     expect(dropLegacy).toBeGreaterThan(validateReplacement);
   });
 
+  // H-1 (audit 2026-08-13). 668 originally anchored its composite tenant/user
+  // FK with a table-level UNIQUE constraint on `users`, which builds a full
+  // btree while holding ACCESS EXCLUSIVE on the hottest table in the system for
+  // the whole build — measured at 4.3s and fully blocking on a 3M-row stand-in,
+  // against ~0 blocking for the concurrent form. Inside the PreSync
+  // transaction that either blows the statement timeout (failing the Job, so
+  // the ArgoCD sync aborts) or stalls every query touching `users`. 666 carried
+  // the same shape on `patient_allergies`, which sits on the
+  // prescription-safety read path. These two tests pin the fix so neither can
+  // regress to the blocking form.
+  test('668 anchors the composite tenant/user FK without ever locking users', () => {
+    const sql = migration('668_scheduler_truth_and_notification_tenant_integrity.sql');
+
+    expect(sql).toContain('-- @no-transaction');
+    expect(sql).toContain('-- @statement_timeout: 0');
+    expect(sql).toMatch(
+      /CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_users_tenant_id_id\s+ON public\.users \(tenant_id, id\)/i,
+    );
+    // The blocking forms must never come back: no table-level UNIQUE
+    // constraint on users, and no non-concurrent index build anywhere.
+    expect(sql).not.toMatch(/ADD CONSTRAINT ux_users_tenant_id_id\s+UNIQUE/i);
+    expect(sql).not.toMatch(/ALTER TABLE public\.users\s+ADD CONSTRAINT/i);
+    expect(sql).not.toMatch(/DROP INDEX (?!CONCURRENTLY)/i);
+    expectNoBlockingIndexBuildOn(sql, ['users', 'scheduled_notifications']);
+    // NOT VALID + a separate VALIDATE only buys anything outside a transaction.
+    expect(sql).toMatch(/ADD CONSTRAINT scheduled_notifications_tenant_user_fk[\s\S]*?NOT VALID/i);
+    expect(sql).toMatch(/VALIDATE CONSTRAINT scheduled_notifications_tenant_user_fk/i);
+  });
+
+  test('666 anchors the FHIR allergy receipt FK without locking patient_allergies', () => {
+    const sql = migration('666_canonical_interop_live_receipts.sql');
+
+    expect(sql).toContain('-- @no-transaction');
+    expect(sql).toContain('-- @statement_timeout: 0');
+    expect(sql).toMatch(
+      /CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_patient_allergies_tenant_id_for_fhir_receipt/i,
+    );
+    expect(sql).not.toMatch(/DROP INDEX (?!CONCURRENTLY)/i);
+    expectNoBlockingIndexBuildOn(sql, ['patient_allergies']);
+    // SET LOCAL is a no-op WARNING outside a transaction block — the runner
+    // sets the session values from the directives instead.
+    expect(sql).not.toMatch(/SET LOCAL/i);
+  });
+
   test('every concurrent index path repairs an interrupted invalid build', () => {
     const historical647 = migration('647_users_abha_number_tenant_unique.sql');
     const historical648 = migration('648_icu_flowsheet_bounds_code_status_history.sql');
     const historical652 = migration('652_news2_rescore_supersede_partial.sql');
     const historical653 = migration('653_users_abha_verification_gate.sql');
     const additive = migration('655_audit3_migration_deploy_safety.sql');
+    const h1_666 = migration('666_canonical_interop_live_receipts.sql');
+    const h1_668 = migration('668_scheduler_truth_and_notification_tenant_integrity.sql');
 
     expectInvalidConcurrentIndexRecovery(
       historical647,
@@ -214,6 +276,16 @@ describe('Audit 3 migration deploy-safety contracts', () => {
       additive,
       'idx_news2_scores_vitals_chart',
       'idx_news2_vitals_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      h1_666,
+      'ux_patient_allergies_tenant_id_for_fhir_receipt',
+      'ux_patient_allergies_tenant_id_for_fhir_receipt_invalid_rebuild',
+    );
+    expectInvalidConcurrentIndexRecovery(
+      h1_668,
+      'ux_users_tenant_id_id',
+      'ux_users_tenant_id_id_invalid_rebuild',
     );
   });
 

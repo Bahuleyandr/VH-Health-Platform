@@ -2,6 +2,7 @@
 
 import Joi from 'joi';
 import logger from '../logging/logger.js';
+import { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVersionPolicy.js';
 
 // Minimum key length for all at-rest encryption keys (base64-encoded 32 bytes = 44 chars,
 // but Joi.min counts characters; 32 is the floor below which we refuse to boot).
@@ -32,6 +33,51 @@ export const envSchema = Joi.object({
   PORT: Joi.number().default(5000).label('PORT'),
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
+
+  // Redis is optional for local single-process development. Production uses
+  // the in-cluster three-Sentinel topology and opts into fail-closed discovery
+  // with REDIS_REQUIRE_SENTINEL=true; it must never fall back to REDIS_URL.
+  REDIS_REQUIRE_SENTINEL: Joi.string()
+    .valid('true', 'false')
+    .default('false')
+    .label('REDIS_REQUIRE_SENTINEL'),
+  REDIS_URL: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.forbidden().messages({
+      'any.unknown': 'REDIS_URL must be unset when REDIS_REQUIRE_SENTINEL=true',
+    }),
+    otherwise: Joi.string().uri({ scheme: ['redis', 'rediss'] }).allow('').optional(),
+  }).label('REDIS_URL'),
+  REDIS_SENTINEL_HOSTS: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().trim().allow('').optional(),
+  }).label('REDIS_SENTINEL_HOSTS'),
+  REDIS_SENTINEL_MASTER: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).required(),
+    otherwise: Joi.string().trim().allow('').optional(),
+  }).label('REDIS_SENTINEL_MASTER'),
+  REDIS_USERNAME: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).invalid('default').required(),
+    otherwise: Joi.string().trim().min(1).default('default'),
+  }).label('REDIS_USERNAME'),
+  REDIS_SENTINEL_USERNAME: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().trim().min(1).invalid('default').required(),
+    otherwise: Joi.string().trim().min(1).default('default'),
+  }).label('REDIS_SENTINEL_USERNAME'),
+  REDIS_PASSWORD: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().min(16).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('REDIS_PASSWORD'),
+  REDIS_SENTINEL_PASSWORD: Joi.when('REDIS_REQUIRE_SENTINEL', {
+    is: 'true',
+    then: Joi.string().min(16).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('REDIS_SENTINEL_PASSWORD'),
 
   // Cap on tenant-scoped staff push fan-out (staffPushRecipientService).
   // .max(500) is the Firebase multicast ceiling: sendPushNotification THROWS
@@ -70,6 +116,21 @@ export const envSchema = Joi.object({
     .min(0)
     .default(0)
     .label('MIN_PATIENT_VERSION_CODE'),
+  // A non-zero legacy code with no signed envelope is a PATIENT-BRICKING
+  // configuration, not a lesser form of the gate.
+  //
+  // Patient builds already in the field fail closed when `/config` carries a
+  // minimum they cannot verify: they burn the 24h bootstrap grace and then
+  // block EVERY install — including installs already above the code, and
+  // including the SOS path — with no way past. The client-side gate has since
+  // been corrected to fall back to the legacy comparison, but that correction
+  // only reaches devices that install the new build. Refusing to boot the
+  // half-configured backend is what protects the installs that never will.
+  PATIENT_MINIMUM_VERSION_POLICY_JSON: Joi.when('MIN_PATIENT_VERSION_CODE', {
+    is: Joi.number().greater(0).required(),
+    then: Joi.string().min(1).max(16 * 1024).required(),
+    otherwise: Joi.string().max(16 * 1024).allow('').optional(),
+  }).label('PATIENT_MINIMUM_VERSION_POLICY_JSON'),
   PATIENT_OUTAGE_COMMUNICATION_JSON: Joi.string()
     .max(16 * 1024)
     .allow('')
@@ -326,6 +387,10 @@ export const envSchema = Joi.object({
     .allow('')
     .optional()
     .label('AUTH_ENFORCE_TENANT_RLS'),
+  CARE_TEAM_ENFORCEMENT_MODE: Joi.string()
+    .valid('off', 'shadow', 'enforce')
+    .optional()
+    .label('CARE_TEAM_ENFORCEMENT_MODE'),
   AUTH_TENANT_RLS_TEST_ROLE: Joi.string()
     .allow('')
     .optional()
@@ -513,6 +578,37 @@ if (error) {
   }
 
   process.exit(1);
+}
+
+// The Joi rule above only proves the envelope string is PRESENT. A present but
+// unparseable / unsigned / malformed envelope is served by GET /api/v1/config
+// as `minimum_version_policy` absent plus the bare non-zero legacy code — which
+// is byte-for-byte the patient-bricking response the rule exists to prevent. So
+// the structural check runs here, where the shared validator can be reused.
+//
+// Tenant binding is deliberately NOT asserted: `patientMinimumVersionPolicy
+// FromEnv` matches `policy.tenant_id` against the tenant resolved PER REQUEST,
+// which boot has no single answer for. This proves format, signature shape,
+// bounds and grace window; the per-request tenant check stays where it is.
+if (Number(envVars.MIN_PATIENT_VERSION_CODE ?? 0) > 0) {
+  const envelope = patientMinimumVersionPolicyFromEnv(
+    envVars.PATIENT_MINIMUM_VERSION_POLICY_JSON,
+    null,
+  );
+  if (envelope === null) {
+    logger.error('❌ Environment validation failed:');
+    logger.error(
+      `   • PATIENT_MINIMUM_VERSION_POLICY_JSON is not a valid signed minimum-version envelope, but MIN_PATIENT_VERSION_CODE is ${envVars.MIN_PATIENT_VERSION_CODE}.`,
+    );
+    logger.error('');
+    logger.error(
+      'Serving a non-zero minimum with no verifiable envelope hard-blocks every patient install that fails closed on an unverifiable policy — including installs already above that code, and including their SOS path.',
+    );
+    logger.error(
+      'Mint the envelope with `npm run patient:min-version:sign -- ...` (apps/backend/scripts/sign-patient-minimum-version-policy.mjs), or set MIN_PATIENT_VERSION_CODE=0 to leave the hard-upgrade gate off.',
+    );
+    process.exit(1);
+  }
 }
 
 // Warn about missing optional service credentials

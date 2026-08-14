@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "name": "dependency-baseline-with-admin-retirement",
+  "basis": ["614216b28ffbf8f0270c4d88178cceae604ac091"],
+  "total": 2532,
+  "rules": {
+    "@next/next/no-location-assign-relative-destination": 3,
+    "eslint/unused-disable": 15,
+    "import/order": 1331,
+    "jsx-a11y/click-events-have-key-events": 6,
+    "jsx-a11y/control-has-associated-label": 900,
+    "jsx-a11y/heading-has-content": 1,
+    "jsx-a11y/html-has-lang": 1,
+    "jsx-a11y/label-has-associated-control": 265,
+    "jsx-a11y/no-autofocus": 3,
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": 1,
+    "jsx-a11y/no-static-element-interactions": 6
+  },
+  "variants": [
+    {
+      "name": "admin-p1-with-admin-retirement",
+      "basis": ["f24786df401060cd18f79a1545f6fa998abb3e3d"],
+      "requiredFiles": [
+        "src/app/(with-auth)/dashboard/notifications/components/notificationComposerContract.ts",
+        "src/lib/browserNavigation.ts",
+        "src/lib/roles.ts"
+      ],
+      "total": 2545,
+      "rules": {
+        "@next/next/no-location-assign-relative-destination": 2,
+        "eslint/unused-disable": 15,
+        "import/order": 1345,
+        "jsx-a11y/click-events-have-key-events": 6,
+        "jsx-a11y/control-has-associated-label": 900,
+        "jsx-a11y/heading-has-content": 1,
+        "jsx-a11y/html-has-lang": 1,
+        "jsx-a11y/label-has-associated-control": 265,
+        "jsx-a11y/no-autofocus": 3,
+        "jsx-a11y/no-noninteractive-element-to-interactive-role": 1,
+        "jsx-a11y/no-static-element-interactions": 6
+      }
+    }
+  ]
+}

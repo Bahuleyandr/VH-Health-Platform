@@ -35,6 +35,10 @@ jobs:
       VH_TENANT_ID: ${{ vars.VH_TENANT_ID }}
       PATIENT_CERT_PIN_HASHES: ${{ vars.PATIENT_CERT_PIN_HASHES }}
       CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS: ${{ vars.CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS }}
+      PATIENT_MIN_VERSION_CURRENT_KEY_ID: ${{ vars.PATIENT_MIN_VERSION_CURRENT_KEY_ID }}
+      PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64: ${{ vars.PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64 }}
+      PATIENT_MIN_VERSION_NEXT_KEY_ID: ${{ vars.PATIENT_MIN_VERSION_NEXT_KEY_ID }}
+      PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64: ${{ vars.PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64 }}
       PATIENT_ANDROID_KEYSTORE_BASE64: ${{ secrets.PATIENT_ANDROID_KEYSTORE_BASE64 }}
       PATIENT_ANDROID_KEY_ALIAS: ${{ secrets.PATIENT_ANDROID_KEY_ALIAS }}
       PATIENT_ANDROID_KEY_PASSWORD: ${{ secrets.PATIENT_ANDROID_KEY_PASSWORD }}
@@ -57,6 +61,27 @@ jobs:
           # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml + ci.yml) — bump all together.
           flutter-version: 3.44.0
           cache: true
+
+      # GitHub-hosted runner images do not put `sdkmanager` on PATH, so the
+      # API 37 install below exited 127 ("sdkmanager: command not found").
+      # Provision the Android command-line tools explicitly and accept the SDK
+      # licences non-interactively. MUST stay ahead of every sdkmanager and
+      # Gradle/flutter-build step in this job.
+      - name: Provision Android command-line tools
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          # 15859902 == cmdline-tools 22.0, the build `cmdline-tools;latest`
+          # currently resolves to. Pinned by build number rather than tracking
+          # a moving channel — and it must not age backwards either:
+          # `platforms;android-37.0` is absent from the v1 SDK repository index
+          # and only resolvable by an sdkmanager that reads the v3 index.
+          cmdline-tools-version: '15859902'
+          # platform-tools only. The API 37 platform and build-tools stay
+          # pinned in the step below, which remains the single place naming
+          # them.
+          packages: platform-tools
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
       - name: Install Android API 37 toolchain
         run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
@@ -104,6 +129,11 @@ jobs:
           node scripts/validate-cert-pin-set.mjs \
             --pins "${PATIENT_CERT_PIN_HASHES}" \
             --clock-skew-seconds "${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
+          node scripts/validate-patient-minimum-version-trust.mjs \
+            --current-key-id "${PATIENT_MIN_VERSION_CURRENT_KEY_ID}" \
+            --current-public-key "${PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64}" \
+            --next-key-id "${PATIENT_MIN_VERSION_NEXT_KEY_ID}" \
+            --next-public-key "${PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64}"
           exit "${missing}"
 
       # A tenant stamp that disagrees with the deployment the build points at
@@ -215,6 +245,10 @@ jobs:
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
+          --dart-define=VH_PATIENT_MIN_VERSION_CURRENT_KEY_ID="${PATIENT_MIN_VERSION_CURRENT_KEY_ID}"
+          --dart-define=VH_PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64="${PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64}"
+          --dart-define=VH_PATIENT_MIN_VERSION_NEXT_KEY_ID="${PATIENT_MIN_VERSION_NEXT_KEY_ID}"
+          --dart-define=VH_PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64="${PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64}"
           ${VH_TENANT_DEFINES}
           ${VH_FIREBASE_DEFINES}
 
@@ -227,6 +261,10 @@ jobs:
           --dart-define=PRODUCTION=true
           --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
           --dart-define=CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS="${CLIENT_READINESS_MAX_CLOCK_SKEW_SECONDS}"
+          --dart-define=VH_PATIENT_MIN_VERSION_CURRENT_KEY_ID="${PATIENT_MIN_VERSION_CURRENT_KEY_ID}"
+          --dart-define=VH_PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64="${PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64}"
+          --dart-define=VH_PATIENT_MIN_VERSION_NEXT_KEY_ID="${PATIENT_MIN_VERSION_NEXT_KEY_ID}"
+          --dart-define=VH_PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64="${PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64}"
           ${VH_TENANT_DEFINES}
           ${VH_FIREBASE_DEFINES}
 

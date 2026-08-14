@@ -371,7 +371,12 @@ export const confirmAppointment = async (req, res) => {
       } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
     });
 
-    emitAppointmentEvent('confirm', { tenantId });
+    emitAppointmentEvent('confirm', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
     return relayAppError(res, err, 'Failed to confirm appointment');
@@ -403,7 +408,12 @@ export const markNoShow = async (req, res) => {
       to_status: 'NO_SHOW',
     });
 
-    emitAppointmentEvent('no-show', { tenantId });
+    emitAppointmentEvent('no-show', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, 'Marked as no-show');
   } catch (err) {
     return relayAppError(res, err, 'Failed');
@@ -626,7 +636,12 @@ export const rescheduleAppointment = async (req, res) => {
         replacement_appointment_time: replacement.appointment_time,
         reschedule_note: note || null,
       });
-      emitAppointmentEvent('reschedule', { tenantId });
+      emitAppointmentEvent('reschedule', {
+        tenantId,
+        patientUid: original.patient_uid,
+        appointmentId: original.id,
+        status: original.status,
+      });
     }
     success(res, {
       original,
@@ -714,14 +729,16 @@ export const completeAppointment = async (req, res) => {
     setImmediate(async () => {
       try {
         const scheduled = await prisma.$queryRawUnsafe(
-          `INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
-           SELECT $1::int, 'feedback_request', $2::jsonb, NOW() + INTERVAL '2 hours', 'pending'
-            WHERE EXISTS (
+          `INSERT INTO scheduled_notifications
+             (tenant_id, user_id, type, data, send_at, status)
+           SELECT $4::uuid, $1::int, 'feedback_request', $2::jsonb,
+                  NOW() + INTERVAL '2 hours', 'pending'
+             WHERE EXISTS (
               SELECT 1
                 FROM users u
                 JOIN patient_consents pc
                   ON pc.patient_uid = u.uid
-                 AND pc.tenant_id = $4::uuid
+                 AND pc.tenant_id = u.tenant_id
                WHERE u.id = $1::int
                  AND u.tenant_id = $4::uuid
                  AND pc.consent_type IN ('nps_survey', 'feedback', 'patient_feedback', 'care_reminder_push', 'care_reminder_whatsapp')
@@ -733,12 +750,19 @@ export const completeAppointment = async (req, res) => {
               AND NOT EXISTS (
                 SELECT 1
                   FROM scheduled_notifications sn
-                 WHERE sn.user_id = $1::int
+                 WHERE sn.tenant_id = $4::uuid
+                   AND sn.user_id = $1::int
                    AND sn.type IN ('feedback_request', 'nps_request')
                    AND COALESCE(sn.data->>'appointment_id', '') = $3::text
                    AND COALESCE(sn.data->>'survey', '') = 'nps'
-                   AND sn.status IN ('pending', 'sent')
-              )
+                   AND (
+                     sn.status IN ('pending', 'sent')
+                     OR sn.status IN (
+                       'queued', 'delivering', 'retrying', 'recipient_missing',
+                       'reconcile_required', 'rejected'
+                     )
+                   )
+               )
            RETURNING id`,
           patientId,
           JSON.stringify({ appointment_id: id, type: 'appointment_feedback', survey: 'nps' }),
@@ -755,7 +779,12 @@ export const completeAppointment = async (req, res) => {
       }
     });
 
-    emitAppointmentEvent('complete', { tenantId });
+    emitAppointmentEvent('complete', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, 'Appointment completed');
   } catch (err) {
     return relayAppError(res, err, 'Failed');
@@ -808,7 +837,12 @@ export const cancelAppointment = async (req, res) => {
       });
     }
 
-    emitAppointmentEvent('cancel', { tenantId });
+    emitAppointmentEvent('cancel', {
+      tenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, 'Appointment cancelled');
   } catch (err) {
     return relayAppError(res, err, 'Failed');
@@ -2417,7 +2451,12 @@ export const registerWalkIn = async (req, res) => {
       resourceId: result.id,
     });
 
-    emitAppointmentEvent('walk-in-created', { tenantId: actingTenantId });
+    emitAppointmentEvent('walk-in-created', {
+      tenantId: actingTenantId,
+      patientUid: result.patient_uid,
+      appointmentId: result.id,
+      status: result.status,
+    });
     success(res, result, `Walk-in registered. Visit ${result.visit_no}`);
   } catch (err) {
     // Surface a stable error code so dashboards/alerts can group these and

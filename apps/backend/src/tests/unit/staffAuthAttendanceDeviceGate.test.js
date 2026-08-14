@@ -94,20 +94,9 @@ beforeEach(() => {
   changePasswordMock.mockClear();
 });
 
-describe('staff auth attendance device gate', () => {
-  it('allows the legacy check-in route from a phone/mobile JWT', async () => {
-    const app = makeApp('mobile');
-
-    const res = await request(app)
-      .post('/auth/staff/check-in')
-      .send(attendanceBody);
-
-    expect(res.statusCode).toBe(200);
-    expect(checkInMock).toHaveBeenCalledTimes(1);
-  });
-
-  it.each(['tablet', 'desktop', 'web'])(
-    'rejects legacy check-in from %s JWTs',
+describe('staff auth route contract', () => {
+  it.each(['mobile', 'tablet', 'desktop', 'web'])(
+    'does not expose the orphaned legacy check-in route to %s JWTs',
     async (deviceType) => {
       const app = makeApp(deviceType);
 
@@ -115,30 +104,19 @@ describe('staff auth attendance device gate', () => {
         .post('/auth/staff/check-in')
         .send(attendanceBody);
 
-      expect(res.statusCode).toBe(403);
-      expect(res.body).toEqual(expect.objectContaining({
-        success: false,
-        code: 'DEVICE_TYPE_FORBIDDEN',
-        got: deviceType,
-      }));
-      expect(res.body.allowed).toEqual(['mobile']);
+      expect(res.statusCode).toBe(404);
       expect(checkInMock).not.toHaveBeenCalled();
     },
   );
 
-  it('rejects legacy check-out from tablet JWTs', async () => {
-    const app = makeApp('tablet');
+  it('does not expose the orphaned legacy check-out route', async () => {
+    const app = makeApp('mobile');
 
     const res = await request(app)
       .post('/auth/staff/check-out')
       .send(attendanceBody);
 
-    expect(res.statusCode).toBe(403);
-    expect(res.body).toEqual(expect.objectContaining({
-      success: false,
-      code: 'DEVICE_TYPE_FORBIDDEN',
-      got: 'tablet',
-    }));
+    expect(res.statusCode).toBe(404);
     expect(checkOutMock).not.toHaveBeenCalled();
   });
 

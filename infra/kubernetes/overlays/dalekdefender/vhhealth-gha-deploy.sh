@@ -157,17 +157,37 @@ wait_for_rollout() {
   return "$failed"
 }
 
+verify_backend_version() {
+  local expected_commit="$1"
+  local payload compact deployed_commit
+
+  if ! payload="$(kubectl get --raw "/api/v1/namespaces/${NAMESPACE}/services/http:vhhealth-backend:5000/proxy/health/version")"; then
+    echo "::error::Unable to read /health/version through the Kubernetes service proxy." >&2
+    return 1
+  fi
+
+  compact="$(printf '%s' "$payload" | tr -d '[:space:]')"
+  deployed_commit="$(printf '%s' "$compact" | sed -n 's/.*"commit":"\([0-9a-f]\{40\}\)".*/\1/p')"
+  if [[ "$deployed_commit" != "$expected_commit" ]]; then
+    deployed_commit="${deployed_commit:-missing-or-invalid}"
+    echo "::error::Dalekdefender deployed commit ${deployed_commit} does not match requested commit ${expected_commit}." >&2
+    return 1
+  fi
+
+  echo "Verified /health/version commit ${deployed_commit}."
+}
+
 PREV_BACKEND_REF="$(current_image vhhealth-backend)"
 PREV_ADMIN_REF="$(current_image vhhealth-admin)"
 PREV_COMMIT="$(current_commit)"
 if [[ ! "$PREV_COMMIT" =~ $commit_re ]]; then
-  PREV_COMMIT="$GIT_COMMIT"
+  PREV_COMMIT=""
 fi
 
 refresh_pull_secret
 apply_refs "$BACKEND_REF" "$ADMIN_REF" "$GIT_COMMIT"
 
-if wait_for_rollout; then
+if wait_for_rollout && verify_backend_version "$GIT_COMMIT"; then
   echo "Deploy complete: commit $GIT_COMMIT live on dalekdefender (digest-pinned)."
   exit 0
 fi
@@ -175,15 +195,17 @@ fi
 echo "::error::Dalekdefender rollout failed for commit ${GIT_COMMIT}; collecting diagnostics and rolling back." >&2
 diagnose_backend "failed rollout ${GIT_COMMIT}"
 
-if [[ "$PREV_BACKEND_REF" =~ $backend_re && "$PREV_ADMIN_REF" =~ $admin_re ]]; then
+if [[ "$PREV_BACKEND_REF" =~ $backend_re && "$PREV_ADMIN_REF" =~ $admin_re && "$PREV_COMMIT" =~ $commit_re ]]; then
   echo "Rolling back to previous backend/admin image digests."
   apply_refs "$PREV_BACKEND_REF" "$PREV_ADMIN_REF" "$PREV_COMMIT"
-  if wait_for_rollout; then
+  if wait_for_rollout && verify_backend_version "$PREV_COMMIT"; then
     echo "::warning::Rollback succeeded: restored commit ${PREV_COMMIT} after failed deploy ${GIT_COMMIT}."
     exit 1
   fi
   echo "::error::Rollback failed after failed deploy ${GIT_COMMIT}; manual operator action required." >&2
   diagnose_backend "rollback failure ${PREV_COMMIT}"
+else
+  echo "::error::Previous image or commit evidence is incomplete; refusing an unverifiable automatic rollback." >&2
 fi
 
 exit 1

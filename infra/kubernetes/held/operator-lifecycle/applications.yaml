@@ -1,0 +1,188 @@
+# INF-010 operator lifecycle Applications.
+#
+# HELD: this file is not composed into base/argocd/applications, base, or any
+# overlay. Applying it only creates manual-sync Argo CD Applications; it does
+# not install an operator. Each Application source, chart archive, and runtime
+# image is pinned by scripts/operator-lifecycle-preflight.mjs. Activation still
+# requires the operator-owned sequence in docs/OPERATOR_LIFECYCLE.md.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-cert-manager-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/component: operator-lifecycle
+    vhhealth.app/deploy-state: held
+  annotations:
+    vhhealth.app/chart-sha256: e6bf08ee8834e6a727e38991978607ea9b729825150a20d7d10be1eb284106e6
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.16.1
+    helm:
+      releaseName: cert-manager
+      values: |
+        crds:
+          enabled: true
+        image:
+          repository: quay.io/jetstack/cert-manager-controller
+          tag: v1.16.1
+          digest: sha256:ae5e14401cde4dec8bccce7594f829cd491044aa66944272e1d4fccc941ec77c
+        webhook:
+          image:
+            repository: quay.io/jetstack/cert-manager-webhook
+            tag: v1.16.1
+            digest: sha256:6edf44244b2a711be737c4ab8e54e68d9112cc4e87da2ef97a7f76b768f4fde7
+        cainjector:
+          image:
+            repository: quay.io/jetstack/cert-manager-cainjector
+            tag: v1.16.1
+            digest: sha256:3c49185718cf454bac559f71c4453b33f1086db48084604247d9acb7a4de2973
+        acmesolver:
+          image:
+            repository: quay.io/jetstack/cert-manager-acmesolver
+            tag: v1.16.1
+            digest: sha256:14304826ab1a1184e185f952ef7e0bf8e620568b5c17939179efe6f4c6049d8e
+        startupapicheck:
+          image:
+            repository: quay.io/jetstack/cert-manager-startupapicheck
+            tag: v1.16.1
+            digest: sha256:b4a5e42f6dbfb0d7dbb9366b4cb437a59a7616f6c5e67c76fa3641cadbe0c958
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+  revisionHistoryLimit: 5
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-cnpg-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/component: operator-lifecycle
+    vhhealth.app/deploy-state: held
+  annotations:
+    vhhealth.app/chart-sha256: 668e065ff53508d58238788fd35b355a925060843629a951df0e6a9362e6d32f
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.29.0
+    helm:
+      releaseName: vhhealth-cnpg-operator
+      values: |
+        fullnameOverride: cnpg-controller-manager
+        crds:
+          create: true
+        image:
+          repository: ghcr.io/cloudnative-pg/cloudnative-pg
+          tag: 1.30.0@sha256:a2701eb97cdd2a34b1fdb2cb51987f544b706e40bec72ae7146cd8580efefebb
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+  revisionHistoryLimit: 5
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-barman-cloud
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/component: operator-lifecycle
+    vhhealth.app/deploy-state: held
+  annotations:
+    vhhealth.app/chart-sha256: 683494c04cc94f7d33c4ac5f3d8d64c209634b48bd0e84da31d7d1fad22cdcdb
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: plugin-barman-cloud
+    targetRevision: 0.7.0
+    helm:
+      releaseName: vhhealth-barman-cloud
+      values: |
+        fullnameOverride: barman-cloud
+        image:
+          registry: ghcr.io
+          repository: cloudnative-pg/plugin-barman-cloud
+          tag: v0.13.0@sha256:71589dbac582333442812b07b31f7ea4d00324a8358aac7ca507dabf9f4b6c96
+        sidecarImage:
+          registry: ghcr.io
+          repository: cloudnative-pg/plugin-barman-cloud-sidecar
+          tag: v0.13.0@sha256:990361af3319f9e23aafa0f6d7981f99bf1f69b4e6a85cf1bc7d71d6f09bb288
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+  revisionHistoryLimit: 5
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-minio-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/component: operator-lifecycle
+    vhhealth.app/deploy-state: held
+  annotations:
+    vhhealth.app/chart-sha256: 8c174de0947acf39c4482def9249730db7f44a9ed57e0b2207c8cf6cc794c51f
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://operator.min.io
+    chart: operator
+    targetRevision: 5.0.15
+    helm:
+      releaseName: minio-operator
+      values: |
+        operator:
+          image:
+            repository: quay.io/minio/operator@sha256
+            digest: 811d71f9d41ce275946a50cc564b6fab3d3268b3af5969e45c0278d711a60ac2
+        console:
+          image:
+            repository: quay.io/minio/operator@sha256
+            digest: 811d71f9d41ce275946a50cc564b6fab3d3268b3af5969e45c0278d711a60ac2
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: minio-operator
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+  revisionHistoryLimit: 5

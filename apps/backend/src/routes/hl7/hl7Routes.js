@@ -2,12 +2,11 @@
 // HL7v2 messaging routes — HTTP bridge for MLLP-style HL7v2 message exchange.
 
 import express from 'express';
-import prisma, { setTenant } from '../../lib/prisma.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js';
 import tenantRlsMiddleware from '../../middleware/tenantRlsMiddleware.js';
-import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireAnyRole } from '../../middleware/rbacMiddleware.js';
 import { parseHL7, generateACK } from '../../services/hl7/hl7Parser.js';
 import {
@@ -20,20 +19,33 @@ import {
 } from '../../services/hl7/hl7Transformer.js';
 import { AppError } from '../../utils/AppError.js';
 import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
-import {
-  getInteropSecret,
-  resolveInteropCredentialSnapshot,
-  resolveTenantBySender,
-} from '../../services/interop/tenantInteropSecretService.js';
+import { resolveInteropCredentialSnapshot } from '../../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import {
   assertEnvBackedHl7InboundLivePathAvailable,
   prepareHl7InboundRecoveryAuthentication,
   submitHl7InboundRecovery,
 } from '../../services/integrations/externalHl7InboundRecoveryService.js';
+import { processHl7InboundClinicalMessage } from '../../services/hl7/hl7InboundClinicalCommandService.js';
+import {
+  assertHl7InboundIngressEnabled,
+  hl7InboundIngressGate,
+} from './hl7InboundIngressGate.js';
+import { hl7IngressLimiter } from './hl7IngressRateLimit.js';
 
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
+const PERMANENT_HL7_CLINICAL_REJECTION_CODES = new Set([
+  'HL7_CLINICAL_RECEIPT_IDENTITY_DRIFT',
+  'HL7_CLINICAL_PATIENT_INVALID',
+  'HL7_ADMISSION_VISIT_REQUIRED',
+  'HL7_ADMISSION_VISIT_ALREADY_EXISTS',
+  'HL7_ADMISSION_VISIT_UNKNOWN',
+  'HL7_ADMISSION_VISIT_AMBIGUOUS',
+  'HL7_ADMISSION_VISIT_PATIENT_MISMATCH',
+  'HL7_ADMISSION_VISIT_NOT_ACTIVE',
+  'HL7_ADMISSION_VISIT_TARGET_CHANGED',
+]);
 
 function assertLocalInvestigationExportContract(investigation, { requireResults = false } = {}) {
   const orderedTestCode = String(investigation?.test_code || '').trim();
@@ -56,33 +68,26 @@ function assertLocalInvestigationExportContract(investigation, { requireResults 
   }
 }
 
-const rawHl7RecoveryResponses = middleware => (req, res, next) => {
-  if (req.hl7InboundRecoveryRequest !== true) return middleware(req, res, next);
-  const originalJson = res.json;
-  const restoreAndNext = (err) => {
-    res.json = originalJson;
-    return next(err);
-  };
-  res.json = function sendRawHl7RecoveryRejection() {
-    res.json = originalJson;
-    const status = Number(res.statusCode) || 500;
-    const ackCode = status >= 500 || status === 429 ? 'AE' : 'AR';
-    res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-    return res.send(generateACK('UNKNOWN', ackCode, 'HL7 receive request rejected'));
-  };
-  try {
-    const pending = middleware(req, res, restoreAndNext);
-    if (pending && typeof pending.catch === 'function') pending.catch(restoreAndNext);
-    return pending;
-  } catch (err) {
-    return restoreAndNext(err);
-  }
-};
-
 // Preserve the legacy router-level generic limiter and its authenticated
 // tenant/API-key bucket. Recovery requests keep that same limiter; only their
 // wire-format rejection is converted to an HL7 ACK.
-router.use(rawHl7RecoveryResponses(genericLimiter));
+//
+// hl7IngressLimiter enforces it AT MOST ONCE per request. Under the production
+// composition (mountHl7Interface) every HL7 request has already met this exact
+// limiter one mount earlier — at the same relative path, in the same chain
+// position, on the same bucket — because it has to run AHEAD of the ingress
+// gate, which short-circuits before this router. So this is a pass-through
+// there, and the enforcing layer for any other mount of this router.
+router.use(hl7IngressLimiter);
+
+// HL7_INBOUND_ENABLED gate, second layer. The first layer sits at the app.js
+// mount, behind that same limiter; this one keeps the router itself fail-closed
+// if it is ever mounted somewhere else. It is registered AFTER the limiter
+// above on purpose, so a disabled interface is still rate limited on such a
+// mount rather than becoming a free request sink, and BEFORE every /receive
+// handler, so no credential is resolved and no database read is issued while
+// the interface is off.
+router.use('/receive', hl7InboundIngressGate);
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -97,6 +102,13 @@ async function assertHl7InboundAuthentic(req, {
   receivingFacility,
   recoveryAuthentication = null,
 }) {
+  // HL7_INBOUND_ENABLED gate, third and innermost layer. Placed ahead of every
+  // credential lookup so the answer to "can this credential authenticate an
+  // inbound message?" is NO while the interface is declared off — for the
+  // DB-backed tenant_interop_secrets row and the legacy shared secret alike,
+  // and for the live and recovery paths alike. Routing can be changed; this
+  // cannot be routed around.
+  assertHl7InboundIngressEnabled();
   const explicitRecoveryRequestId = String(req.headers['x-hl7-message-id'] || '').trim();
   if (recoveryAuthentication && !explicitRecoveryRequestId) {
     throw AppError.unauthorized(
@@ -150,8 +162,12 @@ async function assertHl7InboundAuthentic(req, {
     tenantId = credentialSnapshot.tenant_id;
     secret = credentialSnapshot.secret;
   } else {
-    tenantId = await resolveTenantBySender('hl7_inbound', receivingFacility);
-    secret = tenantId ? await getInteropSecret(tenantId, 'hl7_inbound') : null;
+    credentialSnapshot = await resolveInteropCredentialSnapshot(
+      'hl7_inbound',
+      receivingFacility,
+    );
+    tenantId = credentialSnapshot?.tenant_id;
+    secret = credentialSnapshot?.secret;
   }
   // CAN-021: a per-tenant inbound secret authenticates a SPECIFIC tenant's feed,
   // so the named patient MUST belong to that tenant (strict). The shared-secret
@@ -170,6 +186,9 @@ async function assertHl7InboundAuthentic(req, {
   if (!tenantId || !secret) {
     throw AppError.unauthorized('HL7 inbound sender not recognized', 'HL7_INBOUND_SENDER_UNKNOWN');
   }
+  const authenticatedSenderIdentity = credentialSnapshot
+    ? `hl7-inbound-credential:${credentialSnapshot.id}`
+    : 'hl7-inbound-credential:legacy-env';
 
   // Sync fast-path: HMAC + freshness + same-process replay.
   const signedRequest = {
@@ -225,6 +244,7 @@ async function assertHl7InboundAuthentic(req, {
   req.tenantId = tenantId; // the authenticated destination tenant
   req.hl7StrictTenant = strictTenant; // CAN-021: enforce patient-tenant match on the per-tenant-secret path
   req.hl7CredentialSnapshot = credentialSnapshot;
+  req.hl7AuthenticatedSenderIdentity = authenticatedSenderIdentity;
 }
 
 function i03MessageFamily(messageType) {
@@ -242,15 +262,25 @@ export function hl7AuthenticityAckCode(error, { recovery = false } = {}) {
   return recovery && Number(error?.statusCode) >= 500 ? 'AE' : 'AR';
 }
 
+export function hl7ClinicalAckCode(error) {
+  return PERMANENT_HL7_CLINICAL_REJECTION_CODES.has(error?.code) ? 'AR' : 'AE';
+}
+
 // Resolve the patient by uid GLOBALLY (the sender's tenant is not in the
 // message; the patient uid is the only identifier). This read intentionally
 // runs on plain prisma so it can find the patient in whichever tenant they
 // belong to — but EVERY subsequent write is then scoped to that patient's
-// tenant via setTenant(), so a non-default patient's clinical rows can never be
-// stamped into the default (or any other) tenant. Returns null if not found.
+// tenant via the canonical inbound command, so a non-default patient's clinical
+// rows can never be stamped into the default (or any other) tenant. Returns null
+// if not found.
 async function loadHl7Patient(patientUid, authenticatedTenantId, strictTenant) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid, tenant_id::text AS tenant_id, phone FROM users WHERE uid = $1::uuid AND is_active = true LIMIT 1`,
+    `SELECT uid, tenant_id::text AS tenant_id, phone
+       FROM users
+      WHERE uid = $1::uuid
+        AND is_active = true
+        AND UPPER(BTRIM(COALESCE(role::text, ''))) = 'PATIENT'
+      LIMIT 1`,
     patientUid,
   );
   const row = rows[0] || null;
@@ -405,6 +435,8 @@ router.post(
       requestId: req.id,
     });
 
+    const senderIdentity = req.hl7AuthenticatedSenderIdentity;
+
     try {
       // Route based on message type
       if (messageType === 'ADT^A01' || messageType === 'ADT^A02' || messageType === 'ADT^A03') {
@@ -420,41 +452,30 @@ router.post(
           return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
         }
 
-        if (messageType === 'ADT^A01' || messageType === 'ADT^A02') {
-          // Create admission — scoped to the patient's tenant so the RLS
-          // WITH CHECK confirms the row lands in that tenant (and the
-          // tenant_id GUC default resolves to it).
-          await setTenant(patientRow.tenant_id, (tx) => tx.$queryRawUnsafe(
-            `INSERT INTO admissions (patient_uid, status, ward, bed_number, admitting_doctor, admitted_at, reason, tenant_id, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid, NOW())
-             ON CONFLICT DO NOTHING`,
-            patient.uid,
-            admission.status || 'ADMITTED',
-            admission.ward || null,
-            admission.bed_number || null,
-            admission.admitting_doctor || null,
-            admission.admitted_at || new Date().toISOString(),
-            null,
-            patientRow.tenant_id,
-          ));
-        } else if (messageType === 'ADT^A03') {
-          // Discharge — update most recent admission for this patient, scoped
-          // to the patient's tenant.
-          await setTenant(patientRow.tenant_id, (tx) => tx.$queryRawUnsafe(
-            `UPDATE admissions SET status = 'DISCHARGED', discharged_at = $2
-             WHERE id = (
-               SELECT id FROM admissions
-                WHERE patient_uid = $1 AND tenant_id = $3::uuid AND status = 'ADMITTED'
-                ORDER BY admitted_at DESC
-                LIMIT 1
-             )`,
-            patient.uid, admission.discharged_at || new Date().toISOString(), patientRow.tenant_id,
-          ));
-        }
+        const result = await processHl7InboundClinicalMessage({
+          tenantId: patientRow.tenant_id,
+          patientUid: patient.uid,
+          patientPhone: patientRow.phone,
+          senderIdentity,
+          messageControlId: controlId,
+          messageType,
+          message,
+          admission,
+          requestId: req.id,
+        });
 
-        logger.info('HL7 ADT processed', { messageType, patientUid: patient.uid, requestId: req.id });
+        logger.info('HL7 ADT processed', {
+          messageType,
+          patientUid: patient.uid,
+          duplicate: result.duplicate,
+          requestId: req.id,
+        });
         res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-        return res.status(200).send(generateACK(controlId, 'AA', 'Message accepted'));
+        return res.status(200).send(generateACK(
+          controlId,
+          result.receipt.acknowledgement_code,
+          result.receipt.acknowledgement_text,
+        ));
       }
 
       if (messageType === 'ORM^O01') {
@@ -470,20 +491,30 @@ router.post(
           return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
         }
 
-        await setTenant(patientRow.tenant_id, (tx) => tx.$queryRawUnsafe(
-          `INSERT INTO investigations (patient_uid, phone, test_name, status, requested_at, tenant_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6::uuid, NOW(), NOW())`,
-          patient.uid,
-          patientRow.phone,
-          order.test_name || 'Unknown Test',
-          order.status || 'PENDING',
-          order.ordered_at || new Date().toISOString(),
-          patientRow.tenant_id,
-        ));
+        const result = await processHl7InboundClinicalMessage({
+          tenantId: patientRow.tenant_id,
+          patientUid: patient.uid,
+          patientPhone: patientRow.phone,
+          senderIdentity,
+          messageControlId: controlId,
+          messageType,
+          message,
+          order,
+          requestId: req.id,
+        });
 
-        logger.info('HL7 ORM processed', { testName: order.test_name, patientUid: patient.uid, requestId: req.id });
+        logger.info('HL7 ORM processed', {
+          testName: order.test_name,
+          patientUid: patient.uid,
+          duplicate: result.duplicate,
+          requestId: req.id,
+        });
         res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-        return res.status(200).send(generateACK(controlId, 'AA', 'Order accepted'));
+        return res.status(200).send(generateACK(
+          controlId,
+          result.receipt.acknowledgement_code,
+          result.receipt.acknowledgement_text,
+        ));
       }
 
       if (messageType === 'ORU^R01' || messageType === 'ORU^R01^ORU_R01') {
@@ -508,9 +539,16 @@ router.post(
       res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
       return res.status(200).send(generateACK(controlId, 'AE', `Unsupported message type: ${messageType}`));
     } catch (err) {
-      logger.error('HL7 processing error', { messageType, error: err.message, requestId: req.id });
+      logger.error('HL7 processing error', {
+        messageType,
+        error: err.message,
+        code: err.code,
+        requestId: req.id,
+      });
       res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
-      return res.status(500).send(generateACK(controlId, 'AE', 'Internal processing error'));
+      const status = err?.statusCode || 500;
+      const messageText = status < 500 ? 'Message rejected' : 'Internal processing error';
+      return res.status(status).send(generateACK(controlId, hl7ClinicalAckCode(err), messageText));
     }
   })
 );

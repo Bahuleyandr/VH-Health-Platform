@@ -2,8 +2,10 @@
 // Core request helpers, error class, and shared utilities
 
 import { toast } from "react-hot-toast";
+
 import { API_ENDPOINTS } from "../api-config";
 import { apiFetch } from "../api-fetch";
+import { navigateToLogin } from "../browserNavigation";
 
 /* =========================
  * Types & small helpers
@@ -53,20 +55,28 @@ function isBrowser() {
 /** Normalize legacy frontend endpoints to the backend's current routes. */
 function normalizeAdminEndpoint(endpoint: string): string {
   const [rawPath, rawQuery = ""] = endpoint.split("?", 2);
-  const path = rawPath.startsWith("/api/v1") ? rawPath.slice(7) || "/" : rawPath;
+  const path = rawPath.startsWith("/api/v1")
+    ? rawPath.slice(7) || "/"
+    : rawPath;
   const query = rawQuery ? `?${rawQuery}` : "";
 
   // /admin/users/*, /admin/doctors/*, /admin/departments/* rewrites:
   // - Exact match (list): /admin/doctors -> /doctors
   // - With sub-path (/admin/doctors/:id/...): keep as /admin/doctors/:id/... -> /api/v1/admin/doctors/:id/...
-  if (path === "/admin/users" || path.startsWith("/admin/users?")) return `/users${query}`;
-  if (path === "/admin/doctors" || path.startsWith("/admin/doctors?")) return `/doctors${query}`;
-  if (path === "/admin/departments" || path.startsWith("/admin/departments?")) return `/departments${query}`;
+  if (path === "/admin/users" || path.startsWith("/admin/users?"))
+    return `/users${query}`;
+  if (path === "/admin/doctors" || path.startsWith("/admin/doctors?"))
+    return `/doctors${query}`;
+  if (path === "/admin/departments" || path.startsWith("/admin/departments?"))
+    return `/departments${query}`;
   // Sub-paths like /admin/doctors/:id/profile pass through as /admin/doctors/:id/profile -> /api/v1/admin/doctors/:id/profile
-  if (path === "/feedback") return `/feedback/recent${query || "?page=1&limit=100"}`;
+  if (path === "/feedback")
+    return `/feedback/recent${query || "?page=1&limit=100"}`;
   if (path === "/feedback/stats") return `/feedback/dashboard${query}`;
-  if (path === "/notifications") return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
-  if (path === "/notifications/stats") return `/notifications/admin/overview${query}`;
+  if (path === "/notifications")
+    return `/notifications/admin/manage${query || "?page=1&limit=50"}`;
+  if (path === "/notifications/stats")
+    return `/notifications/admin/overview${query}`;
   if (path === "/admin/appointments" || path === "/appointments") {
     return `/appointments/list${query}`;
   }
@@ -102,7 +112,7 @@ function triggerSessionExpired(): void {
     /* best-effort */
   }
   toast.error("Session expired. Please log in again.");
-  window.location.href = "/login";
+  navigateToLogin("/login?reason=session_expired");
 }
 
 /**
@@ -137,6 +147,17 @@ interface InternalOptions extends RequestInit {
   _retried?: boolean;
   /** Internal — keeps the backend envelope for callers that need request IDs. */
   _preserveEnvelope?: boolean;
+  /** Internal — preserves the legacy helper's endpoint-aware fallback message. */
+  _fallbackErrorMessage?: string;
+  /** Internal — session probes can fail without navigating the current page. */
+  _redirectOnUnauthorized?: boolean;
+}
+
+const AUTOMATICALLY_REPLAYABLE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function canReplayAfterRefresh(method: string, headers?: HeadersInit): boolean {
+  if (AUTOMATICALLY_REPLAYABLE_METHODS.has(method)) return true;
+  return new Headers(headers).has("Idempotency-Key");
 }
 
 async function requestJSON<T = unknown>(
@@ -147,10 +168,13 @@ async function requestJSON<T = unknown>(
     useAuth = true,
     _retried = false,
     _preserveEnvelope = false,
+    _fallbackErrorMessage,
+    _redirectOnUnauthorized = true,
     headers,
     ...rest
   } = options;
   const apiEndpoint = toApiV1Endpoint(endpoint);
+  const method = (rest.method ?? "GET").toUpperCase();
 
   // Auth is carried via the httpOnly auth_token cookie handled server-side by
   // /api/proxy. No client-side token injection.
@@ -162,22 +186,35 @@ async function requestJSON<T = unknown>(
   const contentType = res.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");
 
-  const payload = isJson
-    ? ((await res.json()) as APIResponse<T>)
-    : ((await res.text()) as unknown);
+  let payload: APIResponse<T> | unknown = null;
+  try {
+    payload = isJson
+      ? ((await res.json()) as APIResponse<T>)
+      : ((await res.text()) as unknown);
+  } catch {
+    // Keep transport/status context even when an upstream returned malformed
+    // JSON. The legacy fetchAdminAPI contract relies on an APIError here.
+  }
 
   if (!res.ok) {
     if (res.status === 401) {
       // Don't try to refresh while refreshing — and don't retry forever.
       if (!useAuth || _retried || isRefreshEndpoint(endpoint)) {
-        triggerSessionExpired();
+        if (_redirectOnUnauthorized) triggerSessionExpired();
         throw new APIError("Unauthorized", 401, payload);
       }
       try {
         await sharedRefresh();
       } catch {
-        triggerSessionExpired();
+        if (_redirectOnUnauthorized) triggerSessionExpired();
         throw new APIError("Unauthorized", 401, payload);
+      }
+      if (!canReplayAfterRefresh(method, headers)) {
+        throw new APIError(
+          `${method} request was not replayed after session renewal because it has no Idempotency-Key. The operation may be ambiguous; review its result before retrying.`,
+          401,
+          payload,
+        );
       }
       // Refresh succeeded — replay the original request exactly once.
       return requestJSON<T>(endpoint, { ...options, _retried: true });
@@ -188,9 +225,14 @@ async function requestJSON<T = unknown>(
       throw new APIError("Forbidden", 403, payload);
     }
     const message =
-      isJson && typeof (payload as APIResponse).message === "string"
+      isJson && typeof (payload as APIResponse | null)?.message === "string"
         ? ((payload as APIResponse).message as string)
-        : `API Error: ${res.status}`;
+        : isJson &&
+            typeof (payload as { error?: unknown } | null)?.error === "string"
+          ? (payload as { error: string }).error
+          : _fallbackErrorMessage
+            ? `HTTP ${res.status} ${_fallbackErrorMessage}`
+            : `API Error: ${res.status}`;
     throw new APIError(message, res.status, payload);
   }
 
@@ -223,9 +265,14 @@ export function getJSON<T = unknown>(
   endpoint: string,
   params?: QueryParams,
   useAuth = true,
+  redirectOnUnauthorized = true,
 ) {
   const qs = params ? buildQueryString(params) : "";
-  return requestJSON<T>(`${endpoint}${qs}`, { method: "GET", useAuth });
+  return requestJSON<T>(`${endpoint}${qs}`, {
+    method: "GET",
+    useAuth,
+    _redirectOnUnauthorized: redirectOnUnauthorized,
+  });
 }
 
 export function getJSONEnvelope<T = unknown>(
@@ -241,15 +288,26 @@ export function getJSONEnvelope<T = unknown>(
   });
 }
 
+/**
+ * `headers` exists so callers can attach an `Idempotency-Key`. Routes mounted
+ * with `requireIdempotencyKey({ required: true })` hard-400 without it, and the
+ * 401→refresh replay above only re-sends an unsafe method when the header is
+ * present. Mint the key with `lib/idempotencyKey` — a fresh random value per
+ * click defeats the point. `Content-Type` is set last so it cannot be
+ * accidentally overridden by a caller.
+ */
 export function postJSON<T = unknown>(
   endpoint: string,
   body?: unknown,
   useAuth = true,
+  headers?: HeadersInit,
 ) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Type", "application/json");
   return requestJSON<T>(endpoint, {
     method: "POST",
     body: serializeJsonBody(body),
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders,
     useAuth,
   });
 }
@@ -271,15 +329,19 @@ export function postJSONEnvelope<T = unknown>(
   });
 }
 
+/** See `postJSON` for why `headers` exists. */
 export function putJSON<T = unknown>(
   endpoint: string,
   body?: unknown,
   useAuth = true,
+  headers?: HeadersInit,
 ) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Type", "application/json");
   return requestJSON<T>(endpoint, {
     method: "PUT",
     body: serializeJsonBody(body),
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders,
     useAuth,
   });
 }
@@ -291,9 +353,14 @@ export function deleteJSON<T = unknown>(endpoint: string, useAuth = true) {
 /** Back-compat helper used widely across pages */
 export async function fetchAdminAPI<T = unknown>(
   endpoint: string,
-  init?: { method?: string; body?: unknown; token?: string; headers?: HeadersInit },
+  init?: {
+    method?: string;
+    body?: unknown;
+    token?: string;
+    headers?: HeadersInit;
+  },
 ): Promise<T> {
-  const { method = "GET", body, token, headers } = init ?? {};
+  const { method = "GET", body, headers } = init ?? {};
   const prefixedEndpoint = toApiV1Endpoint(endpoint);
   // Note: `token` arg is legacy — client-side requests are authenticated via
   // the httpOnly auth_token cookie handled by /api/proxy. Passing a token here
@@ -303,38 +370,13 @@ export async function fetchAdminAPI<T = unknown>(
   if (serializedBody !== undefined) {
     requestHeaders.set("Content-Type", "application/json");
   }
-  const res = await apiFetch(prefixedEndpoint, {
+  return requestJSON<T>(prefixedEndpoint, {
     method,
-    token,
-    headers: Array.from(requestHeaders.keys()).length > 0 ? requestHeaders : undefined,
+    headers:
+      Array.from(requestHeaders.keys()).length > 0 ? requestHeaders : undefined,
     body: serializedBody,
+    _fallbackErrorMessage: `calling ${method} ${endpoint}`,
   });
-  if (!res.ok) {
-    const body = await safeReadJson(res);
-    const msg =
-      (body as { message?: string })?.message ||
-      (body as { error?: string })?.error ||
-      `HTTP ${res.status} calling ${method} ${endpoint}`;
-    throw new APIError(msg, res.status, body);
-  }
-  const payload = (await res.json()) as APIResponse<T> | T;
-  if (
-    payload &&
-    typeof payload === 'object' &&
-    'data' in (payload as APIResponse<T>) &&
-    (payload as APIResponse<T>).data !== undefined
-  ) {
-    return (payload as APIResponse<T>).data as T;
-  }
-  return payload as T;
-}
-
-async function safeReadJson(res: Response) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
 }
 
 export { API_ENDPOINTS };

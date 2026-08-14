@@ -1,4 +1,4 @@
-# minio/tenant.yaml — VH Health MinIO tenant (4 pools, EC:4)
+# minio/tenant.yaml — VH Health MinIO tenant (1 pool, 4 servers, EC:4)
 #
 # A "tenant" is a self-contained MinIO cluster managed by the MinIO
 # Operator. We run one tenant per environment — simple, isolated,
@@ -6,16 +6,19 @@
 # configured post-bootstrap (see README note at the bottom of this
 # file).
 #
-# Sizing: 4 pools * 4 volumes per pool * 100Gi = 1.6 TiB raw. Erasure
-# coding parity EC:4 (4 parity blocks) gives 50 percent usable =
-# ~800 GiB. Write quorum requires (total - parity + 1) = 13 of 16
-# drives available; tolerates simultaneous loss of 4 drives (one pool)
-# while still serving reads at reduced redundancy.
+# Sizing: 1 pool * 4 servers * 4 volumes * 100Gi = 1600 GiB = 1.5625 TiB raw.
+# Explicit EC:4 parity gives 12 data + 4 parity shards: 1200 GiB = 1.171875 TiB
+# before filesystem/object overhead. It tolerates up to four unavailable drives
+# for an affected object while quorum remains. It does not tolerate the loss of
+# a "pool": this manifest defines only pool-0.
 #
-# Pod topology: 4 servers per pool, spread across nodes using
-# podAntiAffinity. At 3 nodes and 4 pools of 4 servers = 16 pods
-# total. Uneven distribution is inevitable; `nodeSelector` targets
-# platform nodes only.
+# Pod topology: pool-0 creates four server pods, each with four PVCs. Preferred
+# anti-affinity spreads them across available nodes but does not guarantee a
+# whole-node failure boundary. On the documented three-node cluster one node
+# normally hosts two server pods; losing that node removes eight drives and is
+# outside EC:4. Production qualification therefore requires a node-loss drill
+# and an accepted fourth storage failure domain or an explicit recovery-only
+# posture. No manifest or document may claim whole-node tolerance today.
 #
 # Root creds: Secret `minio-root-credentials` — a SealedSecret (see
 # `minio-root-credentials.sealed-secret.yaml.example`). This secret is
@@ -144,6 +147,8 @@ spec:
 
   # Tenant-wide env
   env:
+    - name: MINIO_STORAGE_CLASS_STANDARD
+      value: "EC:4"
     - name: MINIO_BROWSER_REDIRECT_URL
       value: "https://minio.vhhealth.hospital.local"
     # Audit finding L11 (2026-06-10): metrics were "public" (unauthenticated)

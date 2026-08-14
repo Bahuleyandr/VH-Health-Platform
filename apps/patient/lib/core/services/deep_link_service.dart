@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/utils/log_sanitizer.dart';
 
-/// Maps push notification data payloads to GoRouter paths for deep linking.
+/// Maps bounded external inputs to GoRouter paths for deep linking.
 class DeepLinkService {
   DeepLinkService._();
+
+  static const customScheme = 'vhhealth';
+  static const customHost = 'app';
 
   /// Allowlist of route prefixes that a push notification payload is permitted
   /// to navigate to. Derived from app_router.dart routes. Arbitrary paths from
@@ -76,11 +79,33 @@ class DeepLinkService {
         final tail = route.substring(prefix.length);
         // Must be a single non-negative integer segment with no further path.
         final id = int.tryParse(tail);
-        return id != null && id >= 0 && !tail.contains('/');
+        return RegExp(r'^[0-9]+$').hasMatch(tail) && id != null;
       }
     }
 
     return false;
+  }
+
+  /// Normalizes the only locally-owned mobile deep-link shape:
+  /// `vhhealth://app/<allowlisted-route>`.
+  ///
+  /// Custom schemes do not prove domain ownership, so they never carry
+  /// credentials or arbitrary return targets. HTTPS universal/app links stay
+  /// disabled until the external association files and domain ownership are
+  /// independently approved.
+  static String? parseExternalRoute(String? raw) {
+    if (raw == null || raw.isEmpty || raw.trim() != raw) return null;
+    final uri = Uri.tryParse(raw);
+    if (uri == null ||
+        uri.scheme != customScheme ||
+        uri.authority != customHost ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        !uri.path.startsWith('/') ||
+        uri.path.startsWith('//')) {
+      return null;
+    }
+    return _isAllowed(uri.path) ? uri.path : null;
   }
 
   /// Parse a push notification data payload and return a GoRouter path.

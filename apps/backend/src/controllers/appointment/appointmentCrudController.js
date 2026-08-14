@@ -214,7 +214,11 @@ export const createAppointment = async (req, res) => {
     });
     const hydratedAppointment =
       (await appointmentQueryService.getAppointmentById(appointment.id, tenantId)) || appointment;
-    const patientUid = validation.patient.uid ?? resolvedPatient?.uid ?? null;
+    const patientUid =
+      hydratedAppointment.patient_uid
+      ?? validation.patient.uid
+      ?? resolvedPatient?.uid
+      ?? null;
 
     await logAudit(req, 'FRONT_OFFICE_APPOINTMENT_BOOKED', {
       appointment_id: hydratedAppointment.id,
@@ -230,6 +234,13 @@ export const createAppointment = async (req, res) => {
     }, {
       resource: 'appointment',
       resourceId: hydratedAppointment.id,
+    });
+
+    emitAppointmentEvent('book', {
+      tenantId,
+      patientUid,
+      appointmentId: hydratedAppointment.id,
+      status: hydratedAppointment.status ?? appointment.status ?? 'SCHEDULED',
     });
 
     success(res, {
@@ -407,6 +418,13 @@ export const updateAppointment = async (req, res) => {
       }
     }
 
+    emitAppointmentEvent('update', {
+      tenantId,
+      patientUid: updatedAppointment?.patient_uid ?? appointment.patient_uid ?? null,
+      appointmentId: updatedAppointment?.id ?? appointment.id ?? id,
+      status: updatedAppointment?.status ?? appointment.status ?? null,
+    });
+
     success(res, {
       appointment: updatedAppointment,
       updated_by: req.user?.name,
@@ -497,7 +515,13 @@ export const rescheduleAppointment = async (req, res) => {
       resourceId: id,
     });
 
-    emitAppointmentEvent('reschedule', { tenantId });
+    emitAppointmentEvent('reschedule', {
+      tenantId,
+      patientUid:
+        result.appointment?.patient_uid ?? appointment.patient_uid ?? null,
+      appointmentId: result.appointment?.id ?? appointment.id ?? id,
+      status: result.appointment?.status ?? null,
+    });
     success(res, {
       appointment: result.appointment,
       previous: {
@@ -560,6 +584,14 @@ export const deleteAppointment = async (req, res) => {
     }, {
       resource: 'appointment',
       resourceId: id,
+    });
+
+    emitAppointmentEvent('cancel', {
+      tenantId,
+      patientUid:
+        cancelledAppointment?.patient_uid ?? appointment.patient_uid ?? null,
+      appointmentId: cancelledAppointment?.id ?? appointment.id ?? id,
+      status: cancelledAppointment?.status ?? 'CANCELLED',
     });
 
     success(res, {

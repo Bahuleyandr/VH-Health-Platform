@@ -7305,6 +7305,7 @@ model notification_outbox {
   notification_delivery_cursors_notification_delivery_cursors_tenant_id_inflight_outbox_idTonotification_outbox        notification_delivery_cursors[]           @relation("notification_delivery_cursors_tenant_id_inflight_outbox_idTonotification_outbox")
   notification_delivery_cursors_notification_delivery_cursors_tenant_id_last_contiguous_outbox_idTonotification_outbox notification_delivery_cursors[]           @relation("notification_delivery_cursors_tenant_id_last_contiguous_outbox_idTonotification_outbox")
   tenants                                                                                                              tenants                                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notification_outbox_tenant")
+  payslip_documents                                                                                                    payslip_documents?
   referral_patient_notifications                                                                                       referral_patient_notifications[]
   stemi_team_notifications                                                                                             stemi_team_notifications[]
 
@@ -7615,17 +7616,19 @@ model password_reset_otps {
 }
 
 model patient_allergies {
-  id           Int       @id @default(autoincrement())
-  patient_id   Int?
-  patient_uid  String?   @db.Uuid
-  allergy_name String    @db.VarChar(255)
-  severity     String?   @db.VarChar(50)
-  reaction     String?
-  is_active    Boolean?  @default(true)
-  created_at   DateTime? @default(now()) @db.Timestamptz(6)
-  tenant_id    String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  tenants      tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_allergies_tenant")
+  id                                Int                                @id @default(autoincrement())
+  patient_id                        Int?
+  patient_uid                       String?                            @db.Uuid
+  allergy_name                      String                             @db.VarChar(255)
+  severity                          String?                            @db.VarChar(50)
+  reaction                          String?
+  is_active                         Boolean?                           @default(true)
+  created_at                        DateTime?                          @default(now()) @db.Timestamptz(6)
+  tenant_id                         String                             @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  fhir_allergy_intolerance_receipts fhir_allergy_intolerance_receipts?
+  tenants                           tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_allergies_tenant")
 
+  @@unique([tenant_id, id], map: "ux_patient_allergies_tenant_id_for_fhir_receipt")
   @@index([tenant_id], map: "idx_patient_allergies_tenant_id")
 }
 
@@ -8019,42 +8022,137 @@ model payment_transactions {
 }
 
 model payroll_runs {
-  id                                     Int        @id @default(autoincrement())
+  id                                     Int                    @id @default(autoincrement())
   month                                  Int
   year                                   Int
-  status                                 String?    @default("draft") @db.VarChar(32)
-  total_staff                            Int?       @default(0)
-  total_gross                            Decimal?   @default(0) @db.Decimal(14, 2)
-  total_net                              Decimal?   @default(0) @db.Decimal(14, 2)
-  total_deductions                       Decimal?   @default(0) @db.Decimal(14, 2)
-  generated_by                           String?    @db.Uuid
-  generated_at                           DateTime?  @db.Timestamptz(6)
-  locked_by                              String?    @db.Uuid
-  locked_at                              DateTime?  @db.Timestamptz(6)
+  status                                 String?                @default("draft") @db.VarChar(32)
+  total_staff                            Int?                   @default(0)
+  total_gross                            Decimal?               @default(0) @db.Decimal(14, 2)
+  total_net                              Decimal?               @default(0) @db.Decimal(14, 2)
+  total_deductions                       Decimal?               @default(0) @db.Decimal(14, 2)
+  generated_by                           String?                @db.Uuid
+  generated_at                           DateTime?              @db.Timestamptz(6)
+  locked_by                              String?                @db.Uuid
+  locked_at                              DateTime?              @db.Timestamptz(6)
   notes                                  String?
-  created_at                             DateTime?  @default(now()) @db.Timestamptz(6)
-  updated_at                             DateTime?  @default(now()) @db.Timestamptz(6)
-  employee_count                         Int?       @default(0)
-  hr_approved_by                         String?    @db.Uuid
-  hr_approved_at                         DateTime?  @db.Timestamptz(6)
+  created_at                             DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at                             DateTime?              @default(now()) @db.Timestamptz(6)
+  employee_count                         Int?                   @default(0)
+  hr_approved_by                         String?                @db.Uuid
+  hr_approved_at                         DateTime?              @db.Timestamptz(6)
   hr_comment                             String?
-  admin_approved_by                      String?    @db.Uuid
-  admin_approved_at                      DateTime?  @db.Timestamptz(6)
+  admin_approved_by                      String?                @db.Uuid
+  admin_approved_at                      DateTime?              @db.Timestamptz(6)
   admin_comment                          String?
   approval_hash                          String?
-  tenant_id                              String     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  failed_staff_count                     Int        @default(0)
+  tenant_id                              String                 @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  failed_staff_count                     Int                    @default(0)
   failed_staff                           Json?
-  tenants                                tenants    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_runs_tenant")
-  users_payroll_runs_generated_byTousers users?     @relation("payroll_runs_generated_byTousers", fields: [generated_by], references: [uid], onDelete: NoAction, onUpdate: NoAction)
-  users_payroll_runs_locked_byTousers    users?     @relation("payroll_runs_locked_byTousers", fields: [locked_by], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  attempt_token                          String                 @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  result_manifest_hash                   String?                @db.Char(64)
+  document_manifest_hash                 String?                @db.Char(64)
+  payroll_run_attempts                   payroll_run_attempts[] @relation("PayrollRunAttempts")
+  current_attempt                        payroll_run_attempts   @relation("PayrollRunCurrentAttempt", fields: [tenant_id, id, attempt_token], references: [tenant_id, payroll_run_id, attempt_token], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_runs_current_attempt")
+  tenants                                tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_runs_tenant")
+  users_payroll_runs_generated_byTousers users?                 @relation("payroll_runs_generated_byTousers", fields: [generated_by], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  users_payroll_runs_locked_byTousers    users?                 @relation("payroll_runs_locked_byTousers", fields: [locked_by], references: [uid], onDelete: NoAction, onUpdate: NoAction)
   payslips                               payslips[]
 
   @@unique([tenant_id, month, year], map: "uniq_payroll_runs_tenant_month_year")
+  @@unique([tenant_id, id, attempt_token], map: "ux_payroll_runs_current_attempt_binding")
   @@unique([tenant_id, id], map: "ux_payroll_runs_tenant_id")
   @@index([month, year], map: "idx_payroll_runs")
   @@index([status], map: "idx_payroll_runs_status")
   @@index([tenant_id], map: "idx_payroll_runs_tenant_id")
+}
+
+model payroll_run_attempts {
+  tenant_id                   String                      @db.Uuid
+  payroll_run_id              Int
+  attempt_token               String                      @db.Uuid
+  started_at                  DateTime                    @db.Timestamptz(6)
+  status                      String                      @default("processing") @db.VarChar(32)
+  expected_staff_count        Int                         @default(0)
+  succeeded_staff_count       Int                         @default(0)
+  failed_staff_count          Int                         @default(0)
+  finalized_at                DateTime?                   @db.Timestamptz(6)
+  superseded_at               DateTime?                   @db.Timestamptz(6)
+  superseded_by_attempt_token String?                     @db.Uuid
+  created_at                  DateTime                    @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  updated_at                  DateTime                    @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  payroll_run                 payroll_runs                @relation("PayrollRunAttempts", fields: [tenant_id, payroll_run_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_attempts_run")
+  superseded_by               payroll_run_attempts?       @relation("PayrollAttemptSupersession", fields: [tenant_id, payroll_run_id, superseded_by_attempt_token], references: [tenant_id, payroll_run_id, attempt_token], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_attempts_superseded_by")
+  superseded_attempts         payroll_run_attempts[]      @relation("PayrollAttemptSupersession")
+  staff_results               payroll_run_staff_results[] @relation("PayrollResultAttempt")
+  superseded_staff_results    payroll_run_staff_results[] @relation("PayrollResultSupersededByAttempt")
+  current_for_run             payroll_runs?               @relation("PayrollRunCurrentAttempt")
+  payslip_documents           payslip_documents[]
+  payslips                    payslips[]
+
+  @@id([tenant_id, payroll_run_id, attempt_token])
+}
+
+model payroll_run_staff_results {
+  tenant_id                   String                @db.Uuid
+  payroll_run_id              Int
+  attempt_token               String                @db.Uuid
+  staff_uid                   String                @db.Uuid
+  outcome                     String                @default("pending") @db.VarChar(16)
+  payslip_id                  Int?
+  payslip_document_revision   Int?
+  gross_salary                Decimal?              @db.Decimal(12, 2)
+  net_salary                  Decimal?              @db.Decimal(12, 2)
+  total_deductions            Decimal?              @db.Decimal(12, 2)
+  finance_effects             Json?
+  failure_reason              String?
+  started_at                  DateTime?             @db.Timestamptz(6)
+  finalized_at                DateTime?             @db.Timestamptz(6)
+  superseded_at               DateTime?             @db.Timestamptz(6)
+  superseded_by_attempt_token String?               @db.Uuid
+  created_at                  DateTime              @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  updated_at                  DateTime              @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  attempt                     payroll_run_attempts  @relation("PayrollResultAttempt", fields: [tenant_id, payroll_run_id, attempt_token], references: [tenant_id, payroll_run_id, attempt_token], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_staff_results_attempt")
+  payslip                     payslips?             @relation(fields: [tenant_id, payslip_id, payroll_run_id, attempt_token, staff_uid], references: [tenant_id, id, payroll_run_id, generation_attempt_token, staff_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_staff_results_payslip")
+  staff                       users                 @relation(fields: [tenant_id, staff_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_staff_results_staff")
+  superseded_by               payroll_run_attempts? @relation("PayrollResultSupersededByAttempt", fields: [tenant_id, payroll_run_id, superseded_by_attempt_token], references: [tenant_id, payroll_run_id, attempt_token], onDelete: NoAction, onUpdate: NoAction, map: "fk_payroll_run_staff_results_superseded_by")
+
+  @@id([tenant_id, payroll_run_id, attempt_token, staff_uid])
+  @@unique([tenant_id, payslip_id, payroll_run_id, attempt_token, staff_uid], map: "ux_payroll_run_staff_results_payslip_binding")
+  @@index([tenant_id, payroll_run_id, attempt_token, outcome], map: "idx_payroll_run_staff_results_current", where: raw("(superseded_at IS NULL)"))
+}
+
+model payslip_documents {
+  id                       BigInt               @id @default(autoincrement())
+  object_token             String               @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String               @db.Uuid
+  payslip_id               Int
+  payroll_run_id           Int
+  attempt_token            String               @db.Uuid
+  staff_uid                String               @db.Uuid
+  payslip_revision         Int
+  version                  Int
+  object_key               String               @unique(map: "ux_payslip_documents_object_key")
+  credential_ciphertext    String
+  content_sha256           String               @db.Char(64)
+  status                   String               @default("prepared") @db.VarChar(32)
+  storage_verified_at      DateTime?            @db.Timestamptz(6)
+  notification_outbox_id   Int?
+  failure_reason           String?
+  uploaded_at              DateTime?            @db.Timestamptz(6)
+  delivery_queued_at       DateTime?            @db.Timestamptz(6)
+  notification_accepted_at DateTime?            @db.Timestamptz(6)
+  credential_revealed_at   DateTime?            @db.Timestamptz(6)
+  superseded_at            DateTime?            @db.Timestamptz(6)
+  created_at               DateTime             @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  updated_at               DateTime             @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  attempt                  payroll_run_attempts @relation(fields: [tenant_id, payroll_run_id, attempt_token], references: [tenant_id, payroll_run_id, attempt_token], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslip_documents_attempt")
+  notification_outbox      notification_outbox? @relation(fields: [tenant_id, notification_outbox_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslip_documents_outbox")
+  payslip                  payslips             @relation(fields: [tenant_id, payslip_id, payroll_run_id, attempt_token, staff_uid], references: [tenant_id, id, payroll_run_id, generation_attempt_token, staff_uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslip_documents_payslip")
+
+  @@unique([tenant_id, payslip_id, payslip_revision], map: "ux_payslip_documents_active_revision", where: raw("((status)::text = ANY ((ARRAY['prepared'::character varying, 'uploaded'::character varying, 'delivery_queued'::character varying, 'notification_accepted'::character varying])::text[]))"))
+  @@unique([tenant_id, notification_outbox_id], map: "ux_payslip_documents_notification")
+  @@unique([tenant_id, payslip_id, version], map: "ux_payslip_documents_version")
+  @@index([tenant_id, payroll_run_id, attempt_token, status], map: "idx_payslip_documents_attempt_delivery")
 }
 
 model payslip_queries {
@@ -8095,61 +8193,68 @@ model payslip_query_replies {
 }
 
 model payslips {
-  id                         Int                  @id @default(autoincrement())
+  id                         Int                        @id @default(autoincrement())
   payroll_run_id             Int?
-  staff_uid                  String?              @db.Uuid
+  staff_uid                  String?                    @db.Uuid
   month                      Int
   year                       Int
-  total_working_days         Int?                 @default(0)
-  days_present               Int?                 @default(0)
-  days_absent                Int?                 @default(0)
-  days_leave                 Int?                 @default(0)
-  days_half                  Int?                 @default(0)
-  overtime_hours             Decimal?             @default(0) @db.Decimal(6, 2)
-  overtime_rate              Decimal?             @default(0) @db.Decimal(10, 2)
-  basic_earned               Decimal?             @default(0) @db.Decimal(12, 2)
-  hra_earned                 Decimal?             @default(0) @db.Decimal(12, 2)
-  da_earned                  Decimal?             @default(0) @db.Decimal(12, 2)
-  special_allowance_earned   Decimal?             @default(0) @db.Decimal(12, 2)
-  transport_allowance_earned Decimal?             @default(0) @db.Decimal(12, 2)
-  medical_allowance_earned   Decimal?             @default(0) @db.Decimal(12, 2)
-  overtime_pay               Decimal?             @default(0) @db.Decimal(12, 2)
-  bonus_this_month           Decimal?             @default(0) @db.Decimal(12, 2)
-  gross_salary               Decimal?             @default(0) @db.Decimal(12, 2)
-  pf_employee                Decimal?             @default(0) @db.Decimal(12, 2)
-  esi_employee               Decimal?             @default(0) @db.Decimal(12, 2)
-  professional_tax           Decimal?             @default(0) @db.Decimal(12, 2)
-  tds                        Decimal?             @default(0) @db.Decimal(12, 2)
-  other_deductions           Decimal?             @default(0) @db.Decimal(12, 2)
-  total_deductions           Decimal?             @default(0) @db.Decimal(12, 2)
-  net_salary                 Decimal?             @default(0) @db.Decimal(12, 2)
+  total_working_days         Int?                       @default(0)
+  days_present               Int?                       @default(0)
+  days_absent                Int?                       @default(0)
+  days_leave                 Int?                       @default(0)
+  days_half                  Int?                       @default(0)
+  overtime_hours             Decimal?                   @default(0) @db.Decimal(6, 2)
+  overtime_rate              Decimal?                   @default(0) @db.Decimal(10, 2)
+  basic_earned               Decimal?                   @default(0) @db.Decimal(12, 2)
+  hra_earned                 Decimal?                   @default(0) @db.Decimal(12, 2)
+  da_earned                  Decimal?                   @default(0) @db.Decimal(12, 2)
+  special_allowance_earned   Decimal?                   @default(0) @db.Decimal(12, 2)
+  transport_allowance_earned Decimal?                   @default(0) @db.Decimal(12, 2)
+  medical_allowance_earned   Decimal?                   @default(0) @db.Decimal(12, 2)
+  overtime_pay               Decimal?                   @default(0) @db.Decimal(12, 2)
+  bonus_this_month           Decimal?                   @default(0) @db.Decimal(12, 2)
+  gross_salary               Decimal?                   @default(0) @db.Decimal(12, 2)
+  pf_employee                Decimal?                   @default(0) @db.Decimal(12, 2)
+  esi_employee               Decimal?                   @default(0) @db.Decimal(12, 2)
+  professional_tax           Decimal?                   @default(0) @db.Decimal(12, 2)
+  tds                        Decimal?                   @default(0) @db.Decimal(12, 2)
+  other_deductions           Decimal?                   @default(0) @db.Decimal(12, 2)
+  total_deductions           Decimal?                   @default(0) @db.Decimal(12, 2)
+  net_salary                 Decimal?                   @default(0) @db.Decimal(12, 2)
   pdf_key                    String?
-  pdf_generated_at           DateTime?            @db.Timestamptz(6)
-  status                     String?              @default("draft") @db.VarChar(20)
-  viewed_at                  DateTime?            @db.Timestamptz(6)
-  downloaded_at              DateTime?            @db.Timestamptz(6)
-  issued_at                  DateTime?            @db.Timestamptz(6)
-  created_at                 DateTime?            @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime?            @default(now()) @db.Timestamptz(6)
-  lop_days                   Decimal?             @default(0) @db.Decimal(5, 2)
-  lop_deduction              Decimal?             @default(0) @db.Decimal(12, 2)
-  arrears_amount             Decimal?             @default(0) @db.Decimal(12, 2)
-  advance_deduction          Decimal?             @default(0) @db.Decimal(12, 2)
+  pdf_generated_at           DateTime?                  @db.Timestamptz(6)
+  status                     String?                    @default("draft") @db.VarChar(20)
+  viewed_at                  DateTime?                  @db.Timestamptz(6)
+  downloaded_at              DateTime?                  @db.Timestamptz(6)
+  issued_at                  DateTime?                  @db.Timestamptz(6)
+  created_at                 DateTime?                  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime?                  @default(now()) @db.Timestamptz(6)
+  lop_days                   Decimal?                   @default(0) @db.Decimal(5, 2)
+  lop_deduction              Decimal?                   @default(0) @db.Decimal(12, 2)
+  arrears_amount             Decimal?                   @default(0) @db.Decimal(12, 2)
+  advance_deduction          Decimal?                   @default(0) @db.Decimal(12, 2)
   revision_note              String?
-  manually_edited            Boolean?             @default(false)
+  manually_edited            Boolean?                   @default(false)
   edit_reason                String?
-  edited_by                  String?              @db.Uuid
-  edited_at                  DateTime?            @db.Timestamptz(6)
-  tenant_id                  String               @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  edited_by                  String?                    @db.Uuid
+  edited_at                  DateTime?                  @db.Timestamptz(6)
+  tenant_id                  String                     @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  generation_attempt_token   String?                    @db.Uuid
+  document_revision          Int                        @default(1)
   advance_deductions         advance_deductions[]
   leave_encashments          leave_encashments[]
+  payroll_run_staff_results  payroll_run_staff_results?
+  payslip_documents          payslip_documents[]
   payslip_queries            payslip_queries[]
-  payroll_runs               payroll_runs?        @relation(fields: [tenant_id, payroll_run_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_payroll_run_tenant")
-  users                      users?               @relation(fields: [tenant_id, staff_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_staff_tenant")
-  tenants                    tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_tenant")
+  payroll_run_attempts       payroll_run_attempts?      @relation(fields: [tenant_id, payroll_run_id, generation_attempt_token], references: [tenant_id, payroll_run_id, attempt_token], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_generation_attempt")
+  payroll_runs               payroll_runs?              @relation(fields: [tenant_id, payroll_run_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_payroll_run_tenant")
+  users                      users?                     @relation(fields: [tenant_id, staff_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_staff_tenant")
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payslips_tenant")
   salary_arrears             salary_arrears[]
 
-  @@unique([tenant_id, staff_uid, month, year], map: "ux_payslips_tenant_staff_period")
+  @@unique([tenant_id, id, payroll_run_id, generation_attempt_token, staff_uid], map: "ux_payslips_attempt_staff_binding")
+  @@unique([tenant_id, id], map: "ux_payslips_tenant_id")
+  @@unique([tenant_id, staff_uid, month, year], map: "ux_payslips_tenant_staff_period", where: raw("((status)::text IS DISTINCT FROM 'superseded'::text)"))
   @@index([month, year], map: "idx_payslips_month")
   @@index([staff_uid], map: "idx_payslips_staff")
   @@index([manually_edited], map: "idx_payslips_manually_edited", where: raw("(manually_edited = true)"))
@@ -9299,11 +9404,12 @@ model scheduled_notifications {
   created_at DateTime  @default(now()) @db.Timestamptz(6)
   tenant_id  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
   tenants    tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_scheduled_notifications_tenant")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_notifications_user_fk")
+  users      users     @relation(fields: [tenant_id, user_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_notifications_tenant_user_fk")
 
   @@index([user_id, status], map: "idx_scheduled_notifications_user")
   @@index([send_at], map: "idx_scheduled_notifications_pending_due", where: raw("((status)::text = 'pending'::text)"))
   @@index([tenant_id], map: "idx_scheduled_notifications_tenant_id")
+  @@index([tenant_id, user_id, status], map: "idx_scheduled_notifications_tenant_user_status")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -9542,6 +9648,7 @@ model staff {
   users                users?    @relation(fields: [user_id], references: [uid], onUpdate: NoAction)
 
   @@unique([tenant_id, employee_id], map: "uniq_staff_tenant_employee_id", where: raw("(employee_id IS NOT NULL)"))
+  @@unique([tenant_id, user_id], map: "ux_staff_tenant_user_identity", where: raw("(user_id IS NOT NULL)"))
   @@index([tenant_id, scim_provider_id, scim_external_id], map: "idx_staff_scim_provider_external", where: raw("((scim_provider_id IS NOT NULL) AND (scim_external_id IS NOT NULL))"))
   @@index([user_id], map: "idx_staff_user_id_fk")
   @@index([department])
@@ -9949,6 +10056,7 @@ model staff_salary {
   tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_salary_tenant")
   users               users     @relation(fields: [staff_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([tenant_id, staff_uid], map: "ux_staff_salary_tenant_user_identity")
   @@index([staff_uid], map: "idx_staff_salary_uid")
   @@index([tenant_id], map: "idx_staff_salary_tenant_id")
 }
@@ -10657,6 +10765,7 @@ model tenants {
   feedback                                             feedback[]
   feedback_nps_responses                               feedback_nps_responses[]
   feedback_nps_rollups                                 feedback_nps_rollups[]
+  fhir_allergy_intolerance_receipts                    fhir_allergy_intolerance_receipts[]
   fhir_vital_observation_receipts                      fhir_vital_observation_receipts[]
   fhir_vital_observation_sets                          fhir_vital_observation_sets[]
   file_access_logs                                     file_access_logs[]
@@ -10676,6 +10785,7 @@ model tenants {
   help_center_categories                               help_center_categories[]
   hipaa_access_log                                     hipaa_access_log[]
   hl7_feed_subscriptions                               hl7_feed_subscriptions[]
+  hl7_inbound_clinical_receipts                        hl7_inbound_clinical_receipts[]
   hl7_inbound_recovery_receipts                        hl7_inbound_recovery_receipts[]
   hl7_outbound_messages                                hl7_outbound_messages[]
   housekeeping_floor_assignments                       housekeeping_floor_assignments[]
@@ -10936,6 +11046,7 @@ model tenants {
   salary_advances                                      salary_advances[]
   salary_arrears                                       salary_arrears[]
   salary_revisions                                     salary_revisions[]
+  scheduled_job_tenant_runs                            scheduled_job_tenant_runs[]
   scheduled_notifications                              scheduled_notifications[]
   scheduling_overbook_audit_events                     scheduling_overbook_audit_events[]
   scheduling_overbook_policies                         scheduling_overbook_policies[]
@@ -11662,6 +11773,7 @@ model users {
   external_recovery_operability_actions                                                                                            external_recovery_operability_actions[]
   family_members                                                                                                                   family_members[]
   feedback_nps_responses                                                                                                           feedback_nps_responses[]
+  fhir_allergy_intolerance_receipts                                                                                                fhir_allergy_intolerance_receipts[]
   fhir_vital_observation_receipts                                                                                                  fhir_vital_observation_receipts[]                      @relation("fhir_vital_observation_receipt_patient")
   fhir_vital_observation_sets_as_importer                                                                                          fhir_vital_observation_sets[]                          @relation("fhir_vital_observation_set_importer")
   fhir_vital_observation_sets_as_patient                                                                                           fhir_vital_observation_sets[]                          @relation("fhir_vital_observation_set_patient")
@@ -11669,6 +11781,7 @@ model users {
   geofence_breaches_geofence_breaches_staff_idTousers                                                                              geofence_breaches[]                                    @relation("geofence_breaches_staff_idTousers")
   geofence_breaches_geofence_breaches_staff_uidTousers                                                                             geofence_breaches[]                                    @relation("geofence_breaches_staff_uidTousers")
   hai_cases                                                                                                                        hai_cases[]
+  hl7_inbound_clinical_receipts                                                                                                    hl7_inbound_clinical_receipts[]
   hl7_inbound_recovery_receipts                                                                                                    hl7_inbound_recovery_receipts[]
   housekeeping_logs_housekeeping_logs_staff_idTousers                                                                              housekeeping_logs[]                                    @relation("housekeeping_logs_staff_idTousers")
   housekeeping_logs_housekeeping_logs_staff_uidTousers                                                                             housekeeping_logs[]                                    @relation("housekeeping_logs_staff_uidTousers")
@@ -11744,6 +11857,7 @@ model users {
   overtime_requests_overtime_requests_staff_uidTousers                                                                             overtime_requests[]                                    @relation("overtime_requests_staff_uidTousers")
   patient_flow_checkins                                                                                                            patient_flow_checkins[]
   patient_records                                                                                                                  patient_records[]
+  payroll_run_staff_results                                                                                                        payroll_run_staff_results[]
   payroll_runs_payroll_runs_generated_byTousers                                                                                    payroll_runs[]                                         @relation("payroll_runs_generated_byTousers")
   payroll_runs_payroll_runs_locked_byTousers                                                                                       payroll_runs[]                                         @relation("payroll_runs_locked_byTousers")
   payslips                                                                                                                         payslips[]
@@ -11854,6 +11968,7 @@ model users {
   @@unique([tenant_id, phone], map: "uniq_users_tenant_phone")
   @@unique([tenant_id, uid], map: "ux_users_tenant_uid_for_pathways")
   @@unique([tenant_id, id, uid], map: "ux_users_tenant_id_id_uid_for_cc_replay")
+  @@unique([tenant_id, id], map: "ux_users_tenant_id_id")
   @@index([tenant_id, scim_provider_id, scim_external_id], map: "idx_users_scim_provider_external", where: raw("((scim_provider_id IS NOT NULL) AND (scim_external_id IS NOT NULL))"))
   @@index([tenant_id, is_break_glass_account], map: "idx_users_break_glass_accounts", where: raw("(is_break_glass_account = true)"))
   @@index([preferred_language], map: "idx_users_preferred_language")
@@ -16415,6 +16530,8 @@ model clinical_timeline_events {
   ed_closure_evidence                                                                                         ed_closure_evidence[]
   ed_encounter_evidence                                                                                       ed_encounter_evidence[]
   ed_recovery_contact_events                                                                                  ed_recovery_contact_events[]
+  fhir_allergy_intolerance_receipts                                                                           fhir_allergy_intolerance_receipts?
+  hl7_inbound_clinical_receipts                                                                               hl7_inbound_clinical_receipts?
   inpatient_primary_physician_assignments                                                                     inpatient_primary_physician_assignments[]
   lab_critical_alert_acknowledgement_receipts                                                                 lab_critical_alert_acknowledgement_receipts?
   mlc_completeness_reviews                                                                                    mlc_completeness_reviews[]
@@ -16503,6 +16620,8 @@ model clinical_audit_events {
   ed_injury_diagram_attachments                                                                         ed_injury_diagram_attachments[]
   ed_recovery_contact_events                                                                            ed_recovery_contact_events[]
   external_recovery_operability_actions                                                                 external_recovery_operability_actions[]
+  fhir_allergy_intolerance_receipts                                                                     fhir_allergy_intolerance_receipts?
+  hl7_inbound_clinical_receipts                                                                         hl7_inbound_clinical_receipts?
   inpatient_primary_physician_assignments                                                               inpatient_primary_physician_assignments[]
   lab_critical_alert_acknowledgement_receipts                                                           lab_critical_alert_acknowledgement_receipts?
   mlc_completeness_reviews                                                                              mlc_completeness_reviews[]
@@ -21293,6 +21412,9 @@ model interop_messages {
   delivery_claimed_at                                                                                                                             DateTime?                                   @db.Timestamptz(6)
   delivery_lease_expires_at                                                                                                                       DateTime?                                   @db.Timestamptz(6)
   owner_release_client_event_id                                                                                                                   String?                                     @db.Uuid
+  retry_at                                                                                                                                        DateTime?                                   @db.Timestamptz(6)
+  last_delivery_outcome                                                                                                                           String?                                     @db.VarChar(40)
+  last_delivery_response_status                                                                                                                   Int?
   clinical_continuity_reconciliation_items                                                                                                        clinical_continuity_reconciliation_items?
   clinical_continuity_replay_effect_evidence_clinical_continuity_replay_effect_evidence_tenant_id_interop_message_idTointerop_messages            clinical_continuity_replay_effect_evidence? @relation("clinical_continuity_replay_effect_evidence_tenant_id_interop_message_idTointerop_messages")
   clinical_continuity_replay_receipts                                                                                                             clinical_continuity_replay_receipts?
@@ -21308,7 +21430,7 @@ model interop_messages {
   @@unique([tenant_id, channel_id, direction, protocol, source_position], map: "ux_interop_messages_recovery_position", where: raw("(recovery_ledger_version = 1)"))
   @@unique([tenant_id, id], map: "ux_interop_messages_tenant_id")
   @@index([tenant_id, channel_id, status, created_at(sort: Desc)], map: "idx_interop_messages_channel_status")
-  @@index([tenant_id, status, updated_at], map: "idx_interop_messages_due_outbound", where: raw("(((direction)::text = ANY ((ARRAY['outbound'::character varying, 'bidirectional'::character varying])::text[])) AND ((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[])))"))
+  @@index([tenant_id, status, retry_at, updated_at, id], map: "idx_interop_messages_due_outbound_v2", where: raw("(((direction)::text = ANY ((ARRAY['outbound'::character varying, 'bidirectional'::character varying])::text[])) AND ((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[])))"))
   @@index([tenant_id, payload_hash], map: "idx_interop_messages_payload_hash")
   @@index([tenant_id, delivery_lease_expires_at, id], map: "idx_interop_messages_delivery_lease", where: raw("(((status)::text = 'delivering'::text) AND (delivery_claim_token IS NOT NULL))"))
 }
@@ -21329,6 +21451,9 @@ model interop_replay_batches {
   created_at       DateTime         @default(now()) @db.Timestamptz(6)
   started_at       DateTime?        @db.Timestamptz(6)
   completed_at     DateTime?        @db.Timestamptz(6)
+  selected_count   Int              @default(0)
+  queued_count     Int              @default(0)
+  skipped_count    Int              @default(0)
   interop_channels interop_channels @relation(fields: [tenant_id, channel_id], references: [tenant_id, id], onDelete: Cascade, onUpdate: NoAction, map: "fk_interop_replay_batches_channel_tenant")
   tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_interop_replay_batches_tenant")
 
@@ -27519,6 +27644,97 @@ model icu_code_status_history {
   tenants              tenants        @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_icu_code_status_history_tenant")
 
   @@index([tenant_id, icu_admission_id, changed_at(sort: Desc)], map: "idx_icu_code_status_history_admission")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model fhir_allergy_intolerance_receipts {
+  tenant_id                String                   @db.Uuid
+  resource_fingerprint     String                   @db.Char(64)
+  payload_sha256           String                   @db.Char(64)
+  patient_uid              String                   @db.Uuid
+  allergy_id               Int
+  timeline_event_id        String                   @db.Uuid
+  audit_event_id           String                   @db.Uuid
+  recorded_at              DateTime                 @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  patient_allergies        patient_allergies        @relation(fields: [tenant_id, allergy_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_allergy")
+  clinical_audit_events    clinical_audit_events    @relation(fields: [tenant_id, audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_audit")
+  users                    users                    @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_patient")
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_tenant")
+  clinical_timeline_events clinical_timeline_events @relation(fields: [tenant_id, timeline_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_fhir_allergy_intolerance_receipt_timeline")
+
+  @@id([tenant_id, resource_fingerprint])
+  @@unique([tenant_id, allergy_id], map: "ux_fhir_allergy_intolerance_receipt_allergy")
+  @@unique([tenant_id, audit_event_id], map: "ux_fhir_allergy_intolerance_receipt_audit")
+  @@unique([tenant_id, timeline_event_id], map: "ux_fhir_allergy_intolerance_receipt_timeline")
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_fhir_allergy_intolerance_receipts_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model hl7_inbound_clinical_receipts {
+  id                       BigInt                   @id @default(autoincrement())
+  tenant_id                String                   @db.Uuid
+  sender_identity          String                   @db.VarChar(255)
+  message_control_id       String                   @db.VarChar(199)
+  message_type             String                   @db.VarChar(20)
+  payload_sha256           String                   @db.Char(64)
+  patient_uid              String                   @db.Uuid
+  detail_table             String                   @db.VarChar(40)
+  detail_id                Int
+  timeline_event_id        String                   @db.Uuid
+  audit_event_id           String                   @db.Uuid
+  acknowledgement_code     String                   @default("AA") @db.Char(2)
+  acknowledgement_text     String                   @default("Message accepted") @db.VarChar(255)
+  recorded_at              DateTime                 @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  clinical_audit_events    clinical_audit_events    @relation(fields: [tenant_id, audit_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_audit")
+  users                    users                    @relation(fields: [tenant_id, patient_uid], references: [tenant_id, uid], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_patient")
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_tenant")
+  clinical_timeline_events clinical_timeline_events @relation(fields: [tenant_id, timeline_event_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_inbound_clinical_receipt_timeline")
+
+  @@unique([tenant_id, audit_event_id], map: "ux_hl7_inbound_clinical_receipt_audit")
+  @@unique([tenant_id, sender_identity, message_control_id], map: "ux_hl7_inbound_clinical_receipt_identity")
+  @@unique([tenant_id, timeline_event_id], map: "ux_hl7_inbound_clinical_receipt_timeline")
+  @@index([tenant_id, patient_uid, recorded_at(sort: Desc)], map: "idx_hl7_inbound_clinical_receipts_patient")
+}
+
+model scheduled_job_runs {
+  id                        BigInt                      @id @default(autoincrement())
+  job_label                 String                      @db.VarChar(160)
+  lock_key                  String                      @db.VarChar(160)
+  discovery_status          String                      @default("pending") @db.VarChar(24)
+  aggregate_status          String                      @default("running") @db.VarChar(24)
+  tenants_discovered        Int                         @default(0)
+  tenants_succeeded         Int                         @default(0)
+  tenants_failed            Int                         @default(0)
+  tenants_unresolved        Int                         @default(0)
+  failure_code              String?                     @db.VarChar(80)
+  started_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  finished_at               DateTime?                   @db.Timestamptz(6)
+  scope                     String                      @default("tenant_fanout") @db.VarChar(24)
+  scheduled_job_tenant_runs scheduled_job_tenant_runs[]
+
+  @@index([finished_at, id], map: "idx_scheduled_job_runs_finished_retention", where: raw("((aggregate_status)::text <> 'running'::text)"))
+  @@index([job_label, started_at(sort: Desc)], map: "idx_scheduled_job_runs_label_started")
+  @@index([started_at, id], map: "idx_scheduled_job_runs_running_started", where: raw("((aggregate_status)::text = 'running'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model scheduled_job_tenant_runs {
+  run_id             BigInt
+  tenant_id          String             @db.Uuid
+  status             String             @default("running") @db.VarChar(16)
+  failure_code       String?            @db.VarChar(80)
+  started_at         DateTime           @default(now()) @db.Timestamptz(6)
+  finished_at        DateTime?          @db.Timestamptz(6)
+  scheduled_job_runs scheduled_job_runs @relation(fields: [run_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_job_tenant_runs_run_fk")
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "scheduled_job_tenant_runs_tenant_fk")
+
+  @@id([run_id, tenant_id])
+  @@index([tenant_id, started_at(sort: Desc)], map: "idx_scheduled_job_tenant_runs_tenant_started")
 }
 
 enum transplant_organ_type {

@@ -171,7 +171,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { runMigrations } = await import('../../utils/migrations/runMigrations.js');
+const {
+  evaluateMigrationState,
+  runMigrations,
+  verifyMigrationsCurrent,
+} = await import('../../utils/migrations/runMigrations.js');
 
 let tmpDir;
 
@@ -433,5 +437,48 @@ CREATE TABLE _test_safe (id int);`,
     expect(calls).toContain("SET LOCAL statement_timeout = '120s'");
     const setCalls = calls.filter((s) => typeof s === 'string' && s.startsWith('SET '));
     expect(setCalls.some((s) => /DROP TABLE/i.test(s))).toBe(false);
+  });
+});
+
+describe('production migration-tip verification', () => {
+  it('classifies an exact tracker match without mutating the database', async () => {
+    const file = '999_current.sql';
+    fs.writeFileSync(path.join(tmpDir, file), 'SELECT 1;');
+    queryRawUnsafeMock.mockResolvedValueOnce([{ name: file }]);
+
+    const state = await verifyMigrationsCurrent({ migrationsDir: tmpDir });
+
+    expect(state).toMatchObject({
+      current: true,
+      expectedTip: file,
+      executedTip: file,
+      pending: [],
+      unexpected: [],
+    });
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the image contains a pending migration', async () => {
+    fs.writeFileSync(path.join(tmpDir, '998_applied.sql'), 'SELECT 1;');
+    fs.writeFileSync(path.join(tmpDir, '999_pending.sql'), 'SELECT 2;');
+    queryRawUnsafeMock.mockResolvedValueOnce([{ name: '998_applied.sql' }]);
+
+    await expect(verifyMigrationsCurrent({ migrationsDir: tmpDir })).rejects.toMatchObject({
+      code: 'MIGRATION_TIP_MISMATCH',
+      migrationState: expect.objectContaining({ pending: ['999_pending.sql'] }),
+    });
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('treats tracker rows absent from the immutable image as drift', () => {
+    expect(evaluateMigrationState(
+      ['000_baseline.sql'],
+      [{ name: '000_baseline.sql' }, { name: '999_removed.sql' }],
+    )).toMatchObject({
+      current: false,
+      pending: [],
+      unexpected: ['999_removed.sql'],
+    });
   });
 });

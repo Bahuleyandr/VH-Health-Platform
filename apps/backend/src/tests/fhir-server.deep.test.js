@@ -2,15 +2,45 @@
 // OperationOutcome error contract.
 
 import prisma from '../lib/prisma.js';
+import { toFhirAllergyIntolerance } from '../services/fhir/fhirAdapter.js';
+import { listFhirAllergyIntolerances } from '../services/fhir/fhirAllergyIntoleranceService.js';
 import { authClient } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const PHONE = `+9199915${String(Date.now() % 10000).padStart(4, '0')}`;
+let patientId;
 let patientUid;
+let patientTenantId;
+let postedAllergyId;
 
 async function cleanup() {
+  const allergyReceipts = await prisma.$queryRawUnsafe(
+    `SELECT receipt.timeline_event_id::text, receipt.audit_event_id::text
+       FROM fhir_allergy_intolerance_receipts receipt
+       JOIN patient_allergies allergy
+         ON allergy.tenant_id = receipt.tenant_id
+        AND allergy.id = receipt.allergy_id
+      WHERE allergy.allergy_name LIKE 'C3TEST%'`,
+  ).catch(() => []);
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM fhir_allergy_intolerance_receipts receipt
+      USING patient_allergies allergy
+      WHERE allergy.tenant_id = receipt.tenant_id
+        AND allergy.id = receipt.allergy_id
+        AND allergy.allergy_name LIKE 'C3TEST%'`,
+  ).catch(() => {});
+  for (const receipt of allergyReceipts) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE id = $1::uuid`,
+      receipt.audit_event_id,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE id = $1::uuid`,
+      receipt.timeline_event_id,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM fhir_vital_observation_set_resources ownership
       USING fhir_vital_observation_sets vital_set
@@ -36,6 +66,10 @@ async function cleanup() {
     `DELETE FROM patient_allergies WHERE allergy_name LIKE 'C3TEST%'`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DELETE FROM allergies
+      WHERE COALESCE(NULLIF(allergen, ''), name) LIKE 'C3TEST%'`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM vitals_chart WHERE notes LIKE '%FHIR Observation create%'
        AND patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
   ).catch(() => {});
@@ -50,10 +84,12 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
     await cleanup();
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (phone, name, role, is_active, updated_at)
-       VALUES ($1, 'C3TEST Patient', 'PATIENT', true, NOW()) RETURNING uid`,
+       VALUES ($1, 'C3TEST Patient', 'PATIENT', true, NOW()) RETURNING id, uid, tenant_id`,
       PHONE,
     );
+    patientId = p[0].id;
     patientUid = p[0].uid;
+    patientTenantId = p[0].tenant_id;
   });
 
   afterAll(async () => {
@@ -201,6 +237,43 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
       });
     expect(res.status).toBe(201);
     expect(res.body.id).toMatch(/^pa-/);
+    postedAllergyId = res.body.id;
+    expect(res.body.code.text).toBe('C3TEST Penicillin');
+    expect(res.body.patient.reference).toBe(`Patient/${patientUid}`);
+    expect(res.body.reaction).toEqual([{
+      description: 'anaphylaxis',
+      manifestation: [{ text: 'anaphylaxis' }],
+    }]);
+
+    const immediateRead = await authClient('DOCTOR')
+      .get('/api/v1/fhir/AllergyIntolerance')
+      .query({ patient: patientUid });
+    expect(immediateRead.status).toBe(200);
+    const roundTrip = immediateRead.body.entry
+      .map((entry) => entry.resource)
+      .find((resource) => resource.id === res.body.id);
+    expect(roundTrip).toEqual(expect.objectContaining({
+      id: res.body.id,
+      code: { text: 'C3TEST Penicillin' },
+      patient: { reference: `Patient/${patientUid}` },
+      criticality: 'high',
+      reaction: [{
+        description: 'anaphylaxis',
+        manifestation: [{ text: 'anaphylaxis' }],
+      }],
+    }));
+
+    const duplicate = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        code: { text: '  C3TEST   PENICILLIN  ' },
+        patient: { reference: `Patient/${patientUid}` },
+        criticality: 'high',
+        reaction: [{ severity: 'severe', manifestation: [{ text: 'ANAPHYLAXIS' }] }],
+      });
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body.id).toBe(res.body.id);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT allergy_name, severity, is_active FROM patient_allergies WHERE allergy_name = 'C3TEST Penicillin'`,
@@ -208,6 +281,131 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].severity).toBe('SEVERE');
     expect(rows[0].is_active).toBe(true);
+
+    const evidence = await prisma.$queryRawUnsafe(
+      `SELECT
+         (SELECT COUNT(*)::int FROM fhir_allergy_intolerance_receipts
+           WHERE patient_uid = $1::uuid) AS receipt_count,
+         (SELECT COUNT(*)::int FROM clinical_timeline_events
+           WHERE patient_uid = $1::uuid AND event_type = 'allergy.recorded') AS timeline_count,
+         (SELECT COUNT(*)::int FROM clinical_audit_events
+           WHERE patient_uid = $1::uuid AND action = 'allergy.recorded') AS audit_count`,
+      patientUid,
+    );
+    expect(evidence[0]).toEqual({ receipt_count: 1, timeline_count: 1, audit_count: 1 });
+  });
+
+  test('POST /AllergyIntolerance rejects non-active lifecycle states', async () => {
+    const validActive = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        clinicalStatus: { coding: [
+          {
+            system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical',
+            code: 'active',
+          },
+          { system: 'urn:example:local-allergy-status', code: 'A' },
+        ] },
+        code: { text: 'C3TEST Active With Local Translation' },
+        patient: { reference: `Patient/${patientUid}` },
+      });
+    expect(validActive.status).toBe(201);
+
+    const res = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        clinicalStatus: { coding: [{
+          system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical',
+          code: 'resolved',
+        }] },
+        code: { text: 'C3TEST Resolved Unsupported' },
+        patient: { reference: `Patient/${patientUid}` },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.resourceType).toBe('OperationOutcome');
+
+    const foreignOnly = await authClient('DOCTOR')
+      .post('/api/v1/fhir/AllergyIntolerance')
+      .send({
+        resourceType: 'AllergyIntolerance',
+        clinicalStatus: { coding: [{
+          system: 'urn:example:local-allergy-status',
+          code: 'active',
+        }] },
+        code: { text: 'C3TEST Foreign Active Unsupported' },
+        patient: { reference: `Patient/${patientUid}` },
+      });
+    expect(foreignOnly.status).toBe(400);
+    expect(foreignOnly.body.resourceType).toBe('OperationOutcome');
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT allergy_name FROM patient_allergies
+        WHERE allergy_name IN (
+          'C3TEST Resolved Unsupported',
+          'C3TEST Foreign Active Unsupported'
+        )`,
+    );
+    expect(rows).toEqual([]);
+  });
+
+  test('GET /AllergyIntolerance reconciles every active keyed source with a patient reference', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies
+         (patient_id, patient_uid, allergy_name, severity, reaction, is_active, created_at)
+       VALUES ($1, NULL, 'C3TEST Ibuprofen', 'MODERATE', 'urticaria', true, NOW())`,
+      patientId,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO allergies
+         (patient_uid, allergen, severity, reaction, status, created_at, recorded_at)
+       VALUES
+         ($1::uuid, 'C3TEST Legacy Latex', 'MILD', 'contact rash', 'active', NOW(), NOW()),
+         ($1::uuid, 'C3TEST Penicillin', 'SEVERE', 'anaphylaxis', 'active', NOW(), NOW()),
+         ($1::uuid, 'C3TEST Inactive Legacy', 'SEVERE', 'historical', 'resolved', NOW(), NOW())`,
+      patientUid,
+    );
+
+    const patientRead = await authClient('DOCTOR')
+      .get('/api/v1/fhir/AllergyIntolerance')
+      .query({ patient: patientUid });
+    expect(patientRead.status).toBe(200);
+    const resources = patientRead.body.entry.map(entry => entry.resource);
+    const byCode = new Map(resources.map(resource => [resource.code.text, resource]));
+
+    expect(byCode.get('C3TEST Penicillin')).toMatchObject({
+      id: postedAllergyId,
+      patient: { reference: `Patient/${patientUid}` },
+      criticality: 'high',
+      reaction: [{
+        description: 'anaphylaxis',
+        manifestation: [{ text: 'anaphylaxis' }],
+      }],
+    });
+    expect(resources.filter(resource => resource.code.text === 'C3TEST Penicillin')).toHaveLength(1);
+    expect(byCode.get('C3TEST Ibuprofen')).toMatchObject({
+      id: expect.stringMatching(/^pa-/),
+      patient: { reference: `Patient/${patientUid}` },
+      criticality: 'low',
+    });
+    expect(byCode.get('C3TEST Legacy Latex')).toMatchObject({
+      id: expect.stringMatching(/^\d+$/),
+      patient: { reference: `Patient/${patientUid}` },
+      criticality: 'low',
+    });
+    expect(byCode.has('C3TEST Inactive Legacy')).toBe(false);
+
+    const tenantRows = await listFhirAllergyIntolerances({
+      tenantId: patientTenantId,
+      limit: 1000,
+      offset: 0,
+    });
+    const tenantResources = tenantRows.map(toFhirAllergyIntolerance);
+    expect(tenantResources.length).toBeGreaterThanOrEqual(3);
+    for (const resource of tenantResources) {
+      expect(resource.patient?.reference).toMatch(/^Patient\/[0-9a-f-]{36}$/i);
+    }
   });
 
   test('$everything carries the problem-list Condition', async () => {
@@ -229,6 +427,12 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
       .map((e) => e.resource)
       .filter((r) => r.resourceType === 'Condition');
     expect(conditions.some((c) => c.id?.startsWith('p-') && c.code?.text === 'C3TEST Hypothyroidism')).toBe(true);
+    const allergies = res.body.entry
+      .map((e) => e.resource)
+      .filter((r) => r.resourceType === 'AllergyIntolerance');
+    expect(allergies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: { text: 'C3TEST Penicillin' } }),
+    ]));
   });
 
   test('writes are role-gated with an OperationOutcome', async () => {

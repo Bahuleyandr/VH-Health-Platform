@@ -290,6 +290,7 @@ import { sendInvestigationNotifications } from './notifications/InvestigationNot
 import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { executeCleanup } from './r2CleanupJob.js';
 import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.js';
+import { dispatchOutboundMessages } from '../services/interfaceEngine/interfaceEngineService.js';
 import { sweepWaitlists } from '../services/scheduling/schedulingOptimizationService.js';
 import { expiryRadarSweep } from '../services/staff/credentialingService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
@@ -314,7 +315,7 @@ import { reconcileExpiredClaims } from '../services/notification/notificationDel
 import { verifyAuditChain } from '../services/clinical/documentIntegrityService.js';
 import { sendSecurityWebhook } from './securityWebhook.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
-import { runForEachTenant } from './tenantFanout.js';
+import { runFleetJob, runForEachTenant } from './tenantFanout.js';
 
 /**
  * Verify the per-tenant audit hash chain for every active tenant (plus the
@@ -708,10 +709,16 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // ⏰ Every hour - Send 24h and 1h SMS+push appointment reminders
-  registerCron('0 * * * *', withJobLock('timed-reminders', () => runForEachTenant('timed-reminders', () => sendTimedReminders())));
+  registerCron('0 * * * *', withJobLock('timed-reminders', () => (
+    runForEachTenant('timed-reminders', tenantId => sendTimedReminders({ tenantId }))
+  )));
 
   // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
-  registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => runForEachTenant('process-scheduled-notifications', () => processPendingScheduledNotifications())));
+  registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', () => (
+    runForEachTenant('process-scheduled-notifications', tenantId => (
+      processPendingScheduledNotifications({ tenantId })
+    ))
+  )));
 
   // 💊 Every 5 minutes - Alert if an active ward/ICU admission still has no drug chart after 1 hour.
   registerCron('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
@@ -902,6 +909,15 @@ if (process.env.NODE_ENV !== 'test') {
     ));
   }));
 
+  // Every minute — bounded, tenant-scoped interface-engine HTTP dispatch.
+  // Delivery claims and durable retry timestamps fence each message; the
+  // fleet-wide job lock prevents duplicate autonomous worker ticks.
+  registerCron('* * * * *', withJobLock('interface-engine-outbound-dispatch', async () => {
+    await runForEachTenant('interface-engine-outbound-dispatch', tenantId => (
+      dispatchOutboundMessages({ tenantId, batchSize: 25, maxInFlight: 100 })
+    ), { strict: true });
+  }));
+
   // 📅 Every 10 minutes — waitlist auto-fill sweep (roadmap D2): freed
   // capacity for today/tomorrow is offered to waiting patients
   // priority-then-FIFO.
@@ -993,9 +1009,13 @@ if (process.env.NODE_ENV !== 'test') {
   // tenant. Append-only triggers (migration 324) make undetected tampering by
   // the app role impossible in the first place; this is the detection backstop
   // for any out-of-band (e.g. superuser/DBA) tamper.
+  // It enumerates tenants itself rather than being fanned out, so it takes the
+  // fleet-scope receipt (migration 671): withJobLock swallows the throw, and
+  // without a durable run row a failed hourly verification looked exactly like
+  // an hour in which the cron never fired.
   registerCron('0 * * * *', withJobLock('audit-chain-verify', async () => {
-    const r = await runAuditChainVerification();
-    logger.info('audit-chain-verify sweep complete', r);
+    const { result } = await runFleetJob('audit-chain-verify', () => runAuditChainVerification());
+    logger.info('audit-chain-verify sweep complete', result);
   }));
 
   // 🚑 Every 2 minutes — results-inbox escalation engine
@@ -1005,8 +1025,12 @@ if (process.env.NODE_ENV !== 'test') {
   // security webhook), and backfills any breached SLA instance that lost its
   // task. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper); each
   // tenant's writes re-scope via setTenantTx.
+  // Fleet-scope receipt (migration 671) for the same reason as
+  // audit-chain-verify: this sweep visits only the tenants that own an active
+  // task-scope rule, so it has no discoverable tenant set to fan out over, and
+  // a failed critical-result escalation tick left no durable trace.
   registerCron('*/2 * * * *', withJobLock('results-inbox-escalation', async () => {
-    await runEscalationSweep({});
+    await runFleetJob('results-inbox-escalation', () => runEscalationSweep({}));
   }));
 
   // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
@@ -1040,7 +1064,7 @@ if (process.env.NODE_ENV !== 'test') {
           deleted: sink.deleted,
         })),
       });
-    });
+    }, { lockKey: 'purge-audit-logs' });
     logger.info('Audit retention fan-out complete', fanout);
   }));
 
@@ -1174,13 +1198,16 @@ if (process.env.NODE_ENV !== 'test') {
     try { await detectSchemaDrift(); } catch (e) { logger.warn('Schema drift check failed:', e.message); }
   });
 
-  // Prime the KPI channel once on startup so first subscribers get a snapshot
-  // without waiting up to 30s for the next cron tick.
-  setImmediate(async () => {
-    try { await tickAdminKpi(); } catch (e) { logger.warn('Initial admin:kpi tick failed:', e.message); }
-    try { await tickDailyOps(); } catch (e) { logger.warn('Initial daily-ops tick failed:', e.message); }
-    try { await tickTeleconsultOps(); } catch (e) { logger.warn('Initial teleconsult-ops tick failed:', e.message); }
-  });
+}
+
+export async function primeOperationalRealtimeChannels() {
+  try { await tickAdminKpi(); } catch (e) { logger.warn('Initial admin:kpi tick failed:', e.message); }
+  try {
+    await withDbAdvisoryLock('daily-ops-tick', () => runWithSuperAdmin(tickDailyOps));
+  } catch (e) { logger.warn('Initial daily-ops tick failed:', e.message); }
+  try {
+    await withDbAdvisoryLock('teleconsult-ops-tick', () => runWithSuperAdmin(tickTeleconsultOps));
+  } catch (e) { logger.warn('Initial teleconsult-ops tick failed:', e.message); }
 }
 
 // ✅ Manual Trigger for all tasks.
@@ -1207,64 +1234,121 @@ if (process.env.NODE_ENV !== 'test') {
 // flushes anything queued.
 export async function runAllScheduledTasksNow() {
   const runStartupTasks = String(process.env.RUN_STARTUP_TASKS || '').toLowerCase() === 'true';
+  const manualFailures = [];
+  const runManualTask = async (label, task) => {
+    try {
+      return await task();
+    } catch (err) {
+      manualFailures.push(err);
+      logger.error(`${label}: manual task failed:`, err.message || err);
+      return undefined;
+    }
+  };
   logger.info(
     `Running scheduled tasks manually (RUN_STARTUP_TASKS=${runStartupTasks ? 'on' : 'off'})...`,
   );
   try {
     // Cheap, idempotent, non-fan-out housekeeping — safe on every boot.
-    await purgeLogs();
-    await purgeArchives();
+    await runManualTask('purge-logs', purgeLogs);
+    await runManualTask('purge-archives', purgeArchives);
 
-    const swaggerDocument = loadSwaggerDocument();
-    if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
-    logger.info('✅ Swagger documentation validated.');
+    await runManualTask('validate-swagger', async () => {
+      const swaggerDocument = loadSwaggerDocument();
+      if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
+      logger.info('✅ Swagger documentation validated.');
+    });
 
     // Always drain the outboxes once on boot — idempotent + advisory-locked, so
     // only one process across the fleet actually flushes each batch.
-    await withDbAdvisoryLock('notification-outbox-drain', () => runWithSuperAdmin(() => (
-      runForEachTenant('notification-outbox-drain', tenantId => (
-        drainNotificationOutbox({ tenantId, limit: 100 })
-      ))
-    )));
-    await withDbAdvisoryLock('event-outbox-drain', () => drainEventOutbox({ limit: 100 }));
+    await runManualTask('notification-outbox-drain', () => (
+      withDbAdvisoryLock('notification-outbox-drain', () => runWithSuperAdmin(() => (
+        runForEachTenant('notification-outbox-drain', tenantId => (
+          drainNotificationOutbox({ tenantId, limit: 100 })
+        ))
+      )))
+    ));
+    await runManualTask('event-outbox-drain', () => (
+      withDbAdvisoryLock('event-outbox-drain', () => drainEventOutbox({ limit: 100 }))
+    ));
 
     if (!runStartupTasks) {
       logger.info('Skipping heavy startup sweeps (RUN_STARTUP_TASKS not set). Registered crons own these.');
+      if (manualFailures.length > 0) {
+        throw new AggregateError(manualFailures, 'One or more manual scheduler tasks failed');
+      }
       return;
     }
 
     // NB: database backup is NOT triggered here — it is owned by a dedicated
     // k8s CronJob (audit C-5). Triggering it from every worker boot caused a
     // pg_dump stampede on deploy.
-    await withDbAdvisoryLock('startup-r2-cleanup', () => executeCleanup());
-    await withDbAdvisoryLock('cleanup-backups', async () => {
+    await runManualTask('startup-r2-cleanup', () => (
+      withDbAdvisoryLock('startup-r2-cleanup', () => executeCleanup())
+    ));
+    await runManualTask('cleanup-backups', () => withDbAdvisoryLock('cleanup-backups', async () => {
       await cleanupBackups(path.resolve('backups', 'local'));
       await cleanupBackups(path.resolve('backups', 'render'));
-    });
+    }));
 
     // Heavy MUTATING / fan-out jobs — each fleet-wide single-runner via the
     // advisory lock so a boot stampede can't multiply patient SMS / escalations.
-    await withDbAdvisoryLock('timed-reminders', () => runWithSuperAdmin(sendTimedReminders));
-    await withDbAdvisoryLock('process-scheduled-notifications', () => runWithSuperAdmin(processPendingScheduledNotifications));
-    await withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep));
-    await withDbAdvisoryLock('unread-critical-notification-escalation', () => runWithSuperAdmin(runUnreadCriticalEscalation));
-    await withDbAdvisoryLock('purge-staff-messages', () => runWithSuperAdmin(purgeExpiredStaffMessages));
-    await withDbAdvisoryLock('investigation-notifications', () => runWithSuperAdmin(sendInvestigationNotifications));
-    await withDbAdvisoryLock('roster-deadline-escalation', () => runWithSuperAdmin(() => runRosterDeadlineEscalation({ force: true })));
-    await withDbAdvisoryLock('expire-break-glass', () => runWithSuperAdmin(sweepExpiredBreakGlass));
-    await withDbAdvisoryLock('results-inbox-escalation', () => runWithSuperAdmin(() => runEscalationSweep({})));
+    await runManualTask('timed-reminders', () => withDbAdvisoryLock('timed-reminders', () => (
+      runForEachTenant('timed-reminders', tenantId => sendTimedReminders({ tenantId }))
+    )));
+    await runManualTask('process-scheduled-notifications', () => (
+      withDbAdvisoryLock('process-scheduled-notifications', () => (
+        runForEachTenant('process-scheduled-notifications', tenantId => (
+          processPendingScheduledNotifications({ tenantId })
+        ))
+      ))
+    ));
+    await runManualTask('drug-chart-missing-sla', () => (
+      withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep))
+    ));
+    await runManualTask('unread-critical-notification-escalation', () => (
+      withDbAdvisoryLock('unread-critical-notification-escalation', () => (
+        runWithSuperAdmin(runUnreadCriticalEscalation)
+      ))
+    ));
+    await runManualTask('purge-staff-messages', () => (
+      withDbAdvisoryLock('purge-staff-messages', () => runWithSuperAdmin(purgeExpiredStaffMessages))
+    ));
+    await runManualTask('investigation-notifications', () => (
+      withDbAdvisoryLock('investigation-notifications', () => (
+        runWithSuperAdmin(sendInvestigationNotifications)
+      ))
+    ));
+    await runManualTask('roster-deadline-escalation', () => (
+      withDbAdvisoryLock('roster-deadline-escalation', () => (
+        runWithSuperAdmin(() => runRosterDeadlineEscalation({ force: true }))
+      ))
+    ));
+    await runManualTask('expire-break-glass', () => (
+      withDbAdvisoryLock('expire-break-glass', () => runWithSuperAdmin(sweepExpiredBreakGlass))
+    ));
+    await runManualTask('results-inbox-escalation', () => (
+      withDbAdvisoryLock('results-inbox-escalation', () => (
+        runWithSuperAdmin(() => runFleetJob('results-inbox-escalation', () => runEscalationSweep({})))
+      ))
+    ));
 
     // Purge file deletion log entries older than 90 days
-    await withDbAdvisoryLock('purge-file-deletion-log', () => runWithSuperAdmin(async () => {
-      const fileDeletionResult = await prisma.$queryRawUnsafe(
-        `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
-      );
-      logger.info(`File deletion log cleanup: ${Number(fileDeletionResult) || 0} rows deleted`);
-    }));
+    await runManualTask('purge-file-deletion-log', () => (
+      withDbAdvisoryLock('purge-file-deletion-log', () => runWithSuperAdmin(async () => {
+        const fileDeletionResult = await prisma.$queryRawUnsafe(
+          `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
+        );
+        logger.info(`File deletion log cleanup: ${Number(fileDeletionResult) || 0} rows deleted`);
+      }))
+    ));
 
+    if (manualFailures.length > 0) {
+      throw new AggregateError(manualFailures, 'One or more manual scheduler tasks failed');
+    }
     logger.info('✅ All manual tasks completed.');
   } catch (err) {
     logger.error('Error running manual tasks:', err.message || err);
+    throw err;
   }
 }
 

@@ -31,6 +31,15 @@ class FirebaseSessionService {
   /// as one short attempt instead of the default 15s x 3-retry policy.
   /// [refreshOnUnauthorized] must be false for logout so an abandoned 401
   /// cannot refresh credentials after the local wipe.
+  ///
+  /// Returns true on 401 as well as on 2xx. This method answers "is the session
+  /// revoked", not "did the server accept this request", and a 401 means the
+  /// credential is already dead — the exact end state the caller wanted. The
+  /// distinction is load-bearing: `LogoutService` durably queues a retry
+  /// (which means writing the departing JWT back to secure storage for up to
+  /// seven days) whenever a revocation is reported unconfirmed, and a 401 is
+  /// the EXPECTED response on the session-revoked and account-deletion logout
+  /// paths.
   static Future<bool> revokeSession({
     Duration? timeout,
     bool retryTransientFailures = true,
@@ -43,7 +52,8 @@ class FirebaseSessionService {
         retryTransientFailures: retryTransientFailures,
         refreshOnUnauthorized: refreshOnUnauthorized,
       );
-      if (!response.isSuccess) {
+      final revoked = response.isSuccess || response.isUnauthorized;
+      if (!revoked) {
         // A non-2xx never throws (ApiResponse.parse just sets isSuccess), so
         // without this the whole revocation could fail with no trace at all.
         debugPrint(
@@ -51,7 +61,7 @@ class FirebaseSessionService {
           'HTTP ${response.statusCode} ${response.code ?? ''}',
         );
       }
-      return response.isSuccess;
+      return revoked;
     } catch (e) {
       debugPrint('FirebaseSessionService.revokeSession error: $e');
       return false;

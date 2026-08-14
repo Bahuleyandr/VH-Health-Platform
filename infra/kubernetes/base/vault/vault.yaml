@@ -217,7 +217,7 @@ spec:
                     app.kubernetes.io/instance: vault
       initContainers:
         - name: render-config
-          image: busybox:1.37.0@sha256:be84dc33f9de03ba21e7d1b03fc96d07a43fd4ec5a7b2aa0fc81a2f3c90c5d2c
+          image: busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -246,7 +246,7 @@ spec:
               mountPath: /rendered
       containers:
         - name: vault
-          image: hashicorp/vault:1.18.2@sha256:0ec66c6c16ed3898cc1a94fa0e9c2e9a4c6c1fd8b6e1e05a8a0f5a5d6c7b8e4f
+          image: hashicorp/vault:1.18.2@sha256:2090eb7ac7a4bdef802f685698bd4dc0740de683affe8ff7df55f4fc77077ba7
           imagePullPolicy: IfNotPresent
           command: ["vault"]
           args:

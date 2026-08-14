@@ -1,7 +1,8 @@
 # minio/operator.yaml — MinIO Operator reference
 #
-# The MinIO Operator is installed from the upstream manifest channel:
-#   https://github.com/minio/operator
+# The MinIO Operator has an immutable manual-sync Helm Application in
+# ../../held/operator-lifecycle. That target is deliberately not composed into
+# the active Argo application barrel or an environment overlay.
 # Pinned version: 5.0.15 (released 2024-10; last LTS before the 6.x
 # refactor, which still needs vendor testing).
 #
@@ -12,11 +13,8 @@
 #   - console Deployment (one-off UI; we gate it behind an internal
 #     ingress — see tenant.yaml)
 #
-# As with CNPG, the operator manifest is applied via `kubectl apply -f`
-# during bootstrap (tracked by Argo CD as its own Application), not
-# listed in `resources:` here. Kustomize would otherwise try to apply
-# `commonLabels` to the operator's ClusterRoleBindings and fail on
-# immutable fields.
+# As with CNPG, the operator is not listed in `resources:` here, keeping its
+# CRDs/controller lifecycle separate from the Tenant custom resource.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -29,7 +27,11 @@ metadata:
     app.kubernetes.io/part-of: vhhealth
     app.kubernetes.io/managed-by: kustomize
 data:
+  managedByArgoCD: "held-manual-application"
   operatorVersion: "5.0.15"
-  operatorManifestUrl: "https://raw.githubusercontent.com/minio/operator/v5.0.15/resources/base/operator.yaml"
+  operatorChartRepository: "https://operator.min.io"
+  operatorChartVersion: "5.0.15"
+  operatorChartSha256: "8c174de0947acf39c4482def9249730db7f44a9ed57e0b2207c8cf6cc794c51f"
+  operatorImage: "quay.io/minio/operator:v5.0.15@sha256:811d71f9d41ce275946a50cc564b6fab3d3268b3af5969e45c0278d711a60ac2"
   # MinIO server image used by tenants we create.
   minioImage: "quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332"

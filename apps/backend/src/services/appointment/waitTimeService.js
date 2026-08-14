@@ -98,19 +98,25 @@ export async function getAppointmentWaitTime(appointmentId) {
  * with each patient's current queue position + ETA. Used by the realtime
  * fan-out to push queue-position updates after a status change.
  */
-export async function getWaitingQueueForDoctor(doctorId, date) {
+export async function getWaitingQueueForDoctor(doctorId, date, tenantId) {
   const rows = await prisma.$queryRaw`
     WITH waiting AS (
-      SELECT id, patient_id, token_number
-      FROM appointments
-      WHERE doctor_id = ${parseInt(doctorId)}
-        AND DATE(appointment_date) = ${date}::date
-        AND status IN ('CONFIRMED', 'SCHEDULED')
+      SELECT appointment.id, patient.uid AS patient_uid,
+             appointment.token_number
+      FROM appointments AS appointment
+      JOIN users AS patient
+        ON patient.id = appointment.patient_id
+       AND patient.tenant_id = appointment.tenant_id
+      WHERE appointment.doctor_id = ${parseInt(doctorId)}
+        AND appointment.tenant_id = ${tenantId}::uuid
+        AND DATE(appointment.appointment_date) = ${date}::date
+        AND appointment.status IN ('CONFIRMED', 'SCHEDULED')
     ),
     completed_today AS (
       SELECT id
       FROM appointments
       WHERE doctor_id = ${parseInt(doctorId)}
+        AND tenant_id = ${tenantId}::uuid
         AND DATE(appointment_date) = ${date}::date
         AND status = 'COMPLETED'
     ),
@@ -119,7 +125,9 @@ export async function getWaitingQueueForDoctor(doctorId, date) {
              MIN(h.created_at) FILTER (WHERE h.to_status = 'IN_PROGRESS') AS started_at,
              MIN(h.created_at) FILTER (WHERE h.to_status = 'COMPLETED')   AS completed_at
       FROM completed_today a
-      JOIN appointment_status_history h ON h.appointment_id = a.id
+      JOIN appointment_status_history h
+        ON h.appointment_id = a.id
+       AND h.tenant_id = ${tenantId}::uuid
       GROUP BY a.id
     ),
     consult AS (
@@ -128,7 +136,7 @@ export async function getWaitingQueueForDoctor(doctorId, date) {
       FROM consult_durations
       WHERE started_at IS NOT NULL AND completed_at IS NOT NULL
     )
-    SELECT w.id, w.patient_id, w.token_number,
+    SELECT w.id, w.patient_uid, w.token_number,
            (SELECT COUNT(*) FROM waiting w2 WHERE w2.token_number < w.token_number)::int AS position,
            c.avg_min
     FROM waiting w, consult c
@@ -139,7 +147,7 @@ export async function getWaitingQueueForDoctor(doctorId, date) {
     const avgMin = parseFloat(r.avg_min) || 15;
     return {
       appointmentId: r.id,
-      patientId: r.patient_id,
+      patientUid: r.patient_uid,
       tokenNumber: r.token_number,
       position: r.position,
       etaMinutes: Math.round(r.position * avgMin),

@@ -47,7 +47,7 @@ describe('Health Check API', () => {
     expect([200, 503]).toContain(res.statusCode);
     expect(res.body).toHaveProperty('checks');
     expect(res.body.checks).toHaveProperty('database');
-    expect(res.body.checks).toHaveProperty('migration_106');
+    expect(res.body.checks).toHaveProperty('migrations');
     // tenant-RLS posture is deliberately NOT a readiness gate (audit C-7) — it
     // is surfaced on /health/metrics instead. See readinessRlsPosture.test.js.
     expect(res.body.checks).not.toHaveProperty('tenant_rls');

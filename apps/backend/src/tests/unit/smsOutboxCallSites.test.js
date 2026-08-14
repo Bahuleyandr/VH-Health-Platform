@@ -15,6 +15,7 @@ const prismaDouble = {
 
 const queuePatientSmsMock = jest.fn();
 const queueAppointmentReminderSmsMock = jest.fn();
+const notificationOutboxQueueMock = jest.fn();
 const sendPushNotificationMock = jest.fn();
 const recordCanonicalClinicalEventMock = jest.fn();
 const loggerMock = {
@@ -36,6 +37,10 @@ jest.unstable_mockModule('../../utils/notifications/smsOutbox.js', () => ({
   queuePatientSms: queuePatientSmsMock,
   queueAppointmentReminderSms: queueAppointmentReminderSmsMock,
   queueAppointmentConfirmationSms: jest.fn(async () => ({ queued: true, outboxId: 1 })),
+}));
+jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () => ({
+  notificationOutbox: { queue: notificationOutboxQueueMock },
+  default: { queue: notificationOutboxQueueMock },
 }));
 jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', () => ({
   sendPushNotification: sendPushNotificationMock,
@@ -93,6 +98,7 @@ beforeEach(() => {
   executeRawUnsafeMock.mockReset();
   queuePatientSmsMock.mockReset();
   queueAppointmentReminderSmsMock.mockReset();
+  notificationOutboxQueueMock.mockReset();
   sendPushNotificationMock.mockReset();
   recordCanonicalClinicalEventMock.mockReset();
   loggerMock.info.mockReset();
@@ -100,6 +106,7 @@ beforeEach(() => {
   loggerMock.error.mockReset();
   queuePatientSmsMock.mockResolvedValue({ queued: true, outboxId: 11, duplicate: false, reason: null });
   queueAppointmentReminderSmsMock.mockResolvedValue({ queued: true, outboxId: 12 });
+  notificationOutboxQueueMock.mockResolvedValue({ id: 13, status: 'PENDING', duplicate: false });
   sendPushNotificationMock.mockResolvedValue({ successCount: 1, failureCount: 0, responses: [] });
   queryRawUnsafeMock.mockResolvedValue([]);
 });
@@ -158,22 +165,32 @@ describe('investigation report notification job', () => {
 });
 
 describe('appointment reminder job', () => {
+  function mockReminderQueries({ due24h = [], due1h = [] } = {}) {
+    queryRawUnsafeMock.mockImplementation(async (sql) => {
+      const text = String(sql);
+      if (text.includes('UPDATE appointments AS appointment')) return [];
+      if (text.includes('appointment.reminder_24h_sent IS NOT TRUE')) return due24h;
+      if (text.includes('appointment.reminder_1h_sent IS NOT TRUE')) return due1h;
+      return [];
+    });
+  }
+
   it('queues 24h and 1h reminder intents with tenant + recipient provenance', async () => {
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([{
+    mockReminderQueries({
+      due24h: [{
         id: 31, tenant_id: TENANT_ID, appointment_time: '10:30', token_number: 4,
         patient_user_id: 77, patient_name: 'Asha', patient_phone: '9000000001',
-        device_token: null, doctor_name: 'Rao', department: 'Cardiology',
-      }])
-      .mockResolvedValueOnce([{
+        doctor_name: 'Rao', department: 'Cardiology',
+      }],
+      due1h: [{
         id: 32, tenant_id: TENANT_ID, appointment_time: '11:30', token_number: 5,
         patient_user_id: 78, patient_name: 'Bala', patient_phone: '9000000002',
-        device_token: null, doctor_user_id: null, doctor_uid: null,
+        doctor_user_id: null, doctor_uid: null,
         doctor_name: 'Rao', department: 'Cardiology',
-      }])
-      .mockResolvedValue([]);
+      }],
+    });
 
-    await sendTimedReminders();
+    await sendTimedReminders({ tenantId: TENANT_ID, now: new Date('2030-01-01T04:00:00Z') });
 
     expect(queueAppointmentReminderSmsMock).toHaveBeenCalledTimes(2);
     expect(queueAppointmentReminderSmsMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -182,58 +199,98 @@ describe('appointment reminder job', () => {
     expect(queueAppointmentReminderSmsMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
       tenantId: TENANT_ID, recipientId: 78, hoursAhead: 1, appointmentId: 32,
     }));
+    expect(notificationOutboxQueueMock).toHaveBeenCalledTimes(2);
+    expect(notificationOutboxQueueMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      tenantId: TENANT_ID,
+      recipientId: 77,
+      channel: 'push',
+      sourceEventKey: 'appointment-reminder-24h:31',
+    }));
+    expect(notificationOutboxQueueMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      tenantId: TENANT_ID,
+      recipientId: 78,
+      channel: 'push',
+      sourceEventKey: 'appointment-reminder-1h:32',
+    }));
   });
 
-  it('does not report reminders as sent', async () => {
-    queryRawUnsafeMock.mockResolvedValue([]);
-    await sendTimedReminders();
-    const lines = loggerMock.info.mock.calls.map(args => String(args[0]));
-    expect(lines.some(line => /reminders sent/.test(line))).toBe(false);
-    expect(lines.some(line => /reminders processed/.test(line))).toBe(true);
+  it('uses tenant-local appointment instants and half-open 24h/1h windows', async () => {
+    mockReminderQueries();
+
+    await sendTimedReminders({ tenantId: TENANT_ID, now: new Date('2030-01-01T04:00:00Z') });
+
+    const selectCalls = queryRawUnsafeMock.mock.calls.filter(
+      ([sql]) => String(sql).includes('FROM appointments AS appointment'),
+    );
+    expect(selectCalls).toHaveLength(2);
+    for (const [sql, tenantId, fallbackTimezone, from, until] of selectCalls) {
+      expect(String(sql)).toContain('appointment.appointment_date + appointment.appointment_time::time');
+      expect(String(sql)).toContain('pg_timezone_names AS configured_timezone');
+      expect(String(sql)).toContain('AT TIME ZONE tenant_clock.timezone');
+      expect(String(sql)).toContain('appointment_at >= $3::timestamptz');
+      expect(String(sql)).toContain('appointment_at < $4::timestamptz');
+      expect(String(sql)).not.toContain('BETWEEN');
+      expect(tenantId).toBe(TENANT_ID);
+      expect(fallbackTimezone).toBeTruthy();
+      expect(from).toMatch(/Z$/);
+      expect(until).toMatch(/Z$/);
+    }
+    expect(selectCalls.map(([, , , from, until]) => Date.parse(until) - Date.parse(from)))
+      .toEqual([60 * 60 * 1000, 60 * 60 * 1000]);
   });
 
-  it('leaves the reminder eligible when neither patient channel accepts it', async () => {
-    queueAppointmentReminderSmsMock.mockResolvedValue({
-      queued: false, outboxId: null, duplicate: false, reason: 'queue_failed',
-    });
-    sendPushNotificationMock.mockRejectedValue(new Error('FCM unavailable'));
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([{
+  it('does not equate a queued SMS or push intent with provider delivery', async () => {
+    queueAppointmentReminderSmsMock.mockResolvedValue({ queued: true, outboxId: 12 });
+    notificationOutboxQueueMock.mockResolvedValue({ id: 13, status: 'PENDING' });
+    mockReminderQueries({
+      due24h: [{
         id: 33, tenant_id: TENANT_ID, appointment_time: '10:30', token_number: 6,
         patient_user_id: 79, patient_name: 'Chandra', patient_phone: '9000000003',
-        device_token: 'patient-device', doctor_name: 'Rao', department: 'Cardiology',
-      }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
+        doctor_name: 'Rao', department: 'Cardiology',
+      }],
+    });
 
-    await sendTimedReminders();
+    await sendTimedReminders({ tenantId: TENANT_ID, now: new Date('2030-01-01T04:00:00Z') });
 
-    expect(queryRawUnsafeMock.mock.calls.some(
-      ([sql]) => String(sql).includes('SET reminder_24h_sent = TRUE'),
-    )).toBe(false);
-    expect(loggerMock.warn.mock.calls.some(
-      ([line]) => String(line).includes('leaving it eligible for retry'),
-    )).toBe(true);
+    const flagWrites = queryRawUnsafeMock.mock.calls
+      .map(([sql]) => String(sql))
+      .filter(sql => sql.includes('SET reminder_24h_sent = TRUE'));
+    expect(flagWrites).toHaveLength(1);
+    expect(flagWrites[0]).toContain("receipt.outcome = 'acknowledged'");
+    expect(flagWrites[0]).not.toContain('ANY($1)');
   });
 
-  it('marks the reminder after a push succeeds even when SMS queueing fails', async () => {
+  it('rejects after attempting every due reminder when patient intents cannot be recorded', async () => {
     queueAppointmentReminderSmsMock.mockResolvedValue({
       queued: false, outboxId: null, duplicate: false, reason: 'queue_failed',
     });
-    sendPushNotificationMock.mockResolvedValue({ successCount: 1, failureCount: 0, responses: [] });
-    queryRawUnsafeMock
-      .mockResolvedValueOnce([{
+    notificationOutboxQueueMock.mockResolvedValue(null);
+    mockReminderQueries({
+      due24h: [{
         id: 34, tenant_id: TENANT_ID, appointment_time: '10:30', token_number: 7,
         patient_user_id: 80, patient_name: 'Devi', patient_phone: '9000000004',
-        device_token: 'patient-device', doctor_name: 'Rao', department: 'Cardiology',
-      }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([]);
+        doctor_name: 'Rao', department: 'Cardiology',
+      }],
+      due1h: [{
+        id: 35, tenant_id: TENANT_ID, appointment_time: '11:30', token_number: 8,
+        patient_user_id: 81, patient_name: 'Esha', patient_phone: '9000000005',
+        doctor_user_id: null, doctor_uid: null,
+        doctor_name: 'Rao', department: 'Cardiology',
+      }],
+    });
 
-    await sendTimedReminders();
+    await expect(sendTimedReminders({
+      tenantId: TENANT_ID,
+      now: new Date('2030-01-01T04:00:00Z'),
+    })).rejects.toMatchObject({
+      code: 'REMINDER_BATCH_RECORD_FAILED',
+      result: { due24h: 1, due1h: 1, queued24h: 0, queued1h: 0 },
+    });
 
-    expect(queryRawUnsafeMock.mock.calls.some(
-      ([sql]) => String(sql).includes('SET reminder_24h_sent = TRUE'),
+    expect(queueAppointmentReminderSmsMock).toHaveBeenCalledTimes(2);
+    expect(notificationOutboxQueueMock).toHaveBeenCalledTimes(2);
+    expect(loggerMock.warn.mock.calls.some(
+      ([line]) => String(line).includes('could not be recorded on any patient channel'),
     )).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/constrained_content.dart';
@@ -8,17 +9,20 @@ import '../payroll_amounts.dart';
 
 typedef PayrollPayslipDetailLoader =
     Future<Map<String, dynamic>> Function(String id);
+typedef PayrollPayslipPasswordRevealer = Future<String> Function(String id);
 
 class PayslipDetailScreen extends StatefulWidget {
   final String payslipId;
   final String monthLabel;
   final PayrollPayslipDetailLoader? loadPayslip;
+  final PayrollPayslipPasswordRevealer? revealPassword;
 
   const PayslipDetailScreen({
     super.key,
     required this.payslipId,
     required this.monthLabel,
     this.loadPayslip,
+    this.revealPassword,
   });
 
   @override
@@ -30,6 +34,8 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
   bool _loading = true;
   String? _error;
   bool _downloadingPdf = false;
+  bool _revealingPassword = false;
+  bool _passwordRevealFailed = false;
 
   @override
   void initState() {
@@ -92,6 +98,32 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
       }
     } finally {
       if (mounted) setState(() => _downloadingPdf = false);
+    }
+  }
+
+  Future<void> _revealPassword() async {
+    if (_revealingPassword) return;
+    setState(() {
+      _revealingPassword = true;
+      _passwordRevealFailed = false;
+    });
+
+    try {
+      final revealer =
+          widget.revealPassword ?? HrApiService.revealPayslipPassword;
+      final password = await revealer(widget.payslipId);
+      if (!mounted) return;
+      setState(() => _revealingPassword = false);
+      await showDialog<void>(
+        context: context,
+        builder: (_) => _PayslipPasswordDialog(password: password),
+      );
+    } catch (_) {
+      if (mounted) setState(() => _passwordRevealFailed = true);
+    } finally {
+      if (mounted && _revealingPassword) {
+        setState(() => _revealingPassword = false);
+      }
     }
   }
 
@@ -387,6 +419,60 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
             // ─── PDF Download ────────────────────────────────────────────────
             if (hasPDF) ...[
               const SizedBox(height: 4),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.teal.shade100),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.payrollDetailPasswordTitle,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      s.payrollDetailPasswordDescription,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                    if (_passwordRevealFailed) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        s.payrollDetailPasswordUnavailable,
+                        style: TextStyle(
+                          color: Colors.red.shade700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      key: const Key('payslip-password-reveal-button'),
+                      onPressed: _revealingPassword ? null : _revealPassword,
+                      icon: _revealingPassword
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.password_outlined),
+                      label: Text(
+                        _revealingPassword
+                            ? s.payrollDetailPasswordRetrieving
+                            : s.payrollDetailPasswordReveal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -458,6 +544,78 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PayslipPasswordDialog extends StatefulWidget {
+  final String password;
+
+  const _PayslipPasswordDialog({required this.password});
+
+  @override
+  State<_PayslipPasswordDialog> createState() => _PayslipPasswordDialogState();
+}
+
+class _PayslipPasswordDialogState extends State<_PayslipPasswordDialog> {
+  late final TextEditingController _controller;
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.password);
+  }
+
+  @override
+  void dispose() {
+    _controller.clear();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _copy() async {
+    final password = _controller.text;
+    if (password.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: password));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    return AlertDialog(
+      title: Text(s.payrollDetailPasswordDialogTitle),
+      content: TextField(
+        key: const Key('payslip-password-field'),
+        controller: _controller,
+        readOnly: true,
+        obscureText: !_visible,
+        enableSuggestions: false,
+        autocorrect: false,
+        decoration: InputDecoration(
+          labelText: s.payrollDetailPasswordFieldLabel,
+          suffixIcon: IconButton(
+            onPressed: () => setState(() => _visible = !_visible),
+            tooltip: _visible
+                ? s.payrollDetailPasswordHide
+                : s.payrollDetailPasswordShow,
+            icon: Icon(
+              _visible ? Icons.visibility_off_outlined : Icons.visibility,
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: _copy,
+          icon: const Icon(Icons.copy_outlined),
+          label: Text(s.payrollDetailPasswordCopy),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(s.payrollDetailPasswordClose),
+        ),
+      ],
     );
   }
 }

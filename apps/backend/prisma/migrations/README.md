@@ -1,38 +1,35 @@
-# Prisma Migration Workflow
+# Database migration workflow
 
-This directory contains Prisma database migrations for the VH Health backend.
+This directory is historical residue. It is not the VH Health migration source
+and must not receive new migrations.
 
-## Overview
+The authoritative migration chain is the ordered raw SQL under
+`apps/backend/src/migrations/`. Both the boot-time runner and the CI database
+setup consult the `_migrations` tracker and apply each unrecorded SQL file once.
+The checked-in `prisma/schema.prisma` is an introspected client model of that
+database, not a DDL authoring source.
 
-Prisma Migrate tracks changes to `prisma/schema.prisma` and generates SQL migration files that evolve the database schema over time. Each migration is stored as a timestamped directory containing a `migration.sql` file.
+## Adding a schema change
 
-> **Note**: The current codebase uses raw `pg` queries for all database access. The Prisma schema serves as documentation and as the source of truth for migration generation.
+1. Add the next reserved `NNN_description.sql` file under `src/migrations/`.
+2. Apply the complete raw-SQL chain to a disposable QA database with
+   `scripts/ci-setup-db.mjs`.
+3. Run `prisma db pull --schema=prisma/schema.prisma` so the Prisma model matches
+   the migrated database.
+4. Run `npm run db:generate`, `npm run check:schema-drift`, the focused database
+   contracts, and a fresh migration rehearsal.
+5. Commit the raw SQL and regenerated Prisma schema together.
 
-## Commands
+Never edit an applied raw migration. Add a later migration that converges every
+supported lineage instead.
 
-| Command | Description |
-|---|---|
-| `npm run db:migrate:dev` | Create and apply a new migration during development |
-| `npm run db:migrate` | Apply pending migrations (production/CI) |
-| `npm run db:migrate:status` | Check which migrations have been applied |
-| `npm run db:migrate:reset` | Reset the database and re-apply all migrations (destructive) |
-| `npm run db:generate` | Regenerate the Prisma Client after schema changes |
-| `npm run db:studio` | Open Prisma Studio GUI to browse data |
+## Production ownership
 
-## Development Workflow
+Argo CD's backend migration Job is the sole production writer. It runs as an
+Argo CD `PreSync` hook before backend workloads become ready. Application
+workers keep migration execution disabled and verify the `_migrations` tip at
+startup; they do not run `prisma migrate deploy`.
 
-1. **Edit the schema**: Make changes to `prisma/schema.prisma`.
-2. **Create a migration**: Run `npm run db:migrate:dev` and provide a descriptive name (e.g., `add_appointment_notes_column`).
-3. **Review the generated SQL**: Check the new migration file in `prisma/migrations/<timestamp>_<name>/migration.sql` to verify correctness.
-4. **Commit**: Add both the schema changes and the migration directory to version control.
-
-## Production Deployment
-
-Run `npm run db:migrate` in your deployment pipeline. This applies any pending migrations that have not yet been run against the target database. It will never generate new migrations -- only apply existing ones.
-
-## Important Notes
-
-- **Never edit a migration that has already been applied** to any environment. Create a new migration instead.
-- **Never delete migration directories** from version control. Prisma tracks applied migrations by their directory names.
-- The `db:migrate:reset` command drops and recreates the database. Only use it in development.
-- `DATABASE_URL` must be set in your environment for all migration commands.
+The `db:migrate*` package scripts remain compatibility utilities for the
+historical Prisma directory only. They are not part of CI, startup, or the
+production deployment path.

@@ -7,7 +7,7 @@ Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA 
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
 - **State**: Provider (`ThemeProvider`, `LocaleProvider`, `NotificationProvider`, `RealtimeProvider`, `WebSocketProvider`, `MessageUnreadProvider`, `ClinicalInboxProvider`, `SessionTimeoutProvider`)
 - **Navigation**: GoRouter with auth redirect guard
-- **HTTP**: `package:http`
+- **HTTP**: shared hardened `VHHttpClient` through the Staff `ApiClient`
 - **Auth**: Employee ID + password/PIN or tenant-enabled OIDC SSO → backend JWT
 - **Storage**: flutter_secure_storage (JWT, staff data)
 - **UI**: Material 3, professional blue/teal theme
@@ -23,7 +23,7 @@ lib/
     navigation/app_router.dart       # GoRouter routes + auth guard
     services/
       auth_service.dart              # JWT/staffId/role secure storage
-      staff_api_service.dart         # ALL backend API calls
+      api_client.dart                # shared hardened transport facade
     theme/app_theme.dart             # Material 3 blue/teal theme
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
@@ -141,7 +141,7 @@ See the [root `CLAUDE.md`](../../CLAUDE.md) for the cross-stack layout. Other ap
 The five separate source repos these were merged from are archived on GitHub as of 2026-04-18.
 
 ## Conventions
-- All HTTP calls use `await ApiConfig.authenticatedHeaders()` for auth
+- All Staff HTTP calls use `ApiClient`; do not bypass the shared hardened transport with raw `package:http`
 - JWT stored under key `staff_jwt` (separate from patient app's `jwt` key)
 - Backend response envelope: `{ success, data: {...} }` — unwrap `body['data']`
 - Staff-specific theme: blue/teal primary (distinct from patient app's teal/green)

@@ -1,0 +1,482 @@
+import '../config/role_config.dart';
+import '../config/staff_role_contract.g.dart';
+
+enum StaffRouteGate {
+  signedIn,
+  clinicalEntry,
+  patientLookup,
+  maternity,
+  clinicalCalculators,
+  reportAdministration,
+}
+
+class StaffRouteMetadata {
+  const StaffRouteMetadata(
+    this.template, {
+    this.anyFeatureIds = const {},
+    this.anyGates = const {},
+    this.externalEntry = false,
+    this.externalQueryParameters = const {},
+  });
+
+  final String template;
+  final Set<String> anyFeatureIds;
+  final Set<StaffRouteGate> anyGates;
+  final bool externalEntry;
+  final Set<String> externalQueryParameters;
+}
+
+class StaffRouteDecision {
+  const StaffRouteDecision._({required this.allowed, required this.reason});
+
+  const StaffRouteDecision.allow() : this._(allowed: true, reason: null);
+
+  const StaffRouteDecision.deny(String reason)
+    : this._(allowed: false, reason: reason);
+
+  final bool allowed;
+  final String? reason;
+}
+
+/// One fail-closed policy table for every Staff router destination.
+///
+/// The backend remains authoritative for each API call. This client-side gate
+/// prevents an unauthorized screen from being constructed while a request is
+/// already in flight, and prevents notification payloads from turning into an
+/// arbitrary in-app navigation primitive.
+class StaffRoutePolicy {
+  StaffRoutePolicy._();
+
+  static const _signedIn = {StaffRouteGate.signedIn};
+  static const _clinical = {StaffRouteGate.clinicalEntry};
+
+  static const List<StaffRouteMetadata> routes = [
+    StaffRouteMetadata('/dashboard', anyGates: _signedIn),
+    StaffRouteMetadata('/clinical-continuity', anyGates: _signedIn),
+    StaffRouteMetadata(
+      '/clinical-continuity/reconciliation',
+      anyGates: _signedIn,
+    ),
+    StaffRouteMetadata(
+      '/attendance',
+      anyFeatureIds: {'attendance'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata('/leave', anyFeatureIds: {'leave'}, externalEntry: true),
+    StaffRouteMetadata(
+      '/appointments',
+      anyFeatureIds: {'appointments', 'op_doctor_workspace'},
+      externalEntry: true,
+      externalQueryParameters: {'date', 'context', 'scope', 'workspace'},
+    ),
+    StaffRouteMetadata(
+      '/teleconsult/appointments/:appointmentId/consult',
+      anyFeatureIds: {'op_doctor_workspace'},
+    ),
+    StaffRouteMetadata(
+      '/investigations',
+      anyFeatureIds: {'investigations_upload', 'investigation_results'},
+      externalEntry: true,
+      externalQueryParameters: {
+        'context',
+        'patient_uid',
+        'patient_id',
+        'phone',
+        'name',
+        'hospital_number',
+        'appointment_id',
+        'doctor_id',
+        'doctor_name',
+        'department',
+        'appointment_date',
+        'appointment_time',
+      },
+    ),
+    StaffRouteMetadata('/lab-bookings', anyFeatureIds: {'lab_bookings'}),
+    StaffRouteMetadata(
+      '/lab/specimen-scan/:investigationId',
+      anyFeatureIds: {'investigations_upload', 'lab_bookings'},
+    ),
+    StaffRouteMetadata(
+      '/pharmacy',
+      anyFeatureIds: {'pharmacy_orders'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata('/profile', anyFeatureIds: {'profile'}),
+    StaffRouteMetadata('/settings', anyFeatureIds: {'settings'}),
+    StaffRouteMetadata('/phone/more', anyGates: _signedIn),
+    StaffRouteMetadata('/phone/queries', anyGates: _signedIn),
+    StaffRouteMetadata(
+      '/phone/patient-lookup',
+      anyGates: {StaffRouteGate.patientLookup},
+    ),
+    StaffRouteMetadata(
+      '/reception-counter',
+      anyFeatureIds: {'front_office_workbench'},
+    ),
+    StaffRouteMetadata(
+      '/front-office',
+      anyFeatureIds: {'front_office_workbench'},
+    ),
+    StaffRouteMetadata('/billing-desk', anyFeatureIds: {'billing_desk'}),
+    StaffRouteMetadata('/ward-mode', anyFeatureIds: {'ward_mode'}),
+    StaffRouteMetadata('/ed-trauma', anyFeatureIds: {'ed_trauma_workbench'}),
+    StaffRouteMetadata('/patient-records', anyFeatureIds: {'patient_records'}),
+    StaffRouteMetadata('/prescriptions', anyFeatureIds: {'prescriptions'}),
+    StaffRouteMetadata(
+      '/op/doctor-workspace/:uid',
+      anyFeatureIds: {'op_doctor_workspace'},
+    ),
+    StaffRouteMetadata(
+      '/op/nursing-dashboard',
+      anyFeatureIds: {'op_nursing_dashboard'},
+    ),
+    StaffRouteMetadata('/queue', anyFeatureIds: {'queue'}),
+    StaffRouteMetadata(
+      '/appointment-queue',
+      anyFeatureIds: {'front_office_workbench'},
+    ),
+    StaffRouteMetadata(
+      '/clinical-ai/queue',
+      anyFeatureIds: {'clinical_ai_review_queue'},
+    ),
+    StaffRouteMetadata(
+      '/clinical-inbox',
+      anyFeatureIds: {'clinical_inbox'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/clinical-ai/review/:reviewId',
+      anyFeatureIds: {'clinical_ai_review_queue'},
+    ),
+    StaffRouteMetadata(
+      '/clinical-ai/compose',
+      anyFeatureIds: {'clinical_ai_review_queue'},
+    ),
+    StaffRouteMetadata(
+      '/clinical-ai/compose/:runId',
+      anyFeatureIds: {'clinical_ai_review_queue'},
+    ),
+    StaffRouteMetadata(
+      '/clinical-ai/voice-notes',
+      anyFeatureIds: {'clinical_ai_review_queue'},
+    ),
+    StaffRouteMetadata('/op-ai-assist', anyFeatureIds: {'op_ai_assist'}),
+    StaffRouteMetadata('/vitals', anyGates: _clinical),
+    StaffRouteMetadata('/nursing-notes', anyGates: _clinical),
+    StaffRouteMetadata('/mar/due', anyGates: _clinical),
+    StaffRouteMetadata('/mar/scan/:maId', anyGates: _clinical),
+    StaffRouteMetadata(
+      '/devices/associate',
+      anyFeatureIds: {'device_association'},
+    ),
+    StaffRouteMetadata('/drug-chart/:admissionId', anyGates: _clinical),
+    StaffRouteMetadata(
+      '/referrals',
+      anyFeatureIds: {'referrals'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/referrals/request/:admissionId',
+      anyFeatureIds: {'referrals'},
+    ),
+    StaffRouteMetadata('/hr-dashboard', anyFeatureIds: {'hr_dashboard'}),
+    StaffRouteMetadata(
+      '/staff-management',
+      anyFeatureIds: {'staff_management'},
+    ),
+    StaffRouteMetadata(
+      '/organization-hierarchy',
+      anyFeatureIds: {'organization_hierarchy'},
+    ),
+    StaffRouteMetadata('/performance', anyFeatureIds: {'performance'}),
+    StaffRouteMetadata('/leave-approvals', anyFeatureIds: {'leave_approvals'}),
+    StaffRouteMetadata('/staff-rosters', anyFeatureIds: {'staff_roster'}),
+    StaffRouteMetadata(
+      '/reports-grievances',
+      anyFeatureIds: {'reports_grievances'},
+    ),
+    StaffRouteMetadata(
+      '/reports-grievances/admin',
+      anyGates: {StaffRouteGate.reportAdministration},
+    ),
+    StaffRouteMetadata('/payroll', anyFeatureIds: {'payroll'}),
+    StaffRouteMetadata('/payroll/payslips/:id', anyFeatureIds: {'payroll'}),
+    StaffRouteMetadata('/payroll/queries', anyFeatureIds: {'payroll'}),
+    StaffRouteMetadata('/payroll/declarations', anyFeatureIds: {'payroll'}),
+    StaffRouteMetadata('/payroll/tax-summary', anyFeatureIds: {'payroll'}),
+    StaffRouteMetadata(
+      '/housekeeping-tasks',
+      anyFeatureIds: {'housekeeping_tasks'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata('/housekeeping', anyFeatureIds: {'housekeeping_hub'}),
+    StaffRouteMetadata(
+      '/housekeeping-command',
+      anyFeatureIds: {'housekeeping_command'},
+    ),
+    StaffRouteMetadata(
+      '/housekeeping-roster',
+      anyFeatureIds: {'housekeeping_roster'},
+    ),
+    StaffRouteMetadata(
+      '/biomed-work-orders',
+      anyFeatureIds: {'biomed_work_orders'},
+    ),
+    StaffRouteMetadata(
+      '/staff-roster/:department',
+      anyFeatureIds: {
+        'staff_roster',
+        'nursing_roster',
+        'op_nursing_roster',
+        'reception_roster',
+        'maintenance_roster',
+        'pharmacy_roster',
+        'housekeeping_roster',
+      },
+    ),
+    StaffRouteMetadata('/staff-directory', anyFeatureIds: {'staff_directory'}),
+    StaffRouteMetadata('/schedule', anyFeatureIds: {'schedule'}),
+    StaffRouteMetadata('/duty-preference', anyFeatureIds: {'duty_preference'}),
+    StaffRouteMetadata(
+      '/handover',
+      anyFeatureIds: {'handover'},
+      externalEntry: true,
+      externalQueryParameters: {'patient_ref', 'phone'},
+    ),
+    StaffRouteMetadata(
+      '/notifications',
+      anyGates: _signedIn,
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/safety-center',
+      anyFeatureIds: {'safety_center'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata('/safety/resus/:eventId', anyGates: _clinical),
+    StaffRouteMetadata('/audit-logs', anyFeatureIds: {'audit_logs'}),
+    StaffRouteMetadata(
+      '/staff-diagnostics',
+      anyFeatureIds: {'staff_diagnostics'},
+    ),
+    StaffRouteMetadata('/about', anyGates: _signedIn),
+    StaffRouteMetadata(
+      '/messaging',
+      anyFeatureIds: {'messaging'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/messaging/thread/:otherStaffUid',
+      anyFeatureIds: {'messaging'},
+    ),
+    StaffRouteMetadata(
+      '/beds',
+      anyFeatureIds: {'bed_board'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata('/blood-bank', anyFeatureIds: {'blood_bank'}),
+    StaffRouteMetadata(
+      '/blood-bank/scan/:requestId',
+      anyFeatureIds: {'blood_bank'},
+    ),
+    StaffRouteMetadata('/dietary', anyFeatureIds: {'dietary'}),
+    StaffRouteMetadata('/dental', anyFeatureIds: {'dental_charting'}),
+    StaffRouteMetadata('/physiotherapy', anyFeatureIds: {'physiotherapy'}),
+    StaffRouteMetadata('/transplant', anyFeatureIds: {'transplant_program'}),
+    StaffRouteMetadata('/theatre', anyFeatureIds: {'theatre'}),
+    StaffRouteMetadata('/cath-lab', anyFeatureIds: {'cath_lab'}),
+    StaffRouteMetadata(
+      '/radiation-oncology',
+      anyFeatureIds: {'radiation_oncology'},
+    ),
+    StaffRouteMetadata('/oncology', anyFeatureIds: {'oncology'}),
+    StaffRouteMetadata(
+      '/calculators',
+      anyGates: {StaffRouteGate.clinicalCalculators},
+    ),
+    StaffRouteMetadata(
+      '/order-sets',
+      anyGates: {StaffRouteGate.clinicalCalculators},
+    ),
+    StaffRouteMetadata('/maternity', anyGates: {StaffRouteGate.maternity}),
+    StaffRouteMetadata(
+      '/maternity/partograph/:laborId',
+      anyGates: {StaffRouteGate.maternity},
+    ),
+    StaffRouteMetadata(
+      '/maternity/labor/:laborId/chart',
+      anyGates: {StaffRouteGate.maternity},
+    ),
+    StaffRouteMetadata('/ophthalmology', anyFeatureIds: {'ophthalmology'}),
+    StaffRouteMetadata('/radiology', anyFeatureIds: {'radiology'}),
+    StaffRouteMetadata('/stroke-pathway', anyFeatureIds: {'stroke_pathway'}),
+    StaffRouteMetadata(
+      '/patient-command-board',
+      anyFeatureIds: {'patient_command_board'},
+      externalEntry: true,
+    ),
+    StaffRouteMetadata(
+      '/emr/admissions',
+      anyFeatureIds: {'admissions'},
+      anyGates: _clinical,
+      externalEntry: true,
+    ),
+    StaffRouteMetadata('/emr/case-sheet/:id', anyGates: _clinical),
+    StaffRouteMetadata('/emr/notes/:uid', anyGates: _clinical),
+    StaffRouteMetadata('/emr/timeline/:uid', anyGates: _clinical),
+    StaffRouteMetadata('/emr/orders/:uid', anyGates: _clinical),
+    StaffRouteMetadata('/emr/orders/:uid/compose', anyGates: _clinical),
+    StaffRouteMetadata('/emr/vitals/:uid', anyGates: _clinical),
+    StaffRouteMetadata('/emr/burns/:uid', anyGates: _clinical),
+    StaffRouteMetadata('/emr/discharge-hub', anyFeatureIds: {'discharge_hub'}),
+    StaffRouteMetadata(
+      '/emr/discharge-hub/:id',
+      anyFeatureIds: {'discharge_hub'},
+    ),
+    StaffRouteMetadata('/emr/discharge/:id', anyFeatureIds: {'discharge_hub'}),
+  ];
+
+  static StaffRouteDecision authorize(Uri uri, {required String rawRole}) {
+    final metadata = metadataForPath(uri.path);
+    if (metadata == null) {
+      return const StaffRouteDecision.deny('unknown_route');
+    }
+
+    final role = StaffRole.tryFromString(rawRole);
+    if (role == null) {
+      return const StaffRouteDecision.deny('unknown_role');
+    }
+
+    final normalized = rawRole.trim().toUpperCase();
+    final isCanonical = canonicalStaffRoleCodes.contains(normalized);
+    final featureAllowed = isCanonical
+        ? metadata.anyFeatureIds.any(
+            (featureId) =>
+                canonicalStaffFeatureRouteRoleCodes[featureId]?.contains(
+                  normalized,
+                ) ??
+                false,
+          )
+        : metadata.anyFeatureIds.any(
+            RoleFeatures.getFeaturesForRole(
+              role,
+            ).map((feature) => feature.id).toSet().contains,
+          );
+    if (featureAllowed) {
+      return const StaffRouteDecision.allow();
+    }
+    if (metadata.anyGates.any((gate) => _allowsGate(gate, rawRole, role))) {
+      return const StaffRouteDecision.allow();
+    }
+    return const StaffRouteDecision.deny('capability_denied');
+  }
+
+  static StaffRouteMetadata? metadataForPath(String path) {
+    for (final metadata in routes) {
+      if (_matchesTemplate(metadata.template, path)) return metadata;
+    }
+    return null;
+  }
+
+  static bool hasMetadataForTemplate(String template) =>
+      routes.any((metadata) => metadata.template == template);
+
+  static String? sanitizeExternalRoute(String? candidate) {
+    if (candidate == null) return null;
+    var raw = candidate.trim();
+    if (raw.isEmpty || raw.length > 2048) return null;
+    if (raw.startsWith('//') || raw.contains('\\')) return null;
+    if (raw.codeUnits.any((unit) => unit < 0x20 || unit == 0x7f)) return null;
+    final lower = raw.toLowerCase();
+    if (lower.contains('%2f') ||
+        lower.contains('%5c') ||
+        lower.contains('%2e')) {
+      return null;
+    }
+
+    raw = _normalizeLegacyRoute(raw);
+    final uri = Uri.tryParse(raw);
+    if (uri == null ||
+        uri.hasScheme ||
+        uri.hasAuthority ||
+        uri.fragment.isNotEmpty ||
+        !uri.path.startsWith('/')) {
+      return null;
+    }
+    if (uri.pathSegments.any((segment) => segment == '.' || segment == '..')) {
+      return null;
+    }
+    if (uri.pathSegments.any(_containsControlCharacter)) return null;
+
+    final metadata = metadataForPath(uri.path);
+    if (metadata == null || !metadata.externalEntry) return null;
+    for (final entry in uri.queryParametersAll.entries) {
+      if (!metadata.externalQueryParameters.contains(entry.key) ||
+          _containsControlCharacter(entry.key) ||
+          entry.value.length != 1 ||
+          entry.value.single.isEmpty ||
+          entry.value.single.length > 256 ||
+          _containsControlCharacter(entry.value.single)) {
+        return null;
+      }
+    }
+    return uri.toString();
+  }
+
+  static bool _allowsGate(StaffRouteGate gate, String rawRole, StaffRole role) {
+    final normalized = rawRole.trim().toUpperCase();
+    final isCanonical = canonicalStaffRoleCodes.contains(normalized);
+    return switch (gate) {
+      StaffRouteGate.signedIn => true,
+      StaffRouteGate.clinicalEntry =>
+        isCanonical
+            ? canonicalClinicalStaffRouteRoleCodes.contains(normalized)
+            : RoleFeatures.hasClinicalEntry(role),
+      StaffRouteGate.patientLookup =>
+        isCanonical
+            ? canonicalPatientLookupRouteRoleCodes.contains(normalized)
+            : RoleFeatures.hasPatientLookup(role),
+      StaffRouteGate.maternity =>
+        isCanonical
+            ? canonicalMaternityRouteRoleCodes.contains(normalized)
+            : RoleFeatures.hasMaternity(role),
+      StaffRouteGate.clinicalCalculators =>
+        isCanonical
+            ? canonicalClinicalDocumentRouteRoleCodes.contains(normalized)
+            : RoleFeatures.hasClinicalCalculators(role),
+      StaffRouteGate.reportAdministration =>
+        isCanonical
+            ? canonicalPeopleOperationsRouteRoleCodes.contains(normalized)
+            : role.isAdminTier || role == StaffRole.hr,
+    };
+  }
+
+  static bool _matchesTemplate(String template, String path) {
+    final templateParts = Uri(path: template).pathSegments;
+    final pathParts = Uri(path: path).pathSegments;
+    if (templateParts.length != pathParts.length) return false;
+    for (var index = 0; index < templateParts.length; index += 1) {
+      final expected = templateParts[index];
+      final actual = pathParts[index];
+      if (expected.startsWith(':')) {
+        if (actual.isEmpty) return false;
+      } else if (expected != actual) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static String _normalizeLegacyRoute(String route) {
+    if (route == '/admissions') return '/emr/admissions';
+    if (route.startsWith('/admissions?')) {
+      return route.replaceFirst('/admissions', '/emr/admissions');
+    }
+    if (route == '/housekeeping') return '/housekeeping-tasks';
+    return route;
+  }
+
+  static bool _containsControlCharacter(String value) =>
+      value.codeUnits.any((unit) => unit < 0x20 || unit == 0x7f);
+}

@@ -1,5 +1,9 @@
 import express from 'express';
+import { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVersionPolicy.js';
+import { resolveTenantForRequest } from '../services/tenant/tenantService.js';
 import { success } from '../utils/responseHelper.js';
+
+export { patientMinimumVersionPolicyFromEnv } from '../services/patientMinimumVersionPolicy.js';
 
 const router = express.Router();
 
@@ -74,15 +78,29 @@ export function minPatientVersionCodeFromEnv(value = process.env.MIN_PATIENT_VER
 
 // GET /api/v1/config
 // Public, non-PHI patient app boot configuration.
-router.get('/', (req, res) => {
-  const outageCommunication = patientOutageCommunicationFromEnv();
-  const data = {
-    min_patient_version_code: minPatientVersionCodeFromEnv()
-  };
-  if (outageCommunication !== null) {
-    data.outage_communication = outageCommunication;
+router.get('/', async (req, res, next) => {
+  try {
+    const expectedTenantId = req.tenantId ?? await resolveTenantForRequest(req);
+    const outageCommunication = patientOutageCommunicationFromEnv();
+    const minimumVersionPolicy = patientMinimumVersionPolicyFromEnv(
+      undefined,
+      expectedTenantId
+    );
+    const data = {
+      min_patient_version_code:
+        minimumVersionPolicy?.policy.min_patient_version_code
+        ?? minPatientVersionCodeFromEnv()
+    };
+    if (minimumVersionPolicy !== null) {
+      data.minimum_version_policy = minimumVersionPolicy;
+    }
+    if (outageCommunication !== null) {
+      data.outage_communication = outageCommunication;
+    }
+    success(res, data, 'Patient app configuration retrieved');
+  } catch (error) {
+    next(error);
   }
-  success(res, data, 'Patient app configuration retrieved');
 });
 
 // GET /api/v1/config/campus-locations

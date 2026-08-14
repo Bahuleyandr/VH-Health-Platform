@@ -9,6 +9,8 @@ import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 import '../../l10n/app_strings.dart';
 import '../platform_info.dart';
 import '../providers/notification_provider.dart';
+import '../providers/websocket_provider.dart';
+import 'staff_route_policy.dart';
 // Splash & Auth
 import '../../features/splash/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -196,7 +198,28 @@ final GoRouter appRouter = GoRouter(
     // Not logged in and not on login page -> redirect to login
     if (!isLoggedIn && !isOnLogin) return '/login';
 
+    String? rawRole;
     if (isLoggedIn) {
+      rawRole = await ApiConfig.getRole();
+      if (!context.mounted) return null;
+      final roleDecision = StaffRoutePolicy.authorize(
+        Uri(path: '/dashboard'),
+        rawRole: rawRole,
+      );
+      if (!roleDecision.allowed) {
+        // Keep an authenticated session with an unrecognized role away from
+        // every protected screen. The login route remains available for a
+        // fresh authentication that can restore a governed role mapping.
+        return isOnLogin ? null : '/login';
+      }
+
+      try {
+        unawaited(
+          context.read<WebSocketProvider>().beginAuthenticatedSession(),
+        );
+      } catch (_) {
+        // Provider may not be available during initial build.
+      }
       try {
         unawaited(context.read<NotificationProvider>().initialize());
       } catch (_) {
@@ -214,6 +237,11 @@ final GoRouter appRouter = GoRouter(
         ).startTracking();
       } catch (_) {}
       return '/dashboard';
+    }
+
+    if (isLoggedIn && !isOnLogin && !isOnSplash) {
+      final decision = StaffRoutePolicy.authorize(state.uri, rawRole: rawRole!);
+      if (!decision.allowed) return '/dashboard';
     }
 
     // User is logged in and on a protected page — ensure timer is running

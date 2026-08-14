@@ -34,6 +34,22 @@ import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
 import { assertResponse } from './helpers/assertSchema.js';
+import {
+  provisionTenantKek,
+  resetTenantKekCacheForTesting,
+} from '../services/security/tenantKekProvider.js';
+import { notificationOutbox } from '../utils/notifications/notificationOutbox.js';
+import {
+  applyProviderReceiptToCursor,
+  beginProviderAttempts,
+  recordProviderReceipt,
+} from '../services/notification/notificationDeliveryLedgerService.js';
+
+// executePayrollRun loads the tenant KEK before it writes a payslip, so the
+// suite must provision one. A fresh database has none — without this the run
+// 500s with "No active KEK for tenant …" and every later step chases a run that
+// was never created. Mirrors payroll-atomic-generation.deep.test.js.
+process.env.FIELD_ENCRYPTION_MASTER_KEK ||= 'payroll-contract-deep-test-only-master-kek-material';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -46,11 +62,16 @@ const RUN_MONTH = 7;
 const RUN_YEAR = 2099;
 const FY = '2098-99';
 
+// Stable per-suite key for POST /payroll/run. Unique to this suite so a
+// concurrent shard cannot collide on (tenant, user, key, path), and reused
+// deliberately inside the suite to exercise the replay path.
+const PAYROLL_RUN_IDEMPOTENCY_KEY = 'payroll-contract-deep:run:2099-07';
+
 // Unique uid / phone / employee_id prefixes so this suite never collides.
 // (Hex-only v4 UUIDs — 'pay…' literals are not valid UUIDs and 22P02 the cast.)
 const STAFF_UID = 'a0500001-0001-4d00-8d00-a05000000001'; // main GENERAL_STAFF: salary config + payslip + HR self-service
 const STAFF2_UID = 'a0500002-0002-4d00-8d00-a05000000002'; // fresh GENERAL_STAFF: no payslip → tax summary 404
-const HR_UID = 'a0500003-0003-4d00-8d00-a05000000003'; // ADMIN-role HR signer (hr-sign)
+const HR_UID = 'a0500003-0003-4d00-8d00-a05000000003'; // HR_STAFF-role HR signer (hr-sign)
 const ADMIN_UID = 'a0500004-0004-4d00-8d00-a05000000004'; // ADMIN-role admin signer (admin-sign) — distinct uid for SoD
 
 const STAFF_PHONE = '9501000001';
@@ -58,11 +79,18 @@ const STAFF2_PHONE = '9501000002';
 const HR_PHONE = '9501000003';
 const ADMIN_PHONE = '9501000004';
 
-// SEPARATION OF DUTIES: payroll-run + salary-revision admin-sign reject (403)
-// when the admin signer == the hr signer (uid comparison in
-// adminSignPayrollRun / adminSignRevision). Both signers are ADMIN role (the
-// staffAccessGuard short-circuits for ADMIN; HR role is NOT in the role-policy
-// graph and is denied), but carry DISTINCT uids — that satisfies the guard.
+// SEPARATION OF DUTIES is enforced on TWO independent axes, and the fixture has
+// to satisfy both:
+//   • by ROLE — hr-sign is gated by requireRole('HR_STAFF') on the route
+//     (staffAdminRoutes.js:26,264) and by `users.role === 'HR_STAFF'` in
+//     payrollService.signPayrollRun; admin-sign is gated by
+//     requireRole('ADMIN','SUPER_ADMIN') and by `users.role ∈ {ADMIN,
+//     SUPER_ADMIN}`. One account can therefore never hold both signatures.
+//   • by IDENTITY — adminSignPayrollRun additionally refuses when the admin
+//     signer uid equals the hr signer uid (`same_signer`).
+// So the two signers here are a real HR_STAFF and a real ADMIN, with distinct
+// uids. Both the JWT role and the users.role row must match, because the route
+// gate reads the token and the service gate reads the database.
 function mkClient(role, uid, phone) {
   const token = generateTestToken(role, { uid, id: undefined, phone });
   return {
@@ -70,6 +98,63 @@ function mkClient(role, uid, phone) {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
+}
+
+// Stand in for the `notification-outbox-drain` cron (scheduler.js), which does
+// not run inside jest. `issuePayrollRun` refuses to issue a payslip whose
+// document has no ACKNOWLEDGED in-app provider receipt (migration 669 —
+// `delivery_pending` / PAYSLIP_DELIVERY_PENDING), and executePayrollRun queues
+// exactly that "payslip is being prepared" intent and stores its outbox id on
+// `payslip_documents.notification_outbox_id`. So a payroll run is not issuable
+// until the notification the staff member depends on has actually been
+// delivered — which is the point of the gate, and something a contract test
+// must satisfy the same way production does rather than route around.
+//
+// This drives the real drain seam end to end: claim → begin attempt → record an
+// acknowledged provider receipt → advance the channel cursor. Nothing is forged
+// with raw SQL; the outbox's own transition guard still refuses SENT without an
+// acknowledged receipt.
+//
+// All four steps are load-bearing. `beginProviderAttempts` moves the per-channel
+// cursor to `delivering`, and `claimPendingBatch` refuses to claim anything while
+// a cursor sits in `delivering`/`paused_*`. Omitting the final
+// `applyProviderReceiptToCursor` therefore does not merely skip bookkeeping — it
+// wedges the channel, and every later claim in the database silently returns
+// zero rows. Claiming is also strictly contiguous per channel, so an older
+// undrained inapp row blocks ours; hence the loop.
+async function drainInappNotifications(maxRounds = 10) {
+  for (let round = 0; round < maxRounds; round += 1) {
+    const claimed = await notificationOutbox.claimPendingBatch({
+      tenantId: DEFAULT_TENANT_ID,
+      limit: 50,
+    });
+    if (claimed.length === 0) return;
+    for (const row of claimed.filter((r) => r.channel === 'inapp')) {
+      const [attempt] = await beginProviderAttempts({
+        tenantId: DEFAULT_TENANT_ID,
+        outboxId: row.id,
+        claimToken: row.claim_token,
+        claimGeneration: row.claim_generation,
+        renderedIntentHash: row.rendered_intent_hash,
+        channels: ['inapp'],
+      });
+      const receipt = await recordProviderReceipt({
+        tenantId: DEFAULT_TENANT_ID,
+        attemptId: attempt.attempt_id,
+        outboxId: row.id,
+        channel: 'inapp',
+        outcome: 'acknowledged',
+        receiptSource: 'provider_response',
+        providerReference: `payroll-contract-deep:${row.id}`,
+        providerCode: 'accepted',
+        evidence: { delivered: true },
+      });
+      await applyProviderReceiptToCursor({
+        tenantId: DEFAULT_TENANT_ID,
+        receiptId: receipt.receipt_id,
+      });
+    }
+  }
 }
 
 async function cleanup() {
@@ -95,14 +180,41 @@ async function cleanup() {
     `DELETE FROM annual_tax_summaries WHERE staff_uid = ANY($1::uuid[])`,
     `DELETE FROM annual_review_reminders WHERE staff_uid = ANY($1::uuid[])`,
     `DELETE FROM salary_revisions WHERE staff_uid = ANY($1::uuid[])`,
+    // The attempt-ledger tables (migrations 664 / 669) also FK to payslips, so
+    // they must go before the payslips delete — otherwise the whole teardown
+    // 23503s, every statement after it is skipped by the per-statement catch,
+    // and the NEXT run of this suite trips users_uid_key on a leftover row.
+    `DELETE FROM payroll_run_staff_results WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
+    `DELETE FROM payslip_documents WHERE payslip_id IN (${PS_SET}) OR staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
     // payslips reference payroll_runs (payroll_run_id FK) AND staff_uid — clear
     // both our staff's rows and any row tied to our run before the run delete.
     `DELETE FROM payslips WHERE staff_uid = ANY($1::uuid[]) OR payroll_run_id IN (SELECT id FROM payroll_runs WHERE month = ${RUN_MONTH} AND year = ${RUN_YEAR})`,
     `DELETE FROM staff_salary WHERE staff_uid = ANY($1::uuid[])`,
+    // payroll_runs ⇄ payroll_run_attempts is a genuine FK CYCLE (migration 664):
+    // the run points at its current attempt and the attempt points back at its
+    // run. It cannot be unpicked statement-by-statement — `attempt_token` is
+    // NOT NULL so the pointer cannot be dropped first, and
+    // `fk_payroll_run_attempts_run` is NOT deferrable so the run cannot go
+    // first either. Delete BOTH inside one data-modifying-CTE statement; the
+    // FK triggers then fire once, at end of statement, with both sides already
+    // gone.
+    //
     // payroll_runs.generated_by / hr_approved_by / admin_approved_by all FK to
-    // users — delete by our month/year AND by any reference to our users so the
+    // users — match on our month/year AND on any reference to our users so the
     // subsequent users delete never trips payroll_runs_generated_by_fkey.
-    `DELETE FROM payroll_runs WHERE (month = ${RUN_MONTH} AND year = ${RUN_YEAR}) OR generated_by = ANY($1::uuid[]) OR hr_approved_by = ANY($1::uuid[]) OR admin_approved_by = ANY($1::uuid[])`,
+    `WITH doomed AS (
+       SELECT id, tenant_id FROM payroll_runs
+        WHERE (month = ${RUN_MONTH} AND year = ${RUN_YEAR})
+           OR generated_by = ANY($1::uuid[])
+           OR hr_approved_by = ANY($1::uuid[])
+           OR admin_approved_by = ANY($1::uuid[])
+     ), del_attempts AS (
+       DELETE FROM payroll_run_attempts a USING doomed d
+        WHERE a.payroll_run_id = d.id AND a.tenant_id = d.tenant_id
+        RETURNING a.payroll_run_id
+     )
+     DELETE FROM payroll_runs r USING doomed d
+      WHERE r.id = d.id AND r.tenant_id = d.tenant_id`,
     `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
   ];
   for (const sql of stmts) {
@@ -112,6 +224,13 @@ async function cleanup() {
   // sentinel description so reruns stay clean.
   await prisma.$executeRawUnsafe(
     `DELETE FROM bulk_revision_jobs WHERE description = 'PAYROLL_CONTRACT_DEEP_TEST bulk'`,
+  ).catch(() => {});
+  // The POST /payroll/run idempotency claim outlives the payroll rows it
+  // guarded. Left behind, a second run of this suite on the same database would
+  // be answered from the cache with the PREVIOUS run's run_id — a row that this
+  // cleanup just deleted — and every later step would chase a dangling id.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM idempotency_keys WHERE request_key LIKE 'payroll-contract-deep:run:%'`,
   ).catch(() => {});
 }
 
@@ -131,18 +250,31 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
 
   beforeAll(async () => {
     await cleanup();
+    resetTenantKekCacheForTesting();
+    await provisionTenantKek(DEFAULT_TENANT_ID);
     // Seed users: 1 STAFF (owns payslip), 1 STAFF (fresh), 2 ADMINs (signers).
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at) VALUES
          ($1::uuid, $2, 'Payroll Contract Staff',  'GENERAL_STAFF', true, NOW()),
          ($3::uuid, $4, 'Payroll Contract Staff2', 'GENERAL_STAFF', true, NOW()),
-         ($5::uuid, $6, 'Payroll Contract HR',     'ADMIN', true, NOW()),
+         ($5::uuid, $6, 'Payroll Contract HR',     'HR_STAFF', true, NOW()),
          ($7::uuid, $8, 'Payroll Contract Admin',  'ADMIN', true, NOW())`,
       STAFF_UID, STAFF_PHONE, STAFF2_UID, STAFF2_PHONE, HR_UID, HR_PHONE, ADMIN_UID, ADMIN_PHONE,
     );
 
     admin = mkClient('ADMIN', ADMIN_UID, ADMIN_PHONE);
-    hr = mkClient('ADMIN', HR_UID, HR_PHONE);
+    // The HR signer is a real HR_STAFF on BOTH axes — token role and users.role.
+    // Three gates read one or the other, and all three have to agree:
+    //   1. requireRole('HR_STAFF') on the route reads the JWT role;
+    //   2. guardPayrollWriteCollection (staff.payroll.write) reads the JWT role
+    //      too, and its policy is collection_access:'payroll', which
+    //      collectionDecisionAllowed admits for exactly SUPER_ADMIN, ADMIN and
+    //      HR_STAFF (staffAccessDecisionService.js:147-160);
+    //   3. payrollService.signPayrollRun reads users.role from the database and
+    //      refuses the HR signature unless it is exactly 'HR_STAFF'.
+    // Dual control is meaningless if one admin can mint a second admin and sign
+    // both sides, so all three are right and the fixture is what had to change.
+    hr = mkClient('HR_STAFF', HR_UID, HR_PHONE);
     // GENERAL_STAFF (not the bare 'STAFF' placeholder): only a concrete staff
     // role present in BOTH the staffHRRoutes RBAC allowlist AND the role-policy
     // graph passes the wrapAutoRBAC gate + reaches staffAccessGuard, where
@@ -154,6 +286,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
 
   afterAll(async () => {
     await cleanup();
+    resetTenantKekCacheForTesting();
     await prisma.$disconnect().catch(() => {});
   }, 60000);
 
@@ -222,13 +355,59 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
   it('run lifecycle: run/list/detail/edit/dual-sign/issue validate their schemas', async () => {
     // POST /payroll/run → PayrollRunResultResponse. total_gross/total_net are
     // .toFixed(2) STRINGS; run_id/processed/failed integers.
-    const run = await admin.post(`${ADMIN_BASE}/payroll/run`).send({ month: RUN_MONTH, year: RUN_YEAR });
+    //
+    // The route is mounted with requireIdempotencyKey({ required: true, scope:
+    // 'payroll_run' }); the header is part of the contract (the spec declares
+    // it required, and the controller's own 409 text tells the operator to
+    // "set rerun=true with a new Idempotency-Key"). A payroll run mints one
+    // payslip per staff member, so a lost-2xx retry without a stable key is a
+    // duplicate-pay hazard. Send one, exactly as a correctly-wired client does.
+    const run = await admin.post(`${ADMIN_BASE}/payroll/run`)
+      .set('Idempotency-Key', PAYROLL_RUN_IDEMPOTENCY_KEY)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
     expect(run.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/run`, run.body);
     expect(typeof run.body.data.total_gross).toBe('string'); // toFixed string trap
     expect(typeof run.body.data.run_id).toBe('number');
     runId = run.body.data.run_id;
     expect(run.body.data.processed).toBeGreaterThanOrEqual(1);
+
+    // Replaying the SAME key with the SAME body must return the cached original
+    // response rather than executing a second run. This is the property the
+    // header exists for: a double-click or a retry of a request whose 2xx was
+    // lost in transit must not generate payroll twice.
+    const replay = await admin.post(`${ADMIN_BASE}/payroll/run`)
+      .set('Idempotency-Key', PAYROLL_RUN_IDEMPOTENCY_KEY)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.body.data).toEqual(run.body.data);
+    // …and the database agrees: still exactly one run row, still one payslip
+    // per staff member. A replay that re-executed would show a second run for
+    // (tenant, month, year) or duplicated payslips inside this one.
+    const runRows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM payroll_runs
+        WHERE tenant_id = $1::uuid AND month = $2::int AND year = $3::int`,
+      DEFAULT_TENANT_ID, RUN_MONTH, RUN_YEAR,
+    );
+    expect(runRows).toHaveLength(1);
+    expect(Number(runRows[0].id)).toBe(runId);
+    const payslipCount = await prisma.$queryRawUnsafe(
+      `SELECT staff_uid, COUNT(*)::int AS n FROM payslips
+        WHERE tenant_id = $1::uuid AND payroll_run_id = $2::int
+        GROUP BY staff_uid`,
+      DEFAULT_TENANT_ID, runId,
+    );
+    expect(payslipCount.length).toBeGreaterThanOrEqual(1);
+    for (const row of payslipCount) expect(row.n).toBe(1);
+
+    // A DIFFERENT key against the same already-completed month is not a replay:
+    // it reaches the handler, which refuses with 409 because the run is done.
+    // That is the guard working — the key collapses retries, it does not
+    // silently swallow a genuinely separate run request.
+    const separateAttempt = await admin.post(`${ADMIN_BASE}/payroll/run`)
+      .set('Idempotency-Key', `${PAYROLL_RUN_IDEMPOTENCY_KEY}-second-attempt`)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
+    expect(separateAttempt.statusCode).toBe(409);
 
     // GET /payroll/runs → PayrollRunsResponse (loose SELECT * list).
     const runs = await admin.get(`${ADMIN_BASE}/payroll/runs`);
@@ -264,7 +443,7 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     expect(edit.body.data.manually_edited).toBe(true);
     expect(typeof edit.body.data.gross_salary).toBe('string');
 
-    // POST /payroll/runs/{runId}/hr-sign (HR signer) → PayrollRunResponse.
+    // POST /payroll/runs/{runId}/hr-sign (HR_STAFF signer) → PayrollRunResponse.
     const hrSign = await hr.post(`${ADMIN_BASE}/payroll/runs/${runId}/hr-sign`).send({ comment: 'HR ok' });
     expect(hrSign.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/runs/{runId}/hr-sign`, hrSign.body);
@@ -280,8 +459,28 @@ describe('Payroll — live OpenAPI contract deep test (admin + HR self-service l
     expect(adminSign.body.data.admin_approved_by).toBe(ADMIN_UID);
     expect(adminSign.body.data.approval_hash).toBeTruthy();
 
+    // Issuance is also gated on delivery: until every payslip document's in-app
+    // notification carries an acknowledged provider receipt, issue answers 409
+    // PAYSLIP_DELIVERY_PENDING and names the staff still waiting. Prove that
+    // gate is live before satisfying it — a payslip must never become
+    // collectable while the staff member has not been told it exists.
+    const issueBeforeDelivery = await admin.post(`${ADMIN_BASE}/payroll/issue`)
+      .send({ month: RUN_MONTH, year: RUN_YEAR });
+    expect(issueBeforeDelivery.statusCode).toBe(409);
+    expect(issueBeforeDelivery.body.code).toBe('PAYSLIP_DELIVERY_PENDING');
+    expect(issueBeforeDelivery.body.details.pending_staff.map((s) => s.staff_uid))
+      .toContain(STAFF_UID);
+    // …and the payslip really is still a draft — the refusal is not cosmetic.
+    const beforeIssueRow = await prisma.$queryRawUnsafe(
+      `SELECT status FROM payslips WHERE id = $1::int`, Number(payslipId),
+    );
+    expect(beforeIssueRow[0].status).toBe('draft');
+
+    await drainInappNotifications();
+
     // POST /payroll/issue → IssuePayslipsResponse ({ issued } integer). Requires
-    // both signatures (now satisfied). Flips the draft payslips → issued.
+    // both signatures AND delivered documents (now satisfied). Flips the draft
+    // payslips → issued.
     const issue = await admin.post(`${ADMIN_BASE}/payroll/issue`).send({ month: RUN_MONTH, year: RUN_YEAR });
     expect(issue.statusCode).toBe(200);
     assertResponse('POST', `${ADMIN_BASE}/payroll/issue`, issue.body);

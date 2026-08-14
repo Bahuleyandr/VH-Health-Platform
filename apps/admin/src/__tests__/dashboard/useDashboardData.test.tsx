@@ -2,7 +2,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { useDashboardData } from "@/app/(with-auth)/dashboard/hooks/useDashboardData";
 import { API_BASE_URL, API_ENDPOINTS } from "@/lib/api-config";
 
-function jsonResponse(body: unknown, init: { status?: number; ok?: boolean } = {}): Response {
+function jsonResponse(
+  body: unknown,
+  init: { status?: number; ok?: boolean } = {},
+): Response {
   const { status = 200, ok = status >= 200 && status < 300 } = init;
   return {
     ok,
@@ -54,18 +57,38 @@ type DashboardFixture = {
     responseTime: number;
     errorRate: number;
   };
-  appointmentStats: { waiting: number; in_progress?: number; inProgress?: number; completed: number };
-  moduleHealth: Array<{ name: string; status: "healthy" | "warning" | "critical" }>;
+  appointmentStats: {
+    waiting: number;
+    in_progress?: number;
+    inProgress?: number;
+    completed: number;
+  };
+  moduleHealth: Array<{ name: string; status: string }>;
 };
 
-function queueDashboardFetches(fetchMock: jest.MockedFunction<typeof fetch>, fixture: DashboardFixture) {
+function queueDashboardFetches(
+  fetchMock: jest.MockedFunction<typeof fetch>,
+  fixture: DashboardFixture,
+) {
   fetchMock
-    .mockResolvedValueOnce(jsonResponse({ success: true, data: fixture.dashboard }))
-    .mockResolvedValueOnce(jsonResponse({ success: true, data: fixture.quickStats }))
-    .mockResolvedValueOnce(jsonResponse({ success: true, data: fixture.recentActivity }))
-    .mockResolvedValueOnce(jsonResponse({ success: true, data: fixture.systemHealth }))
-    .mockResolvedValueOnce(jsonResponse({ success: true, data: fixture.appointmentStats }))
-    .mockResolvedValueOnce(jsonResponse({ success: true, data: fixture.moduleHealth }));
+    .mockResolvedValueOnce(
+      jsonResponse({ success: true, data: fixture.dashboard }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({ success: true, data: fixture.quickStats }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({ success: true, data: fixture.recentActivity }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({ success: true, data: fixture.systemHealth }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({ success: true, data: fixture.appointmentStats }),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({ success: true, data: fixture.moduleHealth }),
+    );
 }
 
 describe("useDashboardData", () => {
@@ -134,7 +157,7 @@ describe("useDashboardData", () => {
       appointmentStats: { waiting: 4, in_progress: 3, completed: 17 },
       moduleHealth: [
         { name: "Database", status: "healthy" },
-        { name: "Messaging", status: "warning" },
+        { name: "Messaging", status: "degraded" },
       ],
     });
 
@@ -157,7 +180,11 @@ describe("useDashboardData", () => {
       availableDoctors: 6,
       appointmentsToday: 24,
     });
-    expect(result.current.queue).toEqual({ waiting: 4, inProgress: 3, completed: 17 });
+    expect(result.current.queue).toEqual({
+      waiting: 4,
+      inProgress: 3,
+      completed: 17,
+    });
     expect(result.current.charts).toEqual({
       labels: ["2026-04-14", "2026-04-15"],
       users: [101, 108],
@@ -182,6 +209,7 @@ describe("useDashboardData", () => {
         { name: "Database", status: "healthy" },
         { name: "Messaging", status: "warning" },
       ],
+      observedAt: expect.any(String),
     });
   });
 
@@ -209,7 +237,9 @@ describe("useDashboardData", () => {
       appointmentStats: { waiting: 2, in_progress: 1, completed: 8 },
       moduleHealth: [{ name: "Database", status: "healthy" }],
     });
-    fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, message: "refreshed" }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ success: true, message: "refreshed" }),
+    );
     queueDashboardFetches(fetchMock, {
       dashboard: {
         overview: {
@@ -244,13 +274,19 @@ describe("useDashboardData", () => {
       availableDoctors: 4,
       appointmentsToday: 12,
     });
-    expect(result.current.queue).toEqual({ waiting: 2, inProgress: 1, completed: 8 });
+    expect(result.current.queue).toEqual({
+      waiting: 2,
+      inProgress: 1,
+      completed: 8,
+    });
 
     await act(async () => {
       await result.current.refreshCache();
     });
 
-    expect(fetchMock.mock.calls[6]?.[0]).toBe(`${API_BASE_URL}${API_ENDPOINTS.admin.reports.refreshCache}`);
+    expect(fetchMock.mock.calls[6]?.[0]).toBe(
+      `${API_BASE_URL}${API_ENDPOINTS.admin.reports.refreshCache}`,
+    );
     expect(fetchMock.mock.calls[6]?.[1]).toEqual(
       expect.objectContaining({
         method: "POST",
@@ -269,7 +305,77 @@ describe("useDashboardData", () => {
       availableDoctors: 5,
       appointmentsToday: 14,
     });
-    expect(result.current.prevQueue).toEqual({ waiting: 2, inProgress: 1, completed: 8 });
-    expect(result.current.queue).toEqual({ waiting: 5, inProgress: 3, completed: 10 });
+    expect(result.current.prevQueue).toEqual({
+      waiting: 2,
+      inProgress: 1,
+      completed: 8,
+    });
+    expect(result.current.queue).toEqual({
+      waiting: 5,
+      inProgress: 3,
+      completed: 10,
+    });
+  });
+
+  it("marks the last health observation stale when a later health request fails", async () => {
+    let healthCalls = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith(API_ENDPOINTS.admin.reports.refreshCache)) {
+        return jsonResponse({ success: true });
+      }
+      if (url.endsWith(API_ENDPOINTS.admin.dashboard)) {
+        return jsonResponse({
+          data: {
+            overview: {},
+            charts: { userGrowth: [], appointmentTrends: [] },
+          },
+        });
+      }
+      if (url.endsWith(API_ENDPOINTS.admin.stats.quick)) {
+        return jsonResponse({ data: {} });
+      }
+      if (url.includes(API_ENDPOINTS.admin.activity.recent)) {
+        return jsonResponse({ data: [] });
+      }
+      if (url.endsWith(API_ENDPOINTS.admin.health.system)) {
+        healthCalls += 1;
+        return healthCalls === 1
+          ? jsonResponse({
+              data: {
+                status: "up",
+                uptime: "99.9%",
+                responseTime: 50,
+                errorRate: 0.1,
+              },
+            })
+          : jsonResponse({ message: "unavailable" }, { status: 503 });
+      }
+      if (url.endsWith(API_ENDPOINTS.admin.stats.appointments)) {
+        return jsonResponse({ data: {} });
+      }
+      if (url.endsWith(API_ENDPOINTS.admin.health.modules)) {
+        return jsonResponse({ data: [{ name: "Database", status: "up" }] });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    const { result } = renderHook(() => useDashboardData());
+    await waitFor(() => expect(result.current.health.status).toBe("healthy"));
+    const observedAt = result.current.health.observedAt;
+
+    await act(async () => {
+      await result.current.refreshCache();
+    });
+
+    expect(result.current.health).toEqual(
+      expect.objectContaining({
+        status: "stale",
+        lastKnownStatus: "healthy",
+        observedAt,
+        responseTime: 50,
+        modules: [{ name: "Database", status: "healthy" }],
+      }),
+    );
   });
 });

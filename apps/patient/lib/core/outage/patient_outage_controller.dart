@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:vhhealth/core/outage/patient_mutation_policy.dart';
 import 'package:vhhealth/core/outage/patient_readiness.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
 import 'package:vhhealth_core/config/client_readiness_config.dart';
 import 'package:vhhealth_core/config/tenant_config.dart';
 import 'package:vhhealth_core/models/api_response.dart';
@@ -40,6 +41,8 @@ typedef PatientReadinessRequest = Future<ApiResponse> Function();
 typedef PatientIdentity = Future<String?> Function();
 typedef PatientDelay = Future<void> Function(Duration duration);
 typedef PatientClock = DateTime Function();
+typedef PatientSessionConfirmation =
+    Future<bool> Function(String jwt, String tenantId, DateTime confirmedAt);
 
 class PatientOutageController extends ChangeNotifier {
   PatientOutageController._production()
@@ -48,6 +51,7 @@ class PatientOutageController extends ChangeNotifier {
       _tenantId = _configuredTenantId,
       _delay = Future<void>.delayed,
       _clock = DateTime.now,
+      _confirmSession = _defaultConfirmSession,
       _successSpacing = const Duration(seconds: 1),
       _maxClockSkew =
           ClientReadinessConfig.maxClockSkew ??
@@ -64,11 +68,13 @@ class PatientOutageController extends ChangeNotifier {
     PatientDelay delay = Future<void>.delayed,
     PatientClock clock = DateTime.now,
     Duration successSpacing = const Duration(seconds: 1),
+    PatientSessionConfirmation confirmSession = _defaultConfirmSession,
   }) : _request = request,
        _authentication = authentication,
        _tenantId = tenantId,
        _delay = delay,
        _clock = clock,
+       _confirmSession = confirmSession,
        _successSpacing = successSpacing,
        _maxClockSkew = maxClockSkew;
 
@@ -92,6 +98,7 @@ class PatientOutageController extends ChangeNotifier {
   final PatientIdentity _tenantId;
   final PatientDelay _delay;
   final PatientClock _clock;
+  final PatientSessionConfirmation _confirmSession;
   final Duration _successSpacing;
   final Duration _maxClockSkew;
   final _blockedMutations =
@@ -196,6 +203,13 @@ class PatientOutageController extends ChangeNotifier {
     _recoveryTimer = null;
     _recoveryAttempt = 0;
     _suppressedUntil = null;
+    try {
+      await _confirmSession(authentication, tenantId, second.serverTime!);
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('Patient offline lease persistence failed: $error');
+      }
+    }
     _setState(PatientOutageStatus.available, PatientOutageReason.none);
     return true;
   }
@@ -283,6 +297,7 @@ class PatientOutageController extends ChangeNotifier {
     return _PatientReadinessOutcome(
       ready: true,
       routeKind: readiness.routeKind,
+      serverTime: readiness.serverTime,
     );
   }
 
@@ -439,6 +454,16 @@ class PatientOutageController extends ChangeNotifier {
 
   static Future<String?> _configuredTenantId() async => TenantConfig.id;
 
+  static Future<bool> _defaultConfirmSession(
+    String jwt,
+    String tenantId,
+    DateTime confirmedAt,
+  ) => PatientSessionAuthority.instance.confirmServerSession(
+    jwt: jwt,
+    tenantId: tenantId,
+    confirmedAt: confirmedAt,
+  );
+
   @visibleForTesting
   void closeForTesting(PatientOutageReason reason) => _close(reason);
 
@@ -463,11 +488,13 @@ class _PatientReadinessOutcome {
     this.ready = false,
     this.signedOut = false,
     this.routeKind,
+    this.serverTime,
     this.reason,
   });
 
   final bool ready;
   final bool signedOut;
   final PatientReadinessRouteKind? routeKind;
+  final DateTime? serverTime;
   final PatientOutageReason? reason;
 }

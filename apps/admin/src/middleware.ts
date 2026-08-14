@@ -3,15 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose/jwt/verify";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const secretKey = JWT_SECRET
-  ? new TextEncoder().encode(JWT_SECRET)
-  : null;
+const secretKey = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
 
 if (!secretKey && process.env.NODE_ENV === "production") {
   console.error(
     "FATAL: JWT_SECRET is not set in production. " +
-    "Middleware will reject all authenticated requests. " +
-    "Set JWT_SECRET to enable JWT signature verification.",
+      "Middleware will reject all authenticated requests. " +
+      "Set JWT_SECRET to enable JWT signature verification.",
   );
 }
 
@@ -82,6 +80,7 @@ function parseTokenStructure(token: string): TokenResult {
 // CI coverage test (src/__tests__/security/route-policy-coverage.test.ts)
 // fails when a page.tsx has no policy entry.
 import { policyForPath, roleSatisfiesPolicy } from "@/lib/routePolicy";
+import { normalizePortalRole } from "@/lib/roles";
 
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === "production";
@@ -182,7 +181,10 @@ function isIpAllowed(request: NextRequest): boolean {
     request.headers.get("x-real-ip") ||
     "";
 
-  return clientIp !== "" && allowlist.some((entry) => ipMatchesAllowlistEntry(clientIp, entry));
+  return (
+    clientIp !== "" &&
+    allowlist.some((entry) => ipMatchesAllowlistEntry(clientIp, entry))
+  );
 }
 
 // ── Nonce-based CSP (audit finding M9) ──────────────────────────────────────
@@ -269,6 +271,12 @@ export async function middleware(request: NextRequest) {
       return withCsp(NextResponse.redirect(loginUrl), csp);
     }
 
+    if (!normalizePortalRole(role)) {
+      const loginUrl = trustedRedirectUrl("/login", request);
+      loginUrl.searchParams.set("reason", "unsupported_role");
+      return withCsp(NextResponse.redirect(loginUrl), csp);
+    }
+
     // ── DEFAULT-DENY role gate (H6/M8) ───────────────────────────────────
     // No policy entry ⇒ deny. The dashboard home ("" segment) is mapped to
     // ANY_AUTHENTICATED, so the redirect target itself always resolves.
@@ -277,10 +285,16 @@ export async function middleware(request: NextRequest) {
       console.warn(
         `[middleware] DENY (no route policy entry): ${pathname} — add one to src/lib/routePolicy.ts`,
       );
-      return withCsp(NextResponse.redirect(trustedRedirectUrl("/dashboard", request)), csp);
+      return withCsp(
+        NextResponse.redirect(trustedRedirectUrl("/dashboard", request)),
+        csp,
+      );
     }
     if (!roleSatisfiesPolicy(role, policy)) {
-      return withCsp(NextResponse.redirect(trustedRedirectUrl("/dashboard", request)), csp);
+      return withCsp(
+        NextResponse.redirect(trustedRedirectUrl("/dashboard", request)),
+        csp,
+      );
     }
 
     return withCsp(
@@ -291,11 +305,17 @@ export async function middleware(request: NextRequest) {
 
   // ── Proxy route protection ──────────────────────────────────────────────────
   if (pathname.startsWith("/api/proxy")) {
-    const { valid } = await verifyToken(token ?? "");
+    const { valid, role } = await verifyToken(token ?? "");
     if (!valid) {
       return NextResponse.json(
         { message: "Authentication required" },
         { status: 401 },
+      );
+    }
+    if (!normalizePortalRole(role)) {
+      return NextResponse.json(
+        { message: "Forbidden: unsupported portal role" },
+        { status: 403 },
       );
     }
   }

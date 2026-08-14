@@ -9,9 +9,12 @@ jest.mock("@/app/(with-auth)/dashboard/hooks/useDashboardData", () => ({
   useDashboardData: jest.fn(),
 }));
 
-jest.mock("@/app/(with-auth)/dashboard/hooks/useTeleconsultOpsSnapshot", () => ({
-  useTeleconsultOpsSnapshot: jest.fn(),
-}));
+jest.mock(
+  "@/app/(with-auth)/dashboard/hooks/useTeleconsultOpsSnapshot",
+  () => ({
+    useTeleconsultOpsSnapshot: jest.fn(),
+  }),
+);
 
 const mockRealtime = jest.fn(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -39,7 +42,9 @@ const mockedUseDashboardData = useDashboardData as jest.MockedFunction<
   typeof useDashboardData
 >;
 const mockedUseTeleconsultOpsSnapshot =
-  useTeleconsultOpsSnapshot as jest.MockedFunction<typeof useTeleconsultOpsSnapshot>;
+  useTeleconsultOpsSnapshot as jest.MockedFunction<
+    typeof useTeleconsultOpsSnapshot
+  >;
 
 const dashboardData = {
   loading: false,
@@ -57,7 +62,7 @@ const dashboardData = {
     appointmentsToday: 18,
   },
   activity: [],
-  health: null,
+  health: { status: "unknown" as const },
   charts: { labels: [], users: [], appts: [] },
   lastUpdated: new Date("2026-07-02T08:00:00.000Z"),
   secondsAgo: 0,
@@ -132,9 +137,9 @@ describe("<Dashboard /> realtime KPI row", () => {
       "dashboard",
       "admin-kpi",
     ]);
-    expect(screen.getByTestId("dashboard-kpi-realtime-indicator")).toHaveTextContent(
-      "○ Polling",
-    );
+    expect(
+      screen.getByTestId("dashboard-kpi-realtime-indicator"),
+    ).toHaveTextContent("○ Polling");
   });
 
   it("shows live when admin:kpi is subscribed", () => {
@@ -147,9 +152,9 @@ describe("<Dashboard /> realtime KPI row", () => {
 
     renderWithQuery(<Dashboard />);
 
-    expect(screen.getByTestId("dashboard-kpi-realtime-indicator")).toHaveTextContent(
-      "● Live",
-    );
+    expect(
+      screen.getByTestId("dashboard-kpi-realtime-indicator"),
+    ).toHaveTextContent("● Live");
   });
 
   it("projects waiting-queue KPI snapshots onto the visible stats row", async () => {
@@ -164,11 +169,13 @@ describe("<Dashboard /> realtime KPI row", () => {
 
     renderWithQuery(<Dashboard />, queryClient);
 
-    const appointmentsCard = screen
-      .getByText("Today's Appointments")
-      .parentElement;
+    const appointmentsCard = screen.getByText(
+      "Today's Appointments",
+    ).parentElement;
     expect(appointmentsCard).not.toBeNull();
-    expect(within(appointmentsCard as HTMLElement).getByText("11")).toBeInTheDocument();
+    expect(
+      within(appointmentsCard as HTMLElement).getByText("11"),
+    ).toBeInTheDocument();
   });
 
   it("renders the teleconsult ops panel from the mocked hook", () => {

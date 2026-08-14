@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_report_models.dart';
@@ -11,12 +12,14 @@ import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_reports_panel
 
 void main() {
   test('consumable capture role gate matches the backend workflow gate', () {
-    expect(cathConsumablesCanAddForRole('DOCTOR'), isTrue);
+    for (final rawRole in canonicalStaffRoleCodes) {
+      expect(
+        cathConsumablesCanAddForRole(rawRole),
+        canonicalCathLabWorkflowRoleCodes.contains(rawRole),
+        reason: rawRole,
+      );
+    }
     expect(cathConsumablesCanAddForRole('CATHLAB_STAFF'), isTrue);
-    expect(cathConsumablesCanAddForRole('NURSING_STAFF'), isTrue);
-    expect(cathConsumablesCanAddForRole('ADMIN'), isTrue);
-    expect(cathConsumablesCanAddForRole('RECEPTIONIST'), isFalse);
-    expect(cathConsumablesCanAddForRole('TECHNICIAN'), isFalse);
     expect(cathConsumablesCanAddForCaseStatus('scheduled'), isFalse);
     expect(cathConsumablesCanAddForCaseStatus('readiness_pending'), isFalse);
     expect(cathConsumablesCanAddForCaseStatus('ready'), isTrue);

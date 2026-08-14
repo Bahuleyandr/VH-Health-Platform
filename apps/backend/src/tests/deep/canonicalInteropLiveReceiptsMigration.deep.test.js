@@ -1,0 +1,285 @@
+import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { jest } from '@jest/globals';
+import pg from 'pg';
+
+import { parseMigrationDirectives } from '../../../scripts/lib/migrationDirectives.mjs';
+import {
+  applyNoTransactionMigrationSql,
+  stripSqlComments,
+} from '../../utils/migrations/applyNoTransactionMigration.js';
+
+const { Client } = pg;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const migrationPath = join(__dirname, '..', '..', 'migrations', '666_canonical_interop_live_receipts.sql');
+const migrationSql = readFileSync(migrationPath, 'utf8');
+const migrationDirectives = parseMigrationDirectives(migrationSql);
+// DDL only — the file's header explains itself in prose that mentions the same
+// keywords, so shape assertions must not read the comments.
+const migrationDdl = stripSqlComments(migrationSql);
+const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
+const d = hasDb ? describe : describe.skip;
+
+jest.setTimeout(90_000);
+
+describe('migration 666 static canonical-interoperability contract', () => {
+  test('is applied outside a transaction and declares the durable outcome and semantic receipts', () => {
+    // The file builds its patient_allergies FK anchor with CREATE UNIQUE INDEX
+    // CONCURRENTLY, which Postgres refuses inside a transaction block. That is
+    // only legal because the runner sees `-- @no-transaction` and applies the
+    // statements on a bare session, so the directive is part of the contract:
+    // drop it and the migration cannot apply at all.
+    expect(migrationDirectives.noTransaction).toBe(true);
+    expect(migrationDirectives.statementTimeout).toBe('0');
+    expect(migrationDdl).toMatch(
+      /CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_patient_allergies_tenant_id_for_fhir_receipt/,
+    );
+    // @no-transaction surrenders atomic rollback, so a partially applied file is
+    // replayed from the top: every object it creates must be re-runnable, and it
+    // must never open a transaction of its own around the CONCURRENTLY builds.
+    expect(migrationSql).not.toMatch(/^\s*(BEGIN|COMMIT);\s*$/m);
+    expect(migrationDdl.match(/CREATE TABLE(?! IF NOT EXISTS)/g)).toBeNull();
+    expect(migrationDdl.match(/CREATE (UNIQUE )?INDEX(?! CONCURRENTLY)(?! IF NOT EXISTS)/g)).toBeNull();
+    expect(migrationSql).toMatch(/CREATE TABLE IF NOT EXISTS public\.hl7_inbound_clinical_receipts/);
+    expect(migrationSql).toMatch(/UNIQUE \(tenant_id, sender_identity, message_control_id\)/);
+    expect(migrationSql).toMatch(/CHECK \(acknowledgement_code = 'AA'\)/);
+    expect(migrationSql).toMatch(/CREATE TABLE IF NOT EXISTS public\.fhir_allergy_intolerance_receipts/);
+    expect(migrationSql).toMatch(/PRIMARY KEY \(tenant_id, resource_fingerprint\)/);
+    expect(migrationSql).toMatch(/FOREIGN KEY \(tenant_id, patient_uid\) REFERENCES public\.users\(tenant_id, uid\)/);
+    expect(migrationSql.match(/FOREIGN KEY \(tenant_id, patient_uid\)/g)).toHaveLength(2);
+    expect(migrationSql.match(/audit_append_only_guard\(\)/g)).toHaveLength(2);
+    expect(migrationSql.match(/ALTER TABLE public\.%I FORCE ROW LEVEL SECURITY/g)).toHaveLength(1);
+    expect(migrationSql).toMatch(/AS RESTRICTIVE/);
+    expect(migrationSql).toMatch(/current_setting\('app\.current_tenant_id', true\) <> 'bypass'/);
+  });
+});
+
+// A login role reached over TCP is authenticated by whatever pg_hba.conf says,
+// and the two environments this suite runs in disagree. CI's Postgres service
+// container sets POSTGRES_PASSWORD and no POSTGRES_HOST_AUTH_METHOD, so the
+// pg18 entrypoint writes `scram-sha-256` and a password is MANDATORY. A local
+// cluster initdb'd with trust never asks for one, so it exercises neither the
+// server side (a role with no password cannot authenticate) nor the client
+// side (`pg` demands the password be a string before it will run the SCRAM
+// handshake). Give the role a real password and hand `pg` a real string, and
+// both cluster postures are satisfied by the same code — trust simply ignores
+// what SCRAM requires. Hex keeps the value free of anything URL- or
+// SQL-significant, so it survives the URL round-trip and the literal below
+// byte-for-byte.
+function generateRolePassword() {
+  return `m666_${randomBytes(24).toString('hex')}`;
+}
+
+// Guard the exact mistake this suite shipped with: `url.password = ''` does not
+// set an empty password, it DELETES the password from the URL, so `pg` resolves
+// it to null and dies mid-handshake with "SASL: SCRAM-SERVER-FIRST-MESSAGE:
+// client password must be a string". Fail here, naming the role, instead of
+// handing pg a non-string and reading that error five frames deep in a driver.
+function assertUrlCarriesPassword(url, role) {
+  if (typeof url.password !== 'string' || url.password === '') {
+    throw new Error(
+      `Refusing to connect as "${role}" with no password: pg would hand the SCRAM `
+        + 'handshake a non-string and fail with "client password must be a string". '
+        + 'Note that assigning an empty string to URL.password removes it entirely.',
+    );
+  }
+}
+
+d('migration 666 constraints and tenant posture (isolated scratch database)', () => {
+  const sourceUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+  const scratchName = `vh_a4_m666_${process.pid}_${Date.now().toString(36)}`;
+  let admin;
+  let scratch;
+  let runtime;
+  let runtimeUrl;
+  const runtimeRole = `vh_a4_m666_runtime_${process.pid}_${Date.now().toString(36)}`;
+  const runtimePassword = generateRolePassword();
+
+  beforeAll(async () => {
+    if (!sourceUrl) {
+      throw new Error('TEST_DATABASE_URL or DATABASE_URL must be set to run this suite');
+    }
+    if (!/^[a-z0-9_]+$/.test(scratchName)) throw new Error('Unsafe scratch database name');
+    if (!/^[a-z0-9_]+$/.test(runtimeRole)) throw new Error('Unsafe runtime role name');
+    const adminUrl = new URL(sourceUrl);
+    adminUrl.pathname = '/postgres';
+    admin = new Client({ connectionString: adminUrl.toString() });
+    await admin.connect();
+    // The password has to exist server-side too. `CREATE ROLE … LOGIN` alone
+    // leaves rolpassword NULL, which under scram-sha-256 fails 28P01 no matter
+    // what the client sends — fixing only the client half is not enough.
+    await admin.query(
+      `CREATE ROLE ${runtimeRole} LOGIN PASSWORD ${admin.escapeLiteral(runtimePassword)}`,
+    );
+    await admin.query(`CREATE DATABASE ${scratchName}`);
+
+    const scratchUrl = new URL(sourceUrl);
+    scratchUrl.pathname = `/${scratchName}`;
+    scratch = new Client({ connectionString: scratchUrl.toString() });
+    await scratch.connect();
+    await scratch.query(`
+      CREATE TABLE public.tenants (id UUID PRIMARY KEY);
+      CREATE TABLE public.users (
+        uid UUID PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES public.tenants(id),
+        UNIQUE (tenant_id, uid)
+      );
+      CREATE TABLE public.patient_allergies (
+        id SERIAL PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES public.tenants(id),
+        patient_uid UUID,
+        allergy_name VARCHAR(255) NOT NULL,
+        UNIQUE (tenant_id, id)
+      );
+      CREATE TABLE public.clinical_timeline_events (
+        id UUID PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES public.tenants(id),
+        UNIQUE (tenant_id, id)
+      );
+      CREATE TABLE public.clinical_audit_events (
+        id UUID PRIMARY KEY,
+        tenant_id UUID NOT NULL REFERENCES public.tenants(id),
+        UNIQUE (tenant_id, id)
+      );
+      CREATE FUNCTION public.app_current_tenant_id_uuid()
+      RETURNS UUID LANGUAGE sql STABLE AS $$
+        SELECT NULLIF(NULLIF(current_setting('app.current_tenant_id', true), ''), 'bypass')::uuid
+      $$;
+      CREATE FUNCTION public.audit_append_only_guard()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'append-only';
+      END
+      $$;
+    `);
+    // Apply the file exactly the way runMigrations' @no-transaction branch does
+    // — same directive parse, same statement split, same bare-session apply.
+    // Handing the whole file to client.query() would wrap it in an implicit
+    // transaction block and die on the CONCURRENTLY index statements, and any
+    // hand-rolled loop here would be free to drift from the real runner.
+    await applyNoTransactionMigrationSql(scratch, migrationSql);
+    // Apply it a second time. @no-transaction means a mid-file failure leaves
+    // the file partially applied and UNRECORDED, so the runner replays it from
+    // the top — the file's own header calls that its RE-RUNNABILITY CONTRACT.
+    // Nothing else proves it, and every assertion below then runs against a
+    // replayed schema, so a non-idempotent statement cannot reach production
+    // unnoticed.
+    await applyNoTransactionMigrationSql(scratch, migrationSql);
+    // The file's `@statement_timeout: 0` is a session setting with no
+    // transaction to scope it to, so it outlives the apply. Put a bound back on
+    // this connection for the rest of the suite.
+    await scratch.query("SET statement_timeout = '60s'");
+    await scratch.query(`GRANT CONNECT ON DATABASE ${scratchName} TO ${runtimeRole}`);
+    await scratch.query(`GRANT USAGE ON SCHEMA public TO ${runtimeRole}`);
+    await scratch.query(`GRANT SELECT ON public.fhir_allergy_intolerance_receipts TO ${runtimeRole}`);
+
+    // Inherit host/port/database (and any sslmode) from the parent URL, then
+    // override only the identity — the credentials of the role we just created,
+    // never the parent's, and never a blank.
+    runtimeUrl = new URL(scratchUrl.toString());
+    runtimeUrl.username = runtimeRole;
+    runtimeUrl.password = runtimePassword;
+    assertUrlCarriesPassword(runtimeUrl, runtimeRole);
+    runtime = new Client({ connectionString: runtimeUrl.toString() });
+    // Prove the credential survived the URL round-trip and actually reached the
+    // driver, rather than trusting that it did and failing inside the handshake.
+    if (runtime.connectionParameters.password !== runtimePassword) {
+      throw new Error(`Runtime role "${runtimeRole}" password did not reach the pg client`);
+    }
+    await runtime.connect();
+  });
+
+  afterAll(async () => {
+    await runtime?.end().catch(() => {});
+    await scratch?.end().catch(() => {});
+    if (admin) {
+      await admin.query(`DROP DATABASE IF EXISTS ${scratchName} WITH (FORCE)`).catch(() => {});
+      await admin.query(`DROP ROLE IF EXISTS ${runtimeRole}`).catch(() => {});
+      await admin.end().catch(() => {});
+    }
+  });
+
+  test('enforces tenant-scoped patient and canonical evidence ownership', async () => {
+    const tenantA = '00000000-0000-4000-8000-000000000101';
+    const tenantB = '00000000-0000-4000-8000-000000000102';
+    const patientA = '00000000-0000-4000-8000-000000000201';
+    const timelineA = '00000000-0000-4000-8000-000000000301';
+    const auditA = '00000000-0000-4000-8000-000000000401';
+    await scratch.query('INSERT INTO tenants (id) VALUES ($1), ($2)', [tenantA, tenantB]);
+    await scratch.query(
+      'INSERT INTO users (tenant_id, uid) VALUES ($1, $2)',
+      [tenantA, patientA],
+    );
+    await scratch.query(
+      'INSERT INTO clinical_timeline_events (tenant_id, id) VALUES ($1, $2)',
+      [tenantA, timelineA],
+    );
+    await scratch.query(
+      'INSERT INTO clinical_audit_events (tenant_id, id) VALUES ($1, $2)',
+      [tenantA, auditA],
+    );
+    const allergy = await scratch.query(
+      `INSERT INTO patient_allergies (tenant_id, patient_uid, allergy_name)
+       VALUES ($1, $2, 'Penicillin') RETURNING id`,
+      [tenantA, patientA],
+    );
+
+    await scratch.query('BEGIN');
+    await scratch.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantA]);
+    await expect(scratch.query(
+      `INSERT INTO fhir_allergy_intolerance_receipts
+         (tenant_id, resource_fingerprint, payload_sha256, patient_uid,
+          allergy_id, timeline_event_id, audit_event_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tenantA, 'a'.repeat(64), 'b'.repeat(64), patientA, allergy.rows[0].id, timelineA, auditA],
+    )).resolves.toMatchObject({ rowCount: 1 });
+    await scratch.query('COMMIT');
+
+    await scratch.query('BEGIN');
+    await scratch.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantB]);
+    await expect(scratch.query(
+      `INSERT INTO hl7_inbound_clinical_receipts
+         (tenant_id, sender_identity, message_control_id, message_type,
+          payload_sha256, patient_uid, detail_table, detail_id,
+          timeline_event_id, audit_event_id)
+       VALUES ($1, 'SENDER|SITE', 'CTRL-1', 'ADT^A01', $2, $3,
+               'admissions', 1, $4, $5)`,
+      [tenantB, 'c'.repeat(64), patientA, timelineA, auditA],
+    )).rejects.toMatchObject({ code: '23503' });
+    await scratch.query('ROLLBACK');
+  });
+
+  test('requires an explicit tenant context and keeps receipts append-only', async () => {
+    const tenantA = '00000000-0000-4000-8000-000000000101';
+    const patientA = '00000000-0000-4000-8000-000000000201';
+
+    const withoutContext = await runtime.query(
+      `SELECT COUNT(*)::int AS count
+         FROM fhir_allergy_intolerance_receipts`,
+    );
+    expect(withoutContext.rows).toEqual([{ count: 0 }]);
+
+    await runtime.query('BEGIN');
+    await runtime.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantA]);
+    const visible = await runtime.query(
+      `SELECT COUNT(*)::int AS count
+         FROM fhir_allergy_intolerance_receipts
+        WHERE patient_uid = $1`,
+      [patientA],
+    );
+    expect(visible.rows).toEqual([{ count: 1 }]);
+    await runtime.query('ROLLBACK');
+
+    await scratch.query('BEGIN');
+    await scratch.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantA]);
+    await expect(scratch.query(
+      `DELETE FROM fhir_allergy_intolerance_receipts
+        WHERE patient_uid = $1`,
+      [patientA],
+    )).rejects.toMatchObject({ code: '55000' });
+    await scratch.query('ROLLBACK');
+  });
+});

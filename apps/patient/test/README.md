@@ -20,7 +20,6 @@ These tests are intentionally **pure-Dart / no-plugin**. Widget tests that requi
 ## Deferred — needs mock scaffolding
 
 - `ApiClient` single-flight 401 refresh behavior (needs `http` mock)
-- `SharedPrefsService` CRUD (needs `shared_preferences` mock)
 - `flutter_secure_storage` JWT persistence (needs plugin mock)
 - Appointment booking form validation (needs full widget tree + mocked `ApiClient`)
 - Pharmacy order place flow (multipart upload mock)

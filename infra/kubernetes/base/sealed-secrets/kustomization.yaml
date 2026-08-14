@@ -4,5 +4,6 @@ kind: Kustomization
 metadata:
   name: vhhealth-sealed-secrets
 resources:
+  - namespace.yaml
   - crd.yaml
   - sealed-secrets.yaml

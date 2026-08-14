@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import '../platform_info.dart';
 import '../services/auth_service.dart';
-import '../services/recent_patients_service.dart';
 
 typedef SessionTimeoutCleanup = Future<void> Function();
+typedef SessionPendingWriteCounter = Future<int> Function();
 
 Duration sessionTimeoutForDeviceMode(AppDeviceMode mode) => mode.isWorkbench
     ? const Duration(minutes: 10)
@@ -24,11 +24,14 @@ class SessionTimeoutProvider extends ChangeNotifier {
     Duration countdownTickDuration = const Duration(seconds: 1),
     SessionTimeoutCleanup? beforeTimeoutCleanup,
     SessionTimeoutCleanup? onTimeoutCleanup,
+    SessionPendingWriteCounter? pendingOfflineWriteCount,
   }) : _timeoutDuration = timeoutDuration,
        _warningDuration = warningDuration,
        _countdownTickDuration = countdownTickDuration,
        _beforeTimeoutCleanup = beforeTimeoutCleanup,
-       _onTimeoutCleanup = onTimeoutCleanup ?? _defaultTimeoutCleanup;
+       _onTimeoutCleanup = onTimeoutCleanup ?? _defaultTimeoutCleanup,
+       _pendingOfflineWriteCount =
+           pendingOfflineWriteCount ?? _defaultPendingOfflineWriteCount;
 
   /// How long the user can be idle before automatic logout.
   Duration get timeoutDuration => _timeoutDuration;
@@ -39,6 +42,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
   final Duration _countdownTickDuration;
   final SessionTimeoutCleanup? _beforeTimeoutCleanup;
   final SessionTimeoutCleanup _onTimeoutCleanup;
+  final SessionPendingWriteCounter _pendingOfflineWriteCount;
 
   Timer? _timer;
   Timer? _warningTimer;
@@ -142,12 +146,12 @@ class SessionTimeoutProvider extends ChangeNotifier {
     // Publish the locked state before the first await so the previous
     // clinician's surface cannot remain visible during asynchronous teardown.
     lockSession();
-    _preservedOfflineWriteCount = await _pendingOfflineWriteCount();
     try {
       await _beforeTimeoutCleanup?.call();
     } catch (e) {
       debugPrint('SessionTimeout: failed to stop authenticated providers: $e');
     }
+    _preservedOfflineWriteCount = await _pendingOfflineWriteCount();
     try {
       await _onTimeoutCleanup();
     } catch (e) {
@@ -218,7 +222,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
     _warningRemaining = Duration.zero;
   }
 
-  static Future<int> _pendingOfflineWriteCount() async {
+  static Future<int> _defaultPendingOfflineWriteCount() async {
     try {
       return await ConnectivitySyncService.instance
           .pendingWriteCountForCurrentOwner();
@@ -229,7 +233,6 @@ class SessionTimeoutProvider extends ChangeNotifier {
   }
 
   static Future<void> _defaultTimeoutCleanup() async {
-    await RecentPatientsService.clear();
     // Idle timeout must end the session server-side too (STF-5): previously
     // this only cleared local state, leaving the bearer token and refresh
     // credential alive on the backend after the on-device auto-logout.

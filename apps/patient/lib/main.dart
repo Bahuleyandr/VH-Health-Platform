@@ -39,15 +39,18 @@ import 'package:vhhealth/core/services/firebase_crash_reporter.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
+import 'package:vhhealth/core/services/patient_realtime_lifecycle.dart';
+import 'package:vhhealth/core/services/patient_session_expiry.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
-import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth/core/widgets/patient_outage_scope.dart';
 import 'package:vhhealth/core/outage/patient_outage_config.dart';
 import 'package:vhhealth/core/outage/patient_outage_controller.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
-import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show RealtimeClient, RealtimeProvider;
 
 // App Utilities
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -64,6 +67,9 @@ Future<void> main() async {
   await runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      // A process kill can bypass logout while an external document viewer is
+      // open. Purge any crash-recovery plaintext before auth or UI startup.
+      await DocStaging.purge();
       // Fail fast on misconfigured production builds (audit finding H7):
       // throws when PRODUCTION=true but CERT_PIN_HASHES is missing/malformed,
       // so an unpinned PHI build can never reach patients.
@@ -183,14 +189,12 @@ Future<void> main() async {
         FlutterError.onError = _recordFlutterFrameworkError;
       }
 
-      // Wire 401 handler: when any API call returns Unauthorized, redirect to
-      // login. The teardown lives in LogoutService.handleSessionExpired so the
-      // 401 logout path is testable alongside the other five.
-      ApiClient.onSessionExpired = (message) {
-        LogoutService.handleSessionExpired(
-          redirectToLogin: () => AppRouter.router.go('/login'),
-        );
-      };
+      // Wire the 401 handler: when any API call returns Unauthorized and the
+      // single-flight refresh fails, run the full teardown and redirect to
+      // login. Shares ONE entry point with the realtime 4001 leg wired on
+      // _realtimeProvider below, so the two transports cannot drift into
+      // different definitions of a dead session.
+      ApiClient.onSessionExpired = (_) => handlePatientSessionExpired();
 
       // Local notifications: initialize the scheduler, then sync medication
       // reminders from the backend. Both run off the critical path — neither is
@@ -216,21 +220,28 @@ Future<void> main() async {
         }
       }());
 
+      // Drain any revocation a previous logout could not confirm with the
+      // server. Runs here, off the critical path and BEFORE the user can sign
+      // in again, because the retry bumps the identity's token epoch — firing
+      // it against a fresh login would sign that new session straight back
+      // out. A no-op when nothing is queued, and it defers itself if a session
+      // is already live. Without this the durable handle would never be
+      // serviced, which is worse than not queuing one at all.
+      unawaited(() async {
+        try {
+          final result = await LogoutService.retryPendingRevocation();
+          if (result != PendingRevocationRetry.nothingQueued) {
+            debugPrint('Pending session revocation retry: ${result.name}');
+          }
+        } catch (e) {
+          debugPrint('Pending session revocation retry failed: $e');
+        }
+      }());
+
       // Start network connectivity monitoring.
       ConnectivityService.startMonitoring();
       unawaited(PatientOutageConfigStore.instance.load());
       unawaited(PatientOutageController.instance.initialize());
-
-      ConnectivityService.onChange.listen((online) {
-        if (online) {
-          unawaited(
-            WebSocketService.instance.handleConnectivityChanged(online),
-          );
-        }
-      });
-
-      // Connect the WebSocket service for real-time updates.
-      unawaited(WebSocketService.instance.connect());
 
       runApp(const VHRoot());
     },
@@ -268,9 +279,36 @@ class VHRoot extends StatefulWidget {
 }
 
 class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
+  late final RealtimeProvider _realtimeProvider;
+  late final WebSocketProvider _webSocketProvider;
+  late final PatientRealtimeLifecycle _realtimeLifecycle;
+  StreamSubscription<bool>? _realtimeConnectivitySubscription;
+
   @override
   void initState() {
     super.initState();
+    // onSessionExpired is NOT optional here. RealtimeClient fires it after a
+    // 4001 auth close whose refresh failed — the server-side revocation path
+    // ("signed out everywhere", admin revocation, password change, account
+    // deletion) — and without it the client only dropped its two tokens while
+    // every byte of local PHI stayed on the device. See
+    // handlePatientSessionExpired.
+    _realtimeProvider = RealtimeProvider(
+      onSessionExpired: handlePatientSessionExpired,
+    );
+    _webSocketProvider = WebSocketProvider(realtimeProvider: _realtimeProvider);
+    _realtimeLifecycle = PatientRealtimeLifecycle.instance;
+    _realtimeLifecycle.attach(
+      owner: this,
+      start: _startRealtime,
+      stop: _stopRealtime,
+    );
+    _realtimeConnectivitySubscription = ConnectivityService.onChange.listen((
+      online,
+    ) {
+      if (online) _runRealtimeLifecycle(_realtimeLifecycle.queueStart());
+    });
+    _runRealtimeLifecycle(_realtimeLifecycle.queueStart());
     WidgetsBinding.instance.addObserver(this);
     // PAT-6: block screenshots and suppress the app-switcher thumbnail
     // so PHI cannot leak via Android recents or iOS Exposé.
@@ -291,9 +329,48 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _startRealtime() => _webSocketProvider.listen();
+
+  Future<void> _stopRealtime({required bool unsubscribe}) async {
+    final generation = _realtimeLifecycle.generation;
+    await _webSocketProvider.stop(unsubscribe: unsubscribe);
+    // Re-check the era before touching the PROCESS-WIDE RealtimeClient
+    // singleton. PatientRealtimeLifecycle bounds the logout teardown, so a stop
+    // slow enough to outlive that bound is abandoned while still in flight and
+    // cannot be cancelled. If a new login has connected the same singleton in
+    // the meantime, running the disconnect below would close its socket, clear
+    // its server subscriptions and close its event controllers — a silent
+    // realtime blackout for a session this teardown has nothing to do with.
+    // The lifecycle's own generation fence cannot cover this: it guards the
+    // INVOCATION, and by here we are already past it.
+    //
+    // This narrows the straggler window rather than closing it: the app-local
+    // teardown above has already run. That residue is survivable where this
+    // disconnect is not — its channel names were captured from the DEPARTING
+    // patient, so they only collide when the same patient signs back in, and
+    // the shared singleton stays connected for the new session either way.
+    // When the abandoned teardown took this branch, logout has already STARTED
+    // its own escape-hatch disconnect, so nothing is skipped.
+    if (_realtimeLifecycle.generation != generation) return;
+    await _realtimeProvider.disconnect();
+  }
+
+  void _runRealtimeLifecycle(Future<void> operation) {
+    unawaited(
+      operation.catchError((Object error) {
+        if (kDebugMode) debugPrint('Realtime lifecycle skipped: $error');
+      }),
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _realtimeConnectivitySubscription?.cancel();
+    _realtimeLifecycle.detach(this);
+    _webSocketProvider.dispose();
+    _realtimeProvider.dispose();
+    unawaited(RealtimeClient.instance.disconnect());
     super.dispose();
   }
 
@@ -303,14 +380,17 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // Save battery: disconnect WebSocket and stop connectivity polling
-      WebSocketService.instance.disconnect();
+      _runRealtimeLifecycle(_realtimeLifecycle.queueStop());
       ConnectivityService.stopMonitoring();
       PatientOutageController.instance.onBackgrounded();
     } else if (state == AppLifecycleState.resumed) {
       // Reconnect when the app comes back to foreground
       ConnectivityService.startMonitoring();
       PatientOutageController.instance.onResumed();
-      WebSocketService.instance.connect();
+      _runRealtimeLifecycle(_realtimeLifecycle.queueStart());
+      // Returning from the system viewer is the normal recovery point for
+      // deleting its short-lived plaintext copy.
+      unawaited(DocStaging.purge());
       // HealthKit / Google Health Connect: fire-and-forget delta sync. Noop if
       // the user never granted permissions (service requests them on first call).
       unawaited(HealthSyncService.instance.syncNow());
@@ -326,12 +406,14 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => UserProvider()),
         ChangeNotifierProvider(create: (_) => DependentsProvider()),
-        ChangeNotifierProvider(create: (_) => WebSocketProvider()..listen()),
         // Realtime fabric lifecycle owner. Widgets listen via
         // `context.read<RealtimeProvider>().events(channel)` instead of
         // calling `RealtimeClient.instance.connect()` directly.
-        ChangeNotifierProvider(
-          create: (_) => RealtimeProvider()..ensureConnected(),
+        ChangeNotifierProvider<RealtimeProvider>.value(
+          value: _realtimeProvider,
+        ),
+        ChangeNotifierProvider<WebSocketProvider>.value(
+          value: _webSocketProvider,
         ),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(

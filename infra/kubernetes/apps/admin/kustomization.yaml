@@ -28,4 +28,3 @@ resources:
   - hpa.yaml
   - pdb.yaml
   - network-policy.yaml
-  - service-monitor.yaml

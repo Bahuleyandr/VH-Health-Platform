@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -8,17 +9,31 @@ import 'package:vhhealth_staff/core/services/recent_patients_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
+  setUp(() async {
+    await RecentPatientsService.resetForTesting();
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
-    RecentPatientsService.debugStaffIdentityOverride = null;
   });
 
   tearDown(() async {
-    RecentPatientsService.debugStaffIdentityOverride = null;
+    await RecentPatientsService.resetForTesting();
   });
 
   group('RecentPatientsService', () {
+    test('concurrent logout paths coalesce into one purge', () async {
+      var purgeCount = 0;
+      RecentPatientsService.debugBeforeClear = () async {
+        purgeCount += 1;
+      };
+
+      await Future.wait([
+        RecentPatientsService.clear(),
+        RecentPatientsService.clear(),
+      ]);
+
+      expect(purgeCount, 1);
+    });
+
     test(
       'keeps recent patients scoped to the signed-in staff member',
       () async {
@@ -120,6 +135,43 @@ void main() {
 
       RecentPatientsService.debugStaffIdentityOverride = 'staff-b';
       expect(await RecentPatientsService.getAll(), isEmpty);
+    });
+
+    test('a pre-logout in-flight add cannot repopulate after clear', () async {
+      final writeReached = Completer<void>();
+      final releaseWrite = Completer<void>();
+      RecentPatientsService.debugStaffIdentityOverride = 'staff-a';
+      RecentPatientsService.debugBeforeWrite = () async {
+        if (!writeReached.isCompleted) writeReached.complete();
+        await releaseWrite.future;
+      };
+
+      final staleAdd = RecentPatientsService.add('patient-a', 'Alice');
+      await writeReached.future;
+      final purge = RecentPatientsService.clear();
+      releaseWrite.complete();
+      await Future.wait([staleAdd, purge]);
+
+      expect(await RecentPatientsService.getAll(), isEmpty);
+
+      RecentPatientsService.beginSession();
+      await RecentPatientsService.add('patient-b', 'Bob');
+      expect(
+        (await RecentPatientsService.getAll()).map((entry) => entry['uid']),
+        ['patient-b'],
+      );
+    });
+
+    test('malformed index still purges the current owner and index', () async {
+      RecentPatientsService.debugStaffIdentityOverride = 'staff-a';
+      await RecentPatientsService.add('patient-a', 'Alice');
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'recent_patients_keys', value: '{not-json');
+
+      await RecentPatientsService.clear();
+
+      expect(await storage.read(key: 'recent_patients:staff:staff-a'), isNull);
+      expect(await storage.read(key: 'recent_patients_keys'), isNull);
     });
   });
 }

@@ -18,6 +18,7 @@ import 'package:vhhealth_core/services/offline_queue.dart';
 import 'package:vhhealth_staff/core/config/api_config.dart';
 import 'package:vhhealth_staff/core/config/c0a_reconciliation_config.dart';
 import 'package:vhhealth_staff/core/services/auth_service.dart';
+import 'package:vhhealth_staff/core/services/recent_patients_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -35,12 +36,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     secureStorage.reset();
     VHHttpClient.resetClientForTesting();
+    await RecentPatientsService.resetForTesting();
     await ConnectivitySyncService.instance.resetForTesting();
     await OfflineQueue.deleteTestDatabase();
   });
 
   tearDown(() async {
     VHHttpClient.resetClientForTesting();
+    await RecentPatientsService.resetForTesting();
     await ConnectivitySyncService.instance.resetForTesting();
     await OfflineQueue.deleteTestDatabase();
   });
@@ -218,7 +221,7 @@ void main() {
       expect(await storage.read(key: 'device_token'), 'registered-device');
       expect(
         await storage.read(key: 'recent_patients:staff:staff-current'),
-        '[{"uid":"patient-a"}]',
+        isNull,
       );
       expect(
         await storage.read(key: OfflineQueue.debugEncryptionKeyName),
@@ -239,6 +242,10 @@ void main() {
       final queueKey = await storage.read(
         key: OfflineQueue.debugEncryptionKeyName,
       );
+      await storage.write(
+        key: 'recent_patients:staff:staff-current',
+        value: '[{"uid":"patient-a"}]',
+      );
       var backendPosts = 0;
       VHHttpClient.setClientForTesting(
         MockClient((request) async {
@@ -256,6 +263,10 @@ void main() {
         await storage.read(key: OfflineQueue.debugEncryptionKeyName),
         queueKey,
       );
+      expect(
+        await storage.read(key: 'recent_patients:staff:staff-current'),
+        isNull,
+      );
 
       await OfflineQueue.resetForTesting();
       await _seedIdentity('staff-current', uid: 'uid-current');
@@ -265,6 +276,50 @@ void main() {
         'patient_uid': 'patient-a',
         'vital_signs': {'pulse': 88},
       });
+    },
+  );
+
+  test(
+    'remote device removal forces reauthentication but keeps this device token',
+    () async {
+      const currentInstallationId = '33333333-3333-4333-8333-333333333333';
+      await _seedIdentity('staff-current');
+      const storage = FlutterSecureStorage();
+      await storage.write(
+        key: 'staffInstallationId',
+        value: currentInstallationId,
+      );
+      await AuthService.saveDeviceToken('current-device-token');
+
+      final removedCurrent = await AuthService.applyDeviceRemovalRevocation(
+        '44444444-4444-4444-8444-444444444444',
+      );
+
+      expect(removedCurrent, isFalse);
+      expect(await ApiConfig.getStaffId(), isNull);
+      expect(await AuthService.getDeviceToken(), 'current-device-token');
+    },
+  );
+
+  test(
+    'current device removal clears its token and forces reauthentication',
+    () async {
+      const currentInstallationId = '33333333-3333-4333-8333-333333333333';
+      await _seedIdentity('staff-current');
+      const storage = FlutterSecureStorage();
+      await storage.write(
+        key: 'staffInstallationId',
+        value: currentInstallationId,
+      );
+      await AuthService.saveDeviceToken('current-device-token');
+
+      final removedCurrent = await AuthService.applyDeviceRemovalRevocation(
+        currentInstallationId,
+      );
+
+      expect(removedCurrent, isTrue);
+      expect(await ApiConfig.getStaffId(), isNull);
+      expect(await AuthService.getDeviceToken(), isNull);
     },
   );
 

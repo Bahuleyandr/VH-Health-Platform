@@ -1,4 +1,6 @@
 import { spawnSync } from 'child_process';
+import { generateKeyPairSync } from 'node:crypto';
+import { createSignedPatientMinimumVersionPolicy } from '../../services/patientMinimumVersionPolicySigner.js';
 
 const node = process.execPath;
 
@@ -90,6 +92,62 @@ describe('validateEnv signed integration secrets', () => {
   });
 });
 
+describe('validateEnv Redis Sentinel production contract', () => {
+  it('fails closed when Sentinel is required without explicit hosts and credentials', () => {
+    const result = runValidateEnv({ REDIS_REQUIRE_SENTINEL: 'true' });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_SENTINEL_HOSTS');
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_PASSWORD');
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_SENTINEL_PASSWORD');
+  });
+
+  it('accepts the complete three-Sentinel production contract', () => {
+    const result = runValidateEnv({
+      REDIS_REQUIRE_SENTINEL: 'true',
+      REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
+      REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_USERNAME: 'vhhealth-backend',
+      REDIS_SENTINEL_USERNAME: 'vhhealth-discovery',
+      REDIS_PASSWORD: 'data-password-at-least-16-chars',
+      REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
+    });
+
+    expect(result.status).toBe(0);
+  });
+
+  it('rejects a standalone URL when Sentinel is required', () => {
+    const result = runValidateEnv({
+      REDIS_REQUIRE_SENTINEL: 'true',
+      REDIS_URL: 'redis://localhost:6379',
+      REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
+      REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_USERNAME: 'vhhealth-backend',
+      REDIS_SENTINEL_USERNAME: 'vhhealth-discovery',
+      REDIS_PASSWORD: 'data-password-at-least-16-chars',
+      REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('REDIS_URL');
+  });
+
+  it('rejects default Redis and Sentinel superusers in strict mode', () => {
+    const result = runValidateEnv({
+      REDIS_REQUIRE_SENTINEL: 'true',
+      REDIS_SENTINEL_HOSTS: 'redis-0.example:26379,redis-1.example:26379,redis-2.example:26379',
+      REDIS_SENTINEL_MASTER: 'vhhealth-primary',
+      REDIS_USERNAME: 'default',
+      REDIS_SENTINEL_USERNAME: 'default',
+      REDIS_PASSWORD: 'data-password-at-least-16-chars',
+      REDIS_SENTINEL_PASSWORD: 'sentinel-password-at-least-16-chars',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toMatch(/REDIS_USERNAME|REDIS_SENTINEL_USERNAME/);
+  });
+});
+
 describe('validateEnv NHCX inert feature flag', () => {
   it('defaults to off and does not require live NHCX credentials at boot', () => {
     const result = runValidateEnv();
@@ -145,6 +203,87 @@ describe('validateEnv TENANT_BASE_HOST', () => {
 
   it('allows production boot with a real TENANT_BASE_HOST', () => {
     const result = runValidateEnv({ TENANT_BASE_HOST: 'vhhealth.app' });
+
+    expect(result.status).toBe(0);
+  });
+});
+
+// A non-zero MIN_PATIENT_VERSION_CODE with no verifiable signed envelope is a
+// PATIENT-BRICKING configuration, not a lesser form of the hard-upgrade gate.
+// Patient builds already in the field fail closed on a minimum they cannot
+// verify: they burn the 24h bootstrap grace and then block EVERY install —
+// including installs already above the code, and including the SOS path. The
+// client gate has since been corrected to fall back to the legacy comparison,
+// but that correction only reaches devices that install the new build.
+// Refusing to boot the half-configured backend is what protects the rest.
+describe('validateEnv patient minimum-version gate contract', () => {
+  const signedPolicyEnvelope = () => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    return JSON.stringify(
+      createSignedPatientMinimumVersionPolicy(
+        {
+          keyId: 'patient-minimum-version-test',
+          tenantId: '00000000-0000-4000-8000-000000000001',
+          revision: 3,
+          minPatientVersionCode: 42,
+          issuedAt: '2026-08-13T00:00:00.000Z',
+          graceUntil: '2026-08-15T00:00:00.000Z',
+        },
+        privateKey,
+      ),
+    );
+  };
+
+  it('boots with the gate off and no envelope', () => {
+    const result = runValidateEnv({ MIN_PATIENT_VERSION_CODE: '0' });
+
+    expect(result.status).toBe(0);
+  });
+
+  it('refuses to boot a non-zero minimum with no signed envelope', () => {
+    const result = runValidateEnv({ MIN_PATIENT_VERSION_CODE: '42' });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      'PATIENT_MINIMUM_VERSION_POLICY_JSON',
+    );
+  });
+
+  it('refuses to boot a non-zero minimum whose envelope is unparseable', () => {
+    // Present-but-invalid satisfies the presence rule and is served by
+    // GET /api/v1/config as the bare non-zero legacy code with NO
+    // minimum_version_policy — byte for byte the bricking response.
+    const result = runValidateEnv({
+      MIN_PATIENT_VERSION_CODE: '42',
+      PATIENT_MINIMUM_VERSION_POLICY_JSON: 'not-json',
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      'PATIENT_MINIMUM_VERSION_POLICY_JSON',
+    );
+  });
+
+  it('refuses to boot a non-zero minimum whose envelope fails structural validation', () => {
+    const envelope = JSON.parse(signedPolicyEnvelope());
+    delete envelope.signature;
+
+    const result = runValidateEnv({
+      MIN_PATIENT_VERSION_CODE: '42',
+      PATIENT_MINIMUM_VERSION_POLICY_JSON: JSON.stringify(envelope),
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      'PATIENT_MINIMUM_VERSION_POLICY_JSON',
+    );
+  });
+
+  it('boots a non-zero minimum backed by a valid signed envelope', () => {
+    const result = runValidateEnv({
+      MIN_PATIENT_VERSION_CODE: '42',
+      PATIENT_MINIMUM_VERSION_POLICY_JSON: signedPolicyEnvelope(),
+    });
 
     expect(result.status).toBe(0);
   });

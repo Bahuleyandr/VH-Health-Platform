@@ -1,10 +1,8 @@
 import { jest } from '@jest/globals';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
-const STAFF = '22222222-2222-4222-8222-222222222222';
 const queryRawUnsafe = jest.fn();
-const calculatePayslip = jest.fn();
-const savePayslip = jest.fn();
+const executePayrollRun = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafe },
@@ -16,21 +14,7 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   requireTenantId: (tenantId) => tenantId,
 }));
 jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
-  calculatePayslip,
-  savePayslip,
-  recordPayrollFailure: (failures, staffUid, err) => failures.push({
-    staff_uid: staffUid,
-    reason: err.message,
-  }),
-  summarizePayrollRunOutcome: ({ processed, failures, totalGross, totalNet, totalDeductions }) => ({
-    status: failures.length ? 'completed_with_errors' : 'completed',
-    total_staff: processed,
-    total_gross: totalGross,
-    total_net: totalNet,
-    total_deductions: totalDeductions,
-    failed_staff_count: failures.length,
-    failed_staff: failures,
-  }),
+  executePayrollRun,
 }));
 
 const { runAnnualSalaryReviewForTenant, runMonthlyPayrollForTenant } =
@@ -38,34 +22,40 @@ const { runAnnualSalaryReviewForTenant, runMonthlyPayrollForTenant } =
 
 beforeEach(() => {
   jest.clearAllMocks();
-  calculatePayslip.mockResolvedValue({
-    staff_uid: STAFF,
-    month: 12,
-    year: 2025,
-    gross_salary: 100,
-    net_salary: 80,
-    total_deductions: 20,
+  executePayrollRun.mockResolvedValue({
+    run_id: 91,
+    status: 'completed',
+    skipped: false,
+    processed: 1,
+    failures: 0,
   });
-  savePayslip.mockResolvedValue({ id: 1 });
 });
 
-test('monthly payroll scopes every read and write to the requested tenant', async () => {
-  queryRawUnsafe
-    .mockResolvedValueOnce([])
-    .mockResolvedValueOnce([{ staff_uid: STAFF }])
-    .mockResolvedValueOnce([{ id: 91 }])
-    .mockResolvedValueOnce([]);
-
+test('monthly payroll uses the shared tenant-scoped workflow', async () => {
   const result = await runMonthlyPayrollForTenant(TENANT, new Date('2026-01-05T00:00:00Z'));
 
-  expect(result).toMatchObject({ month: 12, year: 2025, processed: 1, failures: 0 });
-  expect(savePayslip).toHaveBeenCalledWith(91, expect.objectContaining({ staff_uid: STAFF }), TENANT);
-  const calls = queryRawUnsafe.mock.calls;
-  expect(calls[0][0]).toContain('WHERE tenant_id = $1::uuid');
-  expect(calls[1][0]).toContain('WHERE ss.tenant_id = $1::uuid');
-  expect(calls[2][0]).toContain('INSERT INTO payroll_runs (tenant_id, month, year, status)');
-  expect(calls[3][0]).toContain('WHERE tenant_id = $8::uuid AND id = $9');
-  for (const call of calls) expect(call).toContain(TENANT);
+  expect(result).toMatchObject({
+    run_id: 91, month: 12, year: 2025, processed: 1, failures: 0,
+  });
+  expect(executePayrollRun).toHaveBeenCalledWith({
+    tenantId: TENANT,
+    month: 12,
+    year: 2025,
+    rerunCompleted: false,
+  });
+  expect(queryRawUnsafe).not.toHaveBeenCalled();
+});
+
+test('monthly payroll preserves completed and locked runs without generating staff', async () => {
+  executePayrollRun.mockResolvedValue({
+    id: 91, status: 'locked', skipped: true, reason: 'locked',
+  });
+
+  await expect(runMonthlyPayrollForTenant(TENANT, new Date('2026-01-05T00:00:00Z')))
+    .resolves.toMatchObject({ skipped: true, reason: 'locked', month: 12, year: 2025 });
+
+  expect(queryRawUnsafe).not.toHaveBeenCalled();
+  expect(executePayrollRun).toHaveBeenCalledTimes(1);
 });
 
 test('annual review inserts tenant identity and deduplicates within that tenant', async () => {

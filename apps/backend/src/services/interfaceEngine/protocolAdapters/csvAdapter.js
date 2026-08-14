@@ -220,6 +220,10 @@ export default Object.freeze({
   protocol: 'csv',
   adapterVersion: CSV_ADAPTER_VERSION,
   backendAdapterKeys: Object.freeze([CSV_BACKEND_ADAPTER_KEY]),
+  // This backend adapter records `receipt_status = 'accepted'` — a real
+  // canonical delivery — so it may back an active inbound version. Keep in
+  // sync with interop_canonical_backend_adapters() in migration 670.
+  canonicalBackendAdapterKeys: Object.freeze([CSV_BACKEND_ADAPTER_KEY]),
   externalAdapterKey: CSV_EXTERNAL_ADAPTER_KEY,
   assertMessageParity: assertCsvMessageParity,
   deliverBackendTx: deliverCsvBackendTx,

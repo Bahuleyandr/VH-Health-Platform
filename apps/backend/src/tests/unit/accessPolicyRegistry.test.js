@@ -101,6 +101,19 @@ describe('policyCodeForRecordType — CareTeam ABAC family mappings (LOW-1)', ()
 });
 
 describe('policyCodeForRecordType — safe fallback is unchanged', () => {
+  it('keeps realtime patient subscriptions on a relationship-only policy', () => {
+    expect(getAccessPolicy(ACCESS_POLICY_CODES.PATIENT_REALTIME_SUBSCRIBE)).toMatchObject({
+      code: 'patient.realtime.subscribe',
+      resource_type: 'realtime_patient_channel',
+      action: 'VIEW',
+      required_phi_level: 'patient_relationship_required',
+      capability_groups: [],
+      relationship_checks: ['self', 'guardian', 'care_team', 'break_glass'],
+      break_glass_allowed: true,
+      audit_required: true,
+    });
+  });
+
   it('registers three exact continuity back-entry write policies', () => {
     const expected = new Map([
       [ACCESS_POLICY_CODES.PATIENT_CONTINUITY_MAR_BACK_ENTRY, ['ip_flow', 'nursing_governance', 'theatre', 'cath_lab']],

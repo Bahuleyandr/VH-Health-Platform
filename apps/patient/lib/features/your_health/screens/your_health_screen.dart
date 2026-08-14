@@ -15,6 +15,7 @@ import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/offline/record_cache_manager.dart';
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/core/widgets/biometric_gate.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
@@ -24,6 +25,7 @@ import 'package:vhhealth/features/your_health/services/patient_explainers_reposi
 import 'package:vhhealth/features/your_health/services/whats_next_repository.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/l10n/app_localizations_ext.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 import 'package:vhhealth/features/your_health/widgets/prescriptions_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/consultation_notes_tab.dart';
@@ -129,9 +131,15 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     final l10n = AppLocalizations.of(context)!;
 
     final queryParams = <String, String>{};
-    if (_selectedType != 'All') {
-      queryParams['type'] = _selectedType.toLowerCase();
+    final filter = _selectedType;
+    if (filter != 'All') {
+      queryParams['type'] = filter.toLowerCase();
     }
+    final profile = CacheProfileScope.current();
+    final patientUid =
+        profile.uid ??
+        await VHSecureStorage.instance.read(key: 'firebase_uid') ??
+        '';
 
     try {
       final response = await ApiClient.get(
@@ -146,7 +154,12 @@ class _YourHealthScreenState extends State<YourHealthScreen>
             ? rawData
             : (rawData is Map ? (rawData['records'] ?? rawData ?? []) : [])
                   as List<dynamic>;
-        final cachedAt = await RecordCacheManager.saveManifest(_phone, data);
+        final cachedAt = await RecordCacheManager.saveManifest(
+          patientUid: patientUid,
+          filter: filter,
+          data: data,
+          profile: profile,
+        );
         if (!mounted) return;
         setState(() {
           records = _newestFirst ? data : data.reversed.toList();
@@ -154,20 +167,45 @@ class _YourHealthScreenState extends State<YourHealthScreen>
           _recordsCachedAt = cachedAt;
         });
       } else {
-        unawaited(_tryLoadFromCache(messenger, theme, l10n.recordsLoadFailed));
+        unawaited(
+          _tryLoadFromCache(
+            messenger,
+            theme,
+            l10n.recordsLoadFailed,
+            patientUid: patientUid,
+            filter: filter,
+            profile: profile,
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Health records fetch failed: $e');
-      unawaited(_tryLoadFromCache(messenger, theme, l10n.networkError));
+      unawaited(
+        _tryLoadFromCache(
+          messenger,
+          theme,
+          l10n.networkError,
+          patientUid: patientUid,
+          filter: filter,
+          profile: profile,
+        ),
+      );
     }
   }
 
   Future<void> _tryLoadFromCache(
     ScaffoldMessengerState messenger,
     ThemeData theme,
-    String errorMsg,
-  ) async {
-    final cached = await RecordCacheManager.loadManifest(_phone);
+    String errorMsg, {
+    required String patientUid,
+    required String filter,
+    required CacheProfileScope profile,
+  }) async {
+    final cached = await RecordCacheManager.loadManifest(
+      patientUid: patientUid,
+      filter: filter,
+      profile: profile,
+    );
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
 

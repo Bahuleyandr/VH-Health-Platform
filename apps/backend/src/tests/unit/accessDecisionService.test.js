@@ -176,6 +176,8 @@ describe('accessDecisionService', () => {
     expect(decision.accessSource).toBe('appointment');
     expect(decision.appointmentId).toBe(77);
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('appointment');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[2][0])
+      .toMatch(/UPPER\(BTRIM\(COALESCE\(a\.status, ''\)\)\) NOT IN/);
   });
 
   it('keeps HR leave/reporting authority out of patient PHI access', async () => {
@@ -307,6 +309,8 @@ describe('accessDecisionService', () => {
     expect(decision.allowed).toBe(true);
     expect(decision.accessSource).toBe('admission');
     expect(decision.admissionId).toBe(27);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[3][0])
+      .toMatch(/LOWER\(BTRIM\(COALESCE\(status, ''\)\)\) IN \('admitted', 'transferred'\)/);
   });
 
   it.each([
@@ -1295,5 +1299,126 @@ describe('accessDecisionService', () => {
     expect(decision.allowed).toBe(false);
     expect(decision.accessDecision).toBe('deny');
     expect(decision.reason).toMatch(/relationship/i);
+  });
+});
+
+describe('patient realtime subscription access decisions', () => {
+  const realtimeAccess = {
+    policyCode: ACCESS_POLICY_CODES.PATIENT_REALTIME_SUBSCRIBE,
+    recordType: 'REALTIME_PATIENT_CHANNEL',
+    patient: { uid: PATIENT_UID },
+    requireResolvedPatient: true,
+    shadowMode: false,
+  };
+
+  it('allows the patient owner after resolving the subject inside the tenant', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const req = reqFor('PATIENT', { query: {} });
+    req.user.uid = PATIENT_UID;
+    const decision = await authorizePatientAccessRequest(req, realtimeAccess);
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      accessSource: 'guardian',
+      policy_code: 'patient.realtime.subscribe',
+      patient_uid: PATIENT_UID,
+    });
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][1]).toBe(
+      '00000000-0000-4000-8000-000000000001',
+    );
+  });
+
+  it('attributes a delegated-subject decision to the guardian actor', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const req = reqFor('PATIENT', {
+      query: {},
+      acting: {
+        actorUid: ACTOR_UID,
+        actorRole: 'PATIENT',
+        actorRawRole: 'PATIENT',
+        subjectUid: PATIENT_UID,
+      },
+    });
+    req.user.uid = PATIENT_UID;
+    const decision = await authorizePatientAccessRequest(req, realtimeAccess);
+
+    expect(decision).toMatchObject({ allowed: true, actor_uid: ACTOR_UID });
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][3]).toBe(ACTOR_UID);
+  });
+
+  it('allows an active care-team member without broad role-owned access', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([{ id: 72, care_team_id: 44 }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('DOCTOR', { query: {} }), realtimeAccess);
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      accessSource: 'care_team',
+      careTeamId: 44,
+    });
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toMatch(/care_team_members/);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0])
+      .toMatch(/LOWER\(BTRIM\(COALESCE\(ct\.team_kind, ''\)\)\) = 'longitudinal'/);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0])
+      .toMatch(/appointment\.appointment_date >= \(CURRENT_DATE - INTERVAL '30 days'\)/);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0])
+      .toMatch(/LOWER\(BTRIM\(COALESCE\(admission\.status, ''\)\)\) IN \('admitted', 'transferred'\)/);
+  });
+
+  it('allows an active break-glass decision', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([{ id: 45, reason: 'Emergency appointment access' }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('ADMIN', { query: {} }), realtimeAccess);
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      accessSource: 'break_glass',
+      breakGlassId: 45,
+    });
+  });
+
+  it.each(['DOCTOR', 'ADMIN', 'SUPER_ADMIN'])(
+    'denies an unrelated %s without an active relationship',
+    async (role) => {
+      prismaMock.$queryRawUnsafe
+        .mockResolvedValueOnce(patientLookup())
+        .mockResolvedValue([]);
+      prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+      const decision = await authorizePatientAccessRequest(reqFor(role, { query: {} }), realtimeAccess);
+
+      expect(decision).toMatchObject({
+        allowed: false,
+        accessDecision: 'deny',
+        policy_code: 'patient.realtime.subscribe',
+      });
+    },
+  );
+
+  it('denies when the patient does not resolve inside the socket tenant', async () => {
+    const otherTenant = '00000000-0000-4000-8000-000000000002';
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const req = reqFor('PATIENT', { tenantId: otherTenant, query: {} });
+    req.user.uid = PATIENT_UID;
+    req.user.tenant_id = otherTenant;
+    const decision = await authorizePatientAccessRequest(req, realtimeAccess);
+
+    expect(decision).toMatchObject({
+      allowed: false,
+      no_patient_context: true,
+      policy_code: 'patient.realtime.subscribe',
+    });
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][1]).toBe(otherTenant);
   });
 });

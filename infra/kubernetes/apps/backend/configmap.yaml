@@ -25,6 +25,16 @@ data:
   RATE_LIMIT_WINDOW_MS: "900000"
   RATE_LIMIT_MAX: "100"
 
+  # Redis Sentinel HA. Hosts are individual StatefulSet identities rather than
+  # the load-balanced Service so ioredis can retry discovery across all three.
+  # Passwords live in vhhealth-backend-env. REDIS_REQUIRE_SENTINEL makes a
+  # missing/malformed topology a startup failure instead of a silent downgrade.
+  REDIS_REQUIRE_SENTINEL: "true"
+  REDIS_SENTINEL_HOSTS: "redis-0.redis-headless.vhhealth-platform.svc.cluster.local:26379,redis-1.redis-headless.vhhealth-platform.svc.cluster.local:26379,redis-2.redis-headless.vhhealth-platform.svc.cluster.local:26379"
+  REDIS_SENTINEL_MASTER: "vhhealth-primary"
+  REDIS_USERNAME: "vhhealth-backend"
+  REDIS_SENTINEL_USERNAME: "vhhealth-discovery"
+
   # Logging — Winston format (json for aggregators, pretty in dev)
   LOG_FORMAT: "json"
   LOG_LEVEL: "info"
@@ -87,6 +97,10 @@ data:
   HTTP_BODY_LIMIT: "1mb"
   STATEMENT_TIMEOUT_MS: "30000"
   AUTH_ENFORCE_TENANT_RLS: "true"
+  # Relationship ABAC remains telemetry-gated. Keep the current rollout posture
+  # explicit and run `npm run care-team:audit-enforcement-readiness` before any
+  # tenant is moved to enforce; an unset value must not hide production intent.
+  CARE_TEAM_ENFORCEMENT_MODE: "shadow"
   # W1 (multi-tenancy): tenant resolution fails closed by default. The current
   # single-hospital deploy opts INTO the legacy default-tenant floor so behavior
   # is unchanged; flip to "false" at the multi-tenant cutover (W7) so a request
@@ -113,6 +127,10 @@ data:
   # vhhealth_runtime does NOT own the tables, so even unforced tenant_isolation
   # policies are enforced on the connection — and SET LOCAL ROLE vhhealth_app
   # remains the belt-and-braces scope marker. Both roles are created by CNPG
-  # `spec.managed.roles` (base/cnpg/cluster.yaml); grants are ensured at backend
-  # boot (ensureTenantRlsRuntimeRoleGrants in src/lib/prisma.js).
+  # `spec.managed.roles` (base/cnpg/cluster.yaml); grants are ensured by the
+  # owner-credential PreSync migration Job, never by API workers.
   AUTH_TENANT_RLS_RUNTIME_ROLE: "vhhealth_app"
+  # Production API workers are read-only migration consumers. They verify that
+  # `_migrations` exactly matches the image and refuse to listen on drift; only
+  # the owner-credential PreSync Job may apply DDL.
+  RUN_MIGRATIONS: "false"

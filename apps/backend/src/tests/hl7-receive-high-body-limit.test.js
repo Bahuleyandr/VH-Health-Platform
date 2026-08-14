@@ -1,5 +1,17 @@
 import request from 'supertest';
 
+import { enableHl7InboundForTest } from './helpers/hl7InboundTestEnv.js';
+
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON so the raised parser
+// ceiling is exercised against a live ingress. The refused-while-off contract
+// lives in hl7-inbound-disabled.deep.test.js.
+//
+// This module imports src/app.js below, which imports validateEnv — so the
+// flag MUST arrive paired with HL7_INBOUND_SHARED_SECRET or the process exits
+// before a single test runs. The helper is the only place that writes the pair.
+enableHl7InboundForTest();
+
 const previousBodyLimit = process.env.HTTP_BODY_LIMIT;
 process.env.HTTP_BODY_LIMIT = '13mb';
 

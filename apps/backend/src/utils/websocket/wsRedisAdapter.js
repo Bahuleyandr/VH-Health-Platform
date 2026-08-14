@@ -73,6 +73,10 @@ export function createWsFanout() {
   let pub = null;
   let sub = null;
   let enabled = false;
+  let subscribed = false;
+  let initialized = false;
+  let subscriptionPromise = null;
+  let subscriptionGeneration = 0;
 
   // The local in-process delivery loops, registered by wsServer.
   //   deliverBroadcast(channel, event, data, tenantId)
@@ -111,7 +115,7 @@ export function createWsFanout() {
    * @param {object} opts.pub  - a client able to PUBLISH (ioredis singleton)
    * @param {object} [opts.sub] - dedicated subscriber; defaults to pub.duplicate()
    */
-  function init({ pub: pubClient, sub: subClient } = {}) {
+  async function init({ pub: pubClient, sub: subClient } = {}) {
     if (!pubClient) {
       enabled = false;
       logger.warn('WS Redis fan-out disabled — no Redis client; broadcasts are single-process only');
@@ -135,57 +139,153 @@ export function createWsFanout() {
       }
     };
 
-    const doSubscribe = () => {
-      try {
-        const r = sub.psubscribe(PATTERN);
-        if (r && typeof r.catch === 'function') {
-          r.catch((err) => logger.error('WS fan-out psubscribe failed:', err?.message || err));
-        }
-      } catch (err) {
-        logger.error('WS fan-out psubscribe threw:', err?.message || err);
+    const activeSub = sub;
+    const markSubscriberUnavailable = (reason, err) => {
+      if (sub !== activeSub) return;
+      subscriptionGeneration += 1;
+      subscriptionPromise = null;
+      subscribed = false;
+      enabled = false;
+      if (err) {
+        recordWsFanoutSubscriberError();
+        logger.error(reason, err?.message || err);
       }
     };
 
-    sub.on?.('pmessage', onMessageHandler);
+    const subscribe = ({ failInitialization = false } = {}) => {
+      if (subscriptionPromise) return subscriptionPromise;
+      const generation = ++subscriptionGeneration;
+      subscribed = false;
+      enabled = false;
+      subscriptionPromise = (async () => {
+        try {
+          const count = await activeSub.psubscribe(PATTERN);
+          if (generation !== subscriptionGeneration || sub !== activeSub) {
+            return false;
+          }
+          if (typeof count === 'number' && count < 1) {
+            throw new Error('Redis acknowledged zero WebSocket subscriptions');
+          }
+          subscribed = true;
+          enabled = true;
+          return true;
+        } catch (err) {
+          if (generation === subscriptionGeneration && sub === activeSub) {
+            markSubscriberUnavailable('WS fan-out psubscribe failed:', err);
+          }
+          if (failInitialization) throw err;
+          return false;
+        } finally {
+          if (generation === subscriptionGeneration) {
+            subscriptionPromise = null;
+          }
+        }
+      })();
+      return subscriptionPromise;
+    };
+
+    activeSub.on?.('pmessage', onMessageHandler);
     // Re-assert the pattern subscription after any reconnect (Sentinel failover,
     // transient drop). ioredis emits 'ready' on (re)connect.
-    sub.on?.('ready', doSubscribe);
-    sub.on?.('error', (err) => {
-      recordWsFanoutSubscriberError();
-      logger.error('WS fan-out subscriber error:', err?.message || err);
+    activeSub.on?.('ready', () => {
+      if (initialized && sub === activeSub) void subscribe();
+    });
+    activeSub.on?.('close', () => {
+      markSubscriberUnavailable('WS fan-out subscriber closed');
+    });
+    activeSub.on?.('reconnecting', () => {
+      markSubscriberUnavailable('WS fan-out subscriber reconnecting');
+    });
+    activeSub.on?.('error', (err) => {
+      markSubscriberUnavailable('WS fan-out subscriber error:', err);
     });
 
-    doSubscribe();
-    enabled = true;
+    const ready = await subscribe({ failInitialization: true });
+    if (!ready) {
+      const err = new Error('WebSocket fan-out subscription is not ready');
+      err.code = 'WS_FANOUT_SUBSCRIPTION_NOT_READY';
+      throw err;
+    }
+    initialized = true;
     logger.info('🔁 WS Redis fan-out enabled (cross-process broadcast via pub/sub)');
     return true;
   }
 
   function isEnabled() {
-    return enabled && !!pub;
+    return enabled && subscribed && !!pub;
   }
 
-  function publishBroadcast(channel, event, data, tenantId) {
-    if (!enabled || !pub) return false;
+  function observePublish(pending, label, localFallback) {
+    if (!pending || typeof pending.then !== 'function') {
+      return pending !== 0;
+    }
+    pending.then((subscriberCount) => {
+      if (subscriberCount === 0) {
+        logger.error(`${label} reached zero subscribers — falling back to local delivery`);
+        localFallback?.();
+      }
+    }).catch((err) => {
+      logger.error(`${label} failed after dispatch — falling back to local:`, err?.message || err);
+      localFallback?.();
+    });
+    return true;
+  }
+
+  function publishBroadcast(channel, event, data, tenantId, { fallbackOnReject = true } = {}) {
+    if (!isEnabled()) return false;
     try {
-      pub.publish(BROADCAST_PREFIX + channel, JSON.stringify({ event, data, tenantId }));
-      return true;
+      const pending = pub.publish(
+        BROADCAST_PREFIX + channel,
+        JSON.stringify({ event, data, tenantId }),
+      );
+      return observePublish(
+        pending,
+        'WS fan-out publishBroadcast',
+        fallbackOnReject && deliverBroadcast
+          ? () => deliverBroadcast(channel, event, data, tenantId)
+          : null,
+      );
     } catch (err) {
       logger.error('WS fan-out publishBroadcast failed — falling back to local:', err?.message || err);
       return false;
     }
   }
 
-  function publishUser(userId, event, data, tenantId) {
-    if (!enabled || !pub) return false;
+  async function publishBroadcastConfirmed(channel, event, data, tenantId) {
+    if (!pub) return false;
     try {
-      const pending = pub.publish(USER_PREFIX + String(userId), JSON.stringify({ event, data, tenantId }));
-      if (pending && typeof pending.catch === 'function') {
-        pending.catch((err) => {
-          logger.error('WS fan-out publishUser failed after dispatch:', err?.message || err);
-        });
+      if (!isEnabled()) {
+        const err = new Error('WebSocket fan-out subscription is not ready');
+        err.code = 'WS_FANOUT_SUBSCRIPTION_NOT_READY';
+        throw err;
+      }
+      const subscribers = await pub.publish(
+        BROADCAST_PREFIX + channel,
+        JSON.stringify({ event, data, tenantId }),
+      );
+      if (!Number.isInteger(subscribers) || subscribers < 1) {
+        const err = new Error('WebSocket fleet broadcast had no subscribers');
+        err.code = 'WS_FANOUT_NO_SUBSCRIBERS';
+        throw err;
       }
       return true;
+    } catch (err) {
+      logger.error('WS fan-out confirmed broadcast failed:', err?.message || err);
+      throw err;
+    }
+  }
+
+  function publishUser(userId, event, data, tenantId, { fallbackOnReject = true } = {}) {
+    if (!isEnabled()) return false;
+    try {
+      const pending = pub.publish(USER_PREFIX + String(userId), JSON.stringify({ event, data, tenantId }));
+      return observePublish(
+        pending,
+        'WS fan-out publishUser',
+        fallbackOnReject && deliverUser
+          ? () => deliverUser(String(userId), event, data, tenantId)
+          : null,
+      );
     } catch (err) {
       logger.error('WS fan-out publishUser failed — falling back to local:', err?.message || err);
       return false;
@@ -199,6 +299,10 @@ export function createWsFanout() {
    */
   async function close() {
     enabled = false;
+    subscriptionGeneration += 1;
+    subscriptionPromise = null;
+    subscribed = false;
+    initialized = false;
     if (sub) {
       try {
         if (onMessageHandler) sub.off?.('pmessage', onMessageHandler);
@@ -211,6 +315,7 @@ export function createWsFanout() {
     sub = null;
     pub = null;
     onMessageHandler = null;
+    subscriptionPromise = null;
     deliverBroadcast = null;
     deliverUser = null;
   }
@@ -219,6 +324,7 @@ export function createWsFanout() {
     init,
     registerLocalDelivery,
     publishBroadcast,
+    publishBroadcastConfirmed,
     publishUser,
     isEnabled,
     close,

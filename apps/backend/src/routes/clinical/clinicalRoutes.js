@@ -238,6 +238,7 @@ router.post('/progress-notes', requireIdempotencyKey({ required: false, scope: '
     // binds OPD notes via appointment_id (migration 240).
     // Finding: /clinical/progress-notes 500s on OPD note save.
     const note = await clinicalNotesService.createNote({
+      tenant_id: req.tenantId,
       encounter_id: req.body.encounter_id || null,
       appointment_id: req.body.appointment_id || null,
       patient_uid: req.body.patient_uid,

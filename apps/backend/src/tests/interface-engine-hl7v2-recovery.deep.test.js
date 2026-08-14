@@ -129,6 +129,17 @@ describeIfDb('C6.1-E I05 HL7v2 recovery adapter', () => {
         `recovery-target-${SUFFIX}`,
       );
       systemId = systems[0].id;
+      // Deliberately NOT activated, and hl7v2 could not be even if the
+      // connector kind allowed it. Migration 670 registers NO canonical backend
+      // adapter for hl7v2 — its only registered inbound adapter is
+      // `backend.interop.preview`, which writes `receipt_status = 'previewed'`
+      // and performs no clinical write — so an active hl7v2 inbound channel is
+      // by construction incapable of delivery and 665/670 refuse it. That is
+      // also why the preview key stays on the version below: for hl7v2 inbound
+      // it is the only adapter key `chk_interop_backend_receipts_adapter_direction_v2`
+      // permits. This suite asserts that late I05 work is HELD, which reads no
+      // channel status. Activation is asserted in
+      // src/tests/deep/interfaceEngineRuntimeActivation.deep.test.js.
       const channels = await tx.$queryRawUnsafe(
         `INSERT INTO interop_channels
            (tenant_id, channel_key, display_name, source_system_id,
@@ -136,7 +147,7 @@ describeIfDb('C6.1-E I05 HL7v2 recovery adapter', () => {
             status, auth_kind)
          VALUES ($1::uuid, $2::text, 'I05 recovery channel', $3::integer,
                  $3::integer, 'bidirectional', 'internal_backend',
-                 'hl7v2', 'active', 'internal') RETURNING id`,
+                 'hl7v2', 'draft', 'internal') RETURNING id`,
         TENANT_ID,
         `recovery-channel-${SUFFIX}`,
         systemId,
@@ -146,7 +157,7 @@ describeIfDb('C6.1-E I05 HL7v2 recovery adapter', () => {
         `INSERT INTO interop_channel_versions
            (tenant_id, channel_id, version_number, status,
             routing_policy, transform_dsl)
-         VALUES ($1::uuid, $2::integer, 1, 'active',
+         VALUES ($1::uuid, $2::integer, 1, 'candidate',
                  '{"adapter":"backend.interop.preview"}'::jsonb,
                  '{"kind":"hl7v2-to-backend-adapter"}'::jsonb)
          RETURNING id`,
@@ -154,13 +165,6 @@ describeIfDb('C6.1-E I05 HL7v2 recovery adapter', () => {
         channelId,
       );
       versionId = versions[0].id;
-      await tx.$executeRawUnsafe(
-        `UPDATE interop_channels SET active_version_id = $3::integer
-          WHERE tenant_id = $1::uuid AND id = $2::integer`,
-        TENANT_ID,
-        channelId,
-        versionId,
-      );
     });
   });
 

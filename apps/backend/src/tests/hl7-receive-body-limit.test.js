@@ -2,6 +2,18 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { jest } from '@jest/globals';
 
+import { enableHl7InboundForTest } from './helpers/hl7InboundTestEnv.js';
+
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON so these parser and
+// limiter boundaries are exercised against a live ingress. The
+// refused-while-off contract lives in hl7-inbound-disabled.deep.test.js.
+//
+// This module imports src/app.js below, which imports validateEnv — so the
+// flag MUST arrive paired with HL7_INBOUND_SHARED_SECRET or the process exits
+// before a single test runs. The helper is the only place that writes the pair.
+enableHl7InboundForTest();
+
 const previousBodyLimit = process.env.HTTP_BODY_LIMIT;
 const previousPatientApiKey = process.env.API_KEY_PATIENT;
 const previousStaffApiKey = process.env.API_KEY_STAFF;

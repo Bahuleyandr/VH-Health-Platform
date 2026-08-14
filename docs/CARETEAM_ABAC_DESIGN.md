@@ -1,11 +1,25 @@
 # CareTeam ABAC — Design (PHI access scoping for clinicians)
 
 Status: **Phases 0–2 IMPLEMENTED (2026-06-14); enforce-readiness shipped 2026-06-16 (`fd6d7642`). Default remains SHADOW; flipping any tenant to enforce is operator-deferred (below).** Per-tenant
-`care_team_enforcement_mode` flag (`tenants.settings`, default `shadow`, fail-safe);
+`care_team_enforcement_mode` flag (`tenants.settings`; new tenants and the
+production deployment explicitly select `shadow`; resolver and authorization
+engine failures fail closed);
 the existing `patientAccessGuard`/`patientAccessGuardForResource` extended via an opt-in
 `careTeamModeGoverned` flag over the genuinely-uncovered PHI families + EMR paths;
-best-effort admission care-team auto-population. Shadow can neither 403 nor 500 (fail-open,
-verified). **Correction to §1.5 below: its "~4 enforce / ~50 audit-only" split was inaccurate
+best-effort admission care-team auto-population. A successfully-computed
+relationship denial remains non-blocking in shadow and is audited; an unknown
+decision caused by an engine/dependency failure returns 500 rather than granting
+PHI. Only an explicit longitudinal team can be context-free. Episode-scoped
+membership is valid only while its matching appointment is inside the bounded
+30-day relationship window or its admission remains admitted/transferred; a
+stale or malformed active team row cannot extend that authority.
+**The write path now enforces the same three shapes the engine reads
+(`src/config/careTeamContextShapes.js`):** `createCareTeam` rejects a
+context-free non-longitudinal team and a team scoped to both an admission and an
+appointment with a 400, because the `care_teams` CHECK accepts both and the
+engine honours neither — so before this the admin API returned 201 for a row
+that granted nothing and left the clinician's 403 unexplained.
+**Correction to §1.5 below: its "~4 enforce / ~50 audit-only" split was inaccurate
 — dozens of route-level guards ALREADY enforce in production; the implementation left those
 hard-`enforce` (NOT downgraded) and applied shadow ONLY to the truly-uncovered families.**
 Deferred (operator/governance, NOT shipped): flipping any tenant to `enforce`, widening
@@ -486,8 +500,9 @@ no RLS change). Phase 4 is the optional DB backstop.
 
 **Risks**
 - **PHI over-blocking (clinical-safety event).** A clinician unable to open their patient's chart
-  in an emergency is worse than over-broad access. *Mitigations:* default-open pilot; mandatory
-  shadow phase per tenant before enforce (Phase 0); break-glass on every deny with a clear,
+  in an emergency is worse than over-broad access. *Mitigations:* default-shadow pilot where a
+  successfully-computed relationship denial remains non-blocking; mandatory shadow phase per
+  tenant before enforce (Phase 0); break-glass on every deny with a clear,
   actionable 403 (`patientAccessErrorPayload`); the fallback relationship chain
   (authorship/appointment/admission/referral) so access does not depend solely on care-team
   rows being pre-populated.
@@ -518,9 +533,10 @@ no RLS change). Phase 4 is the optional DB backstop.
 4. **RLS backstop scope.** Is the Phase-4 DB backstop wanted at all, or is app-layer + the
    tenant-RLS wall sufficient given the cost/heterogeneity (§4.2)? Recommend deferring until
    app-layer enforcement is proven (post Phase 3).
-5. **Care-team lifecycle.** Who closes a `care_team`/membership and when (discharge auto-ends IP
-   teams? appointment completion ends OP teams?) — needs a lifecycle owner to prevent stale
-   active memberships granting access after the relationship ends.
+5. **Care-team lifecycle cleanup.** Runtime authorization now ignores an episode-scoped team when
+   its admission is no longer admitted/transferred or its appointment leaves the bounded 30-day
+   relationship window, so a stale row cannot extend access. An owner is still required to mark
+   those teams/members terminal for operational clarity, retention, and audit quality.
 6. **Cross-cover / handover.** Night-shift covering doctors: modeled as `covering_doctor`
    membership (`relationship_kind` already supports it, `260:159`) with short `active_until`, or
    via break-glass? Prefer explicit time-boxed membership over routine break-glass.
@@ -534,9 +550,9 @@ no RLS change). Phase 4 is the optional DB backstop.
 | CareTeam tables, membership, temporal validity | **Exists** (migration 260) | Reuse; add `care_team_ward_grants` in Phase 3 only |
 | Relationship engine (care-team/referral/authorship/appt/admission) | **Exists** (`accessDecisionService.js`) | Reuse; add `ward` check in Phase 3 |
 | Enforcing guard + passive logger | **Exists** (`phiAccessMiddleware.js`) | Reuse; **expand route coverage** (the core work) |
-| Shadow mode | **Exists** (`shadowMode` path) | Wire to per-tenant flag (Phase 0) |
+| Shadow mode | **Exists and wired** (`shadowMode` path) | Keep tenant activation evidence-gated |
 | PHI-access break-glass table + lookup | **Exists** (260 + engine step 4) | Add activation/revoke endpoints + widen eligibility |
-| Per-tenant enforcement flag (off/shadow/enforce) | **Missing** | Build (Phase 0) |
-| Care-team auto-population hooks | **Missing** | Build incrementally (Phases 1–3) |
+| Per-tenant enforcement flag (off/shadow/enforce) | **Exists** | Reserve from generic settings writes; govern direct flips |
+| Care-team auto-population hooks | **Partial** | Admission, appointment, and clinical-author hooks exist; lifecycle cleanup remains operational work |
 | RLS care-team predicate (defense-in-depth) | **Missing** | Optional (Phase 4), gated default-off |
 | Tenant RLS (compose-with, don't break) | **Exists** (075/236/238/239/304/310) | Leave untouched; AND-compose only in Phase 4 |

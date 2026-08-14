@@ -27,10 +27,21 @@ Stages:
 - `admin`: admin audit/lint/type-check/test/build/Clinical AI bundle check.
 - `flutter`: workspace `dart pub get`, Melos bootstrap, format, analyze, test.
 - `infra`: Kubernetes manifest validation + Kyverno Enforce readiness contract
-  + prod image-digest pin guard (`scripts/check-kyverno-enforce-readiness.mjs`,
-  `scripts/check-prod-digests-pinned.mjs`, fails on `main` if any
-  `infra/kubernetes/apps/kustomization.yaml` digest is the all-zeros
-  placeholder; no-op off-main).
+  + held operator lifecycle source contract + bounded Helm source inventory + Kustomize-controlled production image
+  registry proof (`scripts/check-kyverno-enforce-readiness.mjs`,
+  `scripts/check-prod-helm-image-inventory.mjs`,
+  `scripts/check-prod-digests-pinned.mjs`). The digest guard inventories
+  workload `image`, CRD `imageName`, operator/config `*Image`, and the three
+  scheduled-restore-proof-synthesized runtime fields, rejects non-immutable active references,
+  and verifies each unique digest against its live registry. The all-zero hold
+  is limited to six exact workload occurrences. Longhorn,
+  kube-prometheus-stack, and Loki chart-generated images are not rendered by
+  this gate; a separate fail-closed check holds their exact chart repositories,
+  revisions, and values sources for activation-time rendered image review.
+  The operator lifecycle contract separately hashes the four held operator
+  chart archives and verifies all nine pinned operator images. Its live mode
+  also blocks platform sync on missing or unhealthy Applications, CRDs, or
+  controllers.
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
 
 ## GitHub pull-request merge boundary

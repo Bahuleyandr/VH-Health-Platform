@@ -1,4 +1,9 @@
 export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
+  // Scheduler receipts are operational facts. A seed must not fabricate a
+  // discovery attempt, successful tick, or tenant failure merely to increase
+  // a table-coverage count.
+  'scheduled_job_runs',
+  'scheduled_job_tenant_runs',
   // Activation authority ships inert. Seed coverage must not invent signing
   // identities, weaken a cohort evidence floor, or fabricate a transition.
   'clinical_continuity_activation_evidence_gate_configs',

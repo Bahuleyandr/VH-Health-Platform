@@ -62,7 +62,17 @@ async function waitForBlockedGenericSettingsUpdate() {
         WHERE pid <> pg_backend_pid()
           AND datname = current_database()
           AND state = 'active'
-          AND query ILIKE '%UPDATE tenants SET%settings = CASE%care_pathways%'`,
+          -- Identify the GENERIC settings update by the reserved-key preserving
+          -- jsonb_build_object, not by the shape of the assignment. The old
+          -- pattern pinned the literal 'settings = CASE', which stopped
+          -- matching the moment the statement was rewritten to
+          -- 'settings = $n::jsonb || CASE …' to preserve a second reserved key
+          -- — the probe then silently never matched and the test failed with
+          -- "did not block" even though the blocking behaviour was intact.
+          -- The concurrent DEDICATED write uses jsonb_set, so it cannot match
+          -- this pattern; the state = 'active' filter above already excludes it
+          -- anyway while it sits idle in its transaction.
+          AND query ILIKE '%UPDATE tenants%SET%jsonb_build_object%care_pathways%'`,
     );
     if (rows.some((row) => row.wait_event_type === 'Lock')) return;
     await new Promise((resolve) => setTimeout(resolve, 20));

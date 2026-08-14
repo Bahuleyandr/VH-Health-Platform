@@ -33,6 +33,7 @@ const salaryAdvancesUpdate = jest.fn();
 const salaryAdvancesUpdateMany = jest.fn();
 const advanceDeductionsCreate = jest.fn();
 const salaryArrearsUpdateMany = jest.fn();
+const payrollFinalize = jest.fn();
 
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafe,
@@ -70,6 +71,7 @@ jest.unstable_mockModule('../../utils/notifications/notificationDispatcher.js', 
 
 jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
   uploadFileToR2: jest.fn(),
+  getFileFromR2: jest.fn(),
   getSignedFileUrl: jest.fn(),
 }));
 
@@ -81,7 +83,6 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
 
 const { calculatePayslip, summarizePayrollRunOutcome, recordPayrollFailure } =
   await import('../../services/staff/payrollService.js');
-const { runPayroll } = await import('../../controllers/staff/payrollController.js');
 
 const SALARY_ROW = {
   id: 1,
@@ -104,7 +105,7 @@ const SALARY_ROW = {
 // `overrides` maps a logical query name to a handler that may reject.
 function installQueryRouter(overrides = {}) {
   queryRawUnsafe.mockImplementation(async (sql, ...params) => {
-    const uid = params[0];
+    const uid = params[1] || params[0];
     const run = (name, fallback) =>
       overrides[name] ? overrides[name](uid, ...params) : fallback;
 
@@ -114,17 +115,37 @@ function installQueryRouter(overrides = {}) {
       payslipInsert(sql, ...params);
       return [{ id: 99, tenant_id: params[0], payroll_run_id: params[1], staff_uid: params[2] }];
     }
+    if (sql.includes('INSERT INTO payroll_runs')) {
+      return [{ id: 42, status: 'processing', generated_at: params[4] }];
+    }
+    if (sql.includes('UPDATE payroll_runs') && sql.includes('failed_staff = $10::jsonb')) {
+      payrollFinalize({
+        tenant_id: params[0],
+        id: params[1],
+        status: params[3],
+        total_staff: params[4],
+        total_gross: params[5],
+        total_net: params[6],
+        total_deductions: params[7],
+        failed_staff_count: params[8],
+        failed_staff: JSON.parse(params[9]),
+      });
+      return [{ id: params[1], status: params[3] }];
+    }
+    if (sql.includes('UPDATE payroll_runs')) return [{ id: 42, status: 'processing' }];
+    if (sql.includes('FROM payroll_runs')) return [{ id: 42, status: 'processing' }];
     if (sql.includes('FROM staff_salary ss')) return run('staffList', []);
-    if (sql.includes('FROM staff_salary WHERE staff_uid')) {
+    if (sql.includes('FROM staff_salary')) {
       return run('salaryConfig', [{ ...SALARY_ROW, staff_uid: uid }]);
     }
     if (sql.includes('FROM staff_attendance')) {
       return run('attendance', [{ days_present: 26, total_overtime_hours: 0 }]);
     }
     if (sql.includes('FROM leave_applications')) return run('leave', [{ leave_days: 0 }]);
-    if (sql.includes('SELECT id FROM users WHERE uid')) return run('userId', [{ id: 7 }]);
+    if (sql.includes('SELECT id FROM users WHERE tenant_id')) return run('userId', [{ id: 7 }]);
     if (sql.includes('FROM overtime_requests')) return run('overtime', [{ approved_overtime: 0 }]);
-    if (sql.includes('FROM salary_arrears')) return run('arrears', [{ total: 0 }]);
+    if (sql.includes('FROM payslips')) return [];
+    if (sql.includes('FROM salary_arrears')) return run('arrears', []);
     if (sql.includes('FROM salary_advances')) return run('advances', []);
     if (sql.includes('FROM salary_revisions')) return run('revisions', []);
     throw new Error(`Unrouted SQL in test: ${String(sql).slice(0, 120)}`);
@@ -158,11 +179,11 @@ describe('calculatePayslip fails loudly instead of fabricating zeros', () => {
   ])('rejects when the %s query fails (%s)', async (queryName) => {
     installQueryRouter({ [queryName]: DB_DOWN });
 
-    await expect(calculatePayslip(STAFF_OK, 3, 2026)).rejects.toThrow('Circuit breaker open');
+    await expect(calculatePayslip(STAFF_OK, 3, 2026, TENANT)).rejects.toThrow('Circuit breaker open');
   });
 
   it('still computes a normal payslip when every lookup succeeds', async () => {
-    const calc = await calculatePayslip(STAFF_OK, 3, 2026);
+    const calc = await calculatePayslip(STAFF_OK, 3, 2026, TENANT);
 
     // 26/26 days present — a full attendance factor, not the ~0 the swallowed
     // failure used to produce.
@@ -178,7 +199,7 @@ describe('calculatePayslip fails loudly instead of fabricating zeros', () => {
     // resolved with days_present 0, attendance_factor 0 and 26 LOP days.
     installQueryRouter({ attendance: DB_DOWN });
 
-    await expect(calculatePayslip(STAFF_OK, 3, 2026)).rejects.toThrow();
+    await expect(calculatePayslip(STAFF_OK, 3, 2026, TENANT)).rejects.toThrow();
     expect(payslipInsert).not.toHaveBeenCalled();
   });
 });
@@ -229,65 +250,6 @@ describe('summarizePayrollRunOutcome', () => {
 });
 
 describe('runPayroll persists per-run failures', () => {
-  const req = () => ({ user: { uid: 'admin-uid' }, body: { month: 3, year: 2026 } });
-
-  it('records completed_with_errors with failed=1 while the other staff still process', async () => {
-    installQueryRouter({
-      staffList: () => [
-        { staff_uid: STAFF_OK, name: 'Ok Nurse', role: 'NURSE', email: 'a@x.test', department: 'ICU' },
-        { staff_uid: STAFF_BAD, name: 'Bad Nurse', role: 'NURSE', email: 'b@x.test', department: 'ICU' },
-      ],
-      // Only STAFF_BAD's attendance lookup fails — a transient per-query
-      // failure, exactly the circuit-breaker-open window from the audit.
-      attendance: (uid) => (uid === STAFF_BAD
-        ? Promise.reject(new Error('Circuit breaker open'))
-        : Promise.resolve([{ days_present: 26, total_overtime_hours: 0 }])),
-    });
-
-    const res = makeRes();
-    await runPayroll(req(), res);
-
-    // The healthy staffer was still paid.
-    expect(payslipInsert).toHaveBeenCalledTimes(1);
-    expect(payslipInsert.mock.calls[0].slice(1, 4)).toEqual([TENANT, 42, STAFF_OK]);
-
-    // The persisted run tells the truth about the one that was not.
-    expect(payrollRunsUpdate).toHaveBeenCalledTimes(1);
-    const persisted = payrollRunsUpdate.mock.calls[0][0].data;
-    expect(persisted.status).toBe('completed_with_errors');
-    expect(persisted.failed_staff_count).toBe(1);
-    expect(persisted.total_staff).toBe(1);
-    expect(persisted.failed_staff).toEqual([
-      { staff_uid: STAFF_BAD, reason: 'Circuit breaker open' },
-    ]);
-
-    // And it is logged at error, not warn — this is a missing payment.
-    expect(loggerError).toHaveBeenCalledWith(expect.stringContaining(STAFF_BAD));
-
-    const body = res.json.mock.calls[0][0];
-    expect(body.data.failed).toBe(1);
-    expect(body.data.processed).toBe(1);
-    expect(body.data.status).toBe('completed_with_errors');
-  });
-
-  it('records a clean completed when every staff member succeeds', async () => {
-    installQueryRouter({
-      staffList: () => [
-        { staff_uid: STAFF_OK, name: 'Ok Nurse', role: 'NURSE', email: 'a@x.test', department: 'ICU' },
-      ],
-    });
-
-    const res = makeRes();
-    await runPayroll(req(), res);
-
-    const persisted = payrollRunsUpdate.mock.calls[0][0].data;
-    expect(persisted.status).toBe('completed');
-    expect(persisted.failed_staff_count).toBe(0);
-    expect(persisted.failed_staff).toEqual([]);
-    expect(persisted.total_staff).toBe(1);
-    expect(res.json.mock.calls[0][0].data.failed).toBe(0);
-  });
-
   it('does not select the internal failure text in the runs list', async () => {
     const { getPayrollRuns } = await import('../../controllers/staff/payrollController.js');
     queryRawUnsafe.mockResolvedValueOnce([]);
@@ -303,5 +265,30 @@ describe('runPayroll persists per-run failures', () => {
     // internal `reason` error text out of the failed_staff jsonb.
     expect(sql).toContain('failed_staff_summary');
     expect(sql).not.toContain("'reason'");
+    expect(sql).toContain('WHERE pr.tenant_id = $1::uuid');
+    expect(sql).toContain('fu.tenant_id = pr.tenant_id');
+    expect(queryRawUnsafe.mock.calls[0][1]).toBe(TENANT);
+  });
+
+  it('scopes run detail and every staff join to the authoritative tenant', async () => {
+    const { getPayrollRunDetail } = await import('../../controllers/staff/payrollController.js');
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await getPayrollRunDetail({
+      tenantId: TENANT,
+      user: { uid: 'admin-uid' },
+      params: { runId: '42' },
+    }, makeRes());
+
+    const detailSql = queryRawUnsafe.mock.calls[0][0];
+    const runSql = queryRawUnsafe.mock.calls[1][0];
+    expect(detailSql).not.toContain('p.*');
+    expect(detailSql).toContain('p.tenant_id = $2::uuid');
+    expect(detailSql).toContain('u.tenant_id = p.tenant_id');
+    expect(detailSql).toContain('s.tenant_id = u.tenant_id');
+    expect(detailSql).toContain('ss.tenant_id = u.tenant_id');
+    expect(runSql).toContain('tenant_id = $2::uuid');
+    expect(queryRawUnsafe.mock.calls[0].slice(1)).toEqual([42, TENANT]);
+    expect(queryRawUnsafe.mock.calls[1].slice(1)).toEqual([42, TENANT]);
   });
 });

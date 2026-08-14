@@ -8,7 +8,8 @@ import {
   isTokenBlacklisted,
   isUserTokensRevoked,
 } from '../tokenBlacklist.js';
-import { authorizeChannel } from './channelAuth.js';
+import { authorizeSubscriptionChannel } from './subscriptionAuth.js';
+import { parsePatientChannel } from './channelAuth.js';
 import { createWsFanout } from './wsRedisAdapter.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import { recordWsBroadcastDropped } from '../../observability/reliabilityMetrics.js';
@@ -24,6 +25,11 @@ export function initWsFanout(opts) {
   return fanout.init(opts);
 }
 
+/** Strict production readiness must prove the dedicated PSUBSCRIBE is live. */
+export function isWsFanoutReady() {
+  return fanout.isEnabled();
+}
+
 /** Tear down this process's fan-out subscriber (graceful shutdown / tests). */
 export function closeWsFanout() {
   return fanout.close();
@@ -35,7 +41,7 @@ const clients = new Map();
 /** @type {Map<string, Set<import('ws').WebSocket>>} authenticated owner uid → Set of sockets */
 const revocationClients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string> }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, revocationOwnerUid: string, role: string, tenantId?: string, jti?: string, accessSessionJti?: string, sessionFamilyId?: string, stableDeviceId?: string, channels: Set<string>, patientDeliveryQueue: Promise<void> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -327,6 +333,7 @@ async function authenticateAndRegister(ws, token) {
       sessionFamilyId: decoded.sessionFamilyId ?? null,
       stableDeviceId: decoded.stableDeviceId ?? null,
       channels: new Set(),
+      patientDeliveryQueue: Promise.resolve(),
     });
   };
 
@@ -366,74 +373,80 @@ async function authenticateAndRegister(ws, token) {
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
+  let messageQueue = Promise.resolve();
   ws.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw);
-      if (msg.action === 'subscribe' && msg.channel) {
-        const meta = socketMeta.get(ws);
-        if (!meta) return;
-        const decision = authorizeChannel(msg.channel, { userId: meta.userId, role: meta.role, tenantId: meta.tenantId });
-        if (!decision.allowed) {
-          ws.send(JSON.stringify({
-            event: 'subscribe-denied',
-            channel: msg.channel,
-            reason: decision.reason,
-            ts: Date.now(),
-          }));
-          return;
-        }
-        meta.channels.add(msg.channel);
-        ws.send(JSON.stringify({
-          event: 'subscribed',
-          channel: msg.channel,
-          ts: Date.now(),
-        }));
-      } else if (msg.action === 'unsubscribe' && msg.channel) {
-        socketMeta.get(ws)?.channels.delete(msg.channel);
-        ws.send(JSON.stringify({
-          event: 'unsubscribed',
-          channel: msg.channel,
-          ts: Date.now(),
-        }));
-      } else if (msg.action === 'ping') {
-        // App-level ping/pong. Browsers hide WS-frame pings from JS, so
-        // clients can't measure RTT or detect half-open connections that way.
-        // This lets clients do both via normal JSON messages. Echo the
-        // client ts back so the client can compute round-trip latency.
-        ws.isAlive = true; // any traffic counts as alive for the WS-frame heartbeat too
-        ws.send(JSON.stringify({
-          event: 'pong',
-          ts: typeof msg.ts === 'number' ? msg.ts : null,
-          serverTs: Date.now(),
-        }));
-      } else if (msg.action === 'resync' && Array.isArray(msg.channels)) {
-        // Client reconnected after a disconnect and wants to re-assert its
-        // subscription list. We re-authorize each channel (role may have
-        // changed since the old session) and emit one `subscribed` /
-        // `subscribe-denied` event per channel so the client can reconcile
-        // its local state.
-        const meta = socketMeta.get(ws);
-        if (!meta) return;
-        for (const channel of msg.channels) {
-          if (typeof channel !== 'string') continue;
-          const decision = authorizeChannel(channel, { userId: meta.userId, role: meta.role, tenantId: meta.tenantId });
-          if (decision.allowed) {
-            meta.channels.add(channel);
-            ws.send(JSON.stringify({ event: 'subscribed', channel, ts: Date.now() }));
-          } else {
-            meta.channels.delete(channel);
+    messageQueue = messageQueue.then(async () => {
+      try {
+        const msg = JSON.parse(raw);
+        if (msg.action === 'subscribe' && msg.channel) {
+          const meta = socketMeta.get(ws);
+          if (!meta) return;
+          const decision = await authorizeSubscriptionChannel(msg.channel, meta);
+          if (socketMeta.get(ws) !== meta || ws.readyState !== 1) return;
+          if (!decision.allowed) {
+            meta.channels.delete(msg.channel);
             ws.send(JSON.stringify({
               event: 'subscribe-denied',
-              channel,
+              channel: msg.channel,
               reason: decision.reason,
               ts: Date.now(),
             }));
+            return;
+          }
+          meta.channels.add(msg.channel);
+          ws.send(JSON.stringify({
+            event: 'subscribed',
+            channel: msg.channel,
+            ts: Date.now(),
+          }));
+        } else if (msg.action === 'unsubscribe' && msg.channel) {
+          socketMeta.get(ws)?.channels.delete(msg.channel);
+          ws.send(JSON.stringify({
+            event: 'unsubscribed',
+            channel: msg.channel,
+            ts: Date.now(),
+          }));
+        } else if (msg.action === 'ping') {
+          // App-level ping/pong. Browsers hide WS-frame pings from JS, so
+          // clients can't measure RTT or detect half-open connections that way.
+          // This lets clients do both via normal JSON messages. Echo the
+          // client ts back so the client can compute round-trip latency.
+          ws.isAlive = true; // any traffic counts as alive for the WS-frame heartbeat too
+          ws.send(JSON.stringify({
+            event: 'pong',
+            ts: typeof msg.ts === 'number' ? msg.ts : null,
+            serverTs: Date.now(),
+          }));
+        } else if (msg.action === 'resync' && Array.isArray(msg.channels)) {
+          // Client reconnected after a disconnect and wants to re-assert its
+          // subscription list. We re-authorize each channel (role may have
+          // changed since the old session) and emit one `subscribed` /
+          // `subscribe-denied` event per channel so the client can reconcile
+          // its local state.
+          const meta = socketMeta.get(ws);
+          if (!meta) return;
+          for (const channel of msg.channels) {
+            if (typeof channel !== 'string') continue;
+            const decision = await authorizeSubscriptionChannel(channel, meta);
+            if (socketMeta.get(ws) !== meta || ws.readyState !== 1) return;
+            if (decision.allowed) {
+              meta.channels.add(channel);
+              ws.send(JSON.stringify({ event: 'subscribed', channel, ts: Date.now() }));
+            } else {
+              meta.channels.delete(channel);
+              ws.send(JSON.stringify({
+                event: 'subscribe-denied',
+                channel,
+                reason: decision.reason,
+                ts: Date.now(),
+              }));
+            }
           }
         }
+      } catch {
+        // ignore malformed messages
       }
-    } catch {
-      // ignore malformed messages
-    }
+    });
   });
 
   ws.on('error', (err) => {
@@ -468,14 +481,71 @@ function tenantMatches(socketTenantId, eventTenantId) {
   return String(socketTenantId) === String(eventTenantId);
 }
 
+async function deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId) {
+  const decision = await authorizeSubscriptionChannel(channel, meta);
+  if (
+    socketMeta.get(ws) !== meta
+    || ws.readyState !== 1
+    || !meta.channels.has(channel)
+    || !tenantMatches(meta.tenantId, tenantId)
+  ) {
+    return;
+  }
+  if (!decision.allowed) {
+    meta.channels.delete(channel);
+    ws.send(JSON.stringify({
+      event: 'subscribe-denied',
+      channel,
+      reason: decision.reason,
+      ts: Date.now(),
+    }));
+    return;
+  }
+  if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+    recordWsBroadcastDropped('backpressure');
+    logger.warn(`Skipping broadcast to slow WebSocket client (buffered: ${ws.bufferedAmount})`);
+    return;
+  }
+  ws.send(payload);
+}
+
+function queuePatientBroadcastDelivery(ws, meta, channel, payload, tenantId) {
+  const delivery = meta.patientDeliveryQueue.then(() => (
+    deliverPatientBroadcastLocal(ws, meta, channel, payload, tenantId)
+  ));
+  meta.patientDeliveryQueue = delivery.catch((err) => {
+    // An unexpected authorization/delivery failure must not leave a personal
+    // PHI subscription live. A new subscribe can re-establish it after recovery.
+    meta.channels.delete(channel);
+    logger.error('Patient realtime delivery failed closed', {
+      error: err?.message,
+      topic: parsePatientChannel(channel)?.topic,
+    });
+  });
+}
+
 /** Deliver a channel broadcast to this process's subscribed sockets. */
 function deliverBroadcastLocal(channel, event, data, tenantId) {
   if (!wss) return;
+  const patientChannel = parsePatientChannel(channel);
+  if (patientChannel && tenantId == null) {
+    logger.warn('Dropping patient realtime broadcast without tenant scope', {
+      topic: patientChannel.topic,
+    });
+    return;
+  }
   const payload = JSON.stringify({ event: event ?? channel, data });
   for (const [ws, meta] of socketMeta) {
     if (!meta.channels.has(channel) || ws.readyState !== 1) continue;
     // Cross-tenant realtime leak guard: drop messages for a different tenant.
     if (!tenantMatches(meta.tenantId, tenantId)) continue;
+    if (patientChannel) {
+      // Care-team and break-glass authority can expire or be revoked after the
+      // subscription ACK. Re-authorize immediately before every personal PHI
+      // delivery and serialize per socket so events cannot overtake each other.
+      queuePatientBroadcastDelivery(ws, meta, channel, payload, tenantId);
+      continue;
+    }
     // Skip slow clients to prevent memory buildup (1MB buffer cap).
     if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
       recordWsBroadcastDropped('backpressure');
@@ -620,6 +690,34 @@ export function broadcast(channel, data, opts = {}) {
 }
 
 /**
+ * Broadcast with an awaited Redis acknowledgement for scheduler accounting.
+ * A Redis publish rejection still delivers locally, then rejects so the
+ * scheduler records degraded fleet fan-out instead of durable success.
+ */
+export async function broadcastConfirmed(channel, data, opts = {}) {
+  if (!wss) throw new Error('WebSocket server is not initialized');
+  const tenantId = resolveTenantId(opts.tenantId);
+  try {
+    const published = await fanout.publishBroadcastConfirmed(
+      channel,
+      channel,
+      data,
+      tenantId,
+    );
+    if (published) return { scope: 'fleet' };
+  } catch (err) {
+    recordWsBroadcastDropped('fanout_local_fallback');
+    deliverBroadcastLocal(channel, channel, data, tenantId);
+    throw err;
+  }
+  recordWsBroadcastDropped('fanout_local_fallback');
+  deliverBroadcastLocal(channel, channel, data, tenantId);
+  const err = new Error('WebSocket fleet fan-out unavailable; delivered locally only');
+  err.code = 'WS_FLEET_FANOUT_UNAVAILABLE';
+  throw err;
+}
+
+/**
  * Send a message to a specific user (all their connected sockets) across EVERY
  * process. Publishes onto the bus; falls back to local delivery when the bus is
  * unavailable.
@@ -663,7 +761,10 @@ export function pushSessionRevoked(userId, data = {}) {
   // is asynchronous, so its immediate boolean cannot prove remote delivery or
   // safely decide whether local fallback is necessary.
   deliverUserLocal(uid, SESSION_REVOKED_EVENT, data, null);
-  fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null);
+  fanout.publishUser(uid, SESSION_REVOKED_EVENT, data, null, {
+    // This path already delivered locally before publishing.
+    fallbackOnReject: false,
+  });
 }
 
 /** Close only sockets for one authenticated guardian-dependent delegation. */

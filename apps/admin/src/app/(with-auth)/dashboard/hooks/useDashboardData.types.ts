@@ -1,7 +1,8 @@
 // src/app/(with-auth)/dashboard/hooks/useDashboardData.types.ts
 // Shared types for the admin Dashboard and its sub-components.
 
-export type HealthStatus = 'healthy' | 'warning' | 'critical';
+export type HealthStatus =
+  "healthy" | "warning" | "critical" | "unknown" | "unavailable" | "stale";
 
 export type Quick = {
   totalUsers?: number;
@@ -21,10 +22,13 @@ export type ActivityItem = {
 
 export type SystemHealth = {
   status: HealthStatus;
-  uptime: string;
-  responseTime: number; // ms
-  errorRate: number; // %
+  uptime?: string;
+  responseTime?: number; // ms
+  errorRate?: number; // %
   modules?: Array<{ name: string; status: HealthStatus }>;
+  observedAt?: string;
+  lastKnownStatus?: Exclude<HealthStatus, "unknown" | "unavailable" | "stale">;
+  detail?: string;
 };
 
 export type AppointmentQueue = {

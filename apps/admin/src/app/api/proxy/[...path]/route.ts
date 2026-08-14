@@ -5,6 +5,7 @@ import {
   checkProxyPermission,
 } from "@/lib/proxyPermissions";
 import { getVerifiedTokenRole, isSuperAdminRole } from "@/lib/serverTokenRole";
+import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +13,12 @@ export const runtime = "nodejs";
 
 // W5 S4: a tenant override may only ever come from the server-set acting_tenant
 // cookie of a verified SUPER_ADMIN — never a raw client header.
-const TENANT_OVERRIDE_HEADERS = new Set(["x-tenant-id", "x-tenant-override-reason"]);
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TENANT_OVERRIDE_HEADERS = new Set([
+  "x-tenant-id",
+  "x-tenant-override-reason",
+]);
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MIN_OVERRIDE_REASON_LEN = 8;
 
 // Allowed API path prefixes — all other paths are rejected.
@@ -135,71 +140,9 @@ function forwardableHeaders(incoming: Headers): HeadersInit {
   return out;
 }
 
-// SEC-8: resolve the CSRF origin allowlist at module load. In production we
-// REFUSE to fall back to "http://localhost:3000" — a localhost default paired
-// with credentialed cookies silently disables CSRF protection on a deployed
-// instance. NEXT_PUBLIC_* vars are inlined at build time, so an unset value
-// here fails the production build / hard-errors at import rather than shipping
-// a wide-open proxy. Dev/test keep the localhost default for convenience.
-function resolveAllowedOrigins(): string[] {
-  const configured = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN;
-  if (!configured || !configured.trim()) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "NEXT_PUBLIC_ALLOWED_ORIGIN must be set in production — refusing to " +
-          "default to localhost (would disable CSRF protection on the proxy).",
-      );
-    }
-    return ["http://localhost:3000"];
-  }
-  return configured.split(",").map((s) => s.trim()).filter(Boolean);
-}
-
-const ALLOWED_ORIGINS = resolveAllowedOrigins();
-
-/**
- * CSRF Origin validation for mutation requests (POST/PUT/PATCH/DELETE).
- *
- * SEC-8: unsafe methods now REQUIRE a valid Origin (or, failing that, a
- * Referer) that matches the allowlist. A missing Origin/Referer is rejected
- * rather than waved through — a forged cross-site form/fetch that omits Origin
- * must not be able to ride the user's auth cookie. GET/HEAD/OPTIONS are exempt
- * (safe methods per RFC 7231).
- */
-function validateMutationOrigin(req: NextRequest): NextResponse | null {
-  const method = req.method;
-  if (["GET", "HEAD", "OPTIONS"].includes(method)) return null;
-
-  const reject = () =>
-    NextResponse.json(
-      { message: "Forbidden: cross-origin mutation blocked" },
-      { status: 403 },
-    );
-
-  // Prefer the Origin header; fall back to the Referer's origin for clients
-  // that omit Origin on same-origin requests but still send a Referer.
-  let candidate = req.headers.get("origin");
-  if (!candidate) {
-    const referer = req.headers.get("referer");
-    if (referer) {
-      try {
-        candidate = new URL(referer).origin;
-      } catch {
-        return reject();
-      }
-    }
-  }
-
-  // No Origin and no usable Referer → cannot prove same-origin → reject.
-  if (!candidate) return reject();
-
-  if (!ALLOWED_ORIGINS.includes(candidate)) return reject();
-  return null;
-}
-
 async function handleProxy(req: NextRequest) {
   // CSRF: validate origin on mutation requests
-  const csrfError = validateMutationOrigin(req);
+  const csrfError = assertSameOriginOrAllowed(req);
   if (csrfError) return csrfError;
 
   // Validate auth from httpOnly cookie
@@ -232,10 +175,7 @@ async function handleProxy(req: NextRequest) {
 
   // Block path traversal attempts
   if (path.includes("..") || path.includes("//")) {
-    return NextResponse.json(
-      { message: "Invalid path" },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: "Invalid path" }, { status: 400 });
   }
 
   // ADM-1: per-admin permission flags are enforced HERE, not just in the nav.
@@ -289,9 +229,16 @@ async function handleProxy(req: NextRequest) {
     const role = await getVerifiedTokenRole(token);
     if (isSuperAdminRole(role)) {
       try {
-        const acting = JSON.parse(actingRaw) as { id?: string; reason?: string };
+        const acting = JSON.parse(actingRaw) as {
+          id?: string;
+          reason?: string;
+        };
         const reason = typeof acting.reason === "string" ? acting.reason : "";
-        if (acting.id && UUID_RE.test(acting.id) && reason.length >= MIN_OVERRIDE_REASON_LEN) {
+        if (
+          acting.id &&
+          UUID_RE.test(acting.id) &&
+          reason.length >= MIN_OVERRIDE_REASON_LEN
+        ) {
           headers["x-tenant-id"] = acting.id;
           headers["x-tenant-override-reason"] = reason;
         }
@@ -312,8 +259,8 @@ async function handleProxy(req: NextRequest) {
         init.body = text;
       }
       // Ensure content-type is set (normalize to lowercase, no duplicates)
-      delete (headers as Record<string,string>)["content-type"];
-      (headers as Record<string,string>)["content-type"] = "application/json";
+      delete (headers as Record<string, string>)["content-type"];
+      (headers as Record<string, string>)["content-type"] = "application/json";
     } else if (
       ct.includes("multipart/form-data") ||
       ct.includes("application/x-www-form-urlencoded")

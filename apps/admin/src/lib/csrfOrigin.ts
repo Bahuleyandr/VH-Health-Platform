@@ -22,7 +22,7 @@ import { NextResponse } from "next/server";
 /**
  * Resolve the CSRF origin allowlist.
  *
- * SEC-8: in production we REFUSE to fall back to "http://localhost:3000" — a
+ * SEC-8: in production we REFUSE to fall back to "http://localhost:3001" — a
  * localhost default paired with credentialed cookies silently disables CSRF
  * protection on a deployed instance. `NEXT_PUBLIC_*` vars are inlined at build
  * time, so an unset value here hard-errors rather than shipping a wide-open
@@ -41,7 +41,7 @@ export function resolveAllowedOrigins(): string[] {
           "default to localhost (would disable CSRF protection).",
       );
     }
-    return ["http://localhost:3000"];
+    return ["http://localhost:3001"];
   }
   return configured
     .split(",")
@@ -67,7 +67,9 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * All admin auth routes are POST-only, so in practice every call is gated; the
  * safe-method exemption is kept for correctness if a route ever adds GET.
  */
-export function assertSameOriginOrAllowed(request: Request): NextResponse | null {
+export function assertSameOriginOrAllowed(
+  request: Request,
+): NextResponse | null {
   if (SAFE_METHODS.has(request.method)) return null;
 
   const reject = () =>

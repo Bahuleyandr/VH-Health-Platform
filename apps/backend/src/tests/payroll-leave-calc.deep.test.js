@@ -20,6 +20,7 @@
 import prisma from '../lib/prisma.js';
 import { calculatePayslip } from '../services/staff/payrollService.js';
 
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_UID = 'b0700001-0001-4d00-8d00-b07000000001'; // GENERAL_STAFF: salary + approved leave
 const STAFF_PHONE = '9507000001';
 
@@ -96,7 +97,12 @@ describe('payroll calculatePayslip — approved leave is counted (not silently 0
   }, 60000);
 
   it('counts the 3 approved-leave days and excludes them from absence/LOP', async () => {
-    const slip = await calculatePayslip(STAFF_UID, LEAVE_MONTH, LEAVE_YEAR);
+    const slip = await calculatePayslip(
+      STAFF_UID,
+      LEAVE_MONTH,
+      LEAVE_YEAR,
+      DEFAULT_TENANT_ID,
+    );
 
     // ── RED assertion: before the fix this is 0 (the query throws + the catch
     //    returns the wrong shape) — after the fix it is the seeded 3.

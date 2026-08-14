@@ -28,6 +28,25 @@ export function defineI05AdapterRuntimeContract({
         tenantId,
         `c61e-i05-${protocol}-${suffix}`,
       );
+      // The channel and its version are deliberately NOT activated.
+      //
+      // Migration 665 (re-planted by 670) made interface-engine activation
+      // truthful: `status = 'active'` is accepted only for a connector the
+      // runtime actually drives — `http_inbound` (hl7v2 only) or
+      // `http_outbound` — and, for inbound, only with a registered canonical
+      // backend adapter. `internal_backend` has no runtime driver anywhere in
+      // the repo: `ingestMessage` (the function under test) has no non-test
+      // caller, the live ingress is `receiveHttpHl7Message` and the live egress
+      // is `dispatchOutboundMessages`. `assertConnectorCanActivate` in
+      // services/interfaceEngine/runtimePolicy.js already refuses to activate
+      // this connector kind through the admin API, so the database now agrees
+      // with the service instead of holding a row that claims a capability the
+      // platform does not have.
+      //
+      // This contract exercises the adapter/receipt ledger reached through
+      // `ingestMessage`, which takes the channel object directly and never
+      // consults `status`. Activation itself is asserted in
+      // src/tests/deep/interfaceEngineRuntimeActivation.deep.test.js.
       channel = await setTenantTx(tenantId, async (tx) => {
         const systems = await tx.$queryRawUnsafe(
           `INSERT INTO interop_systems
@@ -42,7 +61,7 @@ export function defineI05AdapterRuntimeContract({
              (tenant_id, channel_key, display_name, source_system_id, target_system_id,
               direction, connector_kind, protocol, status, auth_kind)
            VALUES ($1::uuid, $2::text, 'I05 inbound', $3::integer, $3::integer,
-                   'inbound', 'internal_backend', $4::text, 'active', 'internal')
+                   'inbound', 'internal_backend', $4::text, 'draft', 'internal')
            RETURNING id, channel_key, direction, protocol, message_types, retention_days`,
           tenantId,
           `${protocol}-in-${suffix}`,
@@ -52,7 +71,7 @@ export function defineI05AdapterRuntimeContract({
         const versions = await tx.$queryRawUnsafe(
           `INSERT INTO interop_channel_versions
              (tenant_id, channel_id, version_number, status, routing_policy, transform_dsl)
-           VALUES ($1::uuid, $2::integer, 1, 'active',
+           VALUES ($1::uuid, $2::integer, 1, 'candidate',
                    jsonb_build_object('adapter', $3::text),
                    jsonb_build_object('kind', $4::text, 'emit', jsonb_build_object('adapter', $3::text)))
            RETURNING id, routing_policy, transform_dsl`,
@@ -60,12 +79,6 @@ export function defineI05AdapterRuntimeContract({
           channels[0].id,
           backendAdapterKey,
           `${protocol}-to-backend-adapter`,
-        );
-        await tx.$executeRawUnsafe(
-          'UPDATE interop_channels SET active_version_id = $3::integer WHERE tenant_id = $1::uuid AND id = $2::integer',
-          tenantId,
-          channels[0].id,
-          versions[0].id,
         );
         return {
           ...channels[0],

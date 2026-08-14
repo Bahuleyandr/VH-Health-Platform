@@ -2,9 +2,13 @@ import { render, screen } from "@testing-library/react";
 import DashboardRouter from "@/app/(with-auth)/dashboard/DashboardRouter";
 import { usePermissions } from "@/hooks/usePermissions";
 
-jest.mock("next/dynamic", () => () => function DynamicAdminDashboard() {
-  return "Admin command center";
-});
+jest.mock(
+  "next/dynamic",
+  () => () =>
+    function DynamicAdminDashboard() {
+      return "Admin command center";
+    },
+);
 
 jest.mock("@/hooks/usePermissions", () => ({
   usePermissions: jest.fn(),
@@ -19,9 +23,13 @@ jest.mock("@/lib/api/staff", () => ({
   getStaffList: jest.fn().mockResolvedValue({ staff: [] }),
 }));
 
-const mockedUsePermissions = usePermissions as jest.MockedFunction<typeof usePermissions>;
+const mockedUsePermissions = usePermissions as jest.MockedFunction<
+  typeof usePermissions
+>;
 
-function mockPermissions(overrides: Partial<ReturnType<typeof usePermissions>>) {
+function mockPermissions(
+  overrides: Partial<ReturnType<typeof usePermissions>>,
+) {
   mockedUsePermissions.mockReturnValue({
     user: null,
     rawRole: null,
@@ -59,13 +67,22 @@ describe("DashboardRouter", () => {
   });
 
   it("renders the admin command center only for admin users", () => {
-    mockPermissions({ role: "ADMIN", isAdmin: true, isHROrAbove: true, isStaffOrAbove: true });
+    mockPermissions({
+      role: "ADMIN",
+      isAdmin: true,
+      isHROrAbove: true,
+      isStaffOrAbove: true,
+    });
 
     render(<DashboardRouter />);
 
     expect(screen.getByText("Admin command center")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Doctor Dashboard" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "HR Dashboard" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Doctor Dashboard" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "HR Dashboard" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the doctor work queue instead of admin controls", () => {
@@ -73,17 +90,26 @@ describe("DashboardRouter", () => {
 
     render(<DashboardRouter />);
 
-    expect(screen.getByRole("heading", { name: "Doctor Dashboard" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Doctor Dashboard" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Today's Patient Queue")).toBeInTheDocument();
     expect(screen.queryByText("Admin command center")).not.toBeInTheDocument();
   });
 
   it("renders HR-sensitive links for HR users", () => {
-    mockPermissions({ role: "HR", isHR: true, isHROrAbove: true, isStaffOrAbove: true });
+    mockPermissions({
+      role: "HR",
+      isHR: true,
+      isHROrAbove: true,
+      isStaffOrAbove: true,
+    });
 
     render(<DashboardRouter />);
 
-    expect(screen.getByRole("heading", { name: "HR Dashboard" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "HR Dashboard" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Leave Approvals")).toBeInTheDocument();
     expect(screen.getByText("Attendance Audit")).toBeInTheDocument();
     expect(screen.getAllByText("Staff Roster").length).toBeGreaterThan(0);
@@ -95,8 +121,21 @@ describe("DashboardRouter", () => {
 
     render(<DashboardRouter />);
 
-    expect(screen.getByRole("heading", { name: "My Dashboard" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "My Dashboard" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Upload Documents")).toBeInTheDocument();
     expect(screen.queryByText("Leave Approvals")).not.toBeInTheDocument();
+  });
+
+  it("does not grant an admin dashboard when the role is unknown", () => {
+    mockPermissions({ rawRole: null, role: null });
+
+    render(<DashboardRouter />);
+
+    expect(
+      screen.getByRole("heading", { name: "Dashboard access unavailable" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Admin command center")).not.toBeInTheDocument();
   });
 });

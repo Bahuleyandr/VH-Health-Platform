@@ -9,6 +9,7 @@ import 'package:vhhealth_core/config/api_config.dart';
 import 'package:vhhealth_core/services/http_client.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
 import 'package:vhhealth/core/utils/safe_filename.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
@@ -27,6 +28,9 @@ class DocumentOpener {
     String url, {
     String? filename,
   }) async {
+    final session = CacheProfileScope.current();
+    File? stagedFile;
+    var opened = false;
     // Show loading dialog
     unawaited(
       showDialog(
@@ -90,16 +94,18 @@ class DocumentOpener {
       // leaving cleartext PHI loose in the temp root, so no decrypted document
       // survives logout on a shared/family device. `safeName` is already
       // sanitised above. Audit §3 (patient).
-      final file = await DocStaging.writePlaintext(
+      stagedFile = await DocStaging.writePlaintext(
         safeName,
         response.bodyBytes,
+        profile: session,
       );
 
       // Close loading dialog
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
       // Open with system viewer
-      final result = await OpenFilex.open(file.path);
+      final result = await OpenFilex.open(stagedFile.path);
+      opened = result.type == ResultType.done;
       if (result.type != ResultType.done && context.mounted) {
         // Fallback to browser
         await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
@@ -123,6 +129,10 @@ class DocumentOpener {
             ),
           );
         }
+      }
+    } finally {
+      if (!opened && stagedFile != null) {
+        await DocStaging.delete(stagedFile);
       }
     }
   }

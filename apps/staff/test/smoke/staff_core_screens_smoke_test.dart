@@ -71,11 +71,41 @@ class _SmokeClinicalInboxApi extends ClinicalInboxApi {
 
   @override
   Future<ClinicalInboxTask> acknowledgeTask(String id, {int? breakGlassId}) {
-    throw UnimplementedError('Smoke test has no inbox tasks to acknowledge');
+    throw UnsupportedError('Smoke test has no inbox tasks to acknowledge');
+  }
+
+  @override
+  Future<ClinicalInboxTask> claimTask(String id) {
+    throw UnsupportedError('Smoke test has no inbox tasks to claim');
+  }
+
+  @override
+  Future<DiagnosticActionReceipt> recordDiagnosticAction(
+    DiagnosticActionCommand command,
+  ) {
+    throw UnsupportedError('Smoke test has no diagnostic actions to record');
+  }
+
+  @override
+  Future<PostDischargeCrossSignReceipt> crossSignPendingResult(
+    PostDischargeCrossSignCommand command,
+  ) {
+    throw UnsupportedError('Smoke test has no pending results to cross-sign');
+  }
+
+  @override
+  Future<DiagnosticActionReceipt> reopenDiagnosticResult({
+    required String generationId,
+    required String reason,
+  }) {
+    throw UnsupportedError('Smoke test has no diagnostic results to reopen');
   }
 }
 
 class _SmokeApi {
+  _SmokeApi({this.catalogFails = false});
+
+  final bool catalogFails;
   var loginPosts = 0;
   var emrOrderPosts = 0;
   Map<String, dynamic>? lastEmrOrderBody;
@@ -84,12 +114,13 @@ class _SmokeApi {
     final path = request.url.path;
     final method = request.method;
 
-    if (method == 'POST' && path.endsWith('/auth/staff/login')) {
+    if (method == 'POST' && path.endsWith('/auth/staff/register-device')) {
       loginPosts++;
       return _ok({
         'accessToken':
             'eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGFmZi11aWQiLCJyb2xlIjoiTlVSU0lOR19TVEFGRiJ9.sig',
         'refreshToken': 'refresh-token',
+        'deviceToken': 'trusted-device-token',
         'staff': {
           '_id': 'staff-1',
           'id': 'staff-1',
@@ -156,6 +187,26 @@ class _SmokeApi {
         'medication_orders': [],
         'permissions': {'can_prescribe': true, 'can_administer': true},
       });
+    }
+    if (method == 'GET' && path.endsWith('/pharmacy-orders/catalog')) {
+      if (catalogFails) {
+        return http.Response(
+          jsonEncode({
+            'success': false,
+            'message': 'Medication catalog unavailable',
+          }),
+          503,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return _ok([
+        {
+          'catalog_id': 41,
+          'name': 'Aspirin',
+          'strength': '75 mg',
+          'form': 'tablet',
+        },
+      ]);
     }
     if (method == 'POST' && path.endsWith('/emr/orders')) {
       emrOrderPosts++;
@@ -399,6 +450,12 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.widgetWithText(TextField, 'Drug'), 'Aspirin');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    final catalogSuggestion = find.widgetWithText(ListTile, 'Aspirin');
+    expect(catalogSuggestion, findsOneWidget);
+    await tester.tap(catalogSuggestion);
+    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Dose'), '75 mg');
     final saveButton = find.widgetWithText(FilledButton, 'Save');
     await _pumpUntilFound(tester, saveButton);
@@ -411,5 +468,41 @@ void main() {
     final details = api.lastEmrOrderBody?['details'] as Map<String, dynamic>?;
     expect(details?['medication_name'], 'Aspirin');
     expect(details?['dose'], '75 mg');
+    expect(details?['catalog_id'], 41);
   });
+
+  testWidgets(
+    'catalog failure keeps the order unsaved and opens governed paper fallback',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1800, 1000);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final api = _SmokeApi(catalogFails: true);
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async => api.handle(request)),
+      );
+      final router = _smokeRouter();
+      await tester.pumpWidget(_smokeApp(router));
+
+      router.go('/drug-chart/42?name=Demo%20Patient');
+      await _pumpUntilFound(tester, find.text('Drug Chart'));
+      await _pumpUntilFound(tester, find.text('Add row'));
+      await tester.tap(find.text('Add row').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextField, 'Drug'), 'Aspirin');
+      await _pumpUntilFound(tester, find.text('Catalog unavailable'));
+      final saveButton = find.widgetWithText(FilledButton, 'Save');
+      await tester.ensureVisible(saveButton);
+      await tester.tap(saveButton);
+      await tester.pumpAndSettle();
+
+      expect(api.emrOrderPosts, 0);
+      expect(find.text('Offline clinical action not saved'), findsOneWidget);
+      expect(find.textContaining('inpatient drug charts'), findsOneWidget);
+      expect(find.text('Keep form open'), findsOneWidget);
+    },
+  );
 }

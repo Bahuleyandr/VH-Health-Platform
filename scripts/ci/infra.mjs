@@ -70,19 +70,39 @@ function installLinuxManifestValidators() {
   };
 }
 
-export function runInfraStage({ install } = {}) {
+export function runInfraStage({
+  install,
+  platform = process.platform,
+  commandAvailable = checkCommand,
+  installValidators = installLinuxManifestValidators,
+  runCommand = run,
+} = {}) {
   let installedTools;
   try {
     if (
       install &&
-      process.platform === 'linux' &&
-      (!checkCommand('kustomize', ['version']) || !checkCommand('kubeconform', ['-v']))
+      platform === 'linux' &&
+      (!commandAvailable('kustomize', ['version']) || !commandAvailable('kubeconform', ['-v']))
     ) {
-      installedTools = installLinuxManifestValidators();
+      installedTools = installValidators();
     }
 
-    run(process.execPath, ['--test', 'scripts/update-prod-digests.test.mjs']);
-    run(
+    runCommand(process.execPath, [
+      '--test',
+      'scripts/update-prod-digests.test.mjs',
+      'scripts/check-prod-digests-pinned.test.mjs',
+      'scripts/check-prod-helm-image-inventory.test.mjs',
+      'scripts/operator-lifecycle-preflight.test.mjs',
+      'scripts/infra-truthfulness.test.mjs',
+      // Runtime image ↔ manifest command contract: every command the backend
+      // workloads invoke must exist in the image the Dockerfile actually
+      // builds (the PreSync migration Job called a stripped `npm` for months).
+      'scripts/backend-image-command-contract.test.mjs',
+      'scripts/ci/forgejo-deploy-preflight.test.mjs',
+      'scripts/check-redis-ha-contract.test.mjs',
+      'scripts/ci/infra.test.mjs',
+    ], { env: installedTools?.env });
+    runCommand(
       process.execPath,
       [
         '--test',
@@ -91,23 +111,40 @@ export function runInfraStage({ install } = {}) {
       ],
       { env: installedTools?.env },
     );
-    run(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
-    run(process.execPath, ['scripts/check-c1-1-manifest-contract.mjs'], {
+    runCommand(
+      process.execPath,
+      ['scripts/sealed-secrets-bootstrap-smoke.mjs', '--auto'],
+      { env: installedTools?.env },
+    );
+    runCommand(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
+    runCommand(process.execPath, ['scripts/check-c1-1-manifest-contract.mjs'], {
       env: installedTools?.env,
     });
 
-    run(process.execPath, ['scripts/validate-kubernetes-manifests.mjs'], {
+    runCommand(process.execPath, ['scripts/validate-kubernetes-manifests.mjs'], {
       env: installedTools?.env,
     });
 
-    run(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
+    runCommand(process.execPath, ['scripts/check-kyverno-enforce-readiness.mjs']);
 
-    // B0.6 / H11: fail the build if any prod image digest is still the
-    // all-zeros fail-closed placeholder when running on `main` (the script
-    // auto-detects main via GITHUB_REF/GITHUB_EVENT_NAME and is a no-op
-    // off-main, where placeholders are expected until the release pipeline
-    // writes real digests).
-    run(process.execPath, ['scripts/check-prod-digests-pinned.mjs']);
+    // Operator Applications stay held outside active composition. This gate
+    // pins their chart archives and images without contacting a cluster.
+    runCommand(process.execPath, ['scripts/operator-lifecycle-preflight.mjs', '--contract-only'], {
+      env: installedTools?.env,
+    });
+
+    // Bound the exact chart Applications outside the Kustomize image render.
+    // A chart/version/values-source change fails until it is reviewed, while
+    // activation still requires a separately rendered Helm image inventory.
+    runCommand(process.execPath, ['scripts/check-prod-helm-image-inventory.mjs'], {
+      env: installedTools?.env,
+    });
+
+    // Render the Kustomize-controlled roots, include the scheduled restore
+    // proof's synthesized runtime manifests, and live-verify each active pin.
+    runCommand(process.execPath, ['scripts/check-prod-digests-pinned.mjs'], {
+      env: installedTools?.env,
+    });
   } finally {
     if (installedTools?.temporary && installedTools?.dir) {
       rmSync(installedTools.dir, { recursive: true, force: true });

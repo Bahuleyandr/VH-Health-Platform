@@ -1,6 +1,13 @@
 import { AppError } from '../../utils/AppError.js';
 
 export const RESERVED_CARE_PATHWAYS_SETTINGS_KEY = 'care_pathways';
+export const RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY = 'care_team_enforcement_mode';
+export const DEFAULT_CARE_TEAM_ENFORCEMENT_MODE = 'shadow';
+
+export const RESERVED_TENANT_SETTINGS_KEYS = Object.freeze([
+  RESERVED_CARE_PATHWAYS_SETTINGS_KEY,
+  RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY,
+]);
 
 function isPlainObject(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -17,15 +24,15 @@ function invalidSettings() {
 
 function reservedSettings() {
   return AppError.forbidden(
-    'Care pathway settings can only be changed through governed mode tooling',
+    'Governed tenant settings can only be changed through their dedicated tooling',
     'TENANT_SETTINGS_RESERVED',
   );
 }
 
 function assertGenericSettingsObject(settings) {
   if (!isPlainObject(settings)) throw invalidSettings();
-  if (Object.prototype.hasOwnProperty.call(settings, RESERVED_CARE_PATHWAYS_SETTINGS_KEY)) {
-    throw reservedSettings();
+  for (const key of RESERVED_TENANT_SETTINGS_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(settings, key)) throw reservedSettings();
   }
 }
 
@@ -34,8 +41,8 @@ export function serializeGenericTenantSettings(settings) {
   const serialized = JSON.stringify(settings);
   const normalized = JSON.parse(serialized);
   if (!isPlainObject(normalized)) throw invalidSettings();
-  if (Object.prototype.hasOwnProperty.call(normalized, RESERVED_CARE_PATHWAYS_SETTINGS_KEY)) {
-    throw reservedSettings();
+  for (const key of RESERVED_TENANT_SETTINGS_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(normalized, key)) throw reservedSettings();
   }
   return serialized;
 }
@@ -47,12 +54,15 @@ export function mergeGenericTenantSettings(currentSettings, patchSettings) {
     ...current,
     ...patchSettings,
   };
-  delete merged[RESERVED_CARE_PATHWAYS_SETTINGS_KEY];
+  for (const key of RESERVED_TENANT_SETTINGS_KEYS) delete merged[key];
   return merged;
 }
 
 export default {
   RESERVED_CARE_PATHWAYS_SETTINGS_KEY,
+  RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY,
+  DEFAULT_CARE_TEAM_ENFORCEMENT_MODE,
+  RESERVED_TENANT_SETTINGS_KEYS,
   mergeGenericTenantSettings,
   serializeGenericTenantSettings,
 };

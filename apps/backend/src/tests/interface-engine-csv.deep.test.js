@@ -31,12 +31,19 @@ describeIfDb('C6.1-E I05 CSV runtime adapter', () => {
         TENANT_ID,
         `csv-target-${SUFFIX}`,
       );
+      // Deliberately NOT activated — see the note in
+      // src/tests/helpers/interfaceEngineAdapterRuntimeContract.js. Migration
+      // 665 (re-planted by 670) only accepts an active channel for a connector
+      // the runtime drives, and `internal_backend` has no driver;
+      // `ingestMessage` takes this channel object directly and never reads
+      // `status`. Activation is asserted in
+      // src/tests/deep/interfaceEngineRuntimeActivation.deep.test.js.
       const channels = await tx.$queryRawUnsafe(
         `INSERT INTO interop_channels
            (tenant_id, channel_key, display_name, source_system_id, target_system_id,
             direction, connector_kind, protocol, status, auth_kind)
          VALUES ($1::uuid, $2::text, 'CSV inbound', $3::integer, $3::integer,
-                 'inbound', 'internal_backend', 'csv', 'active', 'internal')
+                 'inbound', 'internal_backend', 'csv', 'draft', 'internal')
          RETURNING id, channel_key, direction, protocol, message_types, retention_days`,
         TENANT_ID,
         `csv-in-${SUFFIX}`,
@@ -45,19 +52,12 @@ describeIfDb('C6.1-E I05 CSV runtime adapter', () => {
       const versions = await tx.$queryRawUnsafe(
         `INSERT INTO interop_channel_versions
            (tenant_id, channel_id, version_number, status, routing_policy, transform_dsl)
-         VALUES ($1::uuid, $2::integer, 1, 'active',
+         VALUES ($1::uuid, $2::integer, 1, 'candidate',
                  '{"adapter":"backend.interop.csv"}'::jsonb,
                  '{"kind":"csv-to-backend-adapter","emit":{"adapter":"backend.interop.csv"}}'::jsonb)
          RETURNING id, routing_policy, transform_dsl`,
         TENANT_ID,
         channels[0].id,
-      );
-      await tx.$executeRawUnsafe(
-        `UPDATE interop_channels SET active_version_id = $3::integer
-          WHERE tenant_id = $1::uuid AND id = $2::integer`,
-        TENANT_ID,
-        channels[0].id,
-        versions[0].id,
       );
       return {
         ...channels[0],

@@ -21,8 +21,9 @@ typedef CathCaseConsumableLoader =
 typedef CathConsumableCreator =
     Future<CathCaseConsumableUsage> Function(
       int caseId,
-      CathConsumableUsageDraft draft,
-    );
+      CathConsumableUsageDraft draft, {
+      required String idempotencyKey,
+    });
 typedef CathConsumableScanner = Future<String?> Function();
 
 class CathConsumableDependencies {

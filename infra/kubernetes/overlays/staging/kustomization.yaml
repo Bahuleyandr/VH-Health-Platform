@@ -11,6 +11,65 @@ metadata:
 resources:
   - ../../base
 patches:
+  # CNPG imageName + serverName (audit 2026-08-13, P1 follow-up).
+  #
+  # The base carries the PRODUCTION hold: an all-zero, deliberately unpullable
+  # digest, because the exact qualified PostgreSQL 17 minor and digest for the
+  # live clinical database are operator evidence this repository does not hold,
+  # and because a major-version bump on that cluster is an irreversible
+  # pg_upgrade of live patient data. Neither rationale applies to staging, which
+  # holds no clinical data — inheriting the hold only meant "staging can bring
+  # up no database at all". Staging therefore pins the real, publicly resolvable
+  # digest for the documented secure floor tag 17.10-standard-bookworm:
+  #   ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm
+  #   -> sha256:f94c0eea2a7e9d40880adebd27a912d8473d5805a99c4dbc6eb6244ad9770620
+  #      (multi-arch OCI index: linux/amd64 + linux/arm64; re-verified on every
+  #      run by scripts/check-prod-digests-pinned.mjs, which now renders this
+  #      overlay too).
+  #
+  # The archive identity moves with the image generation (see cluster.yaml) AND
+  # must not be a production identity. Staging mirrors prod topology and is the
+  # environment most likely to actually archive: it shares the R2 bucket and
+  # destination prefix declared by ObjectStore/vhhealth-pg18-producer, so
+  # `serverName` is the ONLY thing keeping staging WAL out of the production
+  # archive. It is neither `vhhealth-pg` (production PG17) nor `vhhealth-pg18`
+  # (production PG18); the daily verifier CronJob below is repointed to match.
+  - target:
+      kind: Cluster
+      name: vhhealth-pg
+      group: postgresql.cnpg.io
+    patch: |-
+      - op: replace
+        path: /spec/imageName
+        value: ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@sha256:f94c0eea2a7e9d40880adebd27a912d8473d5805a99c4dbc6eb6244ad9770620
+      - op: replace
+        path: /spec/plugins/0/parameters/serverName
+        value: vhhealth-pg-staging
+
+  # The daily backup verifier reads the prefix the Cluster writes, so its
+  # archive identity must equal the Cluster's. Enforced by
+  # scripts/check-c1-1-manifest-contract.mjs for every rendered overlay.
+  - target:
+      kind: CronJob
+      name: cnpg-backup-verify
+      namespace: vhhealth-platform
+    patch: |-
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: cnpg-backup-verify
+        namespace: vhhealth-platform
+      spec:
+        jobTemplate:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: verify
+                    env:
+                      - name: BARMAN_SERVER_NAME
+                        value: "vhhealth-pg-staging"
+
   # Cloudflared to 1 replica in staging (less traffic).
   - target:
       kind: Deployment

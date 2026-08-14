@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 
 import '../../../core/config/api_config.dart';
+import '../../../core/config/staff_role_contract.g.dart';
 import '../../../core/services/stemi_pathway_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/config/role_config.dart';
@@ -34,6 +35,10 @@ typedef CathLabRoleLoader = Future<String> Function();
 
 @visibleForTesting
 bool cathConsumablesCanAddForRole(String role) {
+  final normalized = role.trim().toUpperCase();
+  if (canonicalStaffRoleCodes.contains(normalized)) {
+    return canonicalCathLabWorkflowRoleCodes.contains(normalized);
+  }
   return const {
     StaffRole.doctor,
     StaffRole.dutyDoctor,

@@ -197,6 +197,14 @@ class VHHttpClient {
   /// it true for normal authenticated calls. Logout teardown sets it false so
   /// a request abandoned by its outer deadline cannot finish refreshing and
   /// write a new credential after local secure storage has been wiped.
+  ///
+  /// [bearerOverride] authenticates this ONE request with the supplied token
+  /// instead of the session token in secure storage. It exists for the patient
+  /// logout-revocation retry, which by construction runs after the local wipe
+  /// has removed the very credential it needs to revoke; there is no ambient
+  /// session left to read. Setting it also forces [refreshOnUnauthorized] off
+  /// below — an already-revoked or expired token must fail, never rotate
+  /// itself into a fresh credential for a user who has signed out.
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
@@ -207,9 +215,11 @@ class VHHttpClient {
     String? continuityFacilityContext,
     bool retryTransientFailures = true,
     bool refreshOnUnauthorized = true,
+    String? bearerOverride,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
+    if (bearerOverride != null) refreshOnUnauthorized = false;
     // Auto-mint a stable Idempotency-Key when the caller passed none, so a
     // _sendWithRetry / 401 replay reuses it and the backend dedups the write
     // instead of double-creating. Covered routes dedup; others ignore it.
@@ -220,6 +230,7 @@ class VHHttpClient {
       idempotencyKey: effectiveKey,
       continuityFacilityId: continuityFacilityId,
       continuityFacilityContext: continuityFacilityContext,
+      bearerOverride: bearerOverride,
     );
     final maxAttempts = retryTransientFailures ? _maxRetryAttempts : 1;
     final response = await _sendWithRetry(
@@ -250,7 +261,11 @@ class VHHttpClient {
       return _processResponse(retry);
     }
 
-    _checkUnauthorized(parsed);
+    // An explicit-bearer call carries no ambient session, so a 401 here says
+    // the supplied token is already dead — not that the current user's session
+    // expired. Firing `onSessionExpired` would kick an unrelated (or
+    // already-signed-out) session into another teardown + redirect loop.
+    if (bearerOverride == null) _checkUnauthorized(parsed);
     return parsed;
   }
 
@@ -590,9 +605,17 @@ class VHHttpClient {
     String? idempotencyKey,
     String? continuityFacilityId,
     String? continuityFacilityContext,
+    String? bearerOverride,
   }) async {
     final Map<String, String> base;
-    if (auth && json) {
+    if (bearerOverride != null) {
+      // Built from the unauthenticated header set plus an explicit bearer, so
+      // this path provably never reads the ambient session from secure
+      // storage. See the [post] docstring for the single intended caller.
+      base = Map<String, String>.from(
+        json ? ApiConfig.jsonHeaders : ApiConfig.authHeaders,
+      )..['Authorization'] = 'Bearer $bearerOverride';
+    } else if (auth && json) {
       base = await ApiConfig.authenticatedHeaders();
     } else if (auth) {
       base = await ApiConfig.authenticatedAuthHeaders();

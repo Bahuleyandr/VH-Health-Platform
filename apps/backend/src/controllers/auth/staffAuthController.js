@@ -4,6 +4,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+import { AppError } from '../../utils/AppError.js';
 // Profile data is owned by staffService.getStaffProfile (not the auth class).
 // Importing it lets the auth controller's GET /staff/profile route return
 // the same payload the rest of the staff routes use, instead of crashing
@@ -22,7 +23,11 @@ export const login = async (req, res) => {
     success(res, result, 'Staff login successful');
   } catch (err) {
     logger.error('Staff Login Error:', err);
-    error(res, 'Login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    return relayAppError(
+      res,
+      err.statusCode ? err : AppError.unauthorized('Login failed', 'STAFF_LOGIN_FAILED'),
+      'Login failed',
+    );
   }
 };
 
@@ -40,11 +45,10 @@ export const pinLogin = async (req, res) => {
     success(res, result, 'Staff login with PIN successful');
   } catch (err) {
     logger.error('Staff PIN Login Error:', err);
-    error(
+    return relayAppError(
       res,
-      err.code === 'PIN_DEVICE_NOT_REGISTERED' ? err.message : 'Login failed',
-      err.statusCode || HTTP_STATUS.UNAUTHORIZED,
-      err.code ? { code: err.code } : undefined,
+      err.statusCode ? err : AppError.unauthorized('Login failed', 'STAFF_LOGIN_FAILED'),
+      'Login failed',
     );
   }
 };
@@ -60,7 +64,7 @@ export const registerDevice = async (req, res) => {
     success(res, result, 'Device registered successfully');
   } catch (err) {
     logger.error('Device Registration Error:', err);
-    error(res, 'Failed to register device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to register device');
   }
 };
 
@@ -79,7 +83,11 @@ export const quickLogin = async (req, res) => {
     success(res, result, 'Quick login successful');
   } catch (err) {
     logger.error('Quick Login Error:', err);
-    error(res, 'Quick login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    return relayAppError(
+      res,
+      err.statusCode ? err : AppError.unauthorized('Quick login failed', 'STAFF_QUICK_LOGIN_FAILED'),
+      'Quick login failed',
+    );
   }
 };
 
@@ -92,7 +100,7 @@ export const setupPin = async (req, res) => {
     success(res, result, 'PIN setup successful');
   } catch (err) {
     logger.error('PIN Setup Error:', err);
-    error(res, 'Failed to setup PIN', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to setup PIN');
   }
 };
 
@@ -105,7 +113,7 @@ export const toggleBiometric = async (req, res) => {
     success(res, result, `Biometric ${enabled ? 'enabled' : 'disabled'}`);
   } catch (err) {
     logger.error('Toggle Biometric Error:', err);
-    error(res, 'Failed to toggle biometric', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to toggle biometric');
   }
 };
 
@@ -218,37 +226,11 @@ export const removeDevice = async (req, res) => {
   try {
     const staffId = req.user.uid;
     const { deviceId } = req.params;
-    const result = await StaffAuthService.removeDevice(staffId, deviceId);
+    const result = await StaffAuthService.removeDevice(staffId, deviceId, req);
     success(res, result, 'Device removed successfully');
   } catch (err) {
     logger.error('Remove Device Error:', err);
-    error(res, 'Failed to remove device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-// Check-in
-export const checkIn = async (req, res) => {
-  try {
-    const staffId = req.user.uid;
-    const { location } = req.body;
-    const result = await StaffAuthService.markAttendance(staffId, 'check-in', location, req);
-    success(res, result, 'Check-in successful');
-  } catch (err) {
-    logger.error('Check-in Error:', err);
-    error(res, 'Failed to check-in', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-// Check-out
-export const checkOut = async (req, res) => {
-  try {
-    const staffId = req.user.uid;
-    const { location } = req.body;
-    const result = await StaffAuthService.markAttendance(staffId, 'check-out', location, req);
-    success(res, result, 'Check-out successful');
-  } catch (err) {
-    logger.error('Check-out Error:', err);
-    error(res, 'Failed to check-out', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to remove device');
   }
 };
 
@@ -261,18 +243,6 @@ export const getAttendanceStatus = async (req, res) => {
   } catch (err) {
     logger.error('Get Attendance Status Error:', err);
     error(res, 'Failed to get attendance status', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-// Check device status
-export const checkDeviceStatus = async (req, res) => {
-  try {
-    const { deviceToken } = req.params;
-    const status = await StaffAuthService.checkDeviceStatus(deviceToken);
-    success(res, status, 'Device status retrieved');
-  } catch (err) {
-    logger.error('Check Device Status Error:', err);
-    error(res, 'Failed to check device status', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -343,18 +313,6 @@ export const adminRemoveAllDevices = async (req, res) => {
   } catch (err) {
     logger.error('Admin Remove Devices Error:', err);
     error(res, 'Failed to remove devices', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  }
-};
-
-// Verify device
-export const verifyDevice = async (req, res) => {
-  try {
-    const { deviceToken } = req.body;
-    const result = await StaffAuthService.verifyDevice(deviceToken);
-    success(res, result, 'Device verified successfully');
-  } catch (err) {
-    logger.error('Verify Device Error:', err);
-    error(res, 'Failed to verify device', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

@@ -67,11 +67,12 @@ describe("H6/M8 — admin route policy", () => {
       expect(policyForPath("/dashboard/some-brand-new-page/sub")).toBeNull();
     });
 
-    test("dashboard home is reachable by any authenticated role", () => {
+    test("dashboard home is reachable only by recognized portal roles", () => {
       const policy = policyForPath("/dashboard");
       expect(policy).toBeTruthy();
       expect(roleSatisfiesPolicy("RECEPTIONIST", policy!)).toBe(true);
-      expect(roleSatisfiesPolicy("UNKNOWN_ROLE", policy!)).toBe(true);
+      expect(roleSatisfiesPolicy("UNKNOWN_ROLE", policy!)).toBe(false);
+      expect(roleSatisfiesPolicy(null, policy!)).toBe(false);
     });
   });
 

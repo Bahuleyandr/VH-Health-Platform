@@ -2,7 +2,11 @@
 
 > **STATUS.** The C1.1 CNPG 1.30, PostgreSQL 18.4, Barman-plugin, and
 > reader-only restore manifests are repository-complete but inert. Production
-> remains on PostgreSQL 17. Activation is blocked on the approved C1.2 ladder
+> remains on PostgreSQL 17, and since the audit of 2026-08-13 (P1) the active
+> graph enforces that: `base/cnpg/cluster.yaml` pins the PostgreSQL 17
+> generation fail-closed at the all-zero digest, and the PostgreSQL 18.4
+> cutover target is held, composed by nothing, at
+> `infra/kubernetes/held/c1-1-pg18-cutover/`. Activation is blocked on the approved C1.2 ladder
 > from RKE2 `v1.31.4+rke2r1` to the exact
 > `v1.34.9+rke2r1` / Kubernetes `v1.34.9` objective, the full
 > operator/major-upgrade qualification, and live backup/restore evidence. A

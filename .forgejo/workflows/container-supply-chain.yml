@@ -36,25 +36,25 @@ jobs:
       matrix:
         include:
           - app: backend
-            image: vhhealth-backend
+            image_name: vhhealth-backend
             context: apps/backend
             dockerfile: apps/backend/Dockerfile
             build_contexts: ''
             build_args: '--build-arg NODE_IMAGE=mirror.gcr.io/library/node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66'
           - app: admin
-            image: vhhealth-admin
+            image_name: vhhealth-admin
             context: apps/admin
             dockerfile: apps/admin/Dockerfile
             build_contexts: '--build-context backend=apps/backend'
             build_args: '--build-arg NEXT_PUBLIC_API_URL=https://api.vhhealth.app --build-arg NEXT_PUBLIC_APP_NAME=VHHealthAdmin --build-arg NEXT_PUBLIC_ALLOWED_ORIGIN=https://admin.vhhealth.app --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=ci --build-arg NEXT_PUBLIC_SENTRY_RELEASE=${{ github.sha }} --build-arg SENTRY_UPLOAD_SOURCE_MAPS=false'
           - app: staff-web
-            image: vhhealth-staff-web
+            image_name: vhhealth-staff-web
             context: .
             dockerfile: apps/staff/Dockerfile.web
             build_contexts: ''
             build_args: '--build-arg VH_BASE_URL=https://api.vhhealth.app/api/v1 --build-arg APP_NAME=VHHealthStaff --build-arg SENTRY_ENVIRONMENT=ci --build-arg SENTRY_RELEASE=${{ github.sha }}'
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -65,7 +65,7 @@ jobs:
         run: >
           docker build
           --pull
-          -t local/${{ matrix.image }}:${{ github.sha }}
+          -t local/${{ matrix.image_name }}:${{ github.sha }}
           -f ${{ matrix.dockerfile }}
           ${{ matrix.build_contexts }}
           ${{ matrix.build_args }}
@@ -73,13 +73,13 @@ jobs:
 
       - name: Record local image metadata
         run: |
-          docker image inspect local/${{ matrix.image }}:${{ github.sha }} \
+          docker image inspect local/${{ matrix.image_name }}:${{ github.sha }} \
             > output/container/${{ matrix.app }}/image-inspect.json
 
       - name: Save image archive for offline scanners
         run: |
           set -euo pipefail
-          docker save local/${{ matrix.image }}:${{ github.sha }} \
+          docker save local/${{ matrix.image_name }}:${{ github.sha }} \
             -o /tmp/${{ matrix.app }}-image.tar
 
       # Audit finding M15: scanner installers were fetched from MUTABLE
@@ -160,9 +160,9 @@ jobs:
             echo "::error::Container signing is fail-closed for push/manual runs; configure ${missing[*]}"
             exit 1
           fi
-          target="${CONTAINER_REGISTRY%/}/${{ matrix.image }}:${{ github.sha }}"
+          target="${CONTAINER_REGISTRY%/}/${{ matrix.image_name }}:${{ github.sha }}"
           printf '%s' "$CONTAINER_REGISTRY_PASSWORD" | docker login "$CONTAINER_REGISTRY" -u "$CONTAINER_REGISTRY_USERNAME" --password-stdin
-          docker tag local/${{ matrix.image }}:${{ github.sha }} "$target"
+          docker tag local/${{ matrix.image_name }}:${{ github.sha }} "$target"
           docker push "$target"
           curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64 -o /tmp/cosign
           chmod +x /tmp/cosign
@@ -173,7 +173,7 @@ jobs:
 
       - name: Upload image reports
         if: always()
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
         with:
           name: container-${{ matrix.app }}
           path: output/container/${{ matrix.app }}

@@ -765,35 +765,20 @@ describe('verifyTokenStatus', () => {
 // ───────────────────────── getHealthStatus ──────────────────────────
 
 describe('getHealthStatus', () => {
-  it('reports healthy with aggregated user + device statistics', async () => {
+  it('reports constant public liveness without fleet statistics or tenant fan-out', async () => {
     listUsersMock.mockResolvedValue({ users: [] });
-    prismaMock.$queryRawUnsafe
-      .mockResolvedValueOnce([
-        {
-          firebase_users: 10,
-          active_firebase_users_24h: 3,
-          completed_profiles: 8,
-          total_users: 25,
-        },
-      ]) // user stats
-      .mockResolvedValueOnce([
-        { id: DEFAULT_TENANT_ID },
-      ]) // tenant enumeration
-      .mockResolvedValueOnce([
-        { platform: 'android', device_count: 5, active_24h: 2 },
-        { platform: 'ios', device_count: 3, active_24h: 1 },
-      ]); // device stats
 
     const result = await getHealthStatus();
 
     expect(listUsersMock).toHaveBeenCalledWith(1);
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       status: 'healthy',
       firebaseConnection: 'connected',
-      statistics: { firebase_users: 10, total_users: 25 },
+      timestamp: expect.any(String),
     });
-    expect(result.deviceStatistics).toHaveLength(2);
-    expect(typeof result.timestamp).toBe('string');
+    expect(result).not.toHaveProperty('statistics');
+    expect(result).not.toHaveProperty('deviceStatistics');
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 });
 

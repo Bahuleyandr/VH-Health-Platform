@@ -60,11 +60,23 @@ class StaffLocalNotifications {
 
   bool _initialized = false;
   bool _windowFocused = true;
+  bool _acceptsSessionNotifications = true;
 
   bool get _isWindows => !kIsWeb && Platform.isWindows;
 
+  @visibleForTesting
+  bool get acceptsSessionNotifications => _acceptsSessionNotifications;
+
   void setWindowFocused(bool focused) {
     _windowFocused = focused;
+  }
+
+  void beginAuthenticatedSession() {
+    _acceptsSessionNotifications = true;
+  }
+
+  void endAuthenticatedSession() {
+    _acceptsSessionNotifications = false;
   }
 
   Future<void> initialize() async {
@@ -117,6 +129,7 @@ class StaffLocalNotifications {
     Map<String, dynamic> data, {
     bool force = false,
   }) async {
+    if (!_acceptsSessionNotifications) return;
     if (!force &&
         !shouldShowDesktopToast(
           isWindows: _isWindows,
@@ -125,6 +138,7 @@ class StaffLocalNotifications {
       return;
     }
     if (!_initialized) await initialize();
+    if (!_acceptsSessionNotifications) return;
 
     await _plugin.show(
       id: _codeBlueNotificationId,
@@ -171,6 +185,7 @@ class StaffLocalNotifications {
     required String body,
     required String priority,
   }) async {
+    if (!_acceptsSessionNotifications) return;
     if (!shouldShowDesktopToast(
       isWindows: _isWindows,
       windowFocused: _windowFocused,
@@ -178,6 +193,7 @@ class StaffLocalNotifications {
       return;
     }
     if (!_initialized) await initialize();
+    if (!_acceptsSessionNotifications) return;
 
     final urgent = priority == 'critical' || priority == 'urgent';
     await _plugin.show(
@@ -207,7 +223,8 @@ class StaffLocalNotifications {
   }
 
   Future<void> cancelSessionNotifications() async {
-    if (!_initialized) await initialize();
+    endAuthenticatedSession();
+    if (!_initialized) return;
     await _plugin.cancelAll();
   }
 

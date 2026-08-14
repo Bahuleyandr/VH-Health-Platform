@@ -9,9 +9,23 @@ Baseline: `github/main` at
 ## Activation boundary
 
 C1.1 makes the intended manifests internally consistent but does not activate
-them. The four Argo CD Applications are manual-sync. The operator and Barman
-Cloud Plugin are also installed outside the platform Application. Merging this
-change therefore deploys nothing.
+them. The four active top-level Argo CD Applications are manual-sync. The CNPG
+and Barman operator Applications are separate manual-sync declarations under
+`infra/kubernetes/held/operator-lifecycle/` and are not composed into the
+active Argo barrel or platform Application. Merging this change therefore
+deploys nothing.
+
+Manual-sync is not by itself a sufficient boundary for a major version change,
+because one operator sync is all it takes. The audit of 2026-08-13 (P1) found
+the PostgreSQL 18.4 image pinned directly on the live `Cluster/vhhealth-pg` in
+`base/cnpg/cluster.yaml`, which the production overlay composes — so a routine
+platform sync would have started a declarative offline `pg_upgrade`. The
+PostgreSQL 18.4 target now lives only at
+`infra/kubernetes/held/c1-1-pg18-cutover/`, composed by no kustomization, and
+the active Cluster declares the PostgreSQL 17 generation with a fail-closed
+all-zero digest that the operator replaces per §1 below. The conversion is the
+explicit atomic patch recorded in that held directory, which is the same patch
+`base/cnpg/pg18-upgrade-rehearsal.sh` proves against synthetic data. See `OPERATOR_LIFECYCLE.md` for the fail-closed lifecycle gate.
 
 CloudNativePG 1.30 supports Kubernetes 1.34, 1.35, and 1.36. Production RKE2 is
 currently Kubernetes 1.31.4, so activation is blocked on C1.2 upgrading the
@@ -155,6 +169,36 @@ retention/deletion separation are deferred to C6.2.
 PostgreSQL 18 archives use the server identity `vhhealth-pg18`, distinct from
 the historical PostgreSQL 17 identity `vhhealth-pg`. Successful conversion
 must never append PostgreSQL 18 WAL to the PostgreSQL 17 archive identity.
+
+The identity is `spec.plugins[].parameters.serverName`, **not** the `ObjectStore`
+object's name. The `ObjectStore` carries only the bucket, endpoint, and
+credentials; the archive prefix Barman writes is
+`<destinationPath>/<serverName>/`. That is why the historically-named
+`vhhealth-pg18-producer` `ObjectStore` is shared across generations while
+`serverName` is what keeps the two generations' WAL disjoint.
+
+**Image generation and archive identity move together.** A `Cluster`'s
+`spec.imageName` generation and its `serverName` are one decision. Changing
+either alone produces the contamination this section forbids:
+
+- PostgreSQL 17 image + `vhhealth-pg18` writes PostgreSQL 17 WAL into the
+  PostgreSQL 18 archive. This is reachable by an operator who does nothing more
+  than follow the `imageName` OPERATOR note and pin the real PostgreSQL 17
+  digest, so the repository must never declare that pair.
+- PostgreSQL 18 image + `vhhealth-pg` is the forbidden direction stated above.
+
+The cutover therefore replaces both fields in one atomic `kubectl patch`
+(`infra/kubernetes/held/c1-1-pg18-cutover/`), guarded by a `test` on the live
+identity. That guard is only meaningful while the supplied live identity is not
+already `vhhealth-pg18` — otherwise the `test` passes vacuously and the
+`replace` is a no-op — so the patch refuses that input outright.
+`scripts/check-c1-1-manifest-contract.mjs` enforces the pairing in both
+directions across every rendered overlay.
+
+Non-production clusters share the production bucket and destination prefix, so
+`serverName` is the only separation available to them. `overlays/staging` and
+`overlays/dev` archive under `vhhealth-pg-staging` and `vhhealth-pg-dev`; they
+must never adopt `vhhealth-pg` or `vhhealth-pg18`.
 
 Backend upload archives use disjoint identities:
 

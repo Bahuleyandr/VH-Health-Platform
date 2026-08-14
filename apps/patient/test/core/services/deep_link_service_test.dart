@@ -3,6 +3,50 @@ import 'package:vhhealth/core/services/deep_link_service.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 
 void main() {
+  group('DeepLinkService custom-scheme routing', () {
+    test('normalizes exact allowlisted custom links to internal routes', () {
+      expect(
+        DeepLinkService.parseExternalRoute('vhhealth://app/appointments'),
+        '/appointments',
+      );
+      expect(
+        DeepLinkService.parseExternalRoute('vhhealth://app/portal/messages/42'),
+        '/portal/messages/42',
+      );
+    });
+
+    test('rejects ambiguous, privileged, and externally-owned link shapes', () {
+      for (final link in <String>[
+        'vhhealth://app/login',
+        'vhhealth://app/admin/users',
+        'vhhealth://other/appointments',
+        'vhhealth://app:443/appointments',
+        'vhhealth://user@app/appointments',
+        'vhhealth://app/appointments?returnTo=/admin',
+        'vhhealth://app/appointments#fragment',
+        'https://vhhealth.app/appointments',
+        ' vhhealth://app/appointments',
+      ]) {
+        expect(DeepLinkService.parseExternalRoute(link), isNull, reason: link);
+      }
+    });
+
+    test('rejects malformed parameterized routes', () {
+      expect(
+        DeepLinkService.parseExternalRoute(
+          'vhhealth://app/portal/messages/not-a-number',
+        ),
+        isNull,
+      );
+      expect(
+        DeepLinkService.parseExternalRoute(
+          'vhhealth://app/portal/messages/42/edit',
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('DeepLinkService notification routing', () {
     test('accepts every explicit allowlisted app route', () {
       expect(DeepLinkService.debugAllowedRoutes, isNotEmpty);
@@ -75,6 +119,11 @@ void main() {
           DeepLinkService.parseNotificationRoute({'route': '$prefix-1'}),
           isNull,
           reason: '$prefix rejects negative IDs',
+        );
+        expect(
+          DeepLinkService.parseNotificationRoute({'route': '$prefix+1'}),
+          isNull,
+          reason: '$prefix rejects signed IDs',
         );
         expect(
           DeepLinkService.parseNotificationRoute({'route': '${prefix}42/edit'}),

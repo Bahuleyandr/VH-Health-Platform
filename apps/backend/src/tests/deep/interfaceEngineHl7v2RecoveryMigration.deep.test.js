@@ -96,12 +96,23 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
       [tenantId, `target-${suffix}`],
     );
     systemId = systems.rows[0].id;
+    // Both channels are deliberately NOT activated. Migration 665 (re-planted
+    // by 670) only accepts `status = 'active'` for a connector the runtime
+    // drives — `http_inbound` (hl7v2 only) or `http_outbound` — and for hl7v2
+    // inbound migration 670 registers no canonical backend adapter at all, so
+    // there is no configuration of an active hl7v2 inbound channel that could
+    // deliver. `internal_backend` has no runtime driver anywhere in the repo
+    // and `assertConnectorCanActivate` in
+    // services/interfaceEngine/runtimePolicy.js already refuses it on the admin
+    // activation path. This suite asserts migration 611's ledger and receipt
+    // constraints, none of which read channel status. Activation is asserted in
+    // src/tests/deep/interfaceEngineRuntimeActivation.deep.test.js.
     const channels = await client.query(
       `INSERT INTO interop_channels
          (tenant_id, channel_key, display_name, source_system_id, target_system_id,
           direction, connector_kind, protocol, status, auth_kind)
        VALUES ($1::uuid, $2::text, 'I05 HL7v2', $3::integer, $3::integer,
-               'bidirectional', 'internal_backend', 'hl7v2', 'active', 'internal')
+               'bidirectional', 'internal_backend', 'hl7v2', 'draft', 'internal')
        RETURNING id`,
       [tenantId, `channel-${suffix}`, systemId],
     );
@@ -109,7 +120,7 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
     const versions = await client.query(
       `INSERT INTO interop_channel_versions
          (tenant_id, channel_id, version_number, status)
-       VALUES ($1::uuid, $2::integer, 1, 'active') RETURNING id`,
+       VALUES ($1::uuid, $2::integer, 1, 'candidate') RETURNING id`,
       [tenantId, channelId],
     );
     versionId = versions.rows[0].id;
@@ -128,7 +139,7 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
          (tenant_id, channel_key, display_name, source_system_id, target_system_id,
           direction, connector_kind, protocol, status, auth_kind)
        VALUES ($1::uuid, $2::text, 'Other I05 HL7v2', $3::integer, $3::integer,
-               'bidirectional', 'internal_backend', 'hl7v2', 'active', 'internal')
+               'bidirectional', 'internal_backend', 'hl7v2', 'draft', 'internal')
        RETURNING id`,
       [otherTenantId, `other-channel-${suffix}`, otherSystemId],
     );
@@ -136,7 +147,7 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
     const otherVersions = await client.query(
       `INSERT INTO interop_channel_versions
          (tenant_id, channel_id, version_number, status)
-       VALUES ($1::uuid, $2::integer, 1, 'active') RETURNING id`,
+       VALUES ($1::uuid, $2::integer, 1, 'candidate') RETURNING id`,
       [otherTenantId, otherChannelId],
     );
     otherVersionId = otherVersions.rows[0].id;
@@ -276,8 +287,22 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
   });
 
   test('suppresses late inbound delivery and late outbound send independently', async () => {
+    // Two independent guards refuse a late inbound `delivered`, and migration
+    // 665's is now the one that speaks first: BEFORE-row triggers fire in name
+    // order, so `assert_interop_message_delivery_evidence` runs ahead of 611's
+    // `validate_interop_message_recovery_transition`. It refuses because no
+    // accepted same-message receipt exists — and for a `late_pending_only`
+    // message one cannot exist, since `validate_interop_backend_receipt`
+    // requires the applied owner-release proof before it will accept one. The
+    // late-effect fence is asserted directly on `replayed` below, a status
+    // 665's evidence guard does not cover, so both guards stay pinned.
     await expectFailure(client, () => client.query(
       `UPDATE interop_messages SET status = 'delivered'
+        WHERE tenant_id = $1::uuid AND id = $2::integer`,
+      [tenantId, inboundMessageId],
+    ), { code: '23514', constraint: 'chk_interop_delivery_acceptance_evidence' });
+    await expectFailure(client, () => client.query(
+      `UPDATE interop_messages SET status = 'replayed'
         WHERE tenant_id = $1::uuid AND id = $2::integer`,
       [tenantId, inboundMessageId],
     ), { code: '23514', constraint: 'chk_interop_message_late_effect_suppression' });
@@ -376,7 +401,11 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
                (SELECT payload_hash FROM interop_messages WHERE id = $2::integer),
                1, 'accepted')`,
       [tenantId, liveMessageId, channelId, versionId],
-    ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction' });
+      // Migration 665 dropped 611's `chk_interop_backend_receipts_adapter_direction`
+      // and replaced it with `_v2`, which additionally pins the permitted
+      // receipt_status set per protocol/direction. Same law, wider; the exact
+      // landed name is asserted so a silent third replacement cannot pass.
+    ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction_v2' });
     await expectFailure(client, () => client.query(
       `WITH other_message AS (
          INSERT INTO interop_messages
@@ -397,7 +426,11 @@ describeIfDb('migration 611 I05 HL7v2 recovery', () => {
                repeat('a', 64), 1, 'accepted'
          FROM other_message`,
       [tenantId, channelId, versionId, `other-${suffix}`],
-    ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction' });
+      // Renamed to `_v2` by migration 665 — see the note on the previous
+      // assertion. `backend.interop.other` also remains unregistered: the
+      // 'other' protocol's canonical inbound adapter is
+      // `backend.interop.other-envelope`.
+    ), { code: '23514', constraint: 'chk_interop_backend_receipts_adapter_direction_v2' });
     expect(otherSystemId).toBeGreaterThan(0);
   });
 });

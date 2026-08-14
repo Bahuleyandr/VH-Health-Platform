@@ -3,10 +3,11 @@
 
 import { useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
-import { API_ENDPOINTS } from "@/lib/api-config";
-
-type NotificationType = "info" | "warning" | "critical" | "success";
-type TargetType = "all" | "department" | "role" | "user";
+import {
+  buildNotificationComposerRequest,
+  type ComposerNotificationType as NotificationType,
+  type ComposerTargetType as TargetType,
+} from "./notificationComposerContract";
 
 interface NotificationComposerProps {
   onSuccess?: () => void;
@@ -61,8 +62,12 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
     isError: boolean;
   } | null>(null);
 
-  const canSend =
-    title.trim() && body.trim() && (target === "all" || targetValue.trim());
+  const canSend = Boolean(
+    title.trim() &&
+    body.trim() &&
+    (target === "all" || targetValue.trim()) &&
+    (scheduleMode === "now" || (scheduledDate && scheduledTime)),
+  );
 
   async function handleSend() {
     if (!canSend) return;
@@ -70,38 +75,20 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
     setFeedback(null);
 
     try {
-      const payload: Record<string, unknown> = {
-        title: title.trim(),
-        message: body.trim(),
+      const request = buildNotificationComposerRequest({
+        title,
+        message: body,
         type,
-        priority: type === "critical" ? "high" : "normal",
-      };
+        target,
+        targetValue,
+        scheduledDate: scheduleMode === "later" ? scheduledDate : undefined,
+        scheduledTime: scheduleMode === "later" ? scheduledTime : undefined,
+      });
 
-      if (target === "all") {
-        payload.recipients = ["all"];
-      } else {
-        payload.target = target;
-        payload.targetValue = targetValue.trim();
-      }
-
-      if (scheduleMode === "later" && scheduledDate && scheduledTime) {
-        payload.scheduledAt = new Date(
-          `${scheduledDate}T${scheduledTime}`,
-        ).toISOString();
-      }
-
-      // Use announcement endpoint for "all", targeted for specific
-      if (target === "all") {
-        await fetchAdminAPI(API_ENDPOINTS.notifications.announcement, {
-          method: "POST",
-          body: payload,
-        });
-      } else {
-        await fetchAdminAPI(API_ENDPOINTS.notifications.targeted, {
-          method: "POST",
-          body: payload,
-        });
-      }
+      await fetchAdminAPI(request.endpoint, {
+        method: "POST",
+        body: request.payload,
+      });
 
       setFeedback({
         msg:
@@ -218,7 +205,7 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
                     ? "Department name"
                     : target === "role"
                       ? "Role name"
-                      : "User ID or phone"
+                      : "Numeric user IDs, separated by commas"
                 }
                 className="mt-2 w-full rounded-lg border border-input dark:border-input bg-card dark:bg-card px-3 py-2 text-sm"
               />
@@ -270,13 +257,6 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
 
           {/* Actions */}
           <div className="flex gap-2 pt-2">
-            <button
-              onClick={() => {}}
-              disabled={!canSend}
-              className="px-4 py-2 rounded-lg border border-input dark:border-input text-sm font-medium hover:bg-muted dark:hover:bg-muted disabled:opacity-40"
-            >
-              👁 Preview
-            </button>
             <button
               onClick={handleSend}
               disabled={!canSend || sending}

@@ -3,10 +3,25 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { clearAuthData } from "@/lib/api-client";
+import * as Sentry from "@sentry/nextjs";
+import { toast } from "react-hot-toast";
+import {
+  adminLogout,
+  clearAuthData,
+  IDLE_SIGN_OUT_WARNING_KEY,
+} from "@/lib/api-client";
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-const EVENTS = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"] as const;
+const EVENTS = [
+  "mousedown",
+  "mousemove",
+  "keydown",
+  "scroll",
+  "touchstart",
+] as const;
+
+const SERVER_REVOCATION_WARNING =
+  "Your local session was cleared after inactivity, but server-side session revocation failed. Your previous session may still be active; contact an administrator.";
 
 /**
  * Hook that monitors user activity and auto-logs out after
@@ -20,7 +35,35 @@ export function useIdleTimeout(timeoutMs = IDLE_TIMEOUT_MS) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch("/api/logout", { method: "POST" }).catch(() => {});
+      const result = await adminLogout();
+      if (!result.serverSignOutOk) {
+        try {
+          sessionStorage.setItem(
+            IDLE_SIGN_OUT_WARNING_KEY,
+            SERVER_REVOCATION_WARNING,
+          );
+        } catch {
+          /* storage may be unavailable; the toast remains visible */
+        }
+        Sentry.captureMessage("Idle sign-out backend revocation failed", {
+          level: "error",
+          extra: { serverSignOutError: result.serverSignOutError },
+        });
+        toast.error(SERVER_REVOCATION_WARNING, { duration: 10000 });
+      }
+    } catch (error) {
+      try {
+        sessionStorage.setItem(
+          IDLE_SIGN_OUT_WARNING_KEY,
+          SERVER_REVOCATION_WARNING,
+        );
+      } catch {
+        /* storage may be unavailable; the toast remains visible */
+      }
+      Sentry.captureException(error, {
+        tags: { operation: "idle-sign-out" },
+      });
+      toast.error(SERVER_REVOCATION_WARNING, { duration: 10000 });
     } finally {
       clearAuthData();
       router.push("/login?reason=idle");

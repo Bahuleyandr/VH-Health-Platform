@@ -69,10 +69,19 @@ describe('EMR chart read endpoints', () => {
        VALUES ($1::uuid, '9000060003', 'Chart Read Receptionist', 'RECEPTIONIST', true, 'active', NOW())`,
       RECEPTIONIST_UID);
 
+    // 'longitudinal' is load-bearing, not decorative. A care team with no
+    // admission_id and no appointment_id is only honoured by
+    // accessDecisionService.findCareTeamRelationship when its team_kind is
+    // 'longitudinal' (see src/config/careTeamContextShapes.js). A context-free
+    // 'op' team matches none of the engine's three branches and grants nothing,
+    // which is also what scripts/audit-care-team-enforcement-readiness.mjs
+    // reports as MALFORMED_CONTEXT_FREE_CARE_TEAM. The care coordinator this
+    // fixture models is a longitudinal relationship anyway — it is not scoped
+    // to a single visit.
     const careTeam = await prisma.$queryRawUnsafe(
       `INSERT INTO care_teams
          (tenant_id, patient_uid, team_kind, display_name, status, created_by, updated_at)
-       VALUES ($1::uuid, $2::uuid, 'op', 'Chart read front-office team', 'active', $3::uuid, NOW())
+       VALUES ($1::uuid, $2::uuid, 'longitudinal', 'Chart read front-office team', 'active', $3::uuid, NOW())
        RETURNING id`,
       TENANT_ID,
       PATIENT_UID,

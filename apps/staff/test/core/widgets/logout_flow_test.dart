@@ -4,13 +4,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vhhealth_core/services/realtime_provider.dart';
 import 'package:vhhealth_staff/core/providers/message_unread_provider.dart';
 import 'package:vhhealth_staff/core/providers/notification_provider.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
+import 'package:vhhealth_staff/core/providers/websocket_provider.dart';
 import 'package:vhhealth_staff/core/services/auth_service.dart';
 import 'package:vhhealth_staff/core/widgets/logout_flow.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   test(
     'forced server-expiry flow preserves count and performs one handoff',
     () async {
@@ -18,13 +27,18 @@ void main() {
       var stopCalls = 0;
       var navigationCalls = 0;
       int? reportedCount;
+      final order = <String>[];
 
       await ForcedLogoutFlow.run(
         forcedLogout: () async {
           cleanupCalls += 1;
+          order.add('credential cleanup');
           return 4;
         },
-        stopSessionTracking: () => stopCalls += 1,
+        stopSessionTracking: () {
+          stopCalls += 1;
+          order.add('UI teardown');
+        },
         navigateToLogin: () => navigationCalls += 1,
         reportPreservedItems: (count) => reportedCount = count,
       );
@@ -33,6 +47,7 @@ void main() {
       expect(stopCalls, 1);
       expect(navigationCalls, 1);
       expect(reportedCount, 4);
+      expect(order, <String>['UI teardown', 'credential cleanup']);
     },
   );
 
@@ -59,6 +74,7 @@ void main() {
       reportPreservedItems: (_) => reportCalls += 1,
     );
 
+    await Future<void>.delayed(Duration.zero);
     expect(cleanupCalls, 1);
     release.complete();
     await Future.wait([httpExpiry, realtimeExpiry]);
@@ -156,8 +172,12 @@ void main() {
       timeoutDuration: const Duration(hours: 1),
     )..startTracking();
     final notifications = _TrackingNotificationProvider();
+    final websocket = _TrackingWebSocketProvider();
+    final realtime = _TrackingRealtimeProvider();
     addTearDown(timeout.dispose);
     addTearDown(notifications.dispose);
+    addTearDown(websocket.dispose);
+    addTearDown(realtime.dispose);
     final router = GoRouter(
       routes: [
         GoRoute(
@@ -168,6 +188,7 @@ void main() {
                 context,
                 confirmationTitle: 'Confirm',
                 confirmationBody: 'Confirm body',
+                recentPatientsClear: _noopRecentPatientsClear,
                 logoutOperation: () async =>
                     const StaffLogoutResult.signedOut(),
               ),
@@ -191,6 +212,8 @@ void main() {
           ChangeNotifierProvider<NotificationProvider>.value(
             value: notifications,
           ),
+          ChangeNotifierProvider<WebSocketProvider>.value(value: websocket),
+          ChangeNotifierProvider<RealtimeProvider>.value(value: realtime),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -203,6 +226,8 @@ void main() {
     expect(timeout.isTracking, isFalse);
     expect(notifications.endCalls, 1);
     expect(notifications.lastUnregisterBackend, isFalse);
+    expect(websocket.endCalls, 1);
+    expect(realtime.disconnectCalls, 1);
     expect(find.text('Login destination'), findsOneWidget);
   });
 
@@ -210,6 +235,7 @@ void main() {
     'successful logout clears captured providers after host disposal',
     (tester) async {
       final releaseLogout = Completer<void>();
+      Future<bool>? logout;
       final timeout = SessionTimeoutProvider(
         timeoutDuration: const Duration(hours: 1),
       )..startTracking();
@@ -231,17 +257,18 @@ void main() {
             home: Scaffold(
               body: Builder(
                 builder: (context) => ElevatedButton(
-                  onPressed: () => unawaited(
-                    LogoutFlow.start(
+                  onPressed: () {
+                    logout = LogoutFlow.start(
                       context,
                       confirmationTitle: 'Confirm',
                       confirmationBody: 'Confirm body',
+                      recentPatientsClear: _noopRecentPatientsClear,
                       logoutOperation: () async {
                         await releaseLogout.future;
                         return const StaffLogoutResult.signedOut();
                       },
-                    ),
-                  ),
+                    );
+                  },
                   child: const Text('Start logout'),
                 ),
               ),
@@ -256,6 +283,7 @@ void main() {
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       releaseLogout.complete();
+      await logout;
       await tester.pump();
 
       expect(timeout.isTracking, isFalse);
@@ -267,8 +295,12 @@ void main() {
     'idle teardown unregisters notifications while auth is available',
     (tester) async {
       final notifications = _TrackingNotificationProvider();
+      final websocket = _TrackingWebSocketProvider();
+      final realtime = _TrackingRealtimeProvider();
       late BuildContext hostContext;
       addTearDown(notifications.dispose);
+      addTearDown(websocket.dispose);
+      addTearDown(realtime.dispose);
 
       await tester.pumpWidget(
         MultiProvider(
@@ -276,6 +308,8 @@ void main() {
             ChangeNotifierProvider<NotificationProvider>.value(
               value: notifications,
             ),
+            ChangeNotifierProvider<WebSocketProvider>.value(value: websocket),
+            ChangeNotifierProvider<RealtimeProvider>.value(value: realtime),
           ],
           child: MaterialApp(
             home: Builder(
@@ -291,10 +325,13 @@ void main() {
       await stopStaffRealtimePollers(
         hostContext,
         unregisterNotificationBackend: true,
+        recentPatientsClear: _noopRecentPatientsClear,
       );
 
       expect(notifications.endCalls, 1);
       expect(notifications.lastUnregisterBackend, isTrue);
+      expect(websocket.endCalls, 1);
+      expect(realtime.disconnectCalls, 1);
     },
   );
 
@@ -311,6 +348,7 @@ void main() {
                   context,
                   confirmationTitle: 'Confirm',
                   confirmationBody: 'Confirm body',
+                  recentPatientsClear: _noopRecentPatientsClear,
                   logoutOperation: () async =>
                       const StaffLogoutResult.signedOut(
                         serverRevocationFailed: true,
@@ -361,6 +399,24 @@ class _TrackingNotificationProvider extends NotificationProvider {
   }
 }
 
+class _TrackingWebSocketProvider extends WebSocketProvider {
+  int endCalls = 0;
+
+  @override
+  Future<void> endAuthenticatedSession() async {
+    endCalls += 1;
+  }
+}
+
+class _TrackingRealtimeProvider extends RealtimeProvider {
+  int disconnectCalls = 0;
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCalls += 1;
+  }
+}
+
 Widget _logoutHost({
   required StaffLogoutOperation logoutOperation,
   StaffSyncStatusOpener? syncStatusOpener,
@@ -376,6 +432,7 @@ Widget _logoutHost({
                 context,
                 confirmationTitle: 'Confirm',
                 confirmationBody: 'Confirm body',
+                recentPatientsClear: _noopRecentPatientsClear,
                 logoutOperation: logoutOperation,
                 syncStatusOpener: syncStatusOpener,
               ),
@@ -387,3 +444,5 @@ Widget _logoutHost({
     ),
   );
 }
+
+Future<void> _noopRecentPatientsClear() async {}

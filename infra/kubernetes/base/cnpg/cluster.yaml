@@ -1,9 +1,16 @@
 # cnpg/cluster.yaml — VH Health production PostgreSQL cluster
 #
-# PostgreSQL 18.4, 3 instances (1 primary + 2 replicas), synchronous
-# replication with 1 sync standby, required anti-affinity across hosts,
-# continuous WAL archiving to Cloudflare R2 through the Barman Cloud
+# PostgreSQL 17 (the declared, running generation — see docs/DEPLOYMENT_GUIDE.md
+# §6 and docs/PRODUCTION_DB_HARDENING.md), 3 instances (1 primary + 2 replicas),
+# synchronous replication with 1 sync standby, required anti-affinity across
+# hosts, continuous WAL archiving to Cloudflare R2 through the Barman Cloud
 # Plugin, and one daily base backup retained for 30 days.
+#
+# The PostgreSQL 18.4 cutover target is HELD at
+# `infra/kubernetes/held/c1-1-pg18-cutover/` and is composed by nothing. Do not
+# move it back into this file: an imageName bump across a major version is a
+# declarative offline `pg_upgrade` of the live clinical database, and this file
+# is composed into the production overlay.
 #
 # Why synchronous with minSyncReplicas=1: DPDP + HIPAA-analog clinical
 # data mustn't silently lose writes during failover. At 3 instances with
@@ -17,6 +24,17 @@
 # Backup: the Barman Cloud Plugin references ObjectStore
 # `vhhealth-pg18-producer`. Credentials are a producer-only SealedSecret;
 # see `cnpg-backup-producer-credentials.sealed-secret.yaml.example`.
+#
+# ObjectStore NAME vs ARCHIVE IDENTITY — they are not the same thing. The
+# ObjectStore is a Kubernetes object holding only the bucket, endpoint, and
+# credentials; the archive prefix Barman actually writes is
+# `<destinationPath>/<serverName>/`. So the historically-named
+# `vhhealth-pg18-producer` ObjectStore is shared across generations, while
+# `serverName` below is what keeps PostgreSQL 17 and PostgreSQL 18 WAL in
+# disjoint prefixes (docs/CNPG_POSTGRES_18_QUALIFICATION.md, "Credential and
+# archive identities"). Renaming the ObjectStore object would change nothing
+# about archive separation and would break the prod overlay's endpoint
+# replacement; the identity that matters is `serverName`.
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -31,7 +49,30 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   description: "VH Health primary PostgreSQL cluster (3 instances, 1 sync)"
-  imageName: ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8
+  # ── FAIL-CLOSED PostgreSQL 17 pin (audit 2026-08-13, P1) ───────────────────
+  # The declared running generation is PostgreSQL 17. The exact qualified minor
+  # and digest are OPERATOR EVIDENCE this repository does not hold:
+  # docs/CNPG_POSTGRES_18_QUALIFICATION.md §1 requires the operator to capture
+  # the current PG17 image digest off the running cluster, and §4 requires the
+  # Bookworm image family. The tag below names the documented secure floor
+  # (17.10 as of 2026-07-28) which MUST be re-derived at execution time; the
+  # all-zero digest is an intentional FAIL-CLOSED placeholder, exactly as used
+  # for the three platform-owned application images in
+  # infra/kubernetes/apps/kustomization.yaml. Pods cannot pull it, so this
+  # cluster definition can never silently deploy an unqualified image — and,
+  # critically, can never silently perform a major-version conversion.
+  #
+  # OPERATOR: replace with the exact `tag@sha256:` captured per the four steps
+  # in infra/kubernetes/held/c1-1-pg18-cutover/README.md before the first
+  # platform sync. Confirm it matches
+  #   kubectl get cluster vhhealth-pg -n vhhealth-platform \
+  #     -o jsonpath='{.status.pgDataImageInfo.image}'
+  # Do NOT substitute the PostgreSQL 18.4 target to make a sync succeed.
+  # Pinning the real PostgreSQL 17 digest here is a MINOR change and must leave
+  # `spec.plugins[0].parameters.serverName` on its PostgreSQL 17 archive
+  # identity (see the plugins block below). Image generation and archive
+  # identity only ever move together, and only through the held cutover patch.
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@sha256:0000000000000000000000000000000000000000000000000000000000000000
   instances: 3
   minSyncReplicas: 1
   maxSyncReplicas: 1
@@ -66,21 +107,27 @@ spec:
   # bootstrap.initdb.postInitApplicationSQL below, which CNPG runs as the
   # SUPERUSER against the application DB at initdb — so it lands BEFORE the
   # PreSync migration Job and that Job's `db:ensure-pgvector` becomes a safe
-  # idempotent no-op. The ONLY residual to confirm is image-level: the
-  # exact PostgreSQL 18.4 image above must actually SHIP the pgvector
+  # idempotent no-op. The ONLY residual to confirm is image-level: whichever
+  # exact PostgreSQL 17 Bookworm image the operator pins above must actually
+  # SHIP the pgvector
   # shared library (the .so), or `CREATE EXTENSION vector` fails for everyone —
   # even the superuser — with "could not open extension control file". Verify on
   # first bring-up: `kubectl cnpg psql vhhealth-pg -- -c "SELECT 1 FROM
   # pg_available_extensions WHERE name='vector'"` must return a row (this is what
   # ensure-pgvector-extension.mjs probes too). If it does NOT, switch only to a
-  # signed, digest-pinned pgvector-bearing PostgreSQL 18 Bookworm image and
-  # repeat the full qualification. Never retarget the PostgreSQL 17 source.
+  # signed, digest-pinned pgvector-bearing PostgreSQL 17 Bookworm image and
+  # repeat the qualification. Do not resolve a pgvector gap by moving to the
+  # PostgreSQL 18 target.
   #
-  # MAJOR UPGRADE (17 -> 18, owner decision 2026-07-12): on an EXISTING cluster
-  # this imageName bump triggers CNPG's declarative offline major upgrade
-  # (pg_upgrade; requires operator >= 1.26, a completed backup, and a downtime
-  # window). On first bring-up it simply bootstraps 18. Do NOT sync this to a
-  # running 17 cluster without the runbook step.
+  # MAJOR UPGRADE (17 -> 18): HELD, and deliberately NOT expressed here. On an
+  # existing cluster an imageName bump across a major version triggers CNPG's
+  # declarative offline major upgrade (pg_upgrade; requires operator >= 1.26, a
+  # completed backup, and a downtime window) — irreversible in place. Because
+  # this file is composed into the production overlay, carrying the PostgreSQL
+  # 18.4 pin here meant one ordinary platform sync could convert the live
+  # database (audit 2026-08-13, P1). The target, its preconditions, and the
+  # exact atomic patch now live at
+  # `infra/kubernetes/held/c1-1-pg18-cutover/`, composed by nothing.
   #
   # OPERATOR: with enableSuperuserAccess:false the operator no longer manages a
   # `postgres` superuser password; the vhhealth-pg-superuser Secret becomes
@@ -320,14 +367,51 @@ spec:
         key: queries.yaml
 
   # CNPG 1.30 delegates WAL archiving and base backups to the separately
-  # installed Barman Cloud Plugin. `serverName` is the immutable PG18 archive
-  # identity; PG17 evidence must remain under its previous identity.
+  # installed Barman Cloud Plugin.
+  #
+  # ── IMAGE AND ARCHIVE IDENTITY MOVE TOGETHER ───────────────────────────────
+  # `serverName` is the WAL archive identity and MUST match the generation of
+  # `spec.imageName` above. docs/CNPG_POSTGRES_18_QUALIFICATION.md ("Credential
+  # and archive identities"): PostgreSQL 18 archives use `vhhealth-pg18`,
+  # distinct from the historical PostgreSQL 17 identity `vhhealth-pg`, and
+  # PostgreSQL 18 WAL must never be appended to the PostgreSQL 17 identity.
+  #
+  # Until this change the active Cluster declared PostgreSQL 17 above and
+  # `vhhealth-pg18` here, documented as a residual for the operator. That was
+  # fail-OPEN in two ways, both closed now:
+  #   1. The OPERATOR note on imageName tells the operator to pin the real PG17
+  #      digest. Doing exactly that, and nothing else, would have started
+  #      archiving PostgreSQL 17 WAL into the PostgreSQL 18 identity — the
+  #      contamination the qualification document forbids.
+  #   2. The held cutover patch (infra/kubernetes/held/c1-1-pg18-cutover/) is a
+  #      `test`-then-`replace` on this field. With the live value already
+  #      `vhhealth-pg18` the test would pass vacuously and the replace would be
+  #      a no-op, so PostgreSQL 18 WAL would land in an archive that already
+  #      held PostgreSQL 17 WAL, with the guard reporting success.
+  # scripts/check-c1-1-manifest-contract.mjs now enforces the pairing in both
+  # directions: neither imageName nor serverName may change generation without
+  # the other, in every rendered overlay.
+  #
+  # OPERATOR: this is the PG17-generation identity. Confirm it against the
+  # running cluster BEFORE pinning the real digest above —
+  #   kubectl get cluster vhhealth-pg -n vhhealth-platform \
+  #     -o jsonpath='{.spec.plugins[0].parameters.serverName}'
+  # — and if the live value differs, reconcile in a reviewed change together
+  # with BARMAN_SERVER_NAME in r2-backup-hardening.yaml (the daily verifier
+  # reads the prefix this cluster writes). Do not point it at `vhhealth-pg18`
+  # while imageName is a PostgreSQL 17 image. The cutover flips image and
+  # identity together in one atomic patch — see
+  # infra/kubernetes/held/c1-1-pg18-cutover/.
+  #
+  # Non-production overlays MUST NOT share this identity: overlays/staging and
+  # overlays/dev patch it to `vhhealth-pg-staging` / `vhhealth-pg-dev` so a
+  # non-production cluster can never append WAL to the production archive.
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
       parameters:
         barmanObjectName: vhhealth-pg18-producer
-        serverName: vhhealth-pg18
+        serverName: vhhealth-pg
 
   # Replica bootstrap: not used. Set to null so the operator knows to
   # promote in-place from existing cluster members during upgrades.

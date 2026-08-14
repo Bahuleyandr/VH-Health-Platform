@@ -51,6 +51,14 @@ melos:
       description: "Fail when the generated staff vital bounds drift from backend source."
       run: node scripts/generate-vital-bounds.mjs --check
 
+    staff-role-contract:
+      description: "Regenerate Staff role and route gates from the canonical backend policy."
+      run: node scripts/generate-staff-role-contract.mjs
+
+    staff-role-contract-check:
+      description: "Fail when Staff role or route gates drift from backend policy."
+      run: node scripts/generate-staff-role-contract.mjs --check
+
     clean:
       description: "flutter clean every package"
       run: melos exec -- "flutter clean"

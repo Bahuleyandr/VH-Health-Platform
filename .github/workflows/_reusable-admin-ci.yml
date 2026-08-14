@@ -45,10 +45,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: '26.5.0'
+          node-version: "26.5.0"
           cache: npm
           cache-dependency-path: apps/admin/package-lock.json
 
@@ -69,6 +71,17 @@ jobs:
 
       - run: npm run lint
 
+      - name: PR merge-base formatting ratchet
+        env:
+          ADMIN_FORMAT_BASE_REF: ${{ github.event.pull_request.base.sha || format('origin/{0}', github.event.repository.default_branch) }}
+        run: npm run format:check
+
+      - name: Verify retired PWA output stays absent
+        run: npm run check:pwa-retirement
+
+      - name: Advisory dead-code report
+        run: npm run check:dead-code
+
       - name: OpenAPI types codegen smoke (spec stays generatable)
         run: npm run generate:types
 
@@ -77,9 +90,13 @@ jobs:
 
       - run: npm run type-check
 
-      - run: npm test
+      - name: Protected-surface Jest coverage
+        run: npm run test:coverage
 
-      - run: npx next build
+      - name: Admin CI contract fixtures
+        run: npm run test:ci-contracts
+
+      - run: npm run build
 
       - run: npm run check:clinical-ai-bundle
 

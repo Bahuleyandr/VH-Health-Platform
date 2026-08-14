@@ -161,6 +161,7 @@ describe('audit retention migration and scheduler wiring', () => {
       'utf8',
     );
     expect(scheduler).toContain("runForEachTenant('audit-retention'");
+    expect(scheduler).toContain("{ lockKey: 'purge-audit-logs' }");
     expect(scheduler).toContain('purgeAuditEvidenceForTenant({ tenantId })');
     expect(scheduler).not.toMatch(/DELETE FROM audit_log[^;]*INTERVAL '90 days'/s);
   });

@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../../../core/config/api_config.dart';
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show BiometricAuthResult, BiometricAuthService;
+import '../../../core/navigation/app_router.dart';
 import '../../../core/providers/locale_provider.dart';
+import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/utils/font_scale.dart';
 import '../../../core/services/auth_service.dart';
@@ -14,6 +17,102 @@ import '../../../core/widgets/logout_flow.dart';
 import '../../../core/widgets/online_only_action_state.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+
+typedef SettingsRegisteredDeviceRemover =
+    Future<Map<String, dynamic>> Function(String deviceId);
+typedef SettingsDeviceRemovalRevocation =
+    Future<bool> Function(String deviceId);
+
+/// Completes a Settings-triggered forced sign-out through the same ordered,
+/// deduplicated teardown used by server revocation. Session-scoped providers
+/// are stopped while authentication is still available, before local identity
+/// is cleared and before the router exposes the login screen.
+@visibleForTesting
+Future<void> forceSettingsReauthentication({
+  required StaffSessionStopper endAuthenticatedSession,
+  SessionTimeoutProvider? timeout,
+  ForcedSessionCleanup? forcedLogout,
+  VoidCallback? navigateToLogin,
+}) async {
+  timeout?.lockSession();
+  try {
+    await ForcedLogoutFlow.run(
+      forcedLogout: forcedLogout,
+      stopSessionTracking: () async {
+        timeout?.stopTracking();
+        await endAuthenticatedSession();
+      },
+      navigateToLogin: () {
+        (navigateToLogin ?? () => appRouter.go('/login')).call();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          timeout?.unlockSession();
+        });
+      },
+      reportPreservedItems: (_) {},
+    );
+  } catch (_) {
+    timeout?.unlockSession();
+    rethrow;
+  }
+}
+
+@visibleForTesting
+Future<bool> applySettingsPinReauthentication(
+  Map<String, dynamic> result, {
+  required StaffSessionStopper endAuthenticatedSession,
+  SessionTimeoutProvider? timeout,
+  ForcedSessionCleanup? forcedLogout,
+  VoidCallback? navigateToLogin,
+}) async {
+  if (result['reauthenticationRequired'] != true) return false;
+  await forceSettingsReauthentication(
+    endAuthenticatedSession: endAuthenticatedSession,
+    timeout: timeout,
+    forcedLogout: forcedLogout,
+    navigateToLogin: navigateToLogin,
+  );
+  return true;
+}
+
+/// Removes a trusted device on the backend, then applies the resulting
+/// all-session revocation locally through the authenticated teardown above.
+@visibleForTesting
+Future<void> removeSettingsRegisteredDevice(
+  BuildContext context,
+  String deviceId, {
+  SettingsRegisteredDeviceRemover? removeDevice,
+  SettingsDeviceRemovalRevocation? applyRemovalRevocation,
+  StaffSessionStopper? endAuthenticatedSession,
+  VoidCallback? navigateToLogin,
+}) async {
+  final timeout = _readSettingsSessionTimeout(context);
+  final capturedSessionStopper =
+      endAuthenticatedSession ??
+      captureStaffRealtimePollerStopper(
+        context,
+        unregisterNotificationBackend: true,
+        requireVerifiedNotificationTeardown: true,
+      );
+  await (removeDevice ?? HrApiService.removeRegisteredDevice)(deviceId);
+  await forceSettingsReauthentication(
+    endAuthenticatedSession: capturedSessionStopper,
+    timeout: timeout,
+    forcedLogout: () async {
+      await (applyRemovalRevocation ??
+          AuthService.applyDeviceRemovalRevocation)(deviceId);
+      return 0;
+    },
+    navigateToLogin: navigateToLogin,
+  );
+}
+
+SessionTimeoutProvider? _readSettingsSessionTimeout(BuildContext context) {
+  try {
+    return context.read<SessionTimeoutProvider>();
+  } catch (_) {
+    return null;
+  }
+}
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -66,9 +165,23 @@ class SettingsScreen extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
+      final timeout = _readSettingsSessionTimeout(context);
+      final endAuthenticatedSession = captureStaffRealtimePollerStopper(
+        context,
+        unregisterNotificationBackend: true,
+        requireVerifiedNotificationTeardown: true,
+      );
       try {
-        final employeeId = await ApiConfig.getEmployeeId() ?? '';
-        await HrApiService.setupPin(employeeId: employeeId, pin: pinCtrl.text);
+        final deviceToken = await AuthService.getDeviceToken();
+        if (deviceToken == null || deviceToken.isEmpty) {
+          throw StateError(
+            'This device is not registered. Sign in with your password first.',
+          );
+        }
+        final result = await HrApiService.setupPin(
+          pin: pinCtrl.text,
+          deviceToken: deviceToken,
+        );
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -77,6 +190,11 @@ class SettingsScreen extends StatelessWidget {
             ),
           );
         }
+        await applySettingsPinReauthentication(
+          result,
+          endAuthenticatedSession: endAuthenticatedSession,
+          timeout: timeout,
+        );
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -609,15 +727,57 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
   bool _enabled = false;
   bool _loading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final installationId = await AuthService.getInstallationId();
+      final data = await HrApiService.getRegisteredDevices();
+      final devices = data['devices'] as List? ?? const [];
+      final current = devices.whereType<Map>().where(
+        (device) => device['id']?.toString() == installationId,
+      );
+      if (mounted && current.isNotEmpty) {
+        setState(() => _enabled = current.first['biometricEnabled'] == true);
+      }
+    } catch (_) {
+      // The toggle remains off when the server cannot prove enrollment.
+    }
+  }
+
   Future<void> _toggle(bool value) async {
     if (!OnlineOnlyActionGuard.require(context)) return;
+    final biometricReason = AppStrings.of(context).settingsBiometricSubtitle;
     setState(() => _loading = true);
     try {
+      if (value) {
+        final available = await BiometricAuthService.instance.isAvailable();
+        if (!available) {
+          throw StateError('Biometric authentication is not available.');
+        }
+        final result = await BiometricAuthService.instance.authenticate(
+          reason: biometricReason,
+        );
+        if (result != BiometricAuthResult.success) {
+          if (result == BiometricAuthResult.cancelled) return;
+          throw StateError('Biometric authentication is not available.');
+        }
+      }
       final deviceToken = await AuthService.getDeviceToken() ?? '';
+      if (deviceToken.isEmpty) {
+        throw StateError(
+          'This device is not registered. Sign in with your password first.',
+        );
+      }
       await HrApiService.toggleBiometric(
         enabled: value,
         deviceToken: deviceToken,
       );
+      if (!mounted) return;
       setState(() => _enabled = value);
       if (mounted) {
         final s = AppStrings.of(context);
@@ -716,17 +876,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
   Future<void> _removeDevice(String deviceId) async {
     if (!OnlineOnlyActionGuard.require(context)) return;
     try {
-      await HrApiService.removeRegisteredDevice(deviceId);
-      if (mounted) {
-        final s = AppStrings.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(s.settingsDeviceRemoved),
-            backgroundColor: AppTheme.successGreen,
-          ),
-        );
-        unawaited(_load());
-      }
+      await removeSettingsRegisteredDevice(context, deviceId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

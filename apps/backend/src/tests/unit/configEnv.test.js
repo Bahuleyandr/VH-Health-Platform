@@ -15,6 +15,19 @@ function validate(extraEnv = {}) {
   return envSchema.validate({ ...BASE_ENV, ...extraEnv }, { abortEarly: false });
 }
 
+describe('validateEnv CARE_TEAM_ENFORCEMENT_MODE', () => {
+  it.each(['off', 'shadow', 'enforce'])('accepts the governed mode %s', (mode) => {
+    expect(validate({ CARE_TEAM_ENFORCEMENT_MODE: mode }).error).toBeUndefined();
+  });
+
+  it('rejects an invalid or empty explicit mode', () => {
+    expect(validate({ CARE_TEAM_ENFORCEMENT_MODE: 'observe' }).error?.details[0].message)
+      .toContain('CARE_TEAM_ENFORCEMENT_MODE');
+    expect(validate({ CARE_TEAM_ENFORCEMENT_MODE: '' }).error?.details[0].message)
+      .toContain('CARE_TEAM_ENFORCEMENT_MODE');
+  });
+});
+
 describe('validateEnv MIN_PATIENT_VERSION_CODE', () => {
   it('defaults the patient hard-upgrade gate to disabled', () => {
     const { error, value } = validate();
@@ -23,11 +36,32 @@ describe('validateEnv MIN_PATIENT_VERSION_CODE', () => {
     expect(value.MIN_PATIENT_VERSION_CODE).toBe(0);
   });
 
-  it('accepts a non-negative integer build code', () => {
-    const { error, value } = validate({ MIN_PATIENT_VERSION_CODE: '7' });
+  // CHANGED with the patient version-gate CRIT fix. This previously asserted
+  // that a bare `MIN_PATIENT_VERSION_CODE: '7'` validated on its own. It does
+  // not any more, and the test — not the guard — is what had to change:
+  // patient builds in the field fail closed on a minimum they cannot verify,
+  // so a non-zero code with no signed envelope is a configuration that NO
+  // deployed client can honour. It burns the 24h bootstrap grace and then
+  // blocks every install, including installs already above the code and
+  // including the SOS path. The intent of this case (a valid non-negative
+  // build code is accepted) is preserved by supplying the envelope the gate
+  // now requires alongside it.
+  it('accepts a non-negative integer build code with its signed policy', () => {
+    const { error, value } = validate({
+      MIN_PATIENT_VERSION_CODE: '7',
+      PATIENT_MINIMUM_VERSION_POLICY_JSON: '{"format":"signed"}'
+    });
 
     expect(error).toBeUndefined();
     expect(value.MIN_PATIENT_VERSION_CODE).toBe(7);
+  });
+
+  it('refuses a non-zero build code with no signed policy envelope', () => {
+    const { error } = validate({ MIN_PATIENT_VERSION_CODE: '7' });
+
+    expect(error?.details[0].message).toContain(
+      'PATIENT_MINIMUM_VERSION_POLICY_JSON'
+    );
   });
 
   it('rejects negative or fractional build codes', () => {
@@ -50,6 +84,25 @@ describe('validateEnv PATIENT_OUTAGE_COMMUNICATION_JSON', () => {
     const result = validate({ PATIENT_OUTAGE_COMMUNICATION_JSON: 'x'.repeat(16 * 1024 + 1) });
 
     expect(result.error?.details[0].message).toContain('PATIENT_OUTAGE_COMMUNICATION_JSON');
+  });
+});
+
+describe('validateEnv PATIENT_MINIMUM_VERSION_POLICY_JSON', () => {
+  it('is optional and accepts a bounded pre-signed JSON string', () => {
+    expect(validate().error).toBeUndefined();
+    expect(
+      validate({ PATIENT_MINIMUM_VERSION_POLICY_JSON: '{"format":"signed"}' }).error
+    ).toBeUndefined();
+  });
+
+  it('rejects an oversized operator value before route parsing', () => {
+    const result = validate({
+      PATIENT_MINIMUM_VERSION_POLICY_JSON: 'x'.repeat(16 * 1024 + 1)
+    });
+
+    expect(result.error?.details[0].message).toContain(
+      'PATIENT_MINIMUM_VERSION_POLICY_JSON'
+    );
   });
 });
 

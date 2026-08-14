@@ -6,11 +6,12 @@ const CONTRACT_PATH =
 const UNAVAILABLE_CODE = "CONTINUITY_FACILITY_ENROLLMENT_UNAVAILABLE";
 
 async function openAsSuperAdminOrSkip(page: Page): Promise<Response> {
-  let contractResponse: Response | null = null;
+  const observedResponse: { value?: Response } = {};
   const mutationRequests: string[] = [];
 
   page.on("response", (response) => {
-    if (response.url().includes(CONTRACT_PATH)) contractResponse = response;
+    if (response.url().includes(CONTRACT_PATH))
+      observedResponse.value = response;
   });
   page.on("request", (request) => {
     if (
@@ -41,11 +42,15 @@ async function openAsSuperAdminOrSkip(page: Page): Promise<Response> {
   await expect(notActivated).toBeVisible();
   await expect(page.getByText(UNAVAILABLE_CODE, { exact: true })).toBeVisible();
   expect(mutationRequests).toEqual([]);
+  const contractResponse = observedResponse.value;
   expect(
     contractResponse,
     "real facility-context GET response was not observed",
-  ).not.toBeNull();
-  return contractResponse as Response;
+  ).toBeDefined();
+  if (!contractResponse) {
+    throw new Error("real facility-context GET response was not observed");
+  }
+  return contractResponse;
 }
 
 test("SUPER_ADMIN sees the real typed-absence response and no action controls", async ({

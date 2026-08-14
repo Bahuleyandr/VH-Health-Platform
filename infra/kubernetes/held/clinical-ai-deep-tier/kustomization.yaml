@@ -1,0 +1,91 @@
+# HELD: this target is intentionally absent from the app barrel
+# (`infra/kubernetes/apps/kustomization.yaml`) and every environment overlay.
+# Nothing in the active production graph references this directory, so a
+# repository merge and an ArgoCD sync of the four active Applications deploy
+# none of it. An operator must render, review, and apply it explicitly, and
+# only after the GPU prerequisite below is satisfied.
+#
+# Why it is held (audit 2026-08-13, P1): the deep tier is Phase 4 of the
+# clinical-AI rollout and is blocked on GPU hardware that the cluster does not
+# have. While it was composed into the app barrel, every sync produced a
+# permanently `Pending` StatefulSet (no node carries
+# `nvidia.com/gpu.present=true`) and a preflight Job that failed its
+# backoffLimit, leaving the `apps` Application Degraded. That is neither a
+# clean hold nor a safe deployment.
+#
+# ACTIVATION (explicit, fail-closed — see README.md in this directory):
+#   1. Provision + label the GPU node and install nvidia-device-plugin.
+#   2. `kustomize build infra/kubernetes/held/clinical-ai-deep-tier` and review.
+#   3. Apply, pull a model, and let the PreSync preflight hook gate the rest:
+#      it now blocks the sync instead of reporting failure after the fact.
+#   4. Only then set the backend deep-tier bindings (see below).
+# Do not re-add this directory to an active barrel to "make the tier appear".
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-clinical-ai-deep-tier-held
+
+# VH Health — Ollama (in-cluster LLM for the deep tier).
+# Phase 4 of the clinical-AI rollout (docs/archive/CLINICAL_AI_ROLLOUT_PLAN.md).
+#
+# Why this exists:
+#   Modules marked `model_tier: 'deep'` (discharge_summary,
+#   medication_reconciliation, abnormal_result_triage,
+#   obstetric_risk_assistant) want a stronger model than the
+#   8B-class quick tier. Routing them to an in-cluster Ollama
+#   means PHI never leaves the hospital network. The backend's
+#   localLlmClient.js already supports tier-prefixed env vars —
+#   set CLINICAL_AI_DEEP_PROVIDER=ollama,
+#   CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434,
+#   CLINICAL_AI_DEEP_MODEL=<model-name> and the service picks it up.
+#
+# Sizing assumptions:
+#   - One pod, GPU-pinned via nodeSelector. The cluster needs at
+#     least one node with a usable GPU (typically NVIDIA, with the
+#     nvidia-device-plugin DaemonSet installed). Hospital procurement
+#     spec lives in docs/HARDWARE_REQUIREMENTS.md.
+#   - 24-48 GB GPU memory: Llama-3-70B-Instruct at Q4_K_M fits in
+#     ~38 GB; Qwen2.5-14B-Instruct fits in ~10 GB at Q4. Both have
+#     been validated by the project for clinical work. Pick based on
+#     hospital GPU budget.
+#   - Cold start: pulling a 70B model takes 5-15 minutes on first
+#     run. The PVC retains the model across pod restarts.
+#
+# Not in scope of this manifest set:
+#   - Multi-node / multi-GPU sharding.
+#   - Auto-scaling on inference load (Ollama is stateful per pod;
+#     scaling out requires either a model-aware load balancer or
+#     per-pod model preload, both of which are bigger projects).
+
+namespace: vhhealth
+
+# Every object rendered from this directory is stamped held, so a stray
+# `kubectl apply` of a rendered file is visibly an activation, not a routine
+# platform sync. Matches base/sso-keycloak/keycloak-app.held.yaml.
+commonAnnotations:
+  vhhealth.app/deploy-state: "held"
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: vhhealth
+      app.kubernetes.io/component: deep-tier-llm
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - statefulset.yaml
+  - service.yaml
+  - network-policy.yaml
+  # WS5 B5.4: deep-tier readiness preflight. Verifies the Ollama endpoint is
+  # reachable and at least one model is loaded before the clinical-AI deep
+  # tier is enabled. It is an ArgoCD PreSync hook (audit 2026-08-13, P1): a
+  # failing preflight now blocks the activation sync instead of reporting the
+  # failure after the workload has already been applied.
+  - deep-tier-preflight-job.yaml
+  # Audit 2026-06-22: PDB so the single-replica deep-AI SPOF isn't silently
+  # evicted on node drain / autoscale / reboot (see pdb.yaml rationale).
+  - pdb.yaml
+  # Note: PVC lives on the StatefulSet's volumeClaimTemplates. An empty
+  # pvc.yaml exists in this dir for overlays that want to patch storage
+  # class / size separately, but it's NOT included in resources because
+  # kustomize errors on empty docs.

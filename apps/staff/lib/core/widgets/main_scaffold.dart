@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import '../config/api_config.dart';
 import '../config/role_config.dart';
+import '../navigation/staff_route_policy.dart';
 import '../platform_info.dart';
 import '../providers/clinical_inbox_provider.dart';
 import '../providers/message_unread_provider.dart';
@@ -45,6 +46,7 @@ class MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<MainScaffold> {
   StaffRole _role = StaffRole.general;
+  String _rawRole = StaffRole.general.value;
   Set<String>? _policyFeatureIds;
 
   @override
@@ -57,17 +59,23 @@ class _MainScaffoldState extends State<MainScaffold> {
     final roleStr = await ApiConfig.getRole();
     final role = StaffRole.fromString(roleStr);
     if (!mounted) return;
-    setState(() => _role = role);
-    unawaited(_loadRolePolicyFeatures(role));
+    setState(() {
+      _rawRole = roleStr;
+      _role = role;
+    });
+    unawaited(_loadRolePolicyFeatures(roleStr, role));
     unawaited(context.read<RealtimeProvider>().ensureConnected());
     unawaited(context.read<MessageUnreadProvider>().refresh());
     unawaited(context.read<NotificationProvider>().fetchNotifications());
   }
 
-  Future<void> _loadRolePolicyFeatures(StaffRole role) async {
+  Future<void> _loadRolePolicyFeatures(String rawRole, StaffRole role) async {
     try {
       final policy = await ClinicalPlatformApiService.getRolePolicySnapshot();
+      final normalized = rawRole.trim().toUpperCase();
       final featureIds =
+          policy.featuresByRole[normalized] ??
+          policy.featuresByRole[rawRole] ??
           policy.featuresByRole[role.value] ??
           policy.featuresByRole[role.value.toUpperCase()] ??
           const <String>[];
@@ -122,6 +130,9 @@ class _MainScaffoldState extends State<MainScaffold> {
     if (currentRoute != targetRoute) context.go(targetRoute);
   }
 
+  bool _canNavigateTo(String route) =>
+      StaffRoutePolicy.authorize(Uri.parse(route), rawRole: _rawRole).allowed;
+
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
@@ -134,7 +145,7 @@ class _MainScaffoldState extends State<MainScaffold> {
       final navItems = RoleFeatures.getWorkbenchNavForRole(
         _role,
         policyFeatureIds: _policyFeatureIds,
-      );
+      ).where((item) => _canNavigateTo(item.route)).toList(growable: false);
       final s = AppStrings.of(context);
       final selectedIndex = _currentRailIndex(navItems);
       return Scaffold(
@@ -177,9 +188,12 @@ class _MainScaffoldState extends State<MainScaffold> {
       );
     }
 
-    final navItems = mode == AppDeviceMode.mobile
+    final candidateNavItems = mode == AppDeviceMode.mobile
         ? RoleFeatures.getPhoneSelfServiceNavForRole(_role)
         : RoleFeatures.getBottomNavForRole(_role);
+    final navItems = candidateNavItems
+        .where((item) => _canNavigateTo(item.route))
+        .toList(growable: false);
 
     return Scaffold(
       body: widget.child,

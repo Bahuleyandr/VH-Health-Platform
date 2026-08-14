@@ -2,8 +2,11 @@
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
 import prisma, { circuitBreakerStatus, tenantRlsRolePosture } from '../../lib/prisma.js';
+import { assertRedisWritable, getRedisClient, redisIsRequired } from '../../lib/redis.js';
 import logger from '../../logging/logger.js';
 import { requireProductionMonitoringAccess } from '../../middleware/infrastructureAccessMiddleware.js';
+import { readMigrationState } from '../../utils/migrations/runMigrations.js';
+import { isWsFanoutReady } from '../../utils/websocket/wsServer.js';
 
 const router = express.Router();
 
@@ -71,31 +74,52 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
 
   try {
     const start = Date.now();
-    const [migrationState] = await prisma.$queryRaw`
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-          AND table_name = 'appointment_status_history'
-      ) AS exists
-    `;
+    const migrationState = await readMigrationState();
 
     checks.database = { status: 'ok', latency_ms: Date.now() - start };
-    checks.migration_106 = migrationState?.exists
-      ? { status: 'ok', table: 'appointment_status_history' }
-      : { status: 'error', table: 'appointment_status_history', message: 'Migration 106 table missing' };
+    checks.migrations = migrationState.requiredCurrent
+      ? {
+        status: 'ok',
+        expected_tip: migrationState.expectedTip,
+        database_tip: migrationState.executedTip,
+        database_ahead: migrationState.unexpected.length > 0,
+      }
+      : {
+        status: 'error',
+        expected_tip: migrationState.expectedTip,
+        database_tip: migrationState.executedTip,
+        pending_count: migrationState.pending.length,
+        message: 'Required migrations are pending',
+      };
   } catch (err) {
     checks.database = { status: 'error', message: 'Database check failed' };
-    checks.migration_106 = { status: 'unknown', table: 'appointment_status_history' };
+    checks.migrations = { status: 'unknown', message: 'Migration tracker check failed' };
     logger.warn('Readiness probe failed:', err.message);
+  }
+
+  if (redisIsRequired()) {
+    try {
+      const start = Date.now();
+      await assertRedisWritable();
+      checks.redis = { status: 'ok', latency_ms: Date.now() - start };
+      checks.redis_websocket_subscriber = isWsFanoutReady()
+        ? { status: 'ok' }
+        : { status: 'error', message: 'Required Redis WebSocket subscriber is unavailable' };
+    } catch (err) {
+      checks.redis = { status: 'error', message: 'Required Redis check failed' };
+      logger.warn('Readiness Redis probe failed:', err.message);
+    }
   }
 
   // NB: tenant-RLS *security posture* is deliberately NOT part of the readiness
   // gate (audit C-7). It used to be — an `ok:false` posture (e.g. an unforced
   // table after a migration, or a bypassing role) made `ready` false on EVERY
   // replica simultaneously → a full API outage triggered by a security WARNING,
-  // not by the service being unable to serve traffic. Readiness now gates only
-  // on DB reachability + the migration-106 schema check. RLS posture is still
+  // not by the service being unable to serve traffic. Readiness now gates on
+  // DB reachability + the image's required migration set, plus Redis only when
+  // the deployment explicitly opts into strict Sentinel mode. A database ahead
+  // of an old pod remains ready during a rolling deploy, while a new pod with
+  // pending requirements is rejected. RLS posture is still
   // surfaced loudly elsewhere: a boot-time ERROR (logTenantRlsRolePosture in
   // bin/www.js) and a live signal on GET /health/metrics (`tenant_rls`), which
   // is where alerting should hang — not on the traffic-admission probe.
@@ -147,11 +171,12 @@ router.get('/deep', requireProductionMonitoringAccess, async (_req, res) => {
     checks.database_target = { status: 'error', message: 'DATABASE_URL parse failed' };
   }
 
-  // Redis — check if ioredis client is available
+  // Redis — check the actual singleton rather than an unwired global.
   try {
-    if (global.__redisClient && typeof global.__redisClient.ping === 'function') {
+    const client = getRedisClient();
+    if (client && typeof client.ping === 'function') {
       const start = Date.now();
-      await global.__redisClient.ping();
+      await client.ping();
       checks.redis = { status: 'ok', latency_ms: Date.now() - start };
     } else {
       checks.redis = { status: 'not_configured' };

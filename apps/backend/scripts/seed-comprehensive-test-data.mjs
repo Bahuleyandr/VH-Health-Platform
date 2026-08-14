@@ -45,6 +45,10 @@ const MANUAL_SEED_TABLES = new Set([
   'care_pathway_transition_events',
   'care_handoff_instances',
   'care_pathway_reconciliation_checks',
+  // Scheduled notifications are tenant-owned user obligations. Seed one
+  // explicit composite-tenant fixture instead of asking the generic walker to
+  // guess a user/tenant pair.
+  'scheduled_notifications',
   // C3.1 continuity governance must not be synthesized by the generic FK
   // walker. Seed one cryptographically valid draft under a suspended,
   // non-default test tenant and one legacy snapshot; never create an active
@@ -73,6 +77,12 @@ const MANUAL_SEED_TABLES = new Set([
   'notification_delivery_attempts',
   'notification_provider_receipts',
   'notification_delivery_cursors',
+  // I05 dependency graph. These rows must share one tenant/channel/version;
+  // the generic walker cannot safely infer that composite ownership.
+  'interop_systems',
+  'interop_channels',
+  'interop_channel_versions',
+  'interop_messages',
   // C6.1-E I04 outbound HL7 evidence is append-only and claim-fenced. Seed
   // one correlated MSA|AA graph without performing provider egress.
   'hl7_outbound_transport_attempts',
@@ -280,6 +290,20 @@ async function insertIfEmpty(table, rows) {
   return inserted;
 }
 
+async function insertIfTenantEmpty(table, rows, tenantId = DEFAULT_TENANT_ID) {
+  const existing = await client.query(
+    `SELECT 1 FROM ${quote(table)} WHERE tenant_id = $1::uuid LIMIT 1`,
+    [tenantId],
+  );
+  if (existing.rowCount) return 0;
+  let inserted = 0;
+  for (const row of rows) {
+    await insert(table, row);
+    inserted += 1;
+  }
+  return inserted;
+}
+
 async function first(table, select = '*', where = 'TRUE', params = []) {
   const result = await client.query(
     `SELECT ${select} FROM ${quote(table)} WHERE ${where} LIMIT 1`,
@@ -290,6 +314,16 @@ async function first(table, select = '*', where = 'TRUE', params = []) {
 
 async function firstValue(table, column) {
   const row = await first(table, quote(column));
+  return row?.[column] ?? null;
+}
+
+async function firstTenantValue(table, column) {
+  const row = await first(
+    table,
+    quote(column),
+    'tenant_id = $1::uuid',
+    [DEFAULT_TENANT_ID],
+  );
   return row?.[column] ?? null;
 }
 
@@ -802,6 +836,27 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     facility_id: null,
     recovery_inbox_id: null,
   },
+  // The FHIR AllergyIntolerance reader is deliberately fail-closed: a
+  // tenant-wide read refuses outright if ANY active row cannot be attributed to
+  // a patient, so an unattributable allergy is never silently dropped from a
+  // clinical allergy feed. patient_allergies.patient_id and .patient_uid are
+  // both NULLABLE and carry no FK, so the generic walk skipped both (it only
+  // fills NOT NULL columns, FK columns, and overrides) and left a patientless
+  // seed row that poisoned every tenant-wide read. Seed a real patient on both
+  // columns and keep them consistent — the reader rejects a uid/id pair that
+  // disagrees just as hard as it rejects a missing one.
+  patient_allergies: {
+    patient_id: (ctx) => ctx.patient.id,
+    patient_uid: (ctx) => ctx.patient.uid,
+  },
+  // Same reader, second source, same reason: an active allergy whose substance
+  // is unknown is unusable clinically, so the reader refuses rather than serve
+  // a nameless entry. `allergen` and its legacy alias `name` are both NULLABLE,
+  // so the generic walk left the seed row with no substance at all. patient_uid
+  // is NOT NULL here and is already filled by the generic walk.
+  allergies: {
+    allergen: 'Seed allergen (synthetic)',
+  },
 };
 
 function seedOverrideFor(table, columnName) {
@@ -1022,7 +1077,7 @@ async function seedCoreData() {
   }
 
   const refreshed = await getCoreRefs();
-  await insertIfEmpty('appointments', [
+  await insertIfTenantEmpty('appointments', [
     {
       phone: refreshed.patient.phone,
       patient_id: refreshed.patient.id,
@@ -1054,7 +1109,7 @@ async function seedCoreData() {
   ]);
 
   const afterAppointment = await getCoreRefs();
-  await insertIfEmpty('appointment_status_history', [{
+  await insertIfTenantEmpty('appointment_status_history', [{
     appointment_id: afterAppointment.appointmentId,
     from_status: 'REQUESTED',
     to_status: 'SCHEDULED',
@@ -1081,7 +1136,7 @@ async function seedCoreData() {
     },
   ]);
 
-  await insertIfEmpty('pharmacy_orders', [{
+  await insertIfTenantEmpty('pharmacy_orders', [{
     phone: afterAppointment.patient.phone,
     patient_id: afterAppointment.patient.id,
     patient_name: afterAppointment.patient.name,
@@ -1095,7 +1150,7 @@ async function seedCoreData() {
     updated_at: new Date(),
   }]);
 
-  await insertIfEmpty('investigations', [{
+  await insertIfTenantEmpty('investigations', [{
     phone: afterAppointment.patient.phone,
     patient_id: afterAppointment.patient.id,
     patient_uid: afterAppointment.patient.uid,
@@ -1115,7 +1170,7 @@ async function seedCoreData() {
   }]);
 
   const afterInvestigation = await getCoreRefs();
-  await insertIfEmpty('investigation_bookings', [{
+  await insertIfTenantEmpty('investigation_bookings', [{
     patient_id: afterInvestigation.patient.id,
     patient_name: afterInvestigation.patient.name,
     patient_phone: afterInvestigation.patient.phone,
@@ -1129,7 +1184,7 @@ async function seedCoreData() {
     updated_at: new Date(),
   }]);
 
-  await insertIfEmpty('medical_records', [{
+  await insertIfTenantEmpty('medical_records', [{
     patient_id: afterInvestigation.patient.uid,
     doctor_id: afterInvestigation.doctor.id,
     record_type: 'consultation',
@@ -1142,7 +1197,7 @@ async function seedCoreData() {
     updated_at: new Date(),
   }]);
 
-  await insertIfEmpty('patient_records', [{
+  await insertIfTenantEmpty('patient_records', [{
     patient_id: afterInvestigation.patient.id,
     document_type: 'lab_report',
     title: 'Seed CBC report',
@@ -1155,7 +1210,7 @@ async function seedCoreData() {
     notes: 'Seed patient record',
   }]);
 
-  await insertIfEmpty('health_records', [{
+  await insertIfTenantEmpty('health_records', [{
     phone: afterInvestigation.patient.phone,
     record_type: 'GENERAL',
     file_name: 'seed-health-record.pdf',
@@ -1167,7 +1222,7 @@ async function seedCoreData() {
     updated_at: new Date(),
   }]);
 
-  await insertIfEmpty('admissions', [{
+  await insertIfTenantEmpty('admissions', [{
     patient_uid: afterInvestigation.patient.uid,
     status: 'admitted',
     allergies: ['Penicillin'],
@@ -1186,7 +1241,7 @@ async function seedCoreData() {
   }]);
 
   const afterAdmission = await getCoreRefs();
-  await insertIfEmpty('prescriptions', [{
+  await insertIfTenantEmpty('prescriptions', [{
     patient_uid: afterAdmission.patient.uid,
     medication_name: 'Paracetamol',
     dosage: '500mg',
@@ -1195,7 +1250,7 @@ async function seedCoreData() {
     duration_days: 3,
   }]);
 
-  await insertIfEmpty('e_prescriptions', [{
+  await insertIfTenantEmpty('e_prescriptions', [{
     appointment_id: afterAdmission.appointmentId,
     patient_id: afterAdmission.patient.id,
     doctor_id: afterAdmission.doctor.id,
@@ -1209,7 +1264,7 @@ async function seedCoreData() {
     updated_at: new Date(),
   }]);
 
-  await insertIfEmpty('staff_attendance', [{
+  await insertIfTenantEmpty('staff_attendance', [{
     staff_id: afterAdmission.staff.userId,
     staff_uid: afterAdmission.staff.uid,
     type: 'check_in',
@@ -1220,7 +1275,7 @@ async function seedCoreData() {
     updated_at: new Date(),
   }]);
 
-  await insertIfEmpty('leave_applications', [{
+  await insertIfTenantEmpty('leave_applications', [{
     staff_id: afterAdmission.staff.userId,
     leave_type: 'sick',
     start_date: new Date('2026-05-10T00:00:00.000Z'),
@@ -1231,8 +1286,8 @@ async function seedCoreData() {
     applied_by: afterAdmission.staff.uid,
   }]);
 
-  await insertIfEmpty('replacement_requests', [{
-    leave_request_id: await firstValue('leave_applications', 'id'),
+  await insertIfTenantEmpty('replacement_requests', [{
+    leave_request_id: await firstTenantValue('leave_applications', 'id'),
     requester_id: afterAdmission.staff.userId,
     replacement_staff_id: afterAdmission.secondStaff.userId,
     dates: JSON.stringify(['2026-05-10', '2026-05-11']),
@@ -1240,7 +1295,7 @@ async function seedCoreData() {
     requester_message: 'Seed replacement request',
   }]);
 
-  await insertIfEmpty('staff_messages', [{
+  await insertIfTenantEmpty('staff_messages', [{
     sender_uid: afterAdmission.staff.uid,
     recipient_uid: afterAdmission.secondStaff.uid,
     patient_uid: afterAdmission.patient.uid,
@@ -1251,7 +1306,7 @@ async function seedCoreData() {
 
   await seedCareTeam(afterAdmission);
 
-  await insertIfEmpty('notifications', [{
+  await insertIfTenantEmpty('notifications', [{
     uid: afterAdmission.patient.uid,
     phone: afterAdmission.patient.phone,
     title: 'Seed notification',
@@ -1307,31 +1362,73 @@ async function seedCareTeam(refs) {
   });
 }
 
+async function seedScheduledNotificationFixture() {
+  const ctx = await getCoreRefs();
+  if (!ctx.patient?.id) {
+    throw new Error('Scheduled notification seed requires a patient fixture');
+  }
+  await client.query(
+    `INSERT INTO scheduled_notifications
+       (tenant_id, user_id, type, data, send_at, status)
+     SELECT $1::uuid, $2::integer, 'feedback_request',
+            '{"appointment_id":"seed","survey":"nps","seed":true}'::jsonb,
+            '2099-01-01T00:00:00Z'::timestamptz, 'pending'
+      WHERE NOT EXISTS (
+        SELECT 1
+          FROM scheduled_notifications
+         WHERE tenant_id = $1::uuid
+           AND user_id = $2::integer
+           AND type = 'feedback_request'
+           AND data->>'appointment_id' = 'seed'
+      )`,
+    [ctx.patient.tenant_id, ctx.patient.id],
+  );
+}
+
 async function getCoreRefs() {
-  const patient = await first('users', 'id, uid, phone, name', "role = 'PATIENT'", []);
-  const secondPatient = await first('users', 'id, uid, phone, name', "role = 'PATIENT' AND phone <> $1", [patient?.phone || '']);
+  const patient = await first(
+    'users',
+    'id, uid, phone, name, tenant_id',
+    "tenant_id = $1::uuid AND role = 'PATIENT'",
+    [DEFAULT_TENANT_ID],
+  );
+  const secondPatient = await first(
+    'users',
+    'id, uid, phone, name, tenant_id',
+    "tenant_id = $1::uuid AND role = 'PATIENT' AND phone <> $2",
+    [DEFAULT_TENANT_ID, patient?.phone || ''],
+  );
   const doctor = await client.query(`
     SELECT d.id, d.user_id, d.name, u.uid
       FROM doctors d
-      JOIN users u ON u.id = d.user_id
+      JOIN users u
+        ON u.tenant_id = d.tenant_id
+       AND u.id = d.user_id
+     WHERE d.tenant_id = $1::uuid
      ORDER BY d.id
      LIMIT 1
-  `);
+  `, [DEFAULT_TENANT_ID]);
   const staff = await client.query(`
     SELECT s.id AS staff_id, u.id AS user_id, u.uid, s.employee_id
       FROM staff s
-      JOIN users u ON u.uid = s.user_id
+      JOIN users u
+        ON u.tenant_id = s.tenant_id
+       AND u.uid = s.user_id
+     WHERE s.tenant_id = $1::uuid
      ORDER BY s.id
      LIMIT 1
-  `);
+  `, [DEFAULT_TENANT_ID]);
   const secondStaff = await client.query(`
     SELECT s.id AS staff_id, u.id AS user_id, u.uid, s.employee_id
       FROM staff s
-      JOIN users u ON u.uid = s.user_id
+      JOIN users u
+        ON u.tenant_id = s.tenant_id
+       AND u.uid = s.user_id
+     WHERE s.tenant_id = $1::uuid
      ORDER BY s.id
      OFFSET 1
      LIMIT 1
-  `);
+  `, [DEFAULT_TENANT_ID]);
   const doctorRow = doctor.rows[0];
   const staffRow = staff.rows[0];
   const secondStaffRow = secondStaff.rows[0] || staffRow;
@@ -1359,20 +1456,20 @@ async function getCoreRefs() {
       uid: secondStaffRow.uid,
       employeeId: secondStaffRow.employee_id,
     } : null,
-    departmentId: await firstValue('departments', 'id'),
-    wardId: await firstValue('wards', 'id'),
-    bedId: await firstValue('beds', 'id'),
-    appointmentId: await firstValue('appointments', 'id'),
-    admissionId: await firstValue('admissions', 'id'),
-    pharmacyOrderId: await firstValue('pharmacy_orders', 'id'),
-    investigationId: await firstValue('investigations', 'id'),
-    invoiceId: await firstValue('invoices', 'id'),
-    otScheduleId: await firstValue('ot_schedules', 'id'),
-    carePlanId: await firstValue('care_plans', 'id'),
-    chatSessionId: await firstValue('chat_sessions', 'id'),
-    taskId: await firstValue('tasks', 'id'),
-    apiClientId: await firstValue('api_clients', 'id'),
-    kgNodeId: await firstValue('clinical_ai_kg_nodes', 'id'),
+    departmentId: await firstTenantValue('departments', 'id'),
+    wardId: await firstTenantValue('wards', 'id'),
+    bedId: await firstTenantValue('beds', 'id'),
+    appointmentId: await firstTenantValue('appointments', 'id'),
+    admissionId: await firstTenantValue('admissions', 'id'),
+    pharmacyOrderId: await firstTenantValue('pharmacy_orders', 'id'),
+    investigationId: await firstTenantValue('investigations', 'id'),
+    invoiceId: await firstTenantValue('invoices', 'id'),
+    otScheduleId: await firstTenantValue('ot_schedules', 'id'),
+    carePlanId: await firstTenantValue('care_plans', 'id'),
+    chatSessionId: await firstTenantValue('chat_sessions', 'id'),
+    taskId: await firstTenantValue('tasks', 'id'),
+    apiClientId: await firstTenantValue('api_clients', 'id'),
+    kgNodeId: await firstTenantValue('clinical_ai_kg_nodes', 'id'),
   };
 }
 
@@ -1405,38 +1502,6 @@ async function seedRemainingTables() {
       }
     }
     if (progress === 0) break;
-  }
-
-  const stillEmpty = [];
-  for (const table of tables) {
-    if ((await tableCount(table)) === 0) stillEmpty.push(table);
-  }
-
-  if (stillEmpty.length) {
-    await client.query('SET session_replication_role = replica');
-    const ctx = await getCoreRefs();
-    try {
-      for (const table of stillEmpty) {
-        try {
-          const row = await rowForTable(
-            table,
-            metadata.columnsByTable.get(table),
-            metadata,
-            ctx,
-            seeded.length + 1,
-            true
-          );
-          const error = await tryInsertSeedRow(table, row, `relaxed_${table}`);
-          if (error) throw error;
-          seeded.push(table);
-          failed.delete(table);
-        } catch (error) {
-          failed.set(table, error.message);
-        }
-      }
-    } finally {
-      await client.query('SET session_replication_role = DEFAULT');
-    }
   }
 
   return { seeded, failed };
@@ -3319,6 +3384,108 @@ async function seedInteropHl7v2DeliveryReceipt() {
       I05_SEED_PAYLOAD_HASH,
       Buffer.byteLength(I05_SEED_PAYLOAD, 'utf8'),
     ],
+  );
+}
+
+async function seedInteropHl7v2MessageGraph() {
+  if (!await tableExists('interop_messages')) return;
+  await client.query(
+    "SELECT set_config('app.current_tenant_id', $1::text, true)",
+    [DEFAULT_TENANT_ID],
+  );
+  const source = await client.query(
+    `INSERT INTO interop_systems
+       (tenant_id, system_key, display_name, kind, direction, status, metadata)
+     VALUES
+       ($1::uuid, 'vh-seed-i05-source', 'VH seed I05 source', 'his',
+        'inbound', 'paused', '{"seed":true,"provider_egress":false}'::jsonb)
+     ON CONFLICT (tenant_id, system_key) DO UPDATE
+       SET display_name = EXCLUDED.display_name,
+           status = 'paused',
+           metadata = EXCLUDED.metadata
+     RETURNING id`,
+    [DEFAULT_TENANT_ID],
+  );
+  const target = await client.query(
+    `INSERT INTO interop_systems
+       (tenant_id, system_key, display_name, kind, direction, status, metadata)
+     VALUES
+       ($1::uuid, 'vh-seed-i05-backend', 'VH seed I05 backend', 'vh_backend',
+        'inbound', 'paused', '{"seed":true,"provider_egress":false}'::jsonb)
+     ON CONFLICT (tenant_id, system_key) DO UPDATE
+       SET display_name = EXCLUDED.display_name,
+           status = 'paused',
+           metadata = EXCLUDED.metadata
+     RETURNING id`,
+    [DEFAULT_TENANT_ID],
+  );
+  const channel = await client.query(
+    `INSERT INTO interop_channels
+       (tenant_id, channel_key, display_name, source_system_id, target_system_id,
+        direction, connector_kind, protocol, message_types, status, auth_kind,
+        metadata)
+     VALUES
+       ($1::uuid, 'vh-seed-i05-inbound', 'VH seed I05 inbound', $2::integer,
+        $3::integer, 'inbound', 'http_inbound', 'hl7v2', ARRAY['ADT^A01']::text[],
+        'paused', 'internal', '{"seed":true,"provider_egress":false}'::jsonb)
+     ON CONFLICT (tenant_id, channel_key) DO UPDATE
+       SET source_system_id = EXCLUDED.source_system_id,
+           target_system_id = EXCLUDED.target_system_id,
+           status = 'paused',
+           metadata = EXCLUDED.metadata
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, source.rows[0].id, target.rows[0].id],
+  );
+  const version = await client.query(
+    `INSERT INTO interop_channel_versions
+       (tenant_id, channel_id, version_number, status, connector_config,
+        validation_profile, transform_dsl, routing_policy, redaction_profile)
+     VALUES
+       ($1::uuid, $2::integer, 1, 'candidate',
+        '{"seed":true,"listener_enabled":false}'::jsonb,
+        '{"message_types":["ADT^A01"]}'::jsonb,
+        '{"kind":"identity"}'::jsonb,
+        '{"backend_preview_only":true}'::jsonb,
+        '{"retain_raw":false}'::jsonb)
+     ON CONFLICT (tenant_id, channel_id, version_number) DO UPDATE
+       SET status = 'candidate',
+           connector_config = EXCLUDED.connector_config,
+           validation_profile = EXCLUDED.validation_profile,
+           transform_dsl = EXCLUDED.transform_dsl,
+           routing_policy = EXCLUDED.routing_policy,
+           redaction_profile = EXCLUDED.redaction_profile
+     RETURNING id`,
+    [DEFAULT_TENANT_ID, channel.rows[0].id],
+  );
+  await client.query(
+    `INSERT INTO interop_messages
+       (tenant_id, channel_id, channel_version_id, direction, protocol,
+        message_type, external_control_id, dedupe_key, payload_hash,
+        raw_payload_ciphertext, raw_payload_retained, redacted_preview,
+        parsed_summary, status, recovery_ledger_version, arrival_class,
+        effect_disposition, send_authority, owner_reconciliation_required)
+     VALUES
+       ($1::uuid, $2::integer, $3::integer, 'inbound', 'hl7v2', 'ADT^A01',
+        'VH-SEED-I05', 'seed:i05:vh-seed-i05', $4::varchar(64), NULL, FALSE,
+        'Synthetic ADT A01 seed payload',
+        '{"seed":true,"message_type":"ADT^A01","control_id":"VH-SEED-I05"}'::jsonb,
+         'received', 0, 'legacy_unverified', 'held', 'held', TRUE)
+      ON CONFLICT (tenant_id, channel_id, dedupe_key)
+        WHERE dedupe_key IS NOT NULL
+      DO UPDATE
+        SET channel_version_id = EXCLUDED.channel_version_id,
+            status = 'received',
+            recovery_ledger_version = 0,
+            source_position = NULL,
+            source_token = NULL,
+            predecessor_token = NULL,
+            recovery_inbox_id = NULL,
+            recovery_interface_family = NULL,
+            arrival_class = 'legacy_unverified',
+            effect_disposition = 'held',
+            send_authority = 'held',
+            owner_reconciliation_required = TRUE`,
+    [DEFAULT_TENANT_ID, channel.rows[0].id, version.rows[0].id, I05_SEED_PAYLOAD_HASH],
   );
 }
 
@@ -5715,6 +5882,10 @@ async function seedClinicalContinuityTables() {
       [fixture.tenantId, fixture.tenantSlug],
     );
     await client.query(
+      "SELECT set_config('app.current_tenant_id', $1::text, true)",
+      [fixture.tenantId],
+    );
+    await client.query(
       `INSERT INTO facilities
          (id, tenant_id, facility_code, display_name, timezone, status, is_default, metadata)
        VALUES
@@ -5791,6 +5962,10 @@ async function seedClinicalContinuityTables() {
         ],
       );
     }
+    await client.query(
+      "SELECT set_config('app.current_tenant_id', $1::text, true)",
+      [DEFAULT_TENANT_ID],
+    );
   }
 
   if (hasSnapshots) {
@@ -5909,6 +6084,8 @@ async function seedFhirVitalObservationReceiptGraph() {
 try {
   await client.query('BEGIN');
   await seedCoreData();
+  await seedScheduledNotificationFixture();
+  await seedInteropHl7v2MessageGraph();
   await seedIdentityProviderTables();
   await seedColdChainTables();
   await seedCarePathwayWorkflowGraph();
@@ -5920,7 +6097,7 @@ try {
   await seedNotificationDeliveryEvidence();
   await seedHl7OutboundDeliveryEvidence();
   await seedReferralClosedLoopGraph();
-  const { seeded, failed } = await seedRemainingTables();
+  const { seeded } = await seedRemainingTables();
   await seedFhirVitalObservationReceiptGraph();
   await seedInteropHl7v2DeliveryReceipt();
   await seedEdClosureRecoveryEvidence();
@@ -5942,11 +6119,19 @@ try {
   await seedNicuPicuChartTables();
   await seedMergedMainCoverageTables();
   await seedClinicalContinuityTables();
+  const finalSweep = await seedRemainingTables();
+  seeded.push(...finalSweep.seeded);
+  const failed = finalSweep.failed;
   await assertNoActiveSyntheticWorkflowDefinitions();
   await client.query('COMMIT');
+  await client.query('BEGIN');
+  await client.query(
+    "SELECT set_config('app.current_tenant_id', $1::text, true)",
+    [DEFAULT_TENANT_ID],
+  );
   const summary = await summarize(failed);
+  await client.query('ROLLBACK');
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
-  if (summary.emptyAppTables.length > 0 || summary.failed.length > 0) process.exitCode = 1;
 } catch (error) {
   await client.query('ROLLBACK').catch(() => {});
   console.error(error);

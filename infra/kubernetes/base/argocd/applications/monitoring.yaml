@@ -30,19 +30,6 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 spec:
   project: vhhealth
-  source:
-    repoURL: https://prometheus-community.github.io/helm-charts
-    chart: kube-prometheus-stack
-    # Keep in sync with monitoring/chart-tracker.yaml kubePrometheusStackVersion.
-    targetRevision: "65.2.0"
-    helm:
-      releaseName: vhhealth-monitoring
-      valueFiles:
-        # Path relative to the ArgoCD Application's source repository.
-        # Because this Application's source is the Helm chart repo (not the
-        # git repo), we must inline the values or use a multi-source
-        # Application. We use multi-source: git for values + helm for chart.
-      values: ""
   sources:
     - repoURL: https://github.com/Bahuleyandr/VH-Health-Platform
       targetRevision: HEAD

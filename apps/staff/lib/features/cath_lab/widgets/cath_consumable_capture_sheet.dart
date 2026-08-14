@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_strings.dart';
@@ -29,8 +30,9 @@ class CathConsumableCaptureSheet extends StatefulWidget {
   loadBatches;
   final Future<CathCaseConsumableUsage> Function(
     int caseId,
-    CathConsumableUsageDraft draft,
-  )
+    CathConsumableUsageDraft draft, {
+    required String idempotencyKey,
+  })
   createUsage;
   final Future<String?> Function() scanCode;
   final bool wastageOnly;
@@ -62,6 +64,7 @@ class _CathConsumableCaptureSheetState
   bool _loadingBatches = false;
   bool _wasted = false;
   bool _saving = false;
+  final _captureAttempt = IdempotencyAttempt('cath-consumable-usage');
   String? _error;
 
   @override
@@ -248,21 +251,25 @@ class _CathConsumableCaptureSheetState
       _error = null;
     });
     try {
+      final draft = CathConsumableUsageDraft(
+        catalogItemId: item.id,
+        quantity: double.parse(_quantityController.text.trim()),
+        inventoryBatchId: _selectedBatchId,
+        batchNumber: _nullableText(_batchController.text),
+        lotNumber: _nullableText(_lotController.text),
+        expiryDate: _expiryDate,
+        serialNumber: _nullableText(_serialController.text),
+        wasted: _wasted,
+        wastageReason: _wasted
+            ? _nullableText(_wastageReasonController.text)
+            : null,
+      );
       final usage = await widget.createUsage(
         widget.caseId,
-        CathConsumableUsageDraft(
-          catalogItemId: item.id,
-          quantity: double.parse(_quantityController.text.trim()),
-          inventoryBatchId: _selectedBatchId,
-          batchNumber: _nullableText(_batchController.text),
-          lotNumber: _nullableText(_lotController.text),
-          expiryDate: _expiryDate,
-          serialNumber: _nullableText(_serialController.text),
-          wasted: _wasted,
-          wastageReason: _wasted
-              ? _nullableText(_wastageReasonController.text)
-              : null,
-        ),
+        draft,
+        // One key per capture attempt: `_saving` blocks a second tap, this
+        // makes a retry of a lost-2xx replay instead of double-consuming stock.
+        idempotencyKey: _captureAttempt.keyFor(draft.toJson()),
       );
       if (mounted) Navigator.pop(context, usage);
     } catch (error) {

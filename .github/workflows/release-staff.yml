@@ -56,6 +56,27 @@ jobs:
           flutter-version: 3.44.0
           cache: true
 
+      # GitHub-hosted runner images do not put `sdkmanager` on PATH, so the
+      # API 37 install below exited 127 ("sdkmanager: command not found").
+      # Provision the Android command-line tools explicitly and accept the SDK
+      # licences non-interactively. MUST stay ahead of every sdkmanager and
+      # Gradle/flutter-build step in this job.
+      - name: Provision Android command-line tools
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          # 15859902 == cmdline-tools 22.0, the build `cmdline-tools;latest`
+          # currently resolves to. Pinned by build number rather than tracking
+          # a moving channel — and it must not age backwards either:
+          # `platforms;android-37.0` is absent from the v1 SDK repository index
+          # and only resolvable by an sdkmanager that reads the v3 index.
+          cmdline-tools-version: '15859902'
+          # platform-tools only. The API 37 platform and build-tools stay
+          # pinned in the step below, which remains the single place naming
+          # them.
+          packages: platform-tools
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
+
       - name: Install Android API 37 toolchain
         run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
 

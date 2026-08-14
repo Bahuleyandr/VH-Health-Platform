@@ -3,6 +3,15 @@ import { jest } from '@jest/globals';
 import request from 'supertest';
 
 import { AppError } from '../../utils/AppError.js';
+import { enableHl7InboundForTest } from '../helpers/hl7InboundTestEnv.js';
+
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON so the recovery
+// error-mapping paths are reachable. The refused-while-off contract lives in
+// hl7-inbound-disabled.deep.test.js.
+// The helper supplies HL7_INBOUND_SHARED_SECRET with the flag — validateEnv
+// requires the pair, and a test that splits them exits the worker outright.
+enableHl7InboundForTest();
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const RECOVERY = Object.freeze({ generation: 1 });
@@ -13,9 +22,6 @@ const loggerMock = {
   warn: jest.fn(),
 };
 const captureExceptionMock = jest.fn();
-const resolveTenantBySender = jest.fn(async () => TENANT_ID);
-const getInteropSecret = jest.fn(async () => 'error-map-secret');
-
 const resolveInteropCredentialSnapshot = jest.fn(async () => {
   if (mode === 'credential-store') {
     throw AppError.internal(
@@ -73,9 +79,7 @@ const submitHl7InboundRecovery = jest.fn(async () => {
 });
 
 jest.unstable_mockModule('../../services/interop/tenantInteropSecretService.js', () => ({
-  getInteropSecret,
   resolveInteropCredentialSnapshot,
-  resolveTenantBySender,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));
 jest.unstable_mockModule('@sentry/node', () => ({ captureException: captureExceptionMock }));
@@ -108,8 +112,6 @@ describe('I03 route error-to-ACK mapping', () => {
 
   beforeEach(() => {
     mode = null;
-    resolveTenantBySender.mockClear();
-    getInteropSecret.mockClear();
     resolveInteropCredentialSnapshot.mockClear();
     verifySignedRequest.mockClear();
     assertSharedReplayOnce.mockClear();
@@ -144,7 +146,7 @@ describe('I03 route error-to-ACK mapping', () => {
     expect(submitHl7InboundRecovery).not.toHaveBeenCalled();
   });
 
-  test('keeps legacy 5xx authenticity failures on AR and the baseline credential lookup', async () => {
+  test('keeps live 5xx authenticity failures on AR and uses one credential snapshot', async () => {
     mode = 'replay-store';
     const message = 'MSH|^~\\&|EXT|SRC|VH|LEGACY-FACILITY|20260806103045+0530||ADT^A01|LEGACY-ERROR|P|2.5';
     const response = await request(app)
@@ -160,9 +162,11 @@ describe('I03 route error-to-ACK mapping', () => {
     expect(response.headers['content-type']).toContain('application/hl7-v2');
     expect(response.text).toContain('MSA|AR');
     expect(response.text).not.toContain('MSA|AE');
-    expect(resolveTenantBySender).toHaveBeenCalledWith('hl7_inbound', 'LEGACY-FACILITY');
-    expect(getInteropSecret).toHaveBeenCalledWith(TENANT_ID, 'hl7_inbound');
-    expect(resolveInteropCredentialSnapshot).not.toHaveBeenCalled();
+    expect(resolveInteropCredentialSnapshot).toHaveBeenCalledTimes(1);
+    expect(resolveInteropCredentialSnapshot).toHaveBeenCalledWith(
+      'hl7_inbound',
+      'LEGACY-FACILITY',
+    );
   });
 
   test.each([

@@ -151,6 +151,7 @@ export function parseADTToAdmission(hl7Message) {
     admission.admitted_at = parseHL7DateToISO(parsed.pv1.admitDate) || undefined;
     admission.discharged_at = parseHL7DateToISO(parsed.pv1.dischargeDate) || undefined;
     admission.patient_class = parsed.pv1.patientClass || undefined;
+    admission.visit_number = parsed.pv1.visitNumber || undefined;
 
     // Determine status from message type
     const msgType = parsed.msh.messageType || '';

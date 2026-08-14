@@ -1,58 +1,37 @@
 // src/hooks/usePermissions.ts
-'use client';
+"use client";
 
-import { useMemo, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import type { AdminUser, AdminRole } from '@/lib/types';
-
-// Role hierarchy (higher index = more privileged)
-const ROLE_ORDER: AdminRole[] = ['STAFF', 'DOCTOR', 'HR', 'ADMIN', 'SUPER_ADMIN'];
-
-const HR_DOMAIN_ROLES = new Set(['HR_STAFF']);
-const DOCTOR_DOMAIN_ROLES = new Set([
-  'DOCTOR',
-  'ANAESTHETIST',
-  'DUTY_DOCTOR',
-  'MEDICAL_SUPERINTENDENT',
-]);
-const ADMIN_DOMAIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
-const IT_DOMAIN_ROLES = new Set(['IT', 'IT_ADMIN', 'IT_STAFF', 'SYSTEM_ADMIN']);
-
-function normalizePortalRole(role: string | null): AdminRole | null {
-  if (!role) return null;
-  if (ADMIN_DOMAIN_ROLES.has(role) || IT_DOMAIN_ROLES.has(role)) return role as AdminRole;
-  if (HR_DOMAIN_ROLES.has(role)) return 'HR';
-  if (DOCTOR_DOMAIN_ROLES.has(role)) return 'DOCTOR';
-  if (role === 'HR' || role === 'DOCTOR' || role === 'STAFF') return role;
-  return 'STAFF';
-}
-
-function roleRank(role: AdminRole | null): number {
-  if (!role) return -1;
-  return ROLE_ORDER.indexOf(role);
-}
+import { useMemo, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import type { AdminUser } from "@/lib/types";
+import {
+  normalizePortalRole,
+  portalAccessLevel,
+  portalRoleRank,
+  type PortalAccessLevel,
+} from "@/lib/roles";
 
 export interface UsePermissionsOptions {
-  requiredRole?: AdminRole;
+  requiredRole?: PortalAccessLevel;
   requiredPermissions?: string[];
 }
 
 export interface UsePermissionsResult {
   user: AdminUser | null;
   rawRole: string | null;
-  role: AdminRole | null;
+  role: PortalAccessLevel | null;
   permissions: string[];
 
   // Granular role checks
   isSuperAdmin: boolean;
-  isAdmin: boolean;       // ADMIN | SUPER_ADMIN
+  isAdmin: boolean; // ADMIN | SUPER_ADMIN
   isHR: boolean;
   isDoctor: boolean;
   isStaff: boolean;
 
   // Tiered checks (role OR above)
-  isHROrAbove: boolean;         // HR | ADMIN | SUPER_ADMIN
-  isStaffOrAbove: boolean;      // STAFF | HR | DOCTOR | ADMIN | SUPER_ADMIN
+  isHROrAbove: boolean; // HR | ADMIN | SUPER_ADMIN
+  isStaffOrAbove: boolean; // STAFF | HR | DOCTOR | ADMIN | SUPER_ADMIN
 
   loading: boolean;
 
@@ -65,39 +44,49 @@ export interface UsePermissionsResult {
   permsAllowed: boolean;
 }
 
-export function usePermissions(options?: UsePermissionsOptions): UsePermissionsResult {
+export function usePermissions(
+  options?: UsePermissionsOptions,
+): UsePermissionsResult {
   const { user, loading } = useAuth();
 
-  const rawRole = user?.role ? String(user.role).trim().toUpperCase() : null;
-  const role = normalizePortalRole(rawRole);
+  const rawRole = normalizePortalRole(user?.role);
+  const role = portalAccessLevel(rawRole);
+  const isRecognizedRole = rawRole !== null;
 
-  const permissions = useMemo<string[]>(
-    () => user?.permissions ?? [],
-    [user]
-  );
+  const permissions = useMemo<string[]>(() => user?.permissions ?? [], [user]);
 
-  const isSuperAdmin = role === 'SUPER_ADMIN' || permissions.includes('*');
-  const isAdmin      = isSuperAdmin || role === 'ADMIN';
-  const isHR         = role === 'HR';
-  const isDoctor     = role === 'DOCTOR';
-  const isStaff      = role === 'STAFF';
+  const isSuperAdmin = rawRole === "SUPER_ADMIN";
+  const isAdmin = isSuperAdmin || role === "ADMIN";
+  const isHR = role === "HR";
+  const isDoctor = role === "DOCTOR";
+  const isStaff = role === "STAFF";
 
-  const isHROrAbove     = isSuperAdmin || role === 'ADMIN' || role === 'HR';
-  const isStaffOrAbove  = roleRank(role) >= roleRank('STAFF');
+  const isHROrAbove = isSuperAdmin || role === "ADMIN" || role === "HR";
+  const isStaffOrAbove = portalRoleRank(rawRole) >= portalRoleRank("STAFF");
 
   const hasPermission = useCallback(
-    (perm: string) => isSuperAdmin || permissions.includes(perm),
-    [isSuperAdmin, permissions]
+    (perm: string) =>
+      isRecognizedRole &&
+      (isSuperAdmin || permissions.includes("*") || permissions.includes(perm)),
+    [isRecognizedRole, isSuperAdmin, permissions],
   );
 
   const hasAnyPermission = useCallback(
-    (perms: string[]) => isSuperAdmin || perms.some((p) => permissions.includes(p)),
-    [isSuperAdmin, permissions]
+    (perms: string[]) =>
+      isRecognizedRole &&
+      (isSuperAdmin ||
+        permissions.includes("*") ||
+        perms.some((p) => permissions.includes(p))),
+    [isRecognizedRole, isSuperAdmin, permissions],
   );
 
   const hasAllPermissions = useCallback(
-    (perms: string[]) => isSuperAdmin || perms.every((p) => permissions.includes(p)),
-    [isSuperAdmin, permissions]
+    (perms: string[]) =>
+      isRecognizedRole &&
+      (isSuperAdmin ||
+        permissions.includes("*") ||
+        perms.every((p) => permissions.includes(p))),
+    [isRecognizedRole, isSuperAdmin, permissions],
   );
 
   const { roleAllowed, permsAllowed, allowed } = useMemo(() => {
@@ -105,16 +94,19 @@ export function usePermissions(options?: UsePermissionsOptions): UsePermissionsR
     const requiredPermissions = options?.requiredPermissions ?? [];
 
     const roleAllowed =
-      !requiredRole ||
-      isSuperAdmin ||
-      role === requiredRole ||
-      // If required role is in hierarchy, allow anything above it
-      roleRank(role) >= roleRank(requiredRole);
+      isRecognizedRole &&
+      (!requiredRole ||
+        isSuperAdmin ||
+        role === requiredRole ||
+        // If required role is in hierarchy, allow anything above it
+        portalRoleRank(rawRole) >= portalRoleRank(requiredRole));
 
     const permsAllowed =
-      requiredPermissions.length === 0 || hasAllPermissions(requiredPermissions);
+      requiredPermissions.length === 0 ||
+      hasAllPermissions(requiredPermissions);
 
-    const allowed = !!user && !loading && roleAllowed && permsAllowed;
+    const allowed =
+      !!user && !loading && isRecognizedRole && roleAllowed && permsAllowed;
 
     return { roleAllowed, permsAllowed, allowed };
   }, [
@@ -122,6 +114,8 @@ export function usePermissions(options?: UsePermissionsOptions): UsePermissionsR
     options?.requiredPermissions,
     isSuperAdmin,
     role,
+    rawRole,
+    isRecognizedRole,
     user,
     loading,
     hasAllPermissions,

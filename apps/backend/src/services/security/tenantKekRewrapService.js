@@ -9,7 +9,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isEncrypted, getKeyId, rewrapField } from '../../utils/fieldEncryption.js';
-import { tenantKeyId, loadTenantKekIntoProvider } from './tenantKekProvider.js';
+import { loadTenantKekIntoProvider } from './tenantKekProvider.js';
 
 export const PHI_REWRAP_MANIFEST = [
   { table: 'oauth_providers', id: 'id', tenant: 'tenant_id', cols: ['secret_cipher'] },
@@ -94,8 +94,8 @@ async function rewrapTable(tenantId, kid, entry, dryRun) {
 
 export async function runTenantKekRewrap({ tenantId, table = null, dryRun = false } = {}) {
   if (!tenantId) throw AppError.badRequest('tenantId is required', 'TENANT_ID_REQUIRED');
-  await loadTenantKekIntoProvider(tenantId);
-  const keyId = tenantKeyId(tenantId);
+  // Re-wrap targets the tenant's CURRENT KEK version, not a fixed v1.
+  const { keyId } = await loadTenantKekIntoProvider(tenantId);
   const manifest = table
     ? PHI_REWRAP_MANIFEST.filter((entry) => entry.table === table)
     : PHI_REWRAP_MANIFEST;

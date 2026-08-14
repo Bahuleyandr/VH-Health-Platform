@@ -1,9 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:vhhealth_core/services/idempotency_key.dart';
 
-import '../../../core/config/api_config.dart';
+import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
@@ -160,54 +158,19 @@ abstract class OncologyApiClient {
 }
 
 class HttpOncologyApiClient implements OncologyApiClient {
-  const HttpOncologyApiClient({http.Client? client}) : _client = client;
+  const HttpOncologyApiClient();
 
-  final http.Client? _client;
-
-  Uri _uri(String path) {
-    final base = ApiConfig.baseUrl.replaceFirst(RegExp(r'/$'), '');
-    return Uri.parse('$base$path');
-  }
-
-  Future<http.Response> _get(Uri uri, Map<String, String> headers) {
-    final client = _client;
-    return client == null
-        ? http.get(uri, headers: headers)
-        : client.get(uri, headers: headers);
-  }
-
-  Future<http.Response> _post(
-    Uri uri,
-    Map<String, String> headers,
-    Object body,
-  ) {
-    final client = _client;
-    return client == null
-        ? http.post(uri, headers: headers, body: body)
-        : client.post(uri, headers: headers, body: body);
-  }
-
-  Future<Map<String, dynamic>> _handle(http.Response response) async {
-    final decoded = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body) as Map<String, dynamic>;
-    if (response.statusCode >= 200 &&
-        response.statusCode < 300 &&
-        decoded['success'] == true) {
-      return (decoded['data'] as Map<String, dynamic>?) ?? decoded;
+  Map<String, dynamic> _dataOrThrow(ApiResponse response, String fallback) {
+    if (!response.isSuccess) {
+      throw Exception(response.failureMessage(fallback));
     }
-    throw Exception(
-      decoded['message']?.toString() ??
-          decoded['error']?.toString() ??
-          'Request failed (${response.statusCode})',
-    );
+    return response.dataAsMap();
   }
 
   @override
   Future<List<OncologyTumorBoardCase>> fetchTumorBoardQueue() async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await _get(_uri('/oncology/tumor-board/queue'), headers);
-    final data = await _handle(response);
+    final response = await ApiClient.get('/oncology/tumor-board/queue');
+    final data = _dataOrThrow(response, 'Could not load tumor board queue');
     final rows = data['cases'] as List? ?? const [];
     return rows
         .whereType<Map>()
@@ -220,12 +183,11 @@ class HttpOncologyApiClient implements OncologyApiClient {
 
   @override
   Future<List<OncologyToxicityEvent>> fetchToxicityEvents() async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await _get(
-      _uri('/oncology/toxicity-events?limit=25'),
-      headers,
+    final response = await ApiClient.get(
+      '/oncology/toxicity-events',
+      queryParameters: const {'limit': '25'},
     );
-    final data = await _handle(response);
+    final data = _dataOrThrow(response, 'Could not load toxicity events');
     final rows = data['toxicity_events'] as List? ?? const [];
     return rows
         .whereType<Map>()
@@ -240,13 +202,12 @@ class HttpOncologyApiClient implements OncologyApiClient {
   Future<OncologyToxicityEvent> createToxicityEvent(
     OncologyToxicityInput input,
   ) async {
-    final headers = await ApiConfig.authenticatedHeaders();
-    final response = await _post(
-      _uri('/oncology/toxicity-events'),
-      headers,
-      jsonEncode(input.toJson()),
+    final response = await ApiClient.post(
+      '/oncology/toxicity-events',
+      body: input.toJson(),
+      idempotencyKey: IdempotencyKey.generate(),
     );
-    final data = await _handle(response);
+    final data = _dataOrThrow(response, 'Could not save toxicity event');
     final row = data['toxicity_event'] as Map? ?? const {};
     return OncologyToxicityEvent.fromJson(Map<String, dynamic>.from(row));
   }

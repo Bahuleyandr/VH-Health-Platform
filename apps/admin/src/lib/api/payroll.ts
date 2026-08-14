@@ -1,4 +1,5 @@
 // src/lib/api/payroll.ts
+import { assertIdempotencyKey } from "../idempotencyKey";
 import { getJSON, postJSON, QueryParams } from "./core";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -122,7 +123,8 @@ export interface SalaryRevision {
   staff_uid: string;
   staff_name: string;
   department: string | null;
-  revision_type: "increment" | "bonus" | "deduction_change" | "component_change";
+  revision_type:
+    "increment" | "bonus" | "deduction_change" | "component_change";
   current_basic: string | null;
   proposed_basic: string | null;
   increment_amount: string | null;
@@ -174,12 +176,33 @@ export interface AnnualReviewStaff {
 export const getPayrollRuns = <T = PayrollRun[]>() =>
   getJSON<T>("/api/v1/staff/admin/payroll/runs");
 
-export const getPayrollRunDetail = <T = { run: PayrollRun; payslips: Payslip[] }>(
-  runId: string | number
+export const getPayrollRunDetail = <
+  T = { run: PayrollRun; payslips: Payslip[] },
+>(
+  runId: string | number,
 ) => getJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}`);
 
-export const runPayroll = <T = unknown>(data: { month: number; year: number }) =>
-  postJSON<T>("/api/v1/staff/admin/payroll/run", data);
+/**
+ * POST /staff/admin/payroll/run.
+ *
+ * The route is mounted with `requireIdempotencyKey({ required: true, scope:
+ * 'payroll_run' })`, so the header is not optional — omitting it is a hard 400,
+ * not a degraded call. `idempotencyKey` is therefore a REQUIRED parameter: a
+ * call site that forgets it fails to compile instead of failing in production.
+ *
+ * Mint the key with `useIdempotencyKey`/`createAttemptKeyStore`, keyed on the
+ * `{ month, year }` payload, and `reset()` the attempt once the run concludes.
+ * Do NOT pass a fresh `crypto.randomUUID()` per click: that makes a
+ * double-click run payroll twice, which is the failure this header exists to
+ * prevent.
+ */
+export const runPayroll = <T = unknown>(
+  data: { month: number; year: number },
+  idempotencyKey: string,
+) =>
+  postJSON<T>("/api/v1/staff/admin/payroll/run", data, true, {
+    "Idempotency-Key": assertIdempotencyKey(idempotencyKey),
+  });
 
 export const issuePayslips = <T = unknown>(data: {
   month: number;
@@ -191,48 +214,58 @@ export const issuePayslips = <T = unknown>(data: {
 export const getStaffForPayroll = <T = StaffForPayroll[]>(params?: {
   search?: string;
   department?: string;
-}) => getJSON<T>("/api/v1/staff/admin/payroll/staff", params as QueryParams | undefined);
+}) =>
+  getJSON<T>(
+    "/api/v1/staff/admin/payroll/staff",
+    params as QueryParams | undefined,
+  );
 
 export const getStaffSalaryConfig = <T = StaffSalaryConfig>(staffUid: string) =>
   getJSON<T>(`/api/v1/staff/admin/payroll/salary/${staffUid}`);
 
 export const upsertSalaryConfig = <T = StaffSalaryConfig>(
   staffUid: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/salary/${staffUid}`, data);
 
 export const getRevisions = <T = SalaryRevision[]>(params?: {
   status?: string;
   staff_uid?: string;
   limit?: number;
-}) => getJSON<T>("/api/v1/staff/admin/payroll/revisions", params as QueryParams | undefined);
+}) =>
+  getJSON<T>(
+    "/api/v1/staff/admin/payroll/revisions",
+    params as QueryParams | undefined,
+  );
 
 export const getRevisionDetail = <T = SalaryRevision>(id: string | number) =>
   getJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}`);
 
-export const getAnnualReviewStatus = <T = { year: number; staff: AnnualReviewStaff[] }>() =>
-  getJSON<T>("/api/v1/staff/admin/payroll/annual-review");
+export const getAnnualReviewStatus = <
+  T = { year: number; staff: AnnualReviewStaff[] },
+>() => getJSON<T>("/api/v1/staff/admin/payroll/annual-review");
 
 export const proposeRevision = <T = SalaryRevision>(
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ) => postJSON<T>("/api/v1/staff/admin/payroll/revisions/propose", data);
 
 export const hrSignRevision = <T = SalaryRevision>(
   id: string | number,
-  data: { comment?: string }
+  data: { comment?: string },
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}/hr-sign`, data);
 
 export const adminSignRevision = <T = SalaryRevision>(
   id: string | number,
-  data: { comment?: string }
-) => postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}/admin-sign`, data);
+  data: { comment?: string },
+) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}/admin-sign`, data);
 
 export const applyRevision = <T = unknown>(id: string | number) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}/apply`, {});
 
 export const rejectRevision = <T = unknown>(
   id: string | number,
-  data: { reason?: string }
+  data: { reason?: string },
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${id}/reject`, data);
 
 // Payroll run dual sign + manual edit. `acknowledge_failed_payslips: true` is
@@ -240,15 +273,18 @@ export const rejectRevision = <T = unknown>(
 // must explicitly confirm they reviewed the failed payslips.
 export const hrSignPayrollRun = <T = unknown>(
   runId: string,
-  data: { comment?: string; acknowledge_failed_payslips?: boolean }
+  data: { comment?: string; acknowledge_failed_payslips?: boolean },
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/hr-sign`, data);
 
 export const adminSignPayrollRun = <T = unknown>(
   runId: string,
-  data: { comment?: string; acknowledge_failed_payslips?: boolean }
+  data: { comment?: string; acknowledge_failed_payslips?: boolean },
 ) => postJSON<T>(`/api/v1/staff/admin/payroll/runs/${runId}/admin-sign`, data);
 
-export const manualEditPayslip = <T = unknown>(payslipId: string, data: Record<string, unknown>) =>
+export const manualEditPayslip = <T = unknown>(
+  payslipId: string,
+  data: Record<string, unknown>,
+) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/payslips/${payslipId}/edit`, data);
 
 // ─── New Features ─────────────────────────────────────────────────────────────
@@ -262,19 +298,26 @@ export const exportESIRegisterUrl = (month: number, year: number): string =>
   `/api/v1/staff/admin/payroll/export/esi?month=${month}&year=${year}`;
 
 // Annual tax summaries
-export const generateTaxSummaries = <T = unknown>(data: { financial_year: string }) =>
-  postJSON<T>('/api/v1/staff/admin/payroll/tax-summary/all', data);
+export const generateTaxSummaries = <T = unknown>(data: {
+  financial_year: string;
+}) => postJSON<T>("/api/v1/staff/admin/payroll/tax-summary/all", data);
 
 // Salary advances
 export const getAllAdvances = <T = unknown>(status?: string) =>
-  getJSON<T>('/api/v1/staff/admin/payroll/advances', status ? ({ status } as QueryParams) : undefined);
+  getJSON<T>(
+    "/api/v1/staff/admin/payroll/advances",
+    status ? ({ status } as QueryParams) : undefined,
+  );
 
 export const createAdvance = <T = unknown>(data: Record<string, unknown>) =>
-  postJSON<T>('/api/v1/staff/admin/payroll/advances/create', data);
+  postJSON<T>("/api/v1/staff/admin/payroll/advances/create", data);
 
 // Arrears
 export const calculateArrears = <T = unknown>(revisionId: string | number) =>
-  postJSON<T>(`/api/v1/staff/admin/payroll/revisions/${revisionId}/arrears`, {});
+  postJSON<T>(
+    `/api/v1/staff/admin/payroll/revisions/${revisionId}/arrears`,
+    {},
+  );
 
 // Payroll Comparison
 export interface PayrollComparisonData {
@@ -321,18 +364,15 @@ export const getPayrollComparison = <T = PayrollComparisonData>(
   fromYear: number,
   toMonth: number,
   toYear: number,
-  staffUid?: string
+  staffUid?: string,
 ) =>
-  getJSON<T>(
-    '/api/v1/staff/admin/payroll/comparison',
-    {
-      from_month: fromMonth,
-      from_year: fromYear,
-      to_month: toMonth,
-      to_year: toYear,
-      ...(staffUid && { staff_uid: staffUid }),
-    } as QueryParams
-  );
+  getJSON<T>("/api/v1/staff/admin/payroll/comparison", {
+    from_month: fromMonth,
+    from_year: fromYear,
+    to_month: toMonth,
+    to_year: toYear,
+    ...(staffUid && { staff_uid: staffUid }),
+  } as QueryParams);
 
 // ─── Compliance API ───────────────────────────────────────────────────────────
 
@@ -468,54 +508,100 @@ export interface LeaveEncashment {
   created_at: string;
 }
 
-export const getComplianceCalendar = <T = { deadlines: ComplianceDeadline[]; current_month: number; current_year: number }>() =>
-  getJSON<T>('/api/v1/staff/admin/payroll/compliance-calendar');
+export const getComplianceCalendar = <
+  T = {
+    deadlines: ComplianceDeadline[];
+    current_month: number;
+    current_year: number;
+  },
+>() => getJSON<T>("/api/v1/staff/admin/payroll/compliance-calendar");
 
 export const getFnFList = <T = FnFSettlement[]>(status?: string) =>
-  getJSON<T>('/api/v1/staff/admin/payroll/fnf', status ? { status } as QueryParams : undefined);
+  getJSON<T>(
+    "/api/v1/staff/admin/payroll/fnf",
+    status ? ({ status } as QueryParams) : undefined,
+  );
 
 export const createFnF = <T = FnFSettlement>(data: {
-  staff_uid: string; separation_type: string; last_working_day: string;
-  notice_shortfall_days?: number; bonus_payable?: number;
-  other_deductions?: number; other_deductions_reason?: string; notes?: string;
-}) => postJSON<T>('/api/v1/staff/admin/payroll/fnf/create', data);
+  staff_uid: string;
+  separation_type: string;
+  last_working_day: string;
+  notice_shortfall_days?: number;
+  bonus_payable?: number;
+  other_deductions?: number;
+  other_deductions_reason?: string;
+  notes?: string;
+}) => postJSON<T>("/api/v1/staff/admin/payroll/fnf/create", data);
 
 export const approveFnF = <T = FnFSettlement>(id: number) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/fnf/${id}/approve`, {});
 
-export const markFnFPaid = <T = FnFSettlement>(id: number, payment_date: string, payment_reference: string) =>
-  postJSON<T>(`/api/v1/staff/admin/payroll/fnf/${id}/mark-paid`, { payment_date, payment_reference });
+export const markFnFPaid = <T = FnFSettlement>(
+  id: number,
+  payment_date: string,
+  payment_reference: string,
+) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/fnf/${id}/mark-paid`, {
+    payment_date,
+    payment_reference,
+  });
 
 export const getGratuityStatus = <T = GratuityStatus[]>() =>
-  getJSON<T>('/api/v1/staff/admin/payroll/gratuity');
+  getJSON<T>("/api/v1/staff/admin/payroll/gratuity");
 
-export const getAllDeclarations = <T = InvestmentDeclaration[]>(params?: { financial_year?: string; status?: string }) =>
-  getJSON<T>('/api/v1/staff/admin/payroll/declarations', params as QueryParams);
+export const getAllDeclarations = <T = InvestmentDeclaration[]>(params?: {
+  financial_year?: string;
+  status?: string;
+}) =>
+  getJSON<T>("/api/v1/staff/admin/payroll/declarations", params as QueryParams);
 
 export const approveDeclaration = <T = InvestmentDeclaration>(id: number) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/declarations/${id}/approve`, {});
 
 export const getAllPayslipQueries = <T = PayslipQuery[]>(status?: string) =>
-  getJSON<T>('/api/v1/staff/admin/payroll/queries', status ? { status } as QueryParams : undefined);
+  getJSON<T>(
+    "/api/v1/staff/admin/payroll/queries",
+    status ? ({ status } as QueryParams) : undefined,
+  );
 
-export const replyToPayslipQuery = <T = PayslipQuery>(id: number, message: string, resolve?: boolean) =>
-  postJSON<T>(`/api/v1/staff/admin/payroll/queries/${id}/reply`, { message, resolve: resolve ?? false });
+export const replyToPayslipQuery = <T = PayslipQuery>(
+  id: number,
+  message: string,
+  resolve?: boolean,
+) =>
+  postJSON<T>(`/api/v1/staff/admin/payroll/queries/${id}/reply`, {
+    message,
+    resolve: resolve ?? false,
+  });
 
 export const getBulkRevisions = <T = BulkRevisionJob[]>() =>
-  getJSON<T>('/api/v1/staff/admin/payroll/bulk-revisions');
+  getJSON<T>("/api/v1/staff/admin/payroll/bulk-revisions");
 
 export const createBulkRevision = <T = BulkRevisionJob>(data: {
-  description: string; revision_type: string; target_type: string;
-  target_value?: string; increment_type?: string; increment_value?: number;
-  bonus_amount?: number; effective_from: string;
-}) => postJSON<T>('/api/v1/staff/admin/payroll/bulk-revisions/create', data);
+  description: string;
+  revision_type: string;
+  target_type: string;
+  target_value?: string;
+  increment_type?: string;
+  increment_value?: number;
+  bonus_amount?: number;
+  effective_from: string;
+}) => postJSON<T>("/api/v1/staff/admin/payroll/bulk-revisions/create", data);
 
 export const approveBulkRevision = <T = BulkRevisionJob>(id: number) =>
   postJSON<T>(`/api/v1/staff/admin/payroll/bulk-revisions/${id}/approve`, {});
 
-export const getLeaveEncashments = <T = LeaveEncashment[]>(staff_uid?: string) =>
-  getJSON<T>('/api/v1/staff/admin/payroll/leave-encashment', staff_uid ? { staff_uid } as QueryParams : undefined);
+export const getLeaveEncashments = <T = LeaveEncashment[]>(
+  staff_uid?: string,
+) =>
+  getJSON<T>(
+    "/api/v1/staff/admin/payroll/leave-encashment",
+    staff_uid ? ({ staff_uid } as QueryParams) : undefined,
+  );
 
 export const calculateLeaveEncashment = <T = LeaveEncashment>(data: {
-  staff_uid: string; leave_days: number; encashment_type: string; financial_year?: string;
-}) => postJSON<T>('/api/v1/staff/admin/payroll/leave-encashment/create', data);
+  staff_uid: string;
+  leave_days: number;
+  encashment_type: string;
+  financial_year?: string;
+}) => postJSON<T>("/api/v1/staff/admin/payroll/leave-encashment/create", data);

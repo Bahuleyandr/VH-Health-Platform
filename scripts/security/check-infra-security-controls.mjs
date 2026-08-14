@@ -141,8 +141,11 @@ check('Forgejo image scans use resilient official Trivy DB fallbacks', () => {
   );
 });
 
-check('Forgejo Dalekdefender transport fails closed as a clean skip', () =>
+check('Forgejo Dalekdefender transport fails closed on missing prerequisites', () =>
   forgejoDalekDeploy.includes(
+    'forgejo-deploy-preflight.mjs --mode dalek-deploy',
+  ) &&
+  !forgejoDalekDeploy.includes(
     'forgejo-deploy-preflight.mjs --mode dalek-deploy --allow-skip',
   ));
 

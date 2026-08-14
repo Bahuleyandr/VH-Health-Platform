@@ -35,6 +35,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _attendanceStatus;
   String? _staffId;
   StaffRole _role = StaffRole.general;
+  String _rawRole = StaffRole.general.value;
   bool _loading = true;
 
   // Stats
@@ -102,9 +103,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _role == StaffRole.nursingSuperintendent ||
       _role.isAdminTier;
 
-  bool get _roleHasAttendanceFeature => RoleFeatures.getFeaturesForRole(
-    _role,
-  ).any((feature) => feature.id == 'attendance');
+  bool _hasFeature(String featureId) => RoleFeatures.getFeaturesForRawRole(
+    _rawRole,
+  ).any((feature) => feature.id == featureId);
+
+  bool get _roleHasAttendanceFeature => _hasFeature('attendance');
 
   Future<void> _loadData() async {
     setState(() => _loading = true);
@@ -117,6 +120,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       _staffId = await ApiConfig.getStaffId();
       final roleStr = await AuthService.getRole();
+      _rawRole = roleStr;
       _role = StaffRole.fromString(roleStr);
       _opAiAssistModules = const [];
 
@@ -212,7 +216,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }, onError: (_) {}),
         );
       }
-      if (RoleFeatures.hasOpAiAssist(_role)) {
+      if (_hasFeature('op_ai_assist')) {
         futures.add(
           ClinicalAiApiService.listOpAssistModules().then(
             (modules) => _opAiAssistModules = modules,
@@ -257,7 +261,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Non-blocking
       try {
         final roleStr = await AuthService.getRole();
-        if (mounted) _role = StaffRole.fromString(roleStr);
+        if (mounted) {
+          _rawRole = roleStr;
+          _role = StaffRole.fromString(roleStr);
+        }
       } catch (e) {
         debugPrint('dashboard_screen.dart: $e');
       }
@@ -289,7 +296,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final features = _featuresForDeviceMode(
       featuresWithOpAiAssistAvailability(
         role: _role,
-        features: RoleFeatures.getFeaturesForRole(_role),
+        features: RoleFeatures.getFeaturesForRawRole(_rawRole),
         modules: _opAiAssistModules,
       ),
       mode,

@@ -1,0 +1,129 @@
+# HELD: PostgreSQL 17 -> 18.4 production cutover target (C1.1 / C1.2).
+#
+# Composed by nothing. Applying this ConfigMap changes no database; it records
+# the exact target and the exact atomic patch so the cutover is a reviewed,
+# deliberate operator action instead of a side effect of a platform sync.
+#
+# Until 2026-08-13 the PostgreSQL 18.4 image below was written directly into
+# `base/cnpg/cluster.yaml`, i.e. into the live `Cluster/vhhealth-pg` that the
+# prod overlay composes. A single sync of the active platform Application would
+# therefore have triggered CNPG's declarative offline major upgrade
+# (`pg_upgrade`) on the running PostgreSQL 17 cluster — an irreversible data
+# conversion, with no gate other than a prose warning in the runbook. The audit
+# of 2026-08-13 (P1) required the PG18 target to become a separately governed
+# held path while the active graph stays on its declared generation.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cnpg-pg18-cutover-target-held
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: pg18-cutover
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    vhhealth.app/deploy-state: "held"
+data:
+  managedByArgoCD: "held-manual-cutover"
+
+  # The exact qualified target. This is the single authoritative production
+  # occurrence of the PostgreSQL 18.4 pin outside the synthetic rehearsal, the
+  # DR drill, and the inert operator version marker.
+  targetImage: "ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8"
+
+  # Post-conversion WAL archive identity. PostgreSQL 18 WAL must never be
+  # appended to the PostgreSQL 17 archive identity
+  # (docs/CNPG_POSTGRES_18_QUALIFICATION.md, "Credential and archive
+  # identities").
+  targetArchiveIdentity: "vhhealth-pg18"
+
+  # Pre-conversion identity as declared in base/cnpg/cluster.yaml, which the
+  # active production overlay composes. The two MUST differ: if the source and
+  # target identities were equal there would be no archive separation at all,
+  # and the patch's `test` operation could not distinguish "not yet cut over"
+  # from "already cut over".
+  sourceArchiveIdentity: "vhhealth-pg"
+
+  targetCluster: "vhhealth-pg"
+  targetNamespace: "vhhealth-platform"
+
+  # Required operator floor for the declarative offline major upgrade.
+  minimumOperatorVersion: "1.26"
+  qualifiedOperatorVersion: "1.30.0"
+
+  # The conversion. Identical in shape to the patch that
+  # base/cnpg/pg18-upgrade-rehearsal.sh executes against synthetic data, so the
+  # rehearsal genuinely rehearses the production action. The two `test`
+  # operations are the fail-closed guard: the patch is rejected outright if the
+  # live Cluster is not on the expected plugin and PostgreSQL 17 archive
+  # identity. Substitute the live PG17 archive identity, verified with
+  #   kubectl get cluster vhhealth-pg -n vhhealth-platform \
+  #     -o jsonpath='{.spec.plugins[0].parameters.serverName}'
+  # into LIVE_PG17_ARCHIVE_IDENTITY. Do not guess it.
+  #
+  # The leading refusal is what keeps the `test` operation meaningful. A JSON
+  # Patch `test` compares the live value against whatever the operator supplied:
+  # if LIVE_PG17_ARCHIVE_IDENTITY were itself "vhhealth-pg18", the test would
+  # pass VACUOUSLY, the serverName `replace` would be a no-op, and the imageName
+  # `replace` would then append PostgreSQL 18 WAL to an archive that already
+  # holds PostgreSQL 17 WAL — the exact contamination
+  # docs/CNPG_POSTGRES_18_QUALIFICATION.md ("Credential and archive identities")
+  # forbids, with the guard reporting success. The repository side of the same
+  # invariant is base/cnpg/cluster.yaml, which now declares the PostgreSQL 17
+  # identity `vhhealth-pg`; scripts/check-c1-1-manifest-contract.mjs rejects a
+  # PostgreSQL 18 identity paired with a PostgreSQL 17 image in any overlay.
+  cutoverPatch: |
+    : "${LIVE_PG17_ARCHIVE_IDENTITY:?Read the live PG17 archive identity off the running Cluster}"
+    if [ "${LIVE_PG17_ARCHIVE_IDENTITY}" = "vhhealth-pg18" ]; then
+      echo "REFUSING: the live archive identity is already the PostgreSQL 18 identity." >&2
+      echo "  The test operation below would pass vacuously and the serverName replace" >&2
+      echo "  would be a no-op, so PostgreSQL 18 WAL would be appended to an archive that" >&2
+      echo "  already holds PostgreSQL 17 WAL. Stop and reconcile the live identity first." >&2
+      exit 1
+    fi
+    kubectl patch cluster vhhealth-pg -n vhhealth-platform --type json -p "[
+      {\"op\":\"test\",\"path\":\"/spec/plugins/0/name\",\"value\":\"barman-cloud.cloudnative-pg.io\"},
+      {\"op\":\"test\",\"path\":\"/spec/plugins/0/parameters/serverName\",\"value\":\"${LIVE_PG17_ARCHIVE_IDENTITY}\"},
+      {\"op\":\"replace\",\"path\":\"/spec/plugins/0/parameters/serverName\",\"value\":\"vhhealth-pg18\"},
+      {\"op\":\"replace\",\"path\":\"/spec/imageName\",\"value\":\"ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8\"}
+    ]"
+
+  # After the patch, the Cluster must reach a healthy state on the exact target
+  # image at major version 18 before anything else proceeds.
+  postConversionAssertion: |
+    kubectl get cluster vhhealth-pg -n vhhealth-platform \
+      -o jsonpath='{.status.phase}{"\n"}{.status.pgDataImageInfo.image}{"\n"}{.status.pgDataImageInfo.majorVersion}'
+    # expect: Cluster in healthy state
+    #         ghcr.io/cloudnative-pg/postgresql:18.4-standard-bookworm@sha256:0ec6b32ab5b644aa51da58443c5ac2c1724d97de0d2a88961920d437b71b9ad8
+    #         18
+
+  # Blocking preconditions. Every one is owner/operator evidence that this
+  # repository does not and must not fabricate.
+  preconditions: |
+    1. RKE2/Kubernetes advanced to v1.34.9+rke2r1 per docs/RKE2_1_34_QUALIFICATION.md
+       (production is v1.31.4+rke2r1; CNPG 1.30 requires 1.34+).
+    2. The interleaved CNPG/Kubernetes operator ladder rehearsed with the
+       database major UNCHANGED, per docs/CNPG_POSTGRES_18_QUALIFICATION.md.
+    3. The current secure PostgreSQL 17 minor re-derived at execution time and
+       installed as the source image, on Bookworm.
+    4. A PG17 backup taken with that qualified source image and restored into a
+       new disposable PG17 cluster using only the DR reader identity, with
+       roles/schema/row counts/checksums/pgvector/application reads proven.
+    5. The offline synthetic PG17->PG18 rehearsal in
+       base/cnpg/pg18-upgrade-rehearsal.{yaml,sh} passed on a run-unique
+       synthetic archive, isolated from production data and credentials.
+    6. A completed production Backup CR, plus an agreed downtime window.
+    7. The live PG17 archive identity read from the running Cluster and pinned
+       into LIVE_PG17_ARCHIVE_IDENTITY above. If that live value is already
+       "vhhealth-pg18", the cutover does NOT proceed: the patch refuses, and the
+       live cluster is archiving PostgreSQL 17 WAL under the PostgreSQL 18
+       identity, which must be reconciled in its own reviewed change first.
+    8. Owner sign-off recorded. Absent it, this cutover does not happen.
+
+  rollback: |
+    A physical pg_upgrade is not reversible in place. If conversion fails,
+    restore the qualified PG17 backup into a NEW cluster per
+    docs/DR_RESTORE_DRILL.md and retain all failure evidence. Do not retarget
+    the PostgreSQL 17 source.

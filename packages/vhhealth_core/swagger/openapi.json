@@ -30313,7 +30313,86 @@
             "type": "integer",
             "minimum": 0,
             "example": 0,
-            "description": "Minimum accepted patient app build number. 0 disables the hard upgrade gate."
+            "description": "Legacy projection of the signed minimum-version policy for older clients. 0 disables the hard upgrade gate when no signed policy is present."
+          },
+          "minimum_version_policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "algorithm",
+              "format",
+              "key_id",
+              "policy",
+              "signature"
+            ],
+            "description": "Operator-provided Ed25519 envelope. The backend validates and forwards this value but never signs or rewrites it.",
+            "properties": {
+              "algorithm": {
+                "type": "string",
+                "enum": [
+                  "Ed25519"
+                ]
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "vhhealth_patient_minimum_version/v1"
+                ]
+              },
+              "key_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+              },
+              "policy": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "audience",
+                  "tenant_id",
+                  "revision",
+                  "min_patient_version_code",
+                  "issued_at",
+                  "grace_until"
+                ],
+                "properties": {
+                  "audience": {
+                    "type": "string",
+                    "enum": [
+                      "vhhealth-patient-minimum-version"
+                    ]
+                  },
+                  "tenant_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "min_patient_version_code": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "issued_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "grace_until": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Signed grace deadline, bounded by the route to no more than seven days after issued_at."
+                  }
+                }
+              },
+              "signature": {
+                "type": "string",
+                "minLength": 88,
+                "maxLength": 88,
+                "description": "Canonical base64 Ed25519 signature over the RFC 8785 canonical envelope without this field."
+              }
+            }
           },
           "outage_communication": {
             "type": "object",
@@ -32194,7 +32273,7 @@
       },
       "PayrollRunDetail": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": [
           "run",
           "payslips"
@@ -32213,7 +32292,7 @@
       },
       "PayrollRunDetailHeader": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": [
           "id",
           "month",
@@ -32585,6 +32664,67 @@
             "type": "integer",
             "nullable": true
           },
+          "generation_attempt_token": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "document_revision": {
+            "type": "integer",
+            "nullable": true
+          },
+          "total_working_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_present": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_absent": {
+            "type": "integer",
+            "nullable": true
+          },
+          "days_leave": {
+            "type": "integer",
+            "nullable": true
+          },
+          "overtime_hours": {
+            "type": "string",
+            "nullable": true
+          },
+          "overtime_rate": {
+            "type": "string",
+            "nullable": true
+          },
+          "bonus_this_month": {
+            "type": "string",
+            "nullable": true
+          },
+          "arrears_amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "other_deductions": {
+            "type": "string",
+            "nullable": true
+          },
+          "advance_deduction": {
+            "type": "string",
+            "nullable": true
+          },
+          "lop_days": {
+            "type": "string",
+            "nullable": true
+          },
+          "lop_deduction": {
+            "type": "string",
+            "nullable": true
+          },
+          "revision_note": {
+            "type": "string",
+            "nullable": true
+          },
           "basic_earned": {
             "type": "string",
             "nullable": true
@@ -32705,7 +32845,7 @@
       },
       "PayslipListItem": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": [
           "id",
           "month",
@@ -32823,15 +32963,6 @@
             "type": "string",
             "nullable": true
           },
-          "pdf_key": {
-            "type": "string",
-            "nullable": true
-          },
-          "pdf_generated_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
           "status": {
             "type": "string",
             "nullable": true,
@@ -32842,26 +32973,7 @@
               "downloaded"
             ]
           },
-          "viewed_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "downloaded_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
           "issued_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updated_at": {
             "type": "string",
             "format": "date-time",
             "nullable": true
@@ -32904,10 +33016,6 @@
             "format": "date-time",
             "nullable": true
           },
-          "tenant_id": {
-            "type": "string",
-            "format": "uuid"
-          },
           "staff_name": {
             "type": "string",
             "nullable": true
@@ -32923,6 +33031,39 @@
           "role": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "PayslipPassword": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Owner-only credential for the current issued payslip document."
+          }
+        }
+      },
+      "PayslipPasswordResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PayslipPassword"
           }
         }
       },
@@ -35448,6 +35589,11 @@
           },
           "year": {
             "type": "integer"
+          },
+          "rerun": {
+            "type": "boolean",
+            "default": false,
+            "description": "Explicitly supersede and regenerate an unsigned completed run. Use a new Idempotency-Key."
           }
         }
       },
@@ -67125,86 +67271,6 @@
         }
       }
     },
-    "/api/v1/auth/firebase/admin/cleanup-devices": {
-      "post": {
-        "operationId": "post_api_v1_auth_firebase_admin_cleanup_devices",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/auth/firebase/admin/devices": {
-      "get": {
-        "operationId": "get_api_v1_auth_firebase_admin_devices",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/auth/firebase/admin/revoke-user-tokens": {
-      "post": {
-        "operationId": "post_api_v1_auth_firebase_admin_revoke_user_tokens",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/auth/firebase/admin/users": {
-      "get": {
-        "operationId": "get_api_v1_auth_firebase_admin_users",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/auth/firebase/complete-profile": {
       "post": {
         "operationId": "post_api_v1_auth_firebase_complete_profile",
@@ -67647,46 +67713,6 @@
         }
       }
     },
-    "/api/v1/auth/staff/check-in": {
-      "post": {
-        "operationId": "post_api_v1_auth_staff_check_in",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/auth/staff/check-out": {
-      "post": {
-        "operationId": "post_api_v1_auth_staff_check_out",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/auth/staff/device/{deviceId}": {
       "delete": {
         "operationId": "delete_api_v1_auth_staff_device_by_deviceId",
@@ -68106,26 +68132,6 @@
     "/api/v1/auth/staff/toggle-biometric": {
       "post": {
         "operationId": "post_api_v1_auth_staff_toggle_biometric",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Success"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/auth/staff/verify-device": {
-      "post": {
-        "operationId": "post_api_v1_auth_staff_verify_device",
         "tags": [
           "auth"
         ],
@@ -125679,6 +125685,19 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -127721,6 +127740,38 @@
         ]
       }
     },
+    "/api/v1/staff/hr/payroll/my-payslips/{id}/password": {
+      "post": {
+        "operationId": "post_api_v1_staff_hr_payroll_my_payslips_by_id_password",
+        "tags": [
+          "hr"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayslipPasswordResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reveal my current issued payslip password",
+        "description": "Returns the authenticated staff owner credential for the current issued document. The response must not be cached.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/staff/hr/payroll/queries": {
       "get": {
         "operationId": "get_api_v1_staff_hr_payroll_queries",
@@ -127839,6 +127890,38 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/staff/hr/payslips/{id}/password": {
+      "post": {
+        "operationId": "post_api_v1_staff_hr_payslips_by_id_password",
+        "tags": [
+          "hr"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayslipPasswordResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reveal my current issued payslip password",
+        "description": "Returns the authenticated staff owner credential for the current issued document. The response must not be cached.",
         "parameters": [
           {
             "name": "id",

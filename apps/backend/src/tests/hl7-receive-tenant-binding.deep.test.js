@@ -38,8 +38,17 @@ import {
 } from '../services/interop/tenantInteropSecretService.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { registerExternalRecoveryOffset } from './helpers/externalRecoveryOperabilityTestHelper.js';
+import { enableHl7InboundForTest } from './helpers/hl7InboundTestEnv.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON to exercise it. The
+// refused-while-off contract lives in hl7-inbound-disabled.deep.test.js.
+// The helper supplies HL7_INBOUND_SHARED_SECRET with the flag — validateEnv
+// requires the pair, and a test that splits them exits the worker outright.
+// beforeAll below overwrites the secret with this suite's own legacy value.
+enableHl7InboundForTest();
+
 const DB_CONFIGURED = !!databaseUrl;
 const d = DB_CONFIGURED ? describe : describe.skip;
 
@@ -188,6 +197,29 @@ function buildRecoveryRequest(controlId) {
 }
 
 async function cleanup() {
+  const receipts = await prisma.$queryRawUnsafe(
+    `SELECT timeline_event_id::text, audit_event_id::text
+       FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_UID,
+    DEFAULT_PATIENT_UID,
+  ).catch(() => []);
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_UID,
+    DEFAULT_PATIENT_UID,
+  ).catch(() => {});
+  for (const receipt of receipts) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE id = $1::uuid`,
+      receipt.audit_event_id,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE id = $1::uuid`,
+      receipt.timeline_event_id,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, DEFAULT_PATIENT_UID).catch(() => {});
@@ -312,7 +344,7 @@ d('HL7 /receive tenant binding (C-4)', () => {
   });
 
   test.each([
-    ['inactive', async () => {
+    ['inactive', 409, 'AE', async () => {
       await prisma.$executeRawUnsafe(
         `UPDATE tenant_interop_secrets
             SET status = 'inactive'
@@ -322,7 +354,7 @@ d('HL7 /receive tenant binding (C-4)', () => {
         TENANT_B,
       );
     }],
-    ['unreadable', async () => {
+    ['unreadable', 500, 'AR', async () => {
       await prisma.$executeRawUnsafe(
         `UPDATE tenant_interop_secrets
             SET status = 'active', secret_ciphertext = 'enc:v2:not-readable'
@@ -334,6 +366,8 @@ d('HL7 /receive tenant binding (C-4)', () => {
     }],
   ])('env fallback cannot bypass an enrolled I03 offset with an %s credential row', async (
     _label,
+    expectedStatus,
+    expectedAck,
     makeUnavailable,
   ) => {
     const row = await upsertInteropSecret({
@@ -375,8 +409,8 @@ d('HL7 /receive tenant binding (C-4)', () => {
         .set(signHeaders({ message, controlId }))
         .send({ message });
 
-      expect(response.status).toBe(409);
-      expect(response.text).toContain('MSA|AE');
+      expect(response.status).toBe(expectedStatus);
+      expect(response.text).toContain(`MSA|${expectedAck}`);
       expect(response.text).not.toContain('MSA|AA');
       const after = await prisma.$queryRawUnsafe(
         `SELECT COUNT(*)::integer AS count FROM admissions WHERE patient_uid = $1::uuid`,

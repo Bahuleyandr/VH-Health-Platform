@@ -121,6 +121,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 jest.unstable_mockModule('../../utils/websocket/channelAuth.js', () => ({
   authorizeChannel: () => ({ allowed: true, reason: 'ok' }),
+  parsePatientChannel: () => null,
 }));
 jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
   getCurrentTenantId: () => null,
@@ -189,7 +190,7 @@ describe('session revocation WebSocket closure', () => {
       punsubscribe: jest.fn().mockResolvedValue(1),
       quit: jest.fn().mockResolvedValue(undefined),
     };
-    initWsFanout({ pub, sub });
+    await initWsFanout({ pub, sub });
 
     pushSessionRevoked('user-1', { reason: 'force_logout' });
 

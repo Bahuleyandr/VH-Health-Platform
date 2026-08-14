@@ -29,6 +29,15 @@ void main() {
       );
     });
 
+    test('canonical aliases do not inherit result-upload authority', () {
+      expect(
+        investigationsCanUploadResultsForRawRole('MEDICAL_RECORDS'),
+        isFalse,
+      );
+      expect(investigationsCanUploadResultsForRawRole('TECHNICIAN'), isFalse);
+      expect(investigationsCanUploadResultsForRawRole('LAB_STAFF'), isTrue);
+    });
+
     test('keeps pending status workflow away from doctor roles', () {
       expect(
         investigationsCanManagePendingStatusForRole(StaffRole.doctor),

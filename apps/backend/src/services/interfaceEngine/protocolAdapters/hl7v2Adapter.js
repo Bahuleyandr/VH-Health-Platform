@@ -8,6 +8,20 @@ export const HL7V2_ADAPTER_VERSION = 'vhhealth.i05.hl7v2/v1';
 export const HL7V2_BACKEND_ADAPTER_KEY = 'backend.interop.preview';
 export const HL7V2_EXTERNAL_ADAPTER_KEY = 'external.hl7v2.http';
 
+// The ONLY registered hl7v2 backend adapter is the preview adapter above: it
+// writes an `interop_backend_delivery_receipts` row with
+// `receipt_status = 'previewed'` and performs NO clinical write — which is why
+// `assertVersionRuntimeReady` has always refused to activate it
+// (INTEROP_PREVIEW_ACTIVATION_FORBIDDEN). There is therefore NO hl7v2 backend
+// adapter that could carry a canonical clinical effect, so this list is
+// deliberately EMPTY and http_inbound activation stays unavailable. Registering
+// a real canonical hl7v2 adapter means adding its key here AND to
+// `interop_canonical_backend_adapters()` in
+// src/migrations/670_interface_engine_canonical_adapter_activation.sql — the
+// two are pinned to each other by
+// src/tests/unit/interfaceEngineCanonicalBackendAdapters.test.js.
+export const HL7V2_CANONICAL_BACKEND_ADAPTER_KEYS = Object.freeze([]);
+
 function sha256(value) {
   return createHash('sha256').update(Buffer.from(String(value ?? ''), 'utf8')).digest('hex');
 }
@@ -49,7 +63,7 @@ export async function deliverHl7v2BackendTx({
         transformed_payload, receipt_status, evidence)
      VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, 'hl7v2',
              'inbound', $5::text, $6::text, $7::char(64), $8::integer,
-             $9::jsonb, 'accepted', $10::jsonb)
+             $9::jsonb, 'previewed', $10::jsonb)
      ON CONFLICT (tenant_id, message_id, adapter_key, receipt_status)
      DO NOTHING
      RETURNING id::text, receipt_status, adapter_key, adapter_version,
@@ -76,12 +90,12 @@ export async function deliverHl7v2BackendTx({
             payload_sha256::text, payload_bytes, created_at
        FROM interop_backend_delivery_receipts
       WHERE tenant_id = $1::uuid AND message_id = $2::integer
-        AND adapter_key = $3::text AND receipt_status = 'accepted'`,
+        AND adapter_key = $3::text AND receipt_status = 'previewed'`,
     tenantId,
     message.id,
     adapterKey,
   );
-  if (!existing[0]) refuse('HL7v2 backend receipt could not be recorded');
+  if (!existing[0]) refuse('HL7v2 preview receipt could not be recorded');
   return existing[0];
 }
 
@@ -146,6 +160,7 @@ export default Object.freeze({
   protocol: 'hl7v2',
   adapterVersion: HL7V2_ADAPTER_VERSION,
   backendAdapterKeys: Object.freeze([HL7V2_BACKEND_ADAPTER_KEY]),
+  canonicalBackendAdapterKeys: HL7V2_CANONICAL_BACKEND_ADAPTER_KEYS,
   externalAdapterKey: HL7V2_EXTERNAL_ADAPTER_KEY,
   assertMessageParity: assertHl7v2MessageParity,
   deliverBackendTx: deliverHl7v2BackendTx,

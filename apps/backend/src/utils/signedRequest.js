@@ -15,8 +15,9 @@ import { AppError } from './AppError.js';
 const DEFAULT_TOLERANCE_MS = 5 * 60 * 1000;
 const MAX_REPLAY_CACHE_ENTRIES = 5000;
 // Per-process fast-path cache. Rejects same-process replays without a round
-// trip; the cross-replica authority is the shared store (Redis SET NX EX, or
-// the interop_replay_guard table — see assertSharedReplayOnce / migration 321).
+// trip; the durable cross-replica authority is the interop_replay_guard table.
+// Redis is only a post-claim coordination marker (see assertSharedReplayOnce /
+// migration 321).
 const replayCache = new Map();
 
 function nowMs() {
@@ -35,33 +36,38 @@ function canonicalPayload(payload) {
   return typeof payload === 'string' ? payload : JSON.stringify(payload || {});
 }
 
+function timestampMs(timestamp) {
+  const raw = String(timestamp || '').trim();
+  const numeric = Number(raw);
+  return Number.isFinite(numeric)
+    ? (numeric < 1_000_000_000_000 ? numeric * 1000 : numeric)
+    : Date.parse(raw);
+}
+
 function assertFreshTimestamp(timestamp, { toleranceMs, codePrefix, context }) {
   const raw = String(timestamp || '').trim();
   if (!raw) {
     throw AppError.unauthorized(`${context} timestamp is required`, `${codePrefix}_TIMESTAMP_REQUIRED`);
   }
-  const numeric = Number(raw);
-  const requestTime = Number.isFinite(numeric)
-    ? (numeric < 1_000_000_000_000 ? numeric * 1000 : numeric)
-    : Date.parse(raw);
+  const requestTime = timestampMs(raw);
   if (!Number.isFinite(requestTime)) {
     throw AppError.unauthorized(`${context} timestamp is invalid`, `${codePrefix}_TIMESTAMP_INVALID`);
   }
   if (Math.abs(nowMs() - requestTime) > toleranceMs) {
     throw AppError.unauthorized(`${context} timestamp is out of range`, `${codePrefix}_TIMESTAMP_STALE`);
   }
-  return raw;
+  return { raw, requestTime };
 }
 
-function rememberReplayKey(key, toleranceMs, codePrefix, context) {
+function rememberReplayKey(key, expiresAt, codePrefix, context) {
   const now = nowMs();
-  for (const [cachedKey, seenAt] of replayCache) {
-    if (now - seenAt > toleranceMs) replayCache.delete(cachedKey);
+  for (const [cachedKey, cachedExpiry] of replayCache) {
+    if (now > cachedExpiry) replayCache.delete(cachedKey);
   }
   if (replayCache.has(key)) {
     throw AppError.unauthorized(`${context} request replay detected`, `${codePrefix}_REPLAY`);
   }
-  replayCache.set(key, now);
+  replayCache.set(key, expiresAt);
   if (replayCache.size > MAX_REPLAY_CACHE_ENTRIES) {
     const oldest = replayCache.keys().next().value;
     replayCache.delete(oldest);
@@ -83,7 +89,11 @@ export function verifySignedRequest({
   if (!secret) {
     throw new AppError(`${context} signing secret is not configured`, 503, `${codePrefix}_SECRET_NOT_CONFIGURED`);
   }
-  const ts = assertFreshTimestamp(timestamp, { toleranceMs, codePrefix, context });
+  const { raw: ts, requestTime } = assertFreshTimestamp(timestamp, {
+    toleranceMs,
+    codePrefix,
+    context,
+  });
   const rid = String(requestId || '').trim();
   if (!rid) {
     throw AppError.unauthorized(`${context} request id is required`, `${codePrefix}_REQUEST_ID_REQUIRED`);
@@ -102,7 +112,12 @@ export function verifySignedRequest({
   }
 
   if (claimLocalReplay) {
-    rememberReplayKey(`${replayNamespace}:${rid}:${ts}:${provided}`, toleranceMs, codePrefix, context);
+    rememberReplayKey(
+      `${replayNamespace}:${rid}:${ts}:${provided}`,
+      requestTime + toleranceMs,
+      codePrefix,
+      context,
+    );
   }
   return true;
 }
@@ -113,30 +128,30 @@ export function verifySignedRequest({
  * workers × N replicas, so a captured (still-fresh) signed request replayed
  * against a DIFFERENT process is not in that process's Map and would be
  * accepted again. This makes the replay claim authoritative across all
- * processes:
+ * processes. The database row is the durable authority; Redis is only a
+ * best-effort coordination/cache marker because Sentinel failover, AOF's
+ * every-second durability window, and eviction can all lose a Redis-only claim:
  *
- *   - Redis (preferred, when REDIS_URL is wired): `SET key NX EX <window>`.
- *     The first claim sets the key; any concurrent/subsequent claim gets a
- *     null reply (key exists) → replay.
- *   - DB fallback (when Redis is not connected — the current prod Sealed
- *     Secret ships Redis un-wired): a unique (namespace, request_id) insert
- *     into interop_replay_guard (migration 321). A duplicate raises 23505
- *     (unique_violation) → replay.
+ *   - DB authority: a unique (namespace, request_id) insert into
+ *     interop_replay_guard (migration 321). A duplicate raises 23505
+ *     (unique_violation) → replay, regardless of Redis state.
+ *   - Redis cache: after the durable insert succeeds, `SET NX EX` records the
+ *     same remaining acceptance horizon. Failure or eviction never weakens the
+ *     durable claim.
  *
  * Call this AFTER verifySignedRequest (cheap sync crypto + freshness + same-
  * process replay check) so a forged/stale request never reaches the store.
  *
- * Fail-closed: if BOTH Redis and the DB are unreachable we cannot prove the
- * request is not a replay, so we reject rather than silently accept (the
- * unauthenticated inbound mounts move PHI — a fail-open here would re-open the
- * very replay hole this closes).
+ * Fail-closed: if the DB is unreachable we cannot create the durable claim, so
+ * we reject even when Redis is healthy. Current callers are public PHI-moving
+ * mounts and none explicitly supports a volatile no-DB replay authority.
  *
  * @param {Object} args
  * @param {string} args.replayNamespace  Logical namespace (e.g. 'abdm-callback').
  * @param {string} args.requestId        The signed request id.
  * @param {string|number} args.timestamp The signed timestamp.
  * @param {string} args.signature        The provided signature (raw or sig=/sha256=).
- * @param {number} [args.toleranceMs]    Freshness window; doubles as the store TTL.
+ * @param {number} [args.toleranceMs]    Freshness window around the signed timestamp.
  * @param {string} [args.codePrefix]     Error code prefix (defaults SIGNED_REQUEST).
  * @param {string} [args.context]        Human label for the error message.
  */
@@ -156,30 +171,13 @@ export async function assertSharedReplayOnce({
   // a different (still-valid? — impossible without the secret) signature cannot
   // be conflated. Mirrors the in-memory key shape.
   const member = `${rid}:${ts}:${provided}`;
-  const ttlSeconds = Math.max(1, Math.ceil(toleranceMs / 1000));
+  const requestTime = timestampMs(ts);
+  const remainingAcceptanceMs = Number.isFinite(requestTime)
+    ? requestTime + toleranceMs - nowMs()
+    : toleranceMs;
+  const ttlSeconds = Math.max(1, Math.ceil(remainingAcceptanceMs / 1000));
 
-  // Preferred path: Redis SET NX EX (atomic cross-replica claim).
-  const redis = getRedisClient();
-  if (redis) {
-    try {
-      const key = `replay:${replayNamespace}:${member}`;
-      const res = await redis.set(key, '1', 'EX', ttlSeconds, 'NX');
-      if (res === null) {
-        throw AppError.unauthorized(`${context} request replay detected`, `${codePrefix}_REPLAY`);
-      }
-      return true;
-    } catch (err) {
-      if (err instanceof AppError) throw err; // a real replay rejection
-      // Redis transport error — fall through to the DB guard rather than
-      // failing the (otherwise authentic) request on a cache hiccup.
-      logger.warn('Shared replay store: Redis claim failed, falling back to DB guard', {
-        namespace: replayNamespace,
-        message: err?.message,
-      });
-    }
-  }
-
-  // DB fallback: unique (namespace, request_id) insert. 23505 == replay.
+  // Durable DB authority: unique (namespace, request_id) insert. 23505 == replay.
   try {
     await prisma.$executeRawUnsafe(
       `INSERT INTO interop_replay_guard (namespace, request_id, expires_at)
@@ -208,6 +206,21 @@ export async function assertSharedReplayOnce({
     );
   }
 
+  // Best-effort Redis cache/coordination marker. Never substitute it for the
+  // durable row and never fail an already-authoritative claim on cache loss.
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      const key = `replay:${replayNamespace}:${member}`;
+      await redis.set(key, '1', 'EX', ttlSeconds, 'NX');
+    } catch (err) {
+      logger.warn('Shared replay cache marker failed after durable DB claim', {
+        namespace: replayNamespace,
+        message: err?.message,
+      });
+    }
+  }
+
   // Best-effort opportunistic sweep of expired rows so the table stays small.
   // Never blocks/fails the request.
   if (Math.random() < 0.02) {
@@ -223,6 +236,7 @@ export const __testing__ = {
   canonicalPayload,
   normalizeSignature,
   replayCache,
+  timestampMs,
 };
 
 export default { verifySignedRequest, assertSharedReplayOnce };

@@ -10,6 +10,7 @@ import 'package:vhhealth_core/services/secure_storage.dart';
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import 'api_client.dart';
+import 'recent_patients_service.dart';
 import 'telemetry_service.dart';
 
 class StaffSsoProvider {
@@ -102,6 +103,7 @@ class AuthService {
     required String employeeId,
     required Map<String, dynamic> data,
     required String loginMethod,
+    String? trustedDeviceToken,
   }) async {
     final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
     if (token == null) return;
@@ -151,6 +153,10 @@ class AuthService {
       final phone = data['staff']?['phone'] ?? data['phone'];
       if (phone != null) await ApiConfig.savePhone(phone.toString());
 
+      if (trustedDeviceToken != null) {
+        await saveDeviceToken(trustedDeviceToken);
+      }
+
       await Telemetry.setUserProperties(role: role.toString());
       await Telemetry.event('auth.login_success', {
         'role': role.toString(),
@@ -164,8 +170,12 @@ class AuthService {
         'device_type',
         currentDeviceType,
       );
+      RecentPatientsService.beginSession();
     } catch (_) {
       await ApiConfig.clearSessionIdentity();
+      if (trustedDeviceToken != null) {
+        await clearDeviceToken();
+      }
       rethrow;
     } finally {
       syncService.endSessionBarrier();
@@ -319,12 +329,18 @@ class AuthService {
     final installationId =
         await core_auth.AuthService.getOrCreateInstallationId();
     final response = await ApiClient.post(
-      '/auth/staff/login',
+      '/auth/staff/register-device',
       auth: false,
       body: {
         'employeeId': employeeId,
         'password': password,
         'installationId': installationId,
+        'deviceInfo': {
+          'deviceId': installationId,
+          'deviceName': 'VH Health Staff (${defaultTargetPlatform.name})',
+          'platform': _platformName,
+          'type': currentDeviceType,
+        },
         // Pinned by platform — the backend uses this to (1) restrict
         // attendance-marking to phone-class clients, and (2) record the
         // device class in user_active_sessions for the new-login-evicts-
@@ -337,10 +353,17 @@ class AuthService {
       final raw = response.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
         final data = raw['data'] as Map<String, dynamic>? ?? {};
+        final deviceToken = _nonEmptyString(data['deviceToken']);
+        if (deviceToken == null) {
+          throw StateError(
+            'Device registration did not return a device token.',
+          );
+        }
         await _saveAuthenticatedStaffSession(
           employeeId: employeeId,
           data: data,
           loginMethod: 'password',
+          trustedDeviceToken: deviceToken,
         );
         return data.isNotEmpty ? data : raw;
       }
@@ -359,6 +382,11 @@ class AuthService {
     required String pin,
   }) async {
     final deviceToken = await getDeviceToken();
+    if (deviceToken == null || deviceToken.trim().isEmpty) {
+      throw StateError(
+        'This device is not registered. Sign in with your password first.',
+      );
+    }
     final installationId =
         await core_auth.AuthService.getOrCreateInstallationId();
     final response = await ApiClient.post(
@@ -368,7 +396,7 @@ class AuthService {
         'employeeId': employeeId,
         'pin': pin,
         'deviceType': currentDeviceType,
-        'deviceToken': ?deviceToken,
+        'deviceToken': deviceToken,
         'installationId': installationId,
       },
     );
@@ -492,6 +520,10 @@ class AuthService {
     } catch (e) {
       debugPrint('AuthService: realtime teardown failed: $e');
     }
+    // This is the one local-PHI retention policy for explicit, idle, forced,
+    // and server-revoked logout. It must run before identity is cleared so an
+    // install whose cache index is damaged can still target the current key.
+    await RecentPatientsService.clear();
     await ApiConfig.clearSessionIdentity();
     await Telemetry.event(telemetryEvent);
     await CrashReporter.instance.setUserId(null);
@@ -507,9 +539,14 @@ class AuthService {
   static Future<Map<String, dynamic>> quickLogin({
     required String employeeId,
     String? pin,
-    String? biometricToken,
-    String? deviceToken,
+    bool biometric = false,
   }) async {
+    final deviceToken = await getDeviceToken();
+    if (deviceToken == null || deviceToken.trim().isEmpty) {
+      throw StateError(
+        'This device is not registered. Sign in with your password first.',
+      );
+    }
     final installationId =
         await core_auth.AuthService.getOrCreateInstallationId();
     final response = await ApiClient.post(
@@ -518,8 +555,8 @@ class AuthService {
       body: {
         'employeeId': employeeId,
         'pin': ?pin,
-        'biometricToken': ?biometricToken,
-        'deviceToken': ?deviceToken,
+        if (biometric) 'biometric': true,
+        'deviceToken': deviceToken,
         'deviceType': currentDeviceType,
         'installationId': installationId,
       },
@@ -551,13 +588,54 @@ class AuthService {
     await _storage.write(key: 'device_token', value: token);
   }
 
+  static Future<void> clearDeviceToken() async {
+    await _storage.delete(key: 'device_token');
+  }
+
+  /// Apply the server's trusted-device removal revocation locally.
+  ///
+  /// Removing any device revokes every staff session, so every successful
+  /// removal must clear this app's authenticated session. The installation's
+  /// trusted-device token is retained only when a different device was
+  /// removed; password login can then re-establish this installation without
+  /// losing its device binding.
+  static Future<bool> applyDeviceRemovalRevocation(
+    String removedDeviceId,
+  ) async {
+    final currentInstallationId = await getInstallationId();
+    final removedCurrentInstallation =
+        removedDeviceId.trim().toLowerCase() ==
+        currentInstallationId.toLowerCase();
+    if (removedCurrentInstallation) {
+      await clearDeviceToken();
+    }
+    await forceLogoutForRevocation();
+    return removedCurrentInstallation;
+  }
+
   /// Get saved device token
   static Future<String?> getDeviceToken() async {
     return await _storage.read(key: 'device_token');
   }
 
+  static Future<String> getInstallationId() {
+    return core_auth.AuthService.getOrCreateInstallationId();
+  }
+
   static Future<Map<String, String>?> getSavedCredentials() async {
     final employeeId = await _storage.read(key: 'employee_id');
     return employeeId != null ? {'employeeId': employeeId} : null;
+  }
+
+  static String get _platformName {
+    if (kIsWeb) return 'web';
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'android',
+      TargetPlatform.iOS => 'ios',
+      TargetPlatform.windows => 'windows',
+      TargetPlatform.macOS => 'macos',
+      TargetPlatform.linux => 'linux',
+      TargetPlatform.fuchsia => 'linux',
+    };
   }
 }

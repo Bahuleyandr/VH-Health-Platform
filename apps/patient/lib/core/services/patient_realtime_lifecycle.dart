@@ -1,0 +1,402 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/services/crash_reporter.dart';
+
+typedef PatientRealtimeStart = Future<void> Function();
+typedef PatientRealtimeStop =
+    Future<void> Function({required bool unsubscribe});
+
+/// What [PatientRealtimeLifecycle.completeTeardown] actually achieved.
+///
+/// Returned rather than swallowed so the caller can report the degraded case
+/// instead of presenting an identical "signed out" result either way.
+enum PatientRealtimeTeardownResult {
+  /// The queued work drained and the final disconnect ran within the bound.
+  completed,
+
+  /// [PatientRealtimeLifecycle.stopTimeout] expired before the queued stop
+  /// resolved. The final disconnect was still STARTED — deliberately without
+  /// awaiting it, see [PatientRealtimeLifecycle.completeTeardown] — and logout
+  /// completed instead of hanging.
+  timedOut,
+
+  /// The drain threw. Distinct from [timedOut] because reporting a thrown
+  /// teardown as a timeout would be a lie, and reporting it as [completed]
+  /// would be the silent degradation the bound exists to make visible.
+  ///
+  /// [PatientRealtimeLifecycle.completeTeardown] returns this rather than
+  /// rethrowing, so the caller can never lose the result to its own `catch`.
+  failed,
+}
+
+/// Serializes Patient realtime lifecycle work and fences it across logout.
+///
+/// A start request captures the current generation when it is queued. Logout
+/// advances the generation synchronously, so an online/resume callback already
+/// waiting in the queue cannot bind the departing identity afterwards.
+class PatientRealtimeLifecycle {
+  PatientRealtimeLifecycle();
+
+  static final PatientRealtimeLifecycle instance = PatientRealtimeLifecycle();
+
+  /// Hard bound on the best-effort client-side realtime teardown.
+  ///
+  /// WHY BOUNDING THIS IS SAFE. The authoritative severance is SERVER-SIDE,
+  /// not here: patient logout POSTs `/auth/logout`, which reaches
+  /// `authService.logout` → `revokeAllUserTokens(..., reason: 'logout')` →
+  /// `tokenBlacklist.js` ("R14: close the revoked identity's live
+  /// WebSockets") → `wsServer.pushSessionRevoked` → `deliverUserLocal`, whose
+  /// `isRevocation` branch CLOSES the identity's sockets server-side. The
+  /// `_stop` awaited in [completeTeardown] is belt-and-braces LOCAL cleanup
+  /// layered on top of that, so putting a ceiling on it cannot weaken the
+  /// severance invariant.
+  ///
+  /// Leaving it unbounded, by contrast, is a real defect: a genuinely dead or
+  /// black-holed socket means `LogoutService.logout()` never returns and the
+  /// blocking "Signing out…" dialog spins forever, until the user force-quits
+  /// — which reaches the SAME server-side outcome, only later, and with no
+  /// telemetry at all.
+  ///
+  /// 4 seconds is chosen to match `LogoutService._networkCallTimeout`, the
+  /// app's established "one short attempt" unit, so the whole logout keeps a
+  /// predictable ceiling. A healthy client-side disconnect needs no network
+  /// round trip and returns in milliseconds; the only reason this can take
+  /// seconds is a wedged socket. 3s risks cutting a legitimately slow but
+  /// progressing in-flight start on a poor mobile link, and 5s buys a further
+  /// second of spinner with no extra success probability for a socket that is
+  /// by construction black-holed.
+  ///
+  /// This is the SOCKET-shaped ceiling, and `LogoutService` uses it twice: for
+  /// its step-1 realtime disconnect (which runs before every local PHI wipe and
+  /// calls the same singleton method) and for the teardown here. Both are the
+  /// same hazard, so both take the same unit and the same knob.
+  ///
+  /// Mutable so tests can shrink it; [debugReset] restores the default.
+  static Duration stopTimeout = const Duration(seconds: 4);
+
+  /// Tail of the serialized operation queue, created lazily by [_enqueue].
+  ///
+  /// Deliberately NOT eagerly initialized. `Future._addListener` schedules an
+  /// already-completed future's continuation on the zone that future was
+  /// *created* in — not `Zone.current`. An eagerly-created tail therefore
+  /// anchored this process-wide singleton's chain to whichever zone first
+  /// touched it, and every later `.then` was scheduled back into that zone.
+  /// Under `testWidgets` each body runs in its own FakeAsync zone that is torn
+  /// down when the test ends, so from the second widget test onward the
+  /// continuation was queued into a dead zone and never ran: [completeTeardown]
+  /// — and with it `LogoutService.logout()` — never completed. Starting from
+  /// null lets each fresh chain anchor in the zone that actually drives it.
+  Future<void>? _operations;
+  Object? _owner;
+  PatientRealtimeStart? _start;
+  PatientRealtimeStop? _stop;
+  int _generation = 0;
+  bool _tearingDown = false;
+
+  bool get isTearingDown => _tearingDown;
+
+  /// The current lifecycle era. Advanced by [beginTeardown], by the release at
+  /// the end of [completeTeardown], and by [detach].
+  ///
+  /// Exposed so the OWNER of `_stop` can re-check it partway through its own
+  /// teardown: `_stop` touches the process-wide `RealtimeClient` singleton, and
+  /// a `_stop` slow enough to outlive [stopTimeout] is abandoned by logout while
+  /// still in flight. Comparing the generation before the singleton-level
+  /// disconnect is what stops that straggler from disconnecting a session a
+  /// LATER login has already established.
+  int get generation => _generation;
+
+  void attach({
+    required Object owner,
+    required PatientRealtimeStart start,
+    required PatientRealtimeStop stop,
+  }) {
+    if (_owner != null && !identical(_owner, owner)) {
+      throw StateError('Patient realtime lifecycle already has an owner');
+    }
+    _owner = owner;
+    _start = start;
+    _stop = stop;
+  }
+
+  void detach(Object owner) {
+    if (!identical(_owner, owner)) return;
+    _generation += 1;
+    _owner = null;
+    _start = null;
+    _stop = null;
+  }
+
+  Future<void> queueStart() {
+    final requestedGeneration = _generation;
+    return _enqueue(() async {
+      // A start superseded by a LATER generation is the fence doing its job:
+      // a logout happened after this was queued, and whatever era owns the
+      // fabric now has its own start. That case is normal and deliberately
+      // not reported.
+      if (requestedGeneration != _generation) return;
+      // These two are not normal. Both mean the patient asked for realtime and
+      // the app never even attempted it, in the CURRENT era, with nothing left
+      // to re-trigger it: the user silently gets no queue positions, no
+      // appointment events, no notifications and — worst — no `session:revoked`
+      // kick. A kDebugMode debugPrint in the caller is not telemetry.
+      if (_tearingDown) {
+        _reportUnstartedRealtime('queued during an in-flight logout teardown');
+        return;
+      }
+      final start = _start;
+      if (start == null) {
+        _reportUnstartedRealtime('no realtime owner is attached');
+        return;
+      }
+      await start();
+    });
+  }
+
+  static void _reportUnstartedRealtime(String reason) {
+    debugPrint('PatientRealtimeLifecycle: realtime start dropped — $reason');
+    unawaited(
+      Future<void>.sync(
+        () => CrashReporter.instance.recordError(
+          StateError('Patient realtime start never reached _start: $reason'),
+          StackTrace.current,
+          context: 'PatientRealtimeLifecycle.queueStart',
+          extra: {'reason': reason},
+        ),
+      ).catchError((Object error, StackTrace _) {
+        // Reporting a degradation must never become one.
+        debugPrint(
+          'PatientRealtimeLifecycle: reporting a dropped start failed: $error',
+        );
+      }),
+    );
+  }
+
+  Future<void> queueStop({bool unsubscribe = false}) {
+    final requestedGeneration = _generation;
+    return _enqueue(() async {
+      // Same fence as [queueStart], for the same reason in the other
+      // direction: a pause/background stop queued before a logout must not
+      // reach the shared realtime singleton after a NEW session has bound it.
+      // The teardown's own `_stop(unsubscribe: true)` is strictly stronger, so
+      // dropping a stale one loses nothing.
+      if (requestedGeneration != _generation) return;
+      await _stop?.call(unsubscribe: unsubscribe);
+    });
+  }
+
+  /// Enters logout fencing synchronously, before any socket disconnect awaits.
+  void beginTeardown() {
+    _generation += 1;
+    _tearingDown = true;
+  }
+
+  /// Drains earlier work, retires personal subscriptions, and performs the
+  /// caller's final disconnect before starts are admitted for a future login.
+  ///
+  /// Bounded by [stopTimeout]. On expiry the final disconnect is still
+  /// STARTED — but deliberately NOT awaited, see below — and
+  /// [PatientRealtimeTeardownResult.timedOut] is returned so the caller can
+  /// record it. Nothing here is swallowed, and nothing here can throw: a drain
+  /// error becomes [PatientRealtimeTeardownResult.failed] so the caller cannot
+  /// lose the result to its own `catch`.
+  Future<PatientRealtimeTeardownResult> completeTeardown(
+    PatientRealtimeStart finalDisconnect,
+  ) async {
+    final teardownGeneration = _generation;
+    // The final disconnect is attempted exactly once, whether the queued
+    // teardown reaches it or the bound below expires first. Without this
+    // one-shot claim an abandoned drain that later unwedges would disconnect
+    // a second time, after a new login may already have reconnected.
+    var finalDisconnectClaimed = false;
+    Future<void> attemptFinalDisconnect() async {
+      if (finalDisconnectClaimed) return;
+      finalDisconnectClaimed = true;
+      await finalDisconnect();
+    }
+
+    var timedOut = false;
+    var failed = false;
+    try {
+      final drain = _enqueue(boundWait: false, () async {
+        // GENERATION FENCE ON THE DRAIN, mirroring [queueStart].
+        //
+        // Without it this closure is the one path that reaches `_stop` with no
+        // era check at all. A drain queued behind slow earlier work can arrive
+        // at the front of the queue only AFTER the bound below expired and the
+        // fence was released — by which time a new login may own the realtime
+        // fabric. Invoking `_stop(unsubscribe: true)` then would retire that
+        // NEW session's patient state, unsubscribe its channels and disconnect
+        // its socket, with no visible error anywhere.
+        if (_generation != teardownGeneration) return;
+        try {
+          final stopping = _stop?.call(unsubscribe: true);
+          if (stopping != null) await stopping;
+        } finally {
+          await attemptFinalDisconnect();
+        }
+      });
+      await drain.timeout(
+        stopTimeout,
+        onTimeout: () {
+          timedOut = true;
+          // NOT awaited — and that is the whole point of this branch.
+          //
+          // `finalDisconnect` resolves to `RealtimeClient.instance.disconnect`,
+          // the SAME singleton method `_stop` reaches through
+          // `_stopRealtime` → `RealtimeProvider.disconnect`. On the motivating
+          // case — a genuinely dead / black-holed socket — the first call is
+          // parked inside `await _channel?.sink.close(...)` and has not yet
+          // reached `_channel = null`, so a second call re-awaits that same
+          // pending close. Awaiting the escape hatch therefore re-enters the
+          // exact wedge the bound was added to escape, and `completeTeardown`
+          // never returns. Start it (the disconnect must still be ATTEMPTED)
+          // and let logout proceed.
+          unawaited(
+            attemptFinalDisconnect().catchError((Object error, StackTrace _) {
+              debugPrint(
+                'PatientRealtimeLifecycle: the post-timeout disconnect failed: '
+                '$error',
+              );
+            }),
+          );
+          // The queue tail is deliberately KEPT, and that decision stands. An
+          // earlier cut nulled `_operations` here so the next login would not
+          // wait behind the dead socket — but nothing on any login path awaits
+          // [queueStart] (every call site in `main.dart` and `app_router.dart`
+          // wraps it in `unawaited`), so that bought nothing, and it restored
+          // concurrency: a new login's start would run alongside a
+          // still-in-flight `_stop` whose late effects tear the new session
+          // down. Keeping the tail keeps the queue serialized — a start after
+          // an abandoned teardown runs as soon as the straggler settles.
+          //
+          // What was missing is that "as soon as the straggler settles" was
+          // NOT a bound: the straggler here is the same black-holed socket
+          // this branch is escaping, so it may never settle and the next
+          // login's realtime would be silently dead for the life of the
+          // process. [_enqueue] now bounds the WAIT on a predecessor by
+          // [stopTimeout], which keeps the serialization in every case that
+          // can still resolve and steps over the one that cannot.
+        },
+      );
+    } catch (error) {
+      // A thrown drain must not escape: the caller's `catch` would swallow the
+      // return value along with it and the timeout would go unreported.
+      failed = true;
+      debugPrint('PatientRealtimeLifecycle: the teardown drain threw: $error');
+    } finally {
+      if (_tearingDown && teardownGeneration == _generation) {
+        _generation += 1;
+        _tearingDown = false;
+      }
+    }
+    if (timedOut) return PatientRealtimeTeardownResult.timedOut;
+    if (failed) return PatientRealtimeTeardownResult.failed;
+    return PatientRealtimeTeardownResult.completed;
+  }
+
+  /// Clears every piece of cross-test state on the shared [instance],
+  /// including the queued-operations tail whose zone would otherwise outlive
+  /// the test that created it. Call from `setUp`/`tearDown` in any suite that
+  /// drives logout more than once.
+  @visibleForTesting
+  void debugReset() {
+    _operations = null;
+    _owner = null;
+    _start = null;
+    _stop = null;
+    _generation = 0;
+    _tearingDown = false;
+    // Also restore the process-wide bound, so a suite that shrinks it to keep
+    // a hang test fast cannot leak that value into unrelated suites.
+    stopTimeout = const Duration(seconds: 4);
+  }
+
+  /// Serializes [operation] behind everything already queued — but NEVER
+  /// forever.
+  ///
+  /// THE CHAIN NEEDS ITS OWN BOUND, not just the teardown.
+  ///
+  /// [completeTeardown] bounds how long LOGOUT waits, and deliberately keeps
+  /// the wedged drain as the queue tail so a straggler `_stop` cannot run
+  /// alongside a new session's `_start`. That reasoning is sound and is kept.
+  /// What it missed is that the tail resolves to the same black-holed
+  /// `RealtimeClient.disconnect()` the bound was escaping, so it may never
+  /// settle — and `queueStart()` is the ONLY way this app connects. Every call
+  /// site discards its future (`main.dart`, `app_router.dart` both wrap it in
+  /// `unawaited`), so a permanently-parked tail produced a completely silent
+  /// failure: the next patient to sign in on that device got no queue
+  /// positions, no appointment events, no notifications and no revocation
+  /// kick, for the lifetime of the process.
+  ///
+  /// So the WAIT is bounded rather than the operation: a predecessor is waited
+  /// on for at most [stopTimeout] — the same socket-shaped ceiling, one knob —
+  /// and then the chain moves on without it. In every healthy case a
+  /// predecessor settles in milliseconds and serialization is untouched; only
+  /// a predecessor that is wedged past the ceiling is stepped over, and by
+  /// then it is by construction a socket that is never coming back.
+  ///
+  /// Releasing the chain is safe because the straggler is now HARMLESS, not
+  /// merely late: `RealtimeClient.disconnect()` re-checks that the socket it
+  /// awaited is still the live one before nulling `_channel` and closing the
+  /// event controllers, so a late unwedge cannot tear down the session a newer
+  /// login established. `_stopRealtime` in `main.dart` re-checks [generation]
+  /// for the same reason, and [completeTeardown]'s one-shot claim still
+  /// prevents a second final disconnect.
+  ///
+  /// [boundWait] is false for exactly one caller: [completeTeardown], which
+  /// applies [stopTimeout] to the WHOLE drain itself. Bounding the wait a
+  /// second time inside would put two timers of the same length in a race and
+  /// make the teardown's own result non-deterministic — it could report
+  /// `completed` on a drain that only reached the front because a straggler
+  /// was stepped over. One bound per operation, owned by whoever declares it.
+  Future<void> _enqueue(
+    PatientRealtimeStart operation, {
+    bool boundWait = true,
+  }) {
+    final previous = _operations;
+    final Future<void> gate;
+    if (previous == null) {
+      gate = Future<void>.value();
+    } else if (boundWait) {
+      // Never silent — this is the degraded path, and its whole point is that
+      // somebody learns patient devices are wedging here.
+      gate = previous.timeout(
+        stopTimeout,
+        onTimeout: _reportAbandonedPredecessor,
+      );
+    } else {
+      gate = previous;
+    }
+    final next = gate.then((_) => operation());
+    _operations = next.catchError((Object _, StackTrace _) {});
+    return next;
+  }
+
+  static void _reportAbandonedPredecessor() {
+    final bound = stopTimeout.inMilliseconds;
+    debugPrint(
+      'PatientRealtimeLifecycle: a queued realtime operation did not settle '
+      'within ${bound}ms; releasing the queue so the next start is not lost',
+    );
+    unawaited(
+      Future<void>.sync(
+        () => CrashReporter.instance.recordError(
+          StateError(
+            'Patient realtime queue abandoned a wedged predecessor after '
+            '${bound}ms',
+          ),
+          StackTrace.current,
+          context: 'PatientRealtimeLifecycle._enqueue',
+          extra: {'bound_ms': bound},
+        ),
+      ).catchError((Object error, StackTrace _) {
+        debugPrint(
+          'PatientRealtimeLifecycle: reporting a wedged predecessor failed: '
+          '$error',
+        );
+      }),
+    );
+  }
+}

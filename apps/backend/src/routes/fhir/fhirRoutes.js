@@ -24,6 +24,10 @@ import { requireConsent } from '../../middleware/consentMiddleware.js';
 import { fhirPatientUidFromRequest } from '../../middleware/fhirPatientContext.js';
 import { prepareFhirVitalObservation } from '../../services/import/patientDataImport.js';
 import { ingestFhirVitalObservation } from '../../services/fhir/fhirVitalObservationIngestService.js';
+import {
+  createFhirAllergyIntolerance,
+  listFhirAllergyIntolerances,
+} from '../../services/fhir/fhirAllergyIntoleranceService.js';
 import { createProblem } from '../../services/clinical/problemListService.js';
 import {
   attachResourceCodings,
@@ -114,6 +118,8 @@ async function assertPatientInTenant(patientUid, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT uid, tenant_id FROM users
       WHERE uid = $1::uuid AND tenant_id = $2::uuid
+        AND is_active = true
+        AND UPPER(BTRIM(COALESCE(role::text, ''))) = 'PATIENT'
       LIMIT 1`,
     patientUid,
     tenantId,
@@ -482,6 +488,47 @@ function isMissingSchemaError(err) {
   return /does not exist|column .* does not exist|relation .* does not exist/i.test(message);
 }
 
+function assertSupportedAllergyLifecycle(resource) {
+  const clinicalSystem = 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical';
+  const verificationSystem = 'http://terminology.hl7.org/CodeSystem/allergyintolerance-verification';
+  const clinicalStatus = resource?.clinicalStatus;
+  const clinicalCodes = Array.isArray(clinicalStatus?.coding)
+    ? clinicalStatus.coding
+      .filter(coding => String(coding?.system || '').trim() === clinicalSystem)
+      .map(coding => String(coding?.code || '').trim().toLowerCase())
+      .filter(Boolean)
+    : [];
+  if (
+    clinicalStatus != null
+    && (clinicalCodes.length === 0 || clinicalCodes.some(code => code !== 'active'))
+  ) {
+    throw AppError.badRequest(
+      'Only active AllergyIntolerance creates are supported',
+      'FHIR_ALLERGY_LIFECYCLE_UNSUPPORTED',
+    );
+  }
+  const verificationStatus = resource?.verificationStatus;
+  const verificationCodes = Array.isArray(verificationStatus?.coding)
+    ? resource.verificationStatus.coding
+      .filter(coding => String(coding?.system || '').trim() === verificationSystem)
+      .map(coding => String(coding?.code || '').trim().toLowerCase())
+      .filter(Boolean)
+    : [];
+  if (verificationStatus != null && verificationCodes.length === 0) {
+    throw AppError.badRequest(
+      'AllergyIntolerance verificationStatus must use the FHIR R4 code system',
+      'FHIR_ALLERGY_LIFECYCLE_UNSUPPORTED',
+    );
+  }
+  if (verificationCodes.some(code => ['refuted', 'entered-in-error'].includes(code))) {
+    throw AppError.badRequest(
+      'Refuted or entered-in-error AllergyIntolerance creates are not supported',
+      'FHIR_ALLERGY_LIFECYCLE_UNSUPPORTED',
+    );
+  }
+  return 'active';
+}
+
 async function optionalFhirQuery(sql, ...params) {
   try {
     return await prisma.$queryRawUnsafe(sql, ...params);
@@ -728,12 +775,12 @@ router.get(
          ORDER BY created_at DESC LIMIT $3`,
         id, tenantId, _count
       ),
-      optionalFhirQuery(
-        `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
-         FROM allergies WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
-         ORDER BY recorded_at DESC LIMIT $3`,
-        id, tenantId, _count
-      ),
+      listFhirAllergyIntolerances({
+        tenantId,
+        patientUid: id,
+        limit: _count,
+        offset: 0,
+      }),
       optionalFhirQuery(
         `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
                 admitting_doctor, attending_doctor, admitted_at, discharged_at,
@@ -1221,6 +1268,7 @@ router.post(
     const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'AllergyIntolerance');
+    const clinicalStatus = assertSupportedAllergyLifecycle(resource);
     const patientUid = patientUidFromReference(resource.patient?.reference || resource.subject?.reference);
     await assertPatientInTenant(patientUid, tenantId);
 
@@ -1238,30 +1286,21 @@ router.post(
     const reactionText = resource.reaction?.[0]?.manifestation?.[0]?.text
       || resource.reaction?.[0]?.description || null;
 
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO patient_allergies (patient_uid, allergy_name, severity, reaction, is_active, tenant_id, created_at)
-       SELECT u.uid, $2, $3, $4, true, $5::uuid, NOW()
-         FROM users u WHERE u.uid = $1::uuid AND u.tenant_id = $5::uuid
-       RETURNING id, patient_uid, allergy_name, severity, reaction, created_at`,
-      patientUid, String(allergen).trim(), severity, reactionText, tenantId,
-    );
-    if (!rows.length) throw AppError.notFound('Patient not found');
-    const created = rows[0];
-
-    res.status(201);
-    res.setHeader('Location', `AllergyIntolerance/pa-${created.id}`);
-    return res.json({
-      resourceType: 'AllergyIntolerance',
-      id: `pa-${created.id}`,
-      clinicalStatus: {
-        coding: [{ system: 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical', code: 'active' }],
-      },
-      code: { text: created.allergy_name },
-      patient: { reference: `Patient/${created.patient_uid}` },
-      criticality: severity === 'SEVERE' ? 'high' : 'low',
-      reaction: created.reaction ? [{ manifestation: [{ text: created.reaction }] }] : [],
-      recordedDate: created.created_at,
+    const result = await createFhirAllergyIntolerance({
+      tenantId,
+      patientUid,
+      allergen,
+      severity,
+      reaction: reactionText,
+      clinicalStatus,
+      actorUid: req.user?.uid || req.smart?.user_uid || null,
+      actorRole: req.user?.role || req.smart?.user_role || 'SMART_APP',
+      requestId: req.id || null,
     });
+
+    res.status(result.created ? 201 : 200);
+    res.setHeader('Location', `AllergyIntolerance/${result.allergy.id}`);
+    return res.json(toFhirAllergyIntolerance(result.allergy));
   })
 );
 
@@ -1335,22 +1374,14 @@ router.get(
 router.get(
   '/AllergyIntolerance',
   wrapAsync(async (req, res) => {
-    const { patient } = req.query;
     const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
-    const conditions = [];
-    const params = [];
-    addTenantFilter(conditions, params, tenantId);
-    addPatientFilter(conditions, params, patient);
-
-    const where = `WHERE ${conditions.join(' AND ')}`;
-    const limitOffset = paginationSql(params, _count, _offset);
-
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
-       FROM allergies ${where} ORDER BY recorded_at DESC ${limitOffset}`,
-      ...params
-    );
+    const rows = await listFhirAllergyIntolerances({
+      tenantId,
+      patientUid: parsePatientSearchParam(req.query.patient),
+      limit: _count,
+      offset: _offset,
+    });
 
     const resources = rows.map(toFhirAllergyIntolerance);
     res.json(buildBundle('AllergyIntolerance', resources));

@@ -16,13 +16,23 @@
  */
 
 import { fetchAdminAPI, getJSON } from "./core";
+import type { ApiData } from "@/lib/openapi-data";
+
+type DischargeComposeRunDetailContract = ApiData<
+  "/api/v1/admin/clinical-ai/discharge-compose/{runId}",
+  "get"
+>;
+type DischargeComposeRunListContract = ApiData<
+  "/api/v1/admin/clinical-ai/discharge-compose",
+  "get"
+>;
+type DischargeComposeFailContract = ApiData<
+  "/api/v1/admin/clinical-ai/discharge-compose/{runId}/fail",
+  "post"
+>;
 
 export type DischargeComposeStatus =
-  | "running"
-  | "paused"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "running" | "paused" | "completed" | "failed" | "cancelled";
 
 export type DischargeComposeChildKey =
   | "medication_reconciliation"
@@ -66,8 +76,7 @@ export interface DischargeComposePauseResult {
 }
 
 export type DischargeComposePostResponse =
-  | DischargeComposeResult
-  | DischargeComposePauseResult;
+  DischargeComposeResult | DischargeComposePauseResult;
 
 export function isPaused(
   result: DischargeComposePostResponse,
@@ -127,11 +136,13 @@ export interface DischargeComposeChildRunRow {
   paused_at: string | null;
 }
 
-export interface DischargeComposeRunDetail {
+export type DischargeComposeRunDetail = Omit<
+  DischargeComposeRunDetailContract,
+  "run" | "children"
+> & {
   run: DischargeComposeRunRow;
   children: DischargeComposeChildRunRow[];
-  child_count: number;
-}
+};
 
 export interface DischargeComposeRunListItem {
   id: number;
@@ -150,10 +161,12 @@ export interface DischargeComposeRunListItem {
   metadata: Record<string, unknown>;
 }
 
-export interface DischargeComposeRunListResponse {
+export type DischargeComposeRunListResponse = Omit<
+  DischargeComposeRunListContract,
+  "runs"
+> & {
   runs: DischargeComposeRunListItem[];
-  count: number;
-}
+};
 
 /** Start a fresh compose run for an admission. */
 export async function startDischargeCompose(
@@ -213,11 +226,12 @@ export async function resumeDischargeCompose(
   );
 }
 
-export interface DischargeComposeFailResponse {
+export type DischargeComposeFailResponse = Omit<
+  DischargeComposeFailContract,
+  "status"
+> & {
   status: "failed";
-  runId: number;
-  reason: string;
-}
+};
 
 /** Manually fail a paused compose run whose external gate will never fire. */
 export async function failDischargeCompose(

@@ -10,6 +10,7 @@ export const ACCESS_POLICY_CODES = Object.freeze({
   PATIENT_TIMELINE_VIEW: 'patient.timeline.view',
   PATIENT_APPOINTMENT_VIEW: 'patient.appointment.view',
   PATIENT_APPOINTMENT_WRITE: 'patient.appointment.write',
+  PATIENT_REALTIME_SUBSCRIBE: 'patient.realtime.subscribe',
   PATIENT_ADMISSION_VIEW: 'patient.admission.view',
   PATIENT_ADMISSION_WRITE: 'patient.admission.write',
   PATIENT_BED_VIEW: 'patient.bed.view',
@@ -147,6 +148,15 @@ export const ACCESS_POLICIES = Object.freeze({
     resourceType: 'appointment',
     action: 'UPDATE',
     capabilityGroups: ['op_flow', 'billing'],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_REALTIME_SUBSCRIBE]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_REALTIME_SUBSCRIBE,
+    title: 'Subscribe to patient realtime updates',
+    resourceType: 'realtime_patient_channel',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: [],
+    relationshipChecks: ['self', 'guardian', 'care_team', 'break_glass'],
   }),
   [ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW]: policy({
     code: ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,

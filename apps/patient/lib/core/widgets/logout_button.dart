@@ -31,6 +31,33 @@ class LogoutButton extends StatelessWidget {
   static Future<void> confirmAndLogout(BuildContext context) =>
       _confirmAndLogout(context);
 
+  /// The post-logout warning for [outcome], or null when there is nothing left
+  /// to warn about.
+  ///
+  /// This is the ONLY consumer of a [LogoutOutcome] field, so it is the only
+  /// place the honesty contract can actually be kept. It used to show one
+  /// fixed sentence — "other devices may stay signed in until you retry" —
+  /// whether or not a retry had been queued, which is precisely the false
+  /// reassurance [LogoutOutcome.revocationRetryQueued] exists to prevent. It
+  /// also invited a user action that does not exist: there is no retry
+  /// affordance anywhere in the app, because the retry is automatic and runs
+  /// at the next signed-out app start (see
+  /// [LogoutService.retryPendingRevocation], drained from `main.dart`).
+  ///
+  /// Pure and static so the copy can be asserted without pumping a widget.
+  @visibleForTesting
+  static String? logoutWarningMessage(LogoutOutcome outcome) {
+    if (outcome.serverSessionRevoked) return null;
+    if (outcome.revocationRetryQueued) {
+      return 'Signed out on this device. We could not reach the server, so '
+          'your other devices may stay signed in — we will finish signing '
+          'them out automatically the next time you open this app.';
+    }
+    return 'Signed out on this device only. We could not reach the server and '
+        'this device cannot try again, so your other devices may stay signed '
+        'in. Sign out from them directly.';
+  }
+
   static Future<void> _confirmAndLogout(BuildContext context) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -122,16 +149,15 @@ class LogoutButton extends StatelessWidget {
       }
 
       // Local sign-out succeeded either way, but if the backend never revoked
-      // the token we must not let the user believe every device is signed out.
-      if (!outcome.serverSessionRevoked && scaffoldMessenger.mounted) {
+      // the token we must not let the user believe every device is signed out
+      // — nor promise a retry that may not exist.
+      final warning = logoutWarningMessage(outcome);
+      if (warning != null && scaffoldMessenger.mounted) {
         scaffoldMessenger.showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Signed out on this device. We could not reach the server, so '
-              'other devices may stay signed in until you retry.',
-            ),
+          SnackBar(
+            content: Text(warning),
             backgroundColor: Colors.orange,
-            duration: Duration(seconds: 6),
+            duration: const Duration(seconds: 8),
           ),
         );
       }

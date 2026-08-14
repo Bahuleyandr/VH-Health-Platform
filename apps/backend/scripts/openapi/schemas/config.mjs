@@ -10,7 +10,65 @@ export const schemas = {
         type: 'integer',
         minimum: 0,
         example: 0,
-        description: 'Minimum accepted patient app build number. 0 disables the hard upgrade gate.'
+        description: 'Legacy projection of the signed minimum-version policy for older clients. 0 disables the hard upgrade gate when no signed policy is present.'
+      },
+      minimum_version_policy: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['algorithm', 'format', 'key_id', 'policy', 'signature'],
+        description: 'Operator-provided Ed25519 envelope. The backend validates and forwards this value but never signs or rewrites it.',
+        properties: {
+          algorithm: { type: 'string', enum: ['Ed25519'] },
+          format: {
+            type: 'string',
+            enum: ['vhhealth_patient_minimum_version/v1']
+          },
+          key_id: {
+            type: 'string',
+            pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+          },
+          policy: {
+            type: 'object',
+            additionalProperties: false,
+            required: [
+              'audience',
+              'tenant_id',
+              'revision',
+              'min_patient_version_code',
+              'issued_at',
+              'grace_until'
+            ],
+            properties: {
+              audience: {
+                type: 'string',
+                enum: ['vhhealth-patient-minimum-version']
+              },
+              tenant_id: { type: 'string', format: 'uuid' },
+              revision: {
+                type: 'integer',
+                minimum: 1,
+                maximum: Number.MAX_SAFE_INTEGER
+              },
+              min_patient_version_code: {
+                type: 'integer',
+                minimum: 0,
+                maximum: Number.MAX_SAFE_INTEGER
+              },
+              issued_at: { type: 'string', format: 'date-time' },
+              grace_until: {
+                type: 'string',
+                format: 'date-time',
+                description: 'Signed grace deadline, bounded by the route to no more than seven days after issued_at.'
+              }
+            }
+          },
+          signature: {
+            type: 'string',
+            minLength: 88,
+            maxLength: 88,
+            description: 'Canonical base64 Ed25519 signature over the RFC 8785 canonical envelope without this field.'
+          }
+        }
       },
       outage_communication: {
         type: 'object',

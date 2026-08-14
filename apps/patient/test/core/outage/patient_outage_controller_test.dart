@@ -18,6 +18,9 @@ void main() {
     () async {
       var requests = 0;
       var delays = 0;
+      String? confirmedJwt;
+      String? confirmedTenant;
+      DateTime? confirmedAt;
       controller = PatientOutageController.forTesting(
         request: () async {
           requests++;
@@ -28,12 +31,21 @@ void main() {
         maxClockSkew: const Duration(seconds: 5),
         clock: () => now,
         delay: (_) async => delays++,
+        confirmSession: (jwt, tenantId, serverTime) async {
+          confirmedJwt = jwt;
+          confirmedTenant = tenantId;
+          confirmedAt = serverTime;
+          return true;
+        },
       );
 
       expect(await controller.probeNow(), isTrue);
       expect(controller.status, PatientOutageStatus.available);
       expect(requests, 2);
       expect(delays, 1);
+      expect(confirmedJwt, 'patient-session');
+      expect(confirmedTenant, 'tenant-a');
+      expect(confirmedAt, now);
     },
   );
 

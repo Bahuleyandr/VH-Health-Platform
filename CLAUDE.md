@@ -114,7 +114,7 @@ npm run build            # prod build
 
 ## Pub workspace invariant
 
-The Flutter side is a Dart pub workspace (Melos 7 + Dart 3.6+). All
+The Flutter side is a Dart pub workspace (Melos 8 + Dart 3.6+). All
 three Flutter packages share one `pubspec.lock` at the repo root.
 
 - Sub-packages depend on `vhhealth_core` by **name**, not path:

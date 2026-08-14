@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/minimum_version_gate_service.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
 import 'package:vhhealth/core/services/push_notification_service.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth_core/config/api_config.dart';
@@ -275,6 +276,9 @@ class _SplashScreenState extends State<SplashScreen>
       final biometricEnabled = await _secureStorage.read(
         key: 'biometric_enabled',
       );
+      final sessionAllowsProtectedAccess = await PatientSessionAuthority
+          .instance
+          .allowsProtectedAccess(jwt);
 
       // Populate UserProvider from storage before navigating off the splash,
       // so route-level screens can read identity from the Provider tree
@@ -290,7 +294,7 @@ class _SplashScreenState extends State<SplashScreen>
       }
 
       // ── 1. Firebase + JWT available → check profile, then dashboard ──
-      if (firebaseUser != null && _hasValidJwtShape(jwt) && mounted) {
+      if (firebaseUser != null && sessionAllowsProtectedAccess && mounted) {
         final name = await _secureStorage.read(key: 'user_name');
         final isNewUser = await _secureStorage.read(key: 'isNewUser');
 
@@ -315,7 +319,7 @@ class _SplashScreenState extends State<SplashScreen>
       // ── 2. Try biometric auth if enabled ──
       if (biometricEnabled == 'true' &&
           phone != null &&
-          _hasValidJwtShape(jwt)) {
+          sessionAllowsProtectedAccess) {
         if (!mounted) return;
         final l = AppLocalizations.of(context)!;
         try {
@@ -362,12 +366,6 @@ class _SplashScreenState extends State<SplashScreen>
     if (mounted) {
       context.go('/login');
     }
-  }
-
-  bool _hasValidJwtShape(String? jwt) {
-    if (jwt == null || jwt.isEmpty) return false;
-    final parts = jwt.split('.');
-    return parts.length == 3 && parts.every((part) => part.isNotEmpty);
   }
 
   Future<void> _openStoreForUpdate() async {

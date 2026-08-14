@@ -25,25 +25,24 @@ export const API_BASE_URL =
   typeof window !== "undefined" ? "/api/proxy" : SERVER_API_BASE_URL;
 
 // WebSocket URL configuration
-export const WS_BASE_URL = 
-  process.env.NEXT_PUBLIC_WS_URL || 
-  SERVER_API_BASE_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+export const WS_BASE_URL =
+  process.env.NEXT_PUBLIC_WS_URL ||
+  SERVER_API_BASE_URL.replace("https://", "wss://").replace("http://", "ws://");
 
 // Origin header for API requests — uses browser origin client-side,
 // falls back to the API base URL server-side (never localhost).
 const DEFAULT_ORIGIN =
-  (typeof window !== "undefined" && window.location.origin) ||
-  API_BASE_URL;
+  (typeof window !== "undefined" && window.location.origin) || API_BASE_URL;
 
 // Single WebSocket endpoint — backend uses channel subscriptions after connecting to /ws
-export const WS_ENDPOINT = '/ws';
+export const WS_ENDPOINT = "/ws";
 
 // Legacy alias — kept for any direct references
 export const WS_ENDPOINTS = {
-  admin:         '/ws',
-  notifications: '/ws',
-  sos:           '/ws',
-  activity:      '/ws',
+  admin: "/ws",
+  notifications: "/ws",
+  sos: "/ws",
+  activity: "/ws",
 };
 
 export const API_ENDPOINTS = {
@@ -92,34 +91,37 @@ export const API_ENDPOINTS = {
   myWork: {
     appointments: {
       todayQueue: "/api/v1/appointments/queue/today", // GET (filtered by token's staff_id)
-      pending: "/api/v1/appointments/pending",         // GET
+      pending: "/api/v1/appointments/pending", // GET
       confirm: (id: number) => `/api/v1/appointments/${id}/confirm`, // POST
       complete: (id: number) => `/api/v1/appointments/${id}/complete`, // POST
-      noShow: (id: number) => `/api/v1/appointments/${id}/no-show`,   // POST
+      noShow: (id: number) => `/api/v1/appointments/${id}/no-show`, // POST
     },
     attendance: {
-      myAttendance: "/api/v1/staff/attendance/my",      // GET
+      myAttendance: "/api/v1/staff/attendance/my", // GET
       regularize: "/api/v1/staff/attendance/regularize", // POST
-      dispute: "/api/v1/staff/attendance/dispute",       // POST
+      dispute: "/api/v1/staff/attendance/dispute", // POST
     },
     leave: {
-      myLeave: "/api/v1/staff/hr/leave/my",   // GET
-      apply: "/api/v1/staff/hr/leave/apply",  // POST
+      myLeave: "/api/v1/staff/hr/leave/my", // GET
+      apply: "/api/v1/staff/hr/leave/apply", // POST
       balance: "/api/v1/staff/hr/leave/balance", // GET
     },
     payslips: {
       list: "/api/v1/staff/hr/payroll/my-payslips", // GET
-      download: (id: string) => `/api/v1/staff/hr/payroll/my-payslips/${id}/download`, // GET
+      download: (id: string) =>
+        `/api/v1/staff/hr/payroll/my-payslips/${id}/download`, // GET
+      password: (id: string) =>
+        `/api/v1/staff/hr/payroll/my-payslips/${encodeURIComponent(id)}/password`, // POST
       taxSummary: "/api/v1/staff/hr/payroll/tax-summary", // GET
     },
     replacements: {
-      list: "/api/v1/staff/replacements/my",   // GET
-      create: "/api/v1/staff/replacements",    // POST
+      list: "/api/v1/staff/replacements/my", // GET
+      create: "/api/v1/staff/replacements", // POST
     },
     prescriptions: {
       completedAppointments: "/api/v1/appointments/completed/recent", // GET
-      upload: "/api/v1/staff/prescriptions/upload",                   // POST (multipart)
-      myUploads: "/api/v1/staff/prescriptions/my",                    // GET
+      upload: "/api/v1/staff/prescriptions/upload", // POST (multipart)
+      myUploads: "/api/v1/staff/prescriptions/my", // GET
     },
   },
 
@@ -128,7 +130,7 @@ export const API_ENDPOINTS = {
     // Core Dashboard
     test: "/api/v1/admin/test", // GET
     dashboard: "/api/v1/admin/dashboard", // GET
-    
+
     // Statistics Endpoints (matching statsService.js)
     stats: {
       quick: "/api/v1/admin/stats/quick", // GET - getQuickStats()
@@ -342,10 +344,10 @@ export const API_ENDPOINTS = {
   // Pharmacy
   // NOTE: Backend mounts pharmacy at /api/v1/pharmacy-orders (not /pharmacy)
   pharmacy: {
-    categories:  "/api/v1/pharmacy-orders/catalog",    // GET
-    orders:      "/api/v1/pharmacy-orders/orders/queue", // GET
-    sla:         "/api/v1/pharmacy-orders/orders/sla",  // GET
-    inventory:   "/api/v1/pharmacy-orders/inventory",  // GET
+    categories: "/api/v1/pharmacy-orders/catalog", // GET
+    orders: "/api/v1/pharmacy-orders/orders/queue", // GET
+    sla: "/api/v1/pharmacy-orders/orders/sla", // GET
+    inventory: "/api/v1/pharmacy-orders/inventory", // GET
   },
 
   // Notifications
@@ -400,12 +402,12 @@ export const API_ENDPOINTS = {
     },
 
     admin: {
-      analytics: { 
-        attendance: "/api/v1/staff/admin/analytics/attendance" 
+      analytics: {
+        attendance: "/api/v1/staff/admin/analytics/attendance",
       },
       dashboard: "/api/v1/staff/admin/dashboard",
-      hr: { 
-        pendingReviews: "/api/v1/staff/admin/hr/pending-reviews" 
+      hr: {
+        pendingReviews: "/api/v1/staff/admin/hr/pending-reviews",
       },
       attendance: {
         anomalies: "/api/v1/staff/admin/attendance/anomalies",
@@ -466,7 +468,8 @@ export const API_ENDPOINTS = {
   billing: {
     createInvoice: "/api/v1/billing/invoice", // POST
     invoiceDetail: (id: number) => `/api/v1/billing/invoice/${id}`, // GET
-    patientInvoices: (patientUid: string) => `/api/v1/billing/invoices/patient/${patientUid}`, // GET
+    patientInvoices: (patientUid: string) =>
+      `/api/v1/billing/invoices/patient/${patientUid}`, // GET
     recordPayment: (id: number) => `/api/v1/billing/invoice/${id}/payment`, // POST
     revenue: "/api/v1/billing/revenue", // GET
     revenueCycle: {
@@ -482,17 +485,17 @@ export const API_ENDPOINTS = {
 
   // EMR (Electronic Medical Records)
   emr: {
-    admissions: "/api/v1/emr/admissions",                          // GET - list active admissions
+    admissions: "/api/v1/emr/admissions", // GET - list active admissions
     admissionDetail: (id: number) => `/api/v1/emr/admission/${id}`, // GET - single admission
-    admissionStats: "/api/v1/emr/admissions/stats",                // GET - ?date_from=&date_to=
-    timeline: (uid: string) => `/api/v1/emr/timeline/${uid}`,      // GET - patient timeline
-    clinicalAiConfig: "/api/v1/emr/clinical-ai/config",            // GET - clinical AI provider status
+    admissionStats: "/api/v1/emr/admissions/stats", // GET - ?date_from=&date_to=
+    timeline: (uid: string) => `/api/v1/emr/timeline/${uid}`, // GET - patient timeline
+    clinicalAiConfig: "/api/v1/emr/clinical-ai/config", // GET - clinical AI provider status
     downtimeSnapshot: (uid: string) => `/api/v1/emr/downtime-snapshot/${uid}`, // POST
-    notes: (uid: string) => `/api/v1/emr/notes/patient/${uid}`,    // GET - clinical notes
-    orders: (uid: string) => `/api/v1/emr/orders/patient/${uid}`,  // GET - clinical orders
+    notes: (uid: string) => `/api/v1/emr/notes/patient/${uid}`, // GET - clinical notes
+    orders: (uid: string) => `/api/v1/emr/orders/patient/${uid}`, // GET - clinical orders
     diagnosis: (uid: string) => `/api/v1/emr/diagnosis/patient/${uid}`, // GET - active problem list
-    cdsAlerts: (uid: string) => `/api/v1/emr/cds/alerts/${uid}`,   // GET - clinical decision support alerts
-    icd10Search: "/api/v1/emr/icd10/search",                      // GET - ?q=search_term
+    cdsAlerts: (uid: string) => `/api/v1/emr/cds/alerts/${uid}`, // GET - clinical decision support alerts
+    icd10Search: "/api/v1/emr/icd10/search", // GET - ?q=search_term
   },
 
   clinical: {
@@ -524,11 +527,11 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/admin/alerts/*",
   "/api/v1/admin/activity/*",
   "/api/v1/admin/reports/*",
-  
+
   // Staff admin routes
   "/api/v1/staff/admin/*",
   "/api/v1/staff/medical/*",
-  
+
   // Other protected routes
   "/api/v1/auth/adminManagement",
   "/api/v1/pharmacy-orders/orders/*",

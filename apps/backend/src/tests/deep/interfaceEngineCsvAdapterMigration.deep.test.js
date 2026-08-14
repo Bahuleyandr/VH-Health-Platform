@@ -80,17 +80,24 @@ describeIfDb('migration 612 I05 CSV adapter', () => {
          VALUES ($1::uuid, $2::text, 'CSV target', 'vh_backend', 'bidirectional', 'active') RETURNING id`,
         [tenant, `${key}-system`],
       );
+      // Deliberately NOT activated — see the note in
+      // src/tests/helpers/interfaceEngineAdapterMigrationContract.js. Migration
+      // 665 (re-planted by 670) only accepts an active channel for a connector
+      // the runtime drives, and `internal_backend` has no driver. This suite
+      // asserts migration 612's ledger and receipt constraints, none of which
+      // read channel status. Activation is asserted in
+      // src/tests/deep/interfaceEngineRuntimeActivation.deep.test.js.
       const channels = await client.query(
         `INSERT INTO interop_channels
            (tenant_id, channel_key, display_name, source_system_id, target_system_id,
             direction, connector_kind, protocol, status, auth_kind)
          VALUES ($1::uuid, $2::text, 'CSV channel', $3::integer, $3::integer,
-                 'bidirectional', 'internal_backend', 'csv', 'active', 'internal') RETURNING id`,
+                 'bidirectional', 'internal_backend', 'csv', 'draft', 'internal') RETURNING id`,
         [tenant, key, systems.rows[0].id],
       );
       const versions = await client.query(
         `INSERT INTO interop_channel_versions (tenant_id, channel_id, version_number, status)
-         VALUES ($1::uuid, $2::integer, 1, 'active') RETURNING id`,
+         VALUES ($1::uuid, $2::integer, 1, 'candidate') RETURNING id`,
         [tenant, channels.rows[0].id],
       );
       return [channels.rows[0].id, versions.rows[0].id];
@@ -219,8 +226,21 @@ describeIfDb('migration 612 I05 CSV adapter', () => {
   });
 
   test('suppresses late inbound effects and late outbound sends independently', async () => {
+    // Two independent guards refuse a late inbound `delivered`, and migration
+    // 665's is now the one that speaks first: BEFORE-row triggers fire in name
+    // order, so `assert_interop_message_delivery_evidence` runs ahead of 611's
+    // `validate_interop_message_recovery_transition`. It refuses because no
+    // accepted same-message receipt exists — and for a `late_pending_only`
+    // message one cannot exist, since `validate_interop_backend_receipt`
+    // requires the applied owner-release proof before it will accept one. The
+    // late-effect fence is asserted directly on `replayed` below, a status
+    // 665's evidence guard does not cover, so both guards stay pinned.
     await expectFailure(client, () => client.query(
       'UPDATE interop_messages SET status = \'delivered\' WHERE tenant_id = $1::uuid AND id = $2::integer',
+      [tenantId, lateInboundId],
+    ), { code: '23514', constraint: 'chk_interop_delivery_acceptance_evidence' });
+    await expectFailure(client, () => client.query(
+      'UPDATE interop_messages SET status = \'replayed\' WHERE tenant_id = $1::uuid AND id = $2::integer',
       [tenantId, lateInboundId],
     ), { code: '23514', constraint: 'chk_interop_message_late_effect_suppression' });
     await expectFailure(client, () => client.query(

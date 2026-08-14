@@ -5,11 +5,10 @@
 // request replayed against a DIFFERENT process is not in that process's empty
 // Map and is accepted again.
 //
-// This proves the SHARED store (DB-backed migration 321 here; Redis SET NX EX
-// when wired) rejects a replay even when the in-process Map is empty — i.e.
-// when the second attempt lands on a "different process". We simulate the
-// second process by clearing the in-memory replayCache between the two
-// attempts, so ONLY the shared store can catch the replay.
+// This proves the durable DB authority (migration 321) rejects a replay even
+// when the in-process Map is empty — i.e. when the second attempt lands on a
+// "different process". We simulate that by clearing replayCache between the
+// two attempts; the post-claim Redis marker is not an authority.
 //
 // Needs the test Postgres (DATABASE_URL / TEST_DATABASE_URL). Self-skips when
 // unconfigured.

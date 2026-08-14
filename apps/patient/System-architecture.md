@@ -43,7 +43,7 @@ features/<name>/
 
 **God-class prevention:** Large screens are split into tab widgets that manage their own state and API calls. The parent screen acts as a coordinator (tab controller, shared callbacks). Examples:
 - `PharmacyScreen` (71 lines) → `OrderFormTab` + `OrderListTab` + `OrderStatusWidgets`
-- `YourHealthScreen` (430 lines) → `PrescriptionsTab` + `ConsultationsTab` + `HealthSummaryTab` + `HospitalDocumentsTab` + `MyUploadsTab`
+- `YourHealthScreen` → `PrescriptionsTab` + `ConsultationNotesTab` + `HealthSummaryTab` + `HospitalDocumentsTab` + `MyUploadsTab`
 
 ### 2. State Management Layer (Providers)
 

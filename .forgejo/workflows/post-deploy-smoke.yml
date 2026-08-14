@@ -26,11 +26,11 @@ jobs:
       SENTRY_DSN_STAFF: ${{ secrets.SENTRY_DSN_STAFF }}
       SENTRY_SMOKE_REQUIRED: ${{ secrets.SENTRY_SMOKE_REQUIRED }}
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@v4
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - uses: https://data.forgejo.org/actions/setup-node@v4
+      - uses: https://data.forgejo.org/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '26.5.0'
 
@@ -41,6 +41,7 @@ jobs:
           --mode post-deploy-smoke
           --allow-skip
           --summary-file output/post-deploy-smoke/SKIPPED.md
+          --result-file output/post-deploy-smoke/deployment-status.json
 
       - name: Run post-deploy smoke
         if: steps.preflight.outputs.skip != 'true'
@@ -48,7 +49,7 @@ jobs:
 
       - name: Upload post-deploy smoke report
         if: always()
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
         with:
           name: post-deploy-smoke
           path: output/post-deploy-smoke

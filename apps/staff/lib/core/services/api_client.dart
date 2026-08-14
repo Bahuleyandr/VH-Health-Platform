@@ -58,12 +58,16 @@ class ApiClient {
     bool auth = true,
     Duration? timeout,
     String? idempotencyKey,
+    bool retryTransientFailures = true,
+    bool refreshOnUnauthorized = true,
   }) => VHHttpClient.post(
     path,
     body: body,
     auth: auth,
     timeout: timeout,
     idempotencyKey: idempotencyKey,
+    retryTransientFailures: retryTransientFailures,
+    refreshOnUnauthorized: refreshOnUnauthorized,
   );
 
   static Future<ApiResponse> put(

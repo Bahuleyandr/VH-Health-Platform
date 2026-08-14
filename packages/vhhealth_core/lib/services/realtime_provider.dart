@@ -10,6 +10,8 @@
 // out and back in, and nothing ever closes the socket. Centralising in a
 // provider makes the whole lifecycle one place to reason about.
 
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import 'auth_service.dart';
@@ -21,10 +23,28 @@ class RealtimeProvider extends ChangeNotifier {
       onSessionExpired?.call();
       notifyListeners();
     };
+    _connected =
+        RealtimeClient.instance.connectionState ==
+        RealtimeConnectionState.connected;
+    _connectionSubscription = RealtimeClient.instance.onConnectionStateChange
+        .listen((state) {
+          final connected = state == RealtimeConnectionState.connected;
+          if (_connected == connected) return;
+          _connected = connected;
+          notifyListeners();
+        });
+    _subscribedSubscription = RealtimeClient.instance.onSubscribedChannelsChange
+        .listen((_) => notifyListeners());
   }
 
   bool _connected = false;
   bool get isConnected => _connected;
+  StreamSubscription<RealtimeConnectionState>? _connectionSubscription;
+  StreamSubscription<Set<String>>? _subscribedSubscription;
+
+  /// True only after the backend has acknowledged this channel subscription.
+  bool isSubscribed(String channel) =>
+      RealtimeClient.instance.isSubscribed(channel);
 
   /// Connect if a JWT is present. Safe to call multiple times — the
   /// underlying client is a singleton with idempotent `connect()`.
@@ -32,10 +52,6 @@ class RealtimeProvider extends ChangeNotifier {
     final jwt = await AuthService.getJwt();
     if (jwt == null || jwt.isEmpty) return;
     await RealtimeClient.instance.connect();
-    if (!_connected) {
-      _connected = true;
-      notifyListeners();
-    }
   }
 
   /// Tear down on logout. Call before clearing the JWT so any last-breath
@@ -58,8 +74,13 @@ class RealtimeProvider extends ChangeNotifier {
     broadcastChannel: broadcastChannel,
   );
 
+  void unsubscribe(String channel) =>
+      RealtimeClient.instance.unsubscribe(channel);
+
   @override
   void dispose() {
+    _connectionSubscription?.cancel();
+    _subscribedSubscription?.cancel();
     RealtimeClient.instance.onSessionExpired = null;
     super.dispose();
   }

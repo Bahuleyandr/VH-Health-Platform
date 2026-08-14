@@ -6,33 +6,55 @@
 // the per-device AES key (`cache_aes_key`) can be created/read without the
 // native plugin.
 
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/services/patient_session_authority.dart';
 
-void _installSecureStorageFake() {
-  const channel = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+import '../../support/patient_session_test_authority.dart';
+
+class _SecureStorageFake {
   final Map<String, String> store = {};
+  final Completer<void> allowReads = Completer<void>();
+  bool delayReads = false;
+  bool failKeyDelete = false;
+  int keyReads = 0;
+  int keyWrites = 0;
+}
+
+void _installSecureStorageFake(_SecureStorageFake fake) {
+  const channel = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
 
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(channel, (MethodCall call) async {
         final args = Map<String, dynamic>.from(call.arguments as Map);
         switch (call.method) {
           case 'read':
-            return store[args['key']];
+            if (args['key'] == 'cache_aes_key') {
+              fake.keyReads += 1;
+              if (fake.delayReads) await fake.allowReads.future;
+            }
+            return fake.store[args['key']];
           case 'write':
-            store[args['key']] = args['value'] as String;
+            if (args['key'] == 'cache_aes_key') fake.keyWrites += 1;
+            fake.store[args['key']] = args['value'] as String;
             return null;
           case 'delete':
-            store.remove(args['key']);
+            if (args['key'] == 'cache_aes_key' && fake.failKeyDelete) {
+              throw PlatformException(code: 'secure-storage-unavailable');
+            }
+            fake.store.remove(args['key']);
             return null;
           case 'readAll':
-            return Map<String, String>.from(store);
+            return Map<String, String>.from(fake.store);
           case 'deleteAll':
-            store.clear();
+            fake.store.clear();
             return null;
           case 'containsKey':
-            return store.containsKey(args['key']);
+            return fake.store.containsKey(args['key']);
           default:
             return null;
         }
@@ -42,9 +64,42 @@ void _installSecureStorageFake() {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(_installSecureStorageFake);
+  late Directory tempDir;
+  late _SecureStorageFake storage;
+
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('api_cache_key_test_');
+    storage = _SecureStorageFake();
+    _installPathProviderFake(tempDir.path);
+    _installSecureStorageFake(storage);
+    await ApiCacheManager.clearAll();
+    installCurrentPatientSessionAuthority();
+    storage.keyReads = 0;
+    storage.keyWrites = 0;
+  });
+
+  tearDown(() async {
+    PatientSessionAuthority.resetAfterTesting();
+    await ApiCacheManager.clearAll();
+    if (await tempDir.exists()) await tempDir.delete(recursive: true);
+  });
 
   group('ApiCacheManager byte encryption', () {
+    test('refuses to decrypt PHI without local session authority', () async {
+      final encrypted = await ApiCacheManager.encryptBytes([1, 2, 3]);
+      PatientSessionAuthority.setForTesting(
+        PatientSessionAuthority.forTesting(
+          read: (_) async => null,
+          write: (_, _) async {},
+        ),
+      );
+
+      expect(
+        () => ApiCacheManager.decryptBytes(encrypted),
+        throwsA(isA<StateError>()),
+      );
+    });
+
     test('round-trips arbitrary PHI bytes', () async {
       final plain = Uint8List.fromList(
         List<int>.generate(5000, (i) => (i * 7 + 13) % 256),
@@ -123,5 +178,107 @@ void main() {
         throwsA(isA<FormatException>()),
       );
     });
+
+    test('concurrent first use initializes exactly one shared key', () async {
+      storage.delayReads = true;
+      final encryptions = List.generate(
+        8,
+        (index) => ApiCacheManager.encryptBytes(<int>[index, 7, 9]),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(storage.keyReads, 1);
+      storage.allowReads.complete();
+      final encrypted = await Future.wait(encryptions);
+
+      expect(storage.keyWrites, 1);
+      for (var i = 0; i < encrypted.length; i++) {
+        expect(await ApiCacheManager.decryptBytes(encrypted[i]), <int>[
+          i,
+          7,
+          9,
+        ]);
+      }
+    });
+
+    test('logout teardown destroys and rotates the cache key', () async {
+      final encryptedUnderFirstSession = await ApiCacheManager.encryptBytes(
+        <int>[1, 2, 3, 4],
+      );
+      final firstKey = storage.store['cache_aes_key'];
+
+      await ApiCacheManager.clearAll();
+      final encryptedUnderSecondSession = await ApiCacheManager.encryptBytes(
+        <int>[5, 6, 7, 8],
+      );
+      final secondKey = storage.store['cache_aes_key'];
+
+      expect(secondKey, isNot(equals(firstKey)));
+      expect(
+        () => ApiCacheManager.decryptBytes(encryptedUnderFirstSession),
+        throwsA(anything),
+      );
+      expect(
+        await ApiCacheManager.decryptBytes(encryptedUnderSecondSession),
+        <int>[5, 6, 7, 8],
+      );
+    });
+
+    test('cold restart reloads the persisted key', () async {
+      final encrypted = await ApiCacheManager.encryptBytes(<int>[8, 6, 7, 5]);
+      final persistedKey = storage.store['cache_aes_key'];
+
+      await ApiCacheManager.debugForgetInMemoryKey();
+
+      expect(await ApiCacheManager.decryptBytes(encrypted), <int>[8, 6, 7, 5]);
+      expect(storage.store['cache_aes_key'], persistedKey);
+      expect(storage.keyWrites, 1);
+      expect(storage.keyReads, 2);
+    });
+
+    test('logout wins a race with concurrent first key use', () async {
+      storage.delayReads = true;
+      final encryption = ApiCacheManager.encryptBytes(<int>[1, 9, 9]);
+      await Future<void>.delayed(Duration.zero);
+      expect(storage.keyReads, 1);
+
+      final teardown = ApiCacheManager.clearAll();
+      storage.allowReads.complete();
+
+      await expectLater(encryption, throwsA(isA<StateError>()));
+      await teardown;
+      expect(storage.store['cache_aes_key'], isNull);
+
+      final nextSession = await ApiCacheManager.encryptBytes(<int>[2, 0, 0]);
+      expect(await ApiCacheManager.decryptBytes(nextSession), <int>[2, 0, 0]);
+      expect(storage.store['cache_aes_key'], isNotNull);
+    });
+
+    test('cache files are wiped even when secure key deletion fails', () async {
+      await ApiCacheManager.save('/patient/phi', <String, dynamic>{
+        'record': 'sensitive',
+      });
+      final cacheDir = Directory(
+        '${tempDir.path}${Platform.pathSeparator}vhhealth'
+        '${Platform.pathSeparator}api_cache',
+      );
+      expect(await cacheDir.exists(), isTrue);
+
+      storage.failKeyDelete = true;
+      await ApiCacheManager.clearAll();
+
+      expect(await cacheDir.exists(), isFalse);
+    });
   });
+}
+
+void _installPathProviderFake(String documentsPath) {
+  const channel = MethodChannel('plugins.flutter.io/path_provider');
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(channel, (MethodCall call) async {
+        if (call.method == 'getApplicationDocumentsDirectory') {
+          return documentsPath;
+        }
+        return null;
+      });
 }

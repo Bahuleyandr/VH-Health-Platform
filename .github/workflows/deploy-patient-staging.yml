@@ -43,6 +43,22 @@ jobs:
   build-and-distribute:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Minimum-version signing trust must be stamped on EVERY patient artifact
+    # this repo produces, not just tagged releases.
+    #
+    # `MinimumVersionPolicyTrust.fromBuild()` reads these four dart-defines and
+    # deliberately has no repository default, so an APK built without them
+    # carries an EMPTY trust map and can never verify the signed
+    # `minimum_version_policy` envelope that GET /api/v1/config serves. Against
+    # a backend that has the gate switched on, such a build burns the 24h
+    # bootstrap grace and then blocks every staging tester at the splash screen
+    # — SOS included. Same four values as release-patient.yml, same repository
+    # variables, so staging and release trust the same operator-owned keys.
+    env:
+      PATIENT_MIN_VERSION_CURRENT_KEY_ID: ${{ vars.PATIENT_MIN_VERSION_CURRENT_KEY_ID }}
+      PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64: ${{ vars.PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64 }}
+      PATIENT_MIN_VERSION_NEXT_KEY_ID: ${{ vars.PATIENT_MIN_VERSION_NEXT_KEY_ID }}
+      PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64: ${{ vars.PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64 }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -58,6 +74,27 @@ jobs:
           # Pinned to the workspace toolchain (_reusable-flutter-workspace.yml + ci.yml) — bump all together.
           flutter-version: 3.44.0
           cache: true
+
+      # GitHub-hosted runner images do not put `sdkmanager` on PATH, so the
+      # API 37 install below exited 127 ("sdkmanager: command not found").
+      # Provision the Android command-line tools explicitly and accept the SDK
+      # licences non-interactively. MUST stay ahead of every sdkmanager and
+      # Gradle/flutter-build step in this job.
+      - name: Provision Android command-line tools
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          # 15859902 == cmdline-tools 22.0, the build `cmdline-tools;latest`
+          # currently resolves to. Pinned by build number rather than tracking
+          # a moving channel — and it must not age backwards either:
+          # `platforms;android-37.0` is absent from the v1 SDK repository index
+          # and only resolvable by an sdkmanager that reads the v3 index.
+          cmdline-tools-version: '15859902'
+          # platform-tools only. The API 37 platform and build-tools stay
+          # pinned in the step below, which remains the single place naming
+          # them.
+          packages: platform-tools
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
       - name: Install Android API 37 toolchain
         run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
@@ -80,9 +117,31 @@ jobs:
       - name: Codegen (regenerate Dart client from synced spec)
         run: melos run codegen
 
+      # Same validator release-patient.yml runs. Exits 0 with "HELD" when all
+      # four are unset (the approved pre-activation state), and fails the build
+      # on a half-configured or malformed pair rather than shipping an APK that
+      # silently trusts nothing.
+      - name: Validate patient minimum-version signing trust
+        run: |
+          set -euo pipefail
+          node scripts/validate-patient-minimum-version-trust.mjs \
+            --current-key-id "${PATIENT_MIN_VERSION_CURRENT_KEY_ID}" \
+            --current-public-key "${PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64}" \
+            --next-key-id "${PATIENT_MIN_VERSION_NEXT_KEY_ID}" \
+            --next-public-key "${PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64}"
+
+      # An EMPTY value is safe for these four specifically (unlike the tenant
+      # and Firebase defines): MinimumVersionPolicyTrust skips a pair whose id
+      # and key are both empty, so an unset variable stamps "no trust anchor"
+      # rather than a bogus one.
       - name: Build profile APK
         working-directory: apps/patient
-        run: flutter build apk --profile --split-per-abi
+        run: >
+          flutter build apk --profile --split-per-abi
+          --dart-define=VH_PATIENT_MIN_VERSION_CURRENT_KEY_ID="${PATIENT_MIN_VERSION_CURRENT_KEY_ID}"
+          --dart-define=VH_PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64="${PATIENT_MIN_VERSION_CURRENT_PUBLIC_KEY_BASE64}"
+          --dart-define=VH_PATIENT_MIN_VERSION_NEXT_KEY_ID="${PATIENT_MIN_VERSION_NEXT_KEY_ID}"
+          --dart-define=VH_PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64="${PATIENT_MIN_VERSION_NEXT_PUBLIC_KEY_BASE64}"
 
       - name: Check Firebase credentials
         id: fb

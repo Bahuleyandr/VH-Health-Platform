@@ -704,4 +704,12 @@ class _FakeClinicalInboxApi extends ClinicalInboxApi {
       replayed: false,
     );
   }
+
+  @override
+  Future<DiagnosticActionReceipt> reopenDiagnosticResult({
+    required String generationId,
+    required String reason,
+  }) {
+    throw UnsupportedError('Reopen is outside this screen fixture');
+  }
 }

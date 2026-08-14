@@ -17,13 +17,14 @@
  * If images still don't show:
  * 1. Check browser console for 404 errors
  * 2. Verify exact file names (case-sensitive)
- * 3. Try accessing directly: http://localhost:3000/images/hospital-logo.png
+ * 3. Try accessing directly: http://localhost:3001/images/hospital-logo.png
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
 import { FileKey2, KeyRound } from "lucide-react";
+import { IDLE_SIGN_OUT_WARNING_KEY } from "@/lib/api-client";
 import styles from "./Login.module.css";
 
 type SsoProvider = {
@@ -87,6 +88,20 @@ function LoginInner() {
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
+    try {
+      const idleWarning = sessionStorage.getItem(IDLE_SIGN_OUT_WARNING_KEY);
+      if (idleWarning) {
+        setError(idleWarning);
+        sessionStorage.removeItem(IDLE_SIGN_OUT_WARNING_KEY);
+      } else if (
+        new URLSearchParams(window.location.search).get("reason") === "idle"
+      ) {
+        setError("You were signed out after a period of inactivity.");
+      }
+    } catch {
+      // Password login remains usable when browser storage is unavailable.
+    }
+
     // Check for saved credentials
     const saved = localStorage.getItem("vh:remember");
     const savedUser = localStorage.getItem("vh:savedUsername");
@@ -103,7 +118,9 @@ function LoginInner() {
   useEffect(() => {
     let active = true;
     const loadProviders = async (protocol: SsoProvider["protocol"]) => {
-      const response = await fetch(`/api/login/sso/${protocol}/providers`, { cache: "no-store" });
+      const response = await fetch(`/api/login/sso/${protocol}/providers`, {
+        cache: "no-store",
+      });
       if (!response.ok) return [];
       const body = await response.json();
       const providers = body?.data?.providers ?? body?.providers ?? [];
@@ -113,7 +130,9 @@ function LoginInner() {
           const item = provider as Partial<SsoProvider>;
           return {
             provider_key: String(item.provider_key || "").trim(),
-            display_name: String(item.display_name || item.provider_key || "").trim(),
+            display_name: String(
+              item.display_name || item.provider_key || "",
+            ).trim(),
             protocol,
           };
         })
@@ -366,8 +385,7 @@ function LoginInner() {
                 disabled={disabled}
                 onClick={() => {
                   setError("");
-                  window.location.href =
-                    `/api/login/sso/${provider.protocol}/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
+                  window.location.href = `/api/login/sso/${provider.protocol}/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
                 }}
               >
                 {provider.protocol === "saml" ? (
@@ -537,13 +555,6 @@ function LoginInner() {
               />
               Remember me
             </label>
-            <button
-              type="button"
-              className={styles.forgotLink}
-              onClick={() => {}}
-            >
-              Forgot password?
-            </button>
           </div>
 
           {/* Submit Button */}

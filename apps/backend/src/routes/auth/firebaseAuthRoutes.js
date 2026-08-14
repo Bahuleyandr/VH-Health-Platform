@@ -5,7 +5,7 @@
 import express from 'express';
 import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
+import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as firebaseAuthController from '../../controllers/auth/firebaseAuthController.js';
 import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
@@ -166,61 +166,6 @@ wrapRoutesWithValidation(
     requireUID: false,
     requirePhone: false,
     skipAudit: false
-  }
-);
-
-// This router is mounted before the global JWT middleware.
-router.use('/admin', jwtAuth, enforceFullScope);
-
-// Admin Routes for Firebase Management
-wrapAutoRBAC(
-  router,
-  'firebaseAdminRoutes',
-  {
-    get: [
-      // Firebase Users List
-      [
-        '/admin/users',
-        async (_req, res) => {
-          // No Firebase user-directory implementation exists yet.
-          error(res, 'Not implemented', 501);
-        }
-      ],
-
-      // Device Management
-      [
-        '/admin/devices',
-        async (req, res) => {
-          // No device-registry implementation exists yet.
-          error(res, 'Not implemented', 501);
-        }
-      ]
-    ],
-
-    post: [
-      // Revoke All User Tokens
-      [
-        '/admin/revoke-user-tokens',
-        async (req, res) => {
-          error(res, 'Not implemented', 501);
-        }
-      ],
-
-      // Cleanup Inactive Devices
-      [
-        '/admin/cleanup-devices',
-        async (req, res) => {
-          error(res, 'Not implemented', 501);
-        }
-      ]
-    ]
-  },
-  {
-    requireUID: true,
-    requirePhone: false,
-    auditLog: true,
-    rateLimiting: true,
-    roles: ['ADMIN']
   }
 );
 

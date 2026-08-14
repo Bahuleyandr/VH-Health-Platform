@@ -20,6 +20,14 @@ import {
   resolveInteropCredentialSnapshot,
   upsertInteropSecret,
 } from '../services/interop/tenantInteropSecretService.js';
+import { enableHl7InboundForTest } from './helpers/hl7InboundTestEnv.js';
+
+// The I03 ingress is authoritative on HL7_INBOUND_ENABLED and fails closed
+// when it is not exactly 'true'; declare the interface ON to exercise it. The
+// refused-while-off contract lives in hl7-inbound-disabled.deep.test.js.
+// The helper supplies HL7_INBOUND_SHARED_SECRET with the flag — validateEnv
+// requires the pair, and a test that splits them exits the worker outright.
+enableHl7InboundForTest();
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -141,6 +149,29 @@ function adt(patientUid, controlId) {
 }
 
 async function cleanup() {
+  const receipts = await prisma.$queryRawUnsafe(
+    `SELECT timeline_event_id::text, audit_event_id::text
+       FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_A,
+    PATIENT_B,
+  ).catch(() => []);
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM hl7_inbound_clinical_receipts
+      WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+    PATIENT_A,
+    PATIENT_B,
+  ).catch(() => {});
+  for (const receipt of receipts) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_audit_events WHERE id = $1::uuid`,
+      receipt.audit_event_id,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_timeline_events WHERE id = $1::uuid`,
+      receipt.timeline_event_id,
+    ).catch(() => {});
+  }
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid IN ($1::uuid,$2::uuid)`, PATIENT_A, PATIENT_B).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM interop_replay_guard WHERE namespace = 'hl7-inbound'`).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM tenant_interop_secrets WHERE sender_identifier = $1`, FACILITY).catch(() => {});

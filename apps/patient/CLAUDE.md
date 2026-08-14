@@ -30,7 +30,6 @@ lib/
       device_service.dart      # Device registration, heartbeat, FCM token updates
       feedback_api_service.dart # Feedback history, stats, quick-rating
       firebase_session_service.dart # FCM token update, session revoke
-      shared_prefs_service.dart # SharedPreferences wrapper
       sos_api_service.dart     # SOS alerts, emergency contacts, nearby services, medical info
       sos_service.dart         # High-level SOS trigger (location + API call)
     providers/
@@ -64,7 +63,6 @@ lib/
       permissions_service.dart # Runtime permission requests
     offline/
       record_cache_manager.dart  # Offline record caching
-      record_cache_manifest.dart # Cache manifest tracking
   features/                    # One folder per feature. Each follows the
                                # docs/FEATURE_STRUCTURE.md shape: screens/
                                # (route-level widgets), widgets/ (feature-
@@ -74,7 +72,6 @@ lib/
     about/                     # About Us screen (contact info, map, emergency numbers)
     appointments/              # Book appointments + My Appointments (two tab widgets, shared models/)
     auth/                      # LoginScreen, TermsDisclaimerScreen, Firebase OTP flow
-    bootstrap/                 # permission_gate.dart — runtime permission gate on first launch
     calendar/                  # Calendar view (appointments + investigations + pharmacy orders)
     chatbot/                   # Symptom checker
     dashboard/                 # Home screen: circular dial + contextual smart widgets
@@ -417,7 +414,7 @@ Real tests live under `test/`. Pure-Dart unit tests need no plugin mocks:
 Run with `flutter test`.
 
 Mock-heavy tests (Firebase auth, ApiClient single-flight 401 refresh,
-`SharedPrefsService`, offline mutation queue, multipart pharmacy upload)
+offline mutation queue, multipart pharmacy upload)
 need plugin-channel mock setup that isn't in place yet — see
 `test/README.md` for the prioritised list.
 

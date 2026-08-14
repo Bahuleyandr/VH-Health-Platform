@@ -125,12 +125,23 @@ export function defineI05AdapterRecoveryContract({
           `${protocol}-recovery-target-${suffix}`,
         );
         systemId = systems[0].id;
+        // Deliberately NOT activated. Migration 665 (re-planted by 670) only
+        // accepts `status = 'active'` for a connector the runtime drives —
+        // `http_inbound` (hl7v2 only) or `http_outbound` — and `internal_backend`
+        // has no driver anywhere in the repo, which is why
+        // `assertConnectorCanActivate` in
+        // services/interfaceEngine/runtimePolicy.js already refuses it on the
+        // admin activation path. This contract asserts that late I05 work is
+        // HELD with no effect and no send; nothing in
+        // `persistLateInterfaceEngineRecovery` reads the channel's status.
+        // Activation is asserted in
+        // src/tests/deep/interfaceEngineRuntimeActivation.deep.test.js.
         const channels = await tx.$queryRawUnsafe(
           `INSERT INTO interop_channels
              (tenant_id, channel_key, display_name, source_system_id, target_system_id,
               direction, connector_kind, protocol, status, auth_kind)
            VALUES ($1::uuid, $2::text, 'I05 recovery channel', $3::integer, $3::integer,
-                   'bidirectional', 'internal_backend', $4::text, 'active', 'internal') RETURNING id`,
+                   'bidirectional', 'internal_backend', $4::text, 'draft', 'internal') RETURNING id`,
           tenantId,
           `${protocol}-recovery-channel-${suffix}`,
           systemId,
@@ -140,7 +151,7 @@ export function defineI05AdapterRecoveryContract({
         const versions = await tx.$queryRawUnsafe(
           `INSERT INTO interop_channel_versions
              (tenant_id, channel_id, version_number, status, routing_policy, transform_dsl)
-           VALUES ($1::uuid, $2::integer, 1, 'active',
+           VALUES ($1::uuid, $2::integer, 1, 'candidate',
                    jsonb_build_object('adapter', $3::text),
                    jsonb_build_object('kind', $4::text)) RETURNING id`,
           tenantId,
@@ -149,12 +160,6 @@ export function defineI05AdapterRecoveryContract({
           `${protocol}-to-backend-adapter`,
         );
         versionId = versions[0].id;
-        await tx.$executeRawUnsafe(
-          'UPDATE interop_channels SET active_version_id = $3::integer WHERE tenant_id = $1::uuid AND id = $2::integer',
-          tenantId,
-          channelId,
-          versionId,
-        );
       });
     });
 

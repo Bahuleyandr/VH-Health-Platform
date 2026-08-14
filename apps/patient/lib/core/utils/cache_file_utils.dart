@@ -55,8 +55,8 @@ class CacheFileUtils {
   }
 
   static Future<File?> downloadAndCacheFile(String fileKey, String url) async {
+    final session = CacheProfileScope.current();
     try {
-      final file = await _getLocalFile(fileKey);
       // Backend PHI URLs go through the SPKI-pinned client (auth + 401-refresh);
       // off-host URLs (e.g. pre-signed R2) keep a plain GET since pinning to the
       // API host would be wrong for them.
@@ -78,8 +78,11 @@ class CacheFileUtils {
         final encrypted = await ApiCacheManager.encryptBytes(
           response.bodyBytes,
         );
-        await file.writeAsBytes(encrypted, flush: true);
-        return file;
+        return ApiCacheManager.writeForSession(session, () async {
+          final file = await _getLocalFile(fileKey);
+          await file.writeAsBytes(encrypted, flush: true);
+          return file;
+        });
       }
     } catch (e) {
       debugPrint('Download and cache file failed: $e');
@@ -92,11 +95,14 @@ class CacheFileUtils {
     String fileName,
     List<int> bytes,
   ) async {
+    final session = CacheProfileScope.current();
     try {
-      final file = await _getLocalFile(fileName);
       final encrypted = await ApiCacheManager.encryptBytes(bytes);
-      await file.writeAsBytes(encrypted, flush: true);
-      return file;
+      return ApiCacheManager.writeForSession(session, () async {
+        final file = await _getLocalFile(fileName);
+        await file.writeAsBytes(encrypted, flush: true);
+        return file;
+      });
     } catch (e) {
       debugPrint('Save bytes to cache failed: $e');
       return null;
@@ -131,19 +137,26 @@ class CacheFileUtils {
   /// ([DocStaging]). The staging name keeps the original extension so the
   /// viewer recognises the type.
   static Future<void> openCachedFile(String cachePath) async {
+    final session = CacheProfileScope.current();
+    File? staged;
+    var opened = false;
     try {
       final encrypted = File(cachePath);
       if (!await encrypted.exists()) return;
       final plainBytes = await ApiCacheManager.decryptBytes(
         await encrypted.readAsBytes(),
       );
-      final staged = await DocStaging.writePlaintext(
+      staged = await DocStaging.writePlaintext(
         safeFileName(cachePath.split(Platform.pathSeparator).last),
         plainBytes,
+        profile: session,
       );
-      await OpenFilex.open(staged.path);
+      final result = await OpenFilex.open(staged.path);
+      opened = result.type == ResultType.done;
     } catch (e) {
       debugPrint('Error opening file: $e');
+    } finally {
+      if (!opened && staged != null) await DocStaging.delete(staged);
     }
   }
 
