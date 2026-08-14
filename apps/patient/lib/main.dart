@@ -281,6 +281,7 @@ class VHRoot extends StatefulWidget {
 class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
   late final RealtimeProvider _realtimeProvider;
   late final WebSocketProvider _webSocketProvider;
+  late final NotificationProvider _notificationProvider;
   late final PatientRealtimeLifecycle _realtimeLifecycle;
   StreamSubscription<bool>? _realtimeConnectivitySubscription;
 
@@ -297,6 +298,13 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
       onSessionExpired: handlePatientSessionExpired,
     );
     _webSocketProvider = WebSocketProvider(realtimeProvider: _realtimeProvider);
+    // Realtime notification events must move the unread badge live, not just
+    // on the next poll: NotificationProvider drains the WebSocket buffer on
+    // every notification event (and keeps that buffer from growing for the
+    // life of the session). This wire died when websocket_service.dart was
+    // deleted in the #867 realtime consolidation.
+    _notificationProvider = NotificationProvider()
+      ..bindWebSocket(_webSocketProvider);
     _realtimeLifecycle = PatientRealtimeLifecycle.instance;
     _realtimeLifecycle.attach(
       owner: this,
@@ -368,6 +376,7 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _realtimeConnectivitySubscription?.cancel();
     _realtimeLifecycle.detach(this);
+    _notificationProvider.dispose();
     _webSocketProvider.dispose();
     _realtimeProvider.dispose();
     unawaited(RealtimeClient.instance.disconnect());
@@ -403,7 +412,11 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
-        ChangeNotifierProvider(create: (_) => NotificationProvider()),
+        // Owned by this State (not `create:`) because it is wired to
+        // _webSocketProvider in initState — see bindWebSocket above.
+        ChangeNotifierProvider<NotificationProvider>.value(
+          value: _notificationProvider,
+        ),
         ChangeNotifierProvider(create: (_) => UserProvider()),
         ChangeNotifierProvider(create: (_) => DependentsProvider()),
         // Realtime fabric lifecycle owner. Widgets listen via
