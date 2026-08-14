@@ -12,6 +12,7 @@ const nothingSelected = {
   admin: false,
   flutter: false,
   contracts: false,
+  gateway: false,
   infra: false,
 };
 
@@ -25,6 +26,16 @@ test('quick gate requires only selected affected jobs', () => {
   ]);
 });
 
+test('quick gate requires the device-gateway job when selected', () => {
+  const selected = { ...nothingSelected, gateway: true, contracts: true };
+  assert.deepEqual(expectedCanonicalJobs({ tier: 'quick', selected }), [
+    'plan',
+    'security',
+    'quick_contracts',
+    'quick_gateway',
+  ]);
+});
+
 test('full gate requires every parallel stack', () => {
   assert.deepEqual(expectedCanonicalJobs({ tier: 'full', selected: nothingSelected }), [
     'plan',
@@ -34,6 +45,7 @@ test('full gate requires every parallel stack', () => {
     'full_admin',
     'full_flutter',
     'full_contracts',
+    'full_gateway',
     'full_infra',
   ]);
 });

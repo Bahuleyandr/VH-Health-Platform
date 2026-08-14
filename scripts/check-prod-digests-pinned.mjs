@@ -38,7 +38,17 @@ export const ENVIRONMENT_ROOTS = [
   'infra/kubernetes/overlays/dev',
 ];
 
-export const VERIFIED_ROOTS = [...PRODUCTION_ROOTS, ...ENVIRONMENT_ROOTS];
+// Staging app-tier overlay. deploy-staging.yml writes its `images:` digests;
+// until a manual staging dispatch resolves signed/scanned release tags they
+// are the same deliberate all-zero fail-closed holds as the production apps
+// root, so its rendered occurrences carry the mirrored held inventory below.
+// Verified here so a drifting or unauthorized staging pin is caught exactly
+// like a production one.
+export const STAGING_APP_ROOTS = [
+  'infra/kubernetes/overlays/staging/apps',
+];
+
+export const VERIFIED_ROOTS = [...PRODUCTION_ROOTS, ...ENVIRONMENT_ROOTS, ...STAGING_APP_ROOTS];
 
 export const ZERO_DIGEST = `sha256:${'0'.repeat(64)}`;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
@@ -57,7 +67,7 @@ const heldStaffWeb = `ghcr.io/bahuleyandr/vhhealth-staff-web@${ZERO_DIGEST}`;
 // have made an ordinary sync perform an irreversible pg_upgrade.
 const heldActivePostgres = `ghcr.io/cloudnative-pg/postgresql:17.10-standard-bookworm@${ZERO_DIGEST}`;
 
-export const HELD_APP_OCCURRENCES = Object.freeze([
+const HELD_APPS_ROOT_OCCURRENCES = Object.freeze([
   {
     target: 'infra/kubernetes/apps',
     resourceKind: 'Deployment',
@@ -112,6 +122,10 @@ export const HELD_APP_OCCURRENCES = Object.freeze([
     field: 'image',
     ref: heldBackend,
   },
+]);
+
+export const HELD_APP_OCCURRENCES = Object.freeze([
+  ...HELD_APPS_ROOT_OCCURRENCES,
   {
     target: 'infra/kubernetes/overlays/prod',
     resourceKind: 'Cluster',
@@ -121,6 +135,12 @@ export const HELD_APP_OCCURRENCES = Object.freeze([
     field: 'imageName',
     ref: heldActivePostgres,
   },
+  // The staging app-tier overlay re-renders the apps root workloads with its
+  // own (currently also all-zero fail-closed) digests, so every held
+  // apps-root occurrence appears exactly once more under the staging target.
+  // Derived, not restated, so the two inventories cannot drift apart.
+  ...HELD_APPS_ROOT_OCCURRENCES.map((occurrence) =>
+    Object.freeze({ ...occurrence, target: 'infra/kubernetes/overlays/staging/apps' })),
 ]);
 
 export const HELD_APP_REFERENCES = new Set(HELD_APP_OCCURRENCES.map(({ ref }) => ref));
@@ -761,7 +781,7 @@ async function main() {
       `[check-prod-digests] verified ${result.verified.length} active unique tag@digest pin(s) ` +
         `across ${result.activeOccurrences.length} Kustomize-controlled or scheduled-proof-synthesized ` +
         `image-field occurrence(s) (${activeFields.join(', ')}) from ${PRODUCTION_ROOTS.length} ` +
-        `production + ${ENVIRONMENT_ROOTS.length} non-production roots; ` +
+        `production + ${ENVIRONMENT_ROOTS.length + STAGING_APP_ROOTS.length} non-production roots; ` +
         `${result.held.length} platform-owned application/database pin(s) remain deliberately held ` +
         `fail-closed across the exact ${result.heldOccurrences.length} rendered workload occurrence(s). ` +
         `Helm chart-generated workloads are outside this proof.`,

@@ -8,7 +8,7 @@ import {
   stagesForChangedFiles,
 } from './stage-selection.mjs';
 
-const selectableStages = ['security', 'contracts', 'backend', 'fhir', 'admin', 'flutter', 'infra'];
+const selectableStages = ['security', 'contracts', 'backend', 'fhir', 'admin', 'flutter', 'gateway', 'infra'];
 const outputStages = selectableStages.filter((stage) => stage !== 'security');
 
 const fullSweepPatterns = [

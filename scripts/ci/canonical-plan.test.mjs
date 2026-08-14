@@ -26,6 +26,25 @@ test('client changes add contracts while retaining their owning stack', () => {
   assert.equal(plan.selected.contracts, true);
 });
 
+test('device-gateway changes select the gateway unit gate plus contracts', () => {
+  const plan = buildCanonicalPlan({
+    eventName: 'push',
+    files: ['apps/device-gateway/src/spool.js'],
+  });
+
+  assert.equal(plan.tier, 'quick');
+  assert.equal(plan.selected.gateway, true);
+  assert.equal(plan.selected.contracts, true);
+  assert.equal(plan.selected.backend, false);
+
+  const testOnly = buildCanonicalPlan({
+    eventName: 'push',
+    files: ['apps/device-gateway/tests/legacyDurability.test.js'],
+  });
+  assert.equal(testOnly.tier, 'quick');
+  assert.equal(testOnly.selected.gateway, true);
+});
+
 test('CI plumbing changes exercise the full parallel matrix', () => {
   const plan = buildCanonicalPlan({
     eventName: 'push',
@@ -33,7 +52,7 @@ test('CI plumbing changes exercise the full parallel matrix', () => {
   });
 
   assert.equal(plan.tier, 'full');
-  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true]);
+  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true, true]);
 });
 
 test('merge queue commits always receive the full gate', () => {
@@ -43,7 +62,7 @@ test('merge queue commits always receive the full gate', () => {
   });
 
   assert.equal(plan.tier, 'full');
-  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true]);
+  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true, true]);
 });
 
 test('manual quick dispatch remains available for workflow diagnosis', () => {
@@ -67,5 +86,5 @@ test('a PR-attached full request forces the exhaustive matrix', () => {
   });
 
   assert.equal(plan.tier, 'full');
-  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true]);
+  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true, true]);
 });

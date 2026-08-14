@@ -537,7 +537,18 @@ export class GatewayRuntime {
     try {
       await this.discoverLegacySpools();
       for (const spool of this.legacySpools.values()) {
-        await this.drainLegacySpool(spool);
+        try {
+          await this.drainLegacySpool(spool);
+        } catch (err) {
+          // One unreadable spool (e.g. corrupt line) must not skip every
+          // later spool on this and all future passes. Its bytes stay on
+          // disk for the operator; the healthy sources keep draining.
+          gatewayForwardFailures.inc({ reason: 'spool_unreadable' });
+          logEvent('error', 'legacy_drain_spool_failed', {
+            source_ref: spool.source,
+            ...errorFields(err),
+          });
+        }
       }
     } finally {
       this.legacyDrainInFlight = false;

@@ -2,7 +2,7 @@
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
-const selectableStages = ['backend', 'fhir', 'admin', 'flutter', 'contracts', 'infra'];
+const selectableStages = ['backend', 'fhir', 'admin', 'flutter', 'contracts', 'gateway', 'infra'];
 
 export function expectedCanonicalJobs({ tier, selected }) {
   const jobs = ['plan', 'security'];

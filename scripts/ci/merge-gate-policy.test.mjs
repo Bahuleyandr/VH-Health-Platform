@@ -26,7 +26,16 @@ test('full backend and FHIR contexts are reserved for the final dispatch', () =>
   assert.match(backendJob, /if: .*workflow_dispatch/);
   assert.match(fhirJob, /if: .*workflow_dispatch/);
   assert.match(canonical, /'Full Merge Gate' \|\| 'Merge Gate'/);
-  assert.match(canonical, /CANONICAL_TIER: \$\{\{ inputs\.tier \|\| 'full' \}\}/);
+  // Tier selection: a manual dispatch honors the requested tier; otherwise
+  // only the final `[full-ci]` marker commit forces the full matrix, and
+  // every ordinary push plans automatically from the branch delta. The full
+  // contexts therefore stay reserved for the final marker (or an explicit
+  // dispatch), never an ordinary push.
+  assert.match(
+    canonical,
+    /CANONICAL_TIER: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.tier \|\| contains\(github\.event\.head_commit\.message, '\[full-ci\]'\) && 'full' \|\| 'auto' \}\}/,
+  );
+  assert.match(canonical, /needs\.plan\.outputs\.tier == 'full' && 'Full Merge Gate' \|\| 'Merge Gate'/);
 });
 
 test('Forgejo canonical CI includes the client-to-spec contracts stage', () => {

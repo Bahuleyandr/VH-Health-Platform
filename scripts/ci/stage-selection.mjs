@@ -45,6 +45,11 @@ const contractsPatterns = [
   /^apps\/backend\/src\/docs\/openapi\.json$/,
   /^apps\/backend\/src\/app\.js$/,
 ];
+// The gateway is an independent npm package with its own lint + Jest suite
+// (_reusable-device-gateway-ci.yml). Its src/ tree ALSO selects contracts via
+// contractsPatterns above; this stage adds the unit gate the contracts run
+// does not provide.
+const gatewayPatterns = [/^apps\/device-gateway\//];
 const infraPatterns = [
   /^infra\/kubernetes\//,
   /^docs\/CNPG_POSTGRES_18_QUALIFICATION\.md$/,
@@ -127,6 +132,7 @@ export function stagesForChangedFiles(files, stageOrder) {
     if (matchesAny(file, adminPatterns)) selected.add('admin');
     if (matchesAny(file, flutterPatterns)) selected.add('flutter');
     if (matchesAny(file, fhirPatterns)) selected.add('fhir');
+    if (matchesAny(file, gatewayPatterns)) selected.add('gateway');
     if (matchesAny(file, infraPatterns)) selected.add('infra');
 
     const known =
@@ -134,6 +140,7 @@ export function stagesForChangedFiles(files, stageOrder) {
       matchesAny(file, adminPatterns) ||
       matchesAny(file, flutterPatterns) ||
       matchesAny(file, fhirPatterns) ||
+      matchesAny(file, gatewayPatterns) ||
       matchesAny(file, infraPatterns) ||
       isKnownSecurityOnly(file);
 

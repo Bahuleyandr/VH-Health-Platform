@@ -236,6 +236,52 @@ test('fresh-cluster proof is required in GitHub CI and static proof remains cano
   assert.match(workflow, /sealed-secrets-bootstrap-smoke\.mjs --require-cluster/);
 });
 
+test('held device-gateway tree is wired to the real backend Service and validated by CI', () => {
+  const backendService = readRepo('infra/kubernetes/apps/backend/service.yaml');
+  const backendPolicy = readRepo('infra/kubernetes/apps/backend/network-policy.yaml');
+  const gatewayDeployment = readRepo('infra/kubernetes/base/device-gateway/deployment.yaml');
+  const gatewayPolicy = readRepo('infra/kubernetes/base/device-gateway/networkpolicy.yaml');
+  const validator = readRepo('scripts/validate-kubernetes-manifests.mjs');
+
+  // The Service the gateway must call: vhhealth-backend, port 80 → pod port
+  // http (5000). If the Service ever changes, these anchors fail with it.
+  assert.match(backendService, /^  name:\s*vhhealth-backend\s*$/m);
+  assert.match(backendService, /port:\s*80\s*\n\s+targetPort:\s*http/);
+
+  // (a) BACKEND_BASE_URL names that Service (not the pre-monorepo
+  // backend:3000 that never existed in this cluster).
+  assert.match(
+    gatewayDeployment,
+    /name:\s*BACKEND_BASE_URL\s*\n(?:\s*#.*\n)*\s+value:\s*http:\/\/vhhealth-backend\.vhhealth\.svc\.cluster\.local\s*$/m,
+  );
+  assert.doesNotMatch(gatewayDeployment, /backend\.vhhealth\.svc\.cluster\.local:3000/);
+
+  // (b) Egress selects the real backend pod label on the pod port (policies
+  // are evaluated after Service DNAT), and the metrics ingress uses the
+  // immutable namespace label like every sibling policy.
+  assert.match(gatewayPolicy, /app\.kubernetes\.io\/name:\s*vhhealth-backend/);
+  assert.match(gatewayPolicy, /port:\s*5000/);
+  assert.doesNotMatch(gatewayPolicy, /app\.kubernetes\.io\/name:\s*backend\s*$/m);
+  assert.doesNotMatch(gatewayPolicy, /port:\s*3000/);
+  assert.match(gatewayPolicy, /kubernetes\.io\/metadata\.name:\s*vhhealth-monitoring/);
+  assert.doesNotMatch(gatewayPolicy, /^\s+name:\s*vhhealth-monitoring\s*$/m);
+
+  // (c) The backend's default-deny ingress admits device-gateway pods on 5000.
+  const deviceGatewayRule = backendPolicy.match(
+    /app\.kubernetes\.io\/name:\s*device-gateway[\s\S]*?port:\s*(\d+)/,
+  );
+  assert.ok(deviceGatewayRule, 'backend NetworkPolicy must admit device-gateway ingress');
+  assert.equal(deviceGatewayRule[1], '5000');
+  assert.ok(
+    backendPolicy.indexOf('app.kubernetes.io/name: device-gateway') <
+      backendPolicy.indexOf('egress:'),
+    'device-gateway must be admitted in the ingress section',
+  );
+
+  // The held tree is a validated kustomize root, closing the rot vector.
+  assert.match(validator, /^\s*'infra\/kubernetes\/base\/device-gateway',\s*$/m);
+});
+
 test('Dalek deploy workflow is strict and verifies the deployed commit', () => {
   const workflow = readRepo('.forgejo/workflows/deploy-dalekdefender.yml');
   const deployJob = workflow.slice(workflow.indexOf('\n  deploy:'));
