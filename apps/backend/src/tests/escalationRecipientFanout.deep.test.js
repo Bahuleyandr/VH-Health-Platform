@@ -693,12 +693,25 @@ async function seedOrderingProofs() {
       staffRows: [{ position: 'Unknown grade', designation: 'Unknown title' }],
     },
     {
+      // The duplicate-source candidate. This used to be TWO staff rows for one
+      // user, which migration 669 made unrepresentable: it adds
+      // `ux_staff_tenant_user_identity` UNIQUE (tenant_id, user_id) so payroll
+      // cannot pick salary metadata from an ambiguous staff identity on a money
+      // path, and it hard-fails the migration if such rows already exist.
+      //
+      // The invariant this test defends is unchanged and still exercised. The
+      // resolver collapses a candidate through a LEFT JOIN LATERAL aggregate
+      // (COALESCE(MIN(...) FILTER position, MIN(...) FILTER designation)), and
+      // the multiplicity that aggregate has to survive is now mapping matches
+      // rather than staff rows: one staff row whose position AND designation
+      // both resolve to a configured rank. effective_rank is identical either
+      // way — position is authoritative, so this candidate is still rank 1 and
+      // still sorts first — and it must still appear exactly once.
       number: 8000008,
       role: 'ANESTHETIST',
       lastSignInAt: minutesAgo(0, 30_000),
       staffRows: [
-        { position: 'Doctor', designation: 'Unmapped designation' },
-        { position: 'Consultant', designation: 'Unmapped designation' },
+        { position: 'Consultant', designation: 'Doctor' },
       ],
     },
     {

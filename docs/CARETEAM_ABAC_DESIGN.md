@@ -13,6 +13,12 @@ PHI. Only an explicit longitudinal team can be context-free. Episode-scoped
 membership is valid only while its matching appointment is inside the bounded
 30-day relationship window or its admission remains admitted/transferred; a
 stale or malformed active team row cannot extend that authority.
+**The write path now enforces the same three shapes the engine reads
+(`src/config/careTeamContextShapes.js`):** `createCareTeam` rejects a
+context-free non-longitudinal team and a team scoped to both an admission and an
+appointment with a 400, because the `care_teams` CHECK accepts both and the
+engine honours neither — so before this the admin API returned 201 for a row
+that granted nothing and left the clinician's 403 unexplained.
 **Correction to §1.5 below: its "~4 enforce / ~50 audit-only" split was inaccurate
 — dozens of route-level guards ALREADY enforce in production; the implementation left those
 hard-`enforce` (NOT downgraded) and applied shadow ONLY to the truly-uncovered families.**

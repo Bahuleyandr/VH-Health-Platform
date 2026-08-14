@@ -1,3 +1,4 @@
+import { classifyCareTeamContextShape } from '../../config/careTeamContextShapes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { mergedPatientUidsSubquery } from '../clinical/mergedPatientReadUnion.js';
@@ -164,6 +165,22 @@ export async function createCareTeam({
 } = {}) {
   const tid = requireTenantId(tenantId);
   const patient = uuid(patientUid, 'patient_uid', { required: true });
+  const normalizedAdmissionId = optionalId(admissionId, 'admission_id');
+  const normalizedAppointmentId = optionalId(appointmentId, 'appointment_id');
+  const normalizedTeamKind = enumValue(teamKind, CARE_TEAM_KINDS, 'team_kind', 'longitudinal');
+
+  // Refuse a shape the patient-access engine cannot honour. Without this the
+  // row inserts, returns 201, and grants nothing — see
+  // src/config/careTeamContextShapes.js for why silence here is the hazard.
+  const shape = classifyCareTeamContextShape({
+    teamKind: normalizedTeamKind,
+    admissionId: normalizedAdmissionId,
+    appointmentId: normalizedAppointmentId,
+  });
+  if (!shape.honourable) {
+    throw AppError.badRequest(shape.reason, shape.code);
+  }
+
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO care_teams
@@ -175,9 +192,9 @@ export async function createCareTeam({
        RETURNING *`,
       tid,
       patient,
-      optionalId(admissionId, 'admission_id'),
-      optionalId(appointmentId, 'appointment_id'),
-      enumValue(teamKind, CARE_TEAM_KINDS, 'team_kind', 'longitudinal'),
+      normalizedAdmissionId,
+      normalizedAppointmentId,
+      normalizedTeamKind,
       text(displayName),
       text(primaryDepartment, 120),
       enumValue(status, CARE_TEAM_STATUSES, 'status', 'active'),
