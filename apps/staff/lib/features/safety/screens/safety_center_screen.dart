@@ -10,6 +10,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/resus_event_panel.dart';
+import '../widgets/resus_trigger_button.dart';
 
 @visibleForTesting
 String safetyOwnerForAlert(NotificationItem item) {
@@ -270,6 +271,13 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
                 ],
               ),
             ),
+      // Deliberately-guarded Code Blue / rapid-response trigger: the button
+      // opens a details dialog plus a separate confirmation step before the
+      // durable event is created (backend emits the realtime alert).
+      floatingActionButton: ResusTriggerButton(
+        onCreated: (eventId) =>
+            context.push('/safety/resus/$eventId').then((_) => _load()),
+      ),
     );
   }
 
