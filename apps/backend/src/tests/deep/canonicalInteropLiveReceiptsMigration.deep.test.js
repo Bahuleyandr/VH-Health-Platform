@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +57,37 @@ describe('migration 666 static canonical-interoperability contract', () => {
   });
 });
 
+// A login role reached over TCP is authenticated by whatever pg_hba.conf says,
+// and the two environments this suite runs in disagree. CI's Postgres service
+// container sets POSTGRES_PASSWORD and no POSTGRES_HOST_AUTH_METHOD, so the
+// pg18 entrypoint writes `scram-sha-256` and a password is MANDATORY. A local
+// cluster initdb'd with trust never asks for one, so it exercises neither the
+// server side (a role with no password cannot authenticate) nor the client
+// side (`pg` demands the password be a string before it will run the SCRAM
+// handshake). Give the role a real password and hand `pg` a real string, and
+// both cluster postures are satisfied by the same code — trust simply ignores
+// what SCRAM requires. Hex keeps the value free of anything URL- or
+// SQL-significant, so it survives the URL round-trip and the literal below
+// byte-for-byte.
+function generateRolePassword() {
+  return `m666_${randomBytes(24).toString('hex')}`;
+}
+
+// Guard the exact mistake this suite shipped with: `url.password = ''` does not
+// set an empty password, it DELETES the password from the URL, so `pg` resolves
+// it to null and dies mid-handshake with "SASL: SCRAM-SERVER-FIRST-MESSAGE:
+// client password must be a string". Fail here, naming the role, instead of
+// handing pg a non-string and reading that error five frames deep in a driver.
+function assertUrlCarriesPassword(url, role) {
+  if (typeof url.password !== 'string' || url.password === '') {
+    throw new Error(
+      `Refusing to connect as "${role}" with no password: pg would hand the SCRAM `
+        + 'handshake a non-string and fail with "client password must be a string". '
+        + 'Note that assigning an empty string to URL.password removes it entirely.',
+    );
+  }
+}
+
 d('migration 666 constraints and tenant posture (isolated scratch database)', () => {
   const sourceUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
   const scratchName = `vh_a4_m666_${process.pid}_${Date.now().toString(36)}`;
@@ -64,14 +96,24 @@ d('migration 666 constraints and tenant posture (isolated scratch database)', ()
   let runtime;
   let runtimeUrl;
   const runtimeRole = `vh_a4_m666_runtime_${process.pid}_${Date.now().toString(36)}`;
+  const runtimePassword = generateRolePassword();
 
   beforeAll(async () => {
+    if (!sourceUrl) {
+      throw new Error('TEST_DATABASE_URL or DATABASE_URL must be set to run this suite');
+    }
     if (!/^[a-z0-9_]+$/.test(scratchName)) throw new Error('Unsafe scratch database name');
+    if (!/^[a-z0-9_]+$/.test(runtimeRole)) throw new Error('Unsafe runtime role name');
     const adminUrl = new URL(sourceUrl);
     adminUrl.pathname = '/postgres';
     admin = new Client({ connectionString: adminUrl.toString() });
     await admin.connect();
-    await admin.query(`CREATE ROLE ${runtimeRole} LOGIN`);
+    // The password has to exist server-side too. `CREATE ROLE … LOGIN` alone
+    // leaves rolpassword NULL, which under scram-sha-256 fails 28P01 no matter
+    // what the client sends — fixing only the client half is not enough.
+    await admin.query(
+      `CREATE ROLE ${runtimeRole} LOGIN PASSWORD ${admin.escapeLiteral(runtimePassword)}`,
+    );
     await admin.query(`CREATE DATABASE ${scratchName}`);
 
     const scratchUrl = new URL(sourceUrl);
@@ -134,10 +176,19 @@ d('migration 666 constraints and tenant posture (isolated scratch database)', ()
     await scratch.query(`GRANT USAGE ON SCHEMA public TO ${runtimeRole}`);
     await scratch.query(`GRANT SELECT ON public.fhir_allergy_intolerance_receipts TO ${runtimeRole}`);
 
+    // Inherit host/port/database (and any sslmode) from the parent URL, then
+    // override only the identity — the credentials of the role we just created,
+    // never the parent's, and never a blank.
     runtimeUrl = new URL(scratchUrl.toString());
     runtimeUrl.username = runtimeRole;
-    runtimeUrl.password = '';
+    runtimeUrl.password = runtimePassword;
+    assertUrlCarriesPassword(runtimeUrl, runtimeRole);
     runtime = new Client({ connectionString: runtimeUrl.toString() });
+    // Prove the credential survived the URL round-trip and actually reached the
+    // driver, rather than trusting that it did and failing inside the handshake.
+    if (runtime.connectionParameters.password !== runtimePassword) {
+      throw new Error(`Runtime role "${runtimeRole}" password did not reach the pg client`);
+    }
     await runtime.connect();
   });
 
