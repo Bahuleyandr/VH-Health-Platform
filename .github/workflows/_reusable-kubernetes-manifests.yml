@@ -83,6 +83,11 @@ jobs:
           scripts/backend-image-command-contract.test.mjs
           scripts/ci/forgejo-deploy-preflight.test.mjs
           scripts/ci/infra.test.mjs
+          scripts/ci/canonical-workflow.test.mjs
+          scripts/ci/merge-gate-policy.test.mjs
+          scripts/ci/security.test.mjs
+          scripts/ci/stage-selection.test.mjs
+          scripts/check-forgejo-supply-chain-pins.test.mjs
 
       - name: Prove Sealed Secrets bootstrap on a fresh cluster
         run: node scripts/sealed-secrets-bootstrap-smoke.mjs --require-cluster
