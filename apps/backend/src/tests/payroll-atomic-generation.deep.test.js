@@ -623,6 +623,92 @@ describe('durable payroll attempts and document delivery', () => {
     expect(String(duplicateError?.message)).toContain('ux_staff_tenant_user_identity');
   }, 60000);
 
+  // The sibling test above races two claims through Promise.all and depends on
+  // the OS scheduler to interleave them. It passes on a fast local box and only
+  // went red on CI. This test removes the luck: it holds beginPayrollRun's own
+  // period advisory lock from a third session, so both claimants are *provably*
+  // parked on that lock — and have therefore already taken their SERIALIZABLE
+  // transaction snapshots — before either can enter the critical section.
+  //
+  // That is the exact shape of the defect. The advisory lock serializes the
+  // critical section, but it cannot refresh a snapshot that was taken before the
+  // lock was acquired, so the second claimant's post-lock SELECT cannot see the
+  // winner's freshly committed payroll_runs row. Without the retry in
+  // beginPayrollRun the loser blindly re-INSERTs and raises a raw 23505 on
+  // uniq_payroll_runs_tenant_month_year instead of reporting already_processing.
+  test('a claim parked on the period lock still reports already_processing, never a raw duplicate key', async () => {
+    const MONTH = 5;
+    const lockKey = `${TENANT}:${YEAR}:${MONTH}`;
+    const dbAdvisoryWaiters = async () => {
+      const [row] = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::integer AS waiters
+           FROM pg_locks
+          WHERE locktype = 'advisory'
+            AND NOT granted
+            AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+      );
+      return Number(row.waiters);
+    };
+
+    let releaseHolder;
+    const holderReleased = new Promise((resolve) => { releaseHolder = resolve; });
+    let holderAcquired;
+    const holderReady = new Promise((resolve) => { holderAcquired = resolve; });
+    const holder = prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+        lockKey,
+      );
+      holderAcquired();
+      await holderReleased;
+    }, { maxWait: 20000, timeout: 120000 });
+    await holderReady;
+
+    // Settle-wrapped so a rejection cannot escape as an unhandled rejection
+    // while we are still waiting for both claimants to park on the lock.
+    const claims = [
+      beginPayrollRun({ tenantId: TENANT, month: MONTH, year: YEAR, generatedBy: HR }),
+      beginPayrollRun({ tenantId: TENANT, month: MONTH, year: YEAR, generatedBy: HR }),
+    ].map(promise => promise.then(
+      value => ({ ok: true, value }),
+      error => ({ ok: false, error }),
+    ));
+
+    let parked = 0;
+    for (let poll = 0; poll < 200 && parked < 2; poll += 1) {
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+      parked = await dbAdvisoryWaiters();
+    }
+    expect(parked).toBe(2);
+
+    releaseHolder();
+    await holder;
+    const settled = await Promise.all(claims);
+
+    const failed = settled.filter(entry => !entry.ok);
+    expect(failed.map(entry => String(entry.error?.message))).toEqual([]);
+
+    const results = settled.map(entry => entry.value);
+    expect(results.filter(claim => !claim.skipped)).toHaveLength(1);
+    expect(results.filter(claim => claim.reason === 'already_processing')).toHaveLength(1);
+
+    const owner = results.find(claim => !claim.skipped);
+    const loser = results.find(claim => claim.skipped);
+    expect(Number(loser.id)).toBe(Number(owner.id));
+    expect(loser.status).toBe('processing');
+
+    // Exactly one period row, and exactly one attempt row for the owner's token:
+    // the loser must not have left a second attempt behind.
+    const [counts] = await setTenantTx(TENANT, tx => tx.$queryRawUnsafe(
+      `SELECT (SELECT count(*)::integer FROM payroll_runs
+                WHERE tenant_id = $1::uuid AND month = $2 AND year = $3) AS runs,
+              (SELECT count(*)::integer FROM payroll_run_attempts
+                WHERE tenant_id = $1::uuid AND payroll_run_id = $4) AS attempts`,
+      TENANT, MONTH, YEAR, Number(owner.id),
+    ));
+    expect(counts).toMatchObject({ runs: 1, attempts: 1 });
+  }, 120000);
+
   test('concurrent staff retries apply advance and arrears effects exactly once', async () => {
     const run = await beginPayrollRun({
       tenantId: TENANT,
