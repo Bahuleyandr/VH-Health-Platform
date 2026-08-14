@@ -180,9 +180,11 @@ export async function recordEntry({
     // recordCanonicalClinicalEvent throws (rolling everything back) when
     // either canonical row cannot be recorded. Chart entries are an
     // append-only observation series (no UPDATE/DELETE product path;
-    // corrections are new entries), so the derived fixed idempotency key
-    // `anesthesia.chart_entry.recorded:anesthesia_chart_entries:<id>` is
-    // insert-once — the partograph-entry precedent.
+    // corrections are new entries), so the fixed per-entry idempotency keys
+    // are insert-once — the partograph-entry precedent. Both keys are passed
+    // explicitly because the audit-side derived fallback keys on resourceId
+    // (the ot_schedule), which would collapse every entry of a case into one
+    // audit row.
     await recordCanonicalClinicalEvent({
       tenantId: tid,
       patientUid: schedule.patient_uid,
@@ -205,6 +207,8 @@ export async function recordEntry({
         urine_output_ml: urine_output_ml ?? null,
         has_event_note: !!(event_note && String(event_note).trim() !== ''),
       },
+      timelineIdempotencyKey: `anesthesia_chart_entries:${rows[0].id}:recorded`,
+      auditIdempotencyKey: `anesthesia_chart_entries:${rows[0].id}:audit:recorded`,
     }, { db: tx });
     return rows[0];
   });

@@ -17,7 +17,7 @@ async function findCurrentPatient(req) {
   const tenantId = deriveTenantIdFromRequest(req);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, uid, name, phone, email, role, gender, birthday, address, allergies,
-            emergency_contact, blood_group, registered_at, last_login, is_active, tenant_id
+            emergency_contact, blood_group, registered_at, is_active, tenant_id
        FROM users
       WHERE tenant_id = $2::uuid
         AND (uid::text = $1 OR phone = $1)
