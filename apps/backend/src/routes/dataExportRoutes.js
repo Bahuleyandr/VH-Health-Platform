@@ -238,9 +238,11 @@ router.delete('/my-data', async (req, res) => {
         );
         results.push({ table, affected: result.length });
       } catch (err) {
-        // Table might not have deleted_at column — that's OK
-        logger.warn(`Soft-delete skipped for ${table}: ${err.message}`);
-        results.push({ table, skipped: true, reason: err.message });
+        // Table might not have deleted_at column — that's OK. Log the real
+        // failure server-side; the response must never carry err.message
+        // (repo rule: raw driver/Prisma errors leak schema + SQL detail).
+        logger.error(`Soft-delete skipped for ${table}: ${err.message}`);
+        results.push({ table, skipped: true, reason: 'Table not eligible for soft deletion' });
       }
     }
 

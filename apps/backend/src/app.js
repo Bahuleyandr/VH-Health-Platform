@@ -981,8 +981,13 @@ app.use(
   searchRoutes,
 );
 
-// GDPR Data Export + Erasure
-app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
+// GDPR Data Export + Erasure. GET /my-data returns the patient's FULL record
+// set (appointments, records, investigations, pharmacy, consents…) in one
+// response — the single densest PHI read on the platform — so it carries the
+// same route-level HIPAA access logging as the sibling PHI mounts above
+// (/records, /api/v1/patient). The routes are self-scoped to req.user, so no
+// patientAccessGuard is needed.
+app.use('/api/v1/data-export', dataExportRateLimiter, phiAccessLogger('DATA_EXPORT'), dataExportRoutes);
 app.use('/api/v1/gdpr', dataExportRateLimiter, gdprRoutes);
 
 // Session Management (view/revoke active sessions)
