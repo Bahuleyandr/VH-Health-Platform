@@ -1,8 +1,7 @@
 name: Release Staff App
 
-# Mirrors the patient release workflow. Triggered by tags prefixed
-# `staff-v*` (e.g. `staff-v1.0.0`) so patient and staff releases don't
-# collide in the monorepo.
+# Mirrors the patient release workflow. A protected-main dispatch supplies an
+# existing mirrored `staff-v*` tag (for example `staff-v1.0.0`).
 #
 # Monorepo adaptations vs. the original standalone-repo workflow:
 #   - No secondary checkout of vhhealth-core (it's at packages/vhhealth_core).
@@ -11,22 +10,71 @@ name: Release Staff App
 #   - Artifact paths updated to apps/staff/build/app/outputs/...
 
 on:
-  push:
-    tags: ['staff-v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Staff release tag, for example staff-v1.2.3'
+        required: true
+        type: string
 
 concurrency:
   group: release-staff-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  release-authority:
+    name: Verify release authority
+    runs-on: ubuntu-latest
+    environment: release-authority-main
+    permissions:
+      contents: read
+    outputs:
+      authorized: ${{ steps.authority.outputs.authorized }}
+      state: ${{ steps.authority.outputs.state }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Check provider, mirror, signer, tag, and Argo parity
+        id: authority
+        env:
+          RELEASE_AUTHORITY_GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORITY_FORGEJO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_FORGEJO_TOKEN }}
+          RELEASE_AUTHORITY_ARGO_API_URL: ${{ vars.RELEASE_AUTHORITY_ARGO_API_URL }}
+          RELEASE_AUTHORITY_ARGO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_ARGO_TOKEN }}
+          RELEASE_AUTHORITY_TAG: ${{ inputs.release_tag }}
+        run: >
+          node scripts/check-release-authority.mjs
+          --provider github
+          --intent staff-release
+          --commit "$GITHUB_SHA"
+          --tag "$RELEASE_AUTHORITY_TAG"
+          --event "$GITHUB_EVENT_NAME"
+          --ref "$GITHUB_REF"
+          --evidence-file output/release-authority/github-release-staff.json
+
+      - name: Upload release-authority evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-authority-github-staff-${{ github.run_id }}
+          path: output/release-authority
+          if-no-files-found: error
+
   build:
     runs-on: ubuntu-latest
+    environment: release-authority-main
     timeout-minutes: 45
+    needs: release-authority
+    if: needs.release-authority.outputs.authorized == 'true'
+    permissions:
+      contents: write
     env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
       VH_TENANT_SLUG: ${{ vars.VH_TENANT_SLUG }}
@@ -222,8 +270,8 @@ jobs:
 
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          name: Staff ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
+          name: Staff ${{ env.RELEASE_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
             apps/staff/build/app/outputs/flutter-apk/app-release.apk
@@ -231,11 +279,15 @@ jobs:
 
   windows-msix:
     name: Build Windows MSIX
-    if: startsWith(github.ref, 'refs/tags/staff-v')
-    needs: build
+    if: needs.release-authority.outputs.authorized == 'true'
+    needs: [release-authority, build]
     runs-on: windows-latest
+    environment: release-authority-main
     timeout-minutes: 45
+    permissions:
+      contents: write
     env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
       VH_TENANT_SLUG: ${{ vars.VH_TENANT_SLUG }}
@@ -378,7 +430,7 @@ jobs:
 
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          name: Staff ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
+          name: Staff ${{ env.RELEASE_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             apps/staff/build/windows/**/*.msix

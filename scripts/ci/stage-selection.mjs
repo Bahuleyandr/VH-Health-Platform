@@ -37,6 +37,8 @@ const fhirPatterns = [
 // paths keep whatever full-run behaviour they already had, and this only ever
 // ADDS the contracts stage. Mirrors the path filter in ci-client-contract.yml.
 const contractsPatterns = [
+  /^infra\/release-authority\.json$/,
+  /^scripts\/check-release-authority(?:\.test)?\.mjs$/,
   /^apps\/admin\/src\//,
   /^apps\/patient\/lib\//,
   /^apps\/staff\/lib\//,
@@ -51,6 +53,7 @@ const contractsPatterns = [
 // does not provide.
 const gatewayPatterns = [/^apps\/device-gateway\//];
 const infraPatterns = [
+  /^infra\/release-authority\.json$/,
   /^infra\/kubernetes\//,
   /^docs\/CNPG_POSTGRES_18_QUALIFICATION\.md$/,
   /^docs\/DEPLOYMENT_GUIDE\.md$/,
@@ -65,6 +68,7 @@ const infraPatterns = [
   /^scripts\/check-prod-helm-image-inventory\.test\.mjs$/,
   /^scripts\/update-prod-digests\.mjs$/,
   /^scripts\/update-prod-digests\.test\.mjs$/,
+  /^scripts\/check-release-authority(?:\.test)?\.mjs$/,
 ];
 const securityOnlyPatterns = [
   /^docs\//,

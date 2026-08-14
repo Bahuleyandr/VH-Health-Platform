@@ -371,7 +371,7 @@ test('leaves kustomization untouched when cosign verification fails', async () =
       verification: {
         mode: 'keyless',
         cosignExe: 'cosign',
-        certificateIdentityRegexp: '^https://github.com/Bahuleyandr/VH-Health-Platform/.github/workflows/release-images.yml@.*$',
+        certificateIdentityRegexp: '^https://github.com/Bahuleyandr/VH-Health-Platform/.github/workflows/release-authority-images.yml@.*$',
         certificateOidcIssuer: 'https://token.actions.githubusercontent.com',
       },
       fetchImpl: fakeFetch(resolvedDigest),

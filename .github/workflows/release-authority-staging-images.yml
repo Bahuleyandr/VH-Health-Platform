@@ -1,23 +1,23 @@
 name: Deploy staging
 
 # Manual-only staging preparation. This workflow resolves already-built,
-# signed, and scanned release image tags into immutable digests, commits those
-# pins into the staging app overlay, validates the staging kustomize trees, and
-# prints the exact manual ArgoCD/kubectl commands. It does not mutate a cluster.
+# signed, and scanned release image tags into immutable digests, emits a
+# reviewable patch for the staging app overlay, and validates the staging
+# kustomize trees. It neither pushes main nor mutates a cluster.
 
 on:
   workflow_dispatch:
     inputs:
       backend_tag:
-        description: "Existing backend image tag from release-images.yml, e.g. backend-v1.2.3"
+        description: "Existing backend image tag from release-authority-images.yml, e.g. backend-v1.2.3"
         required: true
         type: string
       admin_tag:
-        description: "Existing admin image tag from release-images.yml, e.g. admin-v1.2.3"
+        description: "Existing admin image tag from release-authority-images.yml, e.g. admin-v1.2.3"
         required: true
         type: string
       staff_web_tag:
-        description: "Existing staff web image tag from release-images.yml, e.g. staff-web-v1.2.3"
+        description: "Existing staff web image tag from release-authority-images.yml, e.g. staff-web-v1.2.3"
         required: true
         type: string
 
@@ -26,14 +26,63 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
   packages: read
 
 jobs:
+  release-authority:
+    name: Verify release authority
+    runs-on: ubuntu-latest
+    environment: release-authority-main
+    permissions:
+      contents: read
+    outputs:
+      authorized: ${{ steps.authority.outputs.authorized }}
+      state: ${{ steps.authority.outputs.state }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Check provider, mirror, signer, release tags, and Argo parity
+        id: authority
+        env:
+          RELEASE_AUTHORITY_GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORITY_FORGEJO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_FORGEJO_TOKEN }}
+          RELEASE_AUTHORITY_ARGO_API_URL: ${{ vars.RELEASE_AUTHORITY_ARGO_API_URL }}
+          RELEASE_AUTHORITY_ARGO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_ARGO_TOKEN }}
+          RELEASE_AUTHORITY_BACKEND_TAG: ${{ inputs.backend_tag }}
+          RELEASE_AUTHORITY_ADMIN_TAG: ${{ inputs.admin_tag }}
+          RELEASE_AUTHORITY_STAFF_WEB_TAG: ${{ inputs.staff_web_tag }}
+        run: >
+          node scripts/check-release-authority.mjs
+          --provider github
+          --intent staging-images
+          --tag "$RELEASE_AUTHORITY_BACKEND_TAG"
+          --tag "$RELEASE_AUTHORITY_ADMIN_TAG"
+          --tag "$RELEASE_AUTHORITY_STAFF_WEB_TAG"
+          --event "$GITHUB_EVENT_NAME"
+          --ref "$GITHUB_REF"
+          --evidence-file output/release-authority/github-deploy-staging.json
+
+      - name: Upload release-authority evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-authority-github-deploy-staging-${{ github.run_id }}
+          path: output/release-authority
+          if-no-files-found: error
+
   pin-and-summarize:
     name: Pin staging digests
     runs-on: ubuntu-latest
+    environment: release-authority-main
     timeout-minutes: 15
+    needs: release-authority
+    if: needs.release-authority.outputs.authorized == 'true'
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Checkout main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -55,7 +104,7 @@ jobs:
           BACKEND_TAG: ${{ inputs.backend_tag }}
           ADMIN_TAG: ${{ inputs.admin_tag }}
           STAFF_WEB_TAG: ${{ inputs.staff_web_tag }}
-          COSIGN_CERTIFICATE_IDENTITY_REGEXP: '^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$'
+          COSIGN_CERTIFICATE_IDENTITY_REGEXP: '^https://github.com/${{ github.repository }}/\.github/workflows/release-authority-images\.yml@.*$'
           COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
         run: |
           # Staging overlay only: already-released tags are resolved at pin
@@ -75,7 +124,7 @@ jobs:
           kubectl kustomize infra/kubernetes/overlays/staging > /tmp/vhhealth-staging-platform.yaml
           kubectl kustomize infra/kubernetes/overlays/staging/apps > /tmp/vhhealth-staging-apps.yaml
 
-      - name: Commit staging digest pins
+      - name: Create reviewable staging digest patch
         id: commit
         env:
           BACKEND_TAG: ${{ inputs.backend_tag }}
@@ -85,14 +134,14 @@ jobs:
           if git diff --quiet -- infra/kubernetes/overlays/staging/apps/kustomization.yaml; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            mkdir -p output/staging-digest-pins
+            printf '' > output/staging-digest-pins/staging-app-digests.patch
             exit 0
           fi
 
-          git config user.name "vh-staging-digest-bot"
-          git config user.email "noreply@vhhealth.app"
-          git add infra/kubernetes/overlays/staging/apps/kustomization.yaml
-          git commit -m "chore(staging): pin app image digests"
-          git push origin main
+          mkdir -p output/staging-digest-pins
+          git diff --binary -- infra/kubernetes/overlays/staging/apps/kustomization.yaml \
+            > output/staging-digest-pins/staging-app-digests.patch
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -121,18 +170,18 @@ jobs:
             echo "| Admin | \`${ADMIN_TAG}\` |"
             echo "| Staff web | \`${STAFF_WEB_TAG}\` |"
             echo ""
-            echo "**Digest pin commit:** \`${PIN_SHA}\`"
-            echo "**Created new pin commit:** \`${CHANGED}\`"
+            echo "**Patch base commit:** \`${PIN_SHA}\`"
+            echo "**Patch contains changes:** \`${CHANGED}\`"
             echo ""
-            echo "This workflow only updated Git and rendered kustomize. It did not mutate any cluster."
+            echo "The patch is attached as a workflow artifact for a reviewed branch/PR. This workflow did not push main or mutate a cluster."
             echo ""
             echo "## Manual ArgoCD path"
             echo ""
             echo "Run this only after the staging ArgoCD Applications exist and point at the staging paths:"
             echo ""
             echo '```bash'
-            echo "argocd app sync vhhealth-platform-staging --revision ${PIN_SHA}"
-            echo "argocd app sync vhhealth-apps-staging --revision ${PIN_SHA}"
+            echo "argocd app sync vhhealth-platform-staging --revision <reviewed-patch-commit>"
+            echo "argocd app sync vhhealth-apps-staging --revision <reviewed-patch-commit>"
             echo "argocd app wait vhhealth-platform-staging vhhealth-apps-staging --health --sync --timeout 900"
             echo '```'
             echo ""

@@ -1,13 +1,11 @@
 name: Release Container Images
 
 on:
-  push:
-    tags:
-      - 'backend-v*'
-      - 'admin-v*'
-      - 'staff-web-v*'
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: 'Existing mirrored release tag, for example backend-v1.2.3'
+        required: true
       build_backend:
         description: 'Build backend image'
         required: false
@@ -25,17 +23,62 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-images-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  release-authority:
+    name: Verify release authority
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      authorized: ${{ steps.authority.outputs.authorized }}
+      state: ${{ steps.authority.outputs.state }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check provider, mirror, signer, tag, and Argo parity
+        id: authority
+        env:
+          RELEASE_AUTHORITY_GITHUB_TOKEN: ${{ secrets.RELEASE_AUTHORITY_GITHUB_TOKEN }}
+          RELEASE_AUTHORITY_FORGEJO_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORITY_ARGO_API_URL: ${{ vars.RELEASE_AUTHORITY_ARGO_API_URL }}
+          RELEASE_AUTHORITY_ARGO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_ARGO_TOKEN }}
+          RELEASE_AUTHORITY_TAG: ${{ inputs.release_tag }}
+        run: |
+          args=(
+            --provider forgejo
+            --intent image-release
+            --commit "$GITHUB_SHA"
+            --event "$GITHUB_EVENT_NAME"
+            --ref "$GITHUB_REF"
+            --evidence-file output/release-authority/forgejo-release-images.json
+          )
+          args+=(--tag "$RELEASE_AUTHORITY_TAG")
+          node scripts/check-release-authority.mjs "${args[@]}"
+
+      - name: Upload release-authority evidence
+        if: always()
+        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
+        with:
+          name: release-authority-forgejo-images-${{ github.run_id }}
+          path: output/release-authority
+          if-no-files-found: error
+
   image:
     name: Release ${{ matrix.app }} image
     runs-on: docker-builder
     timeout-minutes: 90
+    needs: release-authority
+    if: needs.release-authority.outputs.authorized == 'true'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -62,13 +105,13 @@ jobs:
       BUILD_BACKEND_INPUT: ${{ inputs.build_backend }}
       BUILD_ADMIN_INPUT: ${{ inputs.build_admin }}
       BUILD_STAFF_WEB_INPUT: ${{ inputs.build_staff_web }}
+      RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
       CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
       CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
       COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
       GHCR_IMAGE_OWNER: ${{ vars.GHCR_IMAGE_OWNER }}
       RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
       NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
@@ -112,29 +155,25 @@ jobs:
           selected=false
           primary_tag=""
           latest_tag=""
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            case "${{ matrix.app }}" in
-              backend) want="${BUILD_BACKEND_INPUT:-true}" ;;
-              admin) want="${BUILD_ADMIN_INPUT:-true}" ;;
-              staff-web) want="${BUILD_STAFF_WEB_INPUT:-true}" ;;
-            esac
-            if [ "$want" = "true" ]; then
-              selected=true
-              primary_tag="manual-${GITHUB_SHA}"
-            fi
-          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            case "${GITHUB_REF_NAME}" in
+          case "${{ matrix.app }}" in
+            backend) want="${BUILD_BACKEND_INPUT:-true}" ;;
+            admin) want="${BUILD_ADMIN_INPUT:-true}" ;;
+            staff-web) want="${BUILD_STAFF_WEB_INPUT:-true}" ;;
+          esac
+          case "$RELEASE_TAG_INPUT" in
               ${{ matrix.tag_prefix }}*)
-                selected=true
-                primary_tag="${GITHUB_REF_NAME}"
-                latest_tag="${{ matrix.latest_tag }}"
+                if [ "$want" = "true" ]; then
+                  selected=true
+                  primary_tag="$RELEASE_TAG_INPUT"
+                  latest_tag="${{ matrix.latest_tag }}"
+                fi
                 ;;
-            esac
-          fi
+              *) ;;
+          esac
 
           if [ "$selected" != "true" ]; then
             echo "selected=false" >> "$GITHUB_OUTPUT"
-            echo "No release requested for ${{ matrix.app }} on ${GITHUB_REF_NAME:-manual run}."
+            echo "No release requested for ${{ matrix.app }} with tag ${RELEASE_TAG_INPUT}."
             exit 0
           fi
 
@@ -195,6 +234,17 @@ jobs:
           (cd /tmp/vh-release-tools && grep -E '(^|[[:space:]])cosign-linux-amd64$' cosign_checksums.txt | sha256sum -c -)
           mv /tmp/vh-release-tools/cosign-linux-amd64 /tmp/vh-release-tools/cosign
           chmod 0755 /tmp/vh-release-tools/syft /tmp/vh-release-tools/trivy /tmp/vh-release-tools/cosign
+
+      - name: Prove signing key matches tracked release authority
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          set -euo pipefail
+          /tmp/vh-release-tools/cosign public-key --key env://COSIGN_PRIVATE_KEY \
+            > /tmp/vh-release-tools/release-authority.pub
+          if ! cmp -s /tmp/vh-release-tools/release-authority.pub infra/forgejo/signing/cosign.pub; then
+            echo "::error::COSIGN_PRIVATE_KEY does not match infra/forgejo/signing/cosign.pub"
+            exit 1
+          fi
 
       - name: Build and push image
         if: steps.selection.outputs.selected == 'true'
@@ -292,7 +342,7 @@ jobs:
         run: |
           set -euo pipefail
           /tmp/vh-release-tools/cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${IMAGE_DIGEST}"
-          /tmp/vh-release-tools/cosign verify --key env://COSIGN_PUBLIC_KEY "${IMAGE}@${IMAGE_DIGEST}" \
+          /tmp/vh-release-tools/cosign verify --key infra/forgejo/signing/cosign.pub "${IMAGE}@${IMAGE_DIGEST}" \
             > "output/release-images/${{ matrix.app }}/cosign-verify.json"
 
       - name: Write release summary
@@ -313,7 +363,7 @@ jobs:
         if: always() && steps.selection.outputs.selected == 'true'
         uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
         with:
-          name: release-image-${{ matrix.app }}-${{ github.ref_name }}
+          name: release-image-${{ matrix.app }}-${{ inputs.release_tag }}
           path: output/release-images/${{ matrix.app }}
           if-no-files-found: ignore
 
@@ -321,18 +371,21 @@ jobs:
     name: Pin released digest to GitOps tree
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: image
+    needs: [release-authority, image]
     if: >
-      startsWith(github.ref, 'refs/tags/backend-v') ||
-      startsWith(github.ref, 'refs/tags/admin-v') ||
-      startsWith(github.ref, 'refs/tags/staff-web-v')
+      needs.release-authority.outputs.authorized == 'true' && (
+      startsWith(inputs.release_tag, 'backend-v') ||
+      startsWith(inputs.release_tag, 'admin-v') ||
+      startsWith(inputs.release_tag, 'staff-web-v'))
+    permissions:
+      contents: read
     env:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
       CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
-      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
       GITHUB_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -364,17 +417,17 @@ jobs:
       - name: Resolve release app from tag
         run: |
           set -euo pipefail
-          case "$GITHUB_REF_NAME" in
+          case "$RELEASE_TAG" in
             backend-v*) echo "RELEASE_APP=backend" >> "$GITHUB_ENV" ;;
             admin-v*) echo "RELEASE_APP=admin" >> "$GITHUB_ENV" ;;
             staff-web-v*) echo "RELEASE_APP=staff-web" >> "$GITHUB_ENV" ;;
-            *) echo "::error::unexpected release ref ${GITHUB_REF_NAME}"; exit 1 ;;
+            *) echo "::error::unexpected release tag ${RELEASE_TAG}"; exit 1 ;;
           esac
 
       - name: Download build-emitted image ref
         uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3
         with:
-          name: release-image-${{ env.RELEASE_APP }}-${{ github.ref_name }}
+          name: release-image-${{ env.RELEASE_APP }}-${{ inputs.release_tag }}
           path: output/release-artifact
 
       - name: Locate build-emitted image ref
@@ -398,27 +451,27 @@ jobs:
           fi
           node scripts/update-prod-digests.mjs \
             --cosign-exe /tmp/vh-release-tools/cosign \
-            --tag "$GITHUB_REF_NAME" \
+            --cosign-key infra/forgejo/signing/cosign.pub \
+            --tag "$RELEASE_TAG" \
             --expected-digest-file "$IMAGE_REF_FILE" \
-            --evidence-file "output/release-pin-digests/${GITHUB_REF_NAME}.json"
+            --evidence-file "output/release-pin-digests/${RELEASE_TAG}.json"
 
-      - name: Commit digest bump
+      - name: Create reviewable digest patch
         run: |
           set -euo pipefail
+          mkdir -p output/release-pin-digests
           if git diff --quiet; then
             echo "No digest change; overlay already pinned to this release."
+            printf '' > "output/release-pin-digests/${RELEASE_TAG}.patch"
             exit 0
           fi
-          git config user.name "vh-forgejo-digest-bot"
-          git config user.email "noreply@vhhealth.app"
-          git add infra/kubernetes/apps/kustomization.yaml
-          git commit -m "chore(prod): pin ${GITHUB_REF_NAME} image digest"
-          git push origin HEAD:main
+          git diff --binary -- infra/kubernetes/apps/kustomization.yaml \
+            > "output/release-pin-digests/${RELEASE_TAG}.patch"
 
       - name: Upload digest verification evidence
         if: always()
         uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
         with:
-          name: release-pin-digests-${{ github.ref_name }}
+          name: release-pin-digests-${{ inputs.release_tag }}
           path: output/release-pin-digests
           if-no-files-found: ignore

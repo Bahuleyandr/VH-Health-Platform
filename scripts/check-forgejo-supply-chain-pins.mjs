@@ -152,6 +152,7 @@ function scanDockerfile(filePath, rootDir) {
 
 export function findForgejoSupplyChainViolations(rootDir) {
   const workflowDir = join(rootDir, '.forgejo', 'workflows');
+  const releaseTemplateDir = join(rootDir, '.forgejo', 'release-authority-templates');
   const violations = [];
 
   if (!existsSync(workflowDir)) {
@@ -164,6 +165,11 @@ export function findForgejoSupplyChainViolations(rootDir) {
 
   for (const filePath of workflowFiles(workflowDir)) {
     violations.push(...scanWorkflow(filePath, rootDir));
+  }
+  if (existsSync(releaseTemplateDir)) {
+    for (const filePath of workflowFiles(releaseTemplateDir)) {
+      violations.push(...scanWorkflow(filePath, rootDir));
+    }
   }
 
   violations.push(

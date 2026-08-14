@@ -90,6 +90,7 @@ export function runInfraStage({
     runCommand(process.execPath, [
       '--test',
       'scripts/update-prod-digests.test.mjs',
+      'scripts/check-release-authority.test.mjs',
       'scripts/check-prod-digests-pinned.test.mjs',
       'scripts/check-prod-helm-image-inventory.test.mjs',
       'scripts/operator-lifecycle-preflight.test.mjs',
@@ -126,6 +127,7 @@ export function runInfraStage({
       { env: installedTools?.env },
     );
     runCommand(process.execPath, ['scripts/check-zero-trust-network-pack.mjs']);
+    runCommand(process.execPath, ['scripts/check-release-authority.mjs', '--contract']);
     runCommand(process.execPath, ['scripts/check-c1-1-manifest-contract.mjs'], {
       env: installedTools?.env,
     });

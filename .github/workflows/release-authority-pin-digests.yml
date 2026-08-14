@@ -1,0 +1,164 @@
+name: Pin prod image digests
+
+# GitOps patch preparation for audit finding H11: after a signed release image is
+# published by release-authority-images.yml, pin its immutable sha256 digest into
+# infra/kubernetes/apps/kustomization.yaml (the tree the ArgoCD `apps`
+# Application syncs). Prod never tracks a mutable tag.
+#
+# Audit finding #20: the pinned digest is the one the release run's build job
+# emitted (downloaded from that run's image-ref artifact) — never a fresh
+# resolution of the mutable tag, which would permit pinning any
+# previously-signed image. The script re-resolves the tag only to cross-check
+# it still agrees with the build-emitted digest and fails loudly otherwise. The
+# workflow uploads a reviewable patch; it never pushes directly to main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Mirrored release tag emitted by the release-images run'
+        required: true
+        type: string
+      release_commit:
+        description: 'Full source commit SHA used by the release-images run'
+        required: true
+        type: string
+      release_run_id:
+        description: 'Successful release-images workflow run ID containing image-ref.txt'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+  actions: read       # download the image-ref artifact from the release run
+
+jobs:
+  release-authority:
+    name: Verify release authority
+    runs-on: ubuntu-latest
+    environment: release-authority-main
+    permissions:
+      contents: read
+    outputs:
+      authorized: ${{ steps.authority.outputs.authorized }}
+      state: ${{ steps.authority.outputs.state }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Check provider, mirror, signer, tag, and Argo parity
+        id: authority
+        env:
+          RELEASE_AUTHORITY_GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORITY_FORGEJO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_FORGEJO_TOKEN }}
+          RELEASE_AUTHORITY_ARGO_API_URL: ${{ vars.RELEASE_AUTHORITY_ARGO_API_URL }}
+          RELEASE_AUTHORITY_ARGO_TOKEN: ${{ secrets.RELEASE_AUTHORITY_ARGO_TOKEN }}
+          RELEASE_AUTHORITY_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_AUTHORITY_TAG: ${{ inputs.release_tag }}
+        run: >
+          node scripts/check-release-authority.mjs
+          --provider github
+          --intent digest-pin
+          --commit "$RELEASE_AUTHORITY_COMMIT"
+          --tag "$RELEASE_AUTHORITY_TAG"
+          --event "$GITHUB_EVENT_NAME"
+          --ref "$GITHUB_REF"
+          --evidence-file output/release-authority/github-release-pin-digests.json
+
+      - name: Upload release-authority evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-authority-github-pin-${{ github.run_id }}
+          path: output/release-authority
+          if-no-files-found: error
+
+  pin-digests:
+    runs-on: ubuntu-latest
+    environment: release-authority-main
+    timeout-minutes: 10
+    needs: release-authority
+    if: >
+      needs.release-authority.outputs.authorized == 'true'
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      - name: Download build-emitted image ref from the release run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.release_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::release_run_id must be numeric"
+            exit 1
+          fi
+          case "$RELEASE_TAG" in
+            backend-v*) app=backend ;;
+            admin-v*) app=admin ;;
+            staff-web-v*) app=staff-web ;;
+            *) echo "::error::unexpected release tag ${RELEASE_TAG}"; exit 1 ;;
+          esac
+          run_json="$(gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion,headSha,workflowName)"
+          node -e '
+            const run = JSON.parse(process.argv[1]);
+            const expected = process.argv[2];
+            if (run.conclusion !== "success") throw new Error(`release run conclusion is ${run.conclusion}`);
+            if (run.headSha !== expected) throw new Error(`release run head SHA ${run.headSha} does not match ${expected}`);
+            if (run.workflowName !== "Release Container Images") throw new Error(`unexpected workflow ${run.workflowName}`);
+          ' "$run_json" "$RELEASE_COMMIT"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "image-ref-${app}-${RELEASE_TAG}" --dir output/release-artifact
+          ref_file="$(find output/release-artifact -name image-ref.txt -type f | head -n 1)"
+          if [ -z "$ref_file" ]; then
+            echo "::error::image-ref.txt not found in the release run artifact — cannot prove the digest came from that run (audit finding #20)"
+            exit 1
+          fi
+          echo "IMAGE_REF_FILE=$ref_file" >> "$GITHUB_ENV"
+
+      - name: Pin build-emitted digest and update overlay
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          COSIGN_CERTIFICATE_IDENTITY_REGEXP: '^https://github.com/${{ github.repository }}/\.github/workflows/release-authority-images\.yml@.*$'
+          COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          node scripts/update-prod-digests.mjs \
+            --tag "$RELEASE_TAG" \
+            --expected-digest-file "$IMAGE_REF_FILE" \
+            --evidence-file "output/release-pin-digests/${RELEASE_TAG}.json"
+
+      - name: Create reviewable digest patch
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          mkdir -p output/release-pin-digests
+          if git diff --quiet; then
+            echo "No digest change — overlay already pinned to this release."
+            printf '' > "output/release-pin-digests/${RELEASE_TAG}.patch"
+            exit 0
+          fi
+          git diff --binary -- infra/kubernetes/apps/kustomization.yaml \
+            > "output/release-pin-digests/${RELEASE_TAG}.patch"
+
+      - name: Upload digest verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-pin-digests-${{ inputs.release_tag }}
+          path: output/release-pin-digests
+          if-no-files-found: ignore

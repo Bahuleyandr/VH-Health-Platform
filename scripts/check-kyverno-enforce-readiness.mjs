@@ -116,7 +116,7 @@ function validateStaticPolicyContract() {
   requirePattern('admission failurePolicy fails closed', policy, /^\s*failurePolicy:\s*Fail\s*$/m);
   requirePattern('verifyImages rule exists', policy, /^\s*verifyImages:\s*$/m);
   requirePattern('GitHub keyless attestor issuer', policy, /issuer:\s*"https:\/\/token\.actions\.githubusercontent\.com"/);
-  requirePattern('release and dalekdefender GitHub workflow identities', policy, /release-images\|deploy-dalekdefender/);
+  requirePattern('release and dalekdefender GitHub workflow identities', policy, /release-authority-\(images\|dalekdefender\)/);
   requirePattern('Forgejo cosign public-key Secret name', policy, /name:\s*vhhealth-cosign-public-key/);
   requirePattern('Forgejo cosign public-key Secret namespace', policy, /namespace:\s*kyverno/);
   requirePattern('backend image reference', policy, /ghcr\.io\/bahuleyandr\/vh-health-platform-backend\*/);
