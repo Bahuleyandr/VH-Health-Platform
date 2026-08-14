@@ -12,6 +12,11 @@ jest.unstable_mockModule('../../utils/jwtUtils.js', () => ({
 jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   isTokenBlacklisted: jest.fn().mockResolvedValue(false),
   isUserTokensRevoked: jest.fn().mockResolvedValue(false),
+  // realtimeTicketRoutes resolves the ticket's token_epoch through the
+  // durable store whenever the bearer carries no epoch claim (and always on
+  // acting-as hops) — the factory must export it or the ESM import of the
+  // route module fails outright.
+  getCurrentTokenEpoch: jest.fn().mockResolvedValue(0),
   RevocationCheckUnavailableError: class extends Error {},
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({

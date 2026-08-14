@@ -213,18 +213,21 @@ describeIfDb('appointment and scheduled notification delivery durability', () =>
          FROM notification_outbox
         WHERE tenant_id = $1::uuid
           AND source_event_key IN ($2::text, $3::text)
-        ORDER BY id`,
+        ORDER BY channel`,
       fixture.tenantId,
       `appointment-reminder-1h:${due.id}`,
       `appointment-reminder-1h:${outside.id}`,
     ));
+    // ORDER BY channel, not id: queuePatientReminder queues the sms and push
+    // intents via Promise.allSettled, so their row-id order is a race — CI
+    // shard 2 on 8215b901 (2026-08-14) caught the [push, sms] interleaving.
     expect(intents.map(row => ({
       channel: row.channel,
       source: row.source_event_key,
       status: row.status,
     }))).toEqual([
-      { channel: 'sms', source: `appointment-reminder-1h:${due.id}`, status: 'PENDING' },
       { channel: 'push', source: `appointment-reminder-1h:${due.id}`, status: 'PENDING' },
+      { channel: 'sms', source: `appointment-reminder-1h:${due.id}`, status: 'PENDING' },
     ]);
 
     const claims = await notificationOutbox.claimPendingBatch({
