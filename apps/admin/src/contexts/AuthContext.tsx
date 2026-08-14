@@ -24,6 +24,7 @@ import {
   adminMfaSetupConfirm,
 } from "@/lib/api-client";
 import type { AdminUser } from "@/lib/types";
+import { resolvePostLoginRedirect } from "@/lib/postLoginRedirect";
 
 /** Describes the second-factor challenge returned by `login` when the admin
  *  account has MFA enabled. Callers must complete the flow via `verifyMfa`. */
@@ -171,7 +172,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (result?.admin) {
           setUser(result.admin);
-          router.push("/dashboard");
+          // Honor the middleware's ?redirect= deep link (strictly validated —
+          // same-origin /dashboard paths only, /dashboard otherwise).
+          router.push(resolvePostLoginRedirect());
           return { kind: "success" };
         }
         throw new Error("Login successful but no admin data received");
@@ -197,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null);
         const result = await verifyAdminMfa(args);
         if (result?.admin) setUser(result.admin);
-        router.push("/dashboard");
+        router.push(resolvePostLoginRedirect());
       } catch (e) {
         const msg = (e as Error).message || "MFA verification failed";
         setError(msg);
@@ -226,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null);
         const result = await adminMfaSetupConfirm(args);
         if (result?.admin) setUser(result.admin);
-        router.push("/dashboard");
+        router.push(resolvePostLoginRedirect());
       } catch (e) {
         const msg = (e as Error).message || "MFA setup failed";
         setError(msg);
@@ -248,7 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (result.user) {
           setUser(result.user);
         }
-        router.push("/dashboard");
+        router.push(resolvePostLoginRedirect());
       } catch (e) {
         const msg = (e as Error).message || "Staff login failed";
         setError(msg);

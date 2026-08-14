@@ -25,6 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
 import { FileKey2, KeyRound } from "lucide-react";
 import { IDLE_SIGN_OUT_WARNING_KEY } from "@/lib/api-client";
+import { resolvePostLoginRedirect } from "@/lib/postLoginRedirect";
 import styles from "./Login.module.css";
 
 type SsoProvider = {
@@ -385,7 +386,9 @@ function LoginInner() {
                 disabled={disabled}
                 onClick={() => {
                   setError("");
-                  window.location.href = `/api/login/sso/${provider.protocol}/${encodeURIComponent(provider.provider_key)}/start?returnTo=/dashboard`;
+                  // Carry the middleware's ?redirect= deep link through the
+                  // SSO round-trip (validated: /dashboard paths only).
+                  window.location.href = `/api/login/sso/${provider.protocol}/${encodeURIComponent(provider.provider_key)}/start?returnTo=${encodeURIComponent(resolvePostLoginRedirect())}`;
                 }}
               >
                 {provider.protocol === "saml" ? (
