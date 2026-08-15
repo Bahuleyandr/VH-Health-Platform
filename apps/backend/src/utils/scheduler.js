@@ -8,7 +8,6 @@
 import { schedule as cronSchedule } from 'node-cron';
 import pg from 'pg';
 import path from 'path';
-import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
 import purgeArchives from '../../admin/purge-archives.js';
 import { isPathwayProjectorShadowEnabled } from '../config/pathwayProjectorConfig.js';
 import {
@@ -278,9 +277,16 @@ import { sweepExpiredBreakGlass } from '../services/security/breakGlassService.j
 import { runEscalationSweep } from '../services/workflow/escalationEngineService.js';
 
 // Notifications
-// NB: backupVerification / canaryHealthCheck / wardDowntimePackService entry-
-// points are intentionally NOT imported here anymore — those jobs are owned by
-// dedicated k8s CronJobs (audit C-5), not the in-process scheduler.
+// NB: database backups and ward downtime packs are owned by dedicated k8s
+// CronJobs (audit C-5), not the in-process scheduler. runCanaryChecks IS
+// imported and registered below ('canary-checks', every 5 min, withJobLock):
+// it runs the DB read/write + stuck-notification + unacked-critical-alert
+// synthetic checks in-process, while the k8s canary-health-check CronJob is a
+// separate curl-only probe of /health/live + /health/ready that survives a
+// backend outage — complementary signals, not the same job. The former
+// utils/backupVerification.js (verifyLatestBackup over local .sql.gz dumps)
+// was deleted outright: CNPG/Barman owns database backup + verification, and
+// nothing wrote the backups/{local,render} dirs it read.
 import { tickAdminKpi } from './kpiAggregator.js';
 import { tickDailyOps } from './dailyOpsBroadcaster.js';
 import { tickTeleconsultOps } from './teleconsultOpsBroadcaster.js';
@@ -701,12 +707,9 @@ if (process.env.NODE_ENV !== 'test') {
     await purgeArchives();
   }));
 
-  // 🗓️ Weekly on Sunday at 04:00 - Cleanup old backups
-  registerCron('0 4 * * 0', withJobLock('cleanup-backups', async () => {
-    logger.info('Scheduled Task: Cleaning up old backups...');
-    await cleanupBackups(path.resolve('backups', 'local'));
-    await cleanupBackups(path.resolve('backups', 'render'));
-  }));
+  // NB: the former weekly 'cleanup-backups' cron is gone — it pruned
+  // backups/{local,render} directories that nothing in-cluster writes
+  // ("render" was a Render-hosting relic; CNPG/Barman owns DB backups).
 
   // ⏰ Every hour - Send 24h and 1h SMS+push appointment reminders
   registerCron('0 * * * *', withJobLock('timed-reminders', () => (
@@ -1130,13 +1133,14 @@ if (process.env.NODE_ENV !== 'test') {
     );
   }));
 
-  // Every 5 minutes - Canary health check (synthetic tests against critical paths)
-  //
-  // REMOVED in-process registration (audit C-5). A dedicated k8s CronJob owns
-  // the canary synthetic checks (see infra/kubernetes/ canary CronJob manifest)
-  // so they run exactly once per tick fleet-wide instead of once per
-  // worker×replica. `runCanaryChecks` is the shared entrypoint the CronJob
-  // invokes.
+  // NB: the in-process synthetic canary ('canary-checks', every 5 min) is
+  // registered EARLIER in this function — withJobLock already makes it one
+  // runner per tick fleet-wide. The k8s canary-health-check CronJob is not
+  // the same job: it is a curl-only probe of /health/live + /health/ready
+  // from a separate pod (it does NOT invoke runCanaryChecks), giving an
+  // outage signal that survives the backend being down. A previous comment
+  // here claimed the in-process registration was removed and that the
+  // CronJob calls runCanaryChecks — both false.
 
   // Every 30 seconds — admin:kpi aggregator tick. Short cadence is safe because
   // tickAdminKpi runs two indexed count queries per active tenant and emits
@@ -1289,11 +1293,6 @@ export async function runAllScheduledTasksNow() {
     await runManualTask('startup-r2-cleanup', () => (
       withDbAdvisoryLock('startup-r2-cleanup', () => executeCleanup())
     ));
-    await runManualTask('cleanup-backups', () => withDbAdvisoryLock('cleanup-backups', async () => {
-      await cleanupBackups(path.resolve('backups', 'local'));
-      await cleanupBackups(path.resolve('backups', 'render'));
-    }));
-
     // Heavy MUTATING / fan-out jobs — each fleet-wide single-runner via the
     // advisory lock so a boot stampede can't multiply patient SMS / escalations.
     await runManualTask('timed-reminders', () => withDbAdvisoryLock('timed-reminders', () => (
