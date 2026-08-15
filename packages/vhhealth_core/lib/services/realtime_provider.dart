@@ -12,7 +12,7 @@
 
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 
 import 'auth_service.dart';
 import 'realtime_client.dart';
@@ -83,22 +83,5 @@ class RealtimeProvider extends ChangeNotifier {
     _subscribedSubscription?.cancel();
     RealtimeClient.instance.onSessionExpired = null;
     super.dispose();
-  }
-}
-
-/// Lightweight InheritedWidget-free accessor for widget trees that don't use
-/// `provider`. Wrap your app in [RealtimeProviderScope] if you want this.
-class RealtimeProviderScope extends InheritedNotifier<RealtimeProvider> {
-  const RealtimeProviderScope({
-    super.key,
-    required RealtimeProvider super.notifier,
-    required super.child,
-  });
-
-  static RealtimeProvider of(BuildContext context) {
-    final scope = context
-        .dependOnInheritedWidgetOfExactType<RealtimeProviderScope>();
-    assert(scope != null, 'No RealtimeProviderScope in context');
-    return scope!.notifier!;
   }
 }
