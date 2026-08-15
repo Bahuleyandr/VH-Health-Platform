@@ -102,16 +102,12 @@ export function markStoreCommandFailed(err, now = Date.now()) {
   noteDown('store_command_failed');
 }
 
-/**
- * Decide how a store operation should proceed right now.
- * @returns {{mode: 'store'|'probe'|'short_circuit', reason?: string}}
- */
-export function evaluateStoreAccess(now = Date.now()) {
+function computeStoreAccess(now, mutate) {
   const client = redisLib.getRedisClient?.();
   if (!client) {
     const initFailed = redisLib.hasRedisInitFailed ? redisLib.hasRedisInitFailed() : false;
     if (initFailed) {
-      noteDown('redis_never_initialized');
+      if (mutate) noteDown('redis_never_initialized');
       return { mode: 'short_circuit', reason: 'redis_never_initialized' };
     }
     // First lazy use before any init attempt: let it through — initRedis() is
@@ -119,23 +115,49 @@ export function evaluateStoreAccess(now = Date.now()) {
     return { mode: 'store' };
   }
   if (redisLib.isRedisConnected && !redisLib.isRedisConnected()) {
-    noteDown('redis_disconnected');
+    if (mutate) noteDown('redis_disconnected');
     return { mode: 'short_circuit', reason: 'redis_disconnected' };
   }
   if (breakerOpenedAt !== null) {
-    if (now >= nextProbeAt) {
+    if (mutate && now >= nextProbeAt) {
       nextProbeAt = now + STORE_PROBE_INTERVAL_MS;
       counters.probes += 1;
       return { mode: 'probe' };
     }
+    // Read-only observers see the breaker as open even inside the probe
+    // window — a would-probe moment is still a degraded store.
     return { mode: 'short_circuit', reason: 'store_errors' };
   }
   // Healthy path. If we were down for a connection-level reason (disconnected
   // or never-initialized) and the client is back, the recovery is visible here
   // even before any request exercises the store — clear the latch so the
   // operator signal and /health/metrics don't stay stale on a quiet system.
-  noteUp();
+  if (mutate) noteUp();
   return { mode: 'store' };
+}
+
+/**
+ * Decide how a store operation should proceed right now. May consume the
+ * half-open probe token — call it ONLY from a caller that will actually
+ * perform the store operation it was granted.
+ * @returns {{mode: 'store'|'probe'|'short_circuit', reason?: string}}
+ */
+export function evaluateStoreAccess(now = Date.now()) {
+  return computeStoreAccess(now, true);
+}
+
+/**
+ * Side-effect-free view of the same decision, for status/metrics surfaces.
+ *
+ * This MUST NOT share evaluateStoreAccess's probe token: prod runs two
+ * Prometheus replicas that both scrape every target, so /health/metrics is
+ * hit on a ~15s effective cadence — the same as STORE_PROBE_INTERVAL_MS. A
+ * status call that consumed the token would let phase-aligned scrapes starve
+ * the real half-open probes and hold fail-closed profiles (auth/otp/sos) at
+ * 429 after Redis has already recovered.
+ */
+export function peekStoreAccess(now = Date.now()) {
+  return computeStoreAccess(now, false);
 }
 
 function recordDenied() {
@@ -208,6 +230,8 @@ export class ResilientRateLimitStore {
   }
 
   async increment(key) {
+    // The consuming call, deliberately: increment IS the caller that performs
+    // the store operation a granted probe pays for. Only status surfaces peek.
     const access = evaluateStoreAccess();
     if (access.mode === 'short_circuit') {
       return this.storeLossResult();
@@ -254,7 +278,7 @@ export function rateLimitStoreStatus() {
   if (!configured) {
     return { state: 'not_configured', note: 'per-process MemoryStore; store loss not applicable' };
   }
-  const access = evaluateStoreAccess();
+  const access = peekStoreAccess();
   const degraded = reportedDown || access.mode === 'short_circuit';
   return {
     state: degraded ? 'degraded' : 'ok',

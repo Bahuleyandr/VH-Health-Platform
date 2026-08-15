@@ -80,6 +80,8 @@ const { authRateLimiter, otpRateLimiter, sosRateLimiter } = await import(
 const {
   ResilientRateLimitStore,
   rateLimitStoreStatus,
+  evaluateStoreAccess,
+  markStoreCommandFailed,
   __resetRateLimitStoreHealthForTests,
 } = await import('../../middleware/rateLimitStoreHealth.js');
 const { RATE_LIMIT_STORE_LOSS_RETRY_AFTER_SECONDS, storeLossPostureFor } = await import(
@@ -225,6 +227,33 @@ describe('silent loss (command failure with connection nominally up)', () => {
       expect(res.status).toBe(200);
       expect(incrementMock).toHaveBeenCalledTimes(2);
       expect(rateLimitStoreStatus().state).toBe('ok');
+    } finally {
+      Date.now.mockRestore();
+    }
+  });
+
+  // Regression: a metrics scrape must OBSERVE the breaker, never consume its
+  // half-open probe token. Prod runs two Prometheus replicas that both scrape
+  // every target (~15s effective cadence on /health/metrics — the same as the
+  // probe interval), so a status call that spent the token would let
+  // phase-aligned scrapes starve real probes and hold auth/otp/sos at 429
+  // after Redis has already recovered.
+  test('rateLimitStoreStatus never consumes the half-open probe token', () => {
+    markStoreCommandFailed(new Error('boom'));
+
+    const realNow = Date.now;
+    jest.spyOn(Date, 'now').mockImplementation(() => realNow() + 16000);
+    try {
+      // Any number of status reads inside the matured probe window...
+      for (let i = 0; i < 5; i += 1) {
+        const status = rateLimitStoreStatus();
+        expect(status.state).toBe('degraded');
+        expect(status.counters.probes).toBe(0);
+      }
+      // ...and the FIRST real caller still gets the probe grant.
+      expect(evaluateStoreAccess()).toEqual({ mode: 'probe' });
+      // The token is single-use: the next caller short-circuits until it matures again.
+      expect(evaluateStoreAccess().mode).toBe('short_circuit');
     } finally {
       Date.now.mockRestore();
     }
