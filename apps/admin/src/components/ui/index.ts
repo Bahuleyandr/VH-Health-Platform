@@ -1,6 +1,5 @@
 // UI Component barrel file — import from "@/components/ui"
 
-export * from "./alert-dialog";
 export * from "./button";
 export * from "./card";
 export * from "./confirm-dialog";

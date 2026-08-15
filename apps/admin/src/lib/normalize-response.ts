@@ -38,21 +38,3 @@ export function normalizeList<T>(primaryKey: string) {
     return [];
   };
 }
-
-/**
- * Extract a single object from an API response, handling common envelope patterns.
- *
- * @param primaryKey - The primary key to look for (e.g., "doctor", "user")
- */
-export function normalizeSingle<T>(primaryKey: string) {
-  return (resp: unknown): T | null => {
-    if (isObj(resp)) {
-      const candidate = resp[primaryKey] ?? resp["data"];
-      if (isObj(candidate)) return candidate as T;
-      // The response itself might be the object
-      if (primaryKey in resp) return resp[primaryKey] as T;
-      return resp as T;
-    }
-    return null;
-  };
-}

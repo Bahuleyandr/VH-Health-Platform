@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface ConfirmDialogProps {
@@ -137,45 +137,4 @@ export function ConfirmDialog({
       </div>
     </div>
   );
-}
-
-// ─── useConfirm hook ─────────────────────────────────────────────────────────
-// Provides a promise-based imperative confirm() call.
-// Usage:
-//   const { confirm, isOpen, handleConfirm, handleCancel } = useConfirm();
-//   const ok = await confirm();
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface ConfirmState {
-  open: boolean;
-  resolve?: (v: boolean) => void;
-}
-
-export function useConfirm() {
-  const [state, setState] = useState<ConfirmState>({ open: false });
-
-  const confirm = useCallback(
-    () =>
-      new Promise<boolean>((resolve) => {
-        setState({ open: true, resolve });
-      }),
-    []
-  );
-
-  const handleConfirm = useCallback(() => {
-    state.resolve?.(true);
-    setState({ open: false });
-  }, [state]);
-
-  const handleCancel = useCallback(() => {
-    state.resolve?.(false);
-    setState({ open: false });
-  }, [state]);
-
-  return {
-    confirm,
-    isOpen: state.open,
-    handleConfirm,
-    handleCancel,
-  };
 }
