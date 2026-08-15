@@ -330,7 +330,7 @@ export function sanitizeBody(body) {
   }
 }
 
-export function excludesAuditRequestBody(cleanPath) {
+function excludesAuditRequestBody(cleanPath) {
   // HL7 fields can carry PHI at arbitrary positions, including hostile query
   // input, so this endpoint cannot safely derive audit context from either.
   return isHl7ReceiveEndpoint(String(cleanPath || ''));
