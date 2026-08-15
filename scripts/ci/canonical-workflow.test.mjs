@@ -20,7 +20,10 @@ function jobBlock(workflow, jobId) {
 test('canonical workflow separates quick pushes from the final full marker', () => {
   const workflow = read('.github/workflows/ci.yml');
 
-  assert.match(workflow, /merge_group:\s*\n\s+types: \[checks_requested\]/);
+  // Merge queues are unavailable for this user-owned repository (workflow
+  // header); an inert merge_group trigger must not reappear and imply
+  // otherwise.
+  assert.doesNotMatch(workflow, /merge_group:/);
   assert.match(workflow, /workflow_dispatch:\s*\n\s+inputs:\s*\n\s+tier:/);
   assert.match(workflow, /quick_backend:/);
   assert.match(workflow, /lint-and-test:/);

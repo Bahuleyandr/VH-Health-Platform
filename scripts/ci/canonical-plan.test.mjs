@@ -55,16 +55,6 @@ test('CI plumbing changes exercise the full parallel matrix', () => {
   assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true, true]);
 });
 
-test('merge queue commits always receive the full gate', () => {
-  const plan = buildCanonicalPlan({
-    eventName: 'merge_group',
-    files: ['docs/README.md'],
-  });
-
-  assert.equal(plan.tier, 'full');
-  assert.deepEqual(Object.values(plan.selected), [true, true, true, true, true, true, true]);
-});
-
 test('manual quick dispatch remains available for workflow diagnosis', () => {
   const plan = buildCanonicalPlan({
     eventName: 'workflow_dispatch',
