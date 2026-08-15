@@ -8,17 +8,22 @@
 //   slip-upload step.
 
 import multer from 'multer';
+import {
+  isScanStatusServable,
+  normalizeScanStatus,
+  resolveFileScanPolicy,
+} from '../../config/fileScanPolicy.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizeUploadMimeType } from '../../middleware/uploadMiddleware.js';
+import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { getSignedFileUrl, uploadFileToR2 } from '../../utils/r2Storage.js';
-import { error, success } from '../../utils/responseHelper.js';
+import { error, relayAppError, success } from '../../utils/responseHelper.js';
 
 const SIGNED_URL_TTL_SECONDS = 3600;
 const DOWNLOAD_BLOCKED_STATUS = 423;
-const CLEAN_SCAN_STATUSES = new Set(['clean', 'cleaned', 'passed']);
 const INTERNAL_ADMIN_ROLES = new Set([
   'ADMIN',
   'SUPER_ADMIN',
@@ -39,14 +44,6 @@ function isInternalAdminRole(role) {
   return INTERNAL_ADMIN_ROLES.has(normalizedRole(role));
 }
 
-function normalizeScanStatus(status) {
-  return String(status || 'PENDING').trim().toLowerCase();
-}
-
-function isScanClean(status) {
-  return CLEAN_SCAN_STATUSES.has(normalizeScanStatus(status));
-}
-
 function storageKeyIsBoundToUploader(meta) {
   if (!meta?.storage_key || !meta?.uploaded_by) return false;
   return String(meta.storage_key).startsWith(`uploads/${meta.uploaded_by}/`);
@@ -60,13 +57,19 @@ function canAccessGenericUpload(req, meta) {
   return ownerMatches && storageKeyIsBoundToUploader(meta);
 }
 
-function denyUntilCleanScan(res, meta) {
+// A stored file whose scan_status is not servable under the active policy.
+// The 423 carries the raw stored status and the active policy so an operator
+// reading a support ticket can tell "we require scanning and this file predates
+// the scanner" from "this file is quarantined" without a DB session.
+function denyUnservableScanStatus(res, meta) {
   return error(
     res,
     'File is not available until its security scan passes',
     DOWNLOAD_BLOCKED_STATUS,
     {
       scan_status: meta.scan_status || 'PENDING',
+      normalized_scan_status: normalizeScanStatus(meta.scan_status),
+      scan_policy: resolveFileScanPolicy(),
       file_name: meta.file_name,
     },
   );
@@ -111,12 +114,16 @@ export const getFileByKey = async (req, res) => {
       return error(res, 'Not authorized to access this file', HTTP_STATUS.FORBIDDEN);
     }
 
-    // CAN-022: a non-clean file is NEVER downloadable through this endpoint —
-    // the previous client-supplied `x-vh-internal-download` header let admin
-    // browser/API sessions bypass malware-scan blocking. Quarantine review must
-    // use a dedicated, server-identity-proven, audited path, not a request header.
-    if (!isScanClean(meta.scan_status)) {
-      return denyUntilCleanScan(res, meta);
+    // CAN-022: a file that is not servable under the active scan policy is NEVER
+    // downloadable through this endpoint — the previous client-supplied
+    // `x-vh-internal-download` header let admin browser/API sessions bypass
+    // malware-scan blocking. Quarantine review must use a dedicated,
+    // server-identity-proven, audited path, not a request header.
+    //
+    // The allowlist is shared with the messaging and brand-kit gates
+    // (src/config/fileScanPolicy.js) so all three agree on the same row.
+    if (!isScanStatusServable(meta.scan_status)) {
+      return denyUnservableScanStatus(res, meta);
     }
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -160,6 +167,18 @@ export const uploadFile = async (req, res) => {
     const storageKey = `uploads/${callerUid}/${ts}_${safeName}`;
     const contentType = normalizeUploadMimeType(req.file) || 'application/octet-stream';
 
+    // Screen BEFORE anything is written. This endpoint used to store the bytes,
+    // stamp a literal 'PENDING' that no worker ever advanced, and answer 201 —
+    // so the download gate below refused the file forever and the caller was
+    // never told. The screening decision now happens at ingest and is reported
+    // to the caller in the same response, so `download_available` is a fact
+    // rather than a hope. A refusal (422 infected / 503 scanner required but
+    // unavailable) stores nothing at all.
+    const screened = await screenUploadBuffer(req.file.buffer, {
+      subject: 'File',
+      context: { uploadedBy: callerUid, storageKey, contentType },
+    });
+
     let storageUrl;
     try {
       storageUrl = await uploadFileToR2(req.file.buffer, storageKey, contentType);
@@ -174,10 +193,11 @@ export const uploadFile = async (req, res) => {
     await prisma.$queryRawUnsafe(
       `INSERT INTO file_metadata
          (file_name, file_type, storage_key, storage_url, file_size,
-          uploaded_by, scan_status, privacy_level, is_active, tenant_id, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6::uuid, 'PENDING', 'RESTRICTED', TRUE, $7::uuid, NOW())
+          uploaded_by, scan_status, scan_result, privacy_level, is_active, tenant_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, 'RESTRICTED', TRUE, $9::uuid, NOW())
        ON CONFLICT (storage_key) DO NOTHING`,
-      safeName, contentType, storageKey, storageUrl, req.file.size, callerUid, resolveTenantOrThrow(req)
+      safeName, contentType, storageKey, storageUrl, req.file.size, callerUid,
+      screened.scanStatus, JSON.stringify(screened.metadata), resolveTenantOrThrow(req)
     );
 
     return success(res, {
@@ -186,11 +206,19 @@ export const uploadFile = async (req, res) => {
       file_name: safeName,
       file_type: contentType,
       file_size: req.file.size,
-      scan_status: 'PENDING',
-      download_available: false
+      scan_status: screened.scanStatus,
+      scan_policy: screened.metadata.scan_policy,
+      download_available: isScanStatusServable(screened.scanStatus)
     }, 'File uploaded');
   } catch (e) {
-    logger.error('uploadFile error:', e);
-    return error(res, 'Failed to upload file', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Screening refusals (422 FILE_SCAN_QUARANTINED / 503 FILE_SCAN_UNAVAILABLE)
+    // are deliberate, caller-actionable answers, not 500s. relayAppError lifts
+    // `code` to the response root and relays `details`; `safe: true` is what
+    // keeps the hand-written 503 message intact through production
+    // sanitization — a clinician must be told WHY the slip was not accepted,
+    // and the point of this change is that they learn it at upload time.
+    // Anything that is not an AppError still falls through to a generic 500
+    // with the raw error logged server-side, never returned.
+    return relayAppError(res, e, 'Failed to upload file', { safe: true });
   }
 };

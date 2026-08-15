@@ -10,7 +10,7 @@ const notificationQueueMock = jest.fn();
 const emitStaffMessageMock = jest.fn();
 const uploadFileToR2Mock = jest.fn();
 const getFileFromR2Mock = jest.fn();
-const scanBufferMock = jest.fn();
+const scanBufferVerdictMock = jest.fn();
 const loggerMock = {
   warn: jest.fn(),
   error: jest.fn(),
@@ -51,11 +51,16 @@ jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
   getFileFromR2: getFileFromR2Mock
 }));
 
+// Mocked at the transport layer so these tests exercise the real
+// FILE_SCAN_POLICY decision (src/config/fileScanPolicy.js).
 jest.unstable_mockModule('../../utils/virusScanner.js', () => ({
-  scanBuffer: scanBufferMock
+  SCAN_OUTCOME: { CLEAN: 'clean', INFECTED: 'infected', UNAVAILABLE: 'unavailable', ERROR: 'error' },
+  scanBufferVerdict: scanBufferVerdictMock,
+  default: { scanBufferVerdict: scanBufferVerdictMock }
 }));
 
 const messagingService = (await import('../../services/messaging/messagingService.js')).default;
+const { FILE_SCAN_POLICY } = await import('../../config/fileScanPolicy.js');
 
 const tenantId = '00000000-0000-4000-8000-000000000001';
 const senderUid = '11111111-1111-4111-8111-111111111111';
@@ -64,7 +69,17 @@ const recipientTwo = '33333333-3333-4333-8333-333333333333';
 const threadOne = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const threadTwo = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
+let previousScanPolicy;
+
+beforeEach(() => {
+  previousScanPolicy = process.env.FILE_SCAN_POLICY;
+  // Default these suites to the strict posture; the no-scanner cases opt in.
+  process.env.FILE_SCAN_POLICY = FILE_SCAN_POLICY.REQUIRED;
+});
+
 afterEach(() => {
+  if (previousScanPolicy === undefined) delete process.env.FILE_SCAN_POLICY;
+  else process.env.FILE_SCAN_POLICY = previousScanPolicy;
   prismaMock.$queryRawUnsafe.mockReset();
   prismaMock.$executeRawUnsafe.mockReset();
   prismaMock.$transaction.mockReset();
@@ -72,7 +87,7 @@ afterEach(() => {
   emitStaffMessageMock.mockReset();
   uploadFileToR2Mock.mockReset();
   getFileFromR2Mock.mockReset();
-  scanBufferMock.mockReset();
+  scanBufferVerdictMock.mockReset();
   Object.values(loggerMock).forEach(fn => fn.mockReset());
 });
 
@@ -324,7 +339,7 @@ describe('messagingService', () => {
       .mockResolvedValueOnce([{ muted_until: null, urgent_only: false }])
       .mockResolvedValueOnce([{ id: 42 }]);
     prismaMock.$transaction.mockImplementationOnce(callback => callback(tx));
-    scanBufferMock.mockResolvedValueOnce();
+    scanBufferVerdictMock.mockResolvedValueOnce({ outcome: 'clean', signature: null, detail: null });
     uploadFileToR2Mock.mockResolvedValueOnce('local://staff-messages/thread/handover.pdf');
     notificationQueueMock.mockResolvedValueOnce({ id: 99 });
 
@@ -342,7 +357,7 @@ describe('messagingService', () => {
       }
     });
 
-    expect(scanBufferMock).toHaveBeenCalledWith(Buffer.from('%PDF-1.4 attachment'));
+    expect(scanBufferVerdictMock).toHaveBeenCalledWith(Buffer.from('%PDF-1.4 attachment'));
     expect(uploadFileToR2Mock).toHaveBeenCalledWith(
       Buffer.from('%PDF-1.4 attachment'),
       expect.stringContaining(`staff-messages/${tenantId}/${threadOne}/`),
@@ -369,6 +384,244 @@ describe('messagingService', () => {
         recipientUid: recipientOne,
         message: expect.objectContaining({ id: 21, thread_id: threadOne })
       })
+    );
+  });
+
+  describe('attachment scan gate', () => {
+    const attachmentRow = (scanStatus) => ({
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      thread_id: threadOne,
+      message_id: 21,
+      uploaded_by_uid: senderUid,
+      file_name: 'handover.pdf',
+      content_type: 'application/pdf',
+      file_size: 20,
+      storage_key: `staff-messages/${tenantId}/${threadOne}/handover.pdf`,
+      scan_status: scanStatus,
+      metadata: {},
+      created_at: new Date('2026-06-03T09:00:00Z'),
+      updated_at: new Date('2026-06-03T09:00:00Z')
+    });
+
+    // assertThreadAccess runs one lookup after the attachment row is fetched.
+    const threadAccessRow = {
+      id: threadOne,
+      thread_type: 'direct',
+      subject: null,
+      patient_uid: null,
+      admission_id: null,
+      priority: 'normal',
+      status: 'active',
+      tenant_id: tenantId
+    };
+
+    async function download(scanStatus) {
+      prismaMock.$queryRawUnsafe
+        .mockResolvedValueOnce([attachmentRow(scanStatus)])
+        .mockResolvedValueOnce([threadAccessRow]);
+      getFileFromR2Mock.mockResolvedValueOnce(Buffer.from('bytes'));
+      return messagingService
+        .getAttachmentDownload(senderUid, attachmentRow(scanStatus).id, tenantId)
+        .catch(err => err);
+    }
+
+    it('THE FAIL-OPEN BUG: never serves a `failed` attachment, under either policy', async () => {
+      // With no clamd deployed every attachment landed as 'failed', and the old
+      // gate tested only `=== 'quarantined'`, so unscanned bytes were served by
+      // a path whose code read as though scanning protected it.
+      for (const policy of [FILE_SCAN_POLICY.REQUIRED, FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK]) {
+        process.env.FILE_SCAN_POLICY = policy;
+        prismaMock.$queryRawUnsafe.mockReset();
+        getFileFromR2Mock.mockReset();
+
+        const result = await download('failed');
+
+        expect(result).toBeInstanceOf(Error);
+        expect(result.statusCode).toBe(423);
+        expect(result.code).toBe('ATTACHMENT_SCAN_NOT_CLEAN');
+        expect(getFileFromR2Mock).not.toHaveBeenCalled();
+      }
+    });
+
+    it('never serves a `pending` attachment, under either policy', async () => {
+      for (const policy of [FILE_SCAN_POLICY.REQUIRED, FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK]) {
+        process.env.FILE_SCAN_POLICY = policy;
+        prismaMock.$queryRawUnsafe.mockReset();
+        getFileFromR2Mock.mockReset();
+
+        const result = await download('pending');
+
+        expect(result.statusCode).toBe(423);
+        expect(getFileFromR2Mock).not.toHaveBeenCalled();
+      }
+    });
+
+    it('never serves a quarantined attachment, under either policy', async () => {
+      for (const policy of [FILE_SCAN_POLICY.REQUIRED, FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK]) {
+        process.env.FILE_SCAN_POLICY = policy;
+        prismaMock.$queryRawUnsafe.mockReset();
+        getFileFromR2Mock.mockReset();
+
+        const result = await download('quarantined');
+
+        expect(result.statusCode).toBe(409);
+        expect(result.code).toBe('ATTACHMENT_QUARANTINED');
+        expect(getFileFromR2Mock).not.toHaveBeenCalled();
+      }
+    });
+
+    it('serves a clean attachment, under either policy', async () => {
+      for (const policy of [FILE_SCAN_POLICY.REQUIRED, FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK]) {
+        process.env.FILE_SCAN_POLICY = policy;
+        prismaMock.$queryRawUnsafe.mockReset();
+        getFileFromR2Mock.mockReset();
+
+        const result = await download('clean');
+
+        expect(result.bytes).toEqual(Buffer.from('bytes'));
+        expect(result.attachment).toEqual(
+          expect.objectContaining({ scan_status: 'clean', download_available: true })
+        );
+      }
+    });
+
+    it('serves a not_scanned attachment only where the deployment declared no scanner', async () => {
+      process.env.FILE_SCAN_POLICY = FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK;
+      const served = await download('not_scanned');
+      expect(served.bytes).toEqual(Buffer.from('bytes'));
+
+      prismaMock.$queryRawUnsafe.mockReset();
+      getFileFromR2Mock.mockReset();
+      process.env.FILE_SCAN_POLICY = FILE_SCAN_POLICY.REQUIRED;
+      const blocked = await download('not_scanned');
+      expect(blocked.statusCode).toBe(423);
+      expect(getFileFromR2Mock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses to store an attachment when scanning is required and the scanner is unreachable', async () => {
+    process.env.FILE_SCAN_POLICY = FILE_SCAN_POLICY.REQUIRED;
+    const threadRow = {
+      id: threadOne,
+      thread_type: 'direct',
+      subject: null,
+      patient_uid: null,
+      admission_id: null,
+      priority: 'normal',
+      status: 'active',
+      tenant_id: tenantId
+    };
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([threadRow])
+      .mockResolvedValueOnce([threadRow]);
+    scanBufferVerdictMock.mockResolvedValueOnce({
+      outcome: 'unavailable',
+      signature: null,
+      detail: 'no clamd daemon answered at 127.0.0.1:3310'
+    });
+
+    const err = await messagingService
+      .sendThreadAttachment({
+        senderUid,
+        recipientUid: recipientOne,
+        threadId: threadOne,
+        tenantId,
+        body: 'handover',
+        file: {
+          originalname: 'handover.pdf',
+          mimetype: 'application/pdf',
+          size: 20,
+          buffer: Buffer.from('%PDF-1.4 attachment')
+        }
+      })
+      .catch(e => e);
+
+    expect(err.statusCode).toBe(503);
+    expect(err.code).toBe('FILE_SCAN_UNAVAILABLE');
+    // Nothing was stored: no R2 object, no ledger row.
+    expect(uploadFileToR2Mock).not.toHaveBeenCalled();
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('stores an attachment as not_scanned where the deployment declared no scanner', async () => {
+    process.env.FILE_SCAN_POLICY = FILE_SCAN_POLICY.DISABLED_ACCEPTED_RISK;
+    const threadRow = {
+      id: threadOne,
+      thread_type: 'direct',
+      subject: null,
+      patient_uid: null,
+      admission_id: null,
+      priority: 'normal',
+      status: 'active',
+      tenant_id: tenantId
+    };
+    const tx = {
+      $queryRawUnsafe: jest
+        .fn()
+        .mockResolvedValueOnce([threadRow])
+        .mockResolvedValueOnce([
+          {
+            id: 21,
+            thread_id: threadOne,
+            sender_uid: senderUid,
+            recipient_uid: recipientOne,
+            patient_uid: null,
+            subject: null,
+            body: 'handover',
+            priority: 'normal',
+            is_read: false,
+            read_at: null,
+            created_at: new Date('2026-06-03T09:00:00Z'),
+            tenant_id: tenantId
+          }
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            thread_id: threadOne,
+            message_id: 21,
+            uploaded_by_uid: senderUid,
+            file_name: 'handover.pdf',
+            content_type: 'application/pdf',
+            file_size: 20,
+            storage_key: `staff-messages/${tenantId}/${threadOne}/handover.pdf`,
+            scan_status: 'not_scanned',
+            metadata: { scanner: 'none' },
+            created_at: new Date('2026-06-03T09:00:00Z'),
+            updated_at: new Date('2026-06-03T09:00:00Z')
+          }
+        ]),
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1)
+    };
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([threadRow])
+      .mockResolvedValueOnce([threadRow])
+      .mockResolvedValueOnce([{ muted_until: null, urgent_only: false }])
+      .mockResolvedValueOnce([{ id: 42 }]);
+    prismaMock.$transaction.mockImplementationOnce(callback => callback(tx));
+    uploadFileToR2Mock.mockResolvedValueOnce('local://staff-messages/thread/handover.pdf');
+    notificationQueueMock.mockResolvedValueOnce({ id: 99 });
+
+    const result = await messagingService.sendThreadAttachment({
+      senderUid,
+      recipientUid: recipientOne,
+      threadId: threadOne,
+      tenantId,
+      body: 'handover',
+      file: {
+        originalname: 'handover.pdf',
+        mimetype: 'application/pdf',
+        size: 20,
+        buffer: Buffer.from('%PDF-1.4 attachment')
+      }
+    });
+
+    // No probe was made, and the persisted status says so honestly.
+    expect(scanBufferVerdictMock).not.toHaveBeenCalled();
+    // query() spreads its params, so args[0] is the SQL and the rest are binds.
+    expect(tx.$queryRawUnsafe.mock.calls[2].slice(1)).toContain('not_scanned');
+    expect(result.attachment).toEqual(
+      expect.objectContaining({ scan_status: 'not_scanned', download_available: true })
     );
   });
 

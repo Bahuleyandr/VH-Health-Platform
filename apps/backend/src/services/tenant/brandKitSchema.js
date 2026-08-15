@@ -1,3 +1,4 @@
+import { isScanStatusServable, resolveFileScanPolicy } from '../../config/fileScanPolicy.js';
 import { AppError } from '../../utils/AppError.js';
 
 export const BRAND_KIT_SCHEMA_VERSION = 1;
@@ -22,7 +23,6 @@ export const BRAND_ASSET_POLICY = Object.freeze({
 
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CLEAN_SCAN_STATUSES = new Set(['clean', 'cleaned', 'passed']);
 
 function isObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
@@ -160,9 +160,17 @@ export function assertBrandAssetMetadata(slot, metadata) {
   if (metadata.is_active !== true) {
     throw AppError.badRequest(`${policy.label} upload is inactive`, 'BRAND_ASSET_UPLOAD_INACTIVE', { slot });
   }
-  const status = String(metadata.scan_status || '').trim().toLowerCase();
-  if (!CLEAN_SCAN_STATUSES.has(status)) {
-    throw AppError.badRequest(`${policy.label} upload must pass security scan before branding use`, 'BRAND_ASSET_SCAN_NOT_CLEAN', { slot, scanStatus: metadata.scan_status || null });
+  // Third consumer of the same rule; it used to carry its own private copy of
+  // the clean-status allowlist. Because the generic upload path never advanced
+  // its 'PENDING' stamp, this check rejected EVERY uploaded brand asset — the
+  // same permanent fail-closed defect as the upload download gate, in a
+  // different subsystem. It now reads the one shared policy.
+  if (!isScanStatusServable(metadata.scan_status)) {
+    throw AppError.badRequest(
+      `${policy.label} upload must pass security scan before branding use`,
+      'BRAND_ASSET_SCAN_NOT_CLEAN',
+      { slot, scanStatus: metadata.scan_status || null, scanPolicy: resolveFileScanPolicy() },
+    );
   }
   const mimeType = String(metadata.file_type || '').trim().toLowerCase();
   if (!policy.allowedMimeTypes.includes(mimeType)) {
